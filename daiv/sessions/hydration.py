@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from automation.agent.events import context_usage_payload
 from automation.agent.usage_tracking import message_model_name, resolve_window_by_name
-from core.checkpointer import aresolve_thread_messages, open_checkpointer
+from core.checkpointer import aread_thread_values, open_checkpointer
+from sessions.archive import aarchived_contexts, aload_archived_values, amerge_into_context
 from sessions.repo_state import mr_to_payload
 from sessions.turns import is_assistant_message
+
+if TYPE_CHECKING:
+    from sessions.archive import ArchivedContext
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -15,10 +19,9 @@ logger = logging.getLogger("daiv.sessions")
 class HydratedThread(NamedTuple):
     """Result of :func:`ahydrate_thread`.
 
-    ``expired`` is True when no checkpoint tuple was found (checkpointer TTL
-    expiry, or a thread that never checkpointed); in that case ``messages`` is
-    ``[]`` and the other payloads are ``None``. Callers branch on ``expired`` to
-    render the "expired" notice.
+    ``messages`` can span several contexts; the payloads and ``context_usage`` come from the current one alone.
+    ``expired`` is True when neither a checkpoint nor an archived context was found; in that case ``messages`` is
+    ``[]`` and the other payloads are ``None``. Callers branch on ``expired`` to render the "expired" notice.
     """
 
     messages: list[Any]
@@ -46,17 +49,31 @@ def derive_context_usage(messages: list[Any]) -> dict | None:
 
 async def ahydrate_thread(thread_id: str) -> HydratedThread:
     """Return the hydrated messages, expiry flag, MR payload, diff stats and context-usage
-    seed for a thread."""
-    config = {"configurable": {"thread_id": thread_id}}
+    seed for a thread.
+
+    The live checkpoint is the current context, merged into the latest archived one while that context is open, so
+    a checkpoint that lost its oldest writes still shows them; once it expires, the latest archived context stands in.
+    Archived contexts before it come first, so the transcript keeps them. A context that fails to load is logged and
+    left out.
+    """
+    from automation.agent.publishers import checkpointed_merge_request
+
     async with open_checkpointer() as cp:
-        tup = await cp.aget_tuple(config)
-        if tup is None:
+        current = await aread_thread_values(cp, thread_id)
+    contexts = await aarchived_contexts(thread_id)
+    if current is not None and contexts and not contexts[-1].closed:
+        latest = contexts.pop()
+        try:
+            current["messages"] = await amerge_into_context(latest, current.get("messages") or [])
+        except Exception:
+            logger.exception("Failed to load archived context %d of thread %s; leaving it out", latest.epoch, thread_id)
+    earlier = [values for context in contexts if (values := await _aload_context(thread_id, context)) is not None]
+    if current is None:
+        if not earlier:
             return HydratedThread([], True, None, None, None)
-        channel_values = (tup.checkpoint or {}).get("channel_values", {})
-        # ``messages`` lives in a deepagents ``DeltaChannel`` and is usually absent from
-        # ``channel_values``; resolve it via the delta-history contract (see the helper).
-        messages = await aresolve_thread_messages(cp, config, channel_values)
-    diff_stats = channel_values.get("diff_stats")
+        current = earlier.pop()
+    messages = current.get("messages") or []
+    diff_stats = current.get("diff_stats")
     try:
         context_usage = derive_context_usage(messages)
     except Exception:
@@ -65,9 +82,17 @@ async def ahydrate_thread(thread_id: str) -> HydratedThread:
         logger.exception("Context-usage seed derivation failed for thread %s", thread_id)
         context_usage = None
     return HydratedThread(
-        messages,
+        [message for values in earlier for message in values.get("messages") or []] + messages,
         False,
-        mr_to_payload(channel_values.get("merge_request")),
+        mr_to_payload(checkpointed_merge_request(current, strict=False)),
         diff_stats if isinstance(diff_stats, dict) else None,
         context_usage,
     )
+
+
+async def _aload_context(thread_id: str, context: ArchivedContext) -> dict[str, Any] | None:
+    try:
+        return await aload_archived_values(context.pk)
+    except Exception:
+        logger.exception("Failed to load archived context %d of thread %s; leaving it out", context.epoch, thread_id)
+        return None

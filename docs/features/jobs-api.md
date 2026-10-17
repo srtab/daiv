@@ -196,7 +196,7 @@ For `POST /api/jobs`:
 
 | Code | When |
 |------|------|
-| `400` | Invalid request — bad `agent_model` / `agent_thinking_level` override, unresolvable `environment`, or invalid `thread_id` continuation (unknown/unowned thread, or more than one repo). |
+| `400` | Invalid request — bad `agent_model` / `agent_thinking_level` override, no `agent_model` given and no system default model configured (a model set only in `.daiv.yml` does not count), unresolvable `environment`, or invalid `thread_id` continuation (unknown/unowned thread, or more than one repo). |
 | `422` | Malformed body or unknown fields (e.g. the removed `use_max` or `notify_on`). |
 | `429` | Rate limit exceeded (see [Rate limiting](#rate-limiting)). |
 | `401` | Missing or invalid API key |

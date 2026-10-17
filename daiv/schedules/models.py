@@ -168,9 +168,6 @@ class ScheduledJob(TimeStampedModel):
     run_at = models.DateTimeField(
         _("run at"), null=True, blank=True, help_text=_("Specific date and time for one-off schedules.")
     )
-    use_max = models.BooleanField(
-        _("max mode"), default=False, help_text=_("Use the more capable model with thinking set to high.")
-    )
     agent_model = models.CharField(_("agent model"), max_length=255, blank=True, default="")
     agent_thinking_level = models.CharField(
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
@@ -419,7 +416,6 @@ class ScheduleTemplate(TimeStampedModel):
     frequency = models.CharField(_("frequency"), max_length=10, choices=Frequency.choices, default=Frequency.DAILY)
     cron_expression = models.CharField(_("cron expression"), max_length=100, blank=True, default="")
     time = models.TimeField(_("time"), null=True, blank=True)
-    use_max = models.BooleanField(_("max mode"), default=False)
     agent_model = models.CharField(_("agent model"), max_length=255, blank=True, default="")
     agent_thinking_level = models.CharField(
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices

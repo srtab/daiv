@@ -547,11 +547,11 @@ class TestProcessCallbackUseMax:
     """The max mode a callback stamps on the Run is the one it hands the task, so the task does not decide again."""
 
     @staticmethod
-    async def _process(callback) -> tuple[dict, dict]:
+    async def _process(callback, task: str = "address_issue_task") -> tuple[dict, dict]:
         from unittest.mock import AsyncMock, patch
 
         with (
-            patch("webhooks.github.callbacks.address_issue_task") as mock_task,
+            patch(f"webhooks.github.callbacks.{task}") as mock_task,
             patch("webhooks.github.callbacks.acreate_run") as mock_run,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
             patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
@@ -584,6 +584,30 @@ class TestProcessCallbackUseMax:
         )
 
         task_kwargs, run_kwargs = await self._process(callback)
+
+        assert task_kwargs["use_max"] is use_max
+        assert run_kwargs["use_max"] is use_max
+
+    async def test_pr_comment_callback_hands_the_task_the_max_mode_it_stamped(
+        self, monkeypatch_dependencies, mock_repo_config, label, use_max
+    ):
+        mock_repo_config.pull_request_assistant.enabled = True
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(
+                id=100,
+                number=99,
+                title="PR",
+                state="open",
+                labels=[Label(id=1, name=label)],
+                pull_request={"url": "https://example/pr/99"},
+            ),
+            comment=Comment(id=300, body="@daiv review", user=User(**{"id": 10, "login": "alice"})),
+        )
+        callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
+
+        task_kwargs, run_kwargs = await self._process(callback, task="address_mr_comments_task")
 
         assert task_kwargs["use_max"] is use_max
         assert run_kwargs["use_max"] is use_max

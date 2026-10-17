@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -350,6 +351,22 @@ def _clear_docker_secret_cache():
     _docker_secret_cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _clear_site_settings_overrides():
+    # ``site_settings`` resolves every field through ``__getattr__`` and holds no
+    # instance state, so ``site_settings.__dict__`` should be empty. But
+    # ``monkeypatch.setattr(site_settings, <field>, ...)`` reads the *computed*
+    # value as the "old" one and restores it as a real instance attribute on
+    # undo — which then shadows ``__getattr__`` for every later test (e.g. an
+    # env-locked thinking level silently resolves to the stale override).
+    # Drop any such leaked attributes so each test starts from a clean singleton.
+    from core.site_settings import site_settings
+
+    site_settings.__dict__.clear()
+    yield
+    site_settings.__dict__.clear()
+
+
 @pytest.fixture
 def make_auth_header() -> Callable[[str, str, str], WebFetchAuthHeader]:
     """Factory for creating ``WebFetchAuthHeader`` rows in tests.
@@ -455,6 +472,18 @@ def mock_generate_title_task():
         with patch("sessions.services.generate_batch_title_task") as m1:
             m1.aenqueue = AsyncMock(return_value=None)
             yield m1
+
+
+@pytest.fixture(autouse=True)
+def session_archive():
+    """Stub the executor's archive and restore steps so the suite's runs neither write nor read ``SessionArchive``
+    rows. Request it by name to assert on them; ``tests/unit_tests/sessions/test_archive.py`` tests
+    ``sessions.archive`` itself."""
+    with (
+        patch("sessions.executor.run.aarchive_thread", new=AsyncMock(return_value=False)) as archive,
+        patch("sessions.executor.run.arestore_thread", new=AsyncMock(return_value=False)) as restore,
+    ):
+        yield SimpleNamespace(archive=archive, restore=restore)
 
 
 @pytest.fixture(autouse=True)

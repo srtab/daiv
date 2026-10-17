@@ -65,7 +65,7 @@ def monkeypatch_dependencies(monkeypatch, stub_client, repo_config):
     monkeypatch.setattr("webhooks.gitlab.callbacks.RepositoryConfig.get_config", lambda *args, **kwargs: repo_config)
 
 
-def create_note_callback(note_body: str, username: str = "reviewer") -> NoteCallback:
+def create_note_callback(note_body: str, username: str = "reviewer", labels: list[str] | None = None) -> NoteCallback:
     """Helper to create a minimal NoteCallback instance."""
     return NoteCallback(
         object_kind="note",
@@ -79,7 +79,7 @@ def create_note_callback(note_body: str, username: str = "reviewer") -> NoteCall
             work_in_progress=False,
             source_branch="feat",
             target_branch="main",
-            labels=[],
+            labels=[Label(title=t) for t in labels or []],
         ),
         object_attributes=Note(
             id=100,
@@ -725,11 +725,11 @@ class TestProcessCallbackUseMax:
     """The max mode a callback stamps on the Run is the one it hands the task, so the task does not decide again."""
 
     @staticmethod
-    async def _process(callback) -> tuple[dict, dict]:
+    async def _process(callback, task: str = "address_issue_task") -> tuple[dict, dict]:
         from unittest.mock import AsyncMock, patch
 
         with (
-            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
+            patch(f"webhooks.gitlab.callbacks.{task}") as mock_task,
             patch("webhooks.gitlab.callbacks.acreate_run") as mock_run,
             patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
@@ -780,6 +780,16 @@ class TestProcessCallbackUseMax:
         )
 
         task_kwargs, run_kwargs = await self._process(callback)
+
+        assert task_kwargs["use_max"] is use_max
+        assert run_kwargs["use_max"] is use_max
+
+    async def test_mr_comment_callback_hands_the_task_the_max_mode_it_stamped(
+        self, monkeypatch_dependencies, label, use_max
+    ):
+        callback = create_note_callback("@daiv please review", labels=[label])
+
+        task_kwargs, run_kwargs = await self._process(callback, task="address_mr_comments_task")
 
         assert task_kwargs["use_max"] is use_max
         assert run_kwargs["use_max"] is use_max

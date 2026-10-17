@@ -12,7 +12,14 @@ from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.base import parse_model_spec
-from core.models import Provider, ProviderType, SiteConfiguration, ThinkingLevelChoices, WebFetchAuthHeader
+from core.models import (
+    THINKING_OFF,
+    Provider,
+    ProviderType,
+    SiteConfiguration,
+    ThinkingLevelChoices,
+    WebFetchAuthHeader,
+)
 
 if TYPE_CHECKING:
     from core.models import FieldGroup
@@ -77,6 +84,7 @@ class _PickerContext(TypedDict):
     default_thinking: str
     placeholder_label: str
     with_effort: bool
+    allow_off: bool
     disabled: bool
     locked_title: str
     seed_default: bool
@@ -156,6 +164,7 @@ class _AgentPickerWidget(forms.Widget):
             "default_thinking": self.default_thinking,
             "placeholder_label": placeholder,
             "with_effort": with_effort,
+            "allow_off": self.paired_thinking_field in SiteConfiguration.THINKING_OFF_FIELDS,
             "disabled": is_disabled,
             # ``_apply_env_locks`` is the only path that sets ``title`` in the
             # settings flow, so we surface its value as the locked-pill tooltip
@@ -274,6 +283,7 @@ class SiteConfigurationForm(forms.ModelForm):
         # Order matters: _apply_env_locks sets checkbox initial values for
         # env-locked fields; _apply_defaults must run after and skip them.
         self._apply_env_locks()
+        self._show_stored_thinking_off()
         self._apply_defaults(field_defaults or {})
         self._seed_paired_thinking_initials()
         self._mark_paired_thinking_fields()
@@ -319,6 +329,10 @@ class SiteConfigurationForm(forms.ModelForm):
                 self.fields[name] = new_field
                 continue
 
+            if name in SiteConfiguration.THINKING_OFF_FIELDS:
+                field_obj.choices = [("", ""), (THINKING_OFF, _("Off")), *ThinkingLevelChoices.choices]  # type: ignore[attr-defined]
+                field_obj.coerce = lambda value: "" if value == THINKING_OFF else value  # type: ignore[attr-defined]
+
             widget = field_obj.widget
             if isinstance(widget, (forms.TextInput, forms.NumberInput)) and name in SiteConfiguration.MODEL_NAME_FIELDS:
                 paired = _PAIRED_THINKING_FIELDS.get(name)
@@ -355,6 +369,12 @@ class SiteConfigurationForm(forms.ModelForm):
             if name in self.SECRET_FIELDS and effective is not None and not getattr(field_obj, "secret_hint", None):
                 raw = effective.get_secret_value() if hasattr(effective, "get_secret_value") else str(effective)
                 field_obj.secret_hint = mask_secret(raw)  # type: ignore[attr-defined]
+
+    def _show_stored_thinking_off(self) -> None:
+        """Show a stored or env-locked ``""`` thinking level as Off; ``None`` stays the unset default."""
+        for name in SiteConfiguration.THINKING_OFF_FIELDS:
+            if self.initial.get(name) == "":
+                self.initial[name] = THINKING_OFF
 
     def _apply_defaults(self, field_defaults: dict[str, str]) -> None:
         """Set effective defaults as placeholders, empty-choice labels, or checkbox initial values."""

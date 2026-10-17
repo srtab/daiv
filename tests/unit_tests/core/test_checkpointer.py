@@ -12,6 +12,8 @@ downgrade or regression.
 from __future__ import annotations
 
 import dataclasses
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import orjson
 import pytest
@@ -22,7 +24,7 @@ from pydantic import BaseModel
 from codebase.base import MergeRequest, User
 from core import checkpoint_types
 from core.checkpoint_types import register_checkpoint_type
-from core.checkpointer import DAIVRedisSerializer
+from core.checkpointer import DAIVRedisSerializer, aread_thread_values
 
 
 @dataclasses.dataclass(frozen=True)
@@ -542,3 +544,22 @@ def test_delta_snapshot_nested_alongside_model_and_set_round_trips(merge_request
     assert [m.id for m in restored["messages"].value] == ["h1"]
     assert restored["merge_request"] == merge_request
     assert restored["loaded_tool_names"] == {"Read", "Edit"}
+
+
+async def test_a_thread_without_a_checkpoint_reads_as_none():
+    cp = SimpleNamespace(aget_tuple=AsyncMock(return_value=None))
+
+    assert await aread_thread_values(cp, "t-1") is None
+
+
+async def test_a_thread_reads_as_its_values_with_messages_resolved():
+    writes = [("t0", "messages", [HumanMessage(content="hi", id="h1")])]
+    cp = SimpleNamespace(
+        aget_tuple=AsyncMock(return_value=SimpleNamespace(checkpoint={"channel_values": {"diff_stats": {"added": 1}}})),
+        aget_delta_channel_history=AsyncMock(return_value={"messages": {"writes": writes}}),
+    )
+
+    assert await aread_thread_values(cp, "t-1") == {
+        "diff_stats": {"added": 1},
+        "messages": [HumanMessage(content="hi", id="h1")],
+    }

@@ -57,7 +57,7 @@ Variables marked with:
 | :material-asterisk: `DJANGO_REDIS_URL`  :material-lock: | Redis connection URL for cache (DB 0) | *(none)* | `redis://redis:6379/0` |
 | `DJANGO_REDIS_SESSION_URL`  :material-lock: | Redis connection URL for sessions (DB 1) | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/1` |
 | `DJANGO_REDIS_CHECKPOINT_URL`  :material-lock: | Redis connection URL for LangGraph checkpoints (DB 2) | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/2` |
-| `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES` | TTL in minutes for LangGraph checkpoint data | `10080` (7 days) | `1440` |
+| `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES` | TTL in minutes for LangGraph checkpoint data, the agent's working copy; an expired session resumes from its database archive. Each write expires on its own, so the agent no longer sees the oldest messages of a thread active for longer than this; the archive keeps them | `10080` (7 days) | `1440` |
 
 
 ### Sentry
@@ -363,10 +363,10 @@ The main agent used for issue addressing, pull request assistance, and all inter
 | `DAIV_AGENT_RECURSION_LIMIT` | Maximum recursion depth for agent execution | `500` |
 | `DAIV_AGENT_MODEL_NAME` | Primary model for agent tasks | `claude-sonnet-5.5` |
 | `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `gpt-6.1-sol` |
-| `DAIV_AGENT_THINKING_LEVEL` | Extended thinking level (`minimal`, `low`, `medium`, `high`, `xhigh`, or empty to disable) | `medium` |
-| `DAIV_AGENT_FALLBACK_THINKING_LEVEL` | Thinking level applied when the primary model fails over to the fallback model (independent of `DAIV_AGENT_THINKING_LEVEL`) | `medium` |
+| `DAIV_AGENT_THINKING_LEVEL` | Extended thinking level (`minimal`, `low`, `medium`, `high`, `xhigh`, in any case; empty or `off` to disable) | `medium` |
+| `DAIV_AGENT_FALLBACK_THINKING_LEVEL` | Thinking level applied when the primary model fails over to the fallback model (same values as `DAIV_AGENT_THINKING_LEVEL`, set independently of it) | `medium` |
 | `DAIV_AGENT_MAX_MODEL_NAME` | Model used when the `daiv-max` label is present | `claude-opus-5.5` |
-| `DAIV_AGENT_MAX_THINKING_LEVEL` | Thinking level for `daiv-max` tasks | `high` |
+| `DAIV_AGENT_MAX_THINKING_LEVEL` | Thinking level for `daiv-max` tasks (same values as `DAIV_AGENT_THINKING_LEVEL`) | `high` |
 | `DAIV_AGENT_EXPLORE_MODEL_NAME` | Model for the explore subagent (fast, read-only) | `claude-haiku-5.5` |
 | `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` | Fallback model if the explore model fails | `gpt-6-luna` |
 | `DAIV_AGENT_CUSTOM_SKILLS_PATH` | Path to custom global skills directory. Set to `None` to disable. | `~/data/skills` |

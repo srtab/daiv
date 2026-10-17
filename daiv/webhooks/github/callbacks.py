@@ -225,12 +225,14 @@ class IssueCommentCallback(GitHubCallback):
             )
             sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
             sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
+            use_max = self.issue.has_max_label()
             result = await address_mr_comments_task.aenqueue(
                 repo_id=self.repository.full_name,
                 merge_request_id=self.issue.number,
                 mention_comment_id=str(self.comment.id),
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                use_max=use_max,
             )
             # GitHub's issue_comment payload omits head.ref, so fetch the PR. If that
             # fails the activity is still useful without a branch — don't drop it.
@@ -250,7 +252,7 @@ class IssueCommentCallback(GitHubCallback):
                     ref=source_branch,
                     merge_request_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
-                    use_max=self.issue.has_max_label(),
+                    use_max=use_max,
                     user=daiv_user,
                     external_username=self.comment.user.username,
                     title=self.issue.title,

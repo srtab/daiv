@@ -15,7 +15,7 @@ from webhooks.managers.review_addressor import CommentsAddressorManager
 from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
-from codebase.base import GitPlatform, MergeRequest, User
+from codebase.base import GitPlatform, MergeRequest, Scope, User
 from codebase.exceptions import CloneRefNotFoundError
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
@@ -47,6 +47,8 @@ def _ctx() -> SimpleNamespace:
         gitrepo=SimpleNamespace(working_dir="/clone"),
         sandbox=None,
         sandbox_client=None,
+        bot_username="daiv",
+        scope=Scope.MERGE_REQUEST,
     )
 
 
@@ -287,8 +289,7 @@ async def test_a_webhook_run_records_the_model_it_ran_on_its_run_row(mention):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_daiv_max_comment_runs_on_the_default_model_and_overwrites_the_max_stamp(mention):
-    """Pins current behaviour, not a requirement: the review addressor does not run max mode."""
+async def test_a_daiv_max_comment_runs_on_the_max_model_it_stamped(mention):
     site = {
         "agent_model_name": "site-default",
         "agent_thinking_level": "low",
@@ -310,9 +311,9 @@ async def test_a_daiv_max_comment_runs_on_the_default_model_and_overwrites_the_m
         )
         stamped = (run.agent_model, run.agent_thinking_level)
         with addressor_run(agent, ctx=_ctx(), resolve=resolve_agent_settings, site=site_snapshot(**site)) as stack:
-            await _address(thread_id=thread_id, run_id=str(run.pk))
+            await _address(thread_id=thread_id, run_id=str(run.pk), use_max=True)
 
     await run.arefresh_from_db()
     assert stamped == ("site-max", "high")
-    assert stack.create_agent.await_args.kwargs["settings"].agent.names[0] == "site-default"
-    assert (run.agent_model, run.agent_thinking_level) == ("site-default", "low")
+    assert stack.create_agent.await_args.kwargs["settings"].agent.names[0] == "site-max"
+    assert (run.agent_model, run.agent_thinking_level) == ("site-max", "high")

@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 from langchain_core.messages import AIMessage
 from webhooks.managers.issue_addressor import IssueAddressorManager
 
-from codebase.base import Issue, MergeRequest, User
+from codebase.base import Issue, MergeRequest, Scope, User
 from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run
 
 _AUTHOR = User(id=1, username="alice")
@@ -44,6 +44,8 @@ async def _run(*, published_mr: MergeRequest | None, cloned_ref: str, persist_ra
         gitrepo=SimpleNamespace(working_dir="/clone"),
         sandbox=None,
         sandbox_client=None,
+        bot_username="daiv",
+        scope=Scope.ISSUE,
     )
     with addressor_run(agent, ctx=ctx) as run:
         if persist_raises:

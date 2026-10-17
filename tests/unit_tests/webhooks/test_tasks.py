@@ -19,7 +19,7 @@ def run_lookup():
         yield lookup
 
 
-def _mr(*, merged: bool) -> MergeRequest:
+def _mr(*, merged: bool, labels: list[str] | None = None) -> MergeRequest:
     return MergeRequest(
         repo_id="group/repo",
         merge_request_id=7,
@@ -30,6 +30,7 @@ def _mr(*, merged: bool) -> MergeRequest:
         web_url="https://git/group/repo/-/merge_requests/7",
         author=User(id=1, username="u", name="U"),
         merged=merged,
+        labels=labels or [],
     )
 
 
@@ -99,6 +100,7 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         "thread_id": "t-7",
         "sandbox_env_id": "e",
         "run_id": "run-1",
+        "use_max": None,
     }
     run_lookup.assert_awaited_once_with("tr-1")
 
@@ -182,6 +184,40 @@ class TestIssueMaxModelIsDecidedByTheCallback:
 
     @pytest.mark.parametrize(("labels", "use_max"), [(["daiv-max"], True), (["daiv"], False)])
     async def test_without_a_use_max_the_max_model_follows_the_label_on_the_re_fetched_issue(self, labels, use_max):
+        spec = await self._spec_for(labels)
+
+        assert spec.use_max is use_max
+
+    @pytest.mark.parametrize(("labels", "use_max"), [(["daiv"], True), (["daiv-max"], False)])
+    async def test_a_use_max_from_the_callback_wins_over_a_label_changed_since(self, labels, use_max):
+        spec = await self._spec_for(labels, use_max=use_max)
+
+        assert spec.use_max is use_max
+
+
+class TestMergeRequestMaxModelIsDecidedByTheCallback:
+    """As for issues: only an MR-comment task queued without ``use_max`` reads the label off the re-fetched MR."""
+
+    @staticmethod
+    async def _spec_for(labels: list[str], **task_kwargs):
+        client = MagicMock()
+        client.get_merge_request.return_value = _mr(merged=False, labels=labels)
+        client.get_merge_request_comment.return_value = SimpleNamespace(
+            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="@daiv fix")]
+        )
+        execute = AsyncMock(return_value=SimpleNamespace(agent_result={"response": ""}))
+        with (
+            patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
+            patch("webhooks.managers.review_addressor.execute_run", execute),
+            patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
+        ):
+            await address_mr_comments_task.func(
+                _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", **task_kwargs
+            )
+        return execute.await_args.args[0]
+
+    @pytest.mark.parametrize(("labels", "use_max"), [(["DAIV-MAX"], True), (["daiv"], False)])
+    async def test_without_a_use_max_the_max_model_follows_the_label_on_the_re_fetched_mr(self, labels, use_max):
         spec = await self._spec_for(labels)
 
         assert spec.use_max is use_max

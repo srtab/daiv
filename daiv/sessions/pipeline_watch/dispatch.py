@@ -23,6 +23,22 @@ FIX_RUN_PROMPT = (
 )
 
 
+def _session_agent(session: Session) -> tuple[str, str]:
+    """The thread's pinned model and thinking level; empty when it pins none or its model cannot be used."""
+    from automation.agent import validators
+
+    try:
+        return validators.validate_agent_override(session.agent_model, session.agent_thinking_level)
+    except validators.AgentOverrideError as err:
+        logger.warning(
+            "pipeline_watch: thread_id=%s pins model %r, which cannot be used (%s); the fix run uses the default",
+            session.thread_id,
+            session.agent_model,
+            err,
+        )
+        return "", ""
+
+
 class FixRunDispatcher:
     def __init__(self, store: WatchStore | None = None) -> None:
         self._store = store or WatchStore()
@@ -46,6 +62,7 @@ class FixRunDispatcher:
 
         user = await sync_to_async(lambda: session.user)()
         sandbox_environment_id = str(session.sandbox_environment_id) if session.sandbox_environment_id else None
+        agent_model, agent_thinking_level = _session_agent(session)
 
         run = await acreate_run(
             trigger_type=SessionOrigin.PIPELINE_WEBHOOK,
@@ -57,6 +74,8 @@ class FixRunDispatcher:
             thread_id=session.thread_id,
             user=user,
             sandbox_environment_id=sandbox_environment_id,
+            agent_model=agent_model,
+            agent_thinking_level=agent_thinking_level,
             status=RunStatus.READY,
         )
         try:
@@ -66,6 +85,8 @@ class FixRunDispatcher:
                 thread_id=session.thread_id,
                 ref=session.ref,
                 sandbox_environment_id=sandbox_environment_id,
+                agent_model=agent_model,
+                agent_thinking_level=agent_thinking_level,
                 run_id=str(run.pk),
                 user_id=session.user_id,
                 ask_user_enabled=False,

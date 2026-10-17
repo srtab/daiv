@@ -671,3 +671,35 @@ class RunArtifact(models.Model):
     @property
     def kind(self) -> ArtifactKind:
         return artifact_kind(self.content_type)
+
+
+class SessionArchive(models.Model):
+    """One context of a session's agent state, as of the last run archived into it.
+
+    Written by :func:`sessions.archive.aarchive_thread`, which also derives ``first_message_id`` and
+    ``message_count`` from ``state``. A ``/clear`` sets ``closed_at``: the next state opens the next ``epoch``.
+    """
+
+    session = models.ForeignKey(
+        Session, on_delete=models.CASCADE, related_name="archives", verbose_name=_("session"), db_index=False
+    )
+    epoch = models.PositiveIntegerField(_("epoch"), default=0)
+    state = models.BinaryField(_("state"))
+    state_type = models.CharField(_("state type"), max_length=16)
+    first_message_id = models.CharField(_("first message ID"), max_length=255)
+    message_count = models.PositiveIntegerField(_("message count"))
+    closed_at = models.DateTimeField(_("closed at"), null=True, blank=True)
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+
+    class Meta:
+        verbose_name = _("Session Archive")
+        verbose_name_plural = _("Session Archives")
+        ordering = ["session_id", "epoch"]
+        constraints = [
+            models.UniqueConstraint(fields=["session", "epoch"], name="session_archive_epoch_unique"),
+            models.CheckConstraint(condition=models.Q(message_count__gte=1), name="session_archive_has_messages"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Context {self.epoch} of session {self.session_id}"

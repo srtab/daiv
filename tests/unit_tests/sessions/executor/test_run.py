@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
+from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
 from sessions.executor.run import RunStoppedError, execute_run, stream_run
@@ -1415,3 +1416,115 @@ class TestStreamRun:
             await _drain(make_spec(thread_id=thread_id, lock=Held(holder_id="chat-run")), _stream("a", "b"))
 
         assert client.calls_to("close_session") == closes
+
+
+class TestSessionArchive:
+    async def test_a_session_run_archives_its_thread_when_it_ends(self, session_archive):
+        spec = make_spec()
+
+        with agent_stack(_agent()) as stack:
+            await execute_run(spec)
+
+        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id, reset=False)
+
+    async def test_a_failed_run_still_archives_its_thread(self, session_archive):
+        agent = _agent()
+        agent.ainvoke.side_effect = RuntimeError("agent blew up")
+        spec = make_spec()
+
+        with agent_stack(agent) as stack, pytest.raises(RuntimeError, match="agent blew up"):
+            await execute_run(spec)
+
+        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id, reset=False)
+
+    async def test_a_stream_its_reader_left_still_archives_its_thread(self, session_archive):
+        spec = make_spec()
+
+        with agent_stack(_agent()) as stack:
+            events = stream_run(spec, _stream("a", "b"), should_stop=AsyncMock())
+            assert await anext(events) == "a"
+            await events.aclose()
+
+        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id, reset=False)
+
+    async def test_a_one_shot_run_neither_restores_nor_archives(self, session_archive):
+        with agent_stack(_agent()):
+            await execute_run(make_spec(thread_id=None))
+
+        session_archive.restore.assert_not_awaited()
+        session_archive.archive.assert_not_awaited()
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_run_that_lost_its_slot_leaves_archiving_to_the_new_holder(self, session_archive):
+        thread_id = await amake_job_session(active_run_id="chat-run")
+
+        with (
+            agent_stack(_agent()),
+            patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
+            patch("sessions.executor.lock.SessionLock.heartbeat", AsyncMock(return_value=False)),
+            pytest.raises(SessionLockLostError),
+        ):
+            spec = make_spec(thread_id=thread_id, lock=Held(holder_id="chat-run"))
+            async for _event in stream_run(spec, _stream("a", "b"), should_stop=AsyncMock(return_value=True)):
+                pass
+
+        session_archive.archive.assert_not_awaited()
+
+    async def test_a_session_run_restores_its_archive_before_the_agent_runs(self, session_archive):
+        order: list[str] = []
+        agent = _agent()
+        reply = {"messages": [MagicMock(content="done")]}
+        agent.ainvoke.side_effect = lambda *args, **kwargs: order.append("invoke") or reply
+        session_archive.restore.side_effect = lambda *args: order.append("restore") or True
+
+        with agent_stack(agent) as stack:
+            await execute_run(make_spec())
+
+        session_archive.restore.assert_awaited_once_with(agent, stack.checkpointer, stack.langsmith.return_value)
+        assert order == ["restore", "invoke"]
+
+    async def test_a_clear_archives_as_a_reset_and_restores_nothing(self, session_archive):
+        ctx = disk_ctx(repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5), scope=Scope.ISSUE)
+        spec = make_spec(scope=Scope.ISSUE, input_messages=(HumanMessage(content="@daiv /clear"),))
+
+        with agent_stack(_agent(), ctx=ctx) as stack:
+            await execute_run(spec)
+
+        session_archive.restore.assert_not_awaited()
+        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id, reset=True)
+
+    async def test_a_restore_that_fails_fails_the_run_before_the_agent_runs(self, session_archive):
+        agent = _agent()
+        session_archive.restore.side_effect = ArchiveRestoreError("unreadable")
+        on_failure = AsyncMock()
+
+        with agent_stack(agent), pytest.raises(ArchiveRestoreError):
+            await execute_run(make_spec(), RunHooks(on_failure=on_failure))
+
+        agent.ainvoke.assert_not_awaited()
+        assert isinstance(on_failure.await_args.args[0], ArchiveRestoreError)
+
+    async def test_a_failed_archive_is_logged_and_the_run_still_succeeds(self, session_archive, caplog):
+        session_archive.archive.side_effect = RedisError("down")
+        spec = make_spec()
+
+        with agent_stack(_agent()), caplog.at_level("ERROR", logger="daiv.sessions"):
+            outcome = await execute_run(spec)
+
+        assert outcome is not None
+        assert f"executor: failed to archive thread_id={spec.thread_id}" in caplog.text
+
+    async def test_an_archive_slower_than_its_timeout_is_abandoned(self, session_archive, caplog):
+        async def _slow(*args, **kwargs):
+            await asyncio.sleep(5)
+
+        session_archive.archive.side_effect = _slow
+
+        with (
+            agent_stack(_agent()),
+            patch("sessions.executor.run.ARCHIVE_TIMEOUT_S", 0.01),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
+        ):
+            await execute_run(make_spec())
+
+        assert "executor: failed to archive" in caplog.text
