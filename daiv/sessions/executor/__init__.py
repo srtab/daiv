@@ -25,20 +25,25 @@ step sits where it does:
    a builtin slash command that does not read the repository acquires none, as it never reaches the agent loop
    (``automation.agent.middlewares.slash_commands.skips_sandbox``). The agent is then built over the run's workspace
    (that sandbox session, or else the worker's clone) with a ``sessions.artifacts.RunArtifactStore``, so
-   ``publish_artifact`` files land on the bound run, and invoked, or handed to ``stream_run``'s stream
-   factory, whose events are yielded as they come. Between its events, at most every
-   ``run.STREAM_HEARTBEAT_INTERVAL_S``, a stream heartbeats its slot and asks ``should_stop``: a slot a stale takeover
-   reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one closes the
-   stream (the trigger's generator), abandoning the graph run inside it. If the agent or its stream raises (a lost slot
-   or a stop request included) and the spec asks for it (``recover_draft``), a draft merge request is published from its
-   checkpoint through that workspace, with the settings the run resolved, while the clone and sandbox are still open,
-   and the checkpoint is read again for the failure hook. Setup errors skip this.
+   ``publish_artifact`` files land on the bound run. A session thread whose checkpoint expired is first seeded from its
+   archive (``sessions.archive.arestore_thread``), unless the run resets it (``/clear``: ``resets_thread``, beside
+   ``skips_sandbox``); a context that fails to restore fails the run there, as a setup error. The agent is then
+   invoked, or handed to ``stream_run``'s stream factory, whose events are yielded as they come. Between its events, at
+   most every ``run.STREAM_HEARTBEAT_INTERVAL_S``, a stream heartbeats its slot and asks ``should_stop``: a slot a stale
+   takeover reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one
+   closes the stream (the trigger's generator), abandoning the graph run inside it. If the agent or its stream raises (a
+   lost slot or a stop request included) and the spec asks for it (``recover_draft``), a draft merge request is
+   published from its checkpoint through that workspace, with the settings the run resolved, while the clone and
+   sandbox are still open, and the checkpoint is read again for the failure hook. Setup errors skip this.
 5. On success, still inside the context: the checkpoint is read once, the session's working branch is synced
    against the ref the clone landed on (``persist_ref``), the CI watch is armed (``arm_watch``) and the
    ``AgentResult`` is built. A failed checkpoint read yields ``None`` and logs an error, a failed ref sync or watch
    arm is logged; none of them fails a run the agent already finished.
-6. The sandbox session, if the run has one, is released — stopped for a session run, whose next turn can reuse it,
-   and removed for a one-shot run or a new container the checkpoint never came to name — even when the agent or its
+6. A session run that reached the agent has its thread archived (``sessions.archive.aarchive_thread``) however it
+   ended, unless it lost its slot: the holder that took over archives its own end. A run that resets its thread closes
+   the context it cleared. A failed archive, or one slower than ``run.ARCHIVE_TIMEOUT_S``, is logged. The sandbox
+   session, if the run has one, is then released — stopped for a session run, whose next turn can reuse it, and
+   removed for a one-shot run or a new container the checkpoint never came to name — even when the agent or its
    stream raised, was stopped or lost its reader. A stream that lost its slot leaves the container running while the
    checkpoint still names it, since the holder that took over reuses it.
    A run with a ``Run`` row (``spec.run_id``, or the one ``on_context_ready`` created) then records on it how long its

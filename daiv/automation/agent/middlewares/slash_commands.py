@@ -149,13 +149,27 @@ def skips_sandbox(messages: Sequence[BaseMessage], context: RuntimeCtx, settings
     """Whether the latest of ``messages`` invokes a builtin slash command that needs no sandbox:
     ``SlashCommandMiddleware``, which ``settings`` enables, answers it without the agent loop, and it does not read the
     repository (``SlashCommand.reads_repository``). The run executor then acquires none."""
+    command_class = _invoked_builtin_command(messages, context, settings)
+    return command_class is not None and not command_class.reads_repository
+
+
+def resets_thread(messages: Sequence[BaseMessage], context: RuntimeCtx, settings: AgentSettings) -> bool:
+    """Whether the latest of ``messages`` invokes a builtin slash command that resets the thread
+    (``SlashCommand.resets_thread``, e.g. ``/clear``), which ``SlashCommandMiddleware``, enabled by ``settings``,
+    answers."""
+    command_class = _invoked_builtin_command(messages, context, settings)
+    return command_class is not None and command_class.resets_thread
+
+
+def _invoked_builtin_command(
+    messages: Sequence[BaseMessage], context: RuntimeCtx, settings: AgentSettings
+) -> type[SlashCommand] | None:
     if not settings.features.slash_commands or not messages:
-        return False
+        return None
     slash_command = SlashCommandMiddleware._extract_slash_command(messages, context.bot_username)
     if slash_command is None:
-        return False
-    command_class = _builtin_command_class(slash_command, context)
-    return command_class is not None and not command_class.reads_repository
+        return None
+    return _builtin_command_class(slash_command, context)
 
 
 def _builtin_command_class(slash_command: SlashCommandCommand, context: RuntimeCtx) -> type[SlashCommand] | None:

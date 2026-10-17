@@ -243,6 +243,32 @@ LangSmith remains the recommended tool for detailed **trace-level** observabilit
 
 ---
 
+## Session archive
+
+DAIV keeps a copy of each session's conversation in its database, written when each run ends, so transcripts outlive the checkpointer TTL and LangSmith's retention. Export them for offline analysis:
+
+```bash
+python manage.py export_session_archives ./session-exports --since 2026-10-01 --repo group/project
+```
+
+Each archived session becomes `<thread_id>.json`. It holds the session's repository, origin and title, every context in order (a `/clear` closes one and starts the next; `closed_at` says when) with its messages in LangChain's `messages_to_dict` format, and its runs' status, model, tokens and cost. The archive holds the session's messages, not each model request: system prompts, tool schemas, summaries and subagent internals stay in LangSmith. A session that fails to export is logged and named, and the command exits with an error once the rest are written.
+
+Exports contain full conversations and run prompts, so treat the output directory as sensitive.
+
+These `daiv.sessions` log records report archive trouble; the errors reach Sentry:
+
+| Level | Message | Meaning |
+|---|---|---|
+| ERROR | `executor: failed to archive thread_id=…` | A run's end was not archived (the traceback says why, a timeout included); the next run's archive catches up. |
+| ERROR | `Thread … holds N messages, fewer than its archived M; keeping the archive` | The live thread lost messages the archive holds; the archive is left as it was. |
+| ERROR | `Failed to load archived context N of thread …; leaving it out` | An archive row no longer decodes; the transcript is shown without it. |
+| WARNING | `No session … to archive its thread under` | A thread with no `Session` row; nothing is archived. |
+| INFO | `Restored thread … from archived context N` | An expired thread was seeded from its archive before a run. |
+
+A context that exists but fails to restore fails the run with `ArchiveRestoreError` instead of being logged.
+
+---
+
 ## Bash command policy logs
 
 DAIV emits structured warning logs whenever the sandbox bash tool blocks a command due to policy evaluation or a parse failure. These logs use the `daiv.tools` logger.

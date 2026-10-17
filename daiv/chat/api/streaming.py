@@ -34,6 +34,7 @@ from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_F
 
 from . import relay
 from .event_filter import SubagentEventFilter
+from .threads import _last_user_message
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -410,7 +411,11 @@ class ChatRunStreamer:
             config={"recursion_limit": run.settings.recursion_limit, **run.config},
             runtime_context=run.ctx,
         )
-        async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(self.input_data))) as events:
+        # The client echoes every user turn it shows, pre-/clear and failed ones included; ag-ui would append each one
+        # the checkpoint lacks to the graph input.
+        turn_message = _last_user_message(self.input_data)
+        agui_input = self.input_data.model_copy(update={"messages": [turn_message] if turn_message else []})
+        async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(agui_input))) as events:
             async for event in events:
                 if event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
                     turn.add_text(getattr(event, "delta", None))

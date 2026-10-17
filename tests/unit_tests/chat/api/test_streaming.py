@@ -90,9 +90,15 @@ def _executor_stack():
         yield stack
 
 
+def _run_input(*messages: dict) -> RunAgentInput:
+    return RunAgentInput(
+        thread_id="t-stream", run_id="r-1", state={}, messages=list(messages), tools=[], context=[], forwarded_props={}
+    )
+
+
 def _streamer(input_data=None, **kwargs) -> ChatRunStreamer:
     if input_data is None:
-        input_data = SimpleNamespace(thread_id="t-stream", run_id="r-1")
+        input_data = _run_input()
     return ChatRunStreamer(
         repo_id="a/b", ref="main", thread_id="t-stream", run_id="r-1", input_data=input_data, **kwargs
     )
@@ -280,6 +286,41 @@ async def test_events_streams_the_agent_with_the_chat_run_bound_for_artifacts():
 
     assert bound == ["run-pk"]
     assert artifacts._active_run_id.get() is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_hands_the_graph_only_its_new_message_whatever_the_client_echoes(_executor_stack):
+    seen = []
+
+    class Probe(AgentMiddleware):
+        async def abefore_model(self, state, runtime):
+            seen.append([m.id for m in state["messages"]])
+
+    agent = create_agent(
+        model=FakeMessagesListChatModel(responses=[AIMessage(content="ok", id="a2")]),
+        tools=[],
+        middleware=[Probe()],
+        checkpointer=InMemorySaver(),
+    )
+    config = {"configurable": {"thread_id": "t-stream"}}
+    earlier = [HumanMessage(content="first turn", id="h1"), AIMessage(content="first reply", id="a1")]
+    await agent.aupdate_state(config, {"messages": earlier})
+    _executor_stack.create_agent.return_value = agent
+    _executor_stack.langsmith.return_value = config
+    input_data = _run_input(
+        {"id": "p0", "role": "user", "content": "before a clear"},
+        {"id": "h1", "role": "user", "content": "first turn"},
+        {"id": "h2", "role": "user", "content": "second turn"},
+    )
+
+    with (
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer(input_data).events():
+            pass
+
+    assert seen == [["h1", "a1", "h2"]]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -999,7 +1040,7 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
             ref="main",
             thread_id="t-stream",
             run_id="r-1",
-            input_data=SimpleNamespace(thread_id="t-stream", run_id="r-1"),
+            input_data=_run_input(),
             user_id=7,
             sandbox_environment_id="env-1",
             agent_model="openrouter:z-ai/glm-5.2",
@@ -1381,7 +1422,7 @@ class TestChatAfterRunMatrix:
             ref="main",
             thread_id="t-stream",
             run_id="r-1",
-            input_data=SimpleNamespace(thread_id="t-stream", run_id="r-1"),
+            input_data=_run_input(),
             auto_resolved_env={"id": "env-1", "name": "Default", "scope": "global"},
         )
         with _recorded_turn(_mock_agent([]), runtime_ctx=_ctx) as calls:
