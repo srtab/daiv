@@ -9,6 +9,7 @@ from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.middlewares.slash_commands import (
     SlashCommandMiddleware,
     _load_global_skill_metadata,
+    resets_thread,
     skips_sandbox,
 )
 from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
@@ -225,11 +226,32 @@ def test_skips_sandbox_only_for_a_builtin_command_that_does_not_read_the_reposit
     assert skips_sandbox(messages, _runtime().context, agent_settings()) is expected
 
 
-def test_skips_sandbox_never_when_the_repository_turns_slash_commands_off():
-    """No middleware answers the command then, so the agent loop runs and needs the sandbox."""
+@pytest.mark.parametrize(
+    ("predicate", "command", "scope"),
+    [
+        pytest.param(skips_sandbox, "/help", Scope.GLOBAL, id="skips-sandbox"),
+        pytest.param(resets_thread, "/clear", Scope.ISSUE, id="resets-thread"),
+    ],
+)
+def test_no_builtin_command_counts_when_the_repository_turns_slash_commands_off(predicate, command, scope):
+    """No middleware answers the command then, so the agent loop runs: it needs the sandbox and keeps the thread."""
     settings = agent_settings(repo=RepositoryConfig(slash_commands={"enabled": False}))
 
-    assert skips_sandbox([HumanMessage(content="/help")], _runtime().context, settings) is False
+    assert predicate([HumanMessage(content=command)], _runtime(scope=scope).context, settings) is False
+
+
+@pytest.mark.parametrize(
+    ("text", "scope", "expected"),
+    [
+        pytest.param("@daiv /clear", Scope.ISSUE, True, id="clear"),
+        pytest.param("/clear", Scope.MERGE_REQUEST, True, id="bare-clear"),
+        pytest.param("@daiv /help", Scope.ISSUE, False, id="keeps-the-thread"),
+        pytest.param("/clear", Scope.GLOBAL, False, id="not-in-scope"),
+        pytest.param("clear the cache", Scope.ISSUE, False, id="no-command"),
+    ],
+)
+def test_resets_thread_only_for_a_builtin_command_that_resets_it(text, scope, expected):
+    assert resets_thread([HumanMessage(content=text)], _runtime(scope=scope).context, agent_settings()) is expected
 
 
 def test_slash_command_ignores_commands_inside_the_issue_message():

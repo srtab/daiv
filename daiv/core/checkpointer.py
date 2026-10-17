@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from langchain_core.runnables import RunnableConfig
+    from langgraph.checkpoint.base import BaseCheckpointSaver
 
 logger = logging.getLogger("daiv.checkpointer")
 
@@ -162,7 +163,7 @@ def _unwrap_delta_snapshot(value: Any) -> Any:
 
 
 async def aresolve_thread_messages(
-    cp: AsyncRedisSaver, config: RunnableConfig, channel_values: dict[str, Any]
+    cp: BaseCheckpointSaver, config: RunnableConfig, channel_values: dict[str, Any]
 ) -> list[AnyMessage]:
     """Return a thread's full ``messages`` list, reconstructing ``DeltaChannel`` state.
 
@@ -204,3 +205,14 @@ async def aresolve_thread_messages(
     for write in entry.get("writes") or []:
         messages = add_messages(messages, write[2])
     return messages
+
+
+async def aread_thread_values(cp: BaseCheckpointSaver, thread_id: str) -> dict[str, Any] | None:
+    """The thread's latest channel values with ``messages`` resolved (see :func:`aresolve_thread_messages`), or
+    ``None`` when it has no checkpoint: never written, or expired."""
+    config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+    checkpoint = await cp.aget_tuple(config)
+    if checkpoint is None:
+        return None
+    channel_values = (checkpoint.checkpoint or {}).get("channel_values", {})
+    return {**channel_values, "messages": await aresolve_thread_messages(cp, config, channel_values)}

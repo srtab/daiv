@@ -340,13 +340,13 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         # staleness signal ``SessionLock`` / ``sync_stuck_runs`` use to decide a holder is dead.
         is_in_flight = bool(non_terminal) and session.last_active_at >= stale_cutoff()
 
-        # A freshly submitted run has not checkpointed yet, so "no checkpoint" only means
+        # A freshly submitted run has not checkpointed yet, so "no checkpoint or archive" only means
         # the session is really over once nothing is (freshly) in flight; while in flight the
         # "working" state and transcript poller render the same view a chat session gets.
         no_state = hydrated.expired and not is_in_flight
 
         turns = annotate_transcript(build_turns(hydrated.messages), runs)
-        # Expired banner only when there is genuinely nothing to show: no checkpoint
+        # Expired banner only when there is genuinely nothing to show: no checkpoint or archive
         # AND no failed run whose prompt/marker annotate_transcript could recover.
         ctx["expired"] = no_state and not turns
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK

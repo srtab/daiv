@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0013_runartifact_revisions")]
+    dependencies = [("agent_sessions", "0014_sessionarchive")]
 
     operations = [
         migrations.AddField(

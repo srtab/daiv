@@ -12,7 +12,7 @@ from sessions.hydration import HydratedThread
 from sessions.locks import STALE_RUN_MINUTES
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import create_archive, make_artifact
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -238,6 +238,29 @@ def test_detail_with_missing_checkpoint_flags_expired(member_client, member_user
 
     assert resp.status_code == 200
     assert resp.context["expired"] is True
+
+
+@pytest.mark.django_db
+def test_detail_with_an_expired_checkpoint_renders_the_archived_transcript(member_client, member_user):
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    session = _create_session(user=member_user)
+    messages = [HumanMessage(content="count todos", id="h1"), AIMessage(content="there are 18", id="a1")]
+    create_archive(session.thread_id, 0, messages)
+
+    with (
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is False
+    assert [t["role"] for t in resp.context["turns"]] == ["user", "assistant"]
 
 
 @pytest.mark.django_db

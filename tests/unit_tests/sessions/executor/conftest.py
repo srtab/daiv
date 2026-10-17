@@ -32,7 +32,7 @@ def resolved_to(*model_names: str, thinking_level: str | None = None) -> AgentSe
 
 def disk_ctx(**attrs) -> MagicMock:
     """A ``RuntimeCtx`` stub with no sandbox, so the executor builds a disk workspace for it."""
-    return MagicMock(sandbox=None, sandbox_client=None, **attrs)
+    return MagicMock(**{"sandbox": None, "sandbox_client": None, "bot_username": "daiv", **attrs})
 
 
 def make_spec(**overrides) -> RunSpec:
