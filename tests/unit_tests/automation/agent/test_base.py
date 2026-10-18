@@ -313,6 +313,13 @@ class TestGetModelKwargs:
         model = BaseAgent.get_model(model="anthropic:claude-sonnet-4-6")
         assert not isinstance(model, ChatOpenRouter)
 
+    @pytest.mark.parametrize("thinking_level", [None, ThinkingLevelChoices.HIGH])
+    @pytest.mark.parametrize("model", ["openrouter:z-ai/glm-5", "openrouter:anthropic/claude-sonnet-4.6"])
+    def test_openrouter_routes_to_the_cheapest_provider(self, model, thinking_level):
+        self._enable_seed("openrouter", "sk-or")
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec(model), thinking_level=thinking_level)
+        assert kw["extra_body"]["provider"] == {"sort": "price"}
+
     def test_openrouter_anthropic_thinking(self):
         self._enable_seed("openrouter", "sk-or")
         kw = BaseAgent.get_model_kwargs(
