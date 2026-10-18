@@ -622,6 +622,15 @@ async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime
         return f"error: Failed to create inline discussion. Details: {e}"
 
 
+def _cli_failure_message(platform: str, returncode: int, stdout: bytes, stderr: bytes) -> str:
+    """Report a failed CLI call with its stdout too: some commands exit non-zero with the answer on stdout
+    (``gh pr checks`` exits 1 when a check failed and prints the checks table)."""
+    message = f"error: {platform} command failed (exit code {returncode}). Details: {stderr.decode('utf-8').strip()}"
+    if output := stdout.decode("utf-8").strip():
+        message += f"\nOutput:\n{output}"
+    return message
+
+
 async def _run_gitlab_subcommand(
     subcommand: str,
     runtime: ToolRuntime[RuntimeCtx],
@@ -715,8 +724,7 @@ async def _run_gitlab_subcommand(
         return f"error: Failed to execute GitLab command. Details: {str(e)}"
 
     if process.returncode != 0:
-        stderr_text = stderr.decode("utf-8").strip()
-        return f"error: GitLab command failed (exit code {process.returncode}). Details: {stderr_text}"
+        return _cli_failure_message("GitLab", process.returncode, stdout, stderr)
 
     output = stdout.decode("utf-8").strip()
     if not output:
@@ -874,8 +882,7 @@ async def _run_github_subcommand(
         return f"error: Failed to execute GitHub command. Details: {str(e)}"
 
     if process.returncode != 0:
-        stderr_text = stderr.decode("utf-8").strip()
-        return f"error: GitHub command failed (exit code {process.returncode}). Details: {stderr_text}"
+        return _cli_failure_message("GitHub", process.returncode, stdout, stderr)
 
     output = stdout.decode("utf-8").strip()
     if not output:
