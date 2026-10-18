@@ -53,6 +53,16 @@ def parse_assistant_message(data: Any) -> AssistantMessage | None:
 CONTEXT_USAGE_EVENT = "daiv_context_usage"
 
 
+_SERVICE_TIERS = ("priority", "flex")
+
+
+def input_detail_tokens(usage_metadata: Mapping[str, Any], key: str) -> int:
+    """``input_token_details[key]``, plus the ``priority_``/``flex_`` variants langchain-openai writes instead
+    when the response reports that ``service_tier`` (OpenRouter does for its "fast" endpoints)."""
+    details = usage_metadata.get("input_token_details") or {}
+    return sum(details.get(name) or 0 for name in (key, *(f"{tier}_{key}" for tier in _SERVICE_TIERS)))
+
+
 def context_usage_payload(*, model: str, usage: Mapping[str, Any], window: ResolvedWindow | None) -> dict[str, Any]:
     """Build the wire payload for :data:`CONTEXT_USAGE_EVENT` from a message's ``usage_metadata``.
 
@@ -72,7 +82,7 @@ def context_usage_payload(*, model: str, usage: Mapping[str, Any], window: Resol
         "model": model,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
-        "cached_tokens": (usage.get("input_token_details") or {}).get("cache_read", 0),
+        "cached_tokens": input_detail_tokens(usage, "cache_read"),
         "used_tokens": input_tokens + output_tokens,
         "window_tokens": window.tokens if window else None,
     }

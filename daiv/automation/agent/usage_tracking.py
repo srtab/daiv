@@ -18,6 +18,7 @@ from langchain_core.messages.ai import add_usage
 from langchain_core.outputs import ChatGeneration
 from langchain_core.tracers.context import register_configure_hook
 
+from automation.agent.events import input_detail_tokens
 from core.models import ProviderType
 
 if TYPE_CHECKING:
@@ -138,14 +139,14 @@ def _calc_model_cost(model_name: str, usage_metadata: Mapping[str, Any]) -> Deci
     # Sum all three so we don't silently drop the cache-write portion of input.
     ephemeral_5m = input_details.get("ephemeral_5m_input_tokens") or 0
     ephemeral_1h = input_details.get("ephemeral_1h_input_tokens") or 0
-    cache_write_tokens = (input_details.get("cache_creation") or 0) + ephemeral_5m + ephemeral_1h
+    cache_write_tokens = input_detail_tokens(usage_metadata, "cache_creation") + ephemeral_5m + ephemeral_1h
 
     input_tokens = usage_metadata.get("input_tokens", 0)
     genai_usage = Usage(
         input_tokens=input_tokens,
         output_tokens=usage_metadata.get("output_tokens", 0),
         cache_write_tokens=cache_write_tokens,
-        cache_read_tokens=input_details.get("cache_read") or 0,
+        cache_read_tokens=input_detail_tokens(usage_metadata, "cache_read"),
     )
     provider_id = infer_provider_id(model_name)
     try:
