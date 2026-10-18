@@ -186,7 +186,7 @@ def _apply_openrouter_thinking(kw: dict, thinking_level: ThinkingLevel | None, m
     # (notably z.ai's GLM family) ignore ``effort`` and require the explicit flag.
     # OpenRouter converts ``effort`` to ``budget_tokens`` server-side for Anthropic
     # models, so we no longer compute the budget ourselves on this path.
-    kw["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level}}
+    kw["extra_body"]["reasoning"] = {"enabled": True, "effort": thinking_level}
     kw["temperature"] = 1
     if model_name.startswith(CLAUDE_THINKING_MODELS):
         # Anthropic requires temperature=1 when thinking is enabled; OpenRouter
@@ -413,6 +413,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             if sdk_kw["base_url"]:
                 kw["openai_api_base"] = sdk_kw["base_url"]
             kw["model_kwargs"]["extra_headers"] = {"HTTP-Referer": "https://srtab.github.io/daiv", "X-Title": BOT_NAME}
+            # Unsorted, the pool includes open-weight models' priority endpoints (~2x the price), and
+            # cache-sticky routing can keep a whole run on one.
+            kw["extra_body"] = {"provider": {"sort": "price"}}
             _apply_openrouter_thinking(kw, thinking_level, resolved.model_name)
 
         elif row.provider_type == ProviderType.GOOGLE_GENAI:
