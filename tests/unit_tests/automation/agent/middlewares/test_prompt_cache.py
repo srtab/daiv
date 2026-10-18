@@ -85,6 +85,31 @@ class TestAnthropicPromptCachingMiddleware:
             "extra_body": {"cache_control": {"type": "ephemeral", "ttl": "5m"}},
         }
 
+    def test_cache_control_keeps_the_model_extra_body_on_the_wire(self):
+        model = ChatOpenRouter(
+            model="anthropic/claude-haiku-4.5",
+            api_key="x",
+            extra_body={"reasoning": {"enabled": True}, "provider": {"sort": "price"}},
+        )
+        request = ModelRequest(
+            model=model,
+            messages=[HumanMessage(content="user")],
+            system_prompt="system prompt",
+            state=Mock(),
+            runtime=Mock(),
+            model_settings={},
+        )
+        handler = Mock(return_value=ModelResponse(result=[]))
+
+        AnthropicPromptCachingMiddleware().wrap_model_call(request, handler)
+
+        payload = model._get_request_payload(request.messages, **handler.call_args.args[0].model_settings)
+        assert payload["extra_body"] == {
+            "reasoning": {"enabled": True},
+            "provider": {"sort": "price"},
+            "cache_control": {"type": "ephemeral", "ttl": "5m"},
+        }
+
     async def test_awrap_model_call_passes_through_non_openrouter_models(self):
         middleware = AnthropicPromptCachingMiddleware()
         middleware._is_openrouter_anthropic_model = Mock(return_value=False)

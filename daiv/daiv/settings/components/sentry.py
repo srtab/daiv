@@ -49,6 +49,8 @@ if SENTRY_DSN:
     from sentry_sdk.integrations.openai import OpenAIIntegration
     from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
 
+    from core.sentry import before_send
+
     sentry_sdk.init(
         ignore_errors=[DisallowedHost, KeyboardInterrupt],
         event_scrubber=EventScrubber(denylist=DEFAULT_DENYLIST + SENTRY_EXTRA_SCRUB_KEYS, recursive=True),
@@ -65,6 +67,7 @@ if SENTRY_DSN:
         debug=SENTRY_DEBUG,
         enable_logs=SENTRY_ENABLE_LOGS,
         traces_sampler=_traces_sampler,
+        before_send=before_send,
         profiles_sample_rate=SENTRY_PROFILES_SAMPLE_RATE,
         send_default_pii=SENTRY_SEND_DEFAULT_PII,
         server_name=config("NODE_HOSTNAME", default=None),

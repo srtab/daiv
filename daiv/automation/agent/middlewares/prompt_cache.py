@@ -72,9 +72,11 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
     def _with_extra_body_cache_control(self, request: ModelRequest) -> ModelRequest:
         """
         Pass ``cache_control`` through ``extra_body``: OpenRouter takes it top-level in the request body, which
-        ``ChatOpenAI`` only reaches through ``extra_body``.
+        ``ChatOpenAI`` only reaches through ``extra_body``. A per-call ``extra_body`` replaces the model's own
+        rather than merging with it, so the model's (reasoning, provider routing) is carried over.
         """
-        existing_extra_body = request.model_settings.get("extra_body", {})
+        model_extra_body = request.model.extra_body if isinstance(request.model, ChatOpenRouter) else None
+        existing_extra_body = {**(model_extra_body or {}), **request.model_settings.get("extra_body", {})}
         return request.override(
             model_settings={
                 **request.model_settings,
