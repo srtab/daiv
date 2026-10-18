@@ -1585,6 +1585,15 @@ async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime
         return f"error: Failed to create inline discussion. Details: {e}"
 
 
+def _cli_failure_message(platform: str, returncode: int, stdout: bytes, stderr: bytes) -> str:
+    """Report a failed CLI call with its stdout too: some commands exit non-zero with the answer on stdout
+    (``gh pr checks`` exits 1 when a check failed and prints the checks table)."""
+    message = f"error: {platform} command failed (exit code {returncode}). Details: {stderr.decode('utf-8').strip()}"
+    if output := stdout.decode("utf-8").strip():
+        message += f"\nOutput:\n{output}"
+    return message
+
+
 async def _run_gitlab_subcommand(
     subcommand: str,
     runtime: ToolRuntime[RuntimeCtx],
@@ -1739,7 +1748,7 @@ async def _run_gitlab_subcommand(
                 token=acting_token,
                 returncode=process.returncode,
             )
-        return f"error: GitLab command failed (exit code {process.returncode}). Details: {stderr_text}"
+        return _cli_failure_message("GitLab", process.returncode, stdout, stderr)
 
     if decision.is_cross_project and not await record(outcome=_Outcome.ALLOWED):
         return REFUSAL_UNRECORDED_CROSS_PROJECT.format(project=target_slug)
@@ -1968,7 +1977,7 @@ async def _run_github_subcommand(
                 token=token,
                 returncode=process.returncode,
             )
-        return f"error: GitHub command failed (exit code {process.returncode}). Details: {stderr_text}"
+        return _cli_failure_message("GitHub", process.returncode, stdout, stderr)
 
     if decision.is_cross_project and not await record(outcome=_Outcome.ALLOWED):
         return REFUSAL_UNRECORDED_CROSS_PROJECT.format(project=target_slug)

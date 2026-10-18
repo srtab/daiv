@@ -2697,3 +2697,48 @@ class TestPublishedTextIsRepoRelative:
 
         argv = list(create_proc.call_args.args)
         assert argv[argv.index("-b") + 1] == "See daiv/x.py"
+
+
+async def test_github_failure_keeps_the_command_output():
+    """``gh pr checks`` exits 1 when a check failed and prints the checks table on stdout, not stderr."""
+    runtime = ToolRuntime(
+        state={"session_id": "sess-4", "github_token": "tok", "github_token_expires_at": 4102444800.0},
+        context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
+        config={"configurable": {"thread_id": "t-gh-fail"}},
+        stream_writer=Mock(),
+        tool_call_id="c-fail",
+        store=None,
+    )
+    table = b"tests\tfail\t3m2s\thttps://github.com/owner/repo/actions/runs/1/job/2\nlint\tpass\t40s\t\n"
+
+    with patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc:
+        proc = Mock()
+        proc.communicate = AsyncMock(return_value=(table, b""))
+        proc.returncode = 1
+        create_proc.return_value = proc
+
+        result = await _run_gh("pr checks 1650", runtime)
+
+    assert result.startswith("error: GitHub command failed (exit code 1).")
+    assert "tests\tfail\t3m2s\thttps://github.com/owner/repo/actions/runs/1/job/2" in result
+
+
+async def test_gitlab_failure_keeps_the_command_output():
+    runtime = _make_gitlab_runtime()
+    mock_settings = Mock()
+    mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
+    mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
+
+    with (
+        patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+        patch("automation.agent.middlewares.git_platform.settings", mock_settings),
+    ):
+        proc = Mock()
+        proc.communicate = AsyncMock(return_value=(b"partial output\n", b"404 Not Found\n"))
+        proc.returncode = 1
+        create_proc.return_value = proc
+
+        result = await _run_gl("project-merge-request get --iid 9", runtime)
+
+    assert result.startswith("error: GitLab command failed (exit code 1). Details: 404 Not Found")
+    assert "partial output" in result
