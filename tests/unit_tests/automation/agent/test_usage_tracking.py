@@ -10,6 +10,7 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 from langchain_openai import ChatOpenAI
+from langchain_openai.chat_models.base import _create_usage_metadata
 
 from automation.agent.usage_tracking import (
     CostAwareUsageMetadataCallbackHandler,
@@ -409,6 +410,25 @@ class TestEphemeralCacheWrites:
         # All 100K billed as cache_write at $3.75/M = $0.375, plus 50K ephemeral_1h surcharge
         # at $2.25/M = $0.1125 → $0.4875.
         assert Decimal(summary.cost_usd) == Decimal("0.4875")
+
+
+class TestServiceTierUsage:
+    """langchain-openai prefixes the cache and reasoning keys with the response's ``service_tier``."""
+
+    TOKEN_USAGE = {
+        "prompt_tokens": 89_933,
+        "completion_tokens": 14_730,
+        "prompt_tokens_details": {"cached_tokens": 82_688, "cache_write_tokens": 1_000},
+        "completion_tokens_details": {"reasoning_tokens": 14_694},
+    }
+
+    @pytest.mark.parametrize("tier", ["priority", "flex"])
+    def test_a_tiered_response_prices_its_cache_tokens(self, tier):
+        tiered = _create_usage_metadata(self.TOKEN_USAGE, tier)
+        untiered = _create_usage_metadata(self.TOKEN_USAGE)
+
+        assert tiered["input_token_details"].get("cache_read") is None
+        assert _calc_model_cost("claude-sonnet-4-6", tiered) == _calc_model_cost("claude-sonnet-4-6", untiered)
 
 
 class TestEmptyMetadataWarning:

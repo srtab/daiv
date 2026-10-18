@@ -1,3 +1,5 @@
+import pytest
+
 from automation.agent.events import CONTEXT_USAGE_EVENT, context_usage_payload
 from automation.agent.usage_tracking import ResolvedWindow
 
@@ -30,6 +32,13 @@ def test_a_sparse_usage_mapping_defaults_every_count_to_zero():
     assert payload["output_tokens"] == 0
     assert payload["cached_tokens"] == 0
     assert payload["used_tokens"] == 0
+
+
+@pytest.mark.parametrize("tier", ["priority", "flex"])
+def test_a_service_tier_cache_read_counts_as_cached(tier):
+    payload = _payload(usage={"input_tokens": 100, "input_token_details": {f"{tier}_cache_read": 80}})
+
+    assert payload["cached_tokens"] == 80
 
 
 def test_a_resolved_window_ships_its_tokens():
