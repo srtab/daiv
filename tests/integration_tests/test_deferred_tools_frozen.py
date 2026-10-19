@@ -38,7 +38,7 @@ import json
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from automation.agent import BaseAgent
+from automation.agent.base import get_model
 from automation.agent.deferred.index import DeferredToolsIndex
 from automation.agent.deferred.prompt import build_deferred_tools_block
 from automation.agent.deferred.search_tool import TOOL_SEARCH_NAME, make_tool_search
@@ -69,7 +69,7 @@ def _conversation(*, embed_schema: bool) -> list:
 
 
 def _bound_model(model_spec: str, *, bind_digest: bool):
-    model = BaseAgent.get_model(model=model_spec)
+    model = get_model(model=model_spec)
     tools = [make_tool_search(lambda: DeferredToolsIndex([digest_tool()]), top_k_default=5, top_k_max=10)]
     if bind_digest:
         tools.append(digest_tool())

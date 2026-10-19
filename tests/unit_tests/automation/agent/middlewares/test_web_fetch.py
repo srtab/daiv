@@ -144,7 +144,7 @@ async def test_caches_full_response_by_url_and_prompt(httpx_mock):
         text="<html><body><h1>Title</h1><p>Body</p></body></html>",
     )
     with (
-        patch.object(web_fetch_module, "BaseAgent") as mock_base_agent,
+        patch.object(web_fetch_module, "get_model") as mock_get_model,
         patch.object(web_fetch_module, "site_settings") as mock_site_settings,
         patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
     ):
@@ -154,7 +154,7 @@ async def test_caches_full_response_by_url_and_prompt(httpx_mock):
         mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_site_settings.web_fetch_model_name = "openrouter:openai/gpt-4.1-mini"
 
-        mock_base_agent.get_model.return_value = _FakeModel("ANSWER")
+        mock_get_model.return_value = _FakeModel("ANSWER")
 
         result1 = await web_fetch_module.web_fetch_tool.ainvoke({
             "url": "https://example.com/page",
@@ -186,7 +186,7 @@ async def test_cache_key_changes_with_prompt(httpx_mock):
         text="<html><body><h1>Title</h1><p>Body</p></body></html>",
     )
     with (
-        patch.object(web_fetch_module, "BaseAgent") as mock_base_agent,
+        patch.object(web_fetch_module, "get_model") as mock_get_model,
         patch.object(web_fetch_module, "site_settings") as mock_site_settings,
         patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
     ):
@@ -196,7 +196,7 @@ async def test_cache_key_changes_with_prompt(httpx_mock):
         mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_site_settings.web_fetch_model_name = "openrouter:openai/gpt-4.1-mini"
 
-        mock_base_agent.get_model.return_value = _FakeModel("ANSWER")
+        mock_get_model.return_value = _FakeModel("ANSWER")
 
         await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com/page", "prompt": "P1"})
         await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com/page", "prompt": "P2"})
@@ -326,7 +326,7 @@ async def test_model_failure_returns_contents(httpx_mock):
         text="<html><body>CONTENT</body></html>",
     )
     with (
-        patch.object(web_fetch_module, "BaseAgent") as mock_base_agent,
+        patch.object(web_fetch_module, "get_model") as mock_get_model,
         patch.object(web_fetch_module, "site_settings") as mock_site_settings,
         patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
     ):
@@ -335,7 +335,7 @@ async def test_model_failure_returns_contents(httpx_mock):
         mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_site_settings.web_fetch_model_name = "openrouter:openai/gpt-4.1-mini"
 
-        mock_base_agent.get_model.return_value = _FailingModel()
+        mock_get_model.return_value = _FailingModel()
 
         result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com", "prompt": "x"})
     assert result == "Model processing failed (Boom). Contents of https://example.com:\nCONTENT"

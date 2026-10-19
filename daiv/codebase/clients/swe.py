@@ -149,38 +149,6 @@ class SWERepoClient(RepoClient):
             # File is binary or not UTF-8
             return None
 
-    def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
-        """
-        Get an uploaded file from a repository.
-
-        Requires load_repo to have been called first.
-
-        Args:
-            repo_id: The repository identifier.
-            file_path: The file path.
-
-        Returns:
-            The file content as bytes, or None if not found.
-
-        Raises:
-            RuntimeError: If load_repo has not been called.
-        """
-        if self._loaded_repo is None:
-            raise RuntimeError(
-                "Repository not loaded. Call load_repo() before using get_project_uploaded_file(). "
-                "This method requires a repository to be loaded via the load_repo context manager."
-            )
-
-        file_path_obj = Path(self._loaded_repo.working_dir) / file_path
-        if not file_path_obj.exists():
-            return None
-
-        try:
-            return file_path_obj.read_bytes()
-        except Exception as e:
-            logger.error("Failed to read file %s: %s", file_path, e)
-            return None
-
     def set_repository_webhooks(
         self,
         repo_id: str,

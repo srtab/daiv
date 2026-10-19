@@ -189,7 +189,7 @@ async def _construct(
         "load_custom_subagents": {"new": AsyncMock(return_value=[])},
         "create_deep_agent": {},
         "MCPToolkit": {"get_tools": AsyncMock(return_value=[])},
-        "BaseAgent": {},
+        "get_model": {},
         "SkillsMiddleware": {},
         "GitMiddleware": {},
         "GitPlatformMiddleware": {},
@@ -201,7 +201,7 @@ async def _construct(
             name: stack.enter_context(patch(f"automation.agent.graph.{name}", **kwargs))
             for name, kwargs in graph_patches.items()
         }
-        explore_models = stack.enter_context(patch("automation.agent.subagents.BaseAgent")).get_model
+        explore_models = stack.enter_context(patch("automation.agent.subagents.get_model"))
         stack.enter_context(patch("automation.agent.subagents.create_agent"))
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
         ctx = MagicMock()
@@ -210,7 +210,7 @@ async def _construct(
 
     deep_agent = mocks["create_deep_agent"]
     return SimpleNamespace(
-        models=[(c.kwargs["model"], c.kwargs["thinking_level"]) for c in mocks["BaseAgent"].get_model.call_args_list],
+        models=[(c.kwargs["model"], c.kwargs["thinking_level"]) for c in mocks["get_model"].call_args_list],
         explore_models=[c.kwargs["model"] for c in explore_models.call_args_list],
         middleware=deep_agent.call_args.kwargs["middleware"],
         subagent_web={

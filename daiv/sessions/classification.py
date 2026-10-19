@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Literal, cast
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from automation.agent.base import BaseAgent
+from automation.agent.base import get_model
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -42,8 +42,6 @@ For each finding under "found-issues", emit one actionable item:
 - kind: a short machine-friendly category for the finding (e.g. "bug", "vulnerability", "test-failure", "todo").
 - label: a concise human-readable one-line description of the finding.
 - ref: what to act on — a file path, symbol, URL, or identifier the reader can locate.
-- fix_prompt: OPTIONAL. When the finding can seed an automated fix, a self-contained instruction describing \
-the fix; otherwise omit it.
 
 Rules:
 - Choose exactly one status.
@@ -62,10 +60,6 @@ class ActionableDraft(BaseModel):
     kind: str = Field(description="Short machine-friendly category for the finding (e.g. 'bug', 'test-failure').")
     label: str = Field(description="Concise human-readable one-line description of the finding.")
     ref: str = Field(description="What to act on: a file path, symbol, URL, or identifier.")
-    fix_prompt: str | None = Field(
-        default=None,
-        description="Optional self-contained instruction to seed an automated fix; omit when not applicable.",
-    )
 
 
 class RunClassification(BaseModel):
@@ -92,7 +86,7 @@ def _build_structured_llm(schema: type, model_names: Sequence[str]):
     """
 
     def _structured(model_name: str):
-        return BaseAgent.get_model(model=model_name).with_structured_output(schema).with_retry(stop_after_attempt=2)
+        return get_model(model=model_name).with_structured_output(schema).with_retry(stop_after_attempt=2)
 
     chain = _structured(model_names[0])
     if fallbacks := [_structured(name) for name in model_names[1:]]:

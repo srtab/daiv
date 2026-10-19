@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage
 # and `RunnableConfig` must resolve at runtime — see _guard_subagent_crash.
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 
-from automation.agent import BaseAgent
+from automation.agent.base import get_model
 from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH
 from automation.agent.middlewares.deferred_tools import (
     deferred_tools_middleware,
@@ -242,7 +242,7 @@ def load_builtin_code_review_detectors(
         detector_model = model
         if frontmatter_model := str(frontmatter.get("model", "")).strip():
             try:
-                detector_model = BaseAgent.get_model(model=frontmatter_model)
+                detector_model = get_model(model=frontmatter_model)
             except ValueError:
                 # Unknown/empty model spec — a charter config typo. Skip just this detector.
                 logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
@@ -360,14 +360,12 @@ def create_explore_subagent(workspace: Workspace, working_directory: str, *, mod
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
     model_name, *fallback_model_names = models.names
-    model = BaseAgent.get_model(model=model_name, thinking_level=models.thinking_level)
+    model = get_model(model=model_name, thinking_level=models.thinking_level)
 
     fallback_models = []
     for fallback_model_name in fallback_model_names:
         try:
-            fallback_models.append(
-                BaseAgent.get_model(model=fallback_model_name, thinking_level=models.fallback_thinking_level)
-            )
+            fallback_models.append(get_model(model=fallback_model_name, thinking_level=models.fallback_thinking_level))
         except Exception:
             logger.exception(
                 "Could not initialize explore fallback model '%s', proceeding without fallback", fallback_model_name
@@ -614,7 +612,7 @@ async def load_custom_subagents(
             subagent_model = model
             if frontmatter_model := str(frontmatter.get("model", "")).strip():
                 try:
-                    subagent_model = BaseAgent.get_model(model=frontmatter_model)
+                    subagent_model = get_model(model=frontmatter_model)
                 except Exception:
                     logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
                     continue

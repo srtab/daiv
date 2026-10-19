@@ -24,7 +24,6 @@ class TestGitHubClient:
         integration = Mock()
         mock_installation = Mock()
         mock_github = Mock()
-        mock_github.requester.auth.token = "test-token-123"  # noqa: S105
 
         mock_installation.get_github_for_installation.return_value = mock_github
         integration.get_app_installation.return_value = mock_installation
@@ -45,28 +44,6 @@ class TestGitHubClient:
             requester, {}, {"url": "https://api.github.com/repos/owner/repo"}, completed=True
         )
         return requester
-
-    @patch("codebase.clients.github.client.async_download_url")
-    async def test_get_project_uploaded_file_success(self, mock_download, github_client):
-        """Test successful download of GitHub user-attachments file."""
-        mock_download.return_value = b"image content"
-
-        url = "https://github.com/user-attachments/assets/5005705d-f605-4dd7-b56c-eb513201b40e.png"
-        result = await github_client.get_project_uploaded_file("owner/repo", url)
-
-        assert result == b"image content"
-        mock_download.assert_called_once_with(url, headers={"Authorization": "Bearer test-token-123"})
-
-    @patch("codebase.clients.github.client.async_download_url")
-    async def test_get_project_uploaded_file_failure(self, mock_download, github_client):
-        """Test failed download returns None."""
-        mock_download.return_value = None
-
-        url = "https://github.com/user-attachments/assets/invalid.png"
-        result = await github_client.get_project_uploaded_file("owner/repo", url)
-
-        assert result is None
-        mock_download.assert_called_once_with(url, headers={"Authorization": "Bearer test-token-123"})
 
     def test_create_issue_emoji_converts_note_id_to_int(self, github_client):
         """Test that create_issue_emoji converts string note_id to int."""

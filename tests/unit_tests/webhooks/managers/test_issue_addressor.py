@@ -106,44 +106,40 @@ def _question_agent():
 async def _address(**kwargs):
     """``address_issue`` for a label-triggered issue on ``owner/repo``; ``kwargs`` override."""
     return await IssueAddressorManager.address_issue(
-        **({"repo_id": "owner/repo", "issue": _issue(labels=[BOT_LABEL])} | kwargs)
+        **(
+            {"repo_id": "owner/repo", "issue": _issue(labels=[BOT_LABEL]), "thread_id": "t-issue", "use_max": False}
+            | kwargs
+        )
     )
 
 
-class TestMaxLabelRoutesToMaxModel:
+class TestUseMaxRoutesToMaxModel:
     """Lock the webhook → ``use_max`` → ``site_settings.agent_max_*`` contract, checked at the ``create_daiv_agent``
     boundary with the real model resolution."""
 
     @staticmethod
-    async def _agent_kwargs(labels: list[str]) -> dict:
+    async def _agent_kwargs(*, use_max: bool) -> dict:
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
         with addressor_run(agent, ctx=_ctx(), resolve=resolve_agent_settings) as run:
-            await _address(issue=_issue(labels=labels))
+            await _address(use_max=use_max)
         chain = run.create_agent.await_args.kwargs["settings"].agent
         return {"model_names": list(chain.names), "thinking_level": chain.thinking_level}
 
-    async def test_max_label_resolves_to_max_model(self, stub_base_init):
-        """``daiv-max`` label → primary model is ``site_settings.agent_max_model_name`` and thinking level is
+    async def test_use_max_resolves_to_max_model(self, stub_base_init):
+        """``use_max`` → primary model is ``site_settings.agent_max_model_name`` and thinking level is
         ``site_settings.agent_max_thinking_level``. The repo-config model is preserved as a fallback so the run
         degrades cleanly on provider outage."""
-        captured = await self._agent_kwargs(["daiv-max"])
+        captured = await self._agent_kwargs(use_max=True)
 
         model_names = captured["model_names"]
         assert model_names[0] == site_settings.agent_max_model_name
         assert captured["thinking_level"] == site_settings.agent_max_thinking_level
         assert site_settings.agent_model_name in model_names[1:]
 
-    async def test_max_label_case_insensitive(self, stub_base_init):
-        """Label matching must be case-insensitive — GitHub UIs upper-case labels freely."""
-        captured = await self._agent_kwargs(["DAIV-MAX"])
-
-        assert captured["model_names"][0] == site_settings.agent_max_model_name
-        assert captured["thinking_level"] == site_settings.agent_max_thinking_level
-
-    async def test_no_max_label_uses_the_site_default_model(self, stub_base_init):
-        """Without ``daiv-max`` the resolved primary model and thinking level are the site's defaults, proving the
+    async def test_without_use_max_the_site_default_model_is_used(self, stub_base_init):
+        """Without ``use_max`` the resolved primary model and thinking level are the site's defaults, proving the
         ``use_max`` branch is the only path to the max model."""
-        captured = await self._agent_kwargs(["daiv"])
+        captured = await self._agent_kwargs(use_max=False)
 
         assert captured["model_names"][0] == site_settings.agent_model_name
         assert captured["thinking_level"] == site_settings.agent_thinking_level

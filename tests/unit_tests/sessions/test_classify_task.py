@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.db import IntegrityError
 
 import pytest
-from asgiref.sync import sync_to_async
 from sessions.classification import ActionableDraft, RunClassification
 from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 from sessions.tasks import classify_run_task
@@ -79,9 +78,7 @@ async def test_ac2_well_formed_envelope_for_watch_find():
         status="found-issues",
         summary="Two issues found in the auth module.",
         actionable=[
-            ActionableDraft(
-                kind="bug", label="Null deref in login", ref="auth/login.py", fix_prompt="Guard the None case."
-            ),
+            ActionableDraft(kind="bug", label="Null deref in login", ref="auth/login.py"),
             ActionableDraft(kind="todo", label="Missing test", ref="auth/tests.py"),
         ],
     )
@@ -98,8 +95,6 @@ async def test_ac2_well_formed_envelope_for_watch_find():
         assert set(item) >= {"id", "kind", "label", "ref", "schema_version"}
         assert isinstance(item["id"], str)
         assert item["schema_version"] == 1
-    assert envelope.actionable[0]["fix_prompt"] == "Guard the None case."
-    assert "fix_prompt" not in envelope.actionable[1]
     # Prose is retained and reachable (the classifier never touches the run's own result).
     reloaded = await Run.objects.aget(pk=run.pk)
     assert reloaded.response_text == "Found a couple of problems."
@@ -205,10 +200,8 @@ async def test_ac6_idempotent_writes_exactly_one_envelope():
 @pytest.mark.django_db(transaction=True)
 async def test_ac6_pending_run_has_no_envelope():
     run = await _make_scheduled_run()
-    # Task not run yet → envelope is absent ("classifying…"). ``for_run`` is sync-only, so it is
-    # wrapped for this async test.
-    envelope = await sync_to_async(RunEnvelope.objects.for_run)(run)
-    assert envelope is None
+    # Task not run yet → envelope is absent ("classifying…").
+    assert not await RunEnvelope.objects.filter(run=run).aexists()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -239,7 +232,7 @@ async def test_no_model_configured_leaves_run_unclassified():
         await classify_run_task.func(str(run.pk))  # must not raise
 
     build.assert_not_called()
-    assert await sync_to_async(RunEnvelope.objects.for_run)(run) is None
+    assert not await RunEnvelope.objects.filter(run=run).aexists()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -260,7 +253,7 @@ async def test_method_failure_propagates_without_partial_envelope():
     with patch("sessions.classification._build_structured_llm", return_value=failing), pytest.raises(RuntimeError):
         await classify_run_task.func(str(run.pk))
 
-    assert await sync_to_async(RunEnvelope.objects.for_run)(run) is None
+    assert not await RunEnvelope.objects.filter(run=run).aexists()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -365,24 +358,6 @@ async def test_failed_run_summary_skips_leading_blank_lines():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_empty_fix_prompt_is_omitted_from_stored_item():
-    # An off-contract empty ``fix_prompt`` is treated as absent, never stored as "" (which could seed a
-    # downstream Finding -> Fix with no instruction).
-    run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
-    classification = RunClassification(
-        status="found-issues",
-        summary="one",
-        actionable=[ActionableDraft(kind="bug", label="x", ref="y", fix_prompt="")],
-    )
-
-    with patch("sessions.classification._build_structured_llm", return_value=_llm_returning(classification)):
-        await classify_run_task.func(str(run.pk))
-
-    envelope = await RunEnvelope.objects.aget(run=run)
-    assert "fix_prompt" not in envelope.actionable[0]
-
-
-@pytest.mark.django_db(transaction=True)
 async def test_unexpected_integrity_error_propagates_and_writes_nothing():
     # A genuine IntegrityError (not the documented OneToOne race) must surface as a FAILED task rather
     # than being swallowed as a no-op — otherwise the run is left unclassified with no signal.
@@ -435,7 +410,7 @@ async def test_non_successful_run_is_skipped_without_llm_call():
         await classify_run_task.func(str(run.pk))
 
     build.assert_not_called()
-    assert await sync_to_async(RunEnvelope.objects.for_run)(run) is None
+    assert not await RunEnvelope.objects.filter(run=run).aexists()
 
 
 @pytest.mark.django_db(transaction=True)

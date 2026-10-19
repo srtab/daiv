@@ -488,7 +488,6 @@ class TestClassifierReasonInContext:
         assert notification.context["actionable_overflow"] == 0
 
     def test_fix_prompt_never_leaves_the_envelope(self, member_user, email_binding):
-        # fix_prompt seeds a Finding -> Fix agent; it is not recipient-facing copy.
         notification = self._emit(member_user, actionable=self._items(1, fix_prompt="rewrite the fixture"))
         assert notification.context["actionable"][0].keys() == {"kind", "label", "ref"}
 

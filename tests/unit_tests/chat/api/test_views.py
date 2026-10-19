@@ -545,7 +545,7 @@ async def test_existing_thread_with_disabled_provider_returns_400(
     client: TestAsyncClient, authed, disabled_openrouter_provider
 ):
     """``is_enabled=False`` rows must also fail at the 400 boundary, not deep in
-    ``BaseAgent.get_model_kwargs`` mid-run."""
+    ``get_model_kwargs`` mid-run."""
     _, raw, user = authed
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT,

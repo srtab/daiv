@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from automation.agent.base import BaseAgent
+from automation.agent import base
 from automation.titling.llm import GeneratedTitle, TitlerNotConfiguredError, _ref_is_informative, generate_title
 
 
@@ -49,7 +49,7 @@ def _fake_chain(title: str = "Generated test title", capture: dict | None = None
 
 
 def _generate(chain, prompt: str = "add login", **context) -> str:
-    with patch.object(BaseAgent, "get_model", return_value=chain):
+    with patch.object(base, "get_model", return_value=chain):
         return generate_title(prompt, run_metadata={"entity_type": "run"}, **context)
 
 
@@ -102,10 +102,7 @@ def test_calls_the_model_once():
 
 
 def test_a_model_that_cannot_be_built_is_reported_as_not_configured():
-    with (
-        patch.object(BaseAgent, "get_model", side_effect=RuntimeError("no key")),
-        pytest.raises(TitlerNotConfiguredError),
-    ):
+    with patch.object(base, "get_model", side_effect=RuntimeError("no key")), pytest.raises(TitlerNotConfiguredError):
         generate_title("any", run_metadata={})
 
 

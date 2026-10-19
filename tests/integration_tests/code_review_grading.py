@@ -261,11 +261,11 @@ class JudgeError(Exception):
 
 @cache
 def _judge():
-    from automation.agent.base import BaseAgent, ThinkingLevel
+    from automation.agent.base import ThinkingLevel, get_model
 
     from .utils import MEMORY_JUDGE_MODEL
 
-    return BaseAgent.get_model(model=MEMORY_JUDGE_MODEL, thinking_level=ThinkingLevel.MEDIUM)
+    return get_model(model=MEMORY_JUDGE_MODEL, thinking_level=ThinkingLevel.MEDIUM)
 
 
 async def judge_planted_bug(defect: str, finding: Finding) -> Verdict:

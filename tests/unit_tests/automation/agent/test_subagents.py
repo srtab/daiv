@@ -555,7 +555,7 @@ class TestExploreSubagent:
     def test_returns_compiled_subagent(self):
         from core.models import Provider
 
-        # ``BaseAgent.get_model`` resolves model_name → Provider row → live client; enable
+        # ``get_model`` resolves model_name → Provider row → live client; enable
         # the seed row backing ``ModelName.CLAUDE_HAIKU_5_5`` (openrouter:anthropic/...)
         # so the call doesn't error during init_chat_model.
         p = Provider.objects.get(slug="openrouter")
@@ -915,7 +915,7 @@ class TestCustomSubagents:
 
 def _explore_permissions(*, sandbox: bool) -> list:
     with (
-        patch("automation.agent.subagents.BaseAgent"),
+        patch("automation.agent.subagents.get_model"),
         patch("automation.agent.subagents.create_agent") as create_agent,
     ):
         create_explore_subagent(
@@ -935,7 +935,7 @@ def test_explore_skips_a_fallback_that_fails_to_build(caplog):
         return built[model]
 
     with (
-        patch("automation.agent.subagents.BaseAgent.get_model", side_effect=get_model),
+        patch("automation.agent.subagents.get_model", side_effect=get_model),
         patch("automation.agent.subagents.create_agent") as create_agent,
         caplog.at_level(logging.ERROR, logger="daiv.agent"),
     ):
@@ -956,9 +956,7 @@ async def test_explore_fallback_attempt_carries_no_openrouter_cache_control():
     built = {"explore": primary, "explore-fallback": fallback}
 
     with (
-        patch(
-            "automation.agent.subagents.BaseAgent.get_model", side_effect=lambda *, model, thinking_level: built[model]
-        ),
+        patch("automation.agent.subagents.get_model", side_effect=lambda *, model, thinking_level: built[model]),
         patch("automation.agent.subagents.create_agent") as create_agent,
     ):
         create_explore_subagent(
@@ -1278,7 +1276,7 @@ class TestBuiltinCodeReviewDetectors:
 
         with (
             caplog.at_level(logging.WARNING, logger="daiv.agent"),
-            patch("automation.agent.subagents.BaseAgent.get_model", side_effect=ValueError("unknown provider")),
+            patch("automation.agent.subagents.get_model", side_effect=ValueError("unknown provider")),
         ):
             result = load_builtin_code_review_detectors(
                 mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
@@ -1348,7 +1346,7 @@ class TestBuiltinCodeReviewDetectors:
 
         with (
             caplog.at_level(logging.WARNING, logger="daiv.agent"),
-            patch("automation.agent.subagents.BaseAgent.get_model", side_effect=RuntimeError("provider disabled")),
+            patch("automation.agent.subagents.get_model", side_effect=RuntimeError("provider disabled")),
         ):
             result = load_builtin_code_review_detectors(
                 mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
@@ -1513,7 +1511,7 @@ class TestBuiltinCodeReviewDetectors:
         override_model = Mock()
 
         with (
-            patch("automation.agent.subagents.BaseAgent.get_model", return_value=override_model) as get_model,
+            patch("automation.agent.subagents.get_model", return_value=override_model) as get_model,
             patch("automation.agent.subagents.create_agent") as mock_create,
         ):
             mock_create.return_value = Mock()

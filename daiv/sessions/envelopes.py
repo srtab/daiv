@@ -2,12 +2,12 @@
 
 This is a **pure** module: it must never import from ``sessions.models`` (the model
 imports the validator from here), keeping the contract a standalone source of truth that
-the classifier (Story 1.3), the Queue, and Finding -> Fix all build/read against.
+the classifier (Story 1.3) and every reader build/read against.
 """
 
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+from typing import TypedDict
 
 from django.core.exceptions import ValidationError
 
@@ -18,8 +18,7 @@ ACTIONABLE_SCHEMA_VERSION = 1
 class ActionableItem(TypedDict):
     """One thing a user can act on within a classified run.
 
-    ``fix_prompt`` is optional (only findings that can seed a Finding -> Fix launch carry
-    one). No filterable/queryable state (e.g. ``status``) may live inside the payload.
+    No filterable/queryable state (e.g. ``status``) may live inside the payload.
     """
 
     id: str
@@ -27,7 +26,6 @@ class ActionableItem(TypedDict):
     label: str
     ref: str
     schema_version: int
-    fix_prompt: NotRequired[str]
 
 
 REQUIRED_ACTIONABLE_KEYS = frozenset({"id", "kind", "label", "ref", "schema_version"})
@@ -40,8 +38,8 @@ def validate_actionable(items: list) -> None:
 
     Each item must be a mapping carrying every key in ``REQUIRED_ACTIONABLE_KEYS``, none in
     ``FORBIDDEN_ACTIONABLE_KEYS``, contract-correct value types (``id``/``kind``/``label``/
-    ``ref`` are ``str``, ``schema_version`` is ``int``, optional ``fix_prompt`` is ``str``),
-    and a unique ``id`` within the list.
+    ``ref`` are ``str``, ``schema_version`` is ``int``), and a unique ``id`` within the list.
+    Other keys are ignored: stored rows may carry keys outside the contract.
 
     Raises:
         django.core.exceptions.ValidationError: if any item breaks the contract. This is the
@@ -69,8 +67,6 @@ def validate_actionable(items: list) -> None:
         # ``bool`` is an ``int`` subclass; a boolean is not a valid schema_version.
         if not isinstance(item["schema_version"], int) or isinstance(item["schema_version"], bool):
             raise ValidationError({"actionable": f"actionable[{index}].schema_version must be an int."})
-        if "fix_prompt" in item and not isinstance(item["fix_prompt"], str):
-            raise ValidationError({"actionable": f"actionable[{index}].fix_prompt must be a string."})
 
         item_id = item["id"]
         if item_id in seen_ids:
@@ -85,23 +81,10 @@ def build_actionable_item(
     kind: str,
     label: str,
     ref: str,
-    fix_prompt: str | None = None,
 ) -> ActionableItem:
     """Build a contract-shaped ``ActionableItem``, stamping the current schema version.
 
     The single constructor every producer (the classifier and any consumer) uses, so no
     one hand-builds items or forgets ``schema_version``.
     """
-    item: ActionableItem = {
-        "id": id,
-        "kind": kind,
-        "label": label,
-        "ref": ref,
-        "schema_version": ACTIONABLE_SCHEMA_VERSION,
-    }
-    # Treat a blank string as absent (same rule as the model-name truthiness filter): a ``fix_prompt``
-    # that is empty *or only whitespace* is off-contract and must not seed a downstream Finding -> Fix
-    # with no instruction. Store the stripped value so leading/trailing noise never reaches the fix agent.
-    if fix_prompt and fix_prompt.strip():
-        item["fix_prompt"] = fix_prompt.strip()
-    return item
+    return {"id": id, "kind": kind, "label": label, "ref": ref, "schema_version": ACTIONABLE_SCHEMA_VERSION}

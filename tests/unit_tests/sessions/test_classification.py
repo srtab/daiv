@@ -28,7 +28,7 @@ def test_build_structured_llm_single_model_skips_fallbacks():
     model = MagicMock()
     chain = model.with_structured_output.return_value.with_retry.return_value
 
-    with patch("sessions.classification.BaseAgent.get_model", return_value=model) as get_model:
+    with patch("sessions.classification.get_model", return_value=model) as get_model:
         result = _build_structured_llm(RunClassification, ("only",))
 
     get_model.assert_called_once_with(model="only")
@@ -42,7 +42,7 @@ def test_build_structured_llm_multi_model_wraps_primary_in_fallbacks():
     model = MagicMock()
     chain = model.with_structured_output.return_value.with_retry.return_value
 
-    with patch("sessions.classification.BaseAgent.get_model", return_value=model) as get_model:
+    with patch("sessions.classification.get_model", return_value=model) as get_model:
         result = _build_structured_llm(RunClassification, ("primary", "fallback"))
 
     # Primary is built first, then each fallback; the primary chain is wrapped with the fallback list.

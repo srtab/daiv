@@ -38,7 +38,7 @@ def _patches() -> dict[str, tuple[str, dict]]:
         "load_custom": ("load_custom_subagents", {"new": AsyncMock(return_value=[])}),
         "create_deep_agent": ("create_deep_agent", {}),
         "mcp_toolkit": ("MCPToolkit", {"get_tools": AsyncMock(return_value=[])}),
-        "base_agent": ("BaseAgent", {}),
+        "get_model": ("get_model", {}),
         "skills_middleware": ("SkillsMiddleware", {}),
         "git_middleware": ("GitMiddleware", {}),
         "git_platform_middleware": ("GitPlatformMiddleware", {}),
@@ -174,7 +174,7 @@ async def test_main_agent_summarizes_through_daivs_builder():
     built = await _build(workspace)
 
     assert built.summarization.return_value in _middleware(built)
-    built.summarization.assert_called_once_with(built.base_agent.get_model.return_value, workspace.backend)
+    built.summarization.assert_called_once_with(built.get_model.return_value, workspace.backend)
 
 
 def _final_stack(**deep_agent_kwargs) -> list:

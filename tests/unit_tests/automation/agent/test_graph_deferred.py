@@ -14,7 +14,7 @@ def _common_patches():
         # The defer-or-bind decision now reads deferred_settings through the shared helpers in
         # middlewares.deferred_tools (used by both the main agent and subagents), so patch it there.
         patch("automation.agent.middlewares.deferred_tools.deferred_settings"),
-        patch("automation.agent.graph.BaseAgent"),
+        patch("automation.agent.graph.get_model"),
         # Middleware constructors that validate input — replaced with no-op mocks
         patch("automation.agent.graph.SkillsMiddleware"),
         patch("automation.agent.graph.AnthropicPromptCachingMiddleware"),
@@ -40,7 +40,7 @@ class TestCreateDaivAgentDeferredFlag:
                 mock_create_deep_agent,
                 mock_toolkit,
                 mock_deferred_settings,
-                mock_base_agent,
+                mock_get_model,
                 *_,
             ) = managers
 
@@ -52,7 +52,7 @@ class TestCreateDaivAgentDeferredFlag:
             # tools=None => default single-tool list; pass tools=[] to exercise the empty-toolset path.
             mock_toolkit.get_tools = AsyncMock(return_value=[mcp_tool] if tools is None else tools)
 
-            mock_base_agent.get_model.return_value = MagicMock()
+            mock_get_model.return_value = MagicMock()
 
             site = site_snapshot(
                 agent_recursion_limit=50,

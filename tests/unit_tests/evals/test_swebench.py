@@ -9,7 +9,7 @@ import pytest
 from sessions.executor.lock import NoLock
 from sessions.executor.spec import RunOutcome
 
-from automation.agent import ThinkingLevel
+from automation.agent.base import ThinkingLevel
 from automation.agent.graph import create_daiv_agent
 from automation.agent.validators import AgentOverrideError
 from codebase.base import GitPlatform, Scope

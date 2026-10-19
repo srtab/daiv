@@ -43,18 +43,13 @@ def _build_structured_llm():
     One of three deliberately separate copies — ``sessions.classification`` and ``memory.llm`` have
     their own, with divergent retry policies; read those before reconciling them.
     """
-    from automation.agent.base import BaseAgent
+    from automation.agent.base import get_model
 
     def _structured(model_name: str):
         # No ``max_tokens`` cap: reasoning models (GPT-5, Claude thinking) count reasoning
         # tokens toward the budget, so a tight cap starves the structured-output JSON and
         # raises LengthFinishReasonError. Title length is bounded by ``GeneratedTitle.title``.
-        return (
-            BaseAgent
-            .get_model(model=model_name)
-            .with_structured_output(GeneratedTitle)
-            .with_retry(stop_after_attempt=2)
-        )
+        return get_model(model=model_name).with_structured_output(GeneratedTitle).with_retry(stop_after_attempt=2)
 
     return _structured(site_settings.titling_model_name).with_fallbacks([
         _structured(site_settings.titling_fallback_model_name)

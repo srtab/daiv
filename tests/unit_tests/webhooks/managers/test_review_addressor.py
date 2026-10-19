@@ -69,7 +69,16 @@ async def _review_session(thread_id: str, **fields) -> Session:
 async def _address(**kwargs):
     """``address_comments`` for mention ``c-1`` on MR 99 of ``owner/repo``; ``kwargs`` override."""
     return await CommentsAddressorManager.address_comments(
-        **({"repo_id": "owner/repo", "merge_request": _merge_request(), "mention_comment_id": "c-1"} | kwargs)
+        **(
+            {
+                "repo_id": "owner/repo",
+                "merge_request": _merge_request(),
+                "mention_comment_id": "c-1",
+                "thread_id": "t-mr",
+                "use_max": False,
+            }
+            | kwargs
+        )
     )
 
 

@@ -5,7 +5,7 @@ from memory.schemas import MemoryOperations
 
 
 def _models(*models):
-    return patch("automation.agent.base.BaseAgent.get_model", side_effect=list(models))
+    return patch("automation.agent.base.get_model", side_effect=list(models))
 
 
 def test_build_structured_llm_adds_no_retry_layer():

@@ -60,14 +60,6 @@ def format_tokens(value):
     return str(value)
 
 
-@register.filter
-def approx_prompt_tokens(prompt) -> int:
-    """Rough token count via the 4-chars-per-token heuristic; avoids a tokenizer dep for display-only hints."""
-    if not prompt:
-        return 0
-    return len(str(prompt)) // 4
-
-
 _STATUS_VARIANTS = {
     "SUCCESSFUL": "success",
     "FAILED": "failed",

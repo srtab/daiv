@@ -4,7 +4,7 @@ from openevals.llm import create_async_llm_as_judge
 from openevals.prompts import CORRECTNESS_PROMPT
 from pydantic import BaseModel
 
-from automation.agent.base import BaseAgent, ThinkingLevel
+from automation.agent.base import ThinkingLevel, get_model
 from core.constants import ModelName
 
 
@@ -19,7 +19,7 @@ def get_correctness_evaluator():
     return create_async_llm_as_judge(
         prompt=CORRECTNESS_PROMPT,
         feedback_key="correctness",
-        judge=BaseAgent.get_model(model=ModelName.GPT_6_1_SOL, thinking_level=ThinkingLevel.MEDIUM),
+        judge=get_model(model=ModelName.GPT_6_1_SOL, thinking_level=ThinkingLevel.MEDIUM),
     )
 
 
@@ -30,7 +30,7 @@ class Verdict(BaseModel):
 
 @cache
 def _question_judge():
-    return BaseAgent.get_model(model=ModelName.CLAUDE_OPUS_5_5, thinking_level=ThinkingLevel.MEDIUM)
+    return get_model(model=ModelName.CLAUDE_OPUS_5_5, thinking_level=ThinkingLevel.MEDIUM)
 
 
 async def judge_question_relevance(request: str, rendered_questions: str) -> Verdict:

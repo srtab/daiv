@@ -13,7 +13,7 @@ from langchain.agents.middleware import (
     dynamic_prompt,
 )
 
-from automation.agent.base import BaseAgent
+from automation.agent.base import get_model
 from automation.agent.constants import REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
@@ -192,10 +192,9 @@ async def create_daiv_agent(
         The DAIV agent.
     """
     chain = settings.agent
-    model = BaseAgent.get_model(model=chain.names[0], thinking_level=chain.thinking_level)
+    model = get_model(model=chain.names[0], thinking_level=chain.thinking_level)
     fallback_models = [
-        BaseAgent.get_model(model=model_name, thinking_level=chain.fallback_thinking_level)
-        for model_name in chain.names[1:]
+        get_model(model=model_name, thinking_level=chain.fallback_thinking_level) for model_name in chain.names[1:]
     ]
 
     bash_tool_enabled = workspace.bash is not None
