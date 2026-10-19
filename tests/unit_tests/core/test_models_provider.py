@@ -176,3 +176,23 @@ def test_cached_carries_verify_ssl_disabled():
     )
     row = next(r for r in Provider.get_cached_rows() if r.slug == "insec")
     assert row.verify_ssl is False
+
+
+@pytest.mark.django_db
+def test_get_secret_hint_returns_none_when_api_key_cannot_be_decrypted():
+    p = Provider.objects.create(slug="rot", display_name="R", provider_type=ProviderType.OPENAI, api_key="sk")
+    p._api_key_encrypted = "not-a-fernet-token"
+    assert p.get_secret_hint() is None
+
+
+@pytest.mark.django_db
+def test_get_cached_rows_skips_only_the_undecryptable_row():
+    Provider.objects.create(slug="good", display_name="G", provider_type=ProviderType.OPENAI, api_key="sk")
+    bad = Provider.objects.create(slug="bad", display_name="B", provider_type=ProviderType.OPENAI, api_key="sk")
+    Provider.objects.filter(pk=bad.pk).update(_api_key_encrypted="not-a-fernet-token")
+    cache.delete(PROVIDERS_CACHE_KEY)
+
+    slugs = {r.slug for r in Provider.get_cached_rows()}
+
+    assert "good" in slugs
+    assert "bad" not in slugs

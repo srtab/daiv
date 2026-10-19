@@ -274,6 +274,15 @@ class TestPostSave:
                 f"row {idx} missing sort_order hidden input"
             )
 
+    def test_renders_when_an_api_key_cannot_be_decrypted(self, client, admin_user, group_url):
+        provider = _enable_seed_provider("anthropic")
+        Provider.objects.filter(pk=provider.pk).update(_api_key_encrypted="not-a-fernet-token")
+        client.force_login(admin_user)
+
+        response = client.get(group_url("providers"))
+
+        assert response.status_code == 200
+
     def test_clear_api_key_via_button(self, client, admin_user, group_url):
         """clear_api_key=on forces api_key=None and is_enabled=False even when the
         POST also re-sends is_enabled=on for that row — disable wins."""

@@ -1027,12 +1027,16 @@ class Provider(models.Model):
         return result
 
     def get_secret_hint(self) -> str | None:
-        """Return a masked hint for the row's API key, or ``None`` if unset."""
-        value = self.api_key
+        """Return a masked hint for the row's API key, or ``None`` if unset
+        or if the stored ciphertext cannot be decrypted."""
+        from core.encryption import DecryptionError, mask_secret
+
+        try:
+            value = self.api_key
+        except DecryptionError:
+            return None
         if value is None:
             return None
-        from core.encryption import mask_secret
-
         return mask_secret(value)
 
     @property
@@ -1059,9 +1063,15 @@ class Provider(models.Model):
     def _build_from_db(cls) -> list[Provider.Cached]:
         from pydantic import SecretStr
 
+        from core.encryption import DecryptionError
+
         out: list[Provider.Cached] = []
         for row in cls.objects.order_by("sort_order", "slug"):
-            raw_key = row.api_key
+            try:
+                raw_key = row.api_key
+            except DecryptionError:
+                logger.error("Provider %r api_key could not be decrypted; skipping", row.slug)
+                continue
             api_key = SecretStr(raw_key) if raw_key else None
             out.append(
                 cls.Cached(
