@@ -147,10 +147,11 @@ async def classify_run_task(run_id: str) -> None:
     unclassified ("classifying…"). An unrecoverable method error propagates (task FAILED, no partial
     envelope written).
     """
-    from sessions.models import Intent, Run, RunStatus
+    from sessions.models import Run, RunStatus
 
     from notifications.classification.envelopes import build_actionable_item, validate_actionable
     from notifications.classification.llm import classify_response_text
+    from schedules.models import Intent
 
     run = (
         await Run.objects

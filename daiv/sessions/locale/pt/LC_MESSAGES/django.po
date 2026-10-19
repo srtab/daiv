@@ -92,15 +92,6 @@ msgstr "Webhook de issue"
 msgid "MR/PR Webhook"
 msgstr "Webhook de MR/PR"
 
-msgid "Watch & find"
-msgstr "Vigiar e encontrar"
-
-msgid "Do & change"
-msgstr "Fazer e alterar"
-
-msgid "Report"
-msgstr "Relatar"
-
 msgid "None"
 msgstr "Nenhuma"
 

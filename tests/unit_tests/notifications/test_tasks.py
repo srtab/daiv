@@ -20,10 +20,10 @@ from notifications.tasks import (
     reclassify_missing_envelopes_cron_task,
     redrive_missing_notifications_cron_task,
 )
-from sessions.models import Intent, Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
-from schedules.models import Frequency, ScheduledJob
+from schedules.models import Frequency, Intent, ScheduledJob
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
 
 

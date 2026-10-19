@@ -5,9 +5,8 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 import pytest
-from sessions.models import Intent
 
-from schedules.models import DispatchError, Frequency, ScheduledJob, ScheduleTemplate
+from schedules.models import DispatchError, Frequency, Intent, ScheduledJob, ScheduleTemplate
 
 
 @pytest.mark.django_db
@@ -281,6 +280,14 @@ class TestScheduledJobIsFiredOneOff:
             run_count=42,
         )
         assert job.is_fired_one_off is False
+
+
+class TestIntentEnum:
+    def test_values(self):
+        assert set(Intent.values) == {"watch-find", "do-change", "report"}
+
+    def test_finding_bearing_excludes_report(self):
+        assert Intent.finding_bearing() == frozenset({Intent.WATCH_FIND, Intent.DO_CHANGE})
 
 
 @pytest.mark.django_db

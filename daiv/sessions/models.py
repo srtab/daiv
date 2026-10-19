@@ -93,27 +93,6 @@ class WatchState(models.TextChoices):
         return frozenset({cls.WATCHING, cls.FIXING})
 
 
-class Intent(models.TextChoices):
-    """What a scheduled run is for, so the review console knows what "success" looks like.
-
-    Values are the literal hyphenated strings shared with the envelope contract; do not
-    normalize to underscores.
-    """
-
-    WATCH_FIND = "watch-find", _("Watch & find")
-    DO_CHANGE = "do-change", _("Do & change")
-    REPORT = "report", _("Report")
-
-    @classmethod
-    def finding_bearing(cls) -> frozenset[str]:
-        """Intents whose runs may produce actionable findings (``report`` is excluded).
-
-        Consumed by the Story 1.3 classifier to enforce that a ``report``-intent run
-        never yields an actionable finding.
-        """
-        return frozenset({cls.WATCH_FIND, cls.DO_CHANGE})
-
-
 class Session(models.Model):
     """One agent thread. PK == LangGraph checkpoint key (``thread_id``)."""
 

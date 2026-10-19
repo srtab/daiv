@@ -16,7 +16,8 @@ from notifications.classification.llm import (
     _build_structured_llm,
     classify_response_text,
 )
-from sessions.models import Intent
+
+from schedules.models import Intent
 
 
 def test_status_literal_matches_envelope_status_minus_failed():
