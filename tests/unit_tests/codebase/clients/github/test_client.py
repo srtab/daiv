@@ -424,30 +424,31 @@ class TestGitHubClient:
         assert result.merge_request_id == 7
         assert "Multiple open PRs" in caplog.text
 
+    @staticmethod
+    def _get_path_pr(*, merged=False, draft=False):
+        mock_pr = Mock(number=7, title="feat: add x", body="details", labels=[], merged=merged, draft=draft)
+        mock_pr.head = Mock(ref="feat-x", sha="abc123")
+        mock_pr.base = Mock(ref="main")
+        mock_pr.html_url = "https://github.com/o/r/pull/7"
+        mock_pr.user = Mock(id=1, login="alice")
+        mock_pr.user.name = "Alice"
+        return mock_pr
+
     @pytest.mark.parametrize("merged", [True, False])
     def test_get_merge_request_maps_merged_state(self, github_client, merged):
         """get_merge_request reflects the PR's ``merged`` flag — the value the merged-MR skip guard
         in address_mr_comments_task reads."""
+        github_client.client.get_repo.return_value.get_pull.return_value = self._get_path_pr(merged=merged)
 
-        def _pr(merged):
-            mock_pr = Mock()
-            mock_pr.head = Mock(ref="feat-x", sha="abc123")
-            mock_pr.base = Mock(ref="main")
-            mock_pr.title = "feat: add x"
-            mock_pr.body = "details"
-            mock_pr.labels = []
-            mock_pr.html_url = "https://github.com/o/r/pull/7"
-            user = Mock(id=1, login="alice")
-            user.name = "Alice"
-            mock_pr.user = user
-            mock_pr.merged = merged
-            return mock_pr
-
-        mock_repo = Mock()
-        github_client.client.get_repo.return_value = mock_repo
-
-        mock_repo.get_pull.return_value = _pr(merged)
         assert github_client.get_merge_request("owner/repo", 7).merged is merged
+
+    @pytest.mark.parametrize("draft", [True, False])
+    def test_get_merge_request_maps_draft_state(self, github_client, draft):
+        """get_merge_request reflects the PR's ``draft`` flag — the value the publisher's
+        draft-to-ready step reads on the MR-comment path."""
+        github_client.client.get_repo.return_value.get_pull.return_value = self._get_path_pr(draft=draft)
+
+        assert github_client.get_merge_request("owner/repo", 7).draft is draft
 
     @staticmethod
     def _create_path_pr(assignees):
