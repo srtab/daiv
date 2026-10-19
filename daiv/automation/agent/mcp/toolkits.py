@@ -4,13 +4,13 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from automation.agent.toolkits import BaseToolkit
-
 from .client import build_client, list_tools
 from .conf import settings
 from .errors import FailureKind, classify
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from langchain_core.tools.base import BaseTool
 
     from automation.agent.mcp.schemas import UserMcpServer
@@ -50,16 +50,11 @@ async def _load_server_tools(name: str, server: UserMcpServer) -> list[BaseTool]
     return tools
 
 
-class MCPToolkit(BaseToolkit):
-    @classmethod
-    async def get_tools(cls, user_id: int | None = None, overrides: dict | None = None) -> list[BaseTool]:
-        from asgiref.sync import sync_to_async
-        from mcp_connectors.services import build_runtime_servers
+async def load_mcp_tools(servers: Sequence[tuple[str, UserMcpServer]]) -> list[BaseTool]:
+    """Load the tools of every ``(name, server)`` pair concurrently; a server that fails to load contributes none."""
+    if not servers:
+        return []
 
-        servers = await sync_to_async(build_runtime_servers)(user_id, overrides)
-        if not servers:
-            return []
-
-        logger.debug("Connecting to MCP servers: %s", {name: server.url for name, server in servers})
-        per_server = await asyncio.gather(*(_load_server_tools(name, server) for name, server in servers))
-        return [tool for server_tools in per_server for tool in server_tools]
+    logger.debug("Connecting to MCP servers: %s", {name: server.url for name, server in servers})
+    per_server = await asyncio.gather(*(_load_server_tools(name, server) for name, server in servers))
+    return [tool for server_tools in per_server for tool in server_tools]

@@ -9,6 +9,7 @@ from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_config
+from skills.constants import FRONTMATTER_RE
 
 from .constants import REPO_PATH
 from .events import ASSISTANT_MESSAGE_EVENT, assistant_message_payload
@@ -208,8 +209,7 @@ def extract_body_from_frontmatter(frontmatter_text: str) -> str:
     Returns:
         str: The extracted content.
     """
-    frontmatter_pattern = r"^---\s*\n(.*?)\n---\s*\n"
-    match = re.match(frontmatter_pattern, frontmatter_text, re.DOTALL)
+    match = FRONTMATTER_RE.match(frontmatter_text)
     if not match:
         return frontmatter_text
     return frontmatter_text[match.end() :]

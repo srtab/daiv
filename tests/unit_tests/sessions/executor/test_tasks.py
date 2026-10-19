@@ -193,69 +193,35 @@ async def test_run_job_task_persists_resolved_model():
     assert run.agent_thinking_level == "xhigh"
 
 
+async def _run_spec(thread_id: str):
+    captured: dict = {}
+
+    async def _execute_run(spec, hooks=None):
+        captured["spec"] = spec
+        return SimpleNamespace(agent_result={"response": "ok"})
+
+    with patch("sessions.executor.tasks.execute_run", _execute_run):
+        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id)
+    return captured["spec"]
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_run_job_task_reads_session_mcp_overrides():
-    """run_job_task must pass Session.mcp_overrides to set_runtime_ctx; missing row → {}."""
-    import uuid
-    from contextlib import asynccontextmanager, suppress
-
-    from sessions.models import Session, SessionOrigin
-
     thread_id = str(uuid.uuid4())
     await Session.objects.acreate(
         thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="g/r", mcp_overrides={"a": "off"}
     )
 
-    captured: dict = {}
+    spec = await _run_spec(thread_id)
 
-    @asynccontextmanager
-    async def _fake_set_runtime_ctx(*args, **kwargs):
-        captured.update(kwargs)
-        yield disk_ctx(config=MagicMock(models=MagicMock(agent=object())))
-
-    with (
-        patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
-        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
-        patch("core.checkpointer.open_checkpointer"),
-        patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
-        patch("automation.agent.agent_settings.resolve_agent_settings", return_value=resolved_to("m")),
-        patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
-        suppress(Exception),
-    ):
-        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id)
-
-    assert captured.get("mcp_overrides") == {"a": "off"}
+    assert spec.mcp_overrides == {"a": "off"}
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_run_job_task_mcp_overrides_defaults_to_empty_when_no_session():
-    """When there is no Session row, mcp_overrides forwarded to set_runtime_ctx is {}."""
-    import uuid
-    from contextlib import asynccontextmanager, suppress
+    spec = await _run_spec(str(uuid.uuid4()))
 
-    captured: dict = {}
-
-    @asynccontextmanager
-    async def _fake_set_runtime_ctx(*args, **kwargs):
-        captured.update(kwargs)
-        yield disk_ctx(config=MagicMock(models=MagicMock(agent=object())))
-
-    with (
-        patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
-        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
-        patch("core.checkpointer.open_checkpointer"),
-        patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
-        patch("automation.agent.agent_settings.resolve_agent_settings", return_value=resolved_to("m")),
-        patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
-        suppress(Exception),
-    ):
-        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=str(uuid.uuid4()))
-
-    assert captured.get("mcp_overrides") == {}
+    assert spec.mcp_overrides == {}
 
 
 @pytest.mark.django_db(transaction=True)

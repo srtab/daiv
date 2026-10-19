@@ -85,12 +85,8 @@ class RuntimeCtx:
     """External work items this run addresses; rendered into the MR description and commit
     trailers by the publisher. Includes the derived platform issue ref for issue-scoped runs."""
     acting_user_id: int | None = None
-    """The DAIV user who triggered this run, when known. Selects that user's
-    personal MCP servers. ``None`` for webhook-triggered runs (issue/MR labels),
-    which load global servers only."""
-    mcp_overrides: dict = field(default_factory=dict)
-    """Per-run MCP server selection deviations ({name: "on"|"off"}). Empty = pure default set.
-    Stamped on the Session at creation and read on every run; ``build_runtime_servers`` applies it."""
+    """The DAIV user who triggered this run, when known; outside issue-scoped runs, the new merge request's
+    assignee. ``None`` for webhook-triggered runs (issue/MR labels)."""
 
     def __post_init__(self) -> None:
         if not isinstance(self.repos, tuple):
@@ -182,7 +178,6 @@ async def set_runtime_ctx(
     offline: bool = False,
     sandbox_spec: SandboxSpec,
     acting_user_id: int | None = None,
-    mcp_overrides: dict | None = None,
     references: Sequence[ExternalRef] | None = None,
     fallback_ref_on_missing: bool = False,
     **kwargs: Any,
@@ -197,8 +192,7 @@ async def set_runtime_ctx(
         merge_request: The merge request object if the context is scoped to a merge request.
         offline: Whether to use the cached configuration or to fetch it from the repository.
         sandbox_spec: The run's sandbox (:func:`sandbox_envs.services.build_sandbox_spec`).
-        acting_user_id: DAIV user id that triggered the run; selects their personal MCP servers.
-        mcp_overrides: Per-run MCP server selection deviations ({name: "on"|"off"}). ``None`` keeps the default set.
+        acting_user_id: DAIV user id that triggered the run.
         references: Caller-declared external references, from ``Session.external_refs``.
         fallback_ref_on_missing: When True, a clone that fails because ``ref`` no longer exists on
             the remote (a merged-and-deleted branch) retries on the repository default branch
@@ -251,7 +245,6 @@ async def set_runtime_ctx(
                     references, scope=scope, issue=issue, git_platform=repo_client.git_platform
                 ),
                 acting_user_id=acting_user_id,
-                mcp_overrides=mcp_overrides or {},
             )
             token = runtime_ctx.set(ctx)
             try:

@@ -21,6 +21,7 @@ def test_a_disk_workspace_is_fenced_has_no_shell_and_is_always_ready(tmp_path):
     assert (workspace.bash, workspace.session, workspace.is_ready) == (None, None, True)
     assert workspace.fs_permissions is WORKSPACE_FENCE_PERMISSIONS
     assert workspace.provisions_skills is False
+    assert workspace.skills_provisioning_errors == ()
 
 
 async def test_its_files_are_the_clone_under_workspace_repo(tmp_path):

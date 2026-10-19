@@ -344,7 +344,6 @@ async def _daiv_agent(checkpointer: BaseCheckpointSaver | None = None):
     with (
         patch("automation.agent.graph.get_model", side_effect=_tool_model),
         patch("automation.agent.subagents.get_model", side_effect=_tool_model),
-        patch("automation.agent.graph.MCPToolkit.get_tools", AsyncMock(return_value=[])),
         patch("automation.agent.graph.load_custom_subagents", AsyncMock(return_value=[])),
         patch("automation.agent.middlewares.sandbox.site_settings", sandbox_api_key="key"),
         patch.object(deferred_settings, "ENABLED", True),

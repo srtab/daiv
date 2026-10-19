@@ -15,9 +15,8 @@ from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
+from skills.services import global_skill_files
 
-from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.workspace.bash_policy.command_parser import CommandParseError, parse_command
 from automation.agent.workspace.bash_policy.command_policy import (
     CommandPolicy,
@@ -25,6 +24,7 @@ from automation.agent.workspace.bash_policy.command_policy import (
     evaluate_command_policy,
     parse_rule,
 )
+from automation.agent.workspace.session import SessionSeed
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
 from core.sandbox.client import is_transient_sandbox_error
@@ -253,53 +253,43 @@ def _make_repo_archive(working_dir: str) -> bytes:
     return buf.getvalue()
 
 
-def _make_global_skills_archive() -> bytes | None:
-    """Tar builtin + custom global skills (members relative to their skill dir).
+def _make_global_skills_archive() -> tuple[bytes | None, list[str]]:
+    """Tar the global skills (``skills.services.global_skill_files``), each under ``<name>/``, with what was left out,
+    worded for the agent.
 
-    These are the only-disk sources for global skills; seeding them into the sandbox's
-    ``/workspace/skills`` is the single provisioning step (one RPC), replacing per-file
-    uploads. Custom skills are added after builtins so a same-named custom skill overrides.
-    Returns ``None`` if there is nothing to pack.
+    These are the only-disk sources for global skills; seeding them into the sandbox's ``/workspace/skills`` is the
+    single provisioning step (one RPC), replacing per-file uploads. The archive is ``None`` when there is nothing to
+    pack, or when it can't be built, which leaves the sandbox without global skills.
     """
-    roots: list[Path] = [BUILTIN_SKILLS_PATH]
-    custom = agent_settings.CUSTOM_SKILLS_PATH
-    if custom is not None and custom.is_dir():
-        roots.append(custom)
-
-    members: dict[str, Path] = {}
-    for root in roots:
-        if not root.is_dir():
-            continue
-        try:
-            children = list(root.iterdir())
-        except OSError:
-            logger.warning("Could not read skills root '%s'; skipping for seed archive", root, exc_info=True)
-            continue
-        for child in children:
-            if child.is_dir() and (child.name.startswith(".") or child.name == "__pycache__"):
-                continue
-            members[child.name] = child  # later root (custom) overrides builtin
-
-    if not members:
-        return None
+    skills = global_skill_files()
+    if not skills.files:
+        return None, skills.errors
 
     buf = io.BytesIO()
     try:
-        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-            for name, path in members.items():
-                tf.add(path, arcname=name)
+        # ``dereference``: the sandbox rejects symlinks, so a linked file is packed as the file it points to.
+        with tarfile.open(fileobj=buf, mode="w:gz", dereference=True) as tf:
+            # Directory entries let the sandbox stamp their ownership; extraction would otherwise create them as root.
+            for path, source in skills.dirs.items():
+                tf.add(source, arcname=path, recursive=False)
+            for path, source in skills.files.items():
+                if (content := skills.read(path)) is None:
+                    continue
+                info = tf.gettarinfo(source, arcname=path)
+                info.size = len(content)
+                tf.addfile(info, io.BytesIO(content))
     except OSError, tarfile.TarError:
         logger.warning("Failed to build global skills archive; seeding without skills", exc_info=True)
-        return None
-    return buf.getvalue()
+        return None, [*skills.errors, "Global skills failed to load: the sandbox could not be seeded with them"]
+    return buf.getvalue(), skills.errors
 
 
-async def _seed_archives(working_dir: str) -> tuple[bytes, bytes | None]:
+async def _seed_archives(working_dir: str) -> SessionSeed:
     """The repository and global-skills archives a fresh sandbox session is seeded with."""
-    repo_archive, skills_archive = await asyncio.gather(
+    repo_archive, (skills_archive, skills_seed_errors) = await asyncio.gather(
         asyncio.to_thread(_make_repo_archive, working_dir), asyncio.to_thread(_make_global_skills_archive)
     )
-    return repo_archive, skills_archive
+    return SessionSeed(repo_archive, skills_archive, skills_seed_errors)
 
 
 async def acquire_sandbox(session: SandboxSession, ctx: RuntimeCtx, checkpointed: Mapping[str, Any]) -> None:

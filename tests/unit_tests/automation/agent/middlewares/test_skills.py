@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -18,6 +18,10 @@ from automation.agent.synthetic import synthetic_message
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig, SlashCommands
+from tests.unit_tests.conftest import write_skill
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_runtime(
@@ -69,7 +73,7 @@ class TestSkillsMiddleware:
         middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
-        with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
+        with patch("skills.services.BUILTIN_SKILLS_PATH", builtin):
             result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
 
         assert result is not None
@@ -108,7 +112,7 @@ class TestSkillsMiddleware:
         }
 
         with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
+            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
             patch.object(middleware, "_copy_global_skills", new_callable=AsyncMock, return_value=[]) as mock_copy,
         ):
             await middleware.abefore_agent(state, runtime, Mock())
@@ -164,57 +168,27 @@ class TestSkillsMiddleware:
 
         assert result is None
 
-    def test_collect_skill_files_skips_already_cached_files(self, tmp_path: Path):
+    async def test_copy_skips_files_already_in_the_cache(self, skill_roots, tmp_path: Path):
         """The per-file existence check makes per-turn re-materialization a no-op once the disk
-        cache is populated — cold cache collects the file for upload, warm cache skips it. This
-        is what makes running ``_copy_global_skills`` every turn cheap; a regression checking the
-        wrong path would re-upload every skill file on every turn with no other test failing."""
-        source = tmp_path / "src"
-        (source / "skill-one").mkdir(parents=True)
-        (source / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
+        cache is populated — cold cache uploads the file, warm cache skips it. This is what makes
+        running ``_copy_global_skills`` every turn cheap; a regression checking the wrong path would
+        re-upload every skill file on every turn with no other test failing."""
+        builtin, _ = skill_roots
+        write_skill(builtin, "skill-one", "ok")
         cache = tmp_path / "cache"
+        backend = Mock()
+        backend.aupload_files = AsyncMock(side_effect=lambda files: [Mock(error=None) for _ in files])
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
 
         with patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", cache):
-            cold: list[tuple[str, bytes]] = []
-            SkillsMiddleware._collect_skill_files(source, Path("/skills"), cold, [])
-            assert [dest for dest, _ in cold] == ["/skills/skill-one/SKILL.md"]
-
+            await middleware._copy_global_skills()
             (cache / "skill-one").mkdir(parents=True)
             (cache / "skill-one" / "SKILL.md").write_text("cached")
-            warm: list[tuple[str, bytes]] = []
-            SkillsMiddleware._collect_skill_files(source, Path("/skills"), warm, [])
-            assert warm == []
+            await middleware._copy_global_skills()
 
-    def test_collect_skill_files_surfaces_incomplete_skill_for_broken_asset(self, tmp_path: Path, monkeypatch):
-        """A non-SKILL.md asset (scripts/, references/) that fails to read must surface an
-        ``incomplete`` warning — the skill-creator skill depends on scripts/init_skill.py at runtime,
-        so a silently-dropped asset would otherwise only surface mid-use. The manifest itself loads, so
-        this is distinct from the SKILL.md-missing error."""
-        source = tmp_path / "src"
-        (source / "skill-one").mkdir(parents=True)
-        (source / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
-        (source / "skill-one" / "scripts").mkdir()
-        (source / "skill-one" / "scripts" / "helper.py").write_text("print('hi')")
-        cache = tmp_path / "cache"  # cold cache so every file is collected
-
-        real_read_bytes = Path.read_bytes
-
-        def fake_read_bytes(self):
-            if self.name == "helper.py":
-                raise OSError(2, "No such file or directory")
-            return real_read_bytes(self)
-
-        monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
-
-        errors: list[str] = []
-        files: list[tuple[str, bytes]] = []
-        with patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", cache):
-            SkillsMiddleware._collect_skill_files(source, Path("/skills"), files, errors)
-
-        # SKILL.md still collected; the broken asset is reported as incomplete, not as a load failure.
-        assert "/skills/skill-one/SKILL.md" in [dest for dest, _ in files]
-        assert any("may be incomplete" in e and "helper.py" in e for e in errors)
-        assert not any(e.startswith("Cannot load skill") for e in errors)
+        cold, warm = (call.args[0] for call in backend.aupload_files.await_args_list)
+        assert [dest for dest, _ in cold] == ["/workspace/skills/skill-one/SKILL.md"]
+        assert warm == []
 
     async def test_preserves_user_supplied_metadata(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -238,7 +212,7 @@ class TestSkillsMiddleware:
         middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills", f"/{repo_name}/.agents/skills"])
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
-        with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
+        with patch("skills.services.BUILTIN_SKILLS_PATH", builtin):
             result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
 
         assert result is not None
@@ -269,7 +243,7 @@ class TestSkillsMiddleware:
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
 
-        with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
+        with patch("skills.services.BUILTIN_SKILLS_PATH", builtin):
             await middleware._copy_global_skills()
 
         skills_root = tmp_path / "workspace" / "skills"
@@ -301,7 +275,7 @@ class TestSkillsMiddleware:
         existing_skill_md.write_text(_make_skill_md(name="skill-one", description="existing"))
 
         with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
+            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
             patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", cache_root),
         ):
             await middleware._copy_global_skills()
@@ -319,10 +293,7 @@ class TestSkillsMiddleware:
         backend.aupload_files = AsyncMock(return_value=[Mock(error="boom")])
         middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
 
-        with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            pytest.raises(RuntimeError, match="boom"),
-        ):
+        with patch("skills.services.BUILTIN_SKILLS_PATH", builtin), pytest.raises(RuntimeError, match="boom"):
             await middleware._copy_global_skills()
 
     def test_format_skills_list_renders_xml(self):
@@ -354,11 +325,15 @@ class TestSkillsMiddleware:
         formatted = middleware._format_skills_list([])
         assert formatted == "(No skills available yet. You can create skills in /skills or /extra/skills)"
 
-    async def test_abefore_agent_skips_copy_global_skills_when_the_workspace_provisions_them(self):
-        """A sandbox's seed provisions the global skills, so SkillsMiddleware must NOT upload them."""
+    async def test_abefore_agent_reports_what_the_workspace_provisioning_left_out_instead_of_copying(self):
+        """A sandbox's seed provisions the global skills, so SkillsMiddleware must NOT upload them, but what the seed
+        left out still reaches the agent."""
         backend = Mock()
         middleware = SkillsMiddleware(
-            backend=backend, sources=[("/workspace/skills", "Global")], copy_global_skills=False
+            backend=backend,
+            sources=[("/workspace/skills", "Global")],
+            copy_global_skills=False,
+            provisioning_errors=["Cannot load skill 'plan': Permission denied"],
         )
         state = {"messages": [HumanMessage(content="hi")]}  # no skills_metadata yet
         runtime = Mock()
@@ -370,9 +345,10 @@ class TestSkillsMiddleware:
                 new=AsyncMock(return_value={"skills_metadata": []}),
             ),
         ):
-            await middleware.abefore_agent(state, runtime, {})
+            result = await middleware.abefore_agent(state, runtime, {})
 
         mock_copy.assert_not_called()
+        assert result["skills_load_errors"] == ["Cannot load skill 'plan': Permission denied"]
 
     async def test_abefore_agent_copies_global_skills_into_a_workspace_that_lacks_them(self):
         backend = Mock()
@@ -439,7 +415,7 @@ class TestSkillsMiddleware:
         runtime.state = {"skills_metadata": [{"name": "demo", "path": "/workspace/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
-        with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+        with patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock):
             result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="alpha beta")
 
         assert isinstance(result, Command)
@@ -460,7 +436,7 @@ class TestSkillsMiddleware:
         runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
-        with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+        with patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock):
             result = await tool.coroutine(skill="demo", runtime=runtime)
 
         content = result.update["messages"][0].content
@@ -481,7 +457,7 @@ class TestSkillsMiddleware:
         runtime.state = {"skills_metadata": [{"name": "demo", "path": "/myrepo/.agents/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
-        with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+        with patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock):
             result = await tool.coroutine(skill="demo", runtime=runtime)
 
         assert result.update["messages"][0].content.startswith("<skill_root>/myrepo/.agents/skills/demo</skill_root>\n")
@@ -498,7 +474,7 @@ class TestSkillsMiddleware:
         runtime.state = {"skills_metadata": [{"name": "demo", "path": "/workspace/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
-        with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+        with patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock):
             result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="--flag=1")
 
         assert isinstance(result, Command)
@@ -520,7 +496,7 @@ class TestSkillsMiddleware:
         }
         runtime.tool_call_id = "call_1"
 
-        with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+        with patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock):
             result = await tool_.coroutine(skill="plan", runtime=runtime)
 
         assert result.update["active_skill_mode"] == SKILL_MODE_READ_ONLY
@@ -553,7 +529,7 @@ class TestSkillsMiddleware:
         )
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
-        with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
+        with patch("skills.services.BUILTIN_SKILLS_PATH", builtin):
             result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
 
         assert result is not None
@@ -595,7 +571,7 @@ class TestSkillsMiddleware:
         }
 
         with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
+            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
             patch(
                 "automation.agent.middlewares.skills.DeepAgentsSkillsMiddleware.abefore_agent",
                 AsyncMock(return_value=upstream_update),
@@ -766,8 +742,8 @@ class TestCustomGlobalSkills:
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", custom_global),
+            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
+            patch("skills.services.settings.CUSTOM_SKILLS_PATH", custom_global),
         ):
             result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
 
@@ -782,8 +758,9 @@ class TestCustomGlobalSkills:
 
         repo_name = "repoX"
         builtin = tmp_path / "builtin_skills"
-        (builtin / "plan").mkdir(parents=True)
+        (builtin / "plan" / "scripts").mkdir(parents=True)
         (builtin / "plan" / "SKILL.md").write_text(_make_skill_md(name="plan", description="builtin plan"))
+        (builtin / "plan" / "scripts" / "helper.py").write_text("print()")
 
         custom_global = tmp_path / "custom_skills"
         (custom_global / "plan").mkdir(parents=True)
@@ -794,15 +771,16 @@ class TestCustomGlobalSkills:
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", custom_global),
+            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
+            patch("skills.services.settings.CUSTOM_SKILLS_PATH", custom_global),
+            patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", tmp_path / "cache"),
         ):
             result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
 
         assert result is not None
         skills = {skill["name"]: skill for skill in result["skills_metadata"]}
-        # Custom global skill wins via "last source wins" in `_collect_skill_files`.
         assert skills["plan"]["description"] == "custom plan"
+        assert not (tmp_path / "workspace" / "skills" / "plan" / "scripts").exists()
 
     async def test_custom_global_skill_is_materialized(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -820,8 +798,8 @@ class TestCustomGlobalSkills:
         middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
 
         with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", custom_global),
+            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
+            patch("skills.services.settings.CUSTOM_SKILLS_PATH", custom_global),
         ):
             await middleware._copy_global_skills()
 
@@ -851,8 +829,8 @@ class TestCustomGlobalSkills:
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", custom_global),
+            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
+            patch("skills.services.settings.CUSTOM_SKILLS_PATH", custom_global),
         ):
             result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
 
@@ -861,151 +839,23 @@ class TestCustomGlobalSkills:
         # Per-repo source wins (last source wins).
         assert skills["shared-skill"]["description"] == "repo version"
 
-    async def test_custom_global_skills_disabled_when_path_is_none(self, tmp_path: Path):
-        from deepagents.backends.filesystem import FilesystemBackend
-
-        builtin = tmp_path / "builtin_skills"
-        (builtin / "skill-one").mkdir(parents=True)
-        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin one"))
-
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
-
-        with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", None),
-        ):
-            assert await middleware._copy_global_skills() == []
-
-        # Built-in skill was materialized.
-        assert (tmp_path / "workspace" / "skills" / "skill-one" / "SKILL.md").exists()
-
-    async def test_custom_global_skills_missing_path_does_not_surface_to_agent(self, tmp_path: Path):
-        from deepagents.backends.filesystem import FilesystemBackend
-
-        builtin = tmp_path / "builtin_skills"
-        (builtin / "skill-one").mkdir(parents=True)
-        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin one"))
-
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
-        missing = tmp_path / "nonexistent"
-
-        with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", missing),
-        ):
-            errors = await middleware._copy_global_skills()
-
-        # A misconfigured host path is an operator concern, not an agent one — it's logged
-        # but must not surface in skills_load_errors where the agent would see it.
-        assert errors == []
-        assert (tmp_path / "workspace" / "skills" / "skill-one" / "SKILL.md").exists()
-
-    async def test_custom_global_skills_oserror_surfaces_in_load_errors(self, tmp_path: Path):
-        """An OSError raised while walking the custom-skills dir must reach skills_load_errors."""
-        from deepagents.backends.filesystem import FilesystemBackend
-
-        builtin = tmp_path / "builtin_skills"
-        (builtin / "skill-one").mkdir(parents=True)
-        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin one"))
-
-        custom_global = tmp_path / "custom_skills"
-        custom_global.mkdir(parents=True)
-
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
-
-        leaky_path = str(custom_global / "secret-skill")
-
-        def _raise_on_custom(source_root, project_skills_path, files_to_upload, errors):
-            if source_root == custom_global:
-                # Three-arg form mirrors what the OS raises: ``str(exc)`` embeds the path,
-                # so this exercises the path-stripping behavior of the middleware.
-                raise PermissionError(13, "Permission denied", leaky_path)
-            # builtin path: pass through as no-op
-            return None
-
-        with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", custom_global),
-            patch.object(SkillsMiddleware, "_collect_skill_files", staticmethod(_raise_on_custom)),
-        ):
-            errors = await middleware._copy_global_skills()
-
-        # Agent-visible error must signal failure but strip both the host path the operator
-        # would see in ``str(exc)`` and the parent custom-skills directory.
-        assert any("Permission denied" in err for err in errors)
-        assert not any(leaky_path in err for err in errors)
-        assert not any(str(custom_global) in err for err in errors)
-
-    async def test_missing_skill_md_surfaces_in_load_errors(self, tmp_path: Path):
-        """When SKILL.md cannot be read, the skill's name must surface in errors so it doesn't silently vanish."""
-        from pathlib import Path as _Path
-
-        from deepagents.backends.filesystem import FilesystemBackend
-
-        builtin = tmp_path / "builtin_skills"
-        (builtin / "broken-skill").mkdir(parents=True)
-        skill_md = builtin / "broken-skill" / "SKILL.md"
-        skill_md.write_text(_make_skill_md(name="broken-skill", description="will fail to read"))
-
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
-
-        original_read_bytes = _Path.read_bytes
-
-        def _fail_on_skill_md(self):
-            if self.name == "SKILL.md":
-                # Three-arg form mirrors what the OS raises: ``str(exc)`` embeds the file path,
-                # so this exercises the path-stripping behavior of the middleware.
-                raise PermissionError(13, "Permission denied", str(self))
-            return original_read_bytes(self)
-
-        with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch.object(_Path, "read_bytes", _fail_on_skill_md),
-        ):
-            errors = await middleware._copy_global_skills()
-
-        # Agent-visible error must name the skill (so the agent can warn the user if invoked)
-        # but must not leak the host filesystem path of the SKILL.md file.
-        assert any("broken-skill" in err and "Permission denied" in err for err in errors)
-        assert not any(str(builtin) in err for err in errors)
-
-    async def test_abefore_agent_merges_copy_global_skills_errors_into_state(self, tmp_path: Path):
+    async def test_abefore_agent_merges_copy_global_skills_errors_into_state(self, tmp_path: Path, skill_roots, chmod):
         """Errors from _copy_global_skills must be merged into skills_load_errors returned by abefore_agent."""
-        from pathlib import Path as _Path
-
         from deepagents.backends.filesystem import FilesystemBackend
 
-        repo_name = "repoX"
-        builtin = tmp_path / "builtin_skills"
-        (builtin / "broken-skill").mkdir(parents=True)
-        (builtin / "broken-skill" / "SKILL.md").write_text(_make_skill_md(name="broken-skill", description="ok"))
-
+        builtin, _ = skill_roots
+        write_skill(builtin, "broken-skill", "ok")
+        chmod(builtin / "broken-skill" / "SKILL.md", 0)
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
-        runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / "repoX"))
         runtime.context.config = RepositoryConfig(slash_commands=SlashCommands(enabled=False))
 
-        original_read_bytes = _Path.read_bytes
-
-        def _fail_on_skill_md(self):
-            if self.name == "SKILL.md":
-                raise PermissionError(13, "Permission denied", str(self))
-            return original_read_bytes(self)
-
-        with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch.object(_Path, "read_bytes", _fail_on_skill_md),
-        ):
+        with patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", tmp_path / "cache"):
             result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
 
         assert result is not None
-        assert "skills_load_errors" in result
-        assert any("broken-skill" in err for err in result["skills_load_errors"])
-        assert not any(str(builtin) in err for err in result["skills_load_errors"])
+        assert "Cannot load skill 'broken-skill': Permission denied" in result["skills_load_errors"]
 
     async def test_upload_failure_includes_dest_path_in_error(self, tmp_path: Path):
         """Upload errors must include the destination path so operators can pinpoint the failing file."""
@@ -1017,51 +867,12 @@ class TestCustomGlobalSkills:
         backend.aupload_files = AsyncMock(return_value=[Mock(error="storage backend exploded")])
         middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
 
-        with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            pytest.raises(RuntimeError) as exc_info,
-        ):
+        with patch("skills.services.BUILTIN_SKILLS_PATH", builtin), pytest.raises(RuntimeError) as exc_info:
             await middleware._copy_global_skills()
 
         # Error must contain both the failing dest path and the underlying backend error.
         assert "skill-one/SKILL.md" in str(exc_info.value)
         assert "storage backend exploded" in str(exc_info.value)
-
-    def test_collect_skill_files_skips_dot_prefixed_storage_subdirs(self, tmp_path: Path):
-        """Storage layer subdirs (.trash, .tmp, .zips) must not be walked as if they were skills."""
-        from pathlib import Path as _Path
-
-        custom_global = tmp_path / "custom_skills"
-        (custom_global / "demo").mkdir(parents=True)
-        (custom_global / "demo" / "SKILL.md").write_text(_make_skill_md(name="demo", description="real skill"))
-
-        # Storage subdirs that should be ignored.
-        (custom_global / ".trash" / "demo.123").mkdir(parents=True)
-        (custom_global / ".trash" / "demo.123" / "SKILL.md").write_text(
-            _make_skill_md(name="demo", description="trashed copy")
-        )
-        (custom_global / ".zips").mkdir()
-        (custom_global / ".zips" / "demo.zip").write_bytes(b"PK\x03\x04")
-        (custom_global / ".tmp").mkdir()
-        (custom_global / ".tmp" / "leftover").mkdir()
-        (custom_global / ".tmp" / "leftover" / "SKILL.md").write_text(
-            _make_skill_md(name="leftover", description="staging leftover")
-        )
-
-        project_skills_path = _Path("/workspace/skills")
-        files_to_upload: list[tuple[str, bytes]] = []
-        errors: list[str] = []
-
-        with patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", tmp_path / "cache"):
-            SkillsMiddleware._collect_skill_files(custom_global, project_skills_path, files_to_upload, errors)
-
-        # Only files under demo/ should be collected. No .trash, .zips, or .tmp entries.
-        dest_paths = [dest for dest, _ in files_to_upload]
-        assert dest_paths == ["/workspace/skills/demo/SKILL.md"]
-        assert not any(".trash" in dest for dest in dest_paths)
-        assert not any(".zips" in dest for dest in dest_paths)
-        assert not any(".tmp" in dest for dest in dest_paths)
-        assert errors == []
 
 
 class TestSkillToolRecordsInvocation:
@@ -1210,7 +1021,7 @@ def _skills_agent(replies: list[AIMessage], tools: list, **agent_kwargs):
 async def _run_turns_with_skills_middleware(turns: list[list[dict]], tools: list) -> dict:
     replies = [*(AIMessage(content="", tool_calls=tool_calls) for tool_calls in turns), AIMessage(content="done")]
     agent = _skills_agent(replies, tools)
-    with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+    with patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock):
         return await agent.ainvoke({"messages": [HumanMessage(content="go")], "skills_metadata": _SKILLS_METADATA})
 
 
@@ -1299,7 +1110,7 @@ async def test_user_follow_up_clears_the_mode_set_by_a_skill():
     agent = _skills_agent(replies, [_write_file], checkpointer=InMemorySaver())
     config = {"configurable": {"thread_id": "thread-1"}}
 
-    with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+    with patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock):
         await agent.ainvoke({"messages": [HumanMessage(content="/plan")], "skills_metadata": _SKILLS_METADATA}, config)
         result = await agent.ainvoke({"messages": [HumanMessage(content="proceed")]}, config)
 

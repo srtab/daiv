@@ -37,7 +37,6 @@ def _patches() -> dict[str, tuple[str, dict]]:
         "create_explore": ("create_explore_subagent", {}),
         "load_custom": ("load_custom_subagents", {"new": AsyncMock(return_value=[])}),
         "create_deep_agent": ("create_deep_agent", {}),
-        "mcp_toolkit": ("MCPToolkit", {"get_tools": AsyncMock(return_value=[])}),
         "get_model": ("get_model", {}),
         "skills_middleware": ("SkillsMiddleware", {}),
         "git_middleware": ("GitMiddleware", {}),
