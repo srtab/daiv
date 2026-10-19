@@ -476,7 +476,7 @@ def test_pagination_partial_swap_marker_is_opt_in(rf):
 
     def _render(**extra):
         return render_to_string(
-            "accounts/_pagination.html",
+            "core/_pagination.html",
             {"is_paginated": True, "page_obj": _Page(), "request": rf.get("/x/?foo=bar"), **extra},
         )
 

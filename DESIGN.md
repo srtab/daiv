@@ -199,16 +199,6 @@ Centered card for "nothing here yet" and "can't show this" states, classes in `i
 </div>
 ```
 
-### Quick Link Card
-
-Reusable partial at `dashboard/templates/dashboard/_quick_link_card.html`:
-
-```django
-{% include "dashboard/_quick_link_card.html" with url=target_url icon="key" title="API Keys" description="Manage tokens" badge=count %}
-```
-
-Accepts: `url`, `icon` (icon name), `title`, `description`, `badge` (optional).
-
 ### Page Header
 
 Every page title with actions at its top right is a `.page-header` holding exactly two
@@ -264,10 +254,10 @@ Auto-dismissing notifications anchored `fixed top-5 right-5 z-50`. Color-coded b
 
 ### Pagination
 
-Reusable partial at `accounts/templates/accounts/_pagination.html`:
+Reusable partial at `core/templates/core/_pagination.html`:
 
 ```django
-{% include "accounts/_pagination.html" %}
+{% include "core/_pagination.html" %}
 ```
 
 Requires `is_paginated` and `page_obj` in template context (standard Django `ListView`).
@@ -477,8 +467,7 @@ sidebar's tier and that switch moves with it.
 | App shell template      | `daiv/dashboard/templates/base_app.html`      |
 | Sidebar partial         | `daiv/dashboard/templates/dashboard/_sidebar.html` |
 | Self-hosted fonts       | `daiv/static/fonts/geist/`                    |
-| Pagination partial      | `daiv/accounts/templates/accounts/_pagination.html` |
-| Quick link card partial | `daiv/dashboard/templates/dashboard/_quick_link_card.html` |
+| Pagination partial      | `daiv/core/templates/core/_pagination.html`   |
 | Default field template  | `daiv/configuration/templates/configuration/fields/default.html` |
 | Icon template           | `daiv/core/templates/core/icons/_icon.html`   |
 | Icon SVGs               | `daiv/core/static/core/img/icons/`            |
