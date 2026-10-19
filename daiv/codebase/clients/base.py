@@ -246,10 +246,6 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
-        pass
-
-    @abc.abstractmethod
     def set_repository_webhooks(
         self,
         repo_id: str,

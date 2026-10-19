@@ -6,14 +6,11 @@ from redis.exceptions import LockError, LockNotOwnedError
 
 from core.utils import (
     DEFAULT_LOCK_TIMEOUT,
-    async_download_url,
     batch_async_download_url,
     build_absolute_url,
     build_uri,
-    extract_valid_image_mimetype,
     is_git_auth_error_text,
     is_git_ref_not_found_text,
-    is_valid_url,
     locked_task,
     prefixed_email_subject,
 )
@@ -100,17 +97,6 @@ def test_is_git_ref_not_found_text(text, expected):
     assert is_git_ref_not_found_text(text) is expected
 
 
-class IsValidUrlTest:
-    def test_valid_url_returns_true(self):
-        assert is_valid_url("https://example.com/image.jpg") is True
-        assert is_valid_url("http://test.org/path/to/resource") is True
-
-    def test_invalid_url_returns_false(self):
-        assert is_valid_url("not-a-url") is False
-        assert is_valid_url("") is False
-        assert is_valid_url("file:///local/path") is False
-
-
 class BuildUriTest:
     def test_append_path_to_base_uri(self):
         assert build_uri("https://api.example.com", "v1/endpoint") == "https://api.example.com/v1/endpoint"
@@ -124,82 +110,6 @@ class BuildUriTest:
     def test_handle_multiple_slashes(self):
         """Test handling of multiple consecutive slashes in URI and path."""
         assert build_uri("https://api.example.com///", "///v1/endpoint") == "https://api.example.com/v1/endpoint"
-
-
-class ExtractImageMimetypeOpenaiTest:
-    def test_jpeg_magic_bytes(self):
-        """Test JPEG format detection via magic bytes."""
-        jpeg_content = b"\xff\xd8\xff\xe0\x00\x10JFIF"
-        assert extract_valid_image_mimetype(jpeg_content) == "image/jpeg"
-
-    def test_png_magic_bytes(self):
-        """Test PNG format detection via magic bytes."""
-        png_content = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-        assert extract_valid_image_mimetype(png_content) == "image/png"
-
-    def test_gif87a_magic_bytes(self):
-        """Test GIF87a format detection via magic bytes."""
-        gif_content = b"GIF87a\x00\x00\x00\x00"
-        assert extract_valid_image_mimetype(gif_content) == "image/gif"
-
-    def test_gif89a_magic_bytes(self):
-        """Test GIF89a format detection via magic bytes."""
-        gif_content = b"GIF89a\x00\x00\x00\x00"
-        assert extract_valid_image_mimetype(gif_content) == "image/gif"
-
-    def test_webp_magic_bytes(self):
-        """Test WebP format detection via magic bytes."""
-        webp_content = b"RIFF\x00\x00\x00\x00WEBP"
-        assert extract_valid_image_mimetype(webp_content) == "image/webp"
-
-    def test_unsupported_format_returns_none(self):
-        """Test that unsupported image formats return None."""
-        # BMP magic bytes
-        bmp_content = b"BM\x00\x00\x00\x00"
-        assert extract_valid_image_mimetype(bmp_content) is None
-
-        # TIFF magic bytes (little-endian)
-        tiff_content = b"II*\x00"
-        assert extract_valid_image_mimetype(tiff_content) is None
-
-        # Random non-image data
-        assert extract_valid_image_mimetype(b"not an image") is None
-
-    def test_empty_bytes_returns_none(self):
-        """Test that empty bytes return None."""
-        assert extract_valid_image_mimetype(b"") is None
-
-    def test_short_bytes_returns_none(self):
-        """Test that very short byte sequences return None safely."""
-        assert extract_valid_image_mimetype(b"GIF") is None  # Too short for GIF
-        assert extract_valid_image_mimetype(b"RIFF") is None  # Too short for WebP
-        assert extract_valid_image_mimetype(b"\xff") is None  # Too short for JPEG
-
-    def test_partial_webp_magic_bytes_returns_none(self):
-        """Test that incomplete WebP magic bytes return None."""
-        # RIFF but not enough bytes for WEBP check
-        incomplete_webp = b"RIFF\x00\x00"
-        assert extract_valid_image_mimetype(incomplete_webp) is None
-
-
-class AsyncUrlToDataUrlTest:
-    async def test_successful_conversion(self, mocker):
-        mock_response = mocker.Mock()
-        mock_response.content = b"fake-image-data"
-        mock_response.raise_for_status.return_value = None
-        mock_client = mocker.patch("httpx.AsyncClient")
-        mock_client.return_value.__aenter__.return_value.get.return_value = mock_response
-
-        expected_data_url = b"fake-image-data"
-        result = await async_download_url("https://example.com/image.jpg")
-        assert result == expected_data_url
-
-    async def test_failed_request(self, mocker):
-        mock_client = mocker.patch("httpx.AsyncClient")
-        mock_client.return_value.__aenter__.return_value.get.side_effect = Exception("Request failed")
-
-        result = await async_download_url("https://example.com/image.jpg")
-        assert result is None
 
 
 class BatchAsyncUrlToDataUrlTest:

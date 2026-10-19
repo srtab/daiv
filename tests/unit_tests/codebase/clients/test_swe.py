@@ -147,27 +147,6 @@ class TestSWERepoClient:
 
         assert result is None
 
-    @patch("codebase.clients.swe.Repo.clone_from")
-    @patch("codebase.clients.swe.tempfile.TemporaryDirectory")
-    def test_get_project_uploaded_file_success(self, mock_tempdir, mock_clone, swe_client, tmp_path):
-        """Test successful uploaded file retrieval."""
-        mock_repo = _mock_cloned_repo(str(tmp_path))
-        mock_clone.return_value = mock_repo
-
-        mock_tmpdir = str(tmp_path)
-        mock_tempdir.return_value.__enter__ = Mock(return_value=mock_tmpdir)
-        mock_tempdir.return_value.__exit__ = Mock(return_value=None)
-
-        # Create a mock file
-        test_file = tmp_path / "image.png"
-        test_file.write_bytes(b"image content")
-
-        repository = swe_client.get_repository("psf/requests")
-        with swe_client.load_repo(repository, "main"):
-            result = swe_client.get_project_uploaded_file("psf/requests", "image.png")
-
-        assert result == b"image content"
-
     def test_load_repo_sanitizes_future_history(self, swe_client, tmp_path):
         """The clone must not expose commits made after the base commit: in real eval runs
         agents found the upstream fix for the issue under evaluation via ``git log --all``

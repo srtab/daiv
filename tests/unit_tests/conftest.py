@@ -516,7 +516,6 @@ def mock_repo_client():
         mock_client.list_repositories.return_value = []
         mock_client.list_repository_members.return_value = []
         mock_client.get_repository_file.return_value = None
-        mock_client.get_project_uploaded_file = AsyncMock(return_value=b"image content")
 
         # Mock repository modification operations
         mock_client.set_repository_webhooks.return_value = True

@@ -40,7 +40,7 @@ from codebase.clients import RepoClient
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
 from codebase.exceptions import CloneRefNotFoundError, MergeRequestBranchNotVisibleError
 from core.constants import BOT_NAME
-from core.utils import async_download_url, build_uri, is_git_auth_error_text, is_git_ref_not_found_text
+from core.utils import is_git_auth_error_text, is_git_ref_not_found_text
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
@@ -339,14 +339,6 @@ class GitLabClient(RepoClient):
             return project_file.decode().decode()
         except UnicodeDecodeError:
             return None
-
-    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
-        """
-        Download a markdown uploaded file from a repository.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        url = build_uri(self.client.url, f"/api/v4/projects/{project.get_id()}/{file_path}")
-        return await async_download_url(url, headers={"PRIVATE-TOKEN": self.client.private_token})
 
     def set_repository_webhooks(
         self,

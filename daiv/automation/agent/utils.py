@@ -1,189 +1,26 @@
 from __future__ import annotations
 
-import base64
 import logging
 import re
 import uuid
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
 
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import AIMessage
-from langchain_core.messages.content import create_image_block
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_config
 
-from codebase.base import GitPlatform
-from codebase.clients import RepoClient
-from core.utils import extract_valid_image_mimetype, is_valid_url
-
 from .constants import REPO_PATH
 from .events import ASSISTANT_MESSAGE_EVENT, assistant_message_payload
-from .schemas import Image
 
 logger = logging.getLogger("daiv.agent")
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from langchain_core.messages import BaseMessage, ImageContentBlock
+    from langchain_core.messages import BaseMessage
 
     from codebase.context import RuntimeCtx
-
-
-def extract_images_from_text(text: str) -> list[Image]:
-    """
-    Extract image URLs from text using regex patterns.
-
-    Supports:
-    - Markdown syntax: ![alt text](url)
-    - HTML img tags: <img src="url" ...>
-
-    Extracts URLs that either:
-    - End with common image extensions (.jpg, .jpeg, .png, .gif, .webp)
-    - Are GitHub user-attachments URLs (even without extensions)
-
-    Args:
-        text (str): The text content to extract images from.
-
-    Returns:
-        list[Image]: List of Image objects with url and filename.
-    """
-    if not text:
-        return []
-
-    images = []
-    seen_urls = set()
-
-    # Pattern for markdown images: ![alt text](url)
-    markdown_pattern = r"!\[([^\]]*)\]\(([^)]+)\)"
-    for match in re.finditer(markdown_pattern, text):
-        alt_text = match.group(1).strip()
-        url = match.group(2).strip()
-
-        # Only include URLs with valid image extensions
-        if _is_valid_image_url(url) and url not in seen_urls:
-            filename = _extract_filename(url, alt_text)
-            images.append(Image(url=url, filename=filename))
-            seen_urls.add(url)
-
-    # Pattern for HTML img tags: <img ... src="url" ... alt="text" ... />
-    # This pattern is flexible to handle attributes in any order
-    html_pattern = r'<img\s+[^>]*?src=["\'"]([^"\']+)["\'"](.*?)/?>'
-    for match in re.finditer(html_pattern, text, re.IGNORECASE):
-        url = match.group(1).strip()
-        remaining_attrs = match.group(2)
-
-        # Extract alt text if present
-        alt_match = re.search(r'alt=["\'"]([^"\'"]*)["\'""]', remaining_attrs, re.IGNORECASE)
-        alt_text = alt_match.group(1).strip() if alt_match else ""
-
-        # Only include URLs with valid image extensions
-        if _is_valid_image_url(url) and url not in seen_urls:
-            filename = _extract_filename(url, alt_text)
-            images.append(Image(url=url, filename=filename))
-            seen_urls.add(url)
-
-    return images
-
-
-async def images_to_content_blocks(repo_id: str, images: list[Image]) -> list[ImageContentBlock]:
-    """
-    Convert a list of images to a list of image content blocks.
-
-    Args:
-        repo_id (str): The repository id.
-        images (list[Image]): The list of images.
-
-    Returns:
-        list[ImageContentBlock]: The list of image content blocks.
-    """
-    repo_client = RepoClient.create_instance()
-    content_blocks = []
-
-    for image in images:
-        parsed_url = urlparse(image.url)
-
-        # Handle GitLab relative upload paths and GitHub user-attachments URLs
-        if (
-            repo_client.git_platform == GitPlatform.GITLAB
-            and not parsed_url.netloc
-            and not parsed_url.scheme
-            and parsed_url.path.startswith(("/uploads/", "uploads/"))
-        ) or (
-            repo_client.git_platform == GitPlatform.GITHUB
-            and parsed_url.netloc
-            and parsed_url.scheme
-            and (
-                parsed_url.hostname
-                and (parsed_url.hostname.lower() == "github.com" or parsed_url.hostname.lower().endswith(".github.com"))
-            )
-            and "/user-attachments/" in parsed_url.path
-        ):
-            if (image_content := await repo_client.get_project_uploaded_file(repo_id, image.url)) and (
-                mime_type := extract_valid_image_mimetype(image_content)
-            ):
-                content_blocks.append(
-                    create_image_block(base64=base64.b64encode(image_content).decode(), mime_type=mime_type)
-                )
-
-        # Handle generic valid URLs (external images)
-        elif is_valid_url(image.url):
-            content_blocks.append(create_image_block(url=image.url))
-
-    return content_blocks
-
-
-def _is_valid_image_url(url: str) -> bool:
-    """
-    Check if a URL is a valid image URL.
-
-    Args:
-        url (str): The URL to check.
-
-    Returns:
-        bool: True if the URL ends with a valid image extension or is a known image hosting service.
-    """
-    valid_extensions = (".jpg", ".jpeg", ".png", ".gif", ".webp")
-    # Parse the URL to get the path without query parameters
-    parsed = urlparse(url)
-    path = parsed.path.lower()
-
-    # Check for valid image extensions
-    if any(path.endswith(ext) for ext in valid_extensions):
-        return True
-
-    # Check for GitHub user-attachments (always images even without extensions)
-    netloc = parsed.netloc.lower()
-    is_github_domain = netloc == "github.com" or netloc.endswith(".githubusercontent.com")
-    return is_github_domain and "/user-attachments/" in path
-
-
-def _extract_filename(url: str, alt_text: str = "") -> str:
-    """
-    Extract filename from URL or use alt text as fallback.
-
-    Args:
-        url (str): The image URL.
-        alt_text (str): Alternative text from markdown/HTML.
-
-    Returns:
-        str: The extracted filename.
-    """
-    # Try to extract filename from URL path
-    parsed = urlparse(url)
-    path = Path(parsed.path)
-
-    if path.name:
-        return path.name
-
-    # Fallback to alt text if available
-    if alt_text:
-        return alt_text
-
-    # Last resort: empty string
-    return ""
 
 
 def extract_text_content(content: str | list) -> str:

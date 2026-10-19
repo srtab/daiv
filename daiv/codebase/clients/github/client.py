@@ -31,7 +31,7 @@ from codebase.base import (
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji, WebhookSetupResult
 from codebase.exceptions import CloneRefNotFoundError
-from core.utils import async_download_url, is_git_ref_not_found_text
+from core.utils import is_git_ref_not_found_text
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -243,20 +243,6 @@ class GitHubClient(RepoClient):
             return content.decoded_content.decode()
         except UnicodeDecodeError:
             return None
-
-    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
-        """
-        Download a user-attachments file from GitHub.
-
-        Args:
-            repo_id: The repository ID (not used for GitHub, as file_path contains full URL).
-            file_path: The full URL to the GitHub user-attachments file.
-
-        Returns:
-            The file content as bytes, or None if the download fails.
-        """
-        token = self.client.requester.auth.token
-        return await async_download_url(file_path, headers={"Authorization": f"Bearer {token}"})
 
     def set_repository_webhooks(
         self,
