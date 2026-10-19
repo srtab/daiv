@@ -75,7 +75,7 @@ class _StubClient:
 def _stub_github(monkeypatch):
     monkeypatch.setattr("webhooks.github.callbacks.RepoClient.create_instance", lambda: _StubClient())
     monkeypatch.setattr("webhooks.github.callbacks.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
-    monkeypatch.setattr("webhooks.github.callbacks.resolve_user", AsyncMock(return_value=None))
+    monkeypatch.setattr("webhooks.dispatch.resolve_user", AsyncMock(return_value=None))
 
 
 @pytest.mark.asyncio
@@ -93,7 +93,7 @@ async def test_issue_callback_persists_agent_model(_stub_github, labels, expect_
         issue=_issue(labels),
         sender=User(id=2, login="reviewer"),
     )
-    with patch("webhooks.github.callbacks.address_issue_task") as mock_task:
+    with patch("webhooks.dispatch.address_issue_task") as mock_task:
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
         await callback.process_callback()
 
@@ -122,7 +122,7 @@ async def test_issue_comment_callback_persists_agent_model(_stub_github, labels,
         comment=Comment(id=500, body="@daiv look", user=User(id=2, login="reviewer")),
     )
     with (
-        patch("webhooks.github.callbacks.address_issue_task") as mock_task,
+        patch("webhooks.dispatch.address_issue_task") as mock_task,
         patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
     ):
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
@@ -153,7 +153,7 @@ async def test_pr_comment_callback_persists_agent_model(_stub_github, labels, ex
         comment=Comment(id=500, body="@daiv look", user=User(id=2, login="reviewer")),
     )
     with (
-        patch("webhooks.github.callbacks.address_mr_comments_task") as mock_task,
+        patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
         patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
     ):
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
@@ -186,10 +186,10 @@ async def test_two_issue_events_share_one_session(_stub_github):
             sender=User(id=2, login="reviewer"),
         )
         callback.issue = _issue([Label(id=1, name="daiv")])
-        with patch("webhooks.github.callbacks.address_issue_task") as mock_task:
+        with patch("webhooks.dispatch.address_issue_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
             # Patch compute_thread_id to use our specific repo/issue
-            with patch("webhooks.github.callbacks.compute_thread_id", return_value=thread_id):
+            with patch("webhooks.dispatch.compute_thread_id", return_value=thread_id):
                 await callback.process_callback()
 
     assert await Session.objects.filter(thread_id=thread_id).acount() == 1

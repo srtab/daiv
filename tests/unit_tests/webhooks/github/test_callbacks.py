@@ -318,10 +318,10 @@ class TestProcessCallbackThreadId:
         expected = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
 
         with (
-            patch("webhooks.github.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.github.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -346,11 +346,11 @@ class TestProcessCallbackThreadId:
         expected = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
 
         with (
-            patch("webhooks.github.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.github.callbacks.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -379,11 +379,11 @@ class TestProcessCallbackThreadId:
         expected = compute_thread_id(repo_slug="owner/repo", scope=Scope.MERGE_REQUEST, entity_iid=99)
 
         with (
-            patch("webhooks.github.callbacks.address_mr_comments_task") as mock_task,
-            patch("webhooks.github.callbacks.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -406,10 +406,10 @@ class TestProcessCallbackSandboxEnvironment:
         env_row = Mock(id="env-uuid-1")
 
         with (
-            patch("webhooks.github.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.github.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
+            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -434,11 +434,11 @@ class TestProcessCallbackSandboxEnvironment:
         env_row = Mock(id="env-uuid-2")
 
         with (
-            patch("webhooks.github.callbacks.address_mr_comments_task") as mock_task,
-            patch("webhooks.github.callbacks.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -461,11 +461,11 @@ class TestProcessCallbackSandboxEnvironment:
         env_row = Mock(id="env-uuid-3")
 
         with (
-            patch("webhooks.github.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.github.callbacks.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -497,11 +497,11 @@ class TestReactionFailureVisibility:
         )
 
         with (
-            patch("webhooks.github.callbacks.address_mr_comments_task") as mock_task,
-            patch("webhooks.github.callbacks.acreate_run") as mock_run,
+            patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_run,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
             # Capture below ERROR so the level assertion below can actually fail.
             caplog.at_level(logging.WARNING, logger="daiv.webhooks"),
         ):
@@ -529,11 +529,11 @@ class TestReactionFailureVisibility:
         )
 
         with (
-            patch("webhooks.github.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.github.callbacks.acreate_run") as mock_run,
+            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_run,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-2"))
             mock_run.side_effect = AsyncMock(return_value=None)
@@ -551,11 +551,11 @@ class TestProcessCallbackUseMax:
         from unittest.mock import AsyncMock, patch
 
         with (
-            patch(f"webhooks.github.callbacks.{task}") as mock_task,
-            patch("webhooks.github.callbacks.acreate_run") as mock_run,
+            patch(f"webhooks.dispatch.{task}") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_run,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_run.side_effect = AsyncMock(return_value=None)

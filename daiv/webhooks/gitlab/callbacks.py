@@ -2,23 +2,17 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
-from gitlab.exceptions import GitlabError
-from sandbox_envs.selection import resolve_env_for_run
-from sessions.models import SessionOrigin
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.service import PipelineWatch
-from sessions.services import acreate_run
 
-from accounts.utils import resolve_user
-from codebase.base import Scope
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from codebase.utils import compute_thread_id, note_mentions_daiv
+from codebase.utils import note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 from webhooks.callbacks import BaseCallback
-from webhooks.tasks import address_issue_task, address_mr_comments_task
+from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
 from .models import (  # noqa: TC001
     Issue,
@@ -36,6 +30,10 @@ from .models import (  # noqa: TC001
 )
 
 logger = logging.getLogger("daiv.webhooks")
+
+
+def _author(user: User) -> Author:
+    return Author(provider="gitlab", uid=user.id, username=user.username, email=user.email)
 
 
 class IssueCallback(BaseCallback):
@@ -112,42 +110,14 @@ class IssueCallback(BaseCallback):
         """
         Trigger the task to address the issue.
         """
-        try:
-            self._client.create_issue_emoji(self.project.path_with_namespace, self.object_attributes.iid, Emoji.EYES)
-        except GitlabError, OSError:
-            logger.exception("Failed to add reaction to issue %s", self.object_attributes.iid)
-        thread_id = compute_thread_id(
-            repo_slug=self.project.path_with_namespace, scope=Scope.ISSUE, entity_iid=self.object_attributes.iid
-        )
-        # user=None: the webhook fires for whoever touched the issue/MR, not the agent owner, so USER envs never apply.
-        sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
-        sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
-        use_max = self.object_attributes.has_max_label()
-        result = await address_issue_task.aenqueue(
+        await dispatch_issue_run(
+            client=self._client,
             repo_id=self.project.path_with_namespace,
             issue_iid=self.object_attributes.iid,
-            thread_id=thread_id,
-            sandbox_environment_id=sandbox_environment_id,
-            use_max=use_max,
+            title=self.object_attributes.title,
+            use_max=self.object_attributes.has_max_label(),
+            author=_author(self.user),
         )
-        daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
-        try:
-            await acreate_run(
-                trigger_type=SessionOrigin.ISSUE_WEBHOOK,
-                task_result_id=result.id,
-                repo_id=self.project.path_with_namespace,
-                issue_iid=self.object_attributes.iid,
-                use_max=use_max,
-                user=daiv_user,
-                external_username=self.user.username,
-                title=self.object_attributes.title,
-                thread_id=thread_id,
-                sandbox_environment_id=sandbox_environment_id,
-            )
-        except Exception:
-            logger.exception(
-                "Failed to create run for issue %s#%s", self.project.path_with_namespace, self.object_attributes.iid
-            )
 
 
 class NoteCallback(BaseCallback):
@@ -194,90 +164,28 @@ class NoteCallback(BaseCallback):
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
-        daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
-
+        mention = Mention(note_id=self.object_attributes.id, comment_id=self.object_attributes.discussion_id)
         if self.issue and self._is_issue_comment:
-            try:
-                self._client.create_issue_emoji(
-                    self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
-                )
-            except GitlabError, OSError:
-                logger.exception("Failed to add reaction to issue comment %s", self.object_attributes.id)
-            thread_id = compute_thread_id(
-                repo_slug=self.project.path_with_namespace, scope=Scope.ISSUE, entity_iid=self.issue.iid
-            )
-            sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
-            sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
-            use_max = self.issue.has_max_label()
-            result = await address_issue_task.aenqueue(
+            await dispatch_issue_run(
+                client=self._client,
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.issue.iid,
-                mention_comment_id=self.object_attributes.discussion_id,
-                thread_id=thread_id,
-                sandbox_environment_id=sandbox_environment_id,
-                use_max=use_max,
+                title=self.issue.title,
+                use_max=self.issue.has_max_label(),
+                author=_author(self.user),
+                mention=mention,
             )
-            try:
-                await acreate_run(
-                    trigger_type=SessionOrigin.ISSUE_WEBHOOK,
-                    task_result_id=result.id,
-                    repo_id=self.project.path_with_namespace,
-                    issue_iid=self.issue.iid,
-                    mention_comment_id=self.object_attributes.discussion_id,
-                    use_max=use_max,
-                    user=daiv_user,
-                    external_username=self.user.username,
-                    title=self.issue.title,
-                    thread_id=thread_id,
-                    sandbox_environment_id=sandbox_environment_id,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to create run for issue comment %s#%s", self.project.path_with_namespace, self.issue.iid
-                )
-
         elif self.merge_request and self._is_merge_request_comment:
-            try:
-                self._client.create_merge_request_note_emoji(
-                    self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
-                )
-            except GitlabError, OSError:
-                logger.exception("Failed to add reaction to MR comment %s", self.object_attributes.id)
-            thread_id = compute_thread_id(
-                repo_slug=self.project.path_with_namespace, scope=Scope.MERGE_REQUEST, entity_iid=self.merge_request.iid
-            )
-            sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
-            sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
-            use_max = self.merge_request.has_max_label()
-            result = await address_mr_comments_task.aenqueue(
+            await dispatch_mr_comment_run(
+                client=self._client,
                 repo_id=self.project.path_with_namespace,
-                merge_request_id=self.merge_request.iid,
-                mention_comment_id=self.object_attributes.discussion_id,
-                thread_id=thread_id,
-                sandbox_environment_id=sandbox_environment_id,
-                use_max=use_max,
+                merge_request_iid=self.merge_request.iid,
+                ref=self.merge_request.source_branch,
+                title=self.merge_request.title,
+                use_max=self.merge_request.has_max_label(),
+                author=_author(self.user),
+                mention=mention,
             )
-            try:
-                await acreate_run(
-                    trigger_type=SessionOrigin.MR_WEBHOOK,
-                    task_result_id=result.id,
-                    repo_id=self.project.path_with_namespace,
-                    ref=self.merge_request.source_branch,
-                    merge_request_iid=self.merge_request.iid,
-                    mention_comment_id=self.object_attributes.discussion_id,
-                    use_max=use_max,
-                    user=daiv_user,
-                    external_username=self.user.username,
-                    title=self.merge_request.title,
-                    thread_id=thread_id,
-                    sandbox_environment_id=sandbox_environment_id,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to create run for MR comment %s#%s",
-                    self.project.path_with_namespace,
-                    self.merge_request.iid,
-                )
 
     @cached_property
     def _is_merge_request_comment(self) -> bool:

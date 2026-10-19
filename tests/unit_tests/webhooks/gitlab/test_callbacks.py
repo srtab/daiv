@@ -536,10 +536,10 @@ class TestProcessCallbackThreadId:
         expected = compute_thread_id(repo_slug="group/repo", scope=Scope.ISSUE, entity_iid=42)
 
         with (
-            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_activity.return_value = None
@@ -559,10 +559,10 @@ class TestProcessCallbackThreadId:
         expected = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=1)
 
         with (
-            patch("webhooks.gitlab.callbacks.address_mr_comments_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -606,10 +606,10 @@ class TestProcessCallbackThreadId:
         expected = compute_thread_id(repo_slug="group/repo", scope=Scope.ISSUE, entity_iid=7)
 
         with (
-            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -629,10 +629,10 @@ class TestProcessCallbackSandboxEnvironment:
         env_row = Mock(id="env-uuid-1")
 
         with (
-            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
+            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -648,10 +648,10 @@ class TestProcessCallbackSandboxEnvironment:
         env_row = Mock(id="env-uuid-2")
 
         with (
-            patch("webhooks.gitlab.callbacks.address_mr_comments_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
+            patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -666,10 +666,10 @@ class TestProcessCallbackSandboxEnvironment:
         callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
 
         with (
-            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -709,10 +709,10 @@ class TestProcessCallbackSandboxEnvironment:
         env_row = Mock(id="env-uuid-3")
 
         with (
-            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
+            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -731,10 +731,10 @@ class TestProcessCallbackUseMax:
         from unittest.mock import AsyncMock, patch
 
         with (
-            patch(f"webhooks.gitlab.callbacks.{task}") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_run,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch(f"webhooks.dispatch.{task}") as mock_task,
+            patch("webhooks.dispatch.acreate_run") as mock_run,
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_run.side_effect = AsyncMock(return_value=None)

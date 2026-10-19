@@ -80,7 +80,7 @@ class _StubClient:
 def _stub_gitlab(monkeypatch):
     monkeypatch.setattr("webhooks.gitlab.callbacks.RepoClient.create_instance", lambda: _StubClient())
     monkeypatch.setattr("webhooks.gitlab.callbacks.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
-    monkeypatch.setattr("webhooks.gitlab.callbacks.resolve_user", AsyncMock(return_value=None))
+    monkeypatch.setattr("webhooks.dispatch.resolve_user", AsyncMock(return_value=None))
 
 
 @pytest.mark.asyncio
@@ -108,7 +108,7 @@ async def test_issue_callback_persists_agent_model(_stub_gitlab, labels, expect_
             type="Issue",
         ),
     )
-    with patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task:
+    with patch("webhooks.dispatch.address_issue_task") as mock_task:
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
         await callback.process_callback()
 
@@ -148,7 +148,7 @@ async def test_note_callback_on_mr_persists_agent_model(_stub_gitlab, labels, ex
         ),
     )
     with (
-        patch("webhooks.gitlab.callbacks.address_mr_comments_task") as mock_task,
+        patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
         patch("webhooks.gitlab.callbacks.note_mentions_daiv", return_value=True),
     ):
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
@@ -188,7 +188,7 @@ async def test_note_callback_on_issue_persists_agent_model(_stub_gitlab, labels,
         ),
     )
     with (
-        patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
+        patch("webhooks.dispatch.address_issue_task") as mock_task,
         patch("webhooks.gitlab.callbacks.note_mentions_daiv", return_value=True),
     ):
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
@@ -230,7 +230,7 @@ async def test_two_issue_events_share_one_session(_stub_gitlab):
                 type="Issue",
             ),
         )
-        with patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task:
+        with patch("webhooks.dispatch.address_issue_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
             await callback.process_callback()
 
