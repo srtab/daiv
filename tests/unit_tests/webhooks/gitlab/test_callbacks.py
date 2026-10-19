@@ -65,7 +65,9 @@ def monkeypatch_dependencies(monkeypatch, stub_client, repo_config):
     monkeypatch.setattr("webhooks.gitlab.callbacks.RepositoryConfig.get_config", lambda *args, **kwargs: repo_config)
 
 
-def create_note_callback(note_body: str, username: str = "reviewer", labels: list[str] | None = None) -> NoteCallback:
+def create_note_callback(
+    note_body: str, username: str = "reviewer", labels: list[str] | None = None, note_id: int = 100
+) -> NoteCallback:
     """Helper to create a minimal NoteCallback instance."""
     return NoteCallback(
         object_kind="note",
@@ -82,7 +84,7 @@ def create_note_callback(note_body: str, username: str = "reviewer", labels: lis
             labels=[Label(title=t) for t in labels or []],
         ),
         object_attributes=Note(
-            id=100,
+            id=note_id,
             action=NoteAction.CREATE,
             noteable_type=NoteableType.MERGE_REQUEST,
             noteable_id=1,
@@ -793,3 +795,55 @@ class TestProcessCallbackUseMax:
 
         assert task_kwargs["use_max"] is use_max
         assert run_kwargs["use_max"] is use_max
+
+
+def create_issue_note_callback(*, note_id: int, discussion_id: str) -> NoteCallback:
+    return NoteCallback(
+        object_kind="note",
+        project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+        user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
+        issue=Issue(
+            id=100,
+            iid=7,
+            title="Bug",
+            description="x",
+            state="opened",
+            assignee_id=None,
+            action=IssueAction.OPEN,
+            labels=[],
+            type="Issue",
+        ),
+        object_attributes=Note(
+            id=note_id,
+            action=NoteAction.CREATE,
+            noteable_type=NoteableType.ISSUE,
+            noteable_id=7,
+            discussion_id=discussion_id,
+            note="@daiv please look",
+            system=False,
+        ),
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.usefixtures("database_task_backend")
+@pytest.mark.parametrize(
+    "make_callback",
+    [
+        pytest.param(lambda note_id: create_issue_note_callback(note_id=note_id, discussion_id="d1"), id="issue"),
+        pytest.param(lambda note_id: create_note_callback("@daiv please review", note_id=note_id), id="merge_request"),
+    ],
+)
+async def test_a_second_mention_in_a_discussion_runs_after_the_first_succeeded(monkeypatch_dependencies, make_callback):
+    """GitLab replies share their discussion's id, which the task's dedup key carries, while dedup also matches
+    finished tasks: a reply must still get its own run."""
+    from django_tasks import TaskResultStatus
+    from django_tasks_db.models import DBTaskResult
+    from sessions.models import Run
+
+    await make_callback(200).process_callback()
+    await DBTaskResult.objects.aupdate(status=TaskResultStatus.SUCCESSFUL)
+    await make_callback(201).process_callback()
+
+    assert await DBTaskResult.objects.acount() == 2
+    assert await Run.objects.filter(task_result__isnull=False).acount() == 2
