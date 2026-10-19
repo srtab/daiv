@@ -58,7 +58,7 @@ class TestCaptureRunObservations:
         session = _session()
         run = _run(session, status=RunStatus.FAILED)
         with patch("memory.signals.extract_observations_task") as task_mock:
-            capture_run_observations(sender=Run, run=run, skip_dispatch=False, never_started=True)
+            capture_run_observations(sender=Run, run=run, never_started=True)
         task_mock.enqueue.assert_not_called()
 
     def test_skips_chat_trigger_runs(self):

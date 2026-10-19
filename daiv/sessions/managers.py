@@ -146,8 +146,8 @@ class RunManager(models.Manager["Run"]):
         The write is one guarded ``UPDATE``: it lands only while the row is not terminal yet and matches ``where``,
         so a finish never overwrites one that got there first. Returns whether this call finished the run. When it
         did, ``run`` takes the written values, the nav badge is refreshed once the write commits, and
-        ``run_finished`` goes out (with ``skip_dispatch`` and ``never_started``) unless ``run`` is a chat run, which the
-        classification, memory and dispatch receivers must not see.
+        ``run_finished`` goes out unless ``run`` is a chat run, which the classification, memory and dispatch receivers
+        must not see.
         """
         _require_terminal(status)
         if not self._unfinished(run, where).update(status=status, **fields):
@@ -195,9 +195,9 @@ class RunManager(models.Manager["Run"]):
             transaction.on_commit(ui_events.publisher.runs_changed)
         return True
 
-    def _announce_finished(self, run: Run, *, skip_dispatch: bool, never_started: bool) -> None:
+    def _announce_finished(self, run: Run, **flags: bool) -> None:
         ui_events.publisher.runs_changed()
-        self._emit_run_finished(run, skip_dispatch=skip_dispatch, never_started=never_started)
+        self._emit_run_finished(run, **flags)
 
     def _unfinished(self, run: Run, where: models.Q | None = None) -> models.QuerySet[Run]:
         from sessions.models import RunStatus
@@ -212,12 +212,12 @@ class RunManager(models.Manager["Run"]):
             setattr(run, name, value)
 
     @staticmethod
-    def _emit_run_finished(run: Run, *, skip_dispatch: bool, never_started: bool) -> None:
+    def _emit_run_finished(run: Run, **flags: bool) -> None:
         from sessions.models import SessionOrigin
 
         if run.trigger_type == SessionOrigin.CHAT:
             return
-        run_finished.send_robust(sender=type(run), run=run, skip_dispatch=skip_dispatch, never_started=never_started)
+        run_finished.send_robust(sender=type(run), run=run, **flags)
 
 
 def _require_terminal(status: str) -> None:
