@@ -19,6 +19,7 @@ from django.db import DatabaseError, transaction
 from django.db.utils import Error as DjangoDBError
 
 import yaml
+from deepagents.middleware.skills import _parse_skill_metadata
 
 from skills.conf import settings
 from skills.constants import (
@@ -44,7 +45,7 @@ from skills.constants import (
 from skills.models import GlobalSkill, SkillInvocation
 
 if TYPE_CHECKING:
-    from deepagents.middleware.skills import SkillsState
+    from deepagents.middleware.skills import SkillMetadata, SkillsState
     from langchain.tools import ToolRuntime
 
     from codebase.context import RuntimeCtx
@@ -73,16 +74,6 @@ class SkillStorageError(Exception):
     """Raised when storing or removing a skill on disk fails."""
 
 
-def _skill_dirs(root: Path) -> dict[str, Path]:
-    """The skill directories directly under ``root``, by name. Dot-prefixed directories hold the storage layer's own
-    state (``.tmp``, ``.trash``, ``.zips``), and ``__pycache__`` is no skill."""
-    return {
-        entry.name: entry
-        for entry in sorted(root.iterdir())
-        if entry.is_dir() and not entry.name.startswith(".") and entry.name != "__pycache__"
-    }
-
-
 class GlobalSkillDirs(NamedTuple):
     dirs: dict[str, Path]
     """The skills' directories by name, each holding a ``SKILL.md``."""
@@ -90,63 +81,50 @@ class GlobalSkillDirs(NamedTuple):
     """What was left out and why, worded for the agent: no host paths."""
 
 
-def global_skill_dirs() -> GlobalSkillDirs:
-    """The built-in skills and the custom ones under ``CUSTOM_SKILLS_PATH``, a custom skill shadowing the built-in of
-    the same name. An unreadable root, or a directory without a readable ``SKILL.md``, is logged, left out and reported
-    in ``errors``; a custom root that doesn't exist yet just holds no skills."""
+def _skill_dirs(root: Path) -> GlobalSkillDirs:
+    """The skill directories directly under ``root``. Dot-prefixed directories hold the storage layer's own state
+    (``.tmp``, ``.trash``, ``.zips``), and ``__pycache__`` is no skill. An unreadable ``root``, or a directory without
+    a readable ``SKILL.md``, is logged, left out and reported in ``errors``."""
+    try:
+        entries = sorted(root.iterdir())
+    except OSError as exc:
+        logger.exception("Could not read global skills root '%s'; leaving its skills out", root)
+        return GlobalSkillDirs({}, [f"Some global skills failed to load: {exc.strerror or type(exc).__name__}"])
     dirs: dict[str, Path] = {}
     errors: list[str] = []
-    roots = [BUILTIN_SKILLS_PATH]
-    if settings.CUSTOM_SKILLS_PATH is not None and settings.CUSTOM_SKILLS_PATH.exists():
-        roots.append(settings.CUSTOM_SKILLS_PATH)
-    for root in roots:
-        try:
-            entries = _skill_dirs(root)
-        except OSError as exc:
-            logger.exception("Could not read global skills root '%s'; leaving its skills out", root)
-            errors.append(f"Some global skills failed to load: {exc.strerror or type(exc).__name__}")
+    for entry in entries:
+        if not entry.is_dir() or entry.name.startswith(".") or entry.name == "__pycache__":
             continue
-        for name, path in entries.items():
-            if (path / "SKILL.md").is_file():
-                dirs[name] = path
-            else:
-                logger.warning("Global skill directory '%s' has no readable SKILL.md; leaving it out", path)
-                errors.append(f"Cannot load skill '{name}': no readable SKILL.md")
-    return GlobalSkillDirs(dict(sorted(dirs.items())), errors)
+        if (entry / "SKILL.md").is_file():
+            dirs[entry.name] = entry
+        else:
+            logger.warning("Global skill directory '%s' has no readable SKILL.md; leaving it out", entry)
+            errors.append(f"Cannot load skill '{entry.name}': no readable SKILL.md")
+    return GlobalSkillDirs(dirs, errors)
 
 
-def _read_frontmatter(skill_md: Path) -> dict | None:
-    """``skill_md``'s YAML frontmatter; ``None``, logged, when it can't be read or isn't a mapping."""
+def global_skill_dirs() -> GlobalSkillDirs:
+    """The built-in skills and the custom ones under ``CUSTOM_SKILLS_PATH``, a custom skill shadowing the built-in of
+    the same name; a custom root that doesn't exist yet just holds no skills."""
+    builtin = _skill_dirs(BUILTIN_SKILLS_PATH)
+    if settings.CUSTOM_SKILLS_PATH is None or not settings.CUSTOM_SKILLS_PATH.exists():
+        return builtin
+    custom = _skill_dirs(settings.CUSTOM_SKILLS_PATH)
+    return GlobalSkillDirs({**builtin.dirs, **custom.dirs}, builtin.errors + custom.errors)
+
+
+def _skill_metadata(skill_dir: Path) -> SkillMetadata | None:
+    """The metadata the agent loads ``skill_dir`` with; ``None``, logged, when it can't load it."""
+    skill_md = skill_dir / "SKILL.md"
     try:
-        match = FRONTMATTER_RE.match(skill_md.read_text(encoding="utf-8"))
-        data = yaml.safe_load(match.group(1)) if match else None
+        content = skill_md.read_text(encoding="utf-8")
     except OSError, UnicodeDecodeError:
         logger.warning("Failed to read SKILL.md at %s", skill_md, exc_info=True)
         return None
-    except yaml.YAMLError:
-        logger.warning("Malformed YAML frontmatter in SKILL.md at %s", skill_md, exc_info=True)
-        return None
-    if not isinstance(data, dict):
-        logger.warning("SKILL.md at %s has no frontmatter mapping", skill_md)
-        return None
-    return data
+    return _parse_skill_metadata(content, str(skill_md), skill_dir.name)
 
 
-def _frontmatter_field(frontmatter: dict, key: str) -> str:
-    return str(frontmatter.get(key) or "").strip()
-
-
-def _builtin_skill_dirs() -> dict[str, Path]:
-    """The built-in skills' directories by name, each holding a ``SKILL.md``."""
-    try:
-        dirs = _skill_dirs(BUILTIN_SKILLS_PATH)
-    except OSError:
-        logger.exception("Failed to scan BUILTIN_SKILLS_PATH at %s", BUILTIN_SKILLS_PATH)
-        return {}
-    return {name: path for name, path in dirs.items() if (path / "SKILL.md").is_file()}
-
-
-BUILTIN_SKILL_NAMES: frozenset[str] = frozenset(_builtin_skill_dirs())
+BUILTIN_SKILL_NAMES: frozenset[str] = frozenset(_skill_dirs(BUILTIN_SKILLS_PATH).dirs)
 
 
 @lru_cache(maxsize=1)
@@ -154,25 +132,19 @@ def list_builtins() -> list[dict[str, str]]:
     """Return ``[{"name", "description"}, ...]`` for each skill shipped under
     ``BUILTIN_SKILLS_PATH``. Memoised — built-ins are fixed at deploy time."""
     return [
-        {"name": name, "description": _frontmatter_field(_read_frontmatter(path / "SKILL.md") or {}, "description")}
-        for name, path in _builtin_skill_dirs().items()
+        {"name": name, "description": metadata["description"] if (metadata := _skill_metadata(path)) else ""}
+        for name, path in _skill_dirs(BUILTIN_SKILLS_PATH).dirs.items()
     ]
 
 
 def list_global_skills() -> dict[str, str]:
     """Return ``{name: description}`` for the global skills the agent loads (see :func:`global_skill_dirs`), keyed by
-    the frontmatter ``name`` the agent invokes them by. A skill without a ``name`` or ``description`` is left out, as
-    the agent leaves it out."""
-    skills: dict[str, str] = {}
-    for path in global_skill_dirs().dirs.values():
-        skill_md = path / "SKILL.md"
-        if (frontmatter := _read_frontmatter(skill_md)) is None:
-            continue
-        name, description = _frontmatter_field(frontmatter, "name"), _frontmatter_field(frontmatter, "description")
-        if not name or not description:
-            logger.warning("SKILL.md at %s lacks a name or description; leaving it out", skill_md)
-            continue
-        skills[name] = description
+    the frontmatter ``name`` the agent invokes them by."""
+    skills = {
+        metadata["name"]: metadata["description"]
+        for path in global_skill_dirs().dirs.values()
+        if (metadata := _skill_metadata(path)) is not None
+    }
     return dict(sorted(skills.items()))
 
 

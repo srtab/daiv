@@ -346,6 +346,22 @@ def chmod():
         path.chmod(mode)
 
 
+def write_skill(root: Path, name: str, description: str) -> None:
+    (root / name).mkdir(parents=True)
+    (root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n")
+
+
+@pytest.fixture
+def skill_roots(tmp_path, monkeypatch) -> tuple[Path, Path]:
+    """Point the built-in and custom global skill roots at empty temp dirs."""
+    builtin, custom = tmp_path / "builtin", tmp_path / "custom"
+    builtin.mkdir()
+    custom.mkdir()
+    monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
+    monkeypatch.setattr("skills.services.settings.CUSTOM_SKILLS_PATH", custom)
+    return builtin, custom
+
+
 @pytest.fixture(autouse=True)
 def _clear_model_caches():
     # Provider/WebFetchAuthHeader/SiteConfiguration invalidate via

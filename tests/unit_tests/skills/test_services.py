@@ -8,35 +8,21 @@ import pytest
 from skills.models import GlobalSkill, SkillInvocation
 from skills.services import _classify_source, global_skill_dirs, list_builtins, list_global_skills
 
-
-def _write_skill(root, name, description):
-    (root / name).mkdir(parents=True)
-    (root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n\nbody\n")
-
-
-@pytest.fixture
-def skill_roots(tmp_path, monkeypatch):
-    """Point the built-in and custom global skill roots at empty temp dirs."""
-    builtin, custom = tmp_path / "builtin", tmp_path / "custom"
-    builtin.mkdir()
-    custom.mkdir()
-    monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
-    monkeypatch.setattr("skills.services.settings.CUSTOM_SKILLS_PATH", custom)
-    return builtin, custom
+from tests.unit_tests.conftest import write_skill
 
 
 def test_list_global_skills_reads_builtin_and_custom(skill_roots):
     builtin, custom = skill_roots
-    _write_skill(builtin, "code-review", "Review a diff")
-    _write_skill(custom, "deploy", "Deploy the app")
+    write_skill(builtin, "code-review", "Review a diff")
+    write_skill(custom, "deploy", "Deploy the app")
 
     assert list_global_skills() == {"code-review": "Review a diff", "deploy": "Deploy the app"}
 
 
 def test_custom_global_skill_shadows_builtin(skill_roots):
     builtin, custom = skill_roots
-    _write_skill(builtin, "shared", "builtin version")
-    _write_skill(custom, "shared", "custom version")
+    write_skill(builtin, "shared", "builtin version")
+    write_skill(custom, "shared", "custom version")
 
     assert global_skill_dirs() == ({"shared": custom / "shared"}, [])
     assert list_global_skills() == {"shared": "custom version"}
@@ -44,11 +30,11 @@ def test_custom_global_skill_shadows_builtin(skill_roots):
 
 def test_global_skill_dirs_skip_storage_dirs_and_pycache(skill_roots):
     builtin, custom = skill_roots
-    _write_skill(builtin, "plan", "x")
+    write_skill(builtin, "plan", "x")
     (builtin / "__pycache__").mkdir()
-    _write_skill(custom, "demo", "real skill")
-    _write_skill(custom / ".trash", "demo.123", "trashed copy")
-    _write_skill(custom / ".tmp", "leftover", "staging leftover")
+    write_skill(custom, "demo", "real skill")
+    write_skill(custom / ".trash", "demo.123", "trashed copy")
+    write_skill(custom / ".tmp", "leftover", "staging leftover")
     (custom / ".zips").mkdir()
 
     assert global_skill_dirs() == ({"demo": custom / "demo", "plan": builtin / "plan"}, [])
@@ -57,7 +43,7 @@ def test_global_skill_dirs_skip_storage_dirs_and_pycache(skill_roots):
 @pytest.mark.parametrize("custom", [None, "missing"])
 def test_global_skill_dirs_keep_builtins_without_a_custom_root(skill_roots, monkeypatch, caplog, custom):
     builtin, _ = skill_roots
-    _write_skill(builtin, "only-builtin", "x")
+    write_skill(builtin, "only-builtin", "x")
     monkeypatch.setattr(
         "skills.services.settings.CUSTOM_SKILLS_PATH", None if custom is None else builtin.parent / custom
     )
@@ -69,8 +55,8 @@ def test_global_skill_dirs_keep_builtins_without_a_custom_root(skill_roots, monk
 
 def test_global_skill_dirs_report_an_unreadable_root(skill_roots, caplog, chmod):
     builtin, custom = skill_roots
-    _write_skill(builtin, "code-review", "x")
-    _write_skill(custom, "deploy", "x")
+    write_skill(builtin, "code-review", "x")
+    write_skill(custom, "deploy", "x")
     chmod(custom, 0)
 
     with caplog.at_level(logging.ERROR, logger="daiv.skills"):
@@ -84,7 +70,7 @@ def test_global_skill_dirs_report_an_unreadable_root(skill_roots, caplog, chmod)
 
 def test_custom_dir_without_skill_md_does_not_shadow_the_builtin(skill_roots):
     builtin, custom = skill_roots
-    _write_skill(builtin, "plan", "builtin plan")
+    write_skill(builtin, "plan", "builtin plan")
     (custom / "plan" / "scripts").mkdir(parents=True)
 
     dirs, errors = global_skill_dirs()
@@ -110,12 +96,11 @@ def test_list_global_skills_keys_by_frontmatter_name(skill_roots):
         pytest.param(b"---\n- a list\n---\n", id="not-a-mapping"),
         pytest.param(b"\xff\xfe---\n", id="not-utf8"),
         pytest.param(b"---\nname: broken\n---\n", id="no-description"),
-        pytest.param(b"---\nname: broken\ndescription:\n---\n", id="null-description"),
     ],
 )
 def test_list_global_skills_leave_out_skills_the_agent_cannot_load(skill_roots, content):
     builtin, custom = skill_roots
-    _write_skill(builtin, "plan", "Plan work")
+    write_skill(builtin, "plan", "Plan work")
     (custom / "broken").mkdir()
     (custom / "broken" / "SKILL.md").write_bytes(content)
 

@@ -3,24 +3,15 @@ from __future__ import annotations
 import pytest
 
 from slash_commands.composer import composer_command_rows
-
-
-def _write_skill(root, name, description):
-    (root / name).mkdir(parents=True)
-    (root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n# {name}\n")
+from tests.unit_tests.conftest import write_skill
 
 
 @pytest.fixture
-def custom_skills_root(tmp_path, monkeypatch):
-    """Point the global skills at controlled trees: two built-ins so ordering is observable, and an empty custom
-    root the test writes uploads into."""
-    builtin = tmp_path / "builtin_skills"
-    for name, description in (("zeta-skill", "last alphabetically"), ("alpha-skill", "first alphabetically")):
-        _write_skill(builtin, name, description)
-    custom = tmp_path / "custom_skills"
-    custom.mkdir()
-    monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
-    monkeypatch.setattr("skills.services.settings.CUSTOM_SKILLS_PATH", custom)
+def custom_skills_root(skill_roots):
+    """Two built-ins so ordering is observable, and the empty custom root the test writes uploads into."""
+    builtin, custom = skill_roots
+    write_skill(builtin, "zeta-skill", "last alphabetically")
+    write_skill(builtin, "alpha-skill", "first alphabetically")
     return custom
 
 
@@ -49,7 +40,7 @@ def test_builtin_skills_included(custom_skills_root):
 
 
 def test_custom_skill_shadows_builtin(custom_skills_root):
-    _write_skill(custom_skills_root, "alpha-skill", "custom override")
+    write_skill(custom_skills_root, "alpha-skill", "custom override")
 
     rows = [row for row in composer_command_rows() if row["name"] == "alpha-skill"]
 
@@ -58,7 +49,7 @@ def test_custom_skill_shadows_builtin(custom_skills_root):
 
 
 def test_custom_skill_without_builtin_counterpart_included(custom_skills_root):
-    _write_skill(custom_skills_root, "brand-new", "uploaded")
+    write_skill(custom_skills_root, "brand-new", "uploaded")
 
     skills = {row["name"] for row in composer_command_rows() if row["kind"] == "skill"}
 

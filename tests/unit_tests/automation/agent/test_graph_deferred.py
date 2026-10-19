@@ -53,7 +53,7 @@ class TestCreateDaivAgentDeferredFlag:
 
             mcp_tool = StructuredTool.from_function(func=lambda **k: "x", name="t1", description="d")
             # tools=None => default single-tool list; pass tools=[] to exercise the empty-toolset path.
-            mock_load_mcp_tools.side_effect = AsyncMock(return_value=[mcp_tool] if tools is None else tools)
+            mock_load_mcp_tools.return_value = [mcp_tool] if tools is None else tools
 
             mock_get_model.return_value = MagicMock()
 

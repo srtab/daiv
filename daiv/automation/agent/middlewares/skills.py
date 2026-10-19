@@ -196,13 +196,16 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         name = skill_dir.name
 
         # ``exc.strerror`` omits the host path (it lives in ``exc.filename``), so the path stays in the log.
-        def on_walk_error(exc: OSError) -> None:
-            logger.warning("Failed to read skill directory '%s' (skill='%s'), skipping", exc.filename, name)
+        def report(exc: OSError, *, fatal: bool, failed_to: str) -> None:
+            logger.warning("Failed to read '%s' (skill='%s'), skipping", exc.filename, name)
             reason = exc.strerror or type(exc).__name__
-            if Path(exc.filename) == skill_dir:
+            if fatal:
                 errors.append(f"Cannot load skill '{name}': {reason}")
             else:
-                errors.append(f"Skill '{name}' may be incomplete: failed to read a directory ({reason})")
+                errors.append(f"Skill '{name}' may be incomplete: failed to {failed_to} ({reason})")
+
+        def on_walk_error(exc: OSError) -> None:
+            report(exc, fatal=Path(exc.filename) == skill_dir, failed_to="read a directory")
 
         for root, dirs, files in skill_dir.walk(on_error=on_walk_error):
             dirs[:] = [d for d in dirs if d != "__pycache__"]
@@ -217,14 +220,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                 try:
                     files_to_upload.append((str(Path(SKILLS_PATH) / rel), source_path.read_bytes()))
                 except OSError as exc:
-                    logger.warning("Failed to read skill file '%s' (skill='%s'), skipping", source_path, name)
-                    reason = exc.strerror or type(exc).__name__
-                    if source_path.name == "SKILL.md":
-                        errors.append(f"Cannot load skill '{name}': {reason}")
-                    else:
-                        errors.append(
-                            f"Skill '{name}' may be incomplete: failed to load '{source_path.name}' ({reason})"
-                        )
+                    report(exc, fatal=source_path.name == "SKILL.md", failed_to=f"load '{source_path.name}'")
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
