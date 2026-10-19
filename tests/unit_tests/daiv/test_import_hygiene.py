@@ -47,13 +47,18 @@ def test_django_setup_does_not_load_agent_stack():
     )
 
 
+def _import_linter_config() -> configparser.ConfigParser:
+    config = configparser.ConfigParser()
+    config.read(SOURCE_ROOT.parent / ".importlinter")
+    return config
+
+
 def test_import_contracts_cover_every_top_level_package():
     """A package missing from ``root_packages`` is invisible to ``make lint-imports``, and one that no
     contract forbids can be imported from below unchecked; ``core`` sits below every app, so its
     contract must forbid them all.
     """
-    config = configparser.ConfigParser()
-    config.read(SOURCE_ROOT.parent / ".importlinter")
+    config = _import_linter_config()
     root_packages = set(config["importlinter"]["root_packages"].split())
     core_forbidden = set(config["importlinter:contract:core"]["forbidden_modules"].split())
     packages = {path.name for path in SOURCE_ROOT.iterdir() if (path / "__init__.py").is_file()}
@@ -63,3 +68,27 @@ def test_import_contracts_cover_every_top_level_package():
         "`activity` is left out because it only holds migration history."
     )
     assert core_forbidden == root_packages - {"core", "daiv"}
+
+
+def test_import_contracts_place_every_app_in_the_layering():
+    """Every app below the top layer has its own forbidden contract, and each contract also forbids
+    whatever the apps above it forbid: an app added to one layer's list cannot be skipped in a lower one.
+    """
+    config = _import_linter_config()
+    root_packages = set(config["importlinter"]["root_packages"].split())
+    forbidden = {
+        section["source_modules"].strip(): set(section["forbidden_modules"].split())
+        for name, section in config.items()
+        if name.startswith("importlinter:contract:") and section.get("type") == "forbidden"
+    }
+    top_layer = set.intersection(*forbidden.values())
+
+    unplaced = root_packages - forbidden.keys() - top_layer - {"daiv", "accounts"}
+    assert not unplaced, (
+        f"{sorted(unplaced)} has no forbidden contract: add one forbidding every app above it, or forbid it "
+        "in every contract if it belongs in the top layer. `accounts` is exempt until the app shell is split out."
+    )
+    for source, above in forbidden.items():
+        for app in above & forbidden.keys():
+            missing = forbidden[app] - above - {source}
+            assert not missing, f"`{source}` forbids `{app}` but not {sorted(missing)}, which sit above `{app}`"

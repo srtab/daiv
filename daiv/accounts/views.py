@@ -19,9 +19,9 @@ from accounts.context_processors import running_jobs_count
 from accounts.emails import send_welcome_email
 from accounts.filters import UserFilter
 from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
-from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.models import APIKey, User
 from codebase.models import MergeMetric
+from core.mixins import AdminRequiredMixin, BreadcrumbMixin
 from schedules.models import ScheduledJob
 
 logger = logging.getLogger(__name__)

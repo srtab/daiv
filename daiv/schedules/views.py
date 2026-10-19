@@ -21,10 +21,10 @@ from sandbox_envs.services import env_picker_context
 from sessions.models import SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 
-from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.templatetags.avatar_tags import user_color_index, user_initials
 from automation.agent.picker_context import agent_picker_context
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
+from core.mixins import AdminRequiredMixin, BreadcrumbMixin
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
 from schedules.models import ScheduledJob, ScheduleTemplate
 

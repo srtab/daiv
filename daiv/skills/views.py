@@ -15,7 +15,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
-from accounts.mixins import AdminRequiredMixin
+from core.mixins import AdminRequiredMixin
 from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE, MAX_FILES, ZIPS_DIR
 from skills.forms import SkillUploadForm
 from skills.models import GlobalSkill, SkillInvocation

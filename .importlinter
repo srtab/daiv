@@ -54,10 +54,13 @@ forbidden_modules =
     configuration
     jobs
     mcp_api
+    mcp_connectors
     memory
     notifications
     schedules
     sessions
+    skills
+    slash_commands
     webhooks
 allow_indirect_imports = True
 
@@ -71,13 +74,55 @@ forbidden_modules =
     configuration
     jobs
     mcp_api
+    mcp_connectors
+    memory
+    notifications
+    schedules
+    sessions
+    skills
+    slash_commands
+    webhooks
+allow_indirect_imports = True
+
+[importlinter:contract:skills]
+name = skills sits below slash commands and the agent
+type = forbidden
+source_modules = skills
+forbidden_modules =
+    automation
+    chat
+    configuration
+    jobs
+    mcp_api
+    mcp_connectors
+    memory
+    notifications
+    schedules
+    sessions
+    slash_commands
+    webhooks
+allow_indirect_imports = True
+
+[importlinter:contract:slash-commands]
+name = slash_commands sits below the agent
+type = forbidden
+source_modules = slash_commands
+forbidden_modules =
+    automation
+    chat
+    configuration
+    jobs
+    mcp_api
+    mcp_connectors
+    memory
+    notifications
     schedules
     sessions
     webhooks
 allow_indirect_imports = True
 
 [importlinter:contract:agent]
-name = the agent does not import runs or triggers
+name = the agent sits below connectors, runs and triggers
 type = forbidden
 source_modules = automation
 forbidden_modules =
@@ -85,15 +130,80 @@ forbidden_modules =
     configuration
     jobs
     mcp_api
+    mcp_connectors
+    memory
+    notifications
+    schedules
+    sessions
+    webhooks
+# Known upward edge: the memory middleware loads RepositoryMemory into the prompt.
+ignore_imports =
+    automation.agent.middlewares.memory -> memory.models
+allow_indirect_imports = True
+
+[importlinter:contract:mcp-connectors]
+name = mcp_connectors sits below runs and triggers
+type = forbidden
+source_modules = mcp_connectors
+forbidden_modules =
+    chat
+    configuration
+    jobs
+    mcp_api
+    memory
+    notifications
     schedules
     sessions
     webhooks
 allow_indirect_imports = True
 
 [importlinter:contract:sessions]
-name = sessions does not import trigger apps
+name = sessions sits below memory, schedules, notifications and triggers
 type = forbidden
 source_modules = sessions
+forbidden_modules =
+    chat
+    configuration
+    jobs
+    mcp_api
+    memory
+    notifications
+    schedules
+    webhooks
+allow_indirect_imports = True
+
+[importlinter:contract:memory]
+name = memory does not import schedules, notifications or triggers
+type = forbidden
+source_modules = memory
+forbidden_modules =
+    chat
+    configuration
+    jobs
+    mcp_api
+    notifications
+    schedules
+    webhooks
+allow_indirect_imports = True
+
+[importlinter:contract:schedules]
+name = schedules does not import memory, notifications or triggers
+type = forbidden
+source_modules = schedules
+forbidden_modules =
+    chat
+    configuration
+    jobs
+    mcp_api
+    memory
+    notifications
+    webhooks
+allow_indirect_imports = True
+
+[importlinter:contract:notifications]
+name = notifications sits below the trigger apps and configuration
+type = forbidden
+source_modules = notifications
 forbidden_modules =
     chat
     configuration
