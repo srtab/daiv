@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import httpx
 
@@ -60,6 +60,15 @@ class SandboxAcquisition(StrEnum):
     """No container: the run ended before ``acquire`` succeeded."""
 
 
+class SessionSeed(NamedTuple):
+    """What a freshly started container is seeded with."""
+
+    repo_archive: bytes
+    skills_archive: bytes | None
+    skills_errors: list[str]
+    """What the global-skills archive left out, worded for the agent."""
+
+
 class SandboxSession:
     """One run's hold on a sandbox container.
 
@@ -92,6 +101,7 @@ class SandboxSession:
         self._egress: EgressConfigRequest | None = None
         self._acquisition = SandboxAcquisition.NOT_ACQUIRED
         self._checkpointed = False
+        self._skills_seed_errors: list[str] = []
         self._cleanups: set[asyncio.Task[None]] = set()
 
     @property
@@ -113,6 +123,12 @@ class SandboxSession:
         return self._acquisition
 
     @property
+    def skills_seed_errors(self) -> list[str]:
+        """What this run's seed left out of the global skills, worded for the agent; empty for a warm container, whose
+        seed an earlier run reported."""
+        return self._skills_seed_errors
+
+    @property
     def fingerprint(self) -> str:
         """The run's spec fingerprint, recorded beside the container's id so a later turn can tell a changed spec."""
         return self._spec.fingerprint
@@ -122,11 +138,7 @@ class SandboxSession:
         self._checkpointed = True
 
     async def acquire(
-        self,
-        *,
-        prior_id: str | None,
-        prior_fingerprint: str | None,
-        seed: Callable[[], Awaitable[tuple[bytes, bytes | None]]],
+        self, *, prior_id: str | None, prior_fingerprint: str | None, seed: Callable[[], Awaitable[SessionSeed]]
     ) -> None:
         """Hold a container for this run.
 
@@ -140,6 +152,7 @@ class SandboxSession:
         if self._session_id is not None:
             raise RuntimeError(f"Sandbox session {self._session_id} is already acquired")
         self._checkpointed = False
+        self._skills_seed_errors = []
         egress = await self._provision_egress()
         acquisition = SandboxAcquisition.NEW
         if prior_id is not None:
@@ -354,10 +367,11 @@ class SandboxSession:
             return
         await self._close(session_id, force=True, after="a cancelled start")
 
-    async def _seed(self, session_id: str, seed: Callable[[], Awaitable[tuple[bytes, bytes | None]]]) -> None:
+    async def _seed(self, session_id: str, seed: Callable[[], Awaitable[SessionSeed]]) -> None:
         try:
-            repo_archive, skills_archive = await seed()
+            repo_archive, skills_archive, skills_errors = await seed()
             await self._client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
+            self._skills_seed_errors = skills_errors
         # BaseException: a stopped turn must not leave the new container behind.
         except BaseException as exc:
             if isinstance(exc, Exception):

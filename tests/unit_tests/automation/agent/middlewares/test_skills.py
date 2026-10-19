@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -18,6 +18,10 @@ from automation.agent.synthetic import synthetic_message
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig, SlashCommands
+from tests.unit_tests.conftest import write_skill
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_runtime(
@@ -164,57 +168,27 @@ class TestSkillsMiddleware:
 
         assert result is None
 
-    def test_collect_skill_files_skips_already_cached_files(self, tmp_path: Path):
+    async def test_copy_skips_files_already_in_the_cache(self, skill_roots, tmp_path: Path):
         """The per-file existence check makes per-turn re-materialization a no-op once the disk
-        cache is populated — cold cache collects the file for upload, warm cache skips it. This
-        is what makes running ``_copy_global_skills`` every turn cheap; a regression checking the
-        wrong path would re-upload every skill file on every turn with no other test failing."""
-        source = tmp_path / "src"
-        (source / "skill-one").mkdir(parents=True)
-        (source / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
+        cache is populated — cold cache uploads the file, warm cache skips it. This is what makes
+        running ``_copy_global_skills`` every turn cheap; a regression checking the wrong path would
+        re-upload every skill file on every turn with no other test failing."""
+        builtin, _ = skill_roots
+        write_skill(builtin, "skill-one", "ok")
         cache = tmp_path / "cache"
+        backend = Mock()
+        backend.aupload_files = AsyncMock(side_effect=lambda files: [Mock(error=None) for _ in files])
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
 
         with patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", cache):
-            cold: list[tuple[str, bytes]] = []
-            SkillsMiddleware._collect_skill_files(source / "skill-one", cold, [])
-            assert [dest for dest, _ in cold] == ["/workspace/skills/skill-one/SKILL.md"]
-
+            await middleware._copy_global_skills()
             (cache / "skill-one").mkdir(parents=True)
             (cache / "skill-one" / "SKILL.md").write_text("cached")
-            warm: list[tuple[str, bytes]] = []
-            SkillsMiddleware._collect_skill_files(source / "skill-one", warm, [])
-            assert warm == []
+            await middleware._copy_global_skills()
 
-    def test_collect_skill_files_surfaces_incomplete_skill_for_broken_asset(self, tmp_path: Path, monkeypatch):
-        """A non-SKILL.md asset (scripts/, references/) that fails to read must surface an
-        ``incomplete`` warning — the skill-creator skill depends on scripts/init_skill.py at runtime,
-        so a silently-dropped asset would otherwise only surface mid-use. The manifest itself loads, so
-        this is distinct from the SKILL.md-missing error."""
-        source = tmp_path / "src"
-        (source / "skill-one").mkdir(parents=True)
-        (source / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
-        (source / "skill-one" / "scripts").mkdir()
-        (source / "skill-one" / "scripts" / "helper.py").write_text("print('hi')")
-        cache = tmp_path / "cache"  # cold cache so every file is collected
-
-        real_read_bytes = Path.read_bytes
-
-        def fake_read_bytes(self):
-            if self.name == "helper.py":
-                raise OSError(2, "No such file or directory")
-            return real_read_bytes(self)
-
-        monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
-
-        errors: list[str] = []
-        files: list[tuple[str, bytes]] = []
-        with patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", cache):
-            SkillsMiddleware._collect_skill_files(source / "skill-one", files, errors)
-
-        # SKILL.md still collected; the broken asset is reported as incomplete, not as a load failure.
-        assert "/workspace/skills/skill-one/SKILL.md" in [dest for dest, _ in files]
-        assert any("may be incomplete" in e and "helper.py" in e for e in errors)
-        assert not any(e.startswith("Cannot load skill") for e in errors)
+        cold, warm = (call.args[0] for call in backend.aupload_files.await_args_list)
+        assert [dest for dest, _ in cold] == ["/workspace/skills/skill-one/SKILL.md"]
+        assert warm == []
 
     async def test_preserves_user_supplied_metadata(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -351,11 +325,15 @@ class TestSkillsMiddleware:
         formatted = middleware._format_skills_list([])
         assert formatted == "(No skills available yet. You can create skills in /skills or /extra/skills)"
 
-    async def test_abefore_agent_skips_copy_global_skills_when_the_workspace_provisions_them(self):
-        """A sandbox's seed provisions the global skills, so SkillsMiddleware must NOT upload them."""
+    async def test_abefore_agent_reports_what_the_workspace_provisioning_left_out_instead_of_copying(self):
+        """A sandbox's seed provisions the global skills, so SkillsMiddleware must NOT upload them, but what the seed
+        left out still reaches the agent."""
         backend = Mock()
         middleware = SkillsMiddleware(
-            backend=backend, sources=[("/workspace/skills", "Global")], copy_global_skills=False
+            backend=backend,
+            sources=[("/workspace/skills", "Global")],
+            copy_global_skills=False,
+            provisioning_errors=["Cannot load skill 'plan': Permission denied"],
         )
         state = {"messages": [HumanMessage(content="hi")]}  # no skills_metadata yet
         runtime = Mock()
@@ -367,9 +345,10 @@ class TestSkillsMiddleware:
                 new=AsyncMock(return_value={"skills_metadata": []}),
             ),
         ):
-            await middleware.abefore_agent(state, runtime, {})
+            result = await middleware.abefore_agent(state, runtime, {})
 
         mock_copy.assert_not_called()
+        assert result["skills_load_errors"] == ["Cannot load skill 'plan': Permission denied"]
 
     async def test_abefore_agent_copies_global_skills_into_a_workspace_that_lacks_them(self):
         backend = Mock()
@@ -859,42 +838,6 @@ class TestCustomGlobalSkills:
         skills = {skill["name"]: skill for skill in result["skills_metadata"]}
         # Per-repo source wins (last source wins).
         assert skills["shared-skill"]["description"] == "repo version"
-
-    @pytest.mark.parametrize(
-        ("unreadable", "mode", "expected"),
-        [
-            pytest.param(
-                "scripts",
-                0,
-                "Skill 'secret-skill' may be incomplete: failed to read a directory (Permission denied)",
-                id="asset-dir",
-            ),
-            pytest.param(".", 0o100, "Cannot load skill 'secret-skill': Permission denied", id="skill-dir"),
-        ],
-    )
-    async def test_unreadable_skill_directory_surfaces_in_load_errors(
-        self, tmp_path: Path, chmod, unreadable: str, mode: int, expected: str
-    ):
-        from deepagents.backends.filesystem import FilesystemBackend
-
-        builtin = tmp_path / "builtin_skills"
-        skill = builtin / "secret-skill"
-        (skill / "scripts").mkdir(parents=True)
-        (skill / "SKILL.md").write_text(_make_skill_md(name="secret-skill", description="x"))
-        (skill / "scripts" / "run.py").write_text("print()")
-        chmod(skill / unreadable, mode)
-
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
-
-        with (
-            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
-            patch("skills.services.settings.CUSTOM_SKILLS_PATH", None),
-            patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", tmp_path / "cache"),
-        ):
-            errors = await middleware._copy_global_skills()
-
-        assert errors == [expected]
 
     async def test_missing_skill_md_surfaces_in_load_errors(self, tmp_path: Path):
         """When SKILL.md cannot be read, the skill's name must surface in errors so it doesn't silently vanish."""

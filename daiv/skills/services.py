@@ -113,6 +113,63 @@ def global_skill_dirs() -> GlobalSkillDirs:
     return GlobalSkillDirs({**builtin.dirs, **custom.dirs}, builtin.errors + custom.errors)
 
 
+class GlobalSkillFiles(NamedTuple):
+    dirs: dict[str, Path]
+    """The skills' directories by their path relative to the skills root, parents before children."""
+    files: dict[str, Path]
+    """The skills' files by their path relative to the skills root (``<skill>/<path in the skill>``); ``__pycache__``
+    and ``.pyc`` are left out."""
+    errors: list[str]
+    """What was left out and why, worded for the agent: no host paths."""
+
+
+def global_skill_files() -> GlobalSkillFiles:
+    """The directories and files of the global skills (:func:`global_skill_dirs`). A directory that can't be listed is
+    logged, left out and reported in ``errors``: the skill's own as ``Cannot load skill``, one below it as ``may be
+    incomplete``. Reading a file is left to :func:`read_global_skill_file`."""
+    skill_dirs, errors = global_skill_dirs()
+    found = GlobalSkillFiles({}, {}, errors)
+    for name, skill_dir in skill_dirs.items():
+        _walk_skill(name, skill_dir, found)
+    return found
+
+
+def _walk_skill(name: str, skill_dir: Path, found: GlobalSkillFiles) -> None:
+    def on_error(exc: OSError) -> None:
+        fatal = Path(exc.filename) == skill_dir
+        _report_unreadable(name, exc, found.errors, fatal=fatal, failed_to="read a directory")
+
+    for root, subdirs, filenames in skill_dir.walk(on_error=on_error):
+        subdirs[:] = [subdir for subdir in subdirs if subdir != "__pycache__"]
+        rel_root = Path(name) / root.relative_to(skill_dir)
+        found.dirs[rel_root.as_posix()] = root
+        for filename in filenames:
+            if not filename.endswith(".pyc"):
+                found.files[(rel_root / filename).as_posix()] = root / filename
+
+
+def read_global_skill_file(path: str, source: Path, errors: list[str]) -> bytes | None:
+    """The bytes of the global-skill file ``source``, at ``path`` relative to the skills root (see
+    :func:`global_skill_files`); ``None`` when it can't be read, which is logged and reported in ``errors``: a skill's
+    ``SKILL.md`` as ``Cannot load skill``, any other file as ``may be incomplete``."""
+    try:
+        return source.read_bytes()
+    except OSError as exc:
+        name = path.split("/", 1)[0]
+        _report_unreadable(name, exc, errors, fatal=path == f"{name}/SKILL.md", failed_to=f"load '{source.name}'")
+        return None
+
+
+def _report_unreadable(name: str, exc: OSError, errors: list[str], *, fatal: bool, failed_to: str) -> None:
+    # ``exc.strerror`` omits the host path (it lives in ``exc.filename``), so the path stays in the log.
+    logger.warning("Failed to read '%s' (skill='%s'), skipping", exc.filename, name)
+    reason = exc.strerror or type(exc).__name__
+    if fatal:
+        errors.append(f"Cannot load skill '{name}': {reason}")
+    else:
+        errors.append(f"Skill '{name}' may be incomplete: failed to {failed_to} ({reason})")
+
+
 def _skill_metadata(skill_dir: Path) -> SkillMetadata | None:
     """The metadata the agent loads ``skill_dir`` with; ``None``, logged, when it can't load it."""
     skill_md = skill_dir / "SKILL.md"

@@ -7,7 +7,7 @@ import httpx
 import pytest
 from sandbox_envs.spec import SandboxSpec
 
-from automation.agent.workspace.session import SandboxAcquisition, SandboxSession
+from automation.agent.workspace.session import SandboxAcquisition, SandboxSession, SessionSeed
 from codebase.clients.base import GitEgressCredential
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
@@ -24,8 +24,8 @@ def _repo_archive() -> bytes:
     return buf.getvalue()
 
 
-def _seed() -> AsyncMock:
-    return AsyncMock(return_value=(_repo_archive(), None))
+def _seed(*skills_errors: str) -> AsyncMock:
+    return AsyncMock(return_value=SessionSeed(_repo_archive(), None, list(skills_errors)))
 
 
 def _credential(token: str | None, *, host: str = "github.com") -> GitEgressCredential:
@@ -313,6 +313,20 @@ class TestAcquisition:
         session_id = session.session_id
 
         assert (session_id, session.acquisition) == (prior_id, SandboxAcquisition.WARM)
+
+    async def test_only_a_fresh_seed_reports_what_it_left_out_of_the_skills(self):
+        client = FakeSandboxClient.opened()
+        fresh = _session(client)
+        await fresh.acquire(prior_id=None, prior_fingerprint=None, seed=_seed("Cannot load skill 'plan': x"))
+        session_id = fresh.session_id
+        fresh.mark_checkpointed()
+        await fresh.release(resumable=True)
+        warm = _session(client)
+
+        await warm.acquire(prior_id=session_id, prior_fingerprint=sandbox_spec().fingerprint, seed=_seed("unseen"))
+
+        assert fresh.skills_seed_errors == ["Cannot load skill 'plan': x"]
+        assert (warm.acquisition, warm.skills_seed_errors) == (SandboxAcquisition.WARM, [])
 
     @pytest.mark.parametrize("status", [404, None], ids=["reaped", "unconfirmed"])
     async def test_a_container_that_is_gone_is_replaced(self, status):

@@ -272,6 +272,7 @@ class FakeWorkspace:
     session: Any = None
     fs_permissions: Any = None
     provisions_skills: bool = False
+    skills_provisioning_errors: Any = ()
     is_ready: bool = True
 
     async def authenticated_git(self) -> Any:

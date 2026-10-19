@@ -29,6 +29,7 @@ class DiskWorkspace:
     session = None
     fs_permissions = WORKSPACE_FENCE_PERMISSIONS
     provisions_skills = False
+    skills_provisioning_errors = ()
     is_ready = True
 
     def __init__(self, ctx: RuntimeCtx) -> None:

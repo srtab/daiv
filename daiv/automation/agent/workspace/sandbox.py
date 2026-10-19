@@ -39,6 +39,10 @@ class SandboxWorkspace:
     def is_ready(self) -> bool:
         return self.session.is_acquired
 
+    @property
+    def skills_provisioning_errors(self) -> list[str]:
+        return self.session.skills_seed_errors
+
     async def authenticated_git(self) -> GitManager:
         """Re-mint the git-platform token onto the container, then hand back ``git``.
 

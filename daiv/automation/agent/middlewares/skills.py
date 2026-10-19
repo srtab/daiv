@@ -14,7 +14,7 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
-from skills.services import global_skill_dirs, record_invocation
+from skills.services import global_skill_files, read_global_skill_file, record_invocation
 
 from automation.agent.constants import SKILLS_TOOL_NAME
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
@@ -23,7 +23,7 @@ from automation.agent.utils import extract_body_from_frontmatter
 from codebase.context import RuntimeCtx  # noqa: TC001
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from langchain.agents.middleware.types import ToolCallRequest
     from langchain_core.runnables import RunnableConfig
@@ -106,16 +106,20 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     """
     Middleware that loads skill metadata and, with ``copy_global_skills``, copies builtin and custom global skills
     into the ``/workspace/skills`` cache so they are available even when the project skills directory is not set up.
-    A sandbox's seed provisions them itself, so its workspace turns the copy off.
+    A sandbox's seed provisions them itself, so its workspace turns the copy off and hands over what the seed left out
+    as ``provisioning_errors``, reported like the copy's own.
     """
 
     state_schema = DAIVSkillsState
 
-    def __init__(self, *args, copy_global_skills: bool = True, **kwargs):
+    def __init__(
+        self, *args, copy_global_skills: bool = True, provisioning_errors: Sequence[str] = (), **kwargs
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]
         self._copies_global_skills = copy_global_skills
+        self._provisioning_errors = list(provisioning_errors)
 
     async def abefore_agent(
         self, state: DAIVSkillsState, runtime: Runtime[RuntimeCtx], config: RunnableConfig
@@ -135,9 +139,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         # Every turn, not only when ``skills_metadata`` is unset: the ``SKILLS_PATH`` cache is per-container but
         # ``skills_metadata`` persists in the checkpoint, so a fresh-worker resume would hit ``file_not_found``.
-        local_load_errors: list[str] = []
+        local_load_errors = list(self._provisioning_errors)
         if self._copies_global_skills:
-            local_load_errors = await self._copy_global_skills()
+            local_load_errors += await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
@@ -161,15 +165,19 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     async def _copy_global_skills(self) -> list[str]:
         """
-        Materialize the global skills (``skills.services.global_skill_dirs``) into the virtual ``SKILLS_PATH``,
+        Materialize the global skills (``skills.services.global_skill_files``) into the virtual ``SKILLS_PATH``,
         sibling to the agent's working directory.
 
         Returns source-level load errors so callers can surface them via ``skills_load_errors``.
         """
         files_to_upload: list[tuple[str, bytes]] = []
-        skill_dirs, errors = global_skill_dirs()
-        for skill_dir in skill_dirs.values():
-            self._collect_skill_files(skill_dir, files_to_upload, errors)
+        _, files, errors = global_skill_files()
+        for path, source in files.items():
+            # ``SKILLS_PATH`` is virtual; its host twin under ``SKILLS_CACHE_PATH`` makes re-uploads a no-op.
+            if (SKILLS_CACHE_PATH / path).exists():
+                continue
+            if (content := read_global_skill_file(path, source, errors)) is not None:
+                files_to_upload.append((f"{SKILLS_PATH}/{path}", content))
 
         responses = await self._backend.aupload_files(files_to_upload)
         failures = [
@@ -183,44 +191,6 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             raise RuntimeError(f"Failed to upload {len(failures)} skill file(s){extra}")
 
         return errors
-
-    @staticmethod
-    def _collect_skill_files(skill_dir: Path, files_to_upload: list[tuple[str, bytes]], errors: list[str]) -> None:
-        """
-        Append the uploadable files of the skill in ``skill_dir`` to ``files_to_upload`` and read
-        failures to ``errors`` so nothing is silently dropped from the agent's view: a broken
-        ``SKILL.md`` as a ``Cannot load skill`` error (the skill won't load at all), a broken asset
-        (``scripts/``, ``references/``) as a ``may be incomplete`` warning (the skill loads but is
-        missing a runtime dependency).
-        """
-        name = skill_dir.name
-
-        # ``exc.strerror`` omits the host path (it lives in ``exc.filename``), so the path stays in the log.
-        def report(exc: OSError, *, fatal: bool, failed_to: str) -> None:
-            logger.warning("Failed to read '%s' (skill='%s'), skipping", exc.filename, name)
-            reason = exc.strerror or type(exc).__name__
-            if fatal:
-                errors.append(f"Cannot load skill '{name}': {reason}")
-            else:
-                errors.append(f"Skill '{name}' may be incomplete: failed to {failed_to} ({reason})")
-
-        def on_walk_error(exc: OSError) -> None:
-            report(exc, fatal=Path(exc.filename) == skill_dir, failed_to="read a directory")
-
-        for root, dirs, files in skill_dir.walk(on_error=on_walk_error):
-            dirs[:] = [d for d in dirs if d != "__pycache__"]
-            for file in files:
-                source_path = root / file
-                if source_path.suffix == ".pyc":
-                    continue
-                rel = Path(name) / source_path.relative_to(skill_dir)
-                # ``SKILLS_PATH`` is virtual; its host twin under ``SKILLS_CACHE_PATH`` makes re-uploads a no-op.
-                if (SKILLS_CACHE_PATH / rel).exists():
-                    continue
-                try:
-                    files_to_upload.append((str(Path(SKILLS_PATH) / rel), source_path.read_bytes()))
-                except OSError as exc:
-                    report(exc, fatal=source_path.name == "SKILL.md", failed_to=f"load '{source_path.name}'")
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:

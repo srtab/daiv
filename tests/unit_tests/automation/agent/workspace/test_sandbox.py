@@ -32,6 +32,7 @@ def test_a_sandbox_workspace_is_unfenced_and_seeded_with_the_skills():
 
     assert workspace.fs_permissions is None
     assert workspace.provisions_skills is True
+    assert workspace.skills_provisioning_errors is workspace.session.skills_seed_errors
 
 
 async def test_it_is_ready_once_its_session_is_acquired():

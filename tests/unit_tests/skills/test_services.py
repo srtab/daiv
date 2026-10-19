@@ -6,7 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from skills.models import GlobalSkill, SkillInvocation
-from skills.services import _classify_source, global_skill_dirs, list_builtins, list_global_skills
+from skills.services import (
+    _classify_source,
+    global_skill_dirs,
+    global_skill_files,
+    list_builtins,
+    list_global_skills,
+    read_global_skill_file,
+)
 
 from tests.unit_tests.conftest import write_skill
 
@@ -78,6 +85,71 @@ def test_custom_dir_without_skill_md_does_not_shadow_the_builtin(skill_roots):
     assert dirs == {"plan": builtin / "plan"}
     assert errors == ["Cannot load skill 'plan': no readable SKILL.md"]
     assert list_global_skills() == {"plan": "builtin plan"}
+
+
+def test_global_skill_files_leave_out_bytecode(skill_roots):
+    builtin, _ = skill_roots
+    write_skill(builtin, "plan", "x")
+    scripts = builtin / "plan" / "scripts"
+    (scripts / "__pycache__").mkdir(parents=True)
+    (scripts / "run.py").write_text("print()")
+    (scripts / "run.pyc").write_bytes(b"")
+    (scripts / "__pycache__" / "run.cpython-314.pyc").write_bytes(b"")
+
+    dirs, files, errors = global_skill_files()
+
+    assert list(dirs) == ["plan", "plan/scripts"]
+    assert files == {"plan/SKILL.md": builtin / "plan" / "SKILL.md", "plan/scripts/run.py": scripts / "run.py"}
+    assert errors == []
+
+
+@pytest.mark.parametrize(
+    ("unreadable", "mode", "expected"),
+    [
+        pytest.param(
+            "scripts",
+            0,
+            "Skill 'secret-skill' may be incomplete: failed to read a directory (Permission denied)",
+            id="asset-dir",
+        ),
+        pytest.param(".", 0o100, "Cannot load skill 'secret-skill': Permission denied", id="skill-dir"),
+    ],
+)
+def test_global_skill_files_report_an_unreadable_directory(skill_roots, chmod, unreadable, mode, expected):
+    builtin, _ = skill_roots
+    write_skill(builtin, "secret-skill", "x")
+    (builtin / "secret-skill" / "scripts").mkdir()
+    (builtin / "secret-skill" / "scripts" / "run.py").write_text("print()")
+    chmod(builtin / "secret-skill" / unreadable, mode)
+
+    assert global_skill_files().errors == [expected]
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        pytest.param("plan/SKILL.md", "Cannot load skill 'plan': Permission denied", id="skill-md"),
+        pytest.param(
+            "plan/scripts/helper.py",
+            "Skill 'plan' may be incomplete: failed to load 'helper.py' (Permission denied)",
+            id="asset",
+        ),
+    ],
+)
+def test_read_global_skill_file_reports_an_unreadable_file(skill_roots, chmod, caplog, path, expected):
+    builtin, _ = skill_roots
+    write_skill(builtin, "plan", "x")
+    (builtin / "plan" / "scripts").mkdir()
+    (builtin / "plan" / "scripts" / "helper.py").write_text("print()")
+    source = builtin / path
+    chmod(source, 0)
+    errors: list[str] = []
+
+    with caplog.at_level(logging.WARNING, logger="daiv.skills"):
+        assert read_global_skill_file(path, source, errors) is None
+
+    assert errors == [expected]
+    assert str(source) in caplog.text
 
 
 def test_list_global_skills_keys_by_frontmatter_name(skill_roots):

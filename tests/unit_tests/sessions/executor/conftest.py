@@ -14,6 +14,7 @@ from sessions.executor.spec import RunSpec
 
 from automation.agent.agent_settings import RunOverrides
 from automation.agent.results import parse_agent_result
+from automation.agent.workspace.session import SessionSeed
 from codebase.base import Scope
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import agent_settings, site_snapshot, stub_sandbox_spec
@@ -121,7 +122,10 @@ def agent_stack(
         patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.services.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.PipelineWatch", _Watch),
-        patch("automation.agent.middlewares.sandbox._seed_archives", AsyncMock(return_value=(empty_archive(), None))),
+        patch(
+            "automation.agent.middlewares.sandbox._seed_archives",
+            AsyncMock(return_value=SessionSeed(empty_archive(), None, [])),
+        ),
     ):
         stack.build_spec = build_spec
         stack.snapshot = snapshot
