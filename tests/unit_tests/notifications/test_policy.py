@@ -4,8 +4,10 @@ from types import SimpleNamespace
 
 from django.utils import timezone
 
+from notifications.choices import EnvelopeStatus
 from notifications.policy import (
     envelope_tone,
+    get_classify_origins,
     notifies,
     notify_worthy,
     notify_worthy_statuses,
@@ -13,8 +15,8 @@ from notifications.policy import (
     status_tones,
     within_relevance_window,
 )
-from sessions.models import EnvelopeStatus, SessionOrigin
-from sessions.tasks import RECLASSIFY_MAX_AGE
+from notifications.tasks import RECLASSIFY_MAX_AGE
+from sessions.models import SessionOrigin
 
 
 def test_notify_worthy_truth_table():
@@ -87,3 +89,12 @@ class TestNotifies:
         run = SimpleNamespace(trigger_type=SessionOrigin.ISSUE_WEBHOOK)
         assert notifies(run, EnvelopeStatus.FAILED) is True
         assert notifies(run, EnvelopeStatus.ALL_CLEAR) is False
+
+
+def test_classify_origins_excludes_chat_and_pipeline_webhook():
+    """Classification is "universal for non-chat" except pipeline-watch runs, which have a
+    separate result path. Pinning the set forces a newly-added SessionOrigin to decide."""
+    assert get_classify_origins() == frozenset(SessionOrigin.values) - {
+        SessionOrigin.CHAT,
+        SessionOrigin.PIPELINE_WEBHOOK,
+    }

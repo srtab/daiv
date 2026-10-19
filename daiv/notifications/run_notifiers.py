@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.utils.translation import gettext as _
 
 from notifications.channels.registry import enabled_channel_types
+from notifications.choices import EnvelopeStatus
 from notifications.policy import (
     batch_status_tone,
     envelope_tone,
@@ -87,8 +88,6 @@ def _notable_runs_context(rows: list[BatchRow]) -> tuple[list[dict], int]:
     One row per *run*, not per finding: nesting a 20-repo batch's findings would cap most of them
     away and leave the clean repos indistinguishable. The link carries the drill-down.
     """
-    from sessions.models import EnvelopeStatus
-
     notable = sorted(
         (row for row in rows if notify_worthy(row.status)), key=lambda r: (status_severity(r.status), r.repo)
     )
@@ -120,7 +119,7 @@ def resolve_recipients(run) -> dict[int, object]:
 
 
 def _render_payload(run, envelope) -> tuple[str, str, dict]:
-    from sessions.models import EnvelopeStatus, RunStatus
+    from sessions.models import RunStatus
 
     is_schedule = is_schedule_run(run)
     repo = run.repo_id
@@ -283,8 +282,6 @@ def deliver_to_recipients(
 
 def _handle_batch_completion(run, siblings, total: int) -> None:
     """Emit one rollup once every sibling in the batch is classified (has an envelope)."""
-    from sessions.models import EnvelopeStatus
-
     classified = siblings.filter(envelope__isnull=False).count()
     if classified < total:
         return

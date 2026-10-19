@@ -1,11 +1,13 @@
+import uuid
 from datetime import UTC, datetime, time
 from unittest.mock import patch
 
 import pytest
 from notifications.choices import ChannelType, EventType
 from notifications.models import Notification, UserChannelBinding
-from sessions.models import Session
-from sessions.signal_defs import watch_exhausted
+from notifications.signals import classify_on_run_finished
+from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.signal_defs import run_finished, watch_exhausted
 
 from accounts.models import User
 from schedules.models import DispatchError, Frequency, ScheduledJob
@@ -111,3 +113,85 @@ class TestOnScheduleDispatchFailed:
             schedule_dispatch_failed.send(sender=ScheduledJob, schedule_pk=failing_schedule.pk)
 
         assert f"on_schedule_dispatch_failed: unexpected error for schedule={failing_schedule.pk}" in caplog.text
+
+
+@pytest.mark.django_db
+class TestClassifyOnRunFinished:
+    """The gated ``classify_on_run_finished`` receiver (Story 1.3, AC1)."""
+
+    def _schedule_run(self, *, status=RunStatus.SUCCESSFUL, **kwargs):
+        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id="acme/api")
+        return Run.objects.create(
+            session=session, trigger_type=SessionOrigin.SCHEDULE, repo_id="acme/api", status=status, **kwargs
+        )
+
+    def test_enqueues_for_scheduled_terminal_run(self):
+        run = self._schedule_run(status=RunStatus.SUCCESSFUL)
+        with patch("notifications.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run)
+        task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_enqueues_for_failed_scheduled_run(self):
+        run = self._schedule_run(status=RunStatus.FAILED)
+        with patch("notifications.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run)
+        task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_enqueues_for_webhook_and_prompt_driven_origins(self):
+        for origin in (
+            SessionOrigin.ISSUE_WEBHOOK,
+            SessionOrigin.MR_WEBHOOK,
+            SessionOrigin.API_JOB,
+            SessionOrigin.MCP_JOB,
+            SessionOrigin.UI_JOB,
+        ):
+            session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=origin, repo_id="acme/api")
+            run = Run.objects.create(
+                session=session, trigger_type=origin, repo_id="acme/api", status=RunStatus.SUCCESSFUL
+            )
+            with patch("notifications.signals.classify_run_task") as task_mock:
+                classify_on_run_finished(sender=Run, run=run)
+            task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_skips_chat_trigger(self):
+        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="acme/api")
+        run = Run.objects.create(
+            session=session, trigger_type=SessionOrigin.CHAT, repo_id="acme/api", status=RunStatus.SUCCESSFUL
+        )
+        with patch("notifications.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run)
+        task_mock.enqueue.assert_not_called()
+
+    def test_a_failed_run_that_never_started_still_classifies(self):
+        """It still deserves a ``failed`` envelope + failure notification."""
+        run = self._schedule_run(status=RunStatus.FAILED)
+        with patch("notifications.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run, skip_dispatch=True, never_started=True)
+        task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_skips_non_terminal_status(self):
+        run = self._schedule_run(status=RunStatus.RUNNING)
+        with patch("notifications.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run)
+        task_mock.enqueue.assert_not_called()
+
+    def test_enqueues_for_waiting_input_run(self):
+        run = self._schedule_run(status=RunStatus.WAITING_INPUT)
+        with patch("notifications.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run)
+        task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_never_raises_on_enqueue_failure(self):
+        run = self._schedule_run(status=RunStatus.SUCCESSFUL)
+        with patch("notifications.signals.classify_run_task") as task_mock:
+            task_mock.enqueue.side_effect = RuntimeError("broker down")
+            classify_on_run_finished(sender=Run, run=run)  # must not raise
+        # The enqueue was actually attempted (and its failure swallowed) — not skipped by an early gate.
+        task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_wired_to_run_finished_signal(self):
+        """apps.ready() must register the receiver on the run_finished signal."""
+        run = self._schedule_run(status=RunStatus.SUCCESSFUL)
+        with patch("notifications.signals.classify_run_task") as task_mock:
+            run_finished.send(sender=Run, run=run)
+        task_mock.enqueue.assert_called_once_with(str(run.pk))

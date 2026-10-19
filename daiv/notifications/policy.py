@@ -4,7 +4,7 @@ import logging
 
 from django.utils import timezone
 
-from notifications.choices import EventType
+from notifications.choices import EnvelopeStatus, EventType
 
 logger = logging.getLogger("daiv.notifications")
 
@@ -22,9 +22,14 @@ def is_schedule_run(run) -> bool:
     return session is not None and session.scheduled_job_id is not None and session.scheduled_job is not None
 
 
-def notify_worthy_statuses() -> frozenset[str]:
-    from sessions.models import EnvelopeStatus
+def get_classify_origins() -> frozenset[str]:
+    """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven)."""
+    from sessions.models import SessionOrigin
 
+    return frozenset({SessionOrigin.SCHEDULE}) | SessionOrigin.webhooks() | SessionOrigin.prompt_driven()
+
+
+def notify_worthy_statuses() -> frozenset[str]:
     return frozenset({
         EnvelopeStatus.FOUND_ISSUES,
         EnvelopeStatus.NEEDS_ATTENTION,
@@ -41,7 +46,7 @@ def notify_worthy(status: str) -> bool:
 
 def notifies(run, status: str) -> bool:
     """Whether this run's outcome notifies. A webhook question is already posted on the forge, mentioning the asker."""
-    from sessions.models import EnvelopeStatus, SessionOrigin
+    from sessions.models import SessionOrigin
 
     if status == EnvelopeStatus.NEEDS_INPUT and run.trigger_type in SessionOrigin.webhooks():
         return False
@@ -54,8 +59,6 @@ def status_severity(status: str) -> int:
     An unranked status sorts *first* — under a cap, being dropped is the one outcome a reader
     cannot recover from.
     """
-    from sessions.models import EnvelopeStatus
-
     try:
         return EnvelopeStatus.worst_first().index(status)
     except ValueError:
@@ -69,7 +72,7 @@ def within_relevance_window(finished_at) -> bool:
     The window reuses ``RECLASSIFY_MAX_AGE`` (one shared knob): inside it we prefer late delivery over
     dropping, so an outage-delayed but genuinely-recent run still notifies.
     """
-    from sessions.tasks import RECLASSIFY_MAX_AGE
+    from notifications.tasks import RECLASSIFY_MAX_AGE
 
     if finished_at is None:
         return False
@@ -118,8 +121,6 @@ def batch_status_tone(notable: int, total: int) -> str:
 def status_tones() -> dict[str, str]:
     """Every status's channel tone. ``all-clear`` is spelled out rather than left to fall through,
     which is what makes an untoned status detectable."""
-    from sessions.models import EnvelopeStatus
-
     return {
         EnvelopeStatus.FAILED: "failure",
         EnvelopeStatus.FOUND_ISSUES: "warning",

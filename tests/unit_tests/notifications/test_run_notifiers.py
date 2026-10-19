@@ -1,5 +1,3 @@
-"""Tests for notifications receivers wired to sessions.signal_defs.run_classified (and run_finished for memory)."""
-
 import logging
 import uuid
 from unittest.mock import patch
@@ -7,24 +5,13 @@ from unittest.mock import patch
 from django.utils import timezone
 
 import pytest
-from notifications.choices import ChannelType
-from notifications.models import Notification, NotificationDelivery
+from notifications.choices import ChannelType, EnvelopeStatus
+from notifications.models import Notification, NotificationDelivery, RunEnvelope
 from notifications.policy import notify_worthy_statuses
-from notifications.run_notifiers import ACTIONABLE_CONTEXT_LIMIT, NOTABLE_RUNS_CONTEXT_LIMIT
-from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
-from sessions.signal_defs import run_classified, run_finished
+from notifications.run_notifiers import ACTIONABLE_CONTEXT_LIMIT, NOTABLE_RUNS_CONTEXT_LIMIT, emit_run_notification
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
-
-
-@pytest.fixture(autouse=True)
-def _isolate_memory_extraction():
-    """``run_finished`` also drives memory extraction. Stub the task so these
-    notification tests stay hermetic and don't contend on the SQLite write lock via
-    the synchronous task backend. Tests that assert on the memory task patch it
-    themselves (the inner patch wins for their duration)."""
-    with patch("memory.signals.extract_observations_task"):
-        yield
 
 
 def _session(*, origin=SessionOrigin.API_JOB, thread_id="thread-run-1", repo_id="x/y", **kwargs):
@@ -88,25 +75,6 @@ def _make_run_batch(user, *, statuses, repos=None, batch_id=None, scheduled_job=
     return runs
 
 
-@pytest.mark.django_db
-class TestMemorySkipChatRuns:
-    """capture_run_observations must ignore CHAT-triggered runs."""
-
-    def test_memory_skips_chat_runs(self):
-        session = _session(origin=SessionOrigin.CHAT, thread_id="chat-thread")
-        run = _run(session, trigger_type=SessionOrigin.CHAT)
-        with patch("memory.signals.extract_observations_task") as task_mock:
-            run_finished.send(sender=Run, run=run)
-        task_mock.enqueue.assert_not_called()
-
-    def test_memory_processes_api_job_runs(self):
-        session = _session()
-        run = _run(session)
-        with patch("memory.signals.extract_observations_task") as task_mock:
-            run_finished.send(sender=Run, run=run)
-        task_mock.enqueue.assert_called_once_with(str(run.pk))
-
-
 def _classify(run, status, *, count=0, summary=""):
     actionable = (
         [{"id": "0", "kind": "bug", "label": "x", "ref": "y", "schema_version": 1}]
@@ -127,11 +95,11 @@ class TestRunBatchRollup:
         for r in (a, b):
             self._finish(r)
         env_a = _classify(a, EnvelopeStatus.FOUND_ISSUES)
-        run_classified.send(sender=Run, run=a, envelope=env_a)
+        emit_run_notification(a, env_a)
         assert Notification.objects.filter(event_type="job_batch.finished").count() == 0  # b not classified yet
 
         env_b = _classify(b, EnvelopeStatus.ALL_CLEAR)
-        run_classified.send(sender=Run, run=b, envelope=env_b)
+        emit_run_notification(b, env_b)
         rollups = Notification.objects.filter(recipient=member_user, event_type="job_batch.finished")
         assert rollups.count() == 1
         rollup = rollups.get()
@@ -150,7 +118,7 @@ class TestRunBatchRollup:
         ]
         for run, status in zip(runs, statuses, strict=True):
             self._finish(run)
-            run_classified.send(sender=Run, run=run, envelope=_classify(run, status))
+            emit_run_notification(run, _classify(run, status))
 
         ctx = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").context
         assert ctx["found_count"] == 1
@@ -170,7 +138,7 @@ class TestRunBatchRollup:
         runs = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.FAILED])
         for run, status in zip(runs, [EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.FAILED], strict=True):
             self._finish(run)
-            run_classified.send(sender=Run, run=run, envelope=_classify(run, status))
+            emit_run_notification(run, _classify(run, status))
 
         ctx = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").context
         assert ctx["notable_count"] == ctx["total"] == 2
@@ -180,7 +148,7 @@ class TestRunBatchRollup:
         a, b = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL])
         for r, env_status in ((a, EnvelopeStatus.ALL_CLEAR), (b, EnvelopeStatus.ALL_CLEAR)):
             self._finish(r)
-            run_classified.send(sender=Run, run=r, envelope=_classify(r, env_status))
+            emit_run_notification(r, _classify(r, env_status))
         assert Notification.objects.filter(event_type="job_batch.finished").count() == 0
 
     def test_muted_batch_is_silent(self, member_user, run_schedule):
@@ -191,7 +159,7 @@ class TestRunBatchRollup:
         )
         for r in (a, b):
             self._finish(r)
-            run_classified.send(sender=Run, run=r, envelope=_classify(r, EnvelopeStatus.FAILED))
+            emit_run_notification(r, _classify(r, EnvelopeStatus.FAILED))
         assert Notification.objects.filter(event_type="job_batch.finished").count() == 0
 
     def test_concurrent_last_siblings_create_one_rollup(self, member_user, caplog):
@@ -201,16 +169,16 @@ class TestRunBatchRollup:
         _classify(a, EnvelopeStatus.FAILED)
         _classify(b, EnvelopeStatus.FAILED)
         # Both observe all-classified before either inserts; the second hits the IntegrityError path.
-        run_classified.send(sender=Run, run=a, envelope=a.envelope)
+        emit_run_notification(a, a.envelope)
         with caplog.at_level(logging.DEBUG, logger="daiv.notifications"):
-            run_classified.send(sender=Run, run=b, envelope=b.envelope)
+            emit_run_notification(b, b.envelope)
         assert Notification.objects.filter(event_type="job_batch.finished").count() == 1
         assert any("already exists" in rec.message for rec in caplog.records)
 
     def test_single_run_batch_falls_back_to_per_run(self, member_user, email_binding):
         (a,) = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL])
         self._finish(a)
-        run_classified.send(sender=Run, run=a, envelope=_classify(a, EnvelopeStatus.FOUND_ISSUES))
+        emit_run_notification(a, _classify(a, EnvelopeStatus.FOUND_ISSUES))
         assert Notification.objects.filter(event_type="job.finished").count() == 1
         assert Notification.objects.filter(event_type="job_batch.finished").count() == 0
 
@@ -222,7 +190,7 @@ class TestRunBatchRollup:
         )
         for r in (a, b):
             self._finish(r)
-            run_classified.send(sender=Run, run=r, envelope=_classify(r, EnvelopeStatus.FOUND_ISSUES))
+            emit_run_notification(r, _classify(r, EnvelopeStatus.FOUND_ISSUES))
         assert Notification.objects.filter(recipient=member_user, event_type="job_batch.finished").count() == 1
         assert Notification.objects.filter(recipient=sub, event_type="job_batch.finished").count() == 1
 
@@ -234,9 +202,9 @@ class TestRunBatchRollup:
             self._finish(r)
         _classify(a, EnvelopeStatus.FAILED)
         _classify(b, EnvelopeStatus.FAILED)
-        run_classified.send(sender=Run, run=a, envelope=a.envelope)
+        emit_run_notification(a, a.envelope)
         with caplog.at_level(logging.WARNING, logger="daiv.notifications"):
-            run_classified.send(sender=Run, run=b, envelope=b.envelope)
+            emit_run_notification(b, b.envelope)
         assert Notification.objects.filter(event_type="job_batch.finished").count() == 0
         assert any("no resolvable recipients" in rec.message for rec in caplog.records)
 
@@ -252,7 +220,7 @@ class TestRunBatchRollup:
         b.started_at, b.finished_at = t0 + timedelta(seconds=10), t0 + timedelta(seconds=90)
         b.save(update_fields=["started_at", "finished_at"])
         for r, status in ((a, EnvelopeStatus.FOUND_ISSUES), (b, EnvelopeStatus.FAILED)):
-            run_classified.send(sender=Run, run=r, envelope=_classify(r, status))
+            emit_run_notification(r, _classify(r, status))
 
         ctx = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").context
         assert ctx["duration_seconds"] == 90.0  # t0 → t0+90s
@@ -264,7 +232,7 @@ class TestRunBatchRollup:
         statuses = [EnvelopeStatus.NEEDS_INPUT, EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.ALL_CLEAR]
         for run, status in zip(runs, statuses, strict=True):
             self._finish(run)
-            run_classified.send(sender=Run, run=run, envelope=_classify(run, status))
+            emit_run_notification(run, _classify(run, status))
 
         rollup = Notification.objects.get(recipient=member_user, event_type="job_batch.finished")
         assert rollup.context["needs_input_count"] == 1
@@ -281,7 +249,7 @@ class TestRunBatchRollup:
         )
         for r in runs:
             self._finish(r)
-            run_classified.send(sender=Run, run=r, envelope=_classify(r, EnvelopeStatus.FAILED))
+            emit_run_notification(r, _classify(r, EnvelopeStatus.FAILED))
         subject = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").subject
         assert "acme/a, acme/b, acme/c and 1 more" in subject
 
@@ -291,7 +259,7 @@ class TestNotificationPolicy:
     def test_all_clear_writes_nothing(self, member_user):
         session = _session(user=member_user)
         run, envelope = _classified_run(session, status=EnvelopeStatus.ALL_CLEAR, count=0, user=member_user)
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
         assert Notification.objects.filter(recipient=member_user).count() == 0
 
     @pytest.mark.parametrize(
@@ -300,14 +268,14 @@ class TestNotificationPolicy:
     def test_notify_worthy_writes_bell_and_channels(self, member_user, email_binding, status):
         session = _session(user=member_user)
         run, envelope = _classified_run(session, status=status, user=member_user)
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
         assert Notification.objects.filter(recipient=member_user, event_type="job.finished").count() == 1
         assert NotificationDelivery.objects.filter(channel_type=ChannelType.EMAIL).count() == 1
 
     def test_muted_run_is_fully_silent(self, member_user, email_binding):
         session = _session(user=member_user)
         run, envelope = _classified_run(session, status=EnvelopeStatus.FOUND_ISSUES, muted=True, user=member_user)
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
         assert Notification.objects.filter(recipient=member_user).count() == 0
 
     def test_muted_schedule_suppressed_and_run_override_unmutes(self, member_user, run_schedule):
@@ -317,20 +285,20 @@ class TestNotificationPolicy:
         run, envelope = _classified_run(
             session, status=EnvelopeStatus.FAILED, trigger_type=SessionOrigin.SCHEDULE, user=member_user
         )
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
         assert Notification.objects.filter(recipient=member_user).count() == 0
 
         session2 = _session(origin=SessionOrigin.SCHEDULE, thread_id=str(uuid.uuid4()), scheduled_job=run_schedule)
         run2, envelope2 = _classified_run(
             session2, status=EnvelopeStatus.FAILED, trigger_type=SessionOrigin.SCHEDULE, user=member_user, muted=False
         )
-        run_classified.send(sender=Run, run=run2, envelope=envelope2)
+        emit_run_notification(run2, envelope2)
         assert Notification.objects.filter(recipient=member_user).count() == 1
 
     def test_stale_run_outside_window_suppressed(self, member_user, email_binding):
         from datetime import timedelta
 
-        from sessions.tasks import RECLASSIFY_MAX_AGE
+        from notifications.tasks import RECLASSIFY_MAX_AGE
 
         session = _session(user=member_user)
         run, envelope = _classified_run(
@@ -339,7 +307,7 @@ class TestNotificationPolicy:
             user=member_user,
             finished_at=timezone.now() - RECLASSIFY_MAX_AGE - timedelta(hours=1),
         )
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
         assert Notification.objects.filter(recipient=member_user).count() == 0
 
     def test_webhook_run_notifies_run_user_on_notify_worthy(self, member_user, email_binding):
@@ -347,7 +315,7 @@ class TestNotificationPolicy:
         run, envelope = _classified_run(
             session, status=EnvelopeStatus.FOUND_ISSUES, trigger_type=SessionOrigin.ISSUE_WEBHOOK, user=member_user
         )
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
         assert Notification.objects.filter(recipient=member_user).count() == 1
 
     def test_webhook_run_without_recipient_logs_and_drops(self, caplog):
@@ -358,7 +326,7 @@ class TestNotificationPolicy:
             session, status=EnvelopeStatus.FOUND_ISSUES, trigger_type=SessionOrigin.ISSUE_WEBHOOK, user=None
         )
         with caplog.at_level(logging.WARNING, logger="daiv.notifications"):
-            run_classified.send(sender=Run, run=run, envelope=envelope)
+            emit_run_notification(run, envelope)
         assert Notification.objects.count() == 0
         assert any("no resolvable recipient" in rec.message for rec in caplog.records)
 
@@ -375,7 +343,7 @@ class TestNotificationPolicy:
         found-issues run finishes successfully (is_successful True) yet must not render green."""
         session = _session(user=member_user)
         run, envelope = _classified_run(session, status=status, user=member_user)
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
         ctx = Notification.objects.get(recipient=member_user, event_type="job.finished").context
         assert ctx["status_tone"] == tone
         assert ctx["status_label"] == label
@@ -396,7 +364,7 @@ class TestNotificationPolicy:
             total_tokens=300,
             cost_usd=Decimal("0.05"),
         )
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
 
         n = Notification.objects.get(recipient=member_user, event_type="schedule.finished")
         assert n.context["repo_id"] == "acme/app"
@@ -409,9 +377,9 @@ class TestNotificationPolicy:
     def test_idempotent_second_emit_is_deduped(self, member_user, caplog):
         session = _session(user=member_user)
         run, envelope = _classified_run(session, status=EnvelopeStatus.FAILED, user=member_user)
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
         with caplog.at_level(logging.DEBUG, logger="daiv.notifications"):
-            run_classified.send(sender=Run, run=run, envelope=envelope)
+            emit_run_notification(run, envelope)
         assert Notification.objects.filter(recipient=member_user, event_type="job.finished").count() == 1
 
     def test_integrity_error_without_existing_row_is_logged_as_unexpected(self, member_user, email_binding, caplog):
@@ -426,7 +394,7 @@ class TestNotificationPolicy:
             patch("notifications.run_notifiers.notification_exists", return_value=False),
             caplog.at_level(logging.ERROR, logger="daiv.notifications"),
         ):
-            run_classified.send(sender=Run, run=run, envelope=envelope)
+            emit_run_notification(run, envelope)
         assert any("Unexpected IntegrityError" in rec.message for rec in caplog.records)
 
 
@@ -439,7 +407,7 @@ class TestClassifierReasonInContext:
         session = _session(user=member_user)
         run = _run(session, user=member_user, finished_at=timezone.now())
         envelope = RunEnvelope.objects.create(run=run, status=status, summary=summary, actionable=list(actionable))
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
         return Notification.objects.get(recipient=member_user, event_type="job.finished")
 
     @staticmethod
@@ -510,7 +478,7 @@ class TestBatchNotableRuns:
             run.finished_at = timezone.now()
             run.save(update_fields=["finished_at"])
             envelope = _classify(run, status, summary=summary)
-            run_classified.send(sender=Run, run=run, envelope=envelope)
+            emit_run_notification(run, envelope)
         return Notification.objects.get(recipient=member_user, event_type=event_type).context
 
     def test_each_notable_sibling_contributes_its_repo_and_summary(self, member_user, email_binding):
@@ -594,7 +562,7 @@ class TestRunFanoutToSubscribers:
         run, envelope = _classified_run(
             session, status=EnvelopeStatus.FOUND_ISSUES, trigger_type=SessionOrigin.SCHEDULE, user=member_user
         )
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
 
         assert Notification.objects.filter(recipient=member_user).count() == 1
         assert Notification.objects.filter(recipient=sub1).count() == 1
@@ -606,7 +574,7 @@ class TestRunFanoutToSubscribers:
         run, envelope = _classified_run(
             session, status=EnvelopeStatus.FOUND_ISSUES, trigger_type=SessionOrigin.SCHEDULE, user=member_user
         )
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
         assert Notification.objects.filter(recipient=member_user).count() == 1
 
     def test_one_recipient_failure_does_not_block_others(self, member_user, run_schedule, mocker):
@@ -627,7 +595,7 @@ class TestRunFanoutToSubscribers:
         run, envelope = _classified_run(
             session, status=EnvelopeStatus.FOUND_ISSUES, trigger_type=SessionOrigin.SCHEDULE, user=member_user
         )
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
 
         assert Notification.objects.filter(recipient=member_user).count() == 1
         assert Notification.objects.filter(recipient=sub1).count() == 0
@@ -644,7 +612,7 @@ class TestNeedsInputNotification:
         run, envelope = _classified_run(
             session, status=EnvelopeStatus.NEEDS_INPUT, summary=QUESTION_LINES, user=member_user
         )
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
 
         notification = Notification.objects.get(recipient=member_user, event_type="job.finished")
         assert notification.subject == "Agent run on x/y is waiting for your answer"
@@ -658,7 +626,7 @@ class TestNeedsInputNotification:
         run, envelope = _classified_run(
             session, status=EnvelopeStatus.NEEDS_INPUT, trigger_type=SessionOrigin.SCHEDULE, user=member_user
         )
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
 
         notification = Notification.objects.get(recipient=member_user, event_type="schedule.finished")
         assert notification.subject == f"'run-schedule' is waiting for an answer on x/y — {run_schedule.user}"
@@ -669,7 +637,7 @@ class TestNeedsInputNotification:
         run, envelope = _classified_run(
             session, status=EnvelopeStatus.NEEDS_INPUT, trigger_type=origin, user=member_user
         )
-        run_classified.send(sender=Run, run=run, envelope=envelope)
+        emit_run_notification(run, envelope)
         assert Notification.objects.count() == 0
 
     def test_webhook_question_without_a_daiv_user_is_silent_not_a_dropped_delivery(self, caplog):
@@ -678,7 +646,7 @@ class TestNeedsInputNotification:
             session, status=EnvelopeStatus.NEEDS_INPUT, trigger_type=SessionOrigin.ISSUE_WEBHOOK, user=None
         )
         with caplog.at_level(logging.WARNING, logger="daiv.notifications"):
-            run_classified.send(sender=Run, run=run, envelope=envelope)
+            emit_run_notification(run, envelope)
         assert Notification.objects.count() == 0
         assert "no resolvable recipient" not in caplog.text
 
@@ -686,5 +654,5 @@ class TestNeedsInputNotification:
         session = _session(user=member_user)
         for _ in range(2):
             run, envelope = _classified_run(session, status=EnvelopeStatus.NEEDS_INPUT, user=member_user)
-            run_classified.send(sender=Run, run=run, envelope=envelope)
+            emit_run_notification(run, envelope)
         assert Notification.objects.filter(recipient=member_user, event_type="job.finished").count() == 2
