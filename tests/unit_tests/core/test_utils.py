@@ -1,12 +1,10 @@
 from django.contrib.sites.models import Site
 
-import httpx
 import pytest
 from redis.exceptions import LockError, LockNotOwnedError
 
 from core.utils import (
     DEFAULT_LOCK_TIMEOUT,
-    batch_async_download_url,
     build_absolute_url,
     build_uri,
     is_git_auth_error_text,
@@ -110,80 +108,6 @@ class BuildUriTest:
     def test_handle_multiple_slashes(self):
         """Test handling of multiple consecutive slashes in URI and path."""
         assert build_uri("https://api.example.com///", "///v1/endpoint") == "https://api.example.com/v1/endpoint"
-
-
-class BatchAsyncUrlToDataUrlTest:
-    async def test_successful_batch_conversion(self, mocker):
-        mock_response = mocker.Mock()
-        mock_response.content = b"fake-image-data"
-        mock_response.raise_for_status.return_value = None
-        mock_client = mocker.patch("httpx.AsyncClient")
-        mock_client.return_value.__aenter__.return_value.get.return_value = mock_response
-
-        urls = ["https://example.com/1.jpg", "https://example.com/2.jpg"]
-        expected_data_url = b"fake-image-data"
-        result = await batch_async_download_url(urls, headers={})
-        assert len(result) == 2
-        assert all(url in result for url in urls)
-        assert all(data_url == expected_data_url for data_url in result.values())
-
-    async def test_partial_failed_requests(self, mocker):
-        mock_client = mocker.patch("httpx.AsyncClient")
-        client = mock_client.return_value.__aenter__.return_value
-        # First request succeeds, second fails
-        mock_response_success = mocker.Mock()
-        mock_response_success.content = b"fake-image-data"
-        mock_response_success.raise_for_status.return_value = None
-
-        def get_side_effect(url):
-            if "1.jpg" in url:
-                return mock_response_success
-            raise Exception("Request failed")
-
-        client.get.side_effect = get_side_effect
-
-        urls = ["https://example.com/1.jpg", "https://example.com/2.jpg"]
-        result = await batch_async_download_url(urls, headers={})
-
-        assert len(result) == 1
-        assert "https://example.com/1.jpg" in result
-
-    async def test_async_exception_handling(self, mocker):
-        """Test handling of various async HTTP request exceptions."""
-        mock_client = mocker.patch("httpx.AsyncClient")
-        client = mock_client.return_value.__aenter__.return_value
-
-        # Setup responses for different URLs
-        mock_response_success = mocker.Mock()
-        mock_response_success.content = b"fake-image-data"
-        mock_response_success.raise_for_status.return_value = None
-
-        async def get_side_effect(url):
-            if "success" in url:
-                return mock_response_success
-            elif "timeout" in url:
-                raise httpx.TimeoutException("Request timed out")
-            elif "connection" in url:
-                raise httpx.ConnectError("Connection failed")
-            else:
-                raise httpx.HTTPStatusError("500 Server Error", request=mocker.Mock(), response=mocker.Mock())
-
-        client.get.side_effect = get_side_effect
-
-        urls = [
-            "https://example.com/success.jpg",
-            "https://example.com/timeout.jpg",
-            "https://example.com/connection.jpg",
-            "https://example.com/error.jpg",
-        ]
-
-        result = await batch_async_download_url(urls, headers={})
-
-        # Only the successful URL should be in the result
-        assert len(result) == 1
-        assert "https://example.com/success.jpg" in result
-        assert isinstance(result["https://example.com/success.jpg"], bytes)
-        assert result["https://example.com/success.jpg"].startswith(b"fake-image-data")
 
 
 class LockedTaskTest:

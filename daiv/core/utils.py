@@ -4,17 +4,12 @@ import logging
 import mimetypes
 from functools import wraps
 from inspect import Signature, signature
-from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
 from django.contrib.sites.models import Site
 from django.core.cache import cache
 
-import httpx
 from redis.exceptions import LockError, LockNotOwnedError
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
 
 logger = logging.getLogger("daiv.core")
 
@@ -103,39 +98,6 @@ def build_uri(uri: str, path: str):
     # Add a single slash between URI and path
     uri_parts[2] = f"{uri_parts[2]}/{clean_path}"
     return urlunparse(uri_parts)
-
-
-async def _async_download_url(client: httpx.AsyncClient, url: str) -> bytes | None:
-    """
-    Asynchronously download an URL.
-    Returns None if the URL is invalid or the request fails.
-    """
-    try:
-        response = await client.get(url)
-        response.raise_for_status()
-    except Exception:
-        return None
-    return response.content
-
-
-async def batch_async_download_url(urls: Iterable[str], headers: dict[str, str] | None = None) -> dict[str, bytes]:
-    """
-    Download multiple URLs asynchronously.
-    Returns a dictionary of URL to content mappings.
-    """
-    result = {}
-
-    # Using a single client for all requests
-    async with httpx.AsyncClient(timeout=10.0, headers=headers, follow_redirects=True) as client:
-        responses = await asyncio.gather(*[_async_download_url(client, url) for url in urls], return_exceptions=True)
-
-        for url, response in zip(urls, responses, strict=False):
-            if isinstance(response, Exception):
-                continue
-            elif response is not None:
-                result[url] = response
-
-    return result
 
 
 # Locks must expire: a holder killed mid-run strands the key in Redis forever, and every later
