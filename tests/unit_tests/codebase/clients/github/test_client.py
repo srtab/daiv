@@ -425,20 +425,23 @@ class TestGitHubClient:
         assert "Multiple open PRs" in caplog.text
 
     @staticmethod
-    def _get_path_pr(*, merged=False, draft=False):
+    def _mock_pr(*, assignees=(), merged=False, draft=False):
+        """A mock PR wired with the concrete attributes ``_serialize_pull_request`` reads, plus
+        ``add_to_labels``/``add_to_assignees`` spies and the given ``assignees`` list."""
         mock_pr = Mock(number=7, title="feat: add x", body="details", labels=[], merged=merged, draft=draft)
         mock_pr.head = Mock(ref="feat-x", sha="abc123")
         mock_pr.base = Mock(ref="main")
         mock_pr.html_url = "https://github.com/o/r/pull/7"
         mock_pr.user = Mock(id=1, login="alice")
         mock_pr.user.name = "Alice"
+        mock_pr.assignees = list(assignees)
         return mock_pr
 
     @pytest.mark.parametrize("merged", [True, False])
     def test_get_merge_request_maps_merged_state(self, github_client, merged):
         """get_merge_request reflects the PR's ``merged`` flag — the value the merged-MR skip guard
         in address_mr_comments_task reads."""
-        github_client.client.get_repo.return_value.get_pull.return_value = self._get_path_pr(merged=merged)
+        github_client.client.get_repo.return_value.get_pull.return_value = self._mock_pr(merged=merged)
 
         assert github_client.get_merge_request("owner/repo", 7).merged is merged
 
@@ -446,28 +449,9 @@ class TestGitHubClient:
     def test_get_merge_request_maps_draft_state(self, github_client, draft):
         """get_merge_request reflects the PR's ``draft`` flag — the value the publisher's
         draft-to-ready step reads on the MR-comment path."""
-        github_client.client.get_repo.return_value.get_pull.return_value = self._get_path_pr(draft=draft)
+        github_client.client.get_repo.return_value.get_pull.return_value = self._mock_pr(draft=draft)
 
         assert github_client.get_merge_request("owner/repo", 7).draft is draft
-
-    @staticmethod
-    def _create_path_pr(assignees):
-        """A mock PR on the create path, wired with the concrete attributes ``MergeRequest`` reads
-        plus real ``add_to_labels``/``add_to_assignees`` spies and the given ``assignees`` list."""
-        mock_pr = Mock()
-        mock_pr.number = 7
-        mock_pr.head = Mock(ref="feat-x", sha="abc123")
-        mock_pr.base = Mock(ref="main")
-        mock_pr.title = "feat: add x"
-        mock_pr.body = "details"
-        mock_pr.labels = []
-        mock_pr.html_url = "https://github.com/o/r/pull/7"
-        mock_pr.draft = False
-        user = Mock(id=1, login="alice")
-        user.name = "Alice"
-        mock_pr.user = user
-        mock_pr.assignees = assignees
-        return mock_pr
 
     def test_update_or_create_merge_request_skips_assignee_when_already_assigned(self, github_client):
         """The dedup guard matches usernames: ``assignee_id`` is a login on the GitHub path, so an
@@ -475,7 +459,7 @@ class TestGitHubClient:
         (``assignee.id == assignee_id``) that made this branch unreachable."""
         requester = Mock(base_url="https://api.github.com", is_not_lazy=False)
         assignee = NamedUser(requester, {}, {"login": "daiv", "id": 123}, completed=True)
-        mock_pr = self._create_path_pr(assignees=[assignee])
+        mock_pr = self._mock_pr(assignees=[assignee])
         mock_repo = Mock()
         mock_repo.create_pull.return_value = mock_pr
         github_client.client.get_repo.return_value = mock_repo
@@ -490,7 +474,7 @@ class TestGitHubClient:
         """A login not already present is added exactly once."""
         requester = Mock(base_url="https://api.github.com", is_not_lazy=False)
         assignee = NamedUser(requester, {}, {"login": "someone-else", "id": 123}, completed=True)
-        mock_pr = self._create_path_pr(assignees=[assignee])
+        mock_pr = self._mock_pr(assignees=[assignee])
         mock_repo = Mock()
         mock_repo.create_pull.return_value = mock_pr
         github_client.client.get_repo.return_value = mock_repo

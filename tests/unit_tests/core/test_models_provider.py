@@ -190,7 +190,6 @@ def test_get_cached_rows_skips_only_the_undecryptable_row():
     Provider.objects.create(slug="good", display_name="G", provider_type=ProviderType.OPENAI, api_key="sk")
     bad = Provider.objects.create(slug="bad", display_name="B", provider_type=ProviderType.OPENAI, api_key="sk")
     Provider.objects.filter(pk=bad.pk).update(_api_key_encrypted="not-a-fernet-token")
-    cache.delete(PROVIDERS_CACHE_KEY)
 
     slugs = {r.slug for r in Provider.get_cached_rows()}
 

@@ -263,8 +263,6 @@ async def test_a_failed_enqueue_refunds_the_attempt_and_reopens_the_watch(stub_e
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_failed_task_result_link_marks_the_run_failed(stub_enqueue):
-    """``sync_stuck_runs`` only scans runs with a task result, so an unlinked row left READY
-    would never reach a terminal status."""
     _calls, holder = stub_enqueue
     holder["result"] = SimpleNamespace(id=uuid.uuid4())
     session = await _make_watched_session(attempts=2)
