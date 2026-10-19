@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from github.IssueComment import IssueComment
+    from github.PullRequest import PullRequest
 
 
 logger = logging.getLogger("daiv.clients")
@@ -528,19 +529,7 @@ class GitHubClient(RepoClient):
         if assignee_id and not any(assignee.login == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=pr.number,
-            source_branch=pr.head.ref,
-            target_branch=pr.base.ref,
-            title=pr.title,
-            description=pr.body or "",
-            labels=[label.name for label in pr.labels],
-            web_url=pr.html_url,
-            sha=pr.head.sha,
-            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
-            draft=pr.draft,
-        )
+        return self._serialize_pull_request(repo_id, pr)
 
     def get_merge_request_by_branches(self, repo_id: str, source_branch: str) -> MergeRequest | None:
         """
@@ -570,19 +559,7 @@ class GitHubClient(RepoClient):
             logger.warning(
                 "Multiple open PRs for head %s in %s; using the oldest (#%s).", source_branch, repo_id, pr.number
             )
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=pr.number,
-            source_branch=pr.head.ref,
-            target_branch=pr.base.ref,
-            title=pr.title,
-            description=pr.body or "",
-            labels=[label.name for label in pr.labels],
-            web_url=pr.html_url,
-            sha=pr.head.sha,
-            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
-            draft=pr.draft,
-        )
+        return self._serialize_pull_request(repo_id, pr)
 
     def update_merge_request(
         self,
@@ -633,19 +610,7 @@ class GitHubClient(RepoClient):
         if assignee_id is not None and not any(assignee.login == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=pr.number,
-            source_branch=pr.head.ref,
-            target_branch=pr.base.ref,
-            title=pr.title,
-            description=pr.body or "",
-            labels=[label.name for label in pr.labels],
-            web_url=pr.html_url,
-            sha=pr.head.sha,
-            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
-            draft=pr.draft,
-        )
+        return self._serialize_pull_request(repo_id, pr)
 
     def create_merge_request_comment(
         self,
@@ -804,19 +769,7 @@ class GitHubClient(RepoClient):
         """
         repo = self.client.get_repo(repo_id, lazy=True)
         mr = repo.get_pull(merge_request_id)
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=merge_request_id,
-            source_branch=mr.head.ref,
-            target_branch=mr.base.ref,
-            title=mr.title,
-            description=mr.body or "",
-            labels=[label.name for label in mr.labels],
-            web_url=mr.html_url,
-            sha=mr.head.sha,
-            author=User(id=mr.user.id, username=mr.user.login, name=mr.user.name),
-            merged=mr.merged,
-        )
+        return self._serialize_pull_request(repo_id, mr, merged=mr.merged)
 
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         """
@@ -888,3 +841,19 @@ class GitHubClient(RepoClient):
             )
             for note in comments
         ]
+
+    def _serialize_pull_request(self, repo_id: str, pr: PullRequest, *, merged: bool = False) -> MergeRequest:
+        return MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=pr.number,
+            source_branch=pr.head.ref,
+            target_branch=pr.base.ref,
+            title=pr.title,
+            description=pr.body or "",
+            labels=[label.name for label in pr.labels],
+            web_url=pr.html_url,
+            sha=pr.head.sha,
+            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
+            draft=pr.draft,
+            merged=merged,
+        )

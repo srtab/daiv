@@ -6,6 +6,7 @@ import re
 import uuid
 
 from django import forms
+from django.core.exceptions import NON_FIELD_ERRORS
 from django.utils.translation import gettext_lazy as _
 
 from sandbox_envs.models import _ENV_VAR_NAME_RE, _REPO_ID_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Scope
@@ -21,6 +22,12 @@ _HEADER_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 # Placeholder shown for an unchanged secret; a submitted value equal to this (or "") means
 # "keep the stored value" on edit. The JS editor and MCP read path emit the same string.
 _MASK_SENTINEL = "******"
+_MODEL_ERROR_FIELDS = {
+    "env_vars": "env_vars_json",
+    "repo_ids": "repo_ids_json",
+    "egress_policy": "egress_json",
+    "egress_secrets": "egress_json",
+}
 
 
 def _empty_egress_state() -> dict:
@@ -83,6 +90,22 @@ class SandboxEnvironmentForm(forms.ModelForm):
         self.fields["env_vars_json"].initial = self._initial_env_vars_json()
         self.fields["repo_ids_json"].initial = self._initial_repo_ids_json()
         self.fields["egress_json"].initial = self._initial_egress_json()
+
+    def add_error(self, field, error):
+        """Attach model-validation errors keyed on model attributes (``repo_ids``,
+        ``env_vars``, ...) to the form field that edits them, or to the non-field
+        errors when no form field does, instead of raising ``ValueError``."""
+        if field is None:
+            error = forms.ValidationError(error)
+            if hasattr(error, "error_dict"):
+                remapped: dict[str, list] = {}
+                for key, messages in error.error_dict.items():
+                    target = _MODEL_ERROR_FIELDS.get(key, key)
+                    if target not in self.fields:
+                        target = NON_FIELD_ERRORS
+                    remapped.setdefault(target, []).extend(messages)
+                error = forms.ValidationError(remapped)
+        super().add_error(field, error)
 
     def _initial_env_vars_json(self) -> str:
         """JSON string for the env-vars editor's initial state. Secret values

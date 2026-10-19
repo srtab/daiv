@@ -383,6 +383,22 @@ class TestRepoIdsField:
         with pytest.raises(ValidationError):
             form.save()
 
+    def test_model_clean_repo_ids_error_lands_on_json_field(self):
+        user = User.objects.create(username="u", email="u@x.test")
+        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+        SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="alpine", repo_ids=["acme/foo"])
+        env = SandboxEnvironment.objects.create(
+            scope=Scope.USER, user=user, name="mine", base_image="alpine", repo_ids=["acme/foo"]
+        )
+        form = SandboxEnvironmentForm(
+            data=self._post_data(name="mine", scope=Scope.GLOBAL, repo_ids_json='["acme/foo"]'),
+            instance=env,
+            user=user,
+            is_admin=True,
+        )
+        assert not form.is_valid()
+        assert "already claimed by environment 'g'" in form.errors["repo_ids_json"][0]
+
 
 @pytest.mark.django_db
 def test_form_env_vars_json_initial_is_empty_list_for_unsaved_instance(user):
