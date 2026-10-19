@@ -616,7 +616,6 @@ def mock_repo_authorization():
     """
     with (
         patch("sessions.services.aassert_can_run", new=AsyncMock(return_value=None)),
-        patch("sessions.admission.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("sessions.admission.assert_can_run", new=Mock(return_value=None)),
         patch("sessions.views.can_run", new=Mock(return_value=True)),
         patch("codebase.views.can_view", new=Mock(return_value=True)),

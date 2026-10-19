@@ -16,7 +16,7 @@ from mcp_api.server import (
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import amake_job_session, make_artifact
 
 
 def _mock_task():
@@ -742,13 +742,6 @@ class TestMCPThreadContinuation:
         assert data["jobs"][0]["thread_id"]
         assert data["jobs"][0]["status"] in {"READY", "QUEUED"}
 
-    async def test_unknown_thread_id_rejected(self):
-        user = MagicMock(pk=1)
-        with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
-            result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=str(uuid.uuid4()))
-        data = json.loads(result)
-        assert "thread_id not found" in data["error"]
-
     async def test_thread_is_checked_before_the_override(self):
         user = MagicMock(pk=1)
         with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
@@ -761,10 +754,7 @@ class TestMCPThreadContinuation:
         assert json.loads(result)["error"] == "thread_id not found"
 
     async def test_owned_thread_still_gets_the_override_error(self, _default_mcp_user):
-        thread_id = str(uuid.uuid4())
-        await Session.objects.acreate(
-            thread_id=thread_id, origin=SessionOrigin.MCP_JOB, user=_default_mcp_user, repo_id="a/b"
-        )
+        thread_id = await amake_job_session(user=_default_mcp_user)
 
         result = await submit_job(
             repos=[{"repo_id": "a/b", "ref": None}], prompt="x", agent_model="nopesuch:model-x", thread_id=thread_id
@@ -773,10 +763,7 @@ class TestMCPThreadContinuation:
         assert "Unknown provider prefix 'nopesuch'" in json.loads(result)["error"]
 
     async def test_owned_thread_is_forwarded_to_the_batch(self, _default_mcp_user):
-        thread_id = str(uuid.uuid4())
-        await Session.objects.acreate(
-            thread_id=thread_id, origin=SessionOrigin.MCP_JOB, user=_default_mcp_user, repo_id="a/b"
-        )
+        thread_id = await amake_job_session(user=_default_mcp_user)
         captured: dict = {}
 
         with _capture_asubmit_batch_runs(captured):

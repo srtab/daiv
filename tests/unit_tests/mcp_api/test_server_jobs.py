@@ -258,7 +258,7 @@ async def test_submit_job_denied_repo_returns_error():
 
     from codebase.authorization import RepositoryAccessDenied
 
-    with patch("sessions.admission.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))):
+    with patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["a/b"])):
         result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
 
     assert json.loads(result)["error"] == "Repository not found or not accessible."
@@ -283,15 +283,8 @@ async def test_submit_job_forwards_references(_default_mcp_user):
 
     run = await _run(await _session(user=_default_mcp_user, repo_id="a/b"))
 
-    def _passthrough(*, user, repos, explicit_env_id):
-        return repos
-
     with (
         patch("mcp_api.server._allow_job_submission", return_value=True),
-        patch("sessions.admission.validate_agent_override", return_value=("", "")),
-        patch("sessions.admission.ensure_agent_model_available"),
-        patch("sessions.admission.aassert_can_run", new=AsyncMock()),
-        patch("sessions.admission.aresolve_repo_envs", new=AsyncMock(side_effect=_passthrough)),
         patch(
             "mcp_api.server.asubmit_batch_runs",
             new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run])),

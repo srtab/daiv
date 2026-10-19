@@ -19,10 +19,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from asgiref.sync import sync_to_async
 from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run, assert_can_run
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, assert_can_run
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -75,11 +76,7 @@ def assert_repo_access(user: User, repo_ids: Iterable[str]) -> None:
         raise RepoAccessError(REPO_ACCESS_DENIED_MESSAGE) from err
 
 
-async def aassert_repo_access(user: User, repo_ids: Iterable[str]) -> None:
-    try:
-        await aassert_can_run(user, repo_ids)
-    except RepositoryAccessDenied as err:
-        raise RepoAccessError(REPO_ACCESS_DENIED_MESSAGE) from err
+aassert_repo_access = sync_to_async(assert_repo_access)
 
 
 async def aresolve_environment(user: User, name_or_id: str | None) -> SandboxEnvironment | None:

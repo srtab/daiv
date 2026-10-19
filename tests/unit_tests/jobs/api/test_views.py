@@ -556,13 +556,9 @@ async def test_thread_validation_uses_session_ownership(authenticated_client: Te
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_denied_repo_returns_opaque_404(authenticated_client: TestAsyncClient):
-    from unittest.mock import AsyncMock, patch
-
     from codebase.authorization import RepositoryAccessDenied
 
-    with patch(
-        "sessions.admission.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["group/project"]))
-    ):
+    with patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["group/project"])):
         response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="p"))
 
     assert response.status_code == 404
