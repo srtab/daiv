@@ -31,7 +31,6 @@ from sessions.archive import (
 )
 
 from automation.agent.agent_settings import RunOverrides
-from automation.agent.base import BaseAgent
 from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.graph import create_daiv_agent
 from tests.unit_tests.conftest import FakeArtifactStore, FakeWorkspace, agent_settings, site_snapshot
@@ -339,7 +338,8 @@ async def _daiv_agent(checkpointer: BaseCheckpointSaver | None = None):
     ctx = MagicMock()
     ctx.config.context_file_name = "AGENTS.md"
     with (
-        patch.object(BaseAgent, "get_model", side_effect=lambda **kwargs: _ToolModel(messages=iter([]))),
+        patch("automation.agent.graph.get_model", side_effect=lambda **kwargs: _ToolModel(messages=iter([]))),
+        patch("automation.agent.subagents.get_model", side_effect=lambda **kwargs: _ToolModel(messages=iter([]))),
         patch("automation.agent.graph.MCPToolkit.get_tools", AsyncMock(return_value=[])),
         patch("automation.agent.graph.load_custom_subagents", AsyncMock(return_value=[])),
         patch("automation.agent.middlewares.sandbox.site_settings", sandbox_api_key="key"),

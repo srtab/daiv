@@ -32,7 +32,7 @@ def validate_agent_override(agent_model: str | None, agent_thinking_level: str |
     string when the input is ``None`` or empty. ``agent_model`` is parsed against
     the live ``Provider`` table and rejected when its provider row is disabled —
     catching the case at submit time rather than blowing up inside
-    :func:`automation.agent.base.BaseAgent.get_model_kwargs` mid-run.
+    :func:`automation.agent.base.get_model_kwargs` mid-run.
     ``agent_thinking_level`` is checked against ``ThinkingLevelChoices``. Either
     field may be empty independently — setting thinking without a model overrides
     effort on the auto-resolved model.

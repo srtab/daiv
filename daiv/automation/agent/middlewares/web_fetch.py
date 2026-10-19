@@ -13,7 +13,7 @@ from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResp
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 
-from automation.agent.base import BaseAgent
+from automation.agent.base import get_model
 from automation.conf import settings as automation_env_settings
 from core.site_settings import site_settings
 from daiv import USER_AGENT
@@ -233,7 +233,7 @@ async def web_fetch_tool(
         return f"Contents of {url}:\n{content}"
 
     try:
-        model = BaseAgent.get_model(model=site_settings.web_fetch_model_name)
+        model = get_model(model=site_settings.web_fetch_model_name)
         messages = [
             SystemMessage(
                 content=(

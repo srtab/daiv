@@ -1663,12 +1663,12 @@ async def test_the_diff_to_metadata_chain_and_trace_label_are_the_repos():
         return {"structured_response": Mock()}
 
     with (
-        patch("automation.agent.diff_to_metadata.graph.BaseAgent") as base_agent,
+        patch("automation.agent.diff_to_metadata.graph.get_model") as get_model,
         patch("automation.agent.diff_to_metadata.graph.create_agent", return_value=RunnableLambda(fake_agent)),
     ):
         await publisher._diff_to_metadata(commit_message_diff="diff")
 
-    assert [c.kwargs["model"] for c in base_agent.get_model.call_args_list] == ["repo-model", "repo-fallback"]
+    assert [c.kwargs["model"] for c in get_model.call_args_list] == ["repo-model", "repo-fallback"]
     assert trace_models == ["repo-model"]
 
 

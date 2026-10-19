@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Literal, cast
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from automation.agent.base import BaseAgent
+from automation.agent.base import get_model
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -86,7 +86,7 @@ def _build_structured_llm(schema: type, model_names: Sequence[str]):
     """
 
     def _structured(model_name: str):
-        return BaseAgent.get_model(model=model_name).with_structured_output(schema).with_retry(stop_after_attempt=2)
+        return get_model(model=model_name).with_structured_output(schema).with_retry(stop_after_attempt=2)
 
     chain = _structured(model_names[0])
     if fallbacks := [_structured(name) for name in model_names[1:]]:
