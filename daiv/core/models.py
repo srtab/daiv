@@ -883,7 +883,7 @@ class WebFetchAuthHeader(models.Model):
             except DecryptionError:
                 # The descriptor already logs at exception level; log here so
                 # operators can correlate "no auth headers sent" with the row PK.
-                logger.error("WebFetchAuthHeader row pk=%s could not be decrypted; skipping", row.pk)
+                logger.warning("WebFetchAuthHeader row pk=%s could not be decrypted; skipping", row.pk)
                 continue
             if value is None:
                 continue
