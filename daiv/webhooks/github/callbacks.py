@@ -11,7 +11,7 @@ from codebase.clients.base import Emoji
 from codebase.clients.github.client import github_conclusion_to_status
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import note_mentions_daiv
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_MAX_LABEL, has_bot_label
 from webhooks.callbacks import BaseCallback
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
@@ -80,13 +80,12 @@ class IssueCallback(GitHubCallback):
                 logger.warning("Labeled action received but no label field in payload")
                 return False
 
-            daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
-            if self.label.name.lower() not in daiv_labels:
+            if not has_bot_label([self.label.name]):
                 logger.debug("Label %s is not a DAIV label, ignoring", self.label.name)
                 return False
 
         # For opened/reopened, check if issue has DAIV label
-        elif not self.issue.is_daiv():
+        elif not has_bot_label(self.issue.label_names):
             return False
 
         return True
@@ -97,7 +96,7 @@ class IssueCallback(GitHubCallback):
             repo_id=self.repository.full_name,
             issue_iid=self.issue.number,
             title=self.issue.title,
-            use_max=self.issue.has_max_label(),
+            use_max=has_bot_label(self.issue.label_names, among=[BOT_MAX_LABEL]),
             author=_author(self.sender),
         )
 
@@ -149,7 +148,7 @@ class IssueCommentCallback(GitHubCallback):
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
                 title=self.issue.title,
-                use_max=self.issue.has_max_label(),
+                use_max=has_bot_label(self.issue.label_names, among=[BOT_MAX_LABEL]),
                 author=_author(self.comment.user),
                 mention=mention,
             )
@@ -160,7 +159,7 @@ class IssueCommentCallback(GitHubCallback):
                 merge_request_iid=self.issue.number,
                 ref=None,
                 title=self.issue.title,
-                use_max=self.issue.has_max_label(),
+                use_max=has_bot_label(self.issue.label_names, among=[BOT_MAX_LABEL]),
                 author=_author(self.comment.user),
                 mention=mention,
             )

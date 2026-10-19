@@ -3,14 +3,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sessions.models import Run, Session
 from webhooks.github.callbacks import IssueCallback, IssueCommentCallback
-from webhooks.github.models import Comment, Issue, Label, PullRequest, Ref, Repository, User
+from webhooks.github.models import Comment, Issue, Label, Repository, User
 
 from codebase.repo_config import RepositoryConfig
 from tests.unit_tests.webhooks.conftest import make_db_task_result
-
-# ---------------------------------------------------------------------------
-# Unit truth table for ``has_max_label()``.
-# ---------------------------------------------------------------------------
 
 
 def _label(name: str) -> Label:
@@ -19,38 +15,6 @@ def _label(name: str) -> Label:
 
 def _issue(labels: list[Label], pull_request: dict | None = None) -> Issue:
     return Issue(id=1, number=1, title="t", state="open", labels=labels, pull_request=pull_request)
-
-
-def _pull_request(labels: list[Label]) -> PullRequest:
-    return PullRequest(
-        id=1,
-        number=1,
-        title="t",
-        state="open",
-        head=Ref(ref="feature", sha="abc"),
-        base=Ref(ref="main", sha="def"),
-        labels=labels,
-    )
-
-
-def test_issue_has_max_label_true():
-    assert _issue([_label("daiv-max")]).has_max_label() is True
-
-
-def test_issue_has_max_label_case_insensitive():
-    assert _issue([_label("DAIV-MAX")]).has_max_label() is True
-
-
-def test_issue_has_max_label_false_when_absent():
-    assert _issue([_label("daiv")]).has_max_label() is False
-
-
-def test_pull_request_has_max_label_true():
-    assert _pull_request([_label("daiv-max")]).has_max_label() is True
-
-
-def test_pull_request_has_max_label_false_when_absent():
-    assert _pull_request([_label("daiv")]).has_max_label() is False
 
 
 # ---------------------------------------------------------------------------

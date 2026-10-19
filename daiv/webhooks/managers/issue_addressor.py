@@ -16,7 +16,7 @@ from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
 from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Scope
-from core.constants import BOT_NAME
+from core.constants import BOT_AUTO_LABEL, BOT_NAME, has_bot_label
 
 from .base import BaseManager
 
@@ -174,7 +174,7 @@ class IssueAddressorManager(BaseManager):
                 HumanMessage(name=comment.author.username, id=comment.id, content=comment.body),
                 comment.author.username,
             )
-        prompt = ADDRESS_ISSUE_PROMPT if self.issue.has_auto_label() else PLAN_ISSUE_PROMPT
+        prompt = ADDRESS_ISSUE_PROMPT if has_bot_label(self.issue.labels, among=[BOT_AUTO_LABEL]) else PLAN_ISSUE_PROMPT
         return (
             HumanMessage(
                 name=self.issue.author.username,

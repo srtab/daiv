@@ -1,9 +1,21 @@
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Collection, Iterable
 
 BOT_NAME = "DAIV"
 BOT_LABEL = "daiv"
 BOT_MAX_LABEL = "daiv-max"
 BOT_AUTO_LABEL = "daiv-auto"
+BOT_LABELS = (BOT_LABEL, BOT_AUTO_LABEL, BOT_MAX_LABEL)
+
+
+def has_bot_label(label_names: Iterable[str], among: Collection[str] = BOT_LABELS) -> bool:
+    """Whether any of ``label_names`` is one of the bot labels in ``among``, ignoring case."""
+    wanted = {label.lower() for label in among}
+    return any(name.lower() in wanted for name in label_names)
+
 
 SANDBOX_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
 

@@ -5,8 +5,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from core.constants import BOT_AUTO_LABEL
-
 
 class GitPlatform(StrEnum):
     GITLAB = "gitlab"
@@ -254,12 +252,3 @@ class Issue(BaseModel):
     issue_type: IssueType = IssueType.ISSUE
     notes: list[Note] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
-
-    def has_auto_label(self) -> bool:
-        """
-        Check if the issue has the daiv-auto label (case-insensitive).
-
-        Returns:
-            bool: True if the issue has the daiv-auto label, False otherwise.
-        """
-        return any(label.lower() == BOT_AUTO_LABEL.lower() for label in self.labels)

@@ -10,7 +10,7 @@ from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import note_mentions_daiv
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_MAX_LABEL, has_bot_label
 from webhooks.callbacks import BaseCallback
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
@@ -87,21 +87,16 @@ class IssueCallback(BaseCallback):
                 logger.debug("Issue update without label changes, ignoring")
                 return False
 
-            # Check if a DAIV label was added
-            daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
             previous_labels = {label.title.lower() for label in self.changes.labels.previous}
-            current_labels = {label.title.lower() for label in self.changes.labels.current}
-
-            # Find labels that were added
-            added_labels = current_labels - previous_labels
-            daiv_label_added = bool(added_labels & daiv_labels)
-
-            if not daiv_label_added:
+            added_labels = [
+                label.title for label in self.changes.labels.current if label.title.lower() not in previous_labels
+            ]
+            if not has_bot_label(added_labels):
                 logger.debug("No DAIV label was added in this update, ignoring")
                 return False
 
         # For OPEN action, check if issue has DAIV label
-        elif not self.object_attributes.is_daiv():
+        elif not has_bot_label(self.object_attributes.label_names):
             return False
 
         return True
@@ -115,7 +110,7 @@ class IssueCallback(BaseCallback):
             repo_id=self.project.path_with_namespace,
             issue_iid=self.object_attributes.iid,
             title=self.object_attributes.title,
-            use_max=self.object_attributes.has_max_label(),
+            use_max=has_bot_label(self.object_attributes.label_names, among=[BOT_MAX_LABEL]),
             author=_author(self.user),
         )
 
@@ -171,7 +166,7 @@ class NoteCallback(BaseCallback):
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.issue.iid,
                 title=self.issue.title,
-                use_max=self.issue.has_max_label(),
+                use_max=has_bot_label(self.issue.label_names, among=[BOT_MAX_LABEL]),
                 author=_author(self.user),
                 mention=mention,
             )
@@ -182,7 +177,7 @@ class NoteCallback(BaseCallback):
                 merge_request_iid=self.merge_request.iid,
                 ref=self.merge_request.source_branch,
                 title=self.merge_request.title,
-                use_max=self.merge_request.has_max_label(),
+                use_max=has_bot_label(self.merge_request.label_names, among=[BOT_MAX_LABEL]),
                 author=_author(self.user),
                 mention=mention,
             )
