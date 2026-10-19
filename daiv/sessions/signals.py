@@ -26,6 +26,10 @@ run_finished = Signal()
 # Arguments: run (Run instance), envelope (RunEnvelope instance).
 run_classified = Signal()
 
+# Emitted once when the CI watch gives up on a merge request.
+# Arguments: session (Session), failing_jobs (list[str]), pipeline_url (str), pipeline_id (int).
+watch_exhausted = Signal()
+
 # ``error_message`` prefix for the orphan-task failure mode: the broker holds a task
 # that couldn't be linked back to its Run row, so the agent may run to completion
 # (push a commit / open an MR) while the row shows FAILED. Shared by both the

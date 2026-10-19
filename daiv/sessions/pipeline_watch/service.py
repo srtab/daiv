@@ -18,7 +18,6 @@ from codebase.utils import compute_thread_id
 from sessions.models import WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.judgment import Judgment, PipelineReport
-from sessions.pipeline_watch.notifier import WatchNotifier
 from sessions.pipeline_watch.platform import WatchPlatform, log_read_failure
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.store import WatchStore
@@ -45,7 +44,6 @@ class PipelineWatch:
         *,
         platform: WatchPlatform | None = None,
         dispatcher: FixRunDispatcher | None = None,
-        notifier: WatchNotifier | None = None,
         policy: WatchPolicy | None = None,
         store: WatchStore | None = None,
     ) -> None:
@@ -53,7 +51,6 @@ class PipelineWatch:
         self._platform = platform or WatchPlatform(repo_id)
         self._store = store or WatchStore()
         self._dispatcher = dispatcher or FixRunDispatcher(self._store)
-        self._notifier = notifier or WatchNotifier()
         self._policy = policy
 
     async def _apolicy(self) -> WatchPolicy:
@@ -246,10 +243,31 @@ class PipelineWatch:
                         url=report.web_url,
                     ),
                 )
-                await self._notifier.anotify_exhausted(session=session, report=report)
+                await self._anotify_exhausted(session=session, report=report)
             return
 
         if await self._store.aclaim_attempt(session.thread_id, max_attempts=max_attempts, pipeline_id=report.id):
             await self._dispatcher.adispatch(
                 session=session, report=report, repo_id=self.repo_id, merge_request_iid=merge_request_iid
             )
+
+    async def _anotify_exhausted(self, *, session: Session, report: PipelineReport) -> None:
+        """Tell the receivers the watch gave up. Best-effort — the MR comment is the reliable channel."""
+        # Local import: sessions.signals imports this module through the executor.
+        from sessions.signals import watch_exhausted
+
+        results = await watch_exhausted.asend_robust(
+            sender=type(session),
+            session=session,
+            failing_jobs=[job.name for job in report.failed_jobs],
+            pipeline_url=report.web_url,
+            pipeline_id=report.id,
+        )
+        for receiver, response in results:
+            if isinstance(response, Exception):
+                logger.error(
+                    "pipeline_watch: receiver %s failed to notify the owner of thread_id=%s",
+                    getattr(receiver, "__name__", receiver),
+                    session.thread_id,
+                    exc_info=response,
+                )
