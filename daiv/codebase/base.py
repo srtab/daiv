@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from core.constants import BOT_AUTO_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_AUTO_LABEL
 
 
 class GitPlatform(StrEnum):
@@ -124,10 +124,6 @@ class MergeRequest(BaseModel):
     """Whether the MR/PR is merged. Only populated by ``get_merge_request`` — the fetch path the
     merged-MR skip guard reads. Other construction sites keep the ``False`` default, so do not
     treat it as a source of truth off those paths."""
-
-    def has_max_label(self) -> bool:
-        """Whether the merge request carries the daiv-max label (case-insensitive)."""
-        return any(label.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
 
 
 class MergeRequestDiff(BaseModel):
@@ -258,15 +254,6 @@ class Issue(BaseModel):
     issue_type: IssueType = IssueType.ISSUE
     notes: list[Note] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
-
-    def has_max_label(self) -> bool:
-        """
-        Check if the issue has the daiv-max label (case-insensitive).
-
-        Returns:
-            bool: True if the issue has the daiv-max label, False otherwise.
-        """
-        return any(label.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
 
     def has_auto_label(self) -> bool:
         """
