@@ -13,10 +13,10 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMes
 from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
-from skills.services import _record_invocation
+from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
+from skills.services import global_skill_dirs, record_invocation
 
-from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, SKILLS_TOOL_NAME
+from automation.agent.constants import SKILLS_TOOL_NAME
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
 from automation.agent.synthetic import is_person_message
 from automation.agent.utils import extract_body_from_frontmatter
@@ -161,32 +161,24 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     async def _copy_global_skills(self) -> list[str]:
         """
-        Materialize builtin and custom global skills into the virtual ``SKILLS_PATH``,
-        sibling to the agent's working directory. Custom global skills override builtins with
-        the same name at first cache population.
+        Materialize the global skills (``skills.services.global_skill_dirs``) into the virtual ``SKILLS_PATH``,
+        sibling to the agent's working directory.
 
         Returns source-level load errors so callers can surface them via ``skills_load_errors``.
         """
         files_to_upload: list[tuple[str, bytes]] = []
         errors: list[str] = []
-        skills_path = Path(SKILLS_PATH)
-
-        self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload, errors)
-
-        custom_skills_path = agent_settings.CUSTOM_SKILLS_PATH
-        if custom_skills_path is not None and custom_skills_path.is_dir():
+        for skill_dir in global_skill_dirs().values():
             try:
-                self._collect_skill_files(custom_skills_path, skills_path, files_to_upload, errors)
+                self._collect_skill_files(skill_dir, files_to_upload, errors)
             except OSError as exc:
                 # Host path stays in the operator log; the agent gets a generic warning
                 # because it cannot act on a real-filesystem location and shouldn't leak it.
                 # ``exc.strerror`` carries the OS message without the path (which lives in
                 # ``exc.filename``); ``str(exc)`` would include both.
-                logger.exception("Failed to read custom global skills from '%s'", custom_skills_path)
+                logger.exception("Failed to read global skill files from '%s'", skill_dir)
                 reason = exc.strerror or type(exc).__name__
-                errors.append(f"Some custom global skills failed to load: {reason}")
-        elif custom_skills_path is not None:
-            logger.warning("Custom global skills path '%s' does not exist or is not a directory", custom_skills_path)
+                errors.append(f"Global skill '{skill_dir.name}' failed to load: {reason}")
 
         responses = await self._backend.aupload_files(files_to_upload)
         failures = [
@@ -202,55 +194,47 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         return errors
 
     @staticmethod
-    def _collect_skill_files(
-        source_root: Path, project_skills_path: Path, files_to_upload: list[tuple[str, bytes]], errors: list[str]
-    ) -> None:
+    def _collect_skill_files(skill_dir: Path, files_to_upload: list[tuple[str, bytes]], errors: list[str]) -> None:
         """
-        Walk skill directories under ``source_root``, appending uploadable files to
-        ``files_to_upload`` and read failures to ``errors`` so nothing is silently dropped
-        from the agent's view: a broken ``SKILL.md`` as a ``Cannot load skill`` error (the
-        skill won't load at all), a broken asset (``scripts/``, ``references/``) as a
-        ``may be incomplete`` warning (the skill loads but is missing a runtime dependency).
+        Append the uploadable files of the skill in ``skill_dir`` to ``files_to_upload`` and read
+        failures to ``errors`` so nothing is silently dropped from the agent's view: a broken
+        ``SKILL.md`` as a ``Cannot load skill`` error (the skill won't load at all), a broken asset
+        (``scripts/``, ``references/``) as a ``may be incomplete`` warning (the skill loads but is
+        missing a runtime dependency).
         """
-        for skill_dir in source_root.iterdir():
-            if not skill_dir.is_dir() or skill_dir.name == "__pycache__" or skill_dir.name.startswith("."):
-                continue
-
-            for root, dirs, files in skill_dir.walk():
-                dirs[:] = [d for d in dirs if d != "__pycache__"]
-                for file in files:
-                    source_path = Path(root) / Path(file)
-                    if source_path.suffix == ".pyc":
-                        continue
-                    rel = source_path.relative_to(source_root)
-                    # Real existence check on the disk-backed skills cache so per-turn
-                    # uploads become a no-op once the cache is populated. ``dest_path``
-                    # is a virtual path under ``SKILLS_PATH``, which never exists
-                    # on the host fs — the disk equivalent is ``SKILLS_CACHE_PATH/rel``.
-                    dest_path = project_skills_path / rel
-                    if (SKILLS_CACHE_PATH / rel).exists():
-                        continue
-                    try:
-                        files_to_upload.append((str(dest_path), source_path.read_bytes()))
-                    except OSError as exc:
-                        logger.warning(
-                            "Failed to read skill file '%s' (skill='%s'), skipping", source_path, skill_dir.name
+        for root, dirs, files in skill_dir.walk():
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
+            for file in files:
+                source_path = root / file
+                if source_path.suffix == ".pyc":
+                    continue
+                rel = Path(skill_dir.name) / source_path.relative_to(skill_dir)
+                # Real existence check on the disk-backed skills cache so per-turn
+                # uploads become a no-op once the cache is populated. ``dest_path``
+                # is a virtual path under ``SKILLS_PATH``, which never exists
+                # on the host fs — the disk equivalent is ``SKILLS_CACHE_PATH/rel``.
+                dest_path = Path(SKILLS_PATH) / rel
+                if (SKILLS_CACHE_PATH / rel).exists():
+                    continue
+                try:
+                    files_to_upload.append((str(dest_path), source_path.read_bytes()))
+                except OSError as exc:
+                    logger.warning("Failed to read skill file '%s' (skill='%s'), skipping", source_path, skill_dir.name)
+                    # Surface read failures by skill name so the agent can warn a user who invokes
+                    # the skill. A broken SKILL.md means the skill won't load at all; a broken
+                    # asset (scripts/, references/) means the skill loads but is incomplete — the
+                    # skill-creator skill, e.g., depends on scripts/init_skill.py at runtime, so a
+                    # missing one would otherwise only surface mid-use. Host paths stay in the log
+                    # only — ``exc.strerror`` is the OS message without the path (which lives in
+                    # ``exc.filename``).
+                    reason = exc.strerror or type(exc).__name__
+                    if source_path.name == "SKILL.md":
+                        errors.append(f"Cannot load skill '{skill_dir.name}': {reason}")
+                    else:
+                        errors.append(
+                            f"Skill '{skill_dir.name}' may be incomplete: failed to load "
+                            f"'{source_path.name}' ({reason})"
                         )
-                        # Surface read failures by skill name so the agent can warn a user who invokes
-                        # the skill. A broken SKILL.md means the skill won't load at all; a broken
-                        # asset (scripts/, references/) means the skill loads but is incomplete — the
-                        # skill-creator skill, e.g., depends on scripts/init_skill.py at runtime, so a
-                        # missing one would otherwise only surface mid-use. Host paths stay in the log
-                        # only — ``exc.strerror`` is the OS message without the path (which lives in
-                        # ``exc.filename``).
-                        reason = exc.strerror or type(exc).__name__
-                        if source_path.name == "SKILL.md":
-                            errors.append(f"Cannot load skill '{skill_dir.name}': {reason}")
-                        else:
-                            errors.append(
-                                f"Skill '{skill_dir.name}' may be incomplete: failed to load "
-                                f"'{source_path.name}' ({reason})"
-                            )
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
@@ -400,7 +384,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             if skill_mode:
                 update["active_skill_mode"] = skill_mode
 
-            await _record_invocation(name=skill, skill_path=loaded_skill["path"], runtime=runtime)
+            await record_invocation(name=skill, skill_path=loaded_skill["path"], runtime=runtime)
 
             return Command(update=update)
 

@@ -16,8 +16,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from accounts.mixins import AdminRequiredMixin
-from automation.agent.constants import BUILTIN_SKILLS_PATH
-from skills.constants import FRONTMATTER_RE, MAX_FILES, ZIPS_DIR
+from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE, MAX_FILES, ZIPS_DIR
 from skills.forms import SkillUploadForm
 from skills.models import GlobalSkill, SkillInvocation
 from skills.services import BUILTIN_SKILL_NAMES, SkillStorage, SkillStorageError, list_builtins

@@ -26,15 +26,9 @@ from deepagents.middleware.filesystem import (
     GrepSchema,
 )
 from langchain_core.messages import ToolMessage
+from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
 
-from automation.agent.constants import (
-    REPO_PATH,
-    SKILLS_CACHE_PATH,
-    SKILLS_PATH,
-    SKILLS_TOOL_NAME,
-    TMP_PATH,
-    WORKSPACE_PATH,
-)
+from automation.agent.constants import REPO_PATH, SKILLS_TOOL_NAME, TMP_PATH, WORKSPACE_PATH
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

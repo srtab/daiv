@@ -26,5 +26,5 @@ def test_help_command_has_correct_attributes():
 @patch("slash_commands.actions.help.slash_command_registry.get_commands", new=Mock(return_value=[]))
 async def test_help_command_returns_correct_message(help_slash_command: HelpSlashCommand):
     """Test that HelpSlashCommand returns the correct message."""
-    message = await help_slash_command.execute_for_agent(args="", available_skills=[])
+    message = await help_slash_command.execute_for_agent(args="", available_skills={})
     assert message == "No slash commands available."

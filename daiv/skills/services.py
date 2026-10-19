@@ -20,10 +20,10 @@ from django.db.utils import Error as DjangoDBError
 
 import yaml
 
-from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH, SKILLS_PATH
+from skills.conf import settings
 from skills.constants import (
     ALLOWED_SUFFIXES,
+    BUILTIN_SKILLS_PATH,
     FORBIDDEN_PATH_PARTS,
     FORBIDDEN_SUFFIXES,
     FRONTMATTER_RE,
@@ -33,6 +33,8 @@ from skills.constants import (
     MAX_UNPACKED_BYTES,
     MAX_ZIP_BYTES,
     SKILL_NAME_RE,
+    SKILLS_CACHE_PATH,
+    SKILLS_PATH,
     TMP_DIR,
     TRASH_DIR,
     TRASH_TTL_SECONDS,
@@ -71,64 +73,76 @@ class SkillStorageError(Exception):
     """Raised when storing or removing a skill on disk fails."""
 
 
-def _scan_builtin_skill_names() -> frozenset[str]:
-    """Names of skill directories under BUILTIN_SKILLS_PATH that contain a
-    SKILL.md. Memoised at module import; built-ins don't change at runtime."""
-    names: set[str] = set()
+def _skill_dirs(root: Path) -> dict[str, Path]:
+    """The skill directories directly under ``root``, by name. Dot-prefixed directories hold the storage layer's own
+    state (``.trash``, ``.zips``), and ``__pycache__`` is no skill."""
+    return {
+        entry.name: entry
+        for entry in sorted(root.iterdir())
+        if entry.is_dir() and not entry.name.startswith(".") and entry.name != "__pycache__"
+    }
+
+
+def global_skill_dirs() -> dict[str, Path]:
+    """The global skills' directories by name: the built-ins and the custom ones under ``CUSTOM_SKILLS_PATH``, a custom
+    skill shadowing the built-in of the same name. A root that is missing or unreadable is logged and left out."""
+    dirs: dict[str, Path] = {}
+    for root in (BUILTIN_SKILLS_PATH, settings.CUSTOM_SKILLS_PATH):
+        if root is None:
+            continue
+        try:
+            dirs.update(_skill_dirs(root))
+        except FileNotFoundError, NotADirectoryError:
+            logger.warning("Global skills root '%s' does not exist or is not a directory", root)
+        except OSError:
+            logger.warning("Could not read global skills root '%s'; leaving its skills out", root, exc_info=True)
+    return dict(sorted(dirs.items()))
+
+
+def _read_description(skill_md: Path) -> str:
+    """The ``description`` in ``skill_md``'s frontmatter; empty when it has none or can't be read."""
     try:
-        for entry in BUILTIN_SKILLS_PATH.iterdir():
-            if entry.is_dir() and (entry / "SKILL.md").is_file():
-                names.add(entry.name)
+        match = FRONTMATTER_RE.match(skill_md.read_text(encoding="utf-8"))
+        data = yaml.safe_load(match.group(1)) if match else None
+    except OSError, UnicodeDecodeError:
+        logger.warning("Failed to read SKILL.md at %s", skill_md)
+        return ""
+    except yaml.YAMLError:
+        logger.warning("Malformed YAML frontmatter in SKILL.md at %s", skill_md)
+        return ""
+    return str(data.get("description", "")).strip() if isinstance(data, dict) else ""
+
+
+def _builtin_skill_dirs() -> dict[str, Path]:
+    """The built-in skills' directories by name, each holding a ``SKILL.md``."""
+    try:
+        dirs = _skill_dirs(BUILTIN_SKILLS_PATH)
     except OSError:
         logger.exception("Failed to scan BUILTIN_SKILLS_PATH at %s", BUILTIN_SKILLS_PATH)
-    return frozenset(names)
+        return {}
+    return {name: path for name, path in dirs.items() if (path / "SKILL.md").is_file()}
 
 
-BUILTIN_SKILL_NAMES: frozenset[str] = _scan_builtin_skill_names()
+BUILTIN_SKILL_NAMES: frozenset[str] = frozenset(_builtin_skill_dirs())
 
 
 @lru_cache(maxsize=1)
 def list_builtins() -> list[dict[str, str]]:
     """Return ``[{"name", "description"}, ...]`` for each skill shipped under
     ``BUILTIN_SKILLS_PATH``. Memoised — built-ins are fixed at deploy time."""
-    out: list[dict[str, str]] = []
-    try:
-        entries = sorted(BUILTIN_SKILLS_PATH.iterdir(), key=lambda p: p.name)
-    except OSError:
-        logger.exception("Failed to scan BUILTIN_SKILLS_PATH at %s", BUILTIN_SKILLS_PATH)
-        return []
-    for entry in entries:
-        if not entry.is_dir() or entry.name == "__pycache__":
-            continue
-        skill_md = entry / "SKILL.md"
-        if not skill_md.is_file():
-            continue
-        description = ""
-        try:
-            text = skill_md.read_text(encoding="utf-8")
-            match = FRONTMATTER_RE.match(text)
-            if match:
-                data = yaml.safe_load(match.group(1)) or {}
-                if isinstance(data, dict):
-                    description = str(data.get("description", "")).strip()
-        except OSError:
-            logger.warning("Failed to read built-in SKILL.md at %s", skill_md)
-        except yaml.YAMLError:
-            logger.warning("Malformed YAML frontmatter in built-in SKILL.md at %s", skill_md)
-        out.append({"name": entry.name, "description": description})
-    return out
+    return [
+        {"name": name, "description": _read_description(path / "SKILL.md")}
+        for name, path in _builtin_skill_dirs().items()
+    ]
 
 
 def list_global_skills() -> dict[str, str]:
-    """Return ``{name: description}`` for the global skills, a custom upload shadowing the
-    built-in of the same name.
-
-    Sourced from the ``GlobalSkill`` rows rather than ``CUSTOM_SKILLS_PATH``, so a row whose
-    disk tree went missing is still listed — unlike ``/help``, which scans that tree.
-    """
-    skills = {entry["name"]: entry["description"] for entry in list_builtins()}
-    skills.update(GlobalSkill.objects.values_list("name", "description"))
-    return skills
+    """Return ``{name: description}`` for the global skills the agent loads (see :func:`global_skill_dirs`)."""
+    return {
+        name: _read_description(path / "SKILL.md")
+        for name, path in global_skill_dirs().items()
+        if (path / "SKILL.md").is_file()
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,7 +336,7 @@ async def _classify_source(name: str, skill_path: str) -> SkillInvocation.Source
     return SkillInvocation.Source.REPO
 
 
-async def _record_invocation(name: str, skill_path: str, runtime: ToolRuntime[RuntimeCtx, SkillsState]) -> None:
+async def record_invocation(name: str, skill_path: str, runtime: ToolRuntime[RuntimeCtx, SkillsState]) -> None:
     """Persist a SkillInvocation row.
 
     Telemetry failure must never abort a skill invocation, so DB and
@@ -363,9 +377,9 @@ class SkillStorage:
     directly; this class is the only thing that writes to it."""
 
     def __init__(self) -> None:
-        if agent_settings.CUSTOM_SKILLS_PATH is None:
+        if settings.CUSTOM_SKILLS_PATH is None:
             raise SkillStorageError("CUSTOM_SKILLS_PATH is not configured")
-        self.root: Path = Path(agent_settings.CUSTOM_SKILLS_PATH)
+        self.root: Path = Path(settings.CUSTOM_SKILLS_PATH)
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / TMP_DIR).mkdir(exist_ok=True)
         (self.root / TRASH_DIR).mkdir(exist_ok=True)

@@ -1,5 +1,4 @@
 import logging
-import re
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -13,9 +12,10 @@ from langchain_core.messages import AIMessage
 # wraps (`accepts_config` -> `inspect.signature`), which evaluates their annotations, so `Runnable`
 # and `RunnableConfig` must resolve at runtime — see _guard_subagent_crash.
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
+from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE
 
 from automation.agent.base import get_model
-from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH
+from automation.agent.constants import REPO_PATH
 from automation.agent.middlewares.deferred_tools import (
     deferred_tools_middleware,
     direct_mcp_tools,
@@ -395,8 +395,6 @@ def create_explore_subagent(workspace: Workspace, working_directory: str, *, mod
 # Names reserved for built-in subagents. Custom (per-repo) subagents may not use these names.
 BUILTIN_SUBAGENT_NAMES: frozenset[str] = frozenset({GENERAL_PURPOSE_NAME, EXPLORE_NAME, *CODE_REVIEW_DETECTOR_NAMES})
 
-FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-
 
 def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str] | None:
     """
@@ -414,7 +412,7 @@ def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str
     Returns:
         Tuple of (frontmatter dict, body string), or None if parsing fails.
     """
-    match = FRONTMATTER_PATTERN.match(content)
+    match = FRONTMATTER_RE.match(content)
     if not match:
         logger.warning("Skipping %s: no valid YAML frontmatter found", file_path)
         return None

@@ -12,9 +12,10 @@ from langchain.agents.middleware import (
     TodoListMiddleware,
     dynamic_prompt,
 )
+from skills.constants import SKILLS_PATH
 
 from automation.agent.base import get_model
-from automation.agent.constants import REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
+from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
 from automation.agent.mcp.toolkits import load_mcp_tools
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware

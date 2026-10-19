@@ -1,4 +1,3 @@
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -6,75 +5,12 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT
-from automation.agent.middlewares.slash_commands import (
-    SlashCommandMiddleware,
-    _load_global_skill_metadata,
-    resets_thread,
-    skips_sandbox,
-)
+from automation.agent.middlewares.slash_commands import SlashCommandMiddleware, resets_thread, skips_sandbox
 from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig
 from slash_commands.parser import SlashCommandCommand
 from tests.unit_tests.conftest import agent_settings
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-
-def _write_skill(root: Path, name: str, description: str) -> None:
-    d = root / name
-    d.mkdir(parents=True)
-    (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n\nbody\n", encoding="utf-8")
-
-
-def test_load_global_skill_metadata_reads_builtin_and_custom(tmp_path: Path):
-    builtin = tmp_path / "builtin"
-    custom = tmp_path / "custom"
-    _write_skill(builtin, "code-review", "Review a diff")
-    _write_skill(custom, "deploy", "Deploy the app")
-
-    with (
-        patch("automation.agent.middlewares.slash_commands.BUILTIN_SKILLS_PATH", builtin),
-        patch("automation.agent.middlewares.slash_commands.agent_settings") as settings,
-    ):
-        settings.CUSTOM_SKILLS_PATH = custom
-        skills = _load_global_skill_metadata()
-
-    by_name = {s["name"]: s["description"] for s in skills}
-    assert by_name["code-review"] == "Review a diff"
-    assert by_name["deploy"] == "Deploy the app"
-
-
-def test_load_global_skill_metadata_custom_overrides_builtin(tmp_path: Path):
-    builtin = tmp_path / "builtin"
-    custom = tmp_path / "custom"
-    _write_skill(builtin, "shared", "builtin version")
-    _write_skill(custom, "shared", "custom version")
-
-    with (
-        patch("automation.agent.middlewares.slash_commands.BUILTIN_SKILLS_PATH", builtin),
-        patch("automation.agent.middlewares.slash_commands.agent_settings") as settings,
-    ):
-        settings.CUSTOM_SKILLS_PATH = custom
-        skills = _load_global_skill_metadata()
-
-    by_name = {s["name"]: s["description"] for s in skills}
-    assert by_name["shared"] == "custom version"
-
-
-def test_load_global_skill_metadata_skips_missing_custom_dir(tmp_path: Path):
-    builtin = tmp_path / "builtin"
-    _write_skill(builtin, "only-builtin", "x")
-
-    with (
-        patch("automation.agent.middlewares.slash_commands.BUILTIN_SKILLS_PATH", builtin),
-        patch("automation.agent.middlewares.slash_commands.agent_settings") as settings,
-    ):
-        settings.CUSTOM_SKILLS_PATH = tmp_path / "does-not-exist"
-        skills = _load_global_skill_metadata()
-
-    assert [s["name"] for s in skills] == ["only-builtin"]
 
 
 def _runtime(*, scope=Scope.GLOBAL, bot_username="daiv"):
@@ -95,7 +31,7 @@ def _command_stub(*, resets_thread=False, **execute_kwargs):
     return command
 
 
-async def _run_command(*, raw, commands, skills=(), scope=Scope.GLOBAL):
+async def _run_command(*, raw, commands, skills=None, scope=Scope.GLOBAL):
     """Drive ``abefore_agent`` past the parser with the registry and skill list stubbed.
 
     The command stubs stay addressable through the ``commands`` passed in; the dispatched events
@@ -106,7 +42,7 @@ async def _run_command(*, raw, commands, skills=(), scope=Scope.GLOBAL):
     with (
         patch.object(mw, "_extract_slash_command", return_value=parsed),
         patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
-        patch("automation.agent.middlewares.slash_commands._load_global_skill_metadata", return_value=list(skills)),
+        patch("automation.agent.middlewares.slash_commands.list_global_skills", return_value=skills or {}),
     ):
         registry.get_commands.return_value = [MagicMock(return_value=c) for c in commands]
         return await mw.abefore_agent({"messages": [HumanMessage(content=raw)]}, _runtime(scope=scope), {"cfg": 1})
@@ -120,7 +56,7 @@ async def test_no_slash_command_returns_none():
 
 async def test_executes_builtin_command_and_jumps_to_end(emit_custom_event):
     command = _command_stub(return_value="help text")
-    result = await _run_command(raw="/help", commands=[command], skills=[{"name": "x", "description": "d"}])
+    result = await _run_command(raw="/help", commands=[command], skills={"x": "d"})
 
     assert result["jump_to"] == "end"
     assert isinstance(result["messages"][-1], AIMessage)
@@ -128,7 +64,7 @@ async def test_executes_builtin_command_and_jumps_to_end(emit_custom_event):
     # A non-resetting command must NOT touch active_skill_mode (SkillsMiddleware clears it on follow-up).
     assert "active_skill_mode" not in result
     # /help got the disk-loaded global skills
-    assert command.execute_for_agent.await_args.kwargs["available_skills"] == [{"name": "x", "description": "d"}]
+    assert command.execute_for_agent.await_args.kwargs["available_skills"] == {"x": "d"}
     assert command.execute_for_agent.await_args.kwargs["available_subagents"] == []
 
 

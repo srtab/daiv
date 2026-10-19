@@ -15,9 +15,8 @@ from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
+from skills.services import global_skill_dirs
 
-from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.workspace.bash_policy.command_parser import CommandParseError, parse_command
 from automation.agent.workspace.bash_policy.command_policy import (
     CommandPolicy,
@@ -254,32 +253,13 @@ def _make_repo_archive(working_dir: str) -> bytes:
 
 
 def _make_global_skills_archive() -> bytes | None:
-    """Tar builtin + custom global skills (members relative to their skill dir).
+    """Tar the global skills (``skills.services.global_skill_dirs``), members relative to their skill dir.
 
     These are the only-disk sources for global skills; seeding them into the sandbox's
     ``/workspace/skills`` is the single provisioning step (one RPC), replacing per-file
-    uploads. Custom skills are added after builtins so a same-named custom skill overrides.
-    Returns ``None`` if there is nothing to pack.
+    uploads. Returns ``None`` if there is nothing to pack.
     """
-    roots: list[Path] = [BUILTIN_SKILLS_PATH]
-    custom = agent_settings.CUSTOM_SKILLS_PATH
-    if custom is not None and custom.is_dir():
-        roots.append(custom)
-
-    members: dict[str, Path] = {}
-    for root in roots:
-        if not root.is_dir():
-            continue
-        try:
-            children = list(root.iterdir())
-        except OSError:
-            logger.warning("Could not read skills root '%s'; skipping for seed archive", root, exc_info=True)
-            continue
-        for child in children:
-            if child.is_dir() and (child.name.startswith(".") or child.name == "__pycache__"):
-                continue
-            members[child.name] = child  # later root (custom) overrides builtin
-
+    members = global_skill_dirs()
     if not members:
         return None
 

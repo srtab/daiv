@@ -4,7 +4,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class DAIVAgentSettings(BaseSettings):
+class SkillsSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="DAIV_AGENT_", env_parse_none_str="None")
 
     CUSTOM_SKILLS_PATH: Path | None = Field(
@@ -13,4 +13,4 @@ class DAIVAgentSettings(BaseSettings):
     )
 
 
-settings = DAIVAgentSettings()
+settings = SkillsSettings()
