@@ -1070,8 +1070,8 @@ class Provider(models.Model):
             try:
                 raw_key = row.api_key
             except DecryptionError:
-                logger.error("Provider %r api_key could not be decrypted; skipping", row.slug)
-                continue
+                logger.error("Provider %r api_key could not be decrypted; treating it as unset", row.slug)
+                raw_key = None
             api_key = SecretStr(raw_key) if raw_key else None
             out.append(
                 cls.Cached(
