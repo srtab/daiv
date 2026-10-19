@@ -101,11 +101,11 @@ class IssueAddressorManager(BaseManager):
         repo_id: str,
         issue: Issue,
         thread_id: str,
+        use_max: bool,
         mention_comment_id: str | None = None,
         ref: str | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
-        use_max: bool | None = None,
     ) -> AgentResult | None:
         """
         Address the issue.
@@ -114,11 +114,11 @@ class IssueAddressorManager(BaseManager):
             repo_id: The repository slug.
             issue: The issue object.
             thread_id: The session's thread id.
+            use_max: The max mode the callback decided.
             mention_comment_id: The discussion that mentioned the bot, or ``None`` for a label trigger.
             ref: The branch to clone; ``None`` for the repository default.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
-            use_max: The max mode the callback decided; ``None`` reads the ``daiv-max`` label off ``issue``.
 
         Returns:
             An :class:`AgentResult`, or ``None`` when no model is configured (after saying so on the issue).
@@ -134,7 +134,7 @@ class IssueAddressorManager(BaseManager):
             raise
 
     async def _address_issue(
-        self, *, ref: str | None, sandbox_env_id: str | None, run_id: str | None, use_max: bool | None
+        self, *, ref: str | None, sandbox_env_id: str | None, run_id: str | None, use_max: bool
     ) -> AgentResult:
         issue_message = issue_context_message(self.issue)
         prompt_message, triggered_by = self._input_message(issue_message_id=issue_message.id)
@@ -149,7 +149,7 @@ class IssueAddressorManager(BaseManager):
                 ref=ref,
                 issue=self.issue,
                 fallback_ref_on_missing=True,
-                use_max=self.issue.has_max_label() if use_max is None else use_max,
+                use_max=use_max,
                 sandbox_env_id=sandbox_env_id,
                 run_id=run_id,
                 persist_ref=True,

@@ -35,10 +35,10 @@ async def address_issue_task(
     repo_id: str,
     issue_iid: int,
     thread_id: str,
+    use_max: bool,
     mention_comment_id: str | None = None,
     ref: str | None = None,
     sandbox_environment_id: str | None = None,
-    use_max: bool | None = None,
 ) -> AgentResult | None:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
@@ -48,10 +48,10 @@ async def address_issue_task(
         repo_id (str): The repository id.
         issue_iid (int): The issue id.
         thread_id (str): The LangGraph checkpoint key minted by the caller.
+        use_max (bool): The max mode the callback decided and stamped on the ``Run``.
         mention_comment_id (str | None): The mention comment id. Defaults to None.
         ref (str | None): The ref to clone. Defaults to the session's working branch, else the repository default.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
-        use_max (bool | None): The max mode the callback decided; ``None`` reads the ``daiv-max`` label off the issue.
     """
     from webhooks.managers.issue_addressor import IssueAddressorManager
 
@@ -79,8 +79,8 @@ async def address_mr_comments_task(
     merge_request_id: int,
     mention_comment_id: str,
     thread_id: str,
+    use_max: bool,
     sandbox_environment_id: str | None = None,
-    use_max: bool | None = None,
 ) -> AgentResult:
     """
     Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -91,9 +91,8 @@ async def address_mr_comments_task(
         merge_request_id (int): The merge request id.
         mention_comment_id (str): The mention comment id.
         thread_id (str): The LangGraph checkpoint key minted by the caller.
+        use_max (bool): The max mode the callback decided and stamped on the ``Run``.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
-        use_max (bool | None): The max mode the callback decided; ``None`` reads the ``daiv-max`` label off the merge
-            request.
     """
     from webhooks.managers.review_addressor import CommentsAddressorManager
 

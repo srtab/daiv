@@ -43,7 +43,7 @@ async def test_address_mr_comments_skips_when_merged(run_lookup):
         patch("webhooks.managers.review_addressor.CommentsAddressorManager.address_comments") as address,
     ):
         result = await address_mr_comments_task.func(
-            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", thread_id="t-7"
+            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", thread_id="t-7", use_max=False
         )
 
     address.assert_not_called()
@@ -65,7 +65,7 @@ async def test_address_mr_comments_skips_when_branch_gone():
         ),
     ):
         result = await address_mr_comments_task.func(
-            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", thread_id="t-7"
+            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", thread_id="t-7", use_max=False
         )
 
     client.create_merge_request_comment.assert_called_once()
@@ -89,6 +89,7 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
             merge_request_id=7,
             mention_comment_id="d1",
             thread_id="t-7",
+            use_max=False,
             sandbox_environment_id="e",
         )
 
@@ -100,7 +101,7 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         "thread_id": "t-7",
         "sandbox_env_id": "e",
         "run_id": "run-1",
-        "use_max": None,
+        "use_max": False,
     }
     run_lookup.assert_awaited_once_with("tr-1")
 
@@ -128,6 +129,7 @@ class TestAddressIssueTaskRef:
                 issue_iid=10,
                 mention_comment_id="d1",
                 thread_id="t-1",
+                use_max=False,
                 ref=ref,
                 sandbox_environment_id="e",
             )
@@ -159,14 +161,14 @@ class TestAddressIssueTaskRef:
             "thread_id": "t-1",
             "sandbox_env_id": "e",
             "run_id": "run-1",
-            "use_max": None,
+            "use_max": False,
         }
         run_lookup.assert_awaited_once_with("tr-1")
 
 
 class TestIssueMaxModelIsDecidedByTheCallback:
-    """The callback decides max mode when it stamps the Run and hands it to the task; only a task queued without
-    ``use_max`` reads the label off the issue the task re-fetches."""
+    """The callback decides max mode when it stamps the Run and hands it to the task; the label on the issue the
+    task re-fetches is never read again."""
 
     @staticmethod
     async def _spec_for(labels: list[str], **task_kwargs):
@@ -182,12 +184,6 @@ class TestIssueMaxModelIsDecidedByTheCallback:
             await address_issue_task.func(_CONTEXT, repo_id="group/repo", issue_iid=10, thread_id="t-1", **task_kwargs)
         return execute.await_args.args[0]
 
-    @pytest.mark.parametrize(("labels", "use_max"), [(["daiv-max"], True), (["daiv"], False)])
-    async def test_without_a_use_max_the_max_model_follows_the_label_on_the_re_fetched_issue(self, labels, use_max):
-        spec = await self._spec_for(labels)
-
-        assert spec.use_max is use_max
-
     @pytest.mark.parametrize(("labels", "use_max"), [(["daiv"], True), (["daiv-max"], False)])
     async def test_a_use_max_from_the_callback_wins_over_a_label_changed_since(self, labels, use_max):
         spec = await self._spec_for(labels, use_max=use_max)
@@ -196,7 +192,7 @@ class TestIssueMaxModelIsDecidedByTheCallback:
 
 
 class TestMergeRequestMaxModelIsDecidedByTheCallback:
-    """As for issues: only an MR-comment task queued without ``use_max`` reads the label off the re-fetched MR."""
+    """As for issues: the label on the re-fetched MR is never read again."""
 
     @staticmethod
     async def _spec_for(labels: list[str], **task_kwargs):
@@ -220,12 +216,6 @@ class TestMergeRequestMaxModelIsDecidedByTheCallback:
                 **task_kwargs,
             )
         return execute.await_args.args[0]
-
-    @pytest.mark.parametrize(("labels", "use_max"), [(["DAIV-MAX"], True), (["daiv"], False)])
-    async def test_without_a_use_max_the_max_model_follows_the_label_on_the_re_fetched_mr(self, labels, use_max):
-        spec = await self._spec_for(labels)
-
-        assert spec.use_max is use_max
 
     @pytest.mark.parametrize(("labels", "use_max"), [(["daiv"], True), (["daiv-max"], False)])
     async def test_a_use_max_from_the_callback_wins_over_a_label_changed_since(self, labels, use_max):

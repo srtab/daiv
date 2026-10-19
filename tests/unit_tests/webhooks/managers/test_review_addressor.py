@@ -75,6 +75,7 @@ async def _address(**kwargs):
                 "merge_request": _merge_request(),
                 "mention_comment_id": "c-1",
                 "thread_id": "t-mr",
+                "use_max": False,
             }
             | kwargs
         )
