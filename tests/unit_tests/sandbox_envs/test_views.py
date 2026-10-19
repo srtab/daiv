@@ -304,6 +304,33 @@ def test_edit_htmx_post_invalid_returns_form_body_with_errors(client, user):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("repo_ids_json", "message"),
+    [('["acme/foo"]', "already claimed by environment 'a'"), ('["acme/bar", "acme/bar"]', "Duplicate repo id")],
+)
+def test_create_post_rejected_repo_ids_render_as_field_error(client, user, repo_ids_json, message):
+    SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="a", base_image="alpine", repo_ids=["acme/foo"])
+    client.force_login(user)
+    resp = client.post(
+        reverse("sandbox_envs:create"),
+        data={
+            "name": "b",
+            "scope": Scope.USER,
+            "base_image": "alpine",
+            "network_choice": "off",
+            "memory_unit": "MiB",
+            "env_vars_json": "[]",
+            "repo_ids_json": repo_ids_json,
+        },
+        HTTP_HX_REQUEST="true",
+    )
+    assert resp.status_code == 200
+    assert "HX-Trigger" not in resp.headers
+    assert message in resp.context["form"].errors["repo_ids_json"][0]
+    assert not SandboxEnvironment.objects.filter(name="b").exists()
+
+
+@pytest.mark.django_db
 def test_edit_global_default_sets_is_default_form_true(client, admin):
     SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
     env = SandboxEnvironment.objects.create(

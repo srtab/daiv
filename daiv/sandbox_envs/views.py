@@ -98,7 +98,7 @@ class EnvFormView(LoginRequiredMixin, View):
             env = form.save()
         except ValidationError as err:
             # full_clean() inside save() raises core.exceptions.ValidationError,
-            # which is_valid() didn't catch; surface it as a non-field error.
+            # which is_valid() didn't catch; the form routes it to the matching field.
             form.add_error(None, err)
             return self._render(form, instance=instance)
         action = "updated" if instance else "created"
