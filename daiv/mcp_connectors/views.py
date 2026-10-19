@@ -15,10 +15,10 @@ from django.views.generic import TemplateView
 from asgiref.sync import async_to_sync
 from django_filters.views import FilterView
 
-from accounts.context_processors import NAV_SECTION_MCP_GLOBAL
 from core.encryption import DecryptionError
 from core.mixins import AdminRequiredMixin
 from mcp_connectors import services
+from mcp_connectors.constants import NAV_SECTION_MCP_GLOBAL
 from mcp_connectors.filters import MCPServerFilter
 from mcp_connectors.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset, build_tool_choices
 from mcp_connectors.models import MCPServer

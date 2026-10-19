@@ -8,6 +8,7 @@ from notifications.views import (
     MarkNotificationReadView,
     NotificationListView,
     UpdateRocketChatBindingView,
+    UserChannelsView,
 )
 
 app_name = "notifications"
@@ -29,3 +30,6 @@ urlpatterns = [
         name="telegram_disconnect",
     ),
 ]
+
+# Kept out of the namespaced ``urlpatterns``: daiv/urls.py mounts it at /accounts/channels/ as ``user_channels``.
+user_channels_urlpatterns = [path("", UserChannelsView.as_view(), name="user_channels")]

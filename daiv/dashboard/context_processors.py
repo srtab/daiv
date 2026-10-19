@@ -6,12 +6,10 @@ from typing import Any
 from django.db import Error as DatabaseError
 from django.utils.functional import SimpleLazyObject
 
-logger = logging.getLogger("daiv.accounts")
+from mcp_connectors.constants import NAV_SECTION_MCP_GLOBAL
+from sessions.models import Run, RunStatus
 
-# Section key for the admin-only global MCP servers page. Named because view code
-# also references it (via ``request.nav_section_override``) to pin the section on the
-# edit/delete URLs shared with the personal page — a bare literal would drift silently.
-NAV_SECTION_MCP_GLOBAL = "mcp_servers_global"
+logger = logging.getLogger("daiv.dashboard")
 
 SECTION_URL_NAMES: dict[str, set[str]] = {
     "dashboard": {"dashboard"},
@@ -100,8 +98,6 @@ def visible_runs(user):
     SYNC ONLY — ``visible_to`` resolves that identity with a DB read at query-build time;
     async callers must wrap this in ``sync_to_async``.
     """
-    from sessions.models import Run  # local import to avoid circulars
-
     return Run.objects.visible_to(user)
 
 
@@ -110,8 +106,6 @@ def count_running(visible) -> int:
 
     ``values("pk")`` keeps the DISTINCT of the visibility join off every Run column.
     """
-    from sessions.models import RunStatus  # local import to avoid circulars
-
     return visible.filter(status=RunStatus.RUNNING).values("pk").count()
 
 
@@ -120,7 +114,7 @@ def query_running_jobs(user) -> int:
 
     The nav badge's single source of truth: the first page render reads it through
     ``nav`` below, and every subsequent update comes from the SSE endpoint
-    (``accounts.api.views``) recomputing it on a ``core.ui_events`` poke. Raises on
+    (``dashboard.api.views``) recomputing it on a ``core.ui_events`` poke. Raises on
     ``DatabaseError`` so each caller picks its own degradation — a page render shows 0,
     but a live stream must keep the browser's last value rather than push a zero it
     cannot distinguish from a real one.

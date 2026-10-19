@@ -13,7 +13,7 @@ deployment has no bus at all" therefore closes *without* a terminal frame, so
 that same reconnect is also the recovery path.
 
 Both counts are computed by the same helpers that render the first page load
-(``accounts.context_processors.count_running``,
+(``dashboard.context_processors.count_running``,
 ``notifications.context_processors.query_unread_count``), so the seeded values and
 the streamed ones can't drift apart. The page render reaches the first through
 ``query_running_jobs``; the stream hoists that helper's queryset out of the loop.
@@ -34,16 +34,16 @@ from ninja import Router
 from ninja.security import django_auth
 from notifications.context_processors import query_unread_count
 
-from accounts.context_processors import count_running, visible_runs
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 from core.ui_events import UIEventStream, is_transient_bus_error, redis_connections
+from dashboard.context_processors import count_running, visible_runs
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
 
     from accounts.models import User
 
-logger = logging.getLogger("daiv.accounts")
+logger = logging.getLogger("daiv.dashboard")
 
 nav_router = Router(tags=["nav"], auth=django_auth)
 

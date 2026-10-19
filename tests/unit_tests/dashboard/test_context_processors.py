@@ -6,9 +6,9 @@ from django.test import Client, RequestFactory
 from django.urls import reverse
 
 import pytest
+from dashboard.context_processors import _resolve_active_section, nav, running_jobs_count
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
-from accounts.context_processors import _resolve_active_section, nav, running_jobs_count
 from accounts.models import User
 
 

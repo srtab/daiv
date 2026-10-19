@@ -10,3 +10,7 @@ MCP_NAME_RE: re.Pattern[str] = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 # Reserved so a server can't be named after a top-level mcp_connectors action/route
 # ("new", "test") — avoids user confusion even though no current route collides on these.
 RESERVED_MCP_NAMES: frozenset[str] = frozenset({"new", "test"})
+
+# Sidebar section of the global MCP servers page; the views pin it via ``request.nav_section_override``
+# on edit/delete URLs shared with the personal page, so a bare literal would drift silently.
+NAV_SECTION_MCP_GLOBAL = "mcp_servers_global"

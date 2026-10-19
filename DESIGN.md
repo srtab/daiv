@@ -201,10 +201,10 @@ Centered card for "nothing here yet" and "can't show this" states, classes in `i
 
 ### Quick Link Card
 
-Reusable partial at `accounts/templates/accounts/_quick_link_card.html`:
+Reusable partial at `dashboard/templates/dashboard/_quick_link_card.html`:
 
 ```django
-{% include "accounts/_quick_link_card.html" with url=target_url icon="key" title="API Keys" description="Manage tokens" badge=count %}
+{% include "dashboard/_quick_link_card.html" with url=target_url icon="key" title="API Keys" description="Manage tokens" badge=count %}
 ```
 
 Accepts: `url`, `icon` (icon name), `title`, `description`, `badge` (optional).
@@ -404,7 +404,7 @@ the failure row for every HTMX picker popover, reading its message from the near
 
 ### Base Template
 
-All pages extend `accounts/templates/base.html`, which provides:
+All pages extend `dashboard/templates/base.html`, which provides:
 
 - HTML shell with `<head>` (fonts, CSS, Alpine.js, meta tags)
 - `<body class="h-full bg-ground font-sans text-text antialiased">`
@@ -473,12 +473,12 @@ sidebar's tier and that switch moves with it.
 |-------------------------|-----------------------------------------------|
 | Tailwind source         | `daiv/static_src/css/input.css`               |
 | Compiled CSS            | `daiv/static/css/styles.css`                  |
-| Base template           | `daiv/accounts/templates/base.html`           |
-| App shell template      | `daiv/accounts/templates/base_app.html`       |
-| Sidebar partial         | `daiv/accounts/templates/accounts/_sidebar.html` |
+| Base template           | `daiv/dashboard/templates/base.html`          |
+| App shell template      | `daiv/dashboard/templates/base_app.html`      |
+| Sidebar partial         | `daiv/dashboard/templates/dashboard/_sidebar.html` |
 | Self-hosted fonts       | `daiv/static/fonts/geist/`                    |
 | Pagination partial      | `daiv/accounts/templates/accounts/_pagination.html` |
-| Quick link card partial | `daiv/accounts/templates/accounts/_quick_link_card.html` |
+| Quick link card partial | `daiv/dashboard/templates/dashboard/_quick_link_card.html` |
 | Default field template  | `daiv/configuration/templates/configuration/fields/default.html` |
 | Icon template           | `daiv/core/templates/core/icons/_icon.html`   |
 | Icon SVGs               | `daiv/core/static/core/img/icons/`            |

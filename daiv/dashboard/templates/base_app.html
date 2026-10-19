@@ -11,7 +11,7 @@
      x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }} }, runningLabel: '{{ nav_running_label|escapejs }}' })"
      @keydown.escape.window="mobileNavOpen = false"
      class="flex h-dvh bg-ground">
-  {% include "accounts/_sidebar.html" %}
+  {% include "dashboard/_sidebar.html" %}
 
   {% comment %}
   Mobile navigation sheet (< 768px) — reuses the sidebar partial WITHOUT the
@@ -29,7 +29,7 @@
          x-transition:leave-start="translate-x-0"
          x-transition:leave-end="-translate-x-full"
          class="relative flex h-full w-[85%] max-w-[260px] flex-col bg-surface-1 shadow-overlay">
-      {% include "accounts/_sidebar.html" with sidebar_root_class="flex min-h-0 w-full flex-1 flex-col" %}
+      {% include "dashboard/_sidebar.html" with sidebar_root_class="flex min-h-0 w-full flex-1 flex-col" %}
     </div>
   </div>
 
