@@ -12,7 +12,7 @@
             {% endif %}
             {% endwith %}
         </div>
-        {% include "activity/_copy_markdown_button.html" with source_id="activity-prompt-raw" label="Copy prompt" %}
+        {% include "sessions/_copy_markdown_button.html" with source_id="activity-prompt-raw" label="Copy prompt" %}
     </summary>
     <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
         {{ activity.prompt|render_markdown }}
