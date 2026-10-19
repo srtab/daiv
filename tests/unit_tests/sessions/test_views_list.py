@@ -12,6 +12,7 @@ import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
+from schedules.models import Frequency, ScheduledJob
 
 
 @pytest.fixture
@@ -225,6 +226,22 @@ class TestSessionListView:
         assert response.context["current_mr"] == 42
         assert response.context["has_active_filters"] is True
         assert "Merge request !42" in response.content.decode()
+
+    def test_schedule_filter_chip_names_the_schedule(self, logged_in_client, user):
+        schedule = ScheduledJob.objects.create(
+            user=user,
+            name="Nightly audit",
+            prompt="p",
+            repos=[{"repo_id": "group/project", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="09:00",
+        )
+        _create_session(user=user, scheduled_job=schedule)
+
+        response = logged_in_client.get(reverse("session_list"), {"schedule": str(schedule.pk)})
+
+        assert response.context["schedule_name"] == "Nightly audit"
+        assert "Schedule: Nightly audit" in response.content.decode()
 
     def test_runs_are_prefetched_newest_first(self, logged_in_client, user, django_assert_num_queries):
         session = _create_session(user=user)

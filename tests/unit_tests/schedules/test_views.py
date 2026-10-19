@@ -9,10 +9,10 @@ from django.urls import reverse
 
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
-from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.models import Intent, Run, RunStatus, SessionOrigin
 
 from accounts.models import User
-from schedules.models import DispatchError, Frequency, Intent, ScheduledJob, ScheduleTemplate
+from schedules.models import DispatchError, Frequency, ScheduledJob, ScheduleTemplate
 
 
 @pytest.fixture

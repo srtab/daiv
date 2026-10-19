@@ -5,11 +5,12 @@ from django.utils import timezone
 
 import pytest
 from mcp_connectors.models import MCPServer
+from sessions.models import Intent
 
 from accounts.models import User
 from core.models import Provider, ProviderType
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
-from schedules.models import DispatchError, Frequency, Intent, ScheduledJob
+from schedules.models import DispatchError, Frequency, ScheduledJob
 from tests.unit_tests.mcp_connectors.helpers import only_servers
 
 

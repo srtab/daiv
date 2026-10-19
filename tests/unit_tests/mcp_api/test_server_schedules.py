@@ -4,9 +4,10 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
+from sessions.models import Intent
 
 from accounts.models import User
-from schedules.models import Frequency, Intent, ScheduledJob
+from schedules.models import Frequency, ScheduledJob
 
 
 async def _user(username):

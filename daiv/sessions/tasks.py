@@ -53,10 +53,9 @@ async def classify_run_task(run_id: str) -> None:
     envelope written).
     """
     from core.site_settings import site_settings
-    from schedules.models import Intent
     from sessions.classification import classify_response_text
     from sessions.envelopes import build_actionable_item, validate_actionable
-    from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus
+    from sessions.models import EnvelopeStatus, Intent, Run, RunEnvelope, RunStatus
 
     run = (
         await Run.objects

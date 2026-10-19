@@ -12,11 +12,11 @@ from django.db import IntegrityError
 
 import pytest
 from sessions.classification import ActionableDraft, RunClassification
-from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
+from sessions.models import EnvelopeStatus, Intent, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 from sessions.tasks import classify_run_task
 
 from accounts.models import User
-from schedules.models import Frequency, Intent, ScheduledJob
+from schedules.models import Frequency, ScheduledJob
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
 
 
