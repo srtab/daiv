@@ -30,9 +30,9 @@ from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context
 
-from accounts.mixins import Breadcrumb, BreadcrumbMixin
 from automation.agent.picker_context import agent_picker_context
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
+from core.mixins import Breadcrumb, BreadcrumbMixin
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from sessions.artifacts import ArtifactKind, open_artifact_file

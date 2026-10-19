@@ -12,7 +12,7 @@ from django.utils.functional import cached_property
 from django.views import View
 from django.views.generic import ListView
 
-from accounts.mixins import AdminRequiredMixin
+from core.mixins import AdminRequiredMixin
 from core.utils import is_htmx
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment
