@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -37,7 +38,7 @@ def test_custom_global_skill_shadows_builtin(skill_roots):
     _write_skill(builtin, "shared", "builtin version")
     _write_skill(custom, "shared", "custom version")
 
-    assert global_skill_dirs() == {"shared": custom / "shared"}
+    assert global_skill_dirs() == ({"shared": custom / "shared"}, [])
     assert list_global_skills() == {"shared": "custom version"}
 
 
@@ -50,28 +51,75 @@ def test_global_skill_dirs_skip_storage_dirs_and_pycache(skill_roots):
     _write_skill(custom / ".tmp", "leftover", "staging leftover")
     (custom / ".zips").mkdir()
 
-    assert global_skill_dirs() == {"demo": custom / "demo", "plan": builtin / "plan"}
+    assert global_skill_dirs() == ({"demo": custom / "demo", "plan": builtin / "plan"}, [])
 
 
 @pytest.mark.parametrize("custom", [None, "missing"])
-def test_global_skill_dirs_keep_builtins_without_a_custom_root(skill_roots, monkeypatch, custom):
+def test_global_skill_dirs_keep_builtins_without_a_custom_root(skill_roots, monkeypatch, caplog, custom):
     builtin, _ = skill_roots
     _write_skill(builtin, "only-builtin", "x")
     monkeypatch.setattr(
         "skills.services.settings.CUSTOM_SKILLS_PATH", None if custom is None else builtin.parent / custom
     )
 
-    assert global_skill_dirs() == {"only-builtin": builtin / "only-builtin"}
+    with caplog.at_level(logging.DEBUG, logger="daiv.skills"):
+        assert global_skill_dirs() == ({"only-builtin": builtin / "only-builtin"}, [])
+    assert caplog.records == []
 
 
-def test_global_skill_dirs_skip_an_unreadable_root(skill_roots, monkeypatch):
-    builtin, _ = skill_roots
+def test_global_skill_dirs_report_an_unreadable_root(skill_roots, caplog, chmod):
+    builtin, custom = skill_roots
     _write_skill(builtin, "code-review", "x")
-    unreadable = MagicMock()
-    unreadable.iterdir.side_effect = PermissionError("denied")
-    monkeypatch.setattr("skills.services.settings.CUSTOM_SKILLS_PATH", unreadable)
+    _write_skill(custom, "deploy", "x")
+    chmod(custom, 0)
 
-    assert global_skill_dirs() == {"code-review": builtin / "code-review"}
+    with caplog.at_level(logging.ERROR, logger="daiv.skills"):
+        dirs, errors = global_skill_dirs()
+
+    assert dirs == {"code-review": builtin / "code-review"}
+    assert errors == ["Some global skills failed to load: Permission denied"]
+    (record,) = caplog.records
+    assert str(custom) in record.getMessage()
+
+
+def test_custom_dir_without_skill_md_does_not_shadow_the_builtin(skill_roots):
+    builtin, custom = skill_roots
+    _write_skill(builtin, "plan", "builtin plan")
+    (custom / "plan" / "scripts").mkdir(parents=True)
+
+    dirs, errors = global_skill_dirs()
+
+    assert dirs == {"plan": builtin / "plan"}
+    assert errors == ["Cannot load skill 'plan': no readable SKILL.md"]
+    assert list_global_skills() == {"plan": "builtin plan"}
+
+
+def test_list_global_skills_keys_by_frontmatter_name(skill_roots):
+    _, custom = skill_roots
+    (custom / "team-review").mkdir()
+    (custom / "team-review" / "SKILL.md").write_text("---\nname: review-team\ndescription: Review as a team\n---\n")
+
+    assert list_global_skills() == {"review-team": "Review as a team"}
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(b"no frontmatter at all\n", id="no-frontmatter"),
+        pytest.param(b"---\nname: [unclosed\n---\n", id="malformed-yaml"),
+        pytest.param(b"---\n- a list\n---\n", id="not-a-mapping"),
+        pytest.param(b"\xff\xfe---\n", id="not-utf8"),
+        pytest.param(b"---\nname: broken\n---\n", id="no-description"),
+        pytest.param(b"---\nname: broken\ndescription:\n---\n", id="null-description"),
+    ],
+)
+def test_list_global_skills_leave_out_skills_the_agent_cannot_load(skill_roots, content):
+    builtin, custom = skill_roots
+    _write_skill(builtin, "plan", "Plan work")
+    (custom / "broken").mkdir()
+    (custom / "broken" / "SKILL.md").write_bytes(content)
+
+    assert list_global_skills() == {"plan": "Plan work"}
 
 
 def test_list_builtins_returns_dicts_with_name_and_description():
@@ -134,7 +182,7 @@ async def test_classify_source_repo_when_path_outside_global_skills_path():
 
 
 @pytest.mark.django_db(transaction=True)
-async def testrecord_invocation_warns_on_unclassified_path(caplog):
+async def test_record_invocation_warns_on_unclassified_path(caplog):
     """A REPO classification on a path that doesn't look like a per-repo
     .agents/skills layout should surface a warning so a new skill location
     doesn't silently land in the REPO bucket."""
@@ -157,7 +205,7 @@ def _runtime(*, repo_slug: str = "org/repo", thread_id: str | None = None) -> Ma
 
 
 @pytest.mark.django_db(transaction=True)
-async def testrecord_invocation_creates_row():
+async def test_record_invocation_creates_row():
     from skills.services import record_invocation
 
     tid = str(uuid.uuid4())
@@ -172,7 +220,7 @@ async def testrecord_invocation_creates_row():
 
 
 @pytest.mark.django_db(transaction=True)
-async def testrecord_invocation_swallows_db_errors(caplog):
+async def test_record_invocation_swallows_db_errors(caplog):
     from django.db import DatabaseError
 
     from skills.services import record_invocation
@@ -188,7 +236,7 @@ async def testrecord_invocation_swallows_db_errors(caplog):
 
 
 @pytest.mark.django_db(transaction=True)
-async def testrecord_invocation_swallows_missing_thread_id(caplog):
+async def test_record_invocation_swallows_missing_thread_id(caplog):
     from skills.services import record_invocation
 
     rt = MagicMock()
@@ -202,7 +250,7 @@ async def testrecord_invocation_swallows_missing_thread_id(caplog):
 
 
 @pytest.mark.django_db(transaction=True)
-async def testrecord_invocation_swallows_none_config(caplog):
+async def test_record_invocation_swallows_none_config(caplog):
     """A None runtime.config subscripted yields TypeError, not KeyError. The
     handler must still swallow it so a broken runtime can't abort the agent."""
     from skills.services import record_invocation

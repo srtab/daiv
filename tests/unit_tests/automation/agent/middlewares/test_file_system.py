@@ -563,7 +563,6 @@ class TestBuildDiskWorkspaceBackend:
         clone_dir = tmp_path / "repo"
         clone_dir.mkdir()
         skills_cache = tmp_path / "skills_cache"
-        skills_cache.mkdir()
 
         backend = build_disk_workspace_backend(clone_dir, skills_cache=skills_cache)
 

@@ -85,8 +85,8 @@ class RuntimeCtx:
     """External work items this run addresses; rendered into the MR description and commit
     trailers by the publisher. Includes the derived platform issue ref for issue-scoped runs."""
     acting_user_id: int | None = None
-    """The DAIV user who triggered this run, when known; the merge request is assigned to them.
-    ``None`` for webhook-triggered runs (issue/MR labels)."""
+    """The DAIV user who triggered this run, when known; outside issue-scoped runs, the new merge request's
+    assignee. ``None`` for webhook-triggered runs (issue/MR labels)."""
 
     def __post_init__(self) -> None:
         if not isinstance(self.repos, tuple):

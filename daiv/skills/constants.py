@@ -6,19 +6,11 @@ from pathlib import Path
 
 BUILTIN_SKILLS_PATH = Path(__file__).resolve().parent.parent / "automation" / "agent" / "skills"
 
-# Where the agent's workspace mounts the global skills.
 SKILLS_PATH = "/workspace/skills"
 
-# On-disk root the composite backend mounts at ``SKILLS_PATH``. Created at module
-# import (loud failure if ``$TMPDIR`` is unwritable, which would manifest as a startup
-# ImportError on production, or a confusing pytest collection error locally).
-#
-# Recreated only on container image change; stale entries from a prior deploy may
-# survive a container restart on hosts where ``/tmp`` is not a tmpfs, so do not rely on
-# this for runtime invalidation. ``SkillsMiddleware._collect_skill_files`` makes per-run
-# uploads idempotent via an existence check against this path.
+# Host directory behind ``SKILLS_PATH`` in disk mode. It can outlive a restart (``/tmp`` need not be a tmpfs), so only
+# ``SkillStorage`` invalidates it.
 SKILLS_CACHE_PATH = Path(tempfile.gettempdir()) / "daiv-skills"
-SKILLS_CACHE_PATH.mkdir(parents=True, exist_ok=True)
 
 MAX_ZIP_BYTES = 5 * 1024 * 1024  # 5 MiB, compressed
 MAX_UNPACKED_BYTES = 25 * 1024 * 1024  # 25 MiB, sum of ZipInfo.file_size

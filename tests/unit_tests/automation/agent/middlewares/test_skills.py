@@ -898,42 +898,89 @@ class TestCustomGlobalSkills:
         assert errors == []
         assert (tmp_path / "workspace" / "skills" / "skill-one" / "SKILL.md").exists()
 
-    async def test_custom_global_skills_oserror_surfaces_in_load_errors(self, tmp_path: Path):
-        """An OSError raised while walking a custom skill's dir must reach skills_load_errors."""
+    async def test_unreadable_custom_root_surfaces_in_load_errors(self, tmp_path: Path, chmod):
         from deepagents.backends.filesystem import FilesystemBackend
 
         builtin = tmp_path / "builtin_skills"
         (builtin / "skill-one").mkdir(parents=True)
         (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin one"))
-
         custom_global = tmp_path / "custom_skills"
         (custom_global / "secret-skill").mkdir(parents=True)
+        chmod(custom_global, 0)
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
 
-        leaky_path = str(custom_global / "secret-skill")
+        with (
+            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
+            patch("skills.services.settings.CUSTOM_SKILLS_PATH", custom_global),
+            patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", tmp_path / "cache"),
+        ):
+            errors = await middleware._copy_global_skills()
 
-        def _raise_on_custom(skill_dir, files_to_upload, errors):
-            if skill_dir.parent == custom_global:
-                # Three-arg form mirrors what the OS raises: ``str(exc)`` embeds the path,
-                # so this exercises the path-stripping behavior of the middleware.
-                raise PermissionError(13, "Permission denied", leaky_path)
-            # builtin path: pass through as no-op
-            return None
+        assert errors == ["Some global skills failed to load: Permission denied"]
+        assert (tmp_path / "workspace" / "skills" / "skill-one" / "SKILL.md").exists()
+
+    @pytest.mark.parametrize(
+        ("unreadable", "mode", "expected"),
+        [
+            pytest.param(
+                "scripts",
+                0,
+                "Skill 'secret-skill' may be incomplete: failed to read a directory (Permission denied)",
+                id="asset-dir",
+            ),
+            pytest.param(".", 0o100, "Cannot load skill 'secret-skill': Permission denied", id="skill-dir"),
+        ],
+    )
+    async def test_unreadable_skill_directory_surfaces_in_load_errors(
+        self, tmp_path: Path, chmod, unreadable: str, mode: int, expected: str
+    ):
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        builtin = tmp_path / "builtin_skills"
+        skill = builtin / "secret-skill"
+        (skill / "scripts").mkdir(parents=True)
+        (skill / "SKILL.md").write_text(_make_skill_md(name="secret-skill", description="x"))
+        (skill / "scripts" / "run.py").write_text("print()")
+        chmod(skill / unreadable, mode)
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+
+        with (
+            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
+            patch("skills.services.settings.CUSTOM_SKILLS_PATH", None),
+            patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", tmp_path / "cache"),
+        ):
+            errors = await middleware._copy_global_skills()
+
+        assert errors == [expected]
+
+    async def test_custom_global_skill_replaces_the_builtin_tree(self, tmp_path: Path):
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        builtin = tmp_path / "builtin_skills"
+        (builtin / "plan" / "scripts").mkdir(parents=True)
+        (builtin / "plan" / "SKILL.md").write_text(_make_skill_md(name="plan", description="builtin plan"))
+        (builtin / "plan" / "scripts" / "helper.py").write_text("print()")
+        custom_global = tmp_path / "custom_skills"
+        (custom_global / "plan").mkdir(parents=True)
+        (custom_global / "plan" / "SKILL.md").write_text(_make_skill_md(name="plan", description="custom plan"))
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
 
         with (
             patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
             patch("skills.services.settings.CUSTOM_SKILLS_PATH", custom_global),
-            patch.object(SkillsMiddleware, "_collect_skill_files", staticmethod(_raise_on_custom)),
+            patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", tmp_path / "cache"),
         ):
-            errors = await middleware._copy_global_skills()
+            assert await middleware._copy_global_skills() == []
 
-        # Agent-visible error must signal failure but strip both the host path the operator
-        # would see in ``str(exc)`` and the parent custom-skills directory.
-        assert any("Permission denied" in err for err in errors)
-        assert not any(leaky_path in err for err in errors)
-        assert not any(str(custom_global) in err for err in errors)
+        materialized = tmp_path / "workspace" / "skills" / "plan"
+        assert "custom plan" in (materialized / "SKILL.md").read_text()
+        assert not (materialized / "scripts").exists()
 
     async def test_missing_skill_md_surfaces_in_load_errors(self, tmp_path: Path):
         """When SKILL.md cannot be read, the skill's name must surface in errors so it doesn't silently vanish."""

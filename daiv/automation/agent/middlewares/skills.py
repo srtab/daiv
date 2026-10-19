@@ -167,18 +167,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         Returns source-level load errors so callers can surface them via ``skills_load_errors``.
         """
         files_to_upload: list[tuple[str, bytes]] = []
-        errors: list[str] = []
-        for skill_dir in global_skill_dirs().values():
-            try:
-                self._collect_skill_files(skill_dir, files_to_upload, errors)
-            except OSError as exc:
-                # Host path stays in the operator log; the agent gets a generic warning
-                # because it cannot act on a real-filesystem location and shouldn't leak it.
-                # ``exc.strerror`` carries the OS message without the path (which lives in
-                # ``exc.filename``); ``str(exc)`` would include both.
-                logger.exception("Failed to read global skill files from '%s'", skill_dir)
-                reason = exc.strerror or type(exc).__name__
-                errors.append(f"Global skill '{skill_dir.name}' failed to load: {reason}")
+        skill_dirs, errors = global_skill_dirs()
+        for skill_dir in skill_dirs.values():
+            self._collect_skill_files(skill_dir, files_to_upload, errors)
 
         responses = await self._backend.aupload_files(files_to_upload)
         failures = [
@@ -202,38 +193,37 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         (``scripts/``, ``references/``) as a ``may be incomplete`` warning (the skill loads but is
         missing a runtime dependency).
         """
-        for root, dirs, files in skill_dir.walk():
+        name = skill_dir.name
+
+        # ``exc.strerror`` omits the host path (it lives in ``exc.filename``), so the path stays in the log.
+        def on_walk_error(exc: OSError) -> None:
+            logger.warning("Failed to read skill directory '%s' (skill='%s'), skipping", exc.filename, name)
+            reason = exc.strerror or type(exc).__name__
+            if Path(exc.filename) == skill_dir:
+                errors.append(f"Cannot load skill '{name}': {reason}")
+            else:
+                errors.append(f"Skill '{name}' may be incomplete: failed to read a directory ({reason})")
+
+        for root, dirs, files in skill_dir.walk(on_error=on_walk_error):
             dirs[:] = [d for d in dirs if d != "__pycache__"]
             for file in files:
                 source_path = root / file
                 if source_path.suffix == ".pyc":
                     continue
-                rel = Path(skill_dir.name) / source_path.relative_to(skill_dir)
-                # Real existence check on the disk-backed skills cache so per-turn
-                # uploads become a no-op once the cache is populated. ``dest_path``
-                # is a virtual path under ``SKILLS_PATH``, which never exists
-                # on the host fs — the disk equivalent is ``SKILLS_CACHE_PATH/rel``.
-                dest_path = Path(SKILLS_PATH) / rel
+                rel = Path(name) / source_path.relative_to(skill_dir)
+                # ``SKILLS_PATH`` is virtual; its host twin under ``SKILLS_CACHE_PATH`` makes re-uploads a no-op.
                 if (SKILLS_CACHE_PATH / rel).exists():
                     continue
                 try:
-                    files_to_upload.append((str(dest_path), source_path.read_bytes()))
+                    files_to_upload.append((str(Path(SKILLS_PATH) / rel), source_path.read_bytes()))
                 except OSError as exc:
-                    logger.warning("Failed to read skill file '%s' (skill='%s'), skipping", source_path, skill_dir.name)
-                    # Surface read failures by skill name so the agent can warn a user who invokes
-                    # the skill. A broken SKILL.md means the skill won't load at all; a broken
-                    # asset (scripts/, references/) means the skill loads but is incomplete — the
-                    # skill-creator skill, e.g., depends on scripts/init_skill.py at runtime, so a
-                    # missing one would otherwise only surface mid-use. Host paths stay in the log
-                    # only — ``exc.strerror`` is the OS message without the path (which lives in
-                    # ``exc.filename``).
+                    logger.warning("Failed to read skill file '%s' (skill='%s'), skipping", source_path, name)
                     reason = exc.strerror or type(exc).__name__
                     if source_path.name == "SKILL.md":
-                        errors.append(f"Cannot load skill '{skill_dir.name}': {reason}")
+                        errors.append(f"Cannot load skill '{name}': {reason}")
                     else:
                         errors.append(
-                            f"Skill '{skill_dir.name}' may be incomplete: failed to load "
-                            f"'{source_path.name}' ({reason})"
+                            f"Skill '{name}' may be incomplete: failed to load '{source_path.name}' ({reason})"
                         )
 
     @override

@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import tarfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -327,6 +328,22 @@ def _archive_members(archive: bytes | None) -> frozenset[str] | None:
         return None
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
         return frozenset(member.name for member in tf.getmembers() if member.isfile())
+
+
+@pytest.fixture
+def chmod():
+    """Change a path's mode for the test, restoring it afterwards so ``tmp_path`` can be cleaned up."""
+    if os.geteuid() == 0:
+        pytest.skip("root reads and lists directories regardless of their mode")
+    restore: list[tuple[Path, int]] = []
+
+    def _chmod(path: Path, mode: int) -> None:
+        restore.append((path, path.stat().st_mode))
+        path.chmod(mode)
+
+    yield _chmod
+    for path, mode in reversed(restore):
+        path.chmod(mode)
 
 
 @pytest.fixture(autouse=True)

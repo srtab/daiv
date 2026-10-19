@@ -253,13 +253,13 @@ def _make_repo_archive(working_dir: str) -> bytes:
 
 
 def _make_global_skills_archive() -> bytes | None:
-    """Tar the global skills (``skills.services.global_skill_dirs``), members relative to their skill dir.
+    """Tar the global skills (``skills.services.global_skill_dirs``), each under ``<name>/``.
 
     These are the only-disk sources for global skills; seeding them into the sandbox's
     ``/workspace/skills`` is the single provisioning step (one RPC), replacing per-file
     uploads. Returns ``None`` if there is nothing to pack.
     """
-    members = global_skill_dirs()
+    members = global_skill_dirs().dirs
     if not members:
         return None
 

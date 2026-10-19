@@ -637,6 +637,7 @@ def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS
     The skills cache is a route (not copied per run) so the global-cache idempotency in
     ``SkillsMiddleware`` is preserved.
     """
+    skills_cache.mkdir(parents=True, exist_ok=True)
     repo_backend = DAIVFilesystemBackend(root_dir=clone_dir, virtual_mode=True)
     skills_backend = DAIVFilesystemBackend(root_dir=skills_cache, virtual_mode=True)
     scratch_backend = DAIVFilesystemBackend(root_dir=clone_dir.parent, virtual_mode=True)
