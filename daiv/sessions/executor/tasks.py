@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from django_tasks import task
 
 from codebase.base import Scope
-from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
+from sessions.executor.lock import wait_unless_sessionless
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.models import Session
 
@@ -64,11 +64,12 @@ async def run_job_task(
     session_row = (
         await Session.objects.filter(pk=thread_id).only("thread_id", "mcp_overrides", "external_refs").afirst()
     )
+    lock = wait_unless_sessionless(
+        thread_id, session_exists=session_row is not None, holder_id=run_id or f"job-{thread_id[:8]}"
+    )
     if session_row is None:
-        logger.warning("run_job_task: no session row for thread_id=%s; running without lock", thread_id)
-        lock, mcp_overrides, references = NoLock(), {}, ()
+        mcp_overrides, references = {}, ()
     else:
-        lock = Wait(holder_id=run_id or f"job-{thread_id[:8]}", timeout_s=LOCK_WAIT_TIMEOUT_S)
         mcp_overrides, references = session_row.mcp_overrides, session_row.external_references()
 
     async def _log_failure(exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:

@@ -35,7 +35,7 @@ class TestLockPolicy:
     async def test_a_first_turn_without_a_session_row_runs_unlocked(self, stub_base_init, caplog):
         """The callback creates the row just after enqueueing the run, so the first turn may beat it; nothing else
         can hold that thread's slot yet."""
-        with caplog.at_level("WARNING", logger="daiv.managers"):
+        with caplog.at_level("WARNING", logger="daiv.sessions"):
             policy = await _manager("t-new")._lock_policy()
 
         assert policy == NoLock()

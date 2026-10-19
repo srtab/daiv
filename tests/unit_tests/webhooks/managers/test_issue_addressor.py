@@ -315,7 +315,7 @@ class TestIssueAfterRunMatrix:
 
         with (
             addressor_run(addressor_agent(), real_lock=True) as run,
-            patch("webhooks.managers.base.LOCK_WAIT_TIMEOUT_S", 0.05),
+            patch("sessions.executor.lock.LOCK_WAIT_TIMEOUT_S", 0.05),
             patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
             pytest.raises(SessionLockTimeoutError),
         ):

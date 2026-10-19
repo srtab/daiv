@@ -43,6 +43,15 @@ class NoLock:
 LockPolicy = Wait | Held | NoLock
 
 
+def wait_unless_sessionless(thread_id: str, *, session_exists: bool, holder_id: str) -> LockPolicy:
+    """``Wait`` for ``thread_id``'s slot under ``holder_id``, or ``NoLock`` when the thread has no ``Session`` row:
+    the slot lives on that row, so nothing else can hold it either."""
+    if session_exists:
+        return Wait(holder_id=holder_id, timeout_s=LOCK_WAIT_TIMEOUT_S)
+    logger.warning("executor: no session row for thread_id=%s; running %s without lock", thread_id, holder_id)
+    return NoLock()
+
+
 class SessionLockTimeoutError(TimeoutError):
     """``Wait`` gave up: the slot's holder kept it past ``timeout_s``."""
 

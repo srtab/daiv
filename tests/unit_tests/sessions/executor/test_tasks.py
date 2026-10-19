@@ -450,7 +450,7 @@ class TestRunJobTaskAfterRunMatrix:
 
         with (
             _job_scaffolding(_agent_with_mr(None), real_lock=True) as set_ctx,
-            patch("sessions.executor.tasks.LOCK_WAIT_TIMEOUT_S", 0.05),
+            patch("sessions.executor.lock.LOCK_WAIT_TIMEOUT_S", 0.05),
             patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
             patch("sessions.executor.lock.SessionLock.try_claim", wraps=SessionLock.try_claim) as try_claim,
             pytest.raises(TimeoutError, match="not released within"),

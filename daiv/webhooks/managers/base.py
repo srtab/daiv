@@ -1,10 +1,9 @@
-import logging
 import uuid
 from typing import TYPE_CHECKING
 
 from django.template.loader import render_to_string
 
-from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
+from sessions.executor.lock import wait_unless_sessionless
 from sessions.models import Session
 
 from codebase.base import GitPlatform
@@ -13,8 +12,6 @@ from codebase.clients import RepoClient
 if TYPE_CHECKING:
     from sessions.executor.lock import LockPolicy
     from sessions.executor.spec import RunOutcome
-
-logger = logging.getLogger("daiv.managers")
 
 
 class BaseManager:
@@ -68,9 +65,9 @@ class BaseManager:
 
     async def _lock_policy(self) -> LockPolicy:
         """Wait for the session's slot, or run unlocked on a thread's first turn: the callback creates the
-        ``Session`` row just after enqueueing this run, so the row may not exist yet, and then nothing else can
-        hold the slot either."""
-        if await Session.objects.filter(pk=self.thread_id).aexists():
-            return Wait(holder_id=f"webhook-{uuid.uuid4().hex}", timeout_s=LOCK_WAIT_TIMEOUT_S)
-        logger.warning("webhook run: no session row for thread_id=%s; running without lock", self.thread_id)
-        return NoLock()
+        ``Session`` row just after enqueueing this run, so the row may not exist yet."""
+        return wait_unless_sessionless(
+            self.thread_id,
+            session_exists=await Session.objects.filter(pk=self.thread_id).aexists(),
+            holder_id=f"webhook-{uuid.uuid4().hex}",
+        )
