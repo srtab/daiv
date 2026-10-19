@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
-from django_tasks_db.models import DBTaskResult
 from mcp_api.server import (
     DEFAULT_LIST_LIMIT,
     _batch_response,
@@ -14,11 +13,11 @@ from mcp_api.server import (
     list_repositories,
     submit_job,
 )
-from sessions.executor.tasks import run_job_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import FakeRun, fake_acreate_run, make_artifact
+from tests.unit_tests.webhooks.conftest import make_db_task_result
 
 
 def _mock_task():
@@ -27,39 +26,10 @@ def _mock_task():
     return m
 
 
-class _FakeRun:
-    _next_pk = 0
-
-    def __init__(self, **kwargs):
-        self.id = uuid.uuid4()
-        self.task_result_id = kwargs.get("task_result_id")
-        # ``aenqueue_run`` builds the task kwargs from these, as it does from a real row.
-        self.session_id = kwargs.get("thread_id") or str(uuid.uuid4())
-        self.trigger_type = kwargs.get("trigger_type", "")
-        self.repo_id = kwargs.get("repo_id", "")
-        self.ref = kwargs.get("ref", "")
-        self.prompt = kwargs.get("prompt", "")
-        self.agent_model = kwargs.get("agent_model", "")
-        self.agent_thinking_level = kwargs.get("agent_thinking_level", "")
-        self.sandbox_environment_id = kwargs.get("sandbox_environment_id")
-        self.user_id = user.pk if (user := kwargs.get("user")) is not None else None
-        self.status = "READY"
-        type(self)._next_pk += 1
-        self.pk = type(self)._next_pk
-        # Tests bypass the real ORM via ``_patch_acreate``; provide an async no-op
-        # so the post-acreate ``run.asave(update_fields=...)`` call in
-        # ``asubmit_batch_runs`` doesn't AttributeError on this stub.
-        self.asave = AsyncMock(return_value=None)
-
-
-async def _fake_acreate_run(**kwargs):
-    return _FakeRun(**kwargs)
-
-
 def _patch_acreate():
     # Patch acreate_run and silence the post-create title task enqueue so
     # tests don't depend on the queue backend.
-    acreate_patch = patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=_fake_acreate_run)
+    acreate_patch = patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=fake_acreate_run)
     title_patch = patch("sessions.services.generate_batch_title_task")
 
     class _Combined:
@@ -131,21 +101,12 @@ async def test_submit_job_multi_repo_enqueues_each():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_reports_partial_failure():
-    task_row = await DBTaskResult.objects.acreate(
-        id=uuid.uuid4(),
-        status="READY",
-        task_path=run_job_task.module_path,
-        args_kwargs={"args": [], "kwargs": {}},
-        queue_name="default",
-        backend_name="default",
-        run_after="9999-01-01T00:00:00Z",
-        return_value={},
-    )
+    task_id = await make_db_task_result()
 
     async def _flaky(**kwargs):
         if kwargs["repo_id"] == "o/b":
             raise RuntimeError("boom")
-        return MagicMock(id=task_row.id)
+        return MagicMock(id=task_id)
 
     with patch("sessions.queue.run_job_task") as mock_task:
         mock_task.aenqueue = _flaky
@@ -246,7 +207,7 @@ def _capture_asubmit_batch_runs(captured: dict):
 
     async def _fake(**kwargs):
         captured.update(kwargs)
-        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[_FakeRun(task_result_id=None)], failed=[])
+        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[FakeRun(task_result_id=None)], failed=[])
 
     return patch("mcp_api.server.asubmit_batch_runs", side_effect=_fake)
 
@@ -316,10 +277,10 @@ async def test_submit_job_wait_success():
     mock_result.id = str(uuid.uuid4())
 
     now = datetime.now(UTC)
-    created_runs: list[_FakeRun] = []
+    created_runs: list[FakeRun] = []
 
     async def _capture_acreate(**kwargs):
-        run = _FakeRun(task_result_id=kwargs["task_result_id"])
+        run = FakeRun(task_result_id=kwargs["task_result_id"])
         created_runs.append(run)
         return run
 

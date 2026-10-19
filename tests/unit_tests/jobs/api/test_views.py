@@ -13,7 +13,7 @@ from core.models import Provider, ProviderType
 from core.site_settings import site_settings
 from daiv.api import api
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import FakeRun, fake_acreate_run, make_artifact
 
 
 @pytest.fixture
@@ -66,37 +66,8 @@ async def _make_task_row(task_id=None) -> AsyncMock:
     return m
 
 
-class _FakeRun:
-    """Stand-in for Run returned from a mocked ``acreate_run`` in tests that patch it."""
-
-    def __init__(self, **kwargs):
-        self.id = uuid.uuid4()
-        self.pk = self.id
-        self.task_result_id = kwargs.get("task_result_id")
-        # ``aenqueue_run`` builds the task kwargs from these, as it does from a real row.
-        self.session_id = kwargs.get("thread_id") or str(uuid.uuid4())
-        self.trigger_type = kwargs.get("trigger_type", "")
-        self.repo_id = kwargs.get("repo_id", "")
-        self.ref = kwargs.get("ref", "")
-        self.prompt = kwargs.get("prompt", "")
-        self.agent_model = kwargs.get("agent_model", "")
-        self.agent_thinking_level = kwargs.get("agent_thinking_level", "")
-        self.sandbox_environment_id = kwargs.get("sandbox_environment_id")
-        self.user_id = user.pk if (user := kwargs.get("user")) is not None else None
-        self.status = RunStatus.READY
-        self.started_at = None
-        self.finished_at = None
-        # Tests bypass the real ORM via ``_patch_acreate_run``; provide an async no-op
-        # for the post-acreate ``run.asave(update_fields=...)`` call.
-        self.asave = AsyncMock(return_value=None)
-
-
-async def _fake_acreate_run(**kwargs):
-    return _FakeRun(**kwargs)
-
-
 def _patch_acreate_run():
-    return patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=_fake_acreate_run)
+    return patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=fake_acreate_run)
 
 
 # --- Authentication tests ---
@@ -266,7 +237,7 @@ def _fake_submit_factory(captured: dict):
 
     async def _fake_submit(**kwargs):
         captured.update(kwargs)
-        run = _FakeRun(task_result_id=None)
+        run = FakeRun(task_result_id=None)
         return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run], failed=[])
 
     return _fake_submit
@@ -486,7 +457,7 @@ class TestThreadContinuationAPI:
         created_runs: list = []
 
         async def capture_acreate_run(**kwargs):
-            run = _FakeRun(task_result_id=kwargs.get("task_result_id"))
+            run = FakeRun(task_result_id=kwargs.get("task_result_id"))
             created_runs.append(run)
             return run
 

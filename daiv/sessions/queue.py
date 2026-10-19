@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from django.db import IntegrityError
 from django.db.models import Q
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 
@@ -32,9 +33,8 @@ MAX_CONSECUTIVE_DISPATCH_FAILURES = 3
 
 @dataclass(frozen=True)
 class EnqueueFailure:
-    """Why :func:`aenqueue_run` could not get a run going."""
+    """:func:`aenqueue_run` could not get a run going; the row's ``error_message`` says why."""
 
-    error: str
     #: True when the task reached the queue but could not be linked to the row: the agent runs regardless.
     task_enqueued: bool
 
@@ -43,9 +43,9 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
     """Enqueue ``run_job_task`` for a READY ``run`` and link its task result to the row.
 
     Returns ``None`` once both steps land. When either fails, :func:`amark_failed_and_advance` marks the row FAILED
-    unless it moved on meanwhile, and the returned failure carries ``run.error_message``, which starts with
-    ``ENQUEUE_FAILED_PREFIX`` when no task reached the queue, or with ``LINK_FAILED_PREFIX`` when one did: that task
-    still runs, and ``sessions.signals._sync_run_for_task`` no-ops on its result because no row links to it.
+    unless it moved on meanwhile, and sets ``run.error_message``, which starts with ``ENQUEUE_FAILED_PREFIX`` when no
+    task reached the queue, or with ``LINK_FAILED_PREFIX`` when one did: that task still runs, and
+    ``sessions.signals._sync_run_for_task`` no-ops on its result because no row links to it.
     """
     try:
         task = await run_job_task.aenqueue(
@@ -65,7 +65,7 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
         await amark_failed_and_advance(
             run, prefix=ENQUEUE_FAILED_PREFIX, err=err, log_context=log_context, skip_dispatch=skip_dispatch
         )
-        return EnqueueFailure(error=run.error_message, task_enqueued=False)
+        return EnqueueFailure(task_enqueued=False)
 
     try:
         run.task_result_id = task.id
@@ -77,7 +77,7 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
         await amark_failed_and_advance(
             run, prefix=LINK_FAILED_PREFIX, err=err, log_context=log_context, skip_dispatch=skip_dispatch
         )
-        return EnqueueFailure(error=run.error_message, task_enqueued=True)
+        return EnqueueFailure(task_enqueued=True)
     return None
 
 
@@ -88,16 +88,23 @@ async def amark_failed_and_advance(
 
     The write lands only while the row still has the status the caller left it in, so a task that got running
     after all keeps its row. Does NOT touch ``Session.active_run_id`` (that is ``SessionLock``'s job); the
-    "advance" is the ``run_finished`` emit, which dispatches the session's QUEUED siblings unless the caller sets
-    ``skip_dispatch`` because it handles the session's next run itself (the dispatcher) or leaves it for its next
-    pass (the orphan sweep). ``log_context`` names the caller in the logs; ``run.error_message`` says why the run
-    failed even when the write does not land.
+    "advance" is the ``run_finished`` emit, which dispatches the session's QUEUED siblings unless ``skip_dispatch``.
+    ``log_context`` names the caller in the logs; ``run.error_message`` says why the run failed even when the write
+    does not land.
     """
     expected_status = run.status
-    fields = run.mark_failed(prefix, err)
+    now = timezone.now()
+    run.error_message = f"{prefix}: {type(err).__name__}: {err}"
     try:
         failed = await Run.objects.afinish(
-            run, RunStatus.FAILED, where=Q(status=expected_status), skip_dispatch=skip_dispatch, **fields
+            run,
+            RunStatus.FAILED,
+            where=Q(status=expected_status),
+            skip_dispatch=skip_dispatch,
+            never_started=True,
+            error_message=run.error_message,
+            finished_at=now,
+            started_at=run.started_at or now,
         )
     except Exception:
         logger.exception(
@@ -208,12 +215,7 @@ def release_orphan_queued_runs() -> OrphanRelease:
         if not claimed:
             skipped += 1
             continue
-        try:
-            ok = _enqueue_claimed(run, log_context="release_orphan_queued_runs")
-        except Exception:
-            logger.exception("Failed to release orphan QUEUED run %s", run.pk)
-            ok = False
-        if ok:
+        if _enqueue_claimed(run, log_context="release_orphan_queued_runs"):
             released += 1
         else:
             errored += 1

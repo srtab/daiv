@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import TYPE_CHECKING, Any
 
 from django.db import models, transaction
@@ -12,8 +11,6 @@ from sessions.signal_defs import run_finished
 if TYPE_CHECKING:
     from accounts.models import User
     from sessions.models import Run, RunArtifact, Session
-
-logger = logging.getLogger("daiv.sessions")
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
@@ -135,26 +132,40 @@ class RunManager(models.Manager["Run"]):
         return self.filter(batch_id=batch_id)
 
     def finish(
-        self, run: Run, status: str, *, where: models.Q | None = None, skip_dispatch: bool = False, **fields: Any
+        self,
+        run: Run,
+        status: str,
+        *,
+        where: models.Q | None = None,
+        skip_dispatch: bool = False,
+        never_started: bool = False,
+        **fields: Any,
     ) -> bool:
         """Write the terminal ``status`` and ``fields`` onto ``run``'s row; the one writer of a run's end.
 
         The write is one guarded ``UPDATE``: it lands only while the row is not terminal yet and matches ``where``,
         so a finish never overwrites one that got there first. Returns whether this call finished the run. When it
         did, ``run`` takes the written values, the nav badge is refreshed once the write commits, and
-        ``run_finished`` goes out (with ``skip_dispatch``) unless ``run`` is a chat run, which the classification,
-        memory and dispatch receivers must not see.
+        ``run_finished`` goes out unless ``run`` is a chat run, which the classification, memory and dispatch receivers
+        must not see.
         """
         _require_terminal(status)
         if not self._unfinished(run, where).update(status=status, **fields):
             return False
         self._apply(run, status, fields)
         transaction.on_commit(ui_events.publisher.runs_changed)
-        self._emit_run_finished(run, skip_dispatch=skip_dispatch)
+        self._emit_run_finished(run, skip_dispatch=skip_dispatch, never_started=never_started)
         return True
 
     async def afinish(
-        self, run: Run, status: str, *, where: models.Q | None = None, skip_dispatch: bool = False, **fields: Any
+        self,
+        run: Run,
+        status: str,
+        *,
+        where: models.Q | None = None,
+        skip_dispatch: bool = False,
+        never_started: bool = False,
+        **fields: Any,
     ) -> bool:
         """:meth:`finish` for async callers, from any event loop.
 
@@ -166,7 +177,7 @@ class RunManager(models.Manager["Run"]):
         if not await self._unfinished(run, where).aupdate(status=status, **fields):
             return False
         self._apply(run, status, fields)
-        await asyncio.to_thread(self._announce_finished, run, skip_dispatch=skip_dispatch)
+        await asyncio.to_thread(self._announce_finished, run, skip_dispatch=skip_dispatch, never_started=never_started)
         return True
 
     def update_unfinished(self, run: Run, **fields: Any) -> bool:
@@ -184,9 +195,9 @@ class RunManager(models.Manager["Run"]):
             transaction.on_commit(ui_events.publisher.runs_changed)
         return True
 
-    def _announce_finished(self, run: Run, *, skip_dispatch: bool) -> None:
+    def _announce_finished(self, run: Run, **flags: bool) -> None:
         ui_events.publisher.runs_changed()
-        self._emit_run_finished(run, skip_dispatch=skip_dispatch)
+        self._emit_run_finished(run, **flags)
 
     def _unfinished(self, run: Run, where: models.Q | None = None) -> models.QuerySet[Run]:
         from sessions.models import RunStatus
@@ -201,20 +212,12 @@ class RunManager(models.Manager["Run"]):
             setattr(run, name, value)
 
     @staticmethod
-    def _emit_run_finished(run: Run, *, skip_dispatch: bool) -> None:
+    def _emit_run_finished(run: Run, **flags: bool) -> None:
         from sessions.models import SessionOrigin
 
         if run.trigger_type == SessionOrigin.CHAT:
             return
-        results = run_finished.send_robust(sender=type(run), run=run, skip_dispatch=skip_dispatch)
-        for recv, response in results:
-            if isinstance(response, Exception):
-                logger.error(
-                    "Receiver %s failed for run_finished (run=%s)",
-                    getattr(recv, "__name__", recv),
-                    run.pk,
-                    exc_info=response,
-                )
+        run_finished.send_robust(sender=type(run), run=run, **flags)
 
 
 def _require_terminal(status: str) -> None:

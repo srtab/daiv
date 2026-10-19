@@ -365,8 +365,8 @@ async def asubmit_batch_runs(
         if run.status == RunStatus.QUEUED:
             return run
 
-        if (failure := await aenqueue_run(run, log_context="submit_batch_runs")) is not None:
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=failure.error)
+        if await aenqueue_run(run, log_context="submit_batch_runs") is not None:
+            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
         return run
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
