@@ -19,6 +19,7 @@ from deepagents.backends.protocol import BackendProtocol
 from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import SecretStr
 from sandbox_envs.spec import SandboxSpec
+from webhooks.conf import settings as webhooks_settings
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
@@ -479,15 +480,15 @@ def mock_settings(monkeypatch):
     """Fixture to mock secret tokens for testing.
 
     Sets environment variables so that ``site_settings`` resolves API keys
-    without hitting the database.  Pydantic-only settings (codebase) are
-    patched directly.
+    without hitting the database.  Pydantic-only settings (codebase, webhooks)
+    are patched directly.
     """
     monkeypatch.setenv("DAIV_SANDBOX_API_KEY", "test-key")
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     with (
-        patch.object(codebase_settings, "GITLAB_WEBHOOK_SECRET", SecretStr("test_secret")),
-        patch.object(codebase_settings, "GITHUB_WEBHOOK_SECRET", SecretStr("test_secret")),
+        patch.object(webhooks_settings, "GITLAB_WEBHOOK_SECRET", SecretStr("test_secret")),
+        patch.object(webhooks_settings, "GITHUB_WEBHOOK_SECRET", SecretStr("test_secret")),
         patch.object(codebase_settings, "CLIENT", GitPlatform.GITLAB),
     ):
         yield codebase_settings

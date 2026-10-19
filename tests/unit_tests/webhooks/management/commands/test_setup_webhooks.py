@@ -4,9 +4,10 @@ from django.core.management import call_command
 
 import pytest
 from pydantic import SecretStr
+from webhooks.conf import settings
 
 from codebase.clients.base import WebhookSetupResult
-from codebase.conf import settings
+from codebase.conf import settings as codebase_settings
 
 callback_url = "https://test.com/api/codebase/callbacks/gitlab/"
 
@@ -17,7 +18,7 @@ def mock_secret_token():
     with (
         patch.object(settings, "GITLAB_WEBHOOK_SECRET", SecretStr("test_secret")),
         patch.object(settings, "GITHUB_WEBHOOK_SECRET", SecretStr("test_secret")),
-        patch.object(settings, "CLIENT", "gitlab"),
+        patch.object(codebase_settings, "CLIENT", "gitlab"),
     ):
         yield
 

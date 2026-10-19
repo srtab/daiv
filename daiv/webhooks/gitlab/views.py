@@ -12,7 +12,11 @@ logger = logging.getLogger("daiv.webhooks")
 
 
 @router.post("/callbacks/gitlab", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
-@router.post("/callbacks/gitlab/", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
+@router.post(
+    "/callbacks/gitlab/",
+    response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse},
+    url_name="gitlab_callback",
+)
 async def callback(
     request, payload: IssueCallback | MergeRequestCallback | NoteCallback | PushCallback | PipelineCallback
 ):

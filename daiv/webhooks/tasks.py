@@ -1,11 +1,18 @@
 import logging
 from typing import TYPE_CHECKING
 
+from django.conf import settings as django_settings
+from django.core.management import call_command
+
+from crontask import cron
 from django_tasks import task
 from sessions.services import aget_session_ref, aget_task_run_id
 
+from codebase.base import GitPlatform
 from codebase.clients import RepoClient
+from codebase.conf import settings as codebase_settings
 from codebase.exceptions import CloneRefNotFoundError
+from webhooks.conf import settings
 
 if TYPE_CHECKING:
     from django_tasks import TaskContext
@@ -14,6 +21,17 @@ if TYPE_CHECKING:
     from codebase.base import MergeRequest
 
 logger = logging.getLogger("daiv.tasks")
+
+
+if codebase_settings.CLIENT == GitPlatform.GITLAB:
+
+    @cron(settings.WEBHOOK_SETUP_CRON)
+    @task
+    def setup_webhooks_cron_task():
+        """
+        Setup webhooks for all repositories periodically.
+        """
+        call_command("setup_webhooks", disable_ssl_verification=django_settings.DEBUG)
 
 
 def _mr_comment_skip_result(response: str, merge_request: MergeRequest) -> AgentResult:
