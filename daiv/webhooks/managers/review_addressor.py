@@ -24,7 +24,6 @@ from codebase.base import (
     Scope,
 )
 from codebase.exceptions import CloneRefNotFoundError
-from codebase.utils import resolve_thread_id
 from core.constants import BOT_NAME
 
 from .base import BaseManager
@@ -204,16 +203,8 @@ class CommentsAddressorManager(BaseManager):
     else may own. Pinned by ``test_a_successful_run_neither_moves_the_ref_nor_arms_the_watch``.
     """
 
-    def __init__(
-        self, *, repo_id: str, merge_request: MergeRequest, mention_comment_id: str, thread_id: str | None = None
-    ):
-        super().__init__(
-            repo_id=repo_id,
-            thread_id=resolve_thread_id(
-                thread_id, repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request.merge_request_id
-            ),
-            mention_comment_id=mention_comment_id,
-        )
+    def __init__(self, *, repo_id: str, merge_request: MergeRequest, mention_comment_id: str, thread_id: str):
+        super().__init__(repo_id=repo_id, thread_id=thread_id, mention_comment_id=mention_comment_id)
         self.merge_request = merge_request
 
     @classmethod
@@ -223,7 +214,7 @@ class CommentsAddressorManager(BaseManager):
         repo_id: str,
         merge_request: MergeRequest,
         mention_comment_id: str,
-        thread_id: str | None = None,
+        thread_id: str,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
         use_max: bool | None = None,
@@ -235,7 +226,7 @@ class CommentsAddressorManager(BaseManager):
             repo_id: The repository slug.
             merge_request: The merge request.
             mention_comment_id: The mention comment id.
-            thread_id: The session's thread id; ``None`` computes the deterministic one.
+            thread_id: The session's thread id.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
             use_max: The max mode the callback decided; ``None`` reads the ``daiv-max`` label off ``merge_request``.

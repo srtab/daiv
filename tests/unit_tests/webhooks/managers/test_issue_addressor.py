@@ -106,7 +106,7 @@ def _question_agent():
 async def _address(**kwargs):
     """``address_issue`` for a label-triggered issue on ``owner/repo``; ``kwargs`` override."""
     return await IssueAddressorManager.address_issue(
-        **({"repo_id": "owner/repo", "issue": _issue(labels=[BOT_LABEL])} | kwargs)
+        **({"repo_id": "owner/repo", "issue": _issue(labels=[BOT_LABEL]), "thread_id": "t-issue"} | kwargs)
     )
 
 

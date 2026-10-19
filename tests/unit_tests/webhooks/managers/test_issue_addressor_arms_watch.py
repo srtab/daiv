@@ -28,7 +28,10 @@ async def _run_addressor(*, state_values: dict, run_id: str | None = None) -> Si
         patch("sessions.executor.run._record_measurements", AsyncMock()),
     ):
         await IssueAddressorManager.address_issue(
-            repo_id="owner/repo", issue=Issue(id=1, iid=42, title="t", author=_AUTHOR, labels=["daiv"]), run_id=run_id
+            repo_id="owner/repo",
+            issue=Issue(id=1, iid=42, title="t", author=_AUTHOR, labels=["daiv"]),
+            thread_id="t-1",
+            run_id=run_id,
         )
     return run
 

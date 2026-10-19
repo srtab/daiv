@@ -16,7 +16,6 @@ from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
 from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Scope
-from codebase.utils import resolve_thread_id
 from core.constants import BOT_NAME
 
 from .base import BaseManager
@@ -91,14 +90,8 @@ class IssueAddressorManager(BaseManager):
     message's, so a re-run on a changed issue appends both instead of rewriting the earlier prompt in place.
     """
 
-    def __init__(
-        self, *, repo_id: str, issue: Issue, mention_comment_id: str | None = None, thread_id: str | None = None
-    ):
-        super().__init__(
-            repo_id=repo_id,
-            thread_id=resolve_thread_id(thread_id, repo_slug=repo_id, scope=Scope.ISSUE, entity_iid=issue.iid),
-            mention_comment_id=mention_comment_id,
-        )
+    def __init__(self, *, repo_id: str, issue: Issue, thread_id: str, mention_comment_id: str | None = None):
+        super().__init__(repo_id=repo_id, thread_id=thread_id, mention_comment_id=mention_comment_id)
         self.issue = issue
 
     @classmethod
@@ -107,9 +100,9 @@ class IssueAddressorManager(BaseManager):
         *,
         repo_id: str,
         issue: Issue,
+        thread_id: str,
         mention_comment_id: str | None = None,
         ref: str | None = None,
-        thread_id: str | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
         use_max: bool | None = None,
@@ -120,9 +113,9 @@ class IssueAddressorManager(BaseManager):
         Args:
             repo_id: The repository slug.
             issue: The issue object.
+            thread_id: The session's thread id.
             mention_comment_id: The discussion that mentioned the bot, or ``None`` for a label trigger.
             ref: The branch to clone; ``None`` for the repository default.
-            thread_id: The session's thread id; ``None`` computes the deterministic one.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
             use_max: The max mode the callback decided; ``None`` reads the ``daiv-max`` label off ``issue``.

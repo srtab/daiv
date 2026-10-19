@@ -43,7 +43,7 @@ async def test_address_mr_comments_skips_when_merged(run_lookup):
         patch("webhooks.managers.review_addressor.CommentsAddressorManager.address_comments") as address,
     ):
         result = await address_mr_comments_task.func(
-            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1"
+            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", thread_id="t-7"
         )
 
     address.assert_not_called()
@@ -65,7 +65,7 @@ async def test_address_mr_comments_skips_when_branch_gone():
         ),
     ):
         result = await address_mr_comments_task.func(
-            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1"
+            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", thread_id="t-7"
         )
 
     client.create_merge_request_comment.assert_called_once()
@@ -212,7 +212,12 @@ class TestMergeRequestMaxModelIsDecidedByTheCallback:
             patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
         ):
             await address_mr_comments_task.func(
-                _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", **task_kwargs
+                _CONTEXT,
+                repo_id="group/repo",
+                merge_request_id=7,
+                mention_comment_id="d1",
+                thread_id="t-7",
+                **task_kwargs,
             )
         return execute.await_args.args[0]
 

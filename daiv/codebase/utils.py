@@ -21,9 +21,8 @@ logger = logging.getLogger("daiv.codebase")
 def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
     """Deterministic LangGraph checkpoint key for an issue or merge-request conversation.
 
-    Webhook callbacks mint this to set ``Activity.thread_id`` before enqueueing the
-    addressor task; the addressor managers must compute the same value so follow-up
-    events resume the same checkpointer state.
+    Webhook callbacks mint this and hand it to the addressor task, so every event on the same
+    issue or merge request resumes the same checkpointer state.
     """
     if not repo_slug or scope is None or entity_iid is None or entity_iid == "":
         raise ValueError(
@@ -31,19 +30,6 @@ def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) ->
             f"got repo_slug={repo_slug!r}, scope={scope!r}, entity_iid={entity_iid!r}"
         )
     return generate_uuid(f"{repo_slug}:{scope}/{entity_iid}")
-
-
-def resolve_thread_id(thread_id: str | None, *, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
-    """Return ``thread_id``, computing the deterministic default when it is None.
-
-    An explicit empty string is a caller bug, not a request for the default: the managers hand
-    this to the publisher, where an empty value silently drops the session link and trailer.
-    """
-    if thread_id is None:
-        return compute_thread_id(repo_slug=repo_slug, scope=scope, entity_iid=entity_iid)
-    if not thread_id:
-        raise ValueError(f"thread_id must be non-empty or None, got {thread_id!r}")
-    return thread_id
 
 
 def get_repo_branch(repo: Repo) -> str | None:
