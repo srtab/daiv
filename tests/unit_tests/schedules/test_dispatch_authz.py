@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from sessions.models import Run
@@ -35,7 +35,7 @@ def due_schedule(member_user):
 def test_dispatch_denied_owner_advances_without_runs(due_schedule, caplog):
     # ``daiv.schedules`` is the logger name used by daiv/schedules/tasks.py.
     caplog.set_level(logging.WARNING, logger="daiv.schedules")
-    with patch("sessions.services.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))):
+    with patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["a/b"])):
         dispatch_scheduled_jobs_cron_task.func()
 
     due_schedule.refresh_from_db()
@@ -44,7 +44,7 @@ def test_dispatch_denied_owner_advances_without_runs(due_schedule, caplog):
     assert due_schedule.is_enabled  # not disabled — access may come back
 
     # A denial must log a WARNING (no traceback) for this schedule, not logger.exception.
-    # Guards against reverting the isinstance(err, RepositoryAccessDenied) branch in tasks.py:
+    # Guards against reverting the ``except RepoAccessError`` branch in tasks.py:
     # the recovery outcome above is identical for any Exception, so only the log level differs.
     warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
     assert any("skipped" in record.getMessage() and str(due_schedule.pk) in record.getMessage() for record in warnings)

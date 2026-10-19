@@ -4,6 +4,8 @@ The jobs API, MCP ``submit_job`` and ``schedule_job``, chat and the run and sche
 checks from this module: the agent override, WRITE access on the repositories and the named sandbox environment.
 Each check re-raises its failure as an :class:`AdmissionError` subclass whose ``str()`` is the user-facing message,
 and each trigger maps that one family to its transport (an HTTP status, an MCP error string, a form field).
+:func:`sessions.services.asubmit_batch_runs` repeats the access check at submit time through this module too, so
+a denial is a :class:`RepoAccessError` wherever it is caught.
 
 :func:`aadmit` runs the whole sequence for a batch submitted now, in this order: override, repository access,
 environment, then the per-repository environment of each target. Triggers that need a different sequence call
@@ -19,10 +21,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from asgiref.sync import sync_to_async
 from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
 
-from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run, assert_can_run
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, assert_can_run
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -42,7 +44,11 @@ class RejectedOverrideError(AdmissionError):
 
 
 class RepoAccessError(AdmissionError):
-    """The caller lacks WRITE access on a repository. The message is the same whichever repository it was."""
+    """The caller lacks WRITE access on ``repo_ids``. The message never names them, so a 404 stays opaque."""
+
+    def __init__(self, repo_ids: list[str]):
+        self.repo_ids = repo_ids
+        super().__init__(REPO_ACCESS_DENIED_MESSAGE)
 
 
 class UnknownEnvironmentError(AdmissionError):
@@ -60,10 +66,12 @@ class Admission:
 
 def check_agent_override(agent_model: str | None, agent_thinking_level: str | None) -> tuple[str, str]:
     """Return the normalised ``(agent_model, agent_thinking_level)``, refusing a request no model can serve."""
+    from automation.agent import validators
+
     try:
-        model, level = validate_agent_override(agent_model, agent_thinking_level)
-        ensure_agent_model_available(model)
-    except AgentOverrideError as err:
+        model, level = validators.validate_agent_override(agent_model, agent_thinking_level)
+        validators.ensure_agent_model_available(model)
+    except validators.AgentOverrideError as err:
         raise RejectedOverrideError(str(err)) from err
     return model, level
 
@@ -72,14 +80,10 @@ def assert_repo_access(user: User, repo_ids: Iterable[str]) -> None:
     try:
         assert_can_run(user, repo_ids)
     except RepositoryAccessDenied as err:
-        raise RepoAccessError(REPO_ACCESS_DENIED_MESSAGE) from err
+        raise RepoAccessError(err.repo_ids) from err
 
 
-async def aassert_repo_access(user: User, repo_ids: Iterable[str]) -> None:
-    try:
-        await aassert_can_run(user, repo_ids)
-    except RepositoryAccessDenied as err:
-        raise RepoAccessError(REPO_ACCESS_DENIED_MESSAGE) from err
+aassert_repo_access = sync_to_async(assert_repo_access)
 
 
 async def aresolve_environment(user: User, name_or_id: str | None) -> SandboxEnvironment | None:

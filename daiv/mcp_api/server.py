@@ -262,20 +262,19 @@ async def submit_job(
             agent_thinking_level=agent_thinking_level,
             environment=environment,
         )
+        result = await asubmit_batch_runs(
+            user=mcp_user,
+            prompt=prompt,
+            repos=admission.targets,
+            agent_model=admission.agent_model,
+            agent_thinking_level=admission.agent_thinking_level,
+            muted=muted,
+            trigger_type=SessionOrigin.MCP_JOB,
+            thread_id=thread_id_str,
+            references=refs_in,
+        )
     except AdmissionError as err:
         return json.dumps({"error": str(err)})
-
-    result = await asubmit_batch_runs(
-        user=mcp_user,
-        prompt=prompt,
-        repos=admission.targets,
-        agent_model=admission.agent_model,
-        agent_thinking_level=admission.agent_thinking_level,
-        muted=muted,
-        trigger_type=SessionOrigin.MCP_JOB,
-        thread_id=thread_id_str,
-        references=refs_in,
-    )
 
     # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
     # non-failed one with the next run in result.runs (same order as input).

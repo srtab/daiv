@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
@@ -9,7 +9,6 @@ from sessions.admission import (
     RepoAccessError,
     UnknownEnvironmentError,
     aadmit,
-    aassert_repo_access,
     aresolve_environment,
     assert_repo_access,
     check_agent_override,
@@ -57,22 +56,14 @@ def test_check_agent_override_rejects_a_request_no_model_can_serve():
         check_agent_override("", "")
 
 
-def test_assert_repo_access_hides_which_repository_was_denied(member_user):
+def test_assert_repo_access_hides_which_repository_was_denied():
     with (
         patch("sessions.admission.assert_can_run", new=Mock(side_effect=_DENIED)),
         pytest.raises(RepoAccessError) as err,
     ):
-        assert_repo_access(member_user, ["a/b"])
+        assert_repo_access(Mock(), ["a/b"])
     assert str(err.value) == REPO_ACCESS_DENIED_MESSAGE
-
-
-async def test_aassert_repo_access_hides_which_repository_was_denied():
-    with (
-        patch("sessions.admission.aassert_can_run", new=AsyncMock(side_effect=_DENIED)),
-        pytest.raises(RepoAccessError) as err,
-    ):
-        await aassert_repo_access(Mock(), ["a/b"])
-    assert str(err.value) == REPO_ACCESS_DENIED_MESSAGE
+    assert err.value.repo_ids == ["a/b"]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -87,8 +78,8 @@ async def test_aresolve_environment_returns_none_when_nothing_is_named():
 
 @pytest.mark.django_db(transaction=True)
 async def test_aadmit_checks_the_override_before_repository_access(member_user):
-    can_run = AsyncMock(side_effect=_DENIED)
-    with patch("sessions.admission.aassert_can_run", new=can_run), pytest.raises(RejectedOverrideError):
+    can_run = Mock(side_effect=_DENIED)
+    with patch("sessions.admission.assert_can_run", new=can_run), pytest.raises(RejectedOverrideError):
         await aadmit(
             user=member_user,
             repos=[RepoTarget(repo_id="a/b")],
@@ -96,15 +87,12 @@ async def test_aadmit_checks_the_override_before_repository_access(member_user):
             agent_thinking_level="",
             environment=None,
         )
-    can_run.assert_not_awaited()
+    can_run.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_aadmit_checks_repository_access_before_the_environment(member_user):
-    with (
-        patch("sessions.admission.aassert_can_run", new=AsyncMock(side_effect=_DENIED)),
-        pytest.raises(RepoAccessError),
-    ):
+    with patch("sessions.admission.assert_can_run", new=Mock(side_effect=_DENIED)), pytest.raises(RepoAccessError):
         await aadmit(
             user=member_user,
             repos=[RepoTarget(repo_id="a/b")],
