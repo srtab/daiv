@@ -39,7 +39,14 @@ from .code_review_grading import (
     validate_cases,
 )
 from .prompt_leak import assert_no_prompt_leak
-from .utils import CODE_REVIEW_MODELS, agent_settings_on, final_text, measure, require_provider_for_model
+from .utils import (
+    CODE_REVIEW_MODELS,
+    agent_settings_on,
+    default_mcp_servers,
+    final_text,
+    measure,
+    require_provider_for_model,
+)
 
 DATA_DIR = Path(__file__).parent / "data" / "code_review"
 TEST_SUITE = "DAIV: Code review recall"
@@ -145,6 +152,7 @@ async def test_code_review_recall(model_name, case, eval_request):
             settings=agent_settings_on(model_name, ctx),
             ctx=ctx,
             workspace=SandboxWorkspace(session),
+            mcp_servers=await default_mcp_servers(),
             auto_commit_changes=False,
             checkpointer=InMemorySaver(),
             ask_user_enabled=False,

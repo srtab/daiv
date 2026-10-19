@@ -65,7 +65,8 @@ def agent_stack(
     agent to ``claude-4-7-opus`` at ``medium``), and ``site`` is the snapshot the run takes (the field defaults).
     ``checkpointed`` is the session thread's last checkpoint values (``None``: no checkpoint yet); a fresh container
     is seeded with an empty archive. ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed
-    to the clone.
+    to the clone. ``build_servers`` stubs ``build_runtime_servers``; the servers it returns are the ones handed to the
+    agent.
     """
     last_checkpoint = None if checkpointed is None else SimpleNamespace(checkpoint={"channel_values": checkpointed})
     stack = SimpleNamespace(
@@ -112,6 +113,7 @@ def agent_stack(
         patch.object(site_settings, "snapshot", return_value=stack.site) as snapshot,
         patch("automation.agent.agent_settings.resolve_agent_settings", stack.resolve),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent,
+        patch("mcp_connectors.services.build_runtime_servers", return_value=[]) as build_servers,
         patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {}}) as langsmith,
         patch("automation.agent.results.build_agent_result", new=AsyncMock(side_effect=_build_result)) as build_result,
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
@@ -124,6 +126,7 @@ def agent_stack(
         stack.build_spec = build_spec
         stack.snapshot = snapshot
         stack.create_agent = create_agent
+        stack.build_servers = build_servers
         stack.langsmith = langsmith
         stack.build_result = build_result
         stack.persist = persist

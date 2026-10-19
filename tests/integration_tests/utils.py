@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import ToolCall
 
     from automation.agent.agent_settings import AgentSettings
+    from automation.agent.mcp.schemas import UserMcpServer
     from codebase.context import RuntimeCtx
 
 INTERRUPT_ALL_TOOLS_CONFIG = {
@@ -118,6 +119,14 @@ def agent_settings_on(model_name: str, ctx: RuntimeCtx) -> AgentSettings:
     site = site_settings.snapshot()
     run = RunOverrides(model_names=(model_name,), agent_thinking_level=site.agent_thinking_level)
     return resolve_agent_settings(site=site, repo=ctx.config, run=run)
+
+
+async def default_mcp_servers() -> list[tuple[str, UserMcpServer]]:
+    """The MCP servers the executor resolves for a run without an acting user: the site's active globals."""
+    from asgiref.sync import sync_to_async
+    from mcp_connectors.services import build_runtime_servers
+
+    return await sync_to_async(build_runtime_servers)()
 
 
 def extract_tool_calls(messages: list[BaseMessage]) -> list[ToolCall]:
@@ -236,6 +245,7 @@ async def run_agent_once(
             checkpointer=InMemorySaver(),
             interrupt_on=interrupt_on,
             workspace=DiskWorkspace(ctx),
+            mcp_servers=await default_mcp_servers(),
             ask_user_enabled=ask_user_enabled,
         )
         return await agent.ainvoke(

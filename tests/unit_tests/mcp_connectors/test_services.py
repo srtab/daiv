@@ -112,7 +112,7 @@ def test_decryption_error_skips_row_keeps_others(caplog):
 def test_malformed_row_skipped_keeps_others(caplog):
     """A row whose persisted transport is outside the DTO's allowed literals (reachable only via a
     raw DB write, since the form and model choices otherwise constrain it) must be skipped without
-    blanking tools from healthy peers — matching the per-server isolation MCPToolkit.get_tools relies on."""
+    blanking tools from healthy peers — matching the per-server isolation load_mcp_tools relies on."""
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     bad = MCPServer.objects.create(name="bad", transport=MCPServer.Transport.HTTP, url="http://bad")
     MCPServer.objects.create(name="good", transport=MCPServer.Transport.HTTP, url="http://good")
@@ -671,22 +671,6 @@ def test_build_runtime_servers_strips_env_ref_on_user_rows(member_user):
     )
     result = dict(services.build_runtime_servers(user_id=member_user.id))
     assert result["mine"].headers == {"X-Lit": "ok"}  # env_ref dropped
-
-
-async def test_mcptoolkit_forwards_user_id_and_overrides(monkeypatch):
-    from automation.agent.mcp import toolkits
-
-    seen = {}
-
-    def fake_build(user_id=None, overrides=None):
-        seen["user_id"] = user_id
-        seen["overrides"] = overrides
-        return []
-
-    monkeypatch.setattr("mcp_connectors.services.build_runtime_servers", fake_build)
-    tools = await toolkits.MCPToolkit.get_tools(user_id=42, overrides={"a": "off"})
-    assert tools == []
-    assert seen == {"user_id": 42, "overrides": {"a": "off"}}
 
 
 @pytest.mark.django_db

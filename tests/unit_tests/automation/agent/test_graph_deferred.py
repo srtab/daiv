@@ -1,6 +1,9 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from automation.agent.mcp.schemas import UserMcpServer
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings, site_snapshot
+
+MCP_SERVERS = [("acme", UserMcpServer(type="http", url="http://acme/mcp"))]
 
 
 def _common_patches():
@@ -10,7 +13,7 @@ def _common_patches():
         patch("automation.agent.graph.create_explore_subagent"),
         patch("automation.agent.graph.load_custom_subagents", AsyncMock(return_value=[])),
         patch("automation.agent.graph.create_deep_agent"),
-        patch("automation.agent.graph.MCPToolkit"),
+        patch("automation.agent.graph.load_mcp_tools"),
         # The defer-or-bind decision now reads deferred_settings through the shared helpers in
         # middlewares.deferred_tools (used by both the main agent and subagents), so patch it there.
         patch("automation.agent.middlewares.deferred_tools.deferred_settings"),
@@ -38,7 +41,7 @@ class TestCreateDaivAgentDeferredFlag:
                 mock_create_explore,
                 mock_load_custom,
                 mock_create_deep_agent,
-                mock_toolkit,
+                mock_load_mcp_tools,
                 mock_deferred_settings,
                 mock_get_model,
                 *_,
@@ -50,7 +53,7 @@ class TestCreateDaivAgentDeferredFlag:
 
             mcp_tool = StructuredTool.from_function(func=lambda **k: "x", name="t1", description="d")
             # tools=None => default single-tool list; pass tools=[] to exercise the empty-toolset path.
-            mock_toolkit.get_tools = AsyncMock(return_value=[mcp_tool] if tools is None else tools)
+            mock_load_mcp_tools.side_effect = AsyncMock(return_value=[mcp_tool] if tools is None else tools)
 
             mock_get_model.return_value = MagicMock()
 
@@ -70,11 +73,15 @@ class TestCreateDaivAgentDeferredFlag:
             ctx.git_platform = MagicMock()
 
             await create_daiv_agent(
-                settings=agent_settings(site=site), ctx=ctx, workspace=FakeWorkspace(), auto_commit_changes=False
+                settings=agent_settings(site=site),
+                ctx=ctx,
+                workspace=FakeWorkspace(),
+                mcp_servers=MCP_SERVERS,
+                auto_commit_changes=False,
             )
             return (
                 mock_create_deep_agent,
-                mock_toolkit,
+                mock_load_mcp_tools,
                 mcp_tool,
                 mock_create_gp,
                 mock_load_custom,
@@ -85,18 +92,18 @@ class TestCreateDaivAgentDeferredFlag:
                 p.stop()
 
     async def test_flag_off_passes_eager_tools(self):
-        mock_create_deep_agent, mock_toolkit, mcp_tool, *_ = await self._run(flag_on=False)
+        mock_create_deep_agent, mock_load_mcp_tools, mcp_tool, *_ = await self._run(flag_on=False)
 
-        mock_toolkit.get_tools.assert_awaited()
+        mock_load_mcp_tools.assert_awaited_once_with(MCP_SERVERS)
         kwargs = mock_create_deep_agent.call_args.kwargs
         assert kwargs["tools"] == [mcp_tool]
         middleware_types = [type(m).__name__ for m in kwargs["middleware"]]
         assert "DeferredToolsMiddleware" not in middleware_types
 
     async def test_flag_on_passes_empty_tools_and_adds_middleware(self):
-        mock_create_deep_agent, mock_toolkit, _, *_ = await self._run(flag_on=True)
+        mock_create_deep_agent, mock_load_mcp_tools, _, *_ = await self._run(flag_on=True)
 
-        mock_toolkit.get_tools.assert_awaited()
+        mock_load_mcp_tools.assert_awaited_once_with(MCP_SERVERS)
         kwargs = mock_create_deep_agent.call_args.kwargs
         assert kwargs["tools"] == []
         middleware_types = [type(m).__name__ for m in kwargs["middleware"]]
@@ -131,7 +138,7 @@ class TestCreateDaivAgentDeferredFlag:
         # found" unless the subagent's tool registry carries the MCP toolset. The general-purpose
         # and custom-subagent builders must therefore receive the parent's mcp_tools; explore and
         # the code-review detectors stay deliberately scoped and do not.
-        _, mock_toolkit, mcp_tool, mock_create_gp, mock_load_custom, mock_create_explore = await self._run(flag_on=True)
+        _, _, mcp_tool, mock_create_gp, mock_load_custom, mock_create_explore = await self._run(flag_on=True)
 
         assert mock_create_gp.call_args.kwargs["mcp_tools"] == [mcp_tool]
         assert mock_load_custom.await_args.kwargs["mcp_tools"] == [mcp_tool]

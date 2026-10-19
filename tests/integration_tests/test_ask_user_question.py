@@ -18,6 +18,7 @@ from .prompt_leak import assert_no_prompt_leak
 from .utils import (
     ASK_USER_MODELS,
     agent_settings_on,
+    default_mcp_servers,
     extract_tool_calls,
     final_text,
     measure,
@@ -57,6 +58,7 @@ async def agent_runner(model_name: str):
             auto_commit_changes=False,
             checkpointer=InMemorySaver(),
             workspace=DiskWorkspace(ctx),
+            mcp_servers=await default_mcp_servers(),
         )
 
         async def run(content: str) -> dict:

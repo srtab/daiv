@@ -188,7 +188,6 @@ async def _construct(
         "create_general_purpose_subagent": {},
         "load_custom_subagents": {"new": AsyncMock(return_value=[])},
         "create_deep_agent": {},
-        "MCPToolkit": {"get_tools": AsyncMock(return_value=[])},
         "get_model": {},
         "SkillsMiddleware": {},
         "GitMiddleware": {},

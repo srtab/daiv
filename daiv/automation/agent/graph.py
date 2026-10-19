@@ -15,7 +15,7 @@ from langchain.agents.middleware import (
 
 from automation.agent.base import get_model
 from automation.agent.constants import REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
-from automation.agent.mcp.toolkits import MCPToolkit
+from automation.agent.mcp.toolkits import load_mcp_tools
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
@@ -58,11 +58,14 @@ from codebase.context import RuntimeCtx
 from core.constants import BOT_NAME
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.artifacts import ArtifactStore
+    from automation.agent.mcp.schemas import UserMcpServer
     from automation.agent.workspace.base import Workspace
 
 
@@ -160,6 +163,7 @@ async def create_daiv_agent(
     ctx: RuntimeCtx,
     workspace: Workspace,
     artifact_store: ArtifactStore | None = None,
+    mcp_servers: Sequence[tuple[str, UserMcpServer]] = (),
     auto_commit_changes: bool = True,
     capture_patch: bool = False,
     checkpointer: BaseCheckpointSaver | None = None,
@@ -178,6 +182,8 @@ async def create_daiv_agent(
         workspace: Where the agent works, built by the run executor: the worker's clone, or the run's sandbox session.
         artifact_store: Where ``publish_artifact`` keeps files and ``fetch_artifact`` reads them; ``None`` leaves both
             tools out (the run executor always passes one).
+        mcp_servers: The ``(name, server)`` pairs whose tools the agent gets, resolved by the run executor for the
+            acting user; empty leaves MCP tools out.
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
         capture_patch: Whether to expose the run's working-tree diff as ``model_patch`` in the
             output state at turn end. For eval harnesses; keep ``False`` for normal runs.
@@ -214,7 +220,7 @@ async def create_daiv_agent(
     # parent's MCP toolset — otherwise a `task` delegation that calls an MCP tool fails with
     # "command not found". Explore and the code-review detectors stay deliberately scoped and don't
     # receive it.
-    mcp_tools = await MCPToolkit.get_tools(user_id=ctx.acting_user_id, overrides=ctx.mcp_overrides)
+    mcp_tools = await load_mcp_tools(mcp_servers)
 
     subagents = [
         create_general_purpose_subagent(

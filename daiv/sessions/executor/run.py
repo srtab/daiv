@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from asgiref.sync import sync_to_async
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
@@ -215,6 +216,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
 async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]:
     # Imported here so django.setup(), which reaches this module via executor.tasks, never loads the agent stack.
     from langgraph.checkpoint.memory import InMemorySaver
+    from mcp_connectors.services import build_runtime_servers
     from sandbox_envs.services import build_sandbox_spec
 
     from automation.agent.agent_settings import resolve_agent_settings
@@ -248,7 +250,6 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
             fallback_ref_on_missing=spec.fallback_ref_on_missing,
             sandbox_spec=sandbox_spec,
             acting_user_id=spec.acting_user_id,
-            mcp_overrides=spec.mcp_overrides,
             references=spec.references,
             **spec.context_options,
         ) as ctx,
@@ -278,6 +279,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 ask_user_enabled=spec.ask_user_enabled and spec.thread_id is not None,
                 workspace=workspace,
                 artifact_store=RunArtifactStore(),
+                mcp_servers=await sync_to_async(build_runtime_servers)(spec.acting_user_id, spec.mcp_overrides),
                 **spec.agent_options,
             )
             config = build_langsmith_config(

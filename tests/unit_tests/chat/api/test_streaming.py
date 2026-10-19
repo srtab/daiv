@@ -1052,12 +1052,12 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
             pass
 
     _executor_stack.build_spec.assert_awaited_once_with("env-1")
-    assert {key: captured[key] for key in ("sandbox_spec", "acting_user_id", "mcp_overrides", "references")} == {
+    assert {key: captured[key] for key in ("sandbox_spec", "acting_user_id", "references")} == {
         "sandbox_spec": _executor_stack.build_spec.return_value,
         "acting_user_id": 7,
-        "mcp_overrides": {"sentry": "off"},
         "references": refs,
     }
+    _executor_stack.build_servers.assert_called_once_with(7, {"sentry": "off"})
     run = _executor_stack.resolve.call_args.kwargs["run"]
     assert (run.agent_model, run.agent_thinking_level) == ("openrouter:z-ai/glm-5.2", "low")
     assert (langsmith.call_args.kwargs["trigger"], langsmith.call_args.kwargs["extra_metadata"]) == (

@@ -74,7 +74,6 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         "fallback_ref_on_missing": False,
         "sandbox_spec": stack.build_spec.return_value,
         "acting_user_id": 7,
-        "mcp_overrides": {"sentry": "off"},
         "references": refs,
     }
     stack.build_spec.assert_awaited_once_with("env-1")
@@ -84,6 +83,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         repo=stack.ctx.config,
         run=RunOverrides(agent_model="openrouter:z-ai/glm-5.2", agent_thinking_level="low"),
     )
+    stack.build_servers.assert_called_once_with(7, {"sentry": "off"})
     stack.create_agent.assert_awaited_once_with(
         settings=stack.resolve.return_value,
         ctx=stack.ctx,
@@ -91,6 +91,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         ask_user_enabled=True,
         workspace=ANY,
         artifact_store=ANY,
+        mcp_servers=stack.build_servers.return_value,
     )
     stack.langsmith.assert_called_once_with(
         stack.ctx,
@@ -557,6 +558,7 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
         ask_user_enabled=True,
         workspace=ANY,
         artifact_store=ANY,
+        mcp_servers=[],
         capture_patch=True,
     )
 
