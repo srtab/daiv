@@ -16,7 +16,7 @@ from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.judgment import PipelineReport
-from sessions.signals import LINK_FAILED_PREFIX
+from sessions.signal_defs import LINK_FAILED_PREFIX
 
 from codebase.base import Scope
 from codebase.utils import compute_thread_id

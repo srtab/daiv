@@ -8,7 +8,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from sessions.signals import run_classified, watch_exhausted
+from sessions.signal_defs import run_classified, watch_exhausted
 
 from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding

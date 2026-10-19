@@ -5,7 +5,7 @@ import pytest
 from notifications.choices import ChannelType, EventType
 from notifications.models import Notification, UserChannelBinding
 from sessions.models import Session
-from sessions.signals import watch_exhausted
+from sessions.signal_defs import watch_exhausted
 
 from accounts.models import User
 from schedules.models import DispatchError, Frequency, ScheduledJob

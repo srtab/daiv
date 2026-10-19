@@ -5,7 +5,7 @@ from typing import Any
 
 from django.dispatch import receiver
 
-from sessions.signals import run_finished
+from sessions.signal_defs import run_finished
 
 from memory.tasks import extract_observations_task
 

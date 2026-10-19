@@ -9,6 +9,7 @@ from asgiref.sync import sync_to_async
 
 from sessions.models import RunStatus, SessionOrigin
 from sessions.pipeline_watch.store import WatchStore
+from sessions.signal_defs import LINK_FAILED_PREFIX
 
 if TYPE_CHECKING:
     from sessions.models import Session
@@ -55,7 +56,6 @@ class FixRunDispatcher:
         """
         from sessions.executor.tasks import run_job_task
         from sessions.services import acreate_run, amark_failed_and_advance
-        from sessions.signals import LINK_FAILED_PREFIX
 
         # Untranslated: this is addressed to the model, not the user. A filled catalog would
         # otherwise hand the agent its instructions in the operator's language.

@@ -1,4 +1,4 @@
-"""Tests for notifications receivers wired to sessions.signals.run_classified (and run_finished for memory)."""
+"""Tests for notifications receivers wired to sessions.signal_defs.run_classified (and run_finished for memory)."""
 
 import logging
 import uuid
@@ -12,7 +12,7 @@ from notifications.models import Notification, NotificationDelivery
 from notifications.policy import notify_worthy_statuses
 from notifications.run_notifiers import ACTIONABLE_CONTEXT_LIMIT, NOTABLE_RUNS_CONTEXT_LIMIT
 from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
-from sessions.signals import run_classified, run_finished
+from sessions.signal_defs import run_classified, run_finished
 
 from accounts.models import User
 

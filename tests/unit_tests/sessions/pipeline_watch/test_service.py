@@ -15,7 +15,7 @@ from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.reconciler import WATCH_STALE_AFTER
 from sessions.pipeline_watch.service import PipelineWatch
-from sessions.signals import watch_exhausted
+from sessions.signal_defs import watch_exhausted
 
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig

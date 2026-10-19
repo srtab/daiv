@@ -22,6 +22,7 @@ from sessions.pipeline_watch.platform import WatchPlatform, log_read_failure
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.store import WatchStore
 from sessions.repo_state import mr_to_payload
+from sessions.signal_defs import watch_exhausted
 
 if TYPE_CHECKING:
     from codebase.base import MergeRequest
@@ -256,9 +257,6 @@ class PipelineWatch:
 
         Best-effort: ``asend_robust`` logs a failing receiver, and the MR comment is the reliable channel.
         """
-        # Local import: sessions.signals imports this module through the executor.
-        from sessions.signals import watch_exhausted
-
         await watch_exhausted.asend_robust(
             sender=type(session),
             session=session,
