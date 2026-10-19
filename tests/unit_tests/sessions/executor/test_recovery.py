@@ -2,13 +2,14 @@
 
 It exists to save the work of a run whose agent crashed, so it is exactly where a stale publish target costs the
 most: the turn-end publish has already failed, and this is the last attempt. It applies the same guard
-``GitMiddleware`` does — see ``automation.agent.publishers.effective_merge_request``.
+``GitMiddleware`` does — see ``automation.agent.git_state.effective_merge_request``.
 """
 
 from unittest.mock import AsyncMock, Mock, patch
 
 from sessions.executor.recovery import recover_draft
 
+from automation.agent.publishers import SessionLinks
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import MergeRequest, User
@@ -60,7 +61,7 @@ def _agent(values: dict) -> Mock:
     return agent
 
 
-async def _publish(*, checkpointed_mr, current_ref: str, workspace=None) -> Mock:
+async def _publish(*, checkpointed_mr, current_ref: str, workspace=None, session_links=None) -> Mock:
     """Recover over a checkpoint naming ``checkpointed_mr``; return the publisher class mock."""
     with patch("automation.agent.publishers.GitChangePublisher") as pub_cls:
         pub_cls.return_value.publish = AsyncMock(return_value=Mock(merge_request=None))
@@ -71,6 +72,7 @@ async def _publish(*, checkpointed_mr, current_ref: str, workspace=None) -> Mock
             thread_id="t-1",
             workspace=workspace or FakeWorkspace(),
             settings=SETTINGS,
+            session_links=session_links,
         )
     return pub_cls
 
@@ -114,10 +116,12 @@ class TestPublishTarget:
 
         assert pub_cls.call_args.args[1] is workspace
 
-    async def test_it_hands_the_publisher_the_runs_thread_id(self):
-        pub_cls = await _publish(checkpointed_mr=None, current_ref="master")
+    async def test_it_hands_the_publisher_the_runs_session_links(self):
+        links = SessionLinks(detail="https://daiv.test/s/t-1/", merge_request="https://daiv.test/s/t-1/mr/")
 
-        assert pub_cls.call_args.kwargs["thread_id"] == "t-1"
+        pub_cls = await _publish(checkpointed_mr=None, current_ref="master", session_links=links)
+
+        assert pub_cls.call_args.kwargs["session_links"] is links
 
     async def test_it_hands_the_publisher_the_settings_the_run_resolved(self):
         pub_cls = await _publish(checkpointed_mr=None, current_ref="master")
@@ -137,6 +141,7 @@ class TestSandboxMode:
                 thread_id="t-1",
                 workspace=SandboxWorkspace(session),
                 settings=SETTINGS,
+                session_links=None,
             )
         return published, agent
 
@@ -184,6 +189,7 @@ class TestSandboxMode:
                 thread_id="t-1",
                 workspace=SandboxWorkspace(SandboxSession(client, sandbox_spec())),
                 settings=SETTINGS,
+                session_links=None,
             )
 
         assert published is False

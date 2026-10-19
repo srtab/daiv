@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -6,22 +6,11 @@ from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.utils import (
     FINAL_ASSISTANT_TEXT_MAX_CHARS,
     build_langsmith_config,
-    conversation_thread_id,
     extract_text_content,
     final_assistant_text,
     repo_relative_text,
     streamed_assistant_message,
 )
-
-
-class TestConversationThreadId:
-    def test_returns_none_outside_runnable_context(self):
-        assert conversation_thread_id() is None
-
-    def test_reads_configurable(self):
-        with patch("automation.agent.utils.get_config", return_value={"configurable": {"thread_id": "t-42"}}):
-            assert conversation_thread_id() == "t-42"
-
 
 # Tests for extract_text_content
 

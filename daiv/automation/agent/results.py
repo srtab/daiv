@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Final, TypedDict
 
+from automation.agent.git_state import checkpointed_merge_request
+
 if TYPE_CHECKING:
     from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
@@ -81,9 +83,6 @@ async def build_agent_result(
     (so we don't silently retry it here and risk drifting from whatever the
     caller decided based on the same failure).
     """
-    # Imported here: sessions.models imports this module at django.setup(), and publishers loads the agent stack.
-    from automation.agent.publishers import checkpointed_merge_request
-
     if snapshot is NO_SNAPSHOT:
         snapshot = await agent.aget_state(config=config)
     if snapshot is None:

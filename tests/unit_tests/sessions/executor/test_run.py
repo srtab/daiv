@@ -5,6 +5,9 @@ from contextlib import asynccontextmanager, nullcontext
 from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
+from django.contrib.sites.models import Site
+from django.urls import reverse
+
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
@@ -18,6 +21,7 @@ from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
+from automation.agent.publishers import SessionLinks
 from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
 from automation.agent.workspace.disk import DiskWorkspace
@@ -33,11 +37,19 @@ from tests.unit_tests.conftest import (
     agent_settings,
     ask_user_question_messages,
     sandbox_spec,
+    site_snapshot,
 )
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
-from tests.unit_tests.sessions.executor.conftest import agent_stack, disk_ctx, make_spec
+from tests.unit_tests.sessions.executor.conftest import SITE_URL, agent_stack, disk_ctx, make_spec
 
 MR = {"merge_request_id": 7, "source_branch": "feat/published"}
+
+
+def _session_links(thread_id: str) -> SessionLinks:
+    return SessionLinks(
+        detail=SITE_URL + reverse("session_detail", kwargs={"thread_id": thread_id}),
+        merge_request=SITE_URL + reverse("session_merge_request", kwargs={"thread_id": thread_id}),
+    )
 
 
 def _agent(*, messages: list | None = None, state: dict | None = None) -> AsyncMock:
@@ -92,6 +104,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         workspace=ANY,
         artifact_store=ANY,
         mcp_servers=stack.build_servers.return_value,
+        session_links=_session_links(spec.thread_id),
     )
     stack.langsmith.assert_called_once_with(
         stack.ctx,
@@ -559,8 +572,41 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
         workspace=ANY,
         artifact_store=ANY,
         mcp_servers=[],
+        session_links=_session_links(spec.thread_id),
         capture_patch=True,
     )
+
+
+@pytest.mark.parametrize(
+    ("spec_overrides", "settings"),
+    [
+        pytest.param({"thread_id": None}, agent_settings(), id="one-shot-run"),
+        pytest.param({}, agent_settings(site=site_snapshot(session_link_enabled=False)), id="off-site-wide"),
+        pytest.param({}, agent_settings(repo=RepositoryConfig(session_link=False)), id="off-per-repository"),
+    ],
+)
+async def test_a_run_without_a_session_to_link_hands_the_agent_no_links(spec_overrides, settings):
+    with (
+        agent_stack(_agent(), resolve=MagicMock(return_value=settings)) as stack,
+        patch("sessions.executor.run.build_absolute_url") as build_absolute_url,
+    ):
+        await execute_run(make_spec(**spec_overrides))
+
+    assert stack.create_agent.await_args.kwargs["session_links"] is None
+    build_absolute_url.assert_not_called()
+
+
+async def test_session_links_that_cannot_be_built_do_not_fail_the_run(caplog):
+    """A link is cosmetic: a missing Sites row costs the run its links, not its work."""
+    with (
+        agent_stack(_agent()) as stack,
+        patch("sessions.executor.run.build_absolute_url", side_effect=Site.DoesNotExist("no site")),
+        caplog.at_level("WARNING", logger="daiv.sessions"),
+    ):
+        await execute_run(make_spec())
+
+    assert stack.create_agent.await_args.kwargs["session_links"] is None
+    assert "could not build the session links" in caplog.text
 
 
 async def test_the_web_toggles_reach_the_resolver():
@@ -692,6 +738,7 @@ async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_f
         thread_id=spec.thread_id,
         workspace=stack.create_agent.await_args.kwargs["workspace"],
         settings=stack.resolve.return_value,
+        session_links=stack.create_agent.await_args.kwargs["session_links"],
     )
     assert stack.events == ["context entered", "draft recovered", "context exited"]
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
@@ -1160,6 +1207,7 @@ class TestStreamRun:
             thread_id=ANY,
             workspace=stack.create_agent.await_args.kwargs["workspace"],
             settings=stack.resolve.return_value,
+            session_links=stack.create_agent.await_args.kwargs["session_links"],
         )
         on_failure.assert_awaited_once_with(error, draft_published=True, snapshot=agent.aget_state.return_value)
 

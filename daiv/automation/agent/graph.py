@@ -67,6 +67,7 @@ if TYPE_CHECKING:
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.artifacts import ArtifactStore
     from automation.agent.mcp.schemas import UserMcpServer
+    from automation.agent.publishers import SessionLinks
     from automation.agent.workspace.base import Workspace
 
 
@@ -173,6 +174,7 @@ async def create_daiv_agent(
     interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
     middleware: list[AgentMiddleware] | None = None,
     ask_user_enabled: bool = True,
+    session_links: SessionLinks | None = None,
 ):
     """
     Create the DAIV agent.
@@ -194,6 +196,8 @@ async def create_daiv_agent(
         interrupt_on: The interrupt on configuration for the agent.
         middleware: The middleware to use for the agent.
         ask_user_enabled: Whether the agent may stop to ask the user; off when nobody can answer during the run.
+        session_links: The run's session links, resolved by the run executor, for the publish to put in the commit and
+            the merge request; ``None`` publishes without them.
 
     Returns:
         The DAIV agent.
@@ -297,7 +301,11 @@ async def create_daiv_agent(
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
         GitMiddleware(
-            workspace=workspace, settings=settings, auto_commit_changes=auto_commit_changes, capture_patch=capture_patch
+            workspace=workspace,
+            settings=settings,
+            auto_commit_changes=auto_commit_changes,
+            capture_patch=capture_patch,
+            session_links=session_links,
         ),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,

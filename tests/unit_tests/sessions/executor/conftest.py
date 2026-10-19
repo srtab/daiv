@@ -55,6 +55,9 @@ def empty_archive() -> bytes:
     return buffer.getvalue()
 
 
+SITE_URL = "https://daiv.test"
+
+
 @contextmanager
 def agent_stack(
     agent, *, ctx=None, context=None, resolve=None, site: SiteSnapshot | None = None, checkpointed: dict | None = None
@@ -67,7 +70,7 @@ def agent_stack(
     ``checkpointed`` is the session thread's last checkpoint values (``None``: no checkpoint yet); a fresh container
     is seeded with an empty archive. ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed
     to the clone. ``build_servers`` stubs ``build_runtime_servers``; the servers it returns are the ones handed to the
-    agent.
+    agent. Session links resolve against ``SITE_URL``.
     """
     last_checkpoint = None if checkpointed is None else SimpleNamespace(checkpoint={"channel_values": checkpointed})
     stack = SimpleNamespace(
@@ -122,6 +125,7 @@ def agent_stack(
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.PipelineWatch", _Watch),
+        patch("sessions.executor.run.build_absolute_url", side_effect=lambda path: f"{SITE_URL}{path}"),
         patch(
             "automation.agent.workspace.session._seed_archives",
             AsyncMock(return_value=SessionSeed(empty_archive(), None, [])),
@@ -142,7 +146,7 @@ def publisher_through_workspace(created: list, *, publishes: MergeRequest):
     """A ``GitChangePublisher`` stand-in that pushes through the shell of whatever workspace it is handed."""
 
     class _Publisher:
-        def __init__(self, ctx, workspace, *, settings, thread_id):
+        def __init__(self, ctx, workspace, *, settings, session_links):
             self.workspace = workspace
             created.append(self)
 

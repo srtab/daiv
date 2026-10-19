@@ -84,7 +84,7 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
     deploy (a field renamed/required/retyped, or the class relocated), a checkpointed model
     silently comes back as a ``dict`` with no log. Consumers must therefore not assume the
     revived value is the model: ``merge_request`` reads all go through
-    ``automation.agent.publishers.checkpointed_merge_request``, which rejects a degraded value
+    ``automation.agent.git_state.checkpointed_merge_request``, which rejects a degraded value
     rather than letting an ``AttributeError`` surface far downstream. ``__init__`` passes the types
     apps registered with :func:`core.checkpoint_types.register_checkpoint_type` (``MergeRequest``,
     from ``AutomationConfig.ready()``) as ``allowed_json_modules``: in
