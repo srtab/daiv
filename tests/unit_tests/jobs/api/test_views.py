@@ -305,7 +305,7 @@ async def test_submit_job_accepts_an_explicit_model_when_the_site_has_none(authe
     captured: dict = {}
     with (
         patch.multiple(site_settings, agent_model_name=""),
-        patch("jobs.api.views.validate_agent_override", return_value=("openrouter:z-ai/glm-5.2", "")),
+        patch("sessions.admission.validate_agent_override", return_value=("openrouter:z-ai/glm-5.2", "")),
         patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)),
     ):
         response = await authenticated_client.post(
@@ -560,7 +560,9 @@ async def test_submit_job_denied_repo_returns_opaque_404(authenticated_client: T
 
     from codebase.authorization import RepositoryAccessDenied
 
-    with patch("jobs.api.views.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["group/project"]))):
+    with patch(
+        "sessions.admission.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["group/project"]))
+    ):
         response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="p"))
 
     assert response.status_code == 404

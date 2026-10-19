@@ -7,14 +7,12 @@ from django.http import HttpRequest  # noqa: TC002 - required at runtime by Djan
 
 from ninja import Router
 from ninja.errors import HttpError
-from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
+from sessions.admission import AdmissionError, RepoAccessError, aadmit
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, asubmit_batch_runs
 
 from accounts.api.security import AuthBearer
-from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
 
 from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
@@ -58,33 +56,25 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             return 400, {"detail": err}
 
     try:
-        agent_model, agent_thinking_level = validate_agent_override(payload.agent_model, payload.agent_thinking_level)
-        ensure_agent_model_available(agent_model)
-    except AgentOverrideError as err:
+        admission = await aadmit(
+            user=request.auth,
+            repos=[RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos],
+            agent_model=payload.agent_model,
+            agent_thinking_level=payload.agent_thinking_level,
+            environment=payload.environment,
+        )
+    except RepoAccessError as err:
+        # Opaque 404: don't confirm the repo's existence to unauthorized callers.
+        raise HttpError(404, str(err)) from err
+    except AdmissionError as err:
         return 400, {"detail": str(err)}
 
-    try:
-        await aassert_can_run(request.auth, [spec.repo_id for spec in payload.repos])
-    except RepositoryAccessDenied as err:
-        # Opaque 404: don't confirm the repo's existence to unauthorized callers.
-        raise HttpError(404, REPO_ACCESS_DENIED_MESSAGE) from err
-
-    explicit_env_id = None
-    if payload.environment:
-        try:
-            env = await resolve_env_for_user(request.auth, payload.environment)
-        except LookupError as err:
-            return 400, {"detail": str(err)}
-        explicit_env_id = str(env.id) if env else None
-
-    targets = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos]
-    targets = await aresolve_repo_envs(user=request.auth, repos=targets, explicit_env_id=explicit_env_id)
     result = await asubmit_batch_runs(
         user=request.auth,
         prompt=payload.prompt,
-        repos=targets,
-        agent_model=agent_model,
-        agent_thinking_level=agent_thinking_level,
+        repos=admission.targets,
+        agent_model=admission.agent_model,
+        agent_thinking_level=admission.agent_thinking_level,
         muted=payload.muted,
         trigger_type=SessionOrigin.API_JOB,
         thread_id=str(payload.thread_id) if payload.thread_id is not None else None,

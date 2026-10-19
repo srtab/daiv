@@ -13,6 +13,7 @@ from mcp_connectors.models import MCPServer
 from sessions.forms import AgentRunCreateForm, MCPSelectionField, RepoListField
 
 from automation.agent.validators import AgentOverrideError
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
 from tests.unit_tests.mcp_connectors.helpers import only_servers
 
 pytestmark = pytest.mark.django_db
@@ -84,16 +85,25 @@ def _form_data(**overrides):
 
 def test_clean_surfaces_agent_model_backstop_error(member_user):
     """If ensure_agent_model_available rejects (no system default), it is surfaced on agent_model."""
-    with patch("sessions.forms.ensure_agent_model_available", side_effect=AgentOverrideError("no default model")):
+    with patch("sessions.admission.ensure_agent_model_available", side_effect=AgentOverrideError("no default model")):
         form = AgentRunCreateForm(data=_form_data(), user=member_user)
         assert not form.is_valid()
         assert "agent_model" in form.errors
 
 
 def test_clean_passes_when_agent_model_available(member_user):
-    with patch("sessions.forms.ensure_agent_model_available", return_value=None):
+    with patch("sessions.admission.ensure_agent_model_available", return_value=None):
         form = AgentRunCreateForm(data=_form_data(), user=member_user)
         assert form.is_valid(), form.errors
+
+
+def test_clean_reports_a_rejected_override_and_a_denied_repo_together(member_user):
+    with patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["a/b"])):
+        form = AgentRunCreateForm(data=_form_data(agent_model="nopesuch:model-x"), user=member_user)
+        assert not form.is_valid()
+
+    assert form.errors["repos"] == [REPO_ACCESS_DENIED_MESSAGE]
+    assert "Unknown provider prefix 'nopesuch'" in form.errors["agent_model"][0]
 
 
 def test_agent_run_form_has_no_notify_field(member_user):

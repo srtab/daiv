@@ -734,7 +734,7 @@ class TestMCPThreadContinuation:
             patch("sessions.services.run_job_task") as mock_task,
             _patch_acreate(),
             patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=MagicMock(pk=1))),
-            patch("mcp_api.server.aresolve_repo_envs", new=AsyncMock(side_effect=lambda **kw: kw["repos"])),
+            patch("sessions.admission.aresolve_repo_envs", new=AsyncMock(side_effect=lambda **kw: kw["repos"])),
         ):
             mock_task.aenqueue = AsyncMock(return_value=_mock_task())
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
@@ -748,6 +748,41 @@ class TestMCPThreadContinuation:
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=str(uuid.uuid4()))
         data = json.loads(result)
         assert "thread_id not found" in data["error"]
+
+    async def test_thread_is_checked_before_the_override(self):
+        user = MagicMock(pk=1)
+        with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+            result = await submit_job(
+                repos=[{"repo_id": "a/b", "ref": None}],
+                prompt="x",
+                agent_model="nopesuch:model-x",
+                thread_id=str(uuid.uuid4()),
+            )
+        assert json.loads(result)["error"] == "thread_id not found"
+
+    async def test_owned_thread_still_gets_the_override_error(self, _default_mcp_user):
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(
+            thread_id=thread_id, origin=SessionOrigin.MCP_JOB, user=_default_mcp_user, repo_id="a/b"
+        )
+
+        result = await submit_job(
+            repos=[{"repo_id": "a/b", "ref": None}], prompt="x", agent_model="nopesuch:model-x", thread_id=thread_id
+        )
+
+        assert "Unknown provider prefix 'nopesuch'" in json.loads(result)["error"]
+
+    async def test_owned_thread_is_forwarded_to_the_batch(self, _default_mcp_user):
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(
+            thread_id=thread_id, origin=SessionOrigin.MCP_JOB, user=_default_mcp_user, repo_id="a/b"
+        )
+        captured: dict = {}
+
+        with _capture_asubmit_batch_runs(captured):
+            await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=uuid.UUID(thread_id))
+
+        assert captured["thread_id"] == thread_id
 
     async def test_multi_repo_with_thread_id_rejected(self):
         user = MagicMock(pk=1)

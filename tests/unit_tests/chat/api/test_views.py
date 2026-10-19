@@ -608,7 +608,7 @@ async def test_completion_denied_repo_returns_404_and_no_thread(client: TestAsyn
     thread_id = str(uuid.uuid4())
     body = _run_agent_input(threadId=thread_id)
 
-    with patch("chat.api.views.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["group/repo"]))):
+    with patch("sessions.admission.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["group/repo"]))):
         response = await client.post(
             "/chat/completions", json=body, headers=_auth_headers(raw, **{"X-Repo-ID": "group/repo", "X-Ref": "main"})
         )
@@ -1141,7 +1141,7 @@ async def test_completion_invalid_env_header_returns_400_and_no_thread(client: T
     # The per-user job throttle keys on the (constant) test username, so completion
     # POSTs share one bucket across the file — reset it so this test isn't throttled.
     await cache.aclear()
-    with patch("chat.api.views.resolve_env_for_user", new=AsyncMock(side_effect=LookupError("unknown env"))):
+    with patch("sessions.admission.resolve_env_for_user", new=AsyncMock(side_effect=LookupError("unknown env"))):
         response = await client.post(
             "/chat/completions",
             json=_run_agent_input(threadId="t-badenv"),

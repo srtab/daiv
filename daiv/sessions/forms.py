@@ -14,9 +14,8 @@ from django.utils.translation import gettext_lazy as _
 from mcp_connectors.selection import build_selection_pool, diff_selection, effective_selection, parse_server_names
 from sandbox_envs.models import SandboxEnvironment
 
-from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, assert_can_run
 from core.models import ThinkingLevelChoices
+from sessions.admission import AdmissionError, assert_repo_access, check_agent_override
 from sessions.validators import validate_repo_list
 
 
@@ -122,22 +121,20 @@ class AgentRunFieldsMixin(forms.Form):
 
     def clean(self):
         cleaned = super().clean() or {}
+        # Each check reports on its own field, so a request failing both shows both errors.
         try:
-            cleaned["agent_model"], cleaned["agent_thinking_level"] = validate_agent_override(
+            cleaned["agent_model"], cleaned["agent_thinking_level"] = check_agent_override(
                 cleaned.get("agent_model"), cleaned.get("agent_thinking_level")
             )
-            # Backstop for the picker's HTML5 ``required`` when it is bypassed (curl, scripted
-            # submits, a page cached while a system default still existed).
-            ensure_agent_model_available(cleaned["agent_model"])
-        except AgentOverrideError as err:
+        except AdmissionError as err:
             self.add_error("agent_model", str(err))
 
         repos = cleaned.get("repos") or []
         if self.user is not None and repos:
             try:
-                assert_can_run(self.user, [entry["repo_id"] for entry in repos])
-            except RepositoryAccessDenied:
-                self.add_error("repos", REPO_ACCESS_DENIED_MESSAGE)
+                assert_repo_access(self.user, [entry["repo_id"] for entry in repos])
+            except AdmissionError as err:
+                self.add_error("repos", str(err))
 
         # Absent leaves the stored selection alone, matching the chat endpoint
         # (``chat/api/views.py``); an empty list is a real answer and still diffs.
