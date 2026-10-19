@@ -132,8 +132,8 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
 def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
     """Enqueue post-run classification for all non-chat origins (SCHEDULE + webhooks + prompt-driven).
 
-    Universal gate: every terminal, non-chat run gets a RunEnvelope, including a FAILED one emitted with
-    ``skip_dispatch=True``, which still deserves a ``failed`` envelope + failure notification.
+    Universal gate: every terminal, non-chat run gets a RunEnvelope, including a ``never_started`` FAILED one,
+    which still deserves a ``failed`` envelope + failure notification.
 
     Exception-safe: classification must never affect the run lifecycle.
     """

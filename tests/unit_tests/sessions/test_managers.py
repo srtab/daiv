@@ -29,6 +29,7 @@ class TestFinish:
         badge.assert_called_once()
         assert run_finished_spy.call_args.kwargs["run"] is run
         assert run_finished_spy.call_args.kwargs["skip_dispatch"] is False
+        assert run_finished_spy.call_args.kwargs["never_started"] is False
 
     def test_the_badge_refresh_waits_for_the_commit(self, badge):
         run = _create_run()
@@ -40,12 +41,13 @@ class TestFinish:
             callback()
         badge.assert_called_once()
 
-    def test_it_forwards_skip_dispatch(self, run_finished_spy):
+    def test_it_forwards_the_emit_flags(self, run_finished_spy):
         run = _create_run()
 
-        Run.objects.finish(run, RunStatus.FAILED, skip_dispatch=True)
+        Run.objects.finish(run, RunStatus.FAILED, skip_dispatch=True, never_started=True)
 
         assert run_finished_spy.call_args.kwargs["skip_dispatch"] is True
+        assert run_finished_spy.call_args.kwargs["never_started"] is True
 
     def test_a_chat_run_refreshes_the_badge_without_emitting(self, run_finished_spy, badge):
         run = _create_run(trigger_type=SessionOrigin.CHAT)

@@ -4,8 +4,8 @@ Every path that queues ``run_job_task`` for a run — a batch submit, a CI fix r
 its predecessor finished, the orphan sweep — goes through :func:`aenqueue_run`, which builds the task's arguments
 from the row, so each ``Run`` column reaches the agent the same way whichever path queued it. Webhook runs are not
 among them: their callbacks enqueue their own tasks. A failed enqueue or link marks the row FAILED and emits
-``run_finished`` (:func:`amark_failed_and_advance`), so the session's QUEUED siblings advance instead of waiting
-behind a row that will never finish.
+``run_finished`` with ``never_started`` (:func:`amark_failed_and_advance`), so the session's QUEUED siblings advance
+instead of waiting behind a row that will never finish, and memory does not mine a transcript the run never wrote.
 """
 
 from __future__ import annotations
@@ -88,7 +88,8 @@ async def amark_failed_and_advance(
 
     The write lands only while the row still has the status the caller left it in, so a task that got running
     after all keeps its row. Does NOT touch ``Session.active_run_id`` (that is ``SessionLock``'s job); the
-    "advance" is the ``run_finished`` emit, which dispatches the session's QUEUED siblings unless ``skip_dispatch``.
+    "advance" is the ``run_finished`` emit, which dispatches the session's QUEUED siblings unless ``skip_dispatch``,
+    and always carries ``never_started``: whichever caller gave up, the run did not run.
     ``log_context`` names the caller in the logs; ``run.error_message`` says why the run failed even when the write
     does not land.
     """
@@ -101,6 +102,7 @@ async def amark_failed_and_advance(
             RunStatus.FAILED,
             where=Q(status=expected_status),
             skip_dispatch=skip_dispatch,
+            never_started=True,
             error_message=run.error_message,
             finished_at=now,
             started_at=run.started_at or now,

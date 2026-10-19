@@ -315,13 +315,13 @@ class TestClassifyOnRunFinished:
             classify_on_run_finished(sender=Run, run=run)
         task_mock.enqueue.assert_not_called()
 
-    def test_failed_run_classifies_even_on_skip_dispatch(self):
-        # F5: a skip_dispatch emit that is FAILED still deserves a `failed` envelope + notification.
+    def test_a_failed_run_that_never_started_still_classifies(self):
+        """It still deserves a ``failed`` envelope + failure notification."""
         run = self._schedule_run(status=RunStatus.FAILED)
         from sessions.signals import classify_on_run_finished
 
         with patch("sessions.signals.classify_run_task") as task_mock:
-            classify_on_run_finished(sender=Run, run=run, skip_dispatch=True)
+            classify_on_run_finished(sender=Run, run=run, skip_dispatch=True, never_started=True)
         task_mock.enqueue.assert_called_once_with(str(run.pk))
 
     def test_skips_non_terminal_status(self):

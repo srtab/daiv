@@ -19,9 +19,12 @@ from sessions.queue import (
 from tests.unit_tests.sessions.conftest import make_run
 
 
-def _emits(spy: MagicMock) -> list[tuple[str, bool]]:
-    """Every ``run_finished`` emit, in order, as a ``(run id, skip_dispatch)`` pair."""
-    return [(str(call.kwargs["run"].pk), call.kwargs["skip_dispatch"]) for call in spy.call_args_list]
+def _emits(spy: MagicMock) -> list[tuple[str, bool, bool]]:
+    """Every ``run_finished`` emit, in order, as a ``(run id, skip_dispatch, never_started)`` triple."""
+    return [
+        (str(call.kwargs["run"].pk), call.kwargs["skip_dispatch"], call.kwargs["never_started"])
+        for call in spy.call_args_list
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -91,7 +94,7 @@ class TestAenqueueRun:
         assert run.error_message == "enqueue_failed: RuntimeError: queue down"
         assert run.finished_at is not None
         assert run.task_result_id is None
-        assert _emits(run_finished_spy) == [(str(run.pk), skip_dispatch)]
+        assert _emits(run_finished_spy) == [(str(run.pk), skip_dispatch, True)]
 
     async def test_a_failed_link_fails_the_row_with_the_link_prefix_and_emits(self, run_finished_spy):
         run = await sync_to_async(make_run)(session_id=str(uuid.uuid4()), status=RunStatus.READY)
@@ -106,7 +109,7 @@ class TestAenqueueRun:
         assert run.status == RunStatus.FAILED
         assert run.error_message.startswith(f"{LINK_FAILED_PREFIX}: IntegrityError")
         assert run.task_result_id is None
-        assert _emits(run_finished_spy) == [(str(run.pk), False)]
+        assert _emits(run_finished_spy) == [(str(run.pk), False, True)]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -175,7 +178,7 @@ class TestDispatchNextQueued:
         assert bad.error_message == "enqueue_failed: RuntimeError: queue down"
         assert (next_q.status, next_q.task_result_id) == (RunStatus.READY, fake_task.id)
         # The emit must not re-enter the dispatcher, which moves on by itself.
-        assert _emits(run_finished_spy) == [(str(bad.pk), True)]
+        assert _emits(run_finished_spy) == [(str(bad.pk), True, True)]
 
     def test_a_failed_link_fails_the_row_and_moves_to_the_next(self, create_db_task_result, run_finished_spy):
         session_id = str(uuid.uuid4())
@@ -192,7 +195,7 @@ class TestDispatchNextQueued:
         assert unlinked.status == RunStatus.FAILED
         assert unlinked.error_message.startswith(LINK_FAILED_PREFIX)
         assert (next_q.status, next_q.task_result_id) == (RunStatus.READY, fake_task.id)
-        assert _emits(run_finished_spy) == [(str(unlinked.pk), True)]
+        assert _emits(run_finished_spy) == [(str(unlinked.pk), True, True)]
 
     def test_bails_after_max_consecutive_failures(self):
         """A persistent broker outage must not mass-fail every QUEUED row on the session."""

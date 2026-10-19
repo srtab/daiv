@@ -5,8 +5,8 @@ The receivers live in ``sessions.signals``, ``memory.signals`` and ``notificatio
 
 from django.dispatch import Signal
 
-# Emitted by ``RunManager.finish``/``afinish`` when a non-chat Run reaches a terminal status.
-# Arguments: run (Run), skip_dispatch (bool).
+# Emitted by ``RunManager.finish``/``afinish`` when a non-chat Run reaches a terminal status. Arguments: run (Run),
+# skip_dispatch (bool, the sender releases the session's next run), never_started (bool, it failed before it ran).
 run_finished = Signal()
 
 # Emitted exactly once when a RunEnvelope is persisted for a Run.
