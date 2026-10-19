@@ -6,7 +6,7 @@ from django.db import models
 
 if TYPE_CHECKING:
     from accounts.models import User
-    from sessions.models import Run, RunArtifact, RunEnvelope, Session
+    from sessions.models import Run, RunArtifact, Session
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
@@ -126,19 +126,6 @@ class RunManager(models.Manager["Run"]):
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)
-
-
-class RunEnvelopeManager(models.Manager["RunEnvelope"]):
-    def for_run(self, run: Run) -> RunEnvelope | None:
-        """Return the run's classification envelope, or ``None`` while it is still pending.
-
-        The None-safe read accessor for a run's envelope. ``None`` is the "classifying…"
-        state: a just-finished run may not have its envelope written yet (the Epic 2 Feed
-        renders that pending state). Prefer this over the ``run.envelope`` reverse OneToOne,
-        which raises ``RunEnvelope.DoesNotExist`` for a pending run rather than returning
-        ``None``.
-        """
-        return self.filter(run=run).first()
 
 
 class RunArtifactManager(models.Manager["RunArtifact"]):

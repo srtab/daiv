@@ -69,8 +69,8 @@ NOTABLE_RUNS_CONTEXT_LIMIT = 5
 def _actionable_context(envelope) -> tuple[list[dict], int]:
     """The findings a channel renders, plus how many were left off.
 
-    Only the human-readable triple travels: ``fix_prompt`` is an instruction for a fix agent, not
-    something to paste into an email or a chat message.
+    Only the human-readable triple travels, never an item's other stored keys (older rows still
+    carry a ``fix_prompt`` instruction that is not recipient-facing).
     """
     items = envelope.actionable or []
     head = [

@@ -5,7 +5,7 @@ from django.db import IntegrityError
 
 import pytest
 from sessions.envelopes import ACTIONABLE_SCHEMA_VERSION, build_actionable_item, validate_actionable
-from sessions.models import EnvelopeStatus, OfferedAction, Run, RunEnvelope, RunStatus, Session, SessionOrigin
+from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 
 pytestmark = pytest.mark.django_db
 
@@ -52,8 +52,6 @@ def test_valid_all_clear_envelope_persists():
     assert env.count == 0
     assert env.summary == ""
     assert env.actionable == []
-    assert env.offered_action == OfferedAction.NONE
-    assert env.is_actionable is False
 
 
 def test_bogus_status_create_rejected_by_check_constraint():
@@ -120,12 +118,10 @@ def test_build_actionable_item_stamps_schema_version():
         "schema_version": ACTIONABLE_SCHEMA_VERSION,
     }
     assert item["schema_version"] == 1
-    assert "fix_prompt" not in item
 
 
-def test_build_actionable_item_includes_fix_prompt_when_given():
-    item = build_actionable_item(id="f1", kind="finding", label="L", ref="r", fix_prompt="patch it")
-    assert item["fix_prompt"] == "patch it"
+def test_validate_actionable_ignores_a_legacy_fix_prompt_key():
+    validate_actionable([_item(fix_prompt="patch it")])  # no raise
 
 
 def test_full_clean_rejects_malformed_actionable():
@@ -134,37 +130,7 @@ def test_full_clean_rejects_malformed_actionable():
         env.full_clean()
 
 
-# --- AC3: shared status -> offered-action mapping --------------------------
-
-
-def test_offered_action_all_clear():
-    env = RunEnvelope(status=EnvelopeStatus.ALL_CLEAR)
-    assert env.offered_action == OfferedAction.NONE
-    assert env.is_actionable is False
-
-
-def test_offered_action_needs_attention():
-    env = RunEnvelope(status=EnvelopeStatus.NEEDS_ATTENTION)
-    assert env.offered_action == OfferedAction.REVIEW
-    assert env.is_actionable is True
-
-
-def test_offered_action_failed():
-    env = RunEnvelope(status=EnvelopeStatus.FAILED)
-    assert env.offered_action == OfferedAction.RETRY
-    assert env.is_actionable is True
-
-
-def test_offered_action_found_issues_with_actionable_is_fix():
-    env = RunEnvelope(status=EnvelopeStatus.FOUND_ISSUES, actionable=[_item()])
-    assert env.offered_action == OfferedAction.FIX
-    assert env.is_actionable is True
-
-
-def test_offered_action_needs_input():
-    env = RunEnvelope(status=EnvelopeStatus.NEEDS_INPUT)
-    assert env.offered_action == OfferedAction.REVIEW
-    assert env.is_actionable is True
+# --- AC3: status vocabulary and coherence ----------------------------------
 
 
 def test_needs_input_passes_the_status_check_constraint():
@@ -182,20 +148,6 @@ def test_a_question_ranks_below_a_failure_and_above_findings():
     )
 
 
-def test_offered_action_found_issues_empty_resolves_to_none():
-    env = RunEnvelope(status=EnvelopeStatus.FOUND_ISSUES, actionable=[])
-    assert env.offered_action == OfferedAction.NONE
-    assert env.is_actionable is False
-
-
-@pytest.mark.parametrize("status", sorted(set(EnvelopeStatus) - {EnvelopeStatus.ALL_CLEAR}))
-def test_every_status_but_all_clear_offers_an_action(status):
-    """``offered_action`` resolves an unmapped status to NONE, indistinguishable from a genuinely
-    action-free run, so a new member would silently offer the console nothing."""
-    actionable = [_item()] if status == EnvelopeStatus.FOUND_ISSUES else []
-    assert RunEnvelope(status=status, actionable=actionable).offered_action != OfferedAction.NONE
-
-
 def test_clean_rejects_found_issues_with_empty_actionable():
     env = RunEnvelope(run=_mk_run(_mk_session()), status=EnvelopeStatus.FOUND_ISSUES, actionable=[])
     with pytest.raises(ValidationError):
@@ -205,23 +157,9 @@ def test_clean_rejects_found_issues_with_empty_actionable():
 def test_clean_accepts_found_issues_with_actionable():
     env = RunEnvelope(run=_mk_run(_mk_session()), status=EnvelopeStatus.FOUND_ISSUES, actionable=[_item()])
     env.full_clean()  # no raise
-    env.save()
-    env.refresh_from_db()
-    assert env.offered_action == OfferedAction.FIX
 
 
-# --- AC4: status is read through an accessor, never recomputed --------------
-
-
-def test_for_run_returns_envelope():
-    run = _mk_run(_mk_session())
-    env = _mk_envelope(run)
-    assert RunEnvelope.objects.for_run(run) == env
-
-
-def test_for_run_returns_none_for_pending_run():
-    run = _mk_run(_mk_session())
-    assert RunEnvelope.objects.for_run(run) is None
+# --- AC4: reverse accessor ------------------------------------------------
 
 
 def test_reverse_accessor_run_envelope():
@@ -241,38 +179,18 @@ def test_validate_actionable_rejects_non_string_id_without_typeerror():
 
 
 @pytest.mark.parametrize(
-    "bad",
-    [{"kind": 1}, {"label": None}, {"ref": []}, {"schema_version": "1"}, {"schema_version": True}, {"fix_prompt": 5}],
+    "bad", [{"kind": 1}, {"label": None}, {"ref": []}, {"schema_version": "1"}, {"schema_version": True}]
 )
 def test_validate_actionable_rejects_wrong_value_types(bad):
     with pytest.raises(ValidationError):
         validate_actionable([_item(**bad)])
 
 
-def test_offered_action_unset_status_resolves_to_none():
-    """A freshly built envelope (status unset) must not raise; it offers no action."""
-    env = RunEnvelope()
-    assert env.offered_action == OfferedAction.NONE
-    assert env.is_actionable is False
-
-
 def test_ordering_has_deterministic_tiebreaker():
     assert RunEnvelope._meta.ordering == ["-created_at", "-id"]
 
 
-# --- Epic 1 review pass (2026-07-16): fix_prompt hygiene + envelope coherence ---
-
-
-def test_build_actionable_item_omits_whitespace_only_fix_prompt():
-    """A whitespace-only ``fix_prompt`` carries no instruction and must be dropped, not stored."""
-    item = build_actionable_item(id="f1", kind="finding", label="L", ref="r", fix_prompt="   ")
-    assert "fix_prompt" not in item
-
-
-def test_build_actionable_item_strips_stored_fix_prompt():
-    """A stored ``fix_prompt`` is stripped so leading/trailing noise never reaches the fix agent."""
-    item = build_actionable_item(id="f1", kind="finding", label="L", ref="r", fix_prompt="  patch it  ")
-    assert item["fix_prompt"] == "patch it"
+# --- Epic 1 review pass (2026-07-16): envelope coherence ---
 
 
 def test_clean_rejects_non_found_issues_carrying_actionable():

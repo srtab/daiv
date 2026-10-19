@@ -18,7 +18,7 @@ from codebase.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.envelopes import validate_actionable
-from sessions.managers import RunArtifactManager, RunEnvelopeManager, RunManager, SessionManager
+from sessions.managers import RunArtifactManager, RunManager, SessionManager
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
@@ -114,31 +114,6 @@ class EnvelopeStatus(models.TextChoices):
         """Severity ranking, worst first. Load-bearing wherever a list of runs is capped: unordered
         rows let a rollup show three needs-attention repos and hide the failure."""
         return (cls.FAILED, cls.NEEDS_INPUT, cls.FOUND_ISSUES, cls.NEEDS_ATTENTION, cls.ALL_CLEAR)
-
-
-class OfferedAction(models.TextChoices):
-    """The action the console offers for an envelope status (the FR-5 semantics).
-
-    A stable action identifier the UI (Epic 5 ``button-fix``/``button-review``/``button-retry``)
-    binds labels/colors to. It is **not** a stored field — it is derived per instance by
-    :attr:`RunEnvelope.offered_action`.
-    """
-
-    NONE = "none", _("None")
-    FIX = "fix", _("Fix it")
-    REVIEW = "review", _("Review this")
-    RETRY = "retry", _("Retry")
-
-
-# The status -> offered-action mapping, defined exactly once (AC3/AC4); no call site
-# recomputes it. ``FOUND_ISSUES`` is intentionally absent: its action depends on whether
-# ``actionable`` is non-empty and is resolved in :attr:`RunEnvelope.offered_action`.
-_STATUS_OFFERED_ACTION = {
-    EnvelopeStatus.ALL_CLEAR: OfferedAction.NONE,
-    EnvelopeStatus.NEEDS_ATTENTION: OfferedAction.REVIEW,
-    EnvelopeStatus.NEEDS_INPUT: OfferedAction.REVIEW,
-    EnvelopeStatus.FAILED: OfferedAction.RETRY,
-}
 
 
 class Session(models.Model):
@@ -532,9 +507,8 @@ class RunEnvelope(models.Model):
     """The structured classification of a completed scheduled ``Run``.
 
     The sole store of a run's classification (``status`` / ``count`` / ``summary`` /
-    ``actionable[]``), OneToOne to its run. Read it via :meth:`RunEnvelopeManager.for_run`
-    (None-safe: returns ``None`` for a still-classifying run) or the ``run.envelope`` reverse
-    accessor (which raises ``DoesNotExist`` for a pending run). It is **not** a throughput/merge
+    ``actionable[]``), OneToOne to its run. The ``run.envelope`` reverse accessor raises
+    ``DoesNotExist`` while the run is still classifying. It is **not** a throughput/merge
     record — that is ``codebase.MergeMetric`` (AD-10), which this model never touches.
     """
 
@@ -551,8 +525,6 @@ class RunEnvelope(models.Model):
     # Mirrors ``Run.created_at``; supports Feed freshness/ordering and leaves room for a later
     # composite ``["status", "-created_at"]`` index without a rewrite.
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
-
-    objects = RunEnvelopeManager()
 
     class Meta:
         verbose_name = _("Run Envelope")
@@ -603,20 +575,6 @@ class RunEnvelope(models.Model):
             raise ValidationError({"actionable": "A found-issues envelope must list at least one actionable item."})
         if self.status != EnvelopeStatus.FOUND_ISSUES and self.actionable:
             raise ValidationError({"actionable": "Only a found-issues envelope may carry actionable items."})
-
-    @property
-    def offered_action(self) -> OfferedAction:
-        """The action the console offers for this envelope (the single mapping site, AC3/AC4)."""
-        if self.status == EnvelopeStatus.FOUND_ISSUES:
-            return OfferedAction.FIX if self.actionable else OfferedAction.NONE
-        # ``.get`` (not ``[]``) so an unset/pending in-memory envelope resolves to NONE
-        # rather than raising KeyError — persisted rows always have a constraint-valid status.
-        return _STATUS_OFFERED_ACTION.get(self.status, OfferedAction.NONE)
-
-    @property
-    def is_actionable(self) -> bool:
-        """Whether the console offers any action (Queue / Finding -> Fix gating)."""
-        return self.offered_action != OfferedAction.NONE
 
 
 def artifact_upload_to(instance: RunArtifact, filename: str, *, revision: str = "") -> str:

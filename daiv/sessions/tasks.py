@@ -176,7 +176,7 @@ async def classify_run_task(run_id: str) -> None:
     drafted_items = draft.actionable if status == EnvelopeStatus.FOUND_ISSUES else []
 
     actionable = [
-        build_actionable_item(id=str(index), kind=item.kind, label=item.label, ref=item.ref, fix_prompt=item.fix_prompt)
+        build_actionable_item(id=str(index), kind=item.kind, label=item.label, ref=item.ref)
         for index, item in enumerate(drafted_items)
     ]
     # Pure validator (no DB I/O) — safe in async. NEVER call sync ``full_clean()`` here; the DB

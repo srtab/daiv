@@ -42,8 +42,6 @@ For each finding under "found-issues", emit one actionable item:
 - kind: a short machine-friendly category for the finding (e.g. "bug", "vulnerability", "test-failure", "todo").
 - label: a concise human-readable one-line description of the finding.
 - ref: what to act on — a file path, symbol, URL, or identifier the reader can locate.
-- fix_prompt: OPTIONAL. When the finding can seed an automated fix, a self-contained instruction describing \
-the fix; otherwise omit it.
 
 Rules:
 - Choose exactly one status.
@@ -62,10 +60,6 @@ class ActionableDraft(BaseModel):
     kind: str = Field(description="Short machine-friendly category for the finding (e.g. 'bug', 'test-failure').")
     label: str = Field(description="Concise human-readable one-line description of the finding.")
     ref: str = Field(description="What to act on: a file path, symbol, URL, or identifier.")
-    fix_prompt: str | None = Field(
-        default=None,
-        description="Optional self-contained instruction to seed an automated fix; omit when not applicable.",
-    )
 
 
 class RunClassification(BaseModel):
