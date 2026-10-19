@@ -144,7 +144,7 @@ async def test_events_persists_the_checkpoints_merge_request_and_releases_the_sl
     with (
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph(merge_request=mr))),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([_snapshot()])),
-        patch("sessions.services.apersist_session_ref", side_effect=_capture_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -171,7 +171,7 @@ async def test_events_persists_the_checkpoints_merge_request_over_the_streamed_o
             "chat.api.streaming.RuntimeContextLangGraphAGUIAgent",
             return_value=_mock_agent([_snapshot(merge_request=streamed)]),
         ),
-        patch("sessions.services.apersist_session_ref", side_effect=_capture_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -191,7 +191,7 @@ async def test_events_persists_none_when_the_checkpoint_has_no_merge_request():
 
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([_snapshot()])),
-        patch("sessions.services.apersist_session_ref", side_effect=_capture_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -231,7 +231,7 @@ async def test_events_skips_persist_ref_when_run_errored():
 
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner),
-        patch("sessions.services.apersist_session_ref", side_effect=_capture_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -257,7 +257,7 @@ async def test_events_releases_run_even_when_persist_ref_raises():
 
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-        patch("sessions.services.apersist_session_ref", side_effect=_persist_boom),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_persist_boom),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -277,7 +277,7 @@ async def test_events_streams_the_agent_with_the_chat_run_bound_for_artifacts():
 
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=MagicMock(run=_run)),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -357,7 +357,7 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([err])),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", side_effect=_capture_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -397,7 +397,7 @@ async def test_events_finalizes_failed_with_generic_message_when_agent_raises():
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -591,7 +591,7 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
         patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
         patch("chat.api.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=True)),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -634,7 +634,7 @@ async def test_events_finalizes_interrupted_on_task_cancellation():
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner_mock),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -681,7 +681,7 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
         # Cancel flag never set: the stop is driven purely by the lost slot.
         patch("chat.api.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=False)),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
     ):
         seen = [e async for e in _streamer().events()]
@@ -748,7 +748,7 @@ async def test_events_buffers_text_deltas_into_result_summary():
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent(events)),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -783,7 +783,7 @@ async def test_the_turn_finalizes_with_the_question_it_ended_on(checkpoint_messa
         agent_stack(_graph(messages=checkpoint_messages)),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -951,8 +951,8 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
         patch("codebase.context.set_runtime_ctx", _fallback_ctx),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("chat.api.streaming.start_chat_run", new=start_chat_run),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
-        patch("sessions.services.areset_session_ref", side_effect=_capture_reset),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.areset_session_ref", side_effect=_capture_reset),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -1031,7 +1031,7 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
         patch("codebase.context.set_runtime_ctx", _capture_ctx),
         patch("automation.agent.utils.build_langsmith_config", langsmith),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -1072,7 +1072,7 @@ async def test_chat_runs_on_the_resolved_recursion_limit(_executor_stack):
     with (
         patch.object(site_settings, "snapshot", return_value=site_snapshot(agent_recursion_limit=123)),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])) as agui,
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -1165,7 +1165,7 @@ def _recorded_turn(
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agui_agent),
         patch("chat.api.streaming.start_chat_run", side_effect=_start),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_finalize),
-        patch("sessions.services.apersist_session_ref", side_effect=_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_persist),
         patch("sessions.executor.run.PipelineWatch", _Watch),
         patch("chat.api.streaming.SessionLock.release", side_effect=_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=heartbeat_mock),

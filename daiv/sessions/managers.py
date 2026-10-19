@@ -1,12 +1,40 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from django.db import models
 
+from sessions.signal_defs import run_finished
+
 if TYPE_CHECKING:
     from accounts.models import User
     from sessions.models import Run, RunArtifact, Session
+
+logger = logging.getLogger("daiv.sessions")
+
+
+def emit_run_finished_if_terminal(run: Run, previous_status: str | None, *, skip_dispatch: bool = False) -> None:
+    """Emit run_finished if the run just transitioned to a terminal status.
+
+    ``skip_dispatch`` is forwarded to receivers; the in-session dispatcher uses it to
+    suppress recursive re-entry while still letting notification receivers fire.
+    """
+    from sessions.models import RunStatus
+
+    if run.status not in RunStatus.terminal():
+        return
+    if previous_status in RunStatus.terminal():
+        return  # Already emitted on a prior save
+    results = run_finished.send_robust(sender=type(run), run=run, skip_dispatch=skip_dispatch)
+    for recv, response in results:
+        if isinstance(response, Exception):
+            logger.error(
+                "Receiver %s failed for run_finished (run=%s)",
+                getattr(recv, "__name__", recv),
+                run.pk,
+                exc_info=response,
+            )
 
 
 class SessionQuerySet(models.QuerySet["Session"]):

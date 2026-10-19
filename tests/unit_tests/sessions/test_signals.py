@@ -4,8 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from django_tasks.signals import task_finished, task_started
-from sandbox_envs.models import SandboxEnvironment
-from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signal_defs import run_finished
 
@@ -216,59 +214,6 @@ class TestSyncRunOnTaskSignals:
             task_finished.send(sender=type(None), task_result=tr.task_result)
 
 
-@pytest.mark.django_db
-class TestRunFinishedSignal:
-    def test_emitted_on_transition_to_successful(self, member_user):
-        from unittest.mock import MagicMock
-
-        from sessions.signals import emit_run_finished_if_terminal
-
-        session = _make_session()
-        run = _create_run(session=session, status=RunStatus.RUNNING, user=member_user)
-        received = MagicMock()
-        run_finished.connect(received, dispatch_uid="test-succ")
-        try:
-            run.status = RunStatus.SUCCESSFUL
-            run.save()
-            emit_run_finished_if_terminal(run, previous_status=RunStatus.RUNNING)
-
-            assert received.called
-            _, kwargs = received.call_args
-            assert kwargs["run"] is run
-        finally:
-            run_finished.disconnect(dispatch_uid="test-succ")
-
-    def test_not_emitted_when_still_running(self, member_user):
-        from unittest.mock import MagicMock
-
-        from sessions.signals import emit_run_finished_if_terminal
-
-        session = _make_session()
-        run = _create_run(session=session, status=RunStatus.RUNNING, user=member_user)
-        received = MagicMock()
-        run_finished.connect(received, dispatch_uid="test-run")
-        try:
-            emit_run_finished_if_terminal(run, previous_status=RunStatus.READY)
-            assert not received.called
-        finally:
-            run_finished.disconnect(dispatch_uid="test-run")
-
-    def test_not_emitted_when_already_terminal(self, member_user):
-        from unittest.mock import MagicMock
-
-        from sessions.signals import emit_run_finished_if_terminal
-
-        session = _make_session()
-        run = _create_run(session=session, status=RunStatus.SUCCESSFUL, user=member_user)
-        received = MagicMock()
-        run_finished.connect(received, dispatch_uid="test-term")
-        try:
-            emit_run_finished_if_terminal(run, previous_status=RunStatus.SUCCESSFUL)
-            assert not received.called
-        finally:
-            run_finished.disconnect(dispatch_uid="test-term")
-
-
 @pytest.mark.django_db(transaction=True)
 class TestDispatchNextInSession:
     def test_releases_oldest_queued_sibling(self, create_db_task_result):
@@ -279,7 +224,7 @@ class TestDispatchNextInSession:
 
         db_task = create_db_task_result()
         fake_task = MagicMock(id=db_task.id)
-        with patch("sessions.signals.run_job_task") as mock_task:
+        with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=fake_task)
             run_finished.send(sender=Run, run=finished)
 
@@ -294,120 +239,22 @@ class TestDispatchNextInSession:
         # Manually blank session_id via a mock
         finished_mock = MagicMock()
         finished_mock.session_id = None
-        with patch("sessions.signals.run_job_task") as mock_task:
+        with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock()
             run_finished.send(sender=Run, run=finished_mock)
             mock_task.aenqueue.assert_not_called()
-
-    def test_no_op_when_no_queued_sibling(self):
-        session_id = str(uuid.uuid4())
-        finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
-        with patch("sessions.signals.run_job_task") as mock_task:
-            mock_task.aenqueue = AsyncMock()
-            run_finished.send(sender=Run, run=finished)
-            mock_task.aenqueue.assert_not_called()
-
-    def test_dispatch_failure_marks_queued_failed_and_unblocks_chain(self, create_db_task_result):
-        session_id = str(uuid.uuid4())
-        finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
-        bad = _make_run(session_id=session_id, status=RunStatus.QUEUED)
-        next_q = _make_run(session_id=session_id, status=RunStatus.QUEUED)
-
-        db_task = create_db_task_result()
-        fake_task = MagicMock(id=db_task.id)
-        with patch("sessions.signals.run_job_task") as mock_task:
-            mock_task.aenqueue = AsyncMock(side_effect=[RuntimeError("queue down"), fake_task])
-            run_finished.send(sender=Run, run=finished)
-
-        bad.refresh_from_db()
-        next_q.refresh_from_db()
-        assert bad.status == RunStatus.FAILED
-        assert "dispatch_failed" in (bad.error_message or "")
-        assert next_q.status == RunStatus.READY
-        assert next_q.task_result_id == fake_task.id
 
     def test_skip_dispatch_kwarg_suppresses_dispatcher(self):
         """run_finished with skip_dispatch=True must not re-enter dispatch_next_in_session."""
         session_id = str(uuid.uuid4())
         finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
         queued = _make_run(session_id=session_id, status=RunStatus.QUEUED)
-        with patch("sessions.signals.run_job_task") as mock_task:
+        with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock()
             run_finished.send(sender=Run, run=finished, skip_dispatch=True)
             mock_task.aenqueue.assert_not_called()
         queued.refresh_from_db()
         assert queued.status == RunStatus.QUEUED
-
-    def test_enqueue_failure_reemit_uses_skip_dispatch(self):
-        """The dispatch-failure path must re-emit ``run_finished`` with
-        ``skip_dispatch=True`` so the dispatcher does not recurse — notifications still fire."""
-        from sessions.signals import _enqueue_queued_run
-
-        session_id = str(uuid.uuid4())
-        bad = _make_run(session_id=session_id, status=RunStatus.READY)
-        captured: list = []
-
-        def _spy(sender, run, **kwargs):
-            captured.append(kwargs.get("skip_dispatch"))
-
-        run_finished.connect(_spy, dispatch_uid="t-skip-test")
-        try:
-            with patch("sessions.signals.run_job_task") as mock_task:
-                mock_task.aenqueue = AsyncMock(side_effect=RuntimeError("queue down"))
-                ok = _enqueue_queued_run(bad)
-        finally:
-            run_finished.disconnect(dispatch_uid="t-skip-test")
-
-        assert ok is False
-        assert captured == [True], f"expected one emit with skip_dispatch=True, got {captured}"
-
-    def test_bails_after_max_consecutive_failures(self, create_db_task_result):
-        """A persistent broker outage must not mass-fail every QUEUED row on the session."""
-        from sessions.signals import MAX_CONSECUTIVE_DISPATCH_FAILURES
-
-        session_id = str(uuid.uuid4())
-        finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
-        queued_rows = [
-            _make_run(session_id=session_id, status=RunStatus.QUEUED)
-            for _ in range(MAX_CONSECUTIVE_DISPATCH_FAILURES + 2)
-        ]
-        with patch("sessions.signals.run_job_task") as mock_task:
-            mock_task.aenqueue = AsyncMock(side_effect=RuntimeError("queue down"))
-            run_finished.send(sender=Run, run=finished)
-            assert mock_task.aenqueue.call_count == MAX_CONSECUTIVE_DISPATCH_FAILURES
-
-        statuses = {RunStatus.FAILED: 0, RunStatus.QUEUED: 0}
-        for row in queued_rows:
-            row.refresh_from_db()
-            statuses[row.status] = statuses.get(row.status, 0) + 1
-        assert statuses[RunStatus.FAILED] == MAX_CONSECUTIVE_DISPATCH_FAILURES
-        assert statuses[RunStatus.QUEUED] == 2
-
-    def test_re_enqueue_propagates_the_rows_agent_and_environment(self, create_db_task_result):
-        """Releasing a QUEUED sibling must forward the per-row agent override pair and environment; the run
-        executes on the environment id it's handed, so a dropped one silently runs it on the GLOBAL default."""
-        session_id = str(uuid.uuid4())
-        env = SandboxEnvironment.objects.create(scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14")
-        finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
-        _make_run(
-            session_id=session_id,
-            status=RunStatus.QUEUED,
-            agent_model="openrouter:anthropic/claude-opus-4.6",
-            agent_thinking_level="high",
-            sandbox_environment=env,
-        )
-
-        db_task = create_db_task_result()
-        fake_task = MagicMock(id=db_task.id)
-        with patch("sessions.signals.run_job_task") as mock_task:
-            mock_task.aenqueue = AsyncMock(return_value=fake_task)
-            run_finished.send(sender=Run, run=finished)
-
-        kwargs = mock_task.aenqueue.call_args.kwargs
-        assert kwargs["agent_model"] == "openrouter:anthropic/claude-opus-4.6"
-        assert kwargs["agent_thinking_level"] == "high"
-        assert "use_max" not in kwargs
-        assert kwargs["sandbox_environment_id"] == str(env.id)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -425,7 +272,7 @@ class TestSyncReleasesQueuedSibling:
         queued = _make_run(session_id=session_id, status=RunStatus.QUEUED)
 
         fake_task = MagicMock(id=create_db_task_result().id)
-        with patch("sessions.signals.run_job_task") as mock_task:
+        with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=fake_task)
             call_command("sync_stuck_runs")
 

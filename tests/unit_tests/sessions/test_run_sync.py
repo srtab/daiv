@@ -105,7 +105,7 @@ def test_sync_and_save_returns_false_when_nothing_changed(create_db_task_result)
 def test_sync_and_save_emits_run_finished_on_terminal_transition(create_db_task_result):
     tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Done."})
     run = _run(tr, status=RunStatus.RUNNING)
-    with patch("sessions.signals.emit_run_finished_if_terminal") as m_emit:
+    with patch("sessions.models.emit_run_finished_if_terminal") as m_emit:
         assert run.sync_and_save() is True
         m_emit.assert_called_once()
         assert m_emit.call_args.kwargs["previous_status"] == RunStatus.RUNNING

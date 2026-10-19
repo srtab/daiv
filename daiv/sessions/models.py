@@ -18,7 +18,7 @@ from codebase.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.envelopes import validate_actionable
-from sessions.managers import RunArtifactManager, RunManager, SessionManager
+from sessions.managers import RunArtifactManager, RunManager, SessionManager, emit_run_finished_if_terminal
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
@@ -444,8 +444,7 @@ class Run(models.Model):
         """Set the terminal FAILED fields in-memory and return the ``update_fields`` list.
 
         Centralizes the exact field set + ``started_at`` backfill shared by the
-        post-create failure paths (batch-submit enqueue/link failure in
-        ``sessions.services`` and the dispatcher in ``sessions.signals``). The caller
+        post-create failure paths (``sessions.queue.amark_failed_and_advance``). The caller
         owns the save and the ``run_finished`` emit — this only mutates the instance.
         """
         now = timezone.now()
@@ -470,8 +469,6 @@ class Run(models.Model):
         if not changed:
             return False
         self.save(update_fields=changed)
-        from sessions.signals import emit_run_finished_if_terminal  # local import to avoid circular deps
-
         emit_run_finished_if_terminal(self, previous_status=previous_status)
         return True
 

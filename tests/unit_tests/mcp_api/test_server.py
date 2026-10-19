@@ -28,10 +28,19 @@ def _mock_task():
 class _FakeRun:
     _next_pk = 0
 
-    def __init__(self, task_result_id):
+    def __init__(self, **kwargs):
         self.id = uuid.uuid4()
-        self.task_result_id = task_result_id
-        self.session_id = str(uuid.uuid4())
+        self.task_result_id = kwargs.get("task_result_id")
+        # ``aenqueue_run`` builds the task kwargs from these, as it does from a real row.
+        self.session_id = kwargs.get("thread_id") or str(uuid.uuid4())
+        self.trigger_type = kwargs.get("trigger_type", "")
+        self.repo_id = kwargs.get("repo_id", "")
+        self.ref = kwargs.get("ref", "")
+        self.prompt = kwargs.get("prompt", "")
+        self.agent_model = kwargs.get("agent_model", "")
+        self.agent_thinking_level = kwargs.get("agent_thinking_level", "")
+        self.sandbox_environment_id = kwargs.get("sandbox_environment_id")
+        self.user_id = user.pk if (user := kwargs.get("user")) is not None else None
         self.status = "READY"
         type(self)._next_pk += 1
         self.pk = type(self)._next_pk
@@ -42,7 +51,7 @@ class _FakeRun:
 
 
 async def _fake_acreate_run(**kwargs):
-    return _FakeRun(task_result_id=kwargs["task_result_id"])
+    return _FakeRun(**kwargs)
 
 
 def _patch_acreate():
@@ -83,7 +92,7 @@ def _default_mcp_user(db):
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_single_repo_returns_batch_response():
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug")
 
@@ -104,7 +113,7 @@ async def test_submit_job_multi_repo_enqueues_each():
         call_log.append(kwargs)
         return tasks[len(call_log) - 1]
 
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = _aenqueue
         result = await submit_job(
             repos=[{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": "dev"}, {"repo_id": "o/c", "ref": ""}],
@@ -125,7 +134,7 @@ async def test_submit_job_reports_partial_failure():
             raise RuntimeError("boom")
         return _mock_task()
 
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = _flaky
         result = await submit_job(repos=[{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": None}], prompt="p")
 
@@ -137,7 +146,7 @@ async def test_submit_job_reports_partial_failure():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_passes_ref():
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": "feature-branch"}], prompt="Fix the bug")
         mock_task.aenqueue.assert_called_once()
@@ -203,7 +212,7 @@ async def test_submit_job_rejects_invalid_thinking_level(openrouter_provider):
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_agent_override(openrouter_provider):
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(
             repos=[{"repo_id": "group/project", "ref": None}],
@@ -243,7 +252,7 @@ async def test_submit_job_forwards_muted_at_batch_boundary():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_muted_to_runs():
     """End-to-end: MCP submit tool threads ``muted`` through asubmit_batch_runs into ``acreate_run``."""
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p", muted=True)
 
@@ -253,7 +262,7 @@ async def test_submit_job_forwards_muted_to_runs():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_muted_defaults_to_false():
     """Omitting ``muted`` defaults to False."""
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p")
 
@@ -263,7 +272,7 @@ async def test_submit_job_muted_defaults_to_false():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_all_fail():
     """When every enqueue fails, no jobs in response, all entries in failed."""
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug")
 
@@ -314,7 +323,7 @@ async def test_submit_job_wait_success():
                 yield r
 
     with (
-        patch("sessions.services.run_job_task") as mock_task,
+        patch("sessions.queue.run_job_task") as mock_task,
         patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=_capture_acreate),
         patch("sessions.services.generate_batch_title_task") as mock_title,
         patch("mcp_api.server.Run") as mock_model,
@@ -370,7 +379,7 @@ async def test_submit_job_wait_running_when_never_terminal():
                 yield None  # never yields
 
     with (
-        patch("sessions.services.run_job_task") as mock_task,
+        patch("sessions.queue.run_job_task") as mock_task,
         patch("mcp_api.server.Run") as mock_model,
         _patch_acreate(),
         patch("mcp_api.server.asyncio.sleep", new_callable=AsyncMock),
@@ -567,7 +576,7 @@ async def test_submit_job_batch_poll_db_exception_breaks_loop():
     mock_result.id = str(uuid.uuid4())
 
     with (
-        patch("sessions.services.run_job_task") as mock_task,
+        patch("sessions.queue.run_job_task") as mock_task,
         patch("mcp_api.server.Run") as mock_model,
         _patch_acreate(),
         patch("mcp_api.server.asyncio.sleep", new_callable=AsyncMock),
@@ -731,7 +740,7 @@ async def test_list_repositories_error_handling():
 class TestMCPThreadContinuation:
     async def test_response_includes_thread_id_and_status(self):
         with (
-            patch("sessions.services.run_job_task") as mock_task,
+            patch("sessions.queue.run_job_task") as mock_task,
             _patch_acreate(),
             patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=MagicMock(pk=1))),
             patch("mcp_api.server.aresolve_repo_envs", new=AsyncMock(side_effect=lambda **kw: kw["repos"])),

@@ -19,6 +19,7 @@ from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.models import Run, Session
 from sessions.pipeline_watch.service import PipelineWatch
+from sessions.services import apersist_session_ref, areset_session_ref
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -214,7 +215,8 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
 
 @asynccontextmanager
 async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]:
-    # Imported here so django.setup(), which reaches this module via executor.tasks, never loads the agent stack.
+    # Imported here so the modules that import this one at their top (chat streaming, the webhook addressors)
+    # never load the agent stack.
     from langgraph.checkpoint.memory import InMemorySaver
     from mcp_connectors.services import build_runtime_servers
     from sandbox_envs.services import build_sandbox_spec
@@ -392,8 +394,6 @@ async def _release_sandbox(session: SandboxSession, *, resumable: bool, thread_i
 async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
     """Point the session at the branch the clone fell back to, so the next turn doesn't ask for a branch that is
     gone. Best-effort: the fallback clone already succeeded, so a failed write must not abort the run."""
-    from sessions.services import areset_session_ref  # sessions.services imports executor.tasks, which imports us
-
     try:
         await areset_session_ref(thread_id=thread_id, new_ref=new_ref)
     except Exception:
@@ -407,7 +407,6 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     from automation.agent.results import build_agent_result
     from automation.agent.usage_tracking import build_usage_summary
     from automation.agent.utils import extract_text_content
-    from sessions.services import apersist_session_ref  # sessions.services imports executor.tasks, which imports us
 
     snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}

@@ -65,7 +65,7 @@ def test_dispatch_single_repo_propagates_agent_override(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -94,7 +94,7 @@ def test_dispatch_single_repo_auto_override(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -121,7 +121,7 @@ def test_dispatch_three_repos_creates_three_activities_sharing_batch(member_user
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -151,7 +151,7 @@ def test_dispatch_advances_next_run_on_success(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -178,7 +178,7 @@ def test_dispatch_once_schedule_auto_disables_on_success(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -232,7 +232,7 @@ def test_dispatch_respects_owner_is_active(member_user, owner_active, expected_r
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -265,7 +265,7 @@ def test_dispatch_resumes_after_owner_reactivated(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -318,7 +318,7 @@ def test_dispatch_skips_only_inactive_owner_in_mixed_run(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -352,7 +352,7 @@ def test_dispatch_stamps_schedule_mcp_overrides_onto_session(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -382,7 +382,7 @@ def test_dispatch_skips_once_schedule_of_inactive_owner_without_retiring(member_
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -425,7 +425,7 @@ def _make_due(schedule):
 def _dispatch(*, denied=None, aenqueue=_aenqueue_ok):
     with (
         patch("sessions.services.aassert_can_run", new=AsyncMock(side_effect=denied, return_value=None)),
-        patch("sessions.services.run_job_task") as mock_task,
+        patch("sessions.queue.run_job_task") as mock_task,
     ):
         mock_task.aenqueue.side_effect = aenqueue
         dispatch_scheduled_jobs_cron_task.func()

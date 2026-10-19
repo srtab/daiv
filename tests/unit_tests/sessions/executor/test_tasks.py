@@ -200,7 +200,7 @@ async def _run_spec(thread_id: str):
         captured["spec"] = spec
         return SimpleNamespace(agent_result={"response": "ok"})
 
-    with patch("sessions.executor.tasks.execute_run", _execute_run):
+    with patch("sessions.executor.run.execute_run", _execute_run):
         await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id)
     return captured["spec"]
 
@@ -339,7 +339,7 @@ async def test_run_job_task_survives_a_failed_ref_sync():
 
     with (
         _job_scaffolding(_agent_with_mr({"source_branch": "feat/published"})),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=RuntimeError("db down"))),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=RuntimeError("db down"))),
     ):
         result = await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id="t-ref-job-3")
 
@@ -416,7 +416,7 @@ async def test_run_job_task_forwards_ask_user_enabled(ask_user_enabled):
 
     with (
         patch("sessions.executor.tasks.Session.objects.filter") as session_filter,
-        patch("sessions.executor.tasks.execute_run", _execute_run),
+        patch("sessions.executor.run.execute_run", _execute_run),
     ):
         session_filter.return_value.only.return_value.afirst = AsyncMock(return_value=None)
         await run_job_task.func(
@@ -542,7 +542,7 @@ class TestRunJobTaskAfterRunMatrix:
 
         with (
             _job_scaffolding(agent, real_lock=True, armed=armed),
-            patch("sessions.services.apersist_session_ref", persist),
+            patch("sessions.executor.run.apersist_session_ref", persist),
             pytest.raises(RuntimeError, match="agent blew up"),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
@@ -681,7 +681,7 @@ class TestRunJobTaskAfterRunMatrix:
         with (
             _job_scaffolding(agent, real_lock=True),
             patch("sessions.executor.lock.SessionLock.release", _release),
-            patch("sessions.services.apersist_session_ref", _persist),
+            patch("sessions.executor.run.apersist_session_ref", _persist),
             patch("sessions.executor.run.PipelineWatch", _Watch),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id=thread_id, run_id="run-1")
@@ -719,7 +719,7 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
         patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("sessions.executor.run.PipelineWatch", watch_recorder(armed)),
         patch("sessions.executor.run._record_measurements", new=AsyncMock()),
     ):

@@ -69,11 +69,20 @@ async def _make_task_row(task_id=None) -> AsyncMock:
 class _FakeRun:
     """Stand-in for Run returned from a mocked ``acreate_run`` in tests that patch it."""
 
-    def __init__(self, task_result_id):
+    def __init__(self, **kwargs):
         self.id = uuid.uuid4()
         self.pk = self.id
-        self.task_result_id = task_result_id
-        self.session_id = str(uuid.uuid4())
+        self.task_result_id = kwargs.get("task_result_id")
+        # ``aenqueue_run`` builds the task kwargs from these, as it does from a real row.
+        self.session_id = kwargs.get("thread_id") or str(uuid.uuid4())
+        self.trigger_type = kwargs.get("trigger_type", "")
+        self.repo_id = kwargs.get("repo_id", "")
+        self.ref = kwargs.get("ref", "")
+        self.prompt = kwargs.get("prompt", "")
+        self.agent_model = kwargs.get("agent_model", "")
+        self.agent_thinking_level = kwargs.get("agent_thinking_level", "")
+        self.sandbox_environment_id = kwargs.get("sandbox_environment_id")
+        self.user_id = user.pk if (user := kwargs.get("user")) is not None else None
         self.status = RunStatus.READY
         self.started_at = None
         self.finished_at = None
@@ -83,7 +92,7 @@ class _FakeRun:
 
 
 async def _fake_acreate_run(**kwargs):
-    return _FakeRun(task_result_id=kwargs.get("task_result_id"))
+    return _FakeRun(**kwargs)
 
 
 def _patch_acreate_run():
@@ -154,7 +163,7 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient):
     async def _aenq(**kwargs):
         return await _make_task_row(task_id)
 
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate_run():
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate_run():
         mock_task.aenqueue.side_effect = _aenq
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="List all files"))
@@ -184,7 +193,7 @@ async def test_submit_job_multi_repo(authenticated_client: TestAsyncClient):
     async def _aenq(**kwargs):
         return await _make_task_row()
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
         mock_task.aenqueue.side_effect = _aenq
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post(
@@ -230,7 +239,7 @@ async def test_submit_job_forwards_agent_override(authenticated_client: TestAsyn
     async def _aenq(**kwargs):
         return await _make_task_row()
 
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate_run() as mock_create:
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate_run() as mock_create:
         mock_task.aenqueue.side_effect = _aenq
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post(
@@ -318,7 +327,7 @@ async def test_submit_job_accepts_an_explicit_model_when_the_site_has_none(authe
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_all_enqueue_failures_reported(authenticated_client: TestAsyncClient):
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))
         response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="List all files"))
 
@@ -436,7 +445,7 @@ async def test_get_job_status_other_user_run_returns_404(authenticated_client: T
 class TestThreadContinuationAPI:
     async def test_response_includes_thread_id_and_status(self, authenticated_client):
         # New thread, no prior Run — should be READY
-        with patch("sessions.services.run_job_task") as mock_task, _patch_acreate_run():
+        with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate_run():
             mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
             mock_task.module_path = run_job_task.module_path
             response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x"))
@@ -482,7 +491,7 @@ class TestThreadContinuationAPI:
             return run
 
         with (
-            patch("sessions.services.run_job_task") as mock_task,
+            patch("sessions.queue.run_job_task") as mock_task,
             patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=capture_acreate_run),
             patch("sessions.services.generate_batch_title_task"),
         ):
@@ -521,7 +530,7 @@ class TestThreadContinuationAPI:
             status=RunStatus.RUNNING,
             user=user,
         )
-        with patch("sessions.services.run_job_task") as mock_task:
+        with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
             mock_task.module_path = run_job_task.module_path
             response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x", thread_id=thread))
@@ -572,7 +581,7 @@ async def test_submit_job_with_references_persists_them(authenticated_client: Te
     body = _single_repo_body(
         references=[{"key": "PROJ-9", "provider": "jira", "url": "https://jira.example.com/browse/PROJ-9"}]
     )
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
         mock_task.aenqueue.side_effect = lambda **kwargs: _make_task_row()
         response = await authenticated_client.post("/jobs", json=body)
 

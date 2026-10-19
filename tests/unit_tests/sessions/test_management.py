@@ -192,7 +192,7 @@ class TestReleaseOrphanQueuedSessionsCommand:
         )
         fake_task = MagicMock(id=create_db_task_result().id)
         out = StringIO()
-        with patch("sessions.signals.run_job_task") as mock_task:
+        with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=fake_task)
             call_command("release_orphan_queued_sessions", stdout=out)
 
@@ -211,7 +211,7 @@ class TestReleaseOrphanQueuedSessionsCommand:
             session=session, trigger_type=SessionOrigin.API_JOB, repo_id="a/b", status=RunStatus.QUEUED, prompt="p"
         )
         out = StringIO()
-        with patch("sessions.signals.run_job_task") as mock_task:
+        with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock()
             call_command("release_orphan_queued_sessions", stdout=out)
             mock_task.aenqueue.assert_not_called()
