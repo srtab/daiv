@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, time
 from unittest.mock import patch
 
 import pytest
@@ -8,6 +9,8 @@ from sessions.models import Session, SessionOrigin
 from sessions.signals import watch_exhausted
 
 from accounts.models import User
+from schedules.models import DispatchError, Frequency, ScheduledJob
+from schedules.signals import schedule_dispatch_failed
 
 
 @pytest.mark.django_db
@@ -93,3 +96,33 @@ class TestOnWatchExhausted:
             self._send(session)
 
         assert "on_watch_exhausted: unexpected error for thread_id=t3" in caplog.text
+
+
+@pytest.mark.django_db
+class TestOnScheduleDispatchFailed:
+    @pytest.fixture
+    def failing_schedule(self, member_user):
+        return ScheduledJob.objects.create(
+            user=member_user,
+            name="daily",
+            prompt="p",
+            repos=[{"repo_id": "acme/repo", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time=time(9, 0),
+            failing_since=datetime(2026, 10, 1, 8, 30, tzinfo=UTC),
+            dispatch_error=DispatchError.REPO_ACCESS_DENIED,
+            dispatch_error_repo_ids=["acme/repo"],
+        )
+
+    def test_the_owner_is_told_the_schedule_cannot_run(self, failing_schedule, member_user):
+        schedule_dispatch_failed.send(sender=ScheduledJob, schedule_pk=failing_schedule.pk)
+
+        notification = Notification.objects.get()
+        assert notification.event_type == EventType.SCHEDULE_DISPATCH_FAILED
+        assert notification.recipient == member_user
+
+    def test_a_failing_emitter_is_logged_not_raised(self, failing_schedule, caplog):
+        with patch("notifications.signals.emit_schedule_dispatch_failed", side_effect=RuntimeError("render failed")):
+            schedule_dispatch_failed.send(sender=ScheduledJob, schedule_pk=failing_schedule.pk)
+
+        assert f"on_schedule_dispatch_failed: unexpected error for schedule={failing_schedule.pk}" in caplog.text

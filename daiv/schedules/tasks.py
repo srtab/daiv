@@ -10,6 +10,7 @@ from crontask import cron
 from django_tasks import task
 
 from schedules.models import DispatchError, ScheduledJob
+from schedules.signals import schedule_dispatch_failed
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -20,14 +21,12 @@ logger = logging.getLogger("daiv.schedules")
 def _record_dispatch_failure(
     schedule: ScheduledJob, now: datetime, error: DispatchError, repo_ids: Sequence[str] = ()
 ) -> None:
-    """Record a failed dispatch and notify the owner.
+    """Record a failed dispatch and send ``schedule_dispatch_failed`` once it commits.
 
     Still advance ``next_run_at`` so the schedule does not busy-retry every minute; if even that
     fails, disable the schedule (keeping the failure on record) so it stops wedging the dispatcher.
     Each write gets its own savepoint so a database error can't abort the other schedules' dispatches.
     """
-    from notifications.schedule_notifiers import emit_schedule_dispatch_failed
-
     try:
         with transaction.atomic():
             schedule.refresh_from_db()
@@ -52,7 +51,9 @@ def _record_dispatch_failure(
             logger.exception("Failed to disable stuck scheduled job pk=%d (%s)", schedule.pk, schedule.name)
             return
 
-    transaction.on_commit(partial(emit_schedule_dispatch_failed, schedule.pk), robust=True)
+    transaction.on_commit(
+        partial(schedule_dispatch_failed.send, sender=ScheduledJob, schedule_pk=schedule.pk), robust=True
+    )
 
 
 @cron("* * * * *")

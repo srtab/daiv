@@ -13,7 +13,9 @@ from sessions.signals import run_classified, watch_exhausted
 from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding
 from notifications.run_notifiers import emit_run_notification
+from notifications.schedule_notifiers import emit_schedule_dispatch_failed
 from notifications.watch_notifiers import emit_watch_exhausted
+from schedules.signals import schedule_dispatch_failed
 
 logger = logging.getLogger("daiv.notifications")
 
@@ -36,6 +38,15 @@ def on_watch_exhausted(sender, session, failing_jobs, pipeline_url, pipeline_id,
         )
     except Exception:
         logger.exception("on_watch_exhausted: unexpected error for thread_id=%s", session.thread_id)
+
+
+@receiver(schedule_dispatch_failed, dispatch_uid="notifications.on_schedule_dispatch_failed")
+def on_schedule_dispatch_failed(sender, schedule_pk, **kwargs) -> None:
+    """Tell the schedule owner its dispatches are failing; swallow errors so the signal never propagates."""
+    try:
+        emit_schedule_dispatch_failed(schedule_pk)
+    except Exception:
+        logger.exception("on_schedule_dispatch_failed: unexpected error for schedule=%s", schedule_pk)
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL, dispatch_uid="notifications.sync_email_binding")
