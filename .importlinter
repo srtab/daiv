@@ -50,6 +50,7 @@ name = sandbox_envs sits below codebase and the agent
 type = forbidden
 source_modules = sandbox_envs
 forbidden_modules =
+    accounts
     automation
     chat
     codebase
@@ -71,6 +72,28 @@ allow_indirect_imports = True
 name = codebase is platform access only
 type = forbidden
 source_modules = codebase
+forbidden_modules =
+    accounts
+    automation
+    chat
+    configuration
+    dashboard
+    jobs
+    mcp_api
+    mcp_connectors
+    memory
+    notifications
+    schedules
+    sessions
+    skills
+    slash_commands
+    webhooks
+allow_indirect_imports = True
+
+[importlinter:contract:accounts]
+name = accounts is identity only, below skills and the agent
+type = forbidden
+source_modules = accounts
 forbidden_modules =
     automation
     chat
