@@ -3,10 +3,9 @@ from __future__ import annotations
 import logging
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
-from core import ui_events
 from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, SessionOrigin
 
@@ -62,25 +61,21 @@ class Command(BaseCommand):
         reconcile one whose streamer ``finally`` never ran (OOM / SIGKILL before it could
         finalize). We reap those using the same staleness signal ``SessionLock`` uses to
         decide a holder is dead — the session heartbeat (``last_active_at``), bumped every few
-        seconds by a live stream — so a genuinely long-running chat turn is never reaped.
-
-        A direct ``.update()`` (no ``run_finished`` emit) mirrors ``finalize_chat_run``: chat
-        runs are intentionally excluded from the notification / memory / dispatch receivers.
+        seconds by a live stream — so a genuinely long-running chat turn is never reaped. The
+        finish re-checks that signal, so a stream that heartbeats after the scan keeps its run.
         """
-        cutoff = stale_cutoff()
-        reaped = Run.objects.filter(
-            trigger_type=SessionOrigin.CHAT,
-            task_result__isnull=True,
-            status=RunStatus.RUNNING,
-            session__last_active_at__lt=cutoff,
-        ).update(
-            status=RunStatus.FAILED,
-            finished_at=timezone.now(),
-            error_message="Orphaned chat run: streamer never finalized (worker crash); reaped by sync_stuck_runs.",
+        stale = Q(status=RunStatus.RUNNING, session__last_active_at__lt=stale_cutoff())
+        orphans = Run.objects.filter(stale, trigger_type=SessionOrigin.CHAT, task_result__isnull=True)
+        reaped = sum(
+            Run.objects.finish(
+                run,
+                RunStatus.FAILED,
+                where=stale,
+                finished_at=timezone.now(),
+                error_message="Orphaned chat run: streamer never finalized (worker crash); reaped by sync_stuck_runs.",
+            )
+            for run in orphans
         )
         if reaped:
             logger.warning("sync_stuck_runs: reaped %d orphaned chat run(s) stuck in RUNNING", reaped)
-            # The ``.update()`` above fires no post_save, so the nav badge poke is issued
-            # here; deferred so a wrapping ``atomic`` can't have readers recount too early.
-            transaction.on_commit(ui_events.publisher.runs_changed)
         return reaped

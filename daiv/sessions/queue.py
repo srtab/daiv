@@ -9,7 +9,6 @@ instead of waiting behind a row that will never finish.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -20,7 +19,6 @@ from django.db.models import Q
 from asgiref.sync import async_to_sync
 
 from sessions.executor.tasks import run_job_task
-from sessions.managers import emit_run_finished_if_terminal
 from sessions.models import Run, RunStatus, SessionOrigin
 
 logger = logging.getLogger("daiv.sessions")
@@ -63,12 +61,7 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
     except Exception as err:  # noqa: BLE001
         logger.exception("%s: enqueue failed for run=%s repo_id=%s", log_context, run.pk, run.repo_id)
         await amark_failed_and_advance(
-            run,
-            prefix=ENQUEUE_FAILED_PREFIX,
-            err=err,
-            previous_status=RunStatus.READY,
-            log_context=log_context,
-            skip_dispatch=skip_dispatch,
+            run, prefix=ENQUEUE_FAILED_PREFIX, err=err, log_context=log_context, skip_dispatch=skip_dispatch
         )
         return False
 
@@ -80,45 +73,39 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
             "%s: failed to link task_result_id=%s to run=%s (the task still runs)", log_context, task.id, run.pk
         )
         await amark_failed_and_advance(
-            run,
-            prefix=LINK_FAILED_PREFIX,
-            err=err,
-            previous_status=RunStatus.READY,
-            log_context=log_context,
-            skip_dispatch=skip_dispatch,
+            run, prefix=LINK_FAILED_PREFIX, err=err, log_context=log_context, skip_dispatch=skip_dispatch
         )
         return False
     return True
 
 
 async def amark_failed_and_advance(
-    run: Run, *, prefix: str, err: Exception, previous_status: str, log_context: str, skip_dispatch: bool = False
+    run: Run, *, prefix: str, err: Exception, log_context: str, skip_dispatch: bool = False
 ) -> None:
-    """Transition a row to FAILED with finished_at and emit ``run_finished``.
+    """Fail a row its caller could not get running, through ``RunManager.afinish``, which emits ``run_finished``.
 
-    Does NOT touch ``Session.active_run_id`` (that is ``SessionLock``'s job); the
-    "advance" is emitting ``run_finished`` so any QUEUED siblings on the session
-    get dispatched, unless ``skip_dispatch`` says the caller is the dispatcher, which moves on by itself.
-    ``log_context`` names the caller in the logs. The emit is best-effort — if it raises, we log
-    loudly and recommend the operator run ``release_orphan_queued_sessions`` to
-    recover stranded siblings.
+    The write lands only while the row still has the status the caller left it in, so a task that got running
+    after all keeps its row. Does NOT touch ``Session.active_run_id`` (that is ``SessionLock``'s job); the
+    "advance" is the ``run_finished`` emit, which dispatches the session's QUEUED siblings unless
+    ``skip_dispatch`` says the caller is the dispatcher, which moves on by itself. ``log_context`` names the
+    caller in the logs; ``run.error_message`` says why the run failed even when the write does not land.
     """
-    update_fields = run.mark_failed(prefix, err)
+    expected_status = run.status
+    fields = run.mark_failed(prefix, err)
     try:
-        await run.asave(update_fields=update_fields)
-    except Exception:
-        logger.exception("%s: terminal save failed for run=%s", log_context, run.pk)
-    try:
-        await asyncio.to_thread(
-            emit_run_finished_if_terminal, run, previous_status=previous_status, skip_dispatch=skip_dispatch
+        failed = await Run.objects.afinish(
+            run, RunStatus.FAILED, where=Q(status=expected_status), skip_dispatch=skip_dispatch, **fields
         )
     except Exception:
         logger.exception(
-            "%s: emit_run_finished_if_terminal failed for run=%s; "
-            "queued siblings on this session may be stranded — run release_orphan_queued_sessions",
+            "%s: failed to mark run=%s FAILED; queued siblings on this session may be stranded — "
+            "run release_orphan_queued_sessions",
             log_context,
             run.pk,
         )
+        return
+    if not failed:
+        logger.warning("%s: run=%s is no longer %s; left as it is", log_context, run.pk, expected_status)
 
 
 def _claim_queued(run: Run) -> bool:

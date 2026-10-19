@@ -358,11 +358,7 @@ async def asubmit_batch_runs(
                 # (never enqueued → run_finished never fires → siblings stay QUEUED).
                 logger.exception("submit_batch_runs: session ref merge failed for repo_id=%s", target.repo_id)
                 await amark_failed_and_advance(
-                    run,
-                    prefix="refs_merge_failed",
-                    err=err,
-                    previous_status=run.status,
-                    log_context="submit_batch_runs",
+                    run, prefix="refs_merge_failed", err=err, log_context="submit_batch_runs"
                 )
                 return BatchSubmitFailure(
                     repo_id=target.repo_id, ref=target.ref, error=f"RefsMergeFailed: {type(err).__name__}: {err}"

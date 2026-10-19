@@ -10,6 +10,7 @@ from sessions.queue import (
     LINK_FAILED_PREFIX,
     MAX_CONSECUTIVE_DISPATCH_FAILURES,
     aenqueue_run,
+    amark_failed_and_advance,
     dispatch_next_queued,
     release_orphan_queued_runs,
 )
@@ -118,6 +119,31 @@ class TestAenqueueRun:
         assert run.error_message.startswith(f"{LINK_FAILED_PREFIX}: IntegrityError")
         assert run.task_result_id is None
         assert emitted == [(str(run.pk), False)]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestAmarkFailedAndAdvance:
+    async def test_a_row_that_got_running_meanwhile_keeps_its_status(self, emitted):
+        """A link that raised after it committed lets the worker move the row on; failing it then would hide the
+        result of a run that is going ahead."""
+        run = await sync_to_async(_make_run)(session_id=str(uuid.uuid4()), status=RunStatus.READY)
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.RUNNING)
+
+        await amark_failed_and_advance(run, prefix=LINK_FAILED_PREFIX, err=RuntimeError("x"), log_context="test")
+
+        assert run.error_message == f"{LINK_FAILED_PREFIX}: RuntimeError: x"
+        await run.arefresh_from_db()
+        assert (run.status, run.error_message) == (RunStatus.RUNNING, "")
+        assert emitted == []
+
+    async def test_a_failed_write_is_logged_without_emitting(self, emitted, caplog):
+        run = await sync_to_async(_make_run)(session_id=str(uuid.uuid4()), status=RunStatus.READY)
+
+        with patch.object(Run.objects, "afinish", AsyncMock(side_effect=RuntimeError("db down"))):
+            await amark_failed_and_advance(run, prefix="enqueue_failed", err=RuntimeError("x"), log_context="test")
+
+        assert f"test: failed to mark run={run.pk} FAILED" in caplog.text
+        assert emitted == []
 
 
 @pytest.mark.django_db(transaction=True)

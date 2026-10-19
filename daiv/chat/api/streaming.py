@@ -29,7 +29,6 @@ from sessions.models import Run, RunStatus, SessionOrigin, agent_result_field_up
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message
 from automation.agent.usage_tracking import build_usage_summary
 from codebase.base import Scope
-from core import ui_events
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 
 from . import relay
@@ -69,7 +68,7 @@ async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str,
 
 
 async def finalize_chat_run(
-    run_pk,
+    run: Run,
     *,
     success: bool,
     usage: dict | None,
@@ -88,7 +87,7 @@ async def finalize_chat_run(
         status = RunStatus.WAITING_INPUT
     else:
         status = RunStatus.SUCCESSFUL
-    update = {"status": status, "finished_at": timezone.now()}
+    update: dict[str, Any] = {"finished_at": timezone.now()}
     if status == RunStatus.WAITING_INPUT:
         update["question"] = question
     if response_text:
@@ -98,11 +97,8 @@ async def finalize_chat_run(
     if agent_result:
         update.update(agent_result_field_updates(agent_result))
     if usage:
-        update.update(usage_field_updates(usage, run_ref=run_pk))
-    await Run.objects.filter(pk=run_pk).aupdate(**update)
-    # ``aupdate`` fires no post_save, so the nav badge poke the Run signal would have
-    # sent has to be issued here.
-    await ui_events.publisher.aruns_changed()
+        update.update(usage_field_updates(usage, run_ref=run.pk))
+    await Run.objects.afinish(run, status, **update)
 
 
 # GitState fields that survive the ag-ui output-schema filter and reach the
@@ -433,7 +429,7 @@ class ChatRunStreamer:
         if turn.chat_run is not None:
             try:
                 await finalize_chat_run(
-                    turn.chat_run.pk,
+                    turn.chat_run,
                     success=succeeded,
                     usage=build_usage_summary(turn.usage).to_dict() if turn.usage is not None else None,
                     response_text=turn.response,

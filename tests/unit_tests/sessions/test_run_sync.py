@@ -10,10 +10,11 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.signal_defs import run_finished
 
 pytestmark = pytest.mark.django_db
 
@@ -102,10 +103,28 @@ def test_sync_and_save_returns_false_when_nothing_changed(create_db_task_result)
     assert run.sync_and_save() is False
 
 
-def test_sync_and_save_emits_run_finished_on_terminal_transition(create_db_task_result):
+def test_sync_and_save_finishes_a_terminal_transition(create_db_task_result):
     tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Done."})
     run = _run(tr, status=RunStatus.RUNNING)
-    with patch("sessions.models.emit_run_finished_if_terminal") as m_emit:
+    with patch.object(Run.objects, "finish", wraps=Run.objects.finish) as finish:
         assert run.sync_and_save() is True
-        m_emit.assert_called_once()
-        assert m_emit.call_args.kwargs["previous_status"] == RunStatus.RUNNING
+    finish.assert_called_once()
+    assert finish.call_args.args[1] == RunStatus.SUCCESSFUL
+    run.refresh_from_db()
+    assert (run.status, run.result_summary) == (RunStatus.SUCCESSFUL, "Done.")
+
+
+def test_sync_and_save_does_not_refinish_a_row_another_sync_finished(create_db_task_result):
+    """Two syncs of one task (the worker's ``task_finished`` and the ``sync_stuck_runs`` cron) both read the row
+    RUNNING; only the first may finish it, or ``run_finished`` reaches the receivers twice."""
+    tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Done."})
+    first = _run(tr, status=RunStatus.RUNNING)
+    second = Run.objects.select_related("task_result").get(pk=first.pk)
+    received = MagicMock()
+    run_finished.connect(received, dispatch_uid="test-run-sync-refinish")
+    try:
+        assert first.sync_and_save() is True
+        assert second.sync_and_save() is False
+    finally:
+        run_finished.disconnect(dispatch_uid="test-run-sync-refinish")
+    assert received.call_count == 1

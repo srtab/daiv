@@ -344,7 +344,7 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
+    async def _capture_finalize(_run, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     persist_calls: list = []
@@ -391,7 +391,7 @@ async def test_events_finalizes_failed_with_generic_message_when_agent_raises():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
+    async def _capture_finalize(_run, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
@@ -576,7 +576,7 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
+    async def _capture_finalize(_run, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     release_calls: list = []
@@ -628,7 +628,7 @@ async def test_events_finalizes_interrupted_on_task_cancellation():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
+    async def _capture_finalize(_run, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
@@ -669,7 +669,7 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
+    async def _capture_finalize(_run, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
@@ -741,7 +741,7 @@ async def test_events_buffers_text_deltas_into_result_summary():
 
     captured: dict = {}
 
-    async def _capture_finalize(run_pk, *, success, response_text, **_kwargs):
+    async def _capture_finalize(_run, *, success, response_text, **_kwargs):
         captured["response_text"] = response_text
         captured["success"] = success
 
@@ -776,7 +776,7 @@ async def test_the_turn_finalizes_with_the_question_it_ended_on(checkpoint_messa
     """The question is never streamed as text; the checkpoint is the only place the finished turn reads it from."""
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, response_text, question=None, **_kwargs):
+    async def _capture_finalize(_run, *, response_text, question=None, **_kwargs):
         finalize_calls.append({"question": question, "response_text": response_text})
 
     with (
@@ -797,7 +797,7 @@ async def test_the_turn_finalizes_with_the_question_it_ended_on(checkpoint_messa
 async def test_the_turn_finalizes_with_its_agent_result(_executor_stack):
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, agent_result=None, **_kwargs):
+    async def _capture_finalize(_run, *, agent_result=None, **_kwargs):
         finalize_calls.append(agent_result)
 
     agent_result = parse_agent_result({"merge_request_id": 7, "merge_request_web_url": "https://git.example/mr/7"})
@@ -1143,7 +1143,7 @@ def _recorded_turn(
         _log("start")
         return SimpleNamespace(pk="run-pk")
 
-    async def _finalize(_run_pk, *, success, error_message="", **_kwargs):
+    async def _finalize(_run, *, success, error_message="", **_kwargs):
         _log("finalize", success, error_message)
 
     async def _persist(*, thread_id, current_ref, merge_request, published):
@@ -1379,7 +1379,7 @@ class TestChatAfterRunMatrix:
                 handlers.append(handler)
                 yield handler
 
-        async def _finalize(_run_pk, *, usage, **_kwargs):
+        async def _finalize(_run, *, usage, **_kwargs):
             usages.append(usage)
 
         summary = MagicMock(return_value=MagicMock(to_dict=lambda: {"total_tokens": 12}))

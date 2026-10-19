@@ -142,24 +142,6 @@ class TestPublish:
         assert "failed to publish" not in caplog.text
 
 
-class TestAsyncPublish:
-    async def test_runs_changed_goes_to_the_broadcast_channel(self):
-        client = Mock(publish=AsyncMock())
-        await publisher_with(client).aruns_changed()
-        client.publish.assert_awaited_once_with(Channel.RUNS, UIEventKind.RUNS.as_payload())
-
-    async def test_a_redis_failure_never_reaches_the_caller(self, caplog):
-        client = Mock(publish=AsyncMock(side_effect=ConnectionError("redis is down")))
-        await publisher_with(client).aruns_changed()
-        assert "failed to publish" in caplog.text
-
-    async def test_an_unconfigured_bus_drops_the_poke_without_a_warning(self, caplog):
-        client = Mock(publish=AsyncMock())
-        await publisher_with(client, configured=False).aruns_changed()
-        client.publish.assert_not_awaited()
-        assert "failed to publish" not in caplog.text
-
-
 class TestStreamLifecycle:
     async def test_a_viewer_listens_on_the_broadcast_channel_and_their_own(self):
         pubsub = FakePubSub()

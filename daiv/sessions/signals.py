@@ -69,11 +69,8 @@ def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwarg
     while a missed one leaves a stale badge until the connection's next resync. A
     create is exact instead: the status is in hand, and every other run creation
     (``READY``/``QUEUED`` from the webhook, API, MCP, schedule and batch paths) is a
-    row no reader's count can include.
-
-    Writes that bypass this signal (``Run.objects...aupdate()`` in
-    ``chat.api.streaming.finalize_chat_run``, the ``.update()`` in the
-    ``sync_stuck_runs`` reaper) publish for themselves.
+    row no reader's count can include. A run's finish skips this signal: ``RunManager.finish``
+    refreshes the badge itself.
     """
     if created:
         if instance.status == RunStatus.RUNNING:

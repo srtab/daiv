@@ -18,7 +18,7 @@ from codebase.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.envelopes import validate_actionable
-from sessions.managers import RunArtifactManager, RunManager, SessionManager, emit_run_finished_if_terminal
+from sessions.managers import RunArtifactManager, RunManager, SessionManager
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
@@ -440,12 +440,12 @@ class Run(models.Model):
                 return parsed["response"]
         return self.result_summary
 
-    def mark_failed(self, prefix: str, err: Exception) -> list[str]:
-        """Set the terminal FAILED fields in-memory and return the ``update_fields`` list.
+    def mark_failed(self, prefix: str, err: Exception) -> dict[str, Any]:
+        """Set the terminal FAILED fields in-memory and return them, ``status`` aside, for ``RunManager.afinish``.
 
-        Centralizes the exact field set + ``started_at`` backfill shared by the
-        post-create failure paths (``sessions.queue.amark_failed_and_advance``). The caller
-        owns the save and the ``run_finished`` emit — this only mutates the instance.
+        Centralizes the exact field set + ``started_at`` backfill of the post-create failure
+        paths (``sessions.queue.amark_failed_and_advance``). It sets them before the write
+        so a caller can read why the run failed even when that write does not land.
         """
         now = timezone.now()
         self.status = RunStatus.FAILED
@@ -453,23 +453,25 @@ class Run(models.Model):
         self.finished_at = now
         if self.started_at is None:
             self.started_at = now
-        return ["status", "error_message", "finished_at", "started_at"]
+        return {"error_message": self.error_message, "finished_at": now, "started_at": self.started_at}
 
     def sync_and_save(self) -> bool:
         """Sync from the linked DBTaskResult and persist changed fields.
 
-        Returns True if any field was updated (and a save was issued), else False.
-        Emits ``run_finished`` when the status transitions to a terminal state.
+        Returns True if any field was updated (and a write was issued and landed), else False.
+        A transition to a terminal status is written by ``RunManager.finish``, which emits
+        ``run_finished``; it does not land on a row that already finished.
 
-        Raises whatever ``sync_from_task_result`` or ``self.save`` raise — callers running
+        Raises whatever ``sync_from_task_result`` or the write raise — callers running
         in long-lived loops (signal handlers, management commands) must catch.
         """
-        previous_status = self.status
         changed = self.sync_from_task_result()
         if not changed:
             return False
+        if "status" in changed and self.status in RunStatus.terminal():
+            fields = {name: getattr(self, name) for name in changed if name != "status"}
+            return type(self).objects.finish(self, self.status, **fields)
         self.save(update_fields=changed)
-        emit_run_finished_if_terminal(self, previous_status=previous_status)
         return True
 
     def sync_from_task_result(self) -> list[str]:
