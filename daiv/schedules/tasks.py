@@ -52,7 +52,7 @@ def _record_dispatch_failure(
             return
 
     transaction.on_commit(
-        partial(schedule_dispatch_failed.send, sender=ScheduledJob, schedule_pk=schedule.pk), robust=True
+        partial(schedule_dispatch_failed.send_robust, sender=ScheduledJob, schedule_pk=schedule.pk), robust=True
     )
 
 

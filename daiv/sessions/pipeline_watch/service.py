@@ -252,22 +252,17 @@ class PipelineWatch:
             )
 
     async def _anotify_exhausted(self, *, session: Session, report: PipelineReport) -> None:
-        """Tell the receivers the watch gave up. Best-effort — the MR comment is the reliable channel."""
+        """Tell the receivers the watch gave up.
+
+        Best-effort: ``asend_robust`` logs a failing receiver, and the MR comment is the reliable channel.
+        """
         # Local import: sessions.signals imports this module through the executor.
         from sessions.signals import watch_exhausted
 
-        results = await watch_exhausted.asend_robust(
+        await watch_exhausted.asend_robust(
             sender=type(session),
             session=session,
             failing_jobs=[job.name for job in report.failed_jobs],
             pipeline_url=report.web_url,
             pipeline_id=report.id,
         )
-        for receiver, response in results:
-            if isinstance(response, Exception):
-                logger.error(
-                    "pipeline_watch: receiver %s failed to notify the owner of thread_id=%s",
-                    getattr(receiver, "__name__", receiver),
-                    session.thread_id,
-                    exc_info=response,
-                )

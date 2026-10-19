@@ -6,6 +6,8 @@ from unittest.mock import patch
 from django.utils import timezone
 
 import pytest
+from notifications.choices import EventType
+from notifications.models import Notification
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Session, SessionOrigin, WatchState
@@ -125,6 +127,7 @@ async def test_a_real_failure_dispatches_a_fix_run(watched_session, watch):
     await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
 
     assert len(watch.dispatcher.dispatched) == 1
+    assert watch.exhausted == []
     await watched_session.arefresh_from_db()
     assert watched_session.watch_state == WatchState.FIXING
     assert watched_session.watch_attempts == 1
@@ -186,7 +189,20 @@ async def test_giving_up_sends_the_pipeline_facts(watched_session, watch):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_failing_receiver_never_breaks_the_watch(watched_session, watch, caplog):
+async def test_giving_up_notifies_the_session_owner(watched_session, watch, django_user_model):
+    owner = await django_user_model.objects.acreate(username="owner", email="owner@example.com")
+    watch.platform.pipeline = make_pipeline("failed", pipeline_id=903)
+    await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3, user=owner)
+
+    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=903)
+
+    notification = await Notification.objects.aget()
+    assert notification.event_type == EventType.PIPELINE_WATCH_EXHAUSTED
+    assert notification.recipient_id == owner.pk
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failing_receiver_never_breaks_the_watch(watched_session, watch):
     """The MR comment is the reliable channel, so a receiver failure must not propagate into the
     state machine that has already recorded the watch as exhausted."""
 
@@ -206,7 +222,6 @@ async def test_a_failing_receiver_never_breaks_the_watch(watched_session, watch,
     assert len(watch.exhausted) == 1
     await watched_session.arefresh_from_db()
     assert watched_session.watch_state == WatchState.EXHAUSTED
-    assert "failed to notify the owner of thread_id=mr-thread" in caplog.text
 
 
 @pytest.mark.django_db(transaction=True)
@@ -215,6 +230,7 @@ async def test_a_green_pipeline_ends_the_watch(watched_session, watch):
     await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
 
     assert watch.dispatcher.dispatched == []
+    assert watch.exhausted == []
     await watched_session.arefresh_from_db()
     assert watched_session.watch_state == WatchState.GREEN
 
@@ -226,6 +242,7 @@ async def test_an_unreadable_pipeline_stops_the_watch_with_a_note(watched_sessio
 
     assert watch.dispatcher.dispatched == []
     assert len(watch.platform.notes) == 1
+    assert watch.exhausted == []
     await watched_session.arefresh_from_db()
     assert watched_session.watch_state == WatchState.UNCLEAR
 
@@ -557,6 +574,7 @@ async def test_a_fix_run_that_changed_nothing_gives_up(watch):
     await watch.make().aexhaust(merge_request_iid=73, reason="the agent made no changes")
     session = await Session.objects.aget(thread_id=mr_thread)
     assert session.watch_state == WatchState.EXHAUSTED
+    assert watch.exhausted == []
 
 
 @pytest.mark.django_db(transaction=True)

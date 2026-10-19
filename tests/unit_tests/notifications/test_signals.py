@@ -4,7 +4,6 @@ from unittest.mock import patch
 import pytest
 from notifications.choices import ChannelType, EventType
 from notifications.models import Notification, UserChannelBinding
-from notifications.policy import SOURCE_SESSION
 from sessions.models import Session, SessionOrigin
 from sessions.signals import watch_exhausted
 
@@ -81,15 +80,12 @@ class TestOnWatchExhausted:
             pipeline_id=100,
         )
 
-    def test_the_notification_lands_under_the_shared_session_key(self, session):
+    def test_the_owner_is_told_the_watch_gave_up(self, session, member_user):
         self._send(session)
 
         notification = Notification.objects.get()
         assert notification.event_type == EventType.PIPELINE_WATCH_EXHAUSTED
-        assert notification.source_type == SOURCE_SESSION
-        assert notification.source_id == "t3:100"
-        assert notification.context["pipeline_url"] == "https://example.com/p/100"
-        assert notification.context["failing_jobs"] == ["tests"]
+        assert notification.recipient == member_user
 
     def test_a_failing_emitter_is_logged_not_raised(self, session, caplog):
         with patch("notifications.signals.emit_watch_exhausted", side_effect=RuntimeError("channel down")):

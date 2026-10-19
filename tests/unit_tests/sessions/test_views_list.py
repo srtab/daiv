@@ -243,6 +243,23 @@ class TestSessionListView:
         assert response.context["schedule_name"] == "Nightly audit"
         assert "Schedule: Nightly audit" in response.content.decode()
 
+    def test_schedule_filter_chip_hides_another_users_schedule_name(self, logged_in_client):
+        bob = User.objects.create_user(username="bob", email="bob@test.com", password="testpass123")  # noqa: S106
+        schedule = ScheduledJob.objects.create(
+            user=bob,
+            name="Secret audit",
+            prompt="p",
+            repos=[{"repo_id": "bob/secret", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="09:00",
+        )
+        _create_session(user=bob, repo_id="bob/secret", scheduled_job=schedule)
+
+        response = logged_in_client.get(reverse("session_list"), {"schedule": str(schedule.pk)})
+
+        assert response.context["schedule_name"] == ""
+        assert "Secret audit" not in response.content.decode()
+
     def test_runs_are_prefetched_newest_first(self, logged_in_client, user, django_assert_num_queries):
         session = _create_session(user=user)
         _create_run(session, status=RunStatus.SUCCESSFUL)

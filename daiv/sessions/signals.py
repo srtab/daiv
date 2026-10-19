@@ -26,7 +26,7 @@ run_finished = Signal()
 # Arguments: run (Run instance), envelope (RunEnvelope instance).
 run_classified = Signal()
 
-# Emitted once when the CI watch gives up on a merge request.
+# Emitted when the CI watch runs out of fix attempts with CI still failing; at most once per armed watch.
 # Arguments: session (Session), failing_jobs (list[str]), pipeline_url (str), pipeline_id (int).
 watch_exhausted = Signal()
 

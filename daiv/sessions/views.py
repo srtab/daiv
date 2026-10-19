@@ -206,11 +206,12 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["statuses"] = RunStatus.choices
         context["ranges"] = RANGE_CHOICES
 
-        # Resolve schedule name for the filter-bar chip. Only the full page renders the
-        # filter bar, so skip this extra query on the HTMX results-fragment path.
+        # Name the schedule chip through the sessions this user may view (sessions must not import
+        # schedules). Only the full page renders the filter bar, so the HTMX fragment skips the query.
         if not is_htmx(self.request) and (schedule_id := context["current_schedule"]):
             schedule = (
                 Session.objects
+                .visible_to(self.request.user)
                 .filter(scheduled_job_id=schedule_id)
                 .values_list("scheduled_job__name", flat=True)
                 .first()

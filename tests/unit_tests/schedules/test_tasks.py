@@ -8,6 +8,7 @@ import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
 from notifications.choices import EventType
 from notifications.models import Notification
+from notifications.signals import on_schedule_dispatch_failed
 from sessions.models import Run, SessionOrigin
 
 from accounts.models import User
@@ -430,6 +431,9 @@ def _dispatch(*, denied=None, aenqueue=_aenqueue_ok):
         dispatch_scheduled_jobs_cron_task.func()
 
 
+NOTIFY_UID = "notifications.on_schedule_dispatch_failed"
+
+
 def _failure_notices():
     return Notification.objects.filter(event_type=EventType.SCHEDULE_DISPATCH_FAILED)
 
@@ -480,20 +484,21 @@ def test_a_failed_dispatch_sends_schedule_dispatch_failed_after_commit(member_us
 
 
 @pytest.mark.django_db(transaction=True)
-def test_a_raising_receiver_does_not_stop_the_next_failure_notice(member_user, admin_user):
-    _due_daily(member_user, name="a")
-    _due_daily(admin_user, name="b")
+def test_a_receiver_that_raises_first_does_not_stop_the_owner_notice(member_user):
+    _due_daily(member_user)
 
     def boom(sender, **kwargs):
         raise RuntimeError("receiver down")
 
+    schedule_dispatch_failed.disconnect(dispatch_uid=NOTIFY_UID)
     schedule_dispatch_failed.connect(boom, weak=False, dispatch_uid="test-dispatch-failed-boom")
+    schedule_dispatch_failed.connect(on_schedule_dispatch_failed, dispatch_uid=NOTIFY_UID)
     try:
         _dispatch(denied=RepositoryAccessDenied(["acme/repo"]))
     finally:
         schedule_dispatch_failed.disconnect(dispatch_uid="test-dispatch-failed-boom")
 
-    assert sorted(_failure_notices().values_list("recipient", flat=True)) == sorted([member_user.pk, admin_user.pk])
+    assert list(_failure_notices().values_list("recipient", flat=True)) == [member_user.pk]
 
 
 @pytest.mark.django_db(transaction=True)

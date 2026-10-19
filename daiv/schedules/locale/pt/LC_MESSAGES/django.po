@@ -39,15 +39,6 @@ msgstr "Personalizado"
 msgid "Once"
 msgstr "Uma vez"
 
-msgid "Watch & find"
-msgstr "Vigiar e encontrar"
-
-msgid "Do & change"
-msgstr "Fazer e alterar"
-
-msgid "Report"
-msgstr "Relatar"
-
 msgid "A cron expression is required for Custom frequency."
 msgstr "É necessária uma expressão cron para a frequência Personalizado."
 

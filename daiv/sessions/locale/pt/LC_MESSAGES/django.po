@@ -101,6 +101,15 @@ msgstr "Problemas encontrados"
 msgid "Needs attention"
 msgstr "Requer atenção"
 
+msgid "Watch & find"
+msgstr "Vigiar e encontrar"
+
+msgid "Do & change"
+msgstr "Fazer e alterar"
+
+msgid "Report"
+msgstr "Relatar"
+
 msgid "None"
 msgstr "Nenhuma"
 
