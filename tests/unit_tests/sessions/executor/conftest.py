@@ -119,8 +119,8 @@ def agent_stack(
         patch("automation.agent.results.build_agent_result", new=AsyncMock(side_effect=_build_result)) as build_result,
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
-        patch("sessions.services.areset_session_ref", new=AsyncMock()) as reset,
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
+        patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.PipelineWatch", _Watch),
         patch(
             "automation.agent.middlewares.sandbox._seed_archives",

@@ -5,7 +5,6 @@ from django_tasks import task
 
 from codebase.base import Scope
 from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
-from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.models import Session
 
@@ -44,8 +43,11 @@ async def run_job_task(
     Webhook callers (issue/review addressors) bypass this task; ``use_max`` is therefore
     not accepted here.
     """
-    # Heavy imports live here so enqueue-side importers of this module stay light.
+    # Deferred: enqueue-side importers stay light, and executor.run -> sessions.services -> sessions.queue imports
+    # this module.
     from langchain_core.messages import HumanMessage
+
+    from sessions.executor.run import execute_run
 
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")

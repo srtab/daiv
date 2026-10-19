@@ -17,8 +17,8 @@ def capture_run_observations(sender: type, run: Any, **kwargs: Any) -> None:
     """Enqueue transcript extraction when a run reaches a terminal status.
 
     FAILED runs are included — failures are valuable learning signal.
-    ``skip_dispatch=True`` marks re-emits from dispatch-failure paths: those
-    runs never executed, so there is no new transcript to mine.
+    ``never_started=True`` marks a run whose row failed before it started: the
+    session's checkpoint holds only earlier turns, which their own runs already mined.
     CHAT-triggered runs are skipped — interactive chat turns are not agent
     sessions worth mining for repository-scoped memory.
     Exception-safe: memory capture must never affect the run lifecycle (the
@@ -27,7 +27,7 @@ def capture_run_observations(sender: type, run: Any, **kwargs: Any) -> None:
     from sessions.models import RunStatus, SessionOrigin
 
     try:
-        if kwargs.get("skip_dispatch"):
+        if kwargs.get("never_started"):
             return
         if run.trigger_type == SessionOrigin.CHAT:
             return

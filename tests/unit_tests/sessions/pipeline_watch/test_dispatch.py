@@ -16,7 +16,7 @@ from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.judgment import PipelineReport
-from sessions.signal_defs import LINK_FAILED_PREFIX
+from sessions.queue import LINK_FAILED_PREFIX
 
 from codebase.base import Scope
 from codebase.utils import compute_thread_id
@@ -38,7 +38,7 @@ def stub_enqueue(monkeypatch):
             calls.append(kwargs)
             return holder["result"]
 
-    monkeypatch.setattr("sessions.executor.tasks.run_job_task", FakeTask())
+    monkeypatch.setattr("sessions.queue.run_job_task", FakeTask())
     return calls, holder
 
 
@@ -230,7 +230,7 @@ async def test_a_fix_run_falls_back_to_the_default_when_the_sessions_model_is_un
 
     run = await _dispatch_with_session_model("gone:model", "high")
 
-    assert (calls[0]["agent_model"], calls[0]["agent_thinking_level"]) == ("", "")
+    assert (calls[0]["agent_model"], calls[0]["agent_thinking_level"]) == (None, None)
     assert (run.agent_model, run.agent_thinking_level) == ("", "")
     assert "'gone:model', which cannot be used (Provider 'gone' is disabled.)" in caplog.text
 
@@ -245,7 +245,7 @@ async def test_a_failed_enqueue_refunds_the_attempt_and_reopens_the_watch(stub_e
         async def aenqueue(self, **kwargs):
             raise RuntimeError("broker down")
 
-    monkeypatch.setattr("sessions.executor.tasks.run_job_task", BrokenTask())
+    monkeypatch.setattr("sessions.queue.run_job_task", BrokenTask())
     session = await _make_watched_session(attempts=2)
 
     await FixRunDispatcher().adispatch(

@@ -230,7 +230,7 @@ class TestScheduleRunNowView:
         return m
 
     def test_enqueues_single_repo_and_redirects_to_session_detail(self, member_client, member_user, schedule):
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -247,7 +247,7 @@ class TestScheduleRunNowView:
         async def _aenq(**kwargs):
             return await self._amake_task_row()
 
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue.side_effect = _aenq
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -262,7 +262,7 @@ class TestScheduleRunNowView:
         schedule.next_run_at = None
         schedule.save(update_fields=["is_enabled", "next_run_at"])
 
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -271,7 +271,7 @@ class TestScheduleRunNowView:
         assert response.url == reverse("session_detail", kwargs={"thread_id": run.session_id})
 
     def test_enqueue_failure_returns_error_message(self, member_client, schedule):
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(side_effect=RuntimeError("backend down"))
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]), follow=True)
 
@@ -310,7 +310,7 @@ class TestScheduleRunNowView:
         schedule.sandbox_environment = env
         schedule.save(update_fields=["sandbox_environment"])
 
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -322,7 +322,7 @@ class TestScheduleRunNowView:
         schedule.mcp_overrides = {"tool-x": "off"}
         schedule.save(update_fields=["mcp_overrides"])
 
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -351,7 +351,7 @@ class TestScheduleRunNowView:
 
         admin_client = Client()
         admin_client.force_login(admin_user)
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = admin_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 

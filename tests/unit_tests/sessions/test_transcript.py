@@ -128,7 +128,7 @@ def test_expired_session_with_only_successful_runs_yields_no_turns():
 
 def test_non_chat_failed_run_shows_generic_message_not_raw_error():
     turns = [_user("h1"), _assistant("a1")]
-    raw = "dispatch_failed: GitCommandError: clone failed\nTraceback (most recent call last): ..."
+    raw = "enqueue_failed: GitCommandError: clone failed\nTraceback (most recent call last): ..."
     runs = [_run("r1", trigger_type=SessionOrigin.SCHEDULE, status=RunStatus.FAILED, error_message=raw)]
     result = annotate_transcript(turns, runs)
     marker = result[-1]
