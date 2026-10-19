@@ -6,6 +6,9 @@ had no ``run_id`` to read ``trigger_type`` off — the arm saw "not a fix run" a
 that wire rather than about the helper's own arguments.
 """
 
+import uuid
+from types import SimpleNamespace
+
 import pytest
 from asgiref.sync import sync_to_async
 from sandbox_envs.models import SandboxEnvironment
@@ -13,6 +16,7 @@ from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.judgment import PipelineReport
+from sessions.signals import LINK_FAILED_PREFIX
 
 from codebase.base import Scope
 from codebase.utils import compute_thread_id
@@ -255,3 +259,24 @@ async def test_a_failed_enqueue_refunds_the_attempt_and_reopens_the_watch(stub_e
     # The orphan row is reachable by neither arm of sync_stuck_runs, so it must not be left READY.
     run = await Run.objects.aget(session_id=session.thread_id)
     assert run.status == RunStatus.FAILED
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_task_result_link_marks_the_run_failed(stub_enqueue):
+    """``sync_stuck_runs`` only scans runs with a task result, so an unlinked row left READY
+    would never reach a terminal status."""
+    _calls, holder = stub_enqueue
+    holder["result"] = SimpleNamespace(id=uuid.uuid4())
+    session = await _make_watched_session(attempts=2)
+
+    await FixRunDispatcher().adispatch(
+        session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
+    )
+
+    run = await Run.objects.aget(session_id=session.thread_id)
+    assert run.status == RunStatus.FAILED
+    assert run.error_message.startswith(LINK_FAILED_PREFIX)
+    assert run.task_result_id is None
+    await session.arefresh_from_db()
+    assert session.watch_state == WatchState.FIXING
+    assert session.watch_attempts == 2

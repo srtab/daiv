@@ -55,6 +55,7 @@ class FixRunDispatcher:
         """
         from sessions.executor.tasks import run_job_task
         from sessions.services import acreate_run, amark_failed_and_advance
+        from sessions.signals import LINK_FAILED_PREFIX
 
         # Untranslated: this is addressed to the model, not the user. A filled catalog would
         # otherwise hand the agent its instructions in the operator's language.
@@ -103,9 +104,18 @@ class FixRunDispatcher:
         try:
             run.task_result_id = result.id
             await run.asave(update_fields=["task_result_id"])
-        except Exception:
+        except Exception as save_err:
+            # The task still runs, so the attempt stays charged; but sync_stuck_runs never sees an
+            # unlinked row, so mark it FAILED here or it stays READY forever.
             logger.exception(
                 "pipeline_watch: failed to link task_result_id=%s to run=%s (the fix run still executes)",
                 result.id,
                 run.pk,
+            )
+            await amark_failed_and_advance(
+                run,
+                prefix=LINK_FAILED_PREFIX,
+                err=save_err,
+                previous_status=RunStatus.READY,
+                log_context="pipeline_watch",
             )
