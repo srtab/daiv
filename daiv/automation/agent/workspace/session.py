@@ -1,30 +1,35 @@
 """A run's hold on its sandbox container, from the start or warm reuse to the stop or removal.
 
-The run executor builds one ``SandboxSession`` per sandbox-enabled run, acquires it before it builds the agent (unless
-the turn skips the sandbox, see ``skips_sandbox``), and releases it once the agent is done, however it ended.
-``SandboxMiddleware.abefore_agent`` records it in the thread's checkpoint, and everything that reaches the container
-goes through it: the ``/workspace`` file backend, the ``bash`` tool, git, the publisher and draft recovery. Subagents
-share their parent's session.
+The run executor builds one ``SandboxSession`` per sandbox-enabled run, acquires it (``acquire_sandbox``) before it
+builds the agent (unless the turn skips the sandbox, see ``skips_sandbox``), and releases it once the agent is done,
+however it ended. ``SandboxMiddleware.abefore_agent`` records it in the thread's checkpoint, and everything that reaches
+the container goes through it: the ``/workspace`` file backend, the ``bash`` tool, git, the publisher and draft
+recovery. Subagents share their parent's session.
 """
 
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
+import tarfile
 from enum import StrEnum
-from typing import TYPE_CHECKING, NamedTuple
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx
+from skills.services import global_skill_files
 
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
 from core.sandbox.schemas import StartSessionRequest
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
 
     from sandbox_envs.spec import SandboxSpec
 
     from codebase.clients.base import GitEgressCredential
+    from codebase.context import RuntimeCtx
     from core.sandbox.client import DAIVSandboxClient
     from core.sandbox.schemas import EgressConfigRequest
 
@@ -378,6 +383,65 @@ class SandboxSession:
                 logger.exception("Failed to build or seed sandbox session %s", session_id)
             await self._finish(self._close(session_id, force=True, after="an interrupted seed"))
             raise
+
+
+def _make_repo_archive(working_dir: str) -> bytes:
+    """Tar the contents of `working_dir` (members are relative to working_dir)."""
+    repo_dir = Path(working_dir)
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for child in repo_dir.iterdir():
+            tf.add(child, arcname=child.name)
+    return buf.getvalue()
+
+
+def _make_global_skills_archive() -> tuple[bytes | None, list[str]]:
+    """Tar the global skills (``skills.services.global_skill_files``), each under ``<name>/``, with what was left out,
+    worded for the agent.
+
+    These are the only-disk sources for global skills; seeding them into the sandbox's ``/workspace/skills`` is the
+    single provisioning step (one RPC), replacing per-file uploads. The archive is ``None`` when there is nothing to
+    pack, or when it can't be built, which leaves the sandbox without global skills.
+    """
+    skills = global_skill_files()
+    if not skills.files:
+        return None, skills.errors
+
+    buf = io.BytesIO()
+    try:
+        # ``dereference``: the sandbox rejects symlinks, so a linked file is packed as the file it points to.
+        with tarfile.open(fileobj=buf, mode="w:gz", dereference=True) as tf:
+            # Directory entries let the sandbox stamp their ownership; extraction would otherwise create them as root.
+            for path, source in skills.dirs.items():
+                tf.add(source, arcname=path, recursive=False)
+            for path, source in skills.files.items():
+                if (content := skills.read(path)) is None:
+                    continue
+                info = tf.gettarinfo(source, arcname=path)
+                info.size = len(content)
+                tf.addfile(info, io.BytesIO(content))
+    except OSError, tarfile.TarError:
+        logger.warning("Failed to build global skills archive; seeding without skills", exc_info=True)
+        return None, [*skills.errors, "Global skills failed to load: the sandbox could not be seeded with them"]
+    return buf.getvalue(), skills.errors
+
+
+async def _seed_archives(working_dir: str) -> SessionSeed:
+    """The repository and global-skills archives a fresh sandbox session is seeded with."""
+    repo_archive, (skills_archive, skills_seed_errors) = await asyncio.gather(
+        asyncio.to_thread(_make_repo_archive, working_dir), asyncio.to_thread(_make_global_skills_archive)
+    )
+    return SessionSeed(repo_archive, skills_archive, skills_seed_errors)
+
+
+async def acquire_sandbox(session: SandboxSession, ctx: RuntimeCtx, checkpointed: Mapping[str, Any]) -> None:
+    """Acquire the run's container, reusing the warm one ``checkpointed`` (the thread's last checkpoint values) names
+    when ``SandboxSession.acquire`` can, else starting one seeded from the worker's clone."""
+    await session.acquire(
+        prior_id=checkpointed.get("session_id"),
+        prior_fingerprint=checkpointed.get("sandbox_fingerprint"),
+        seed=lambda: _seed_archives(str(ctx.gitrepo.working_dir)),
+    )
 
 
 async def _wait_out(tasks: set[asyncio.Task[None]]) -> None:

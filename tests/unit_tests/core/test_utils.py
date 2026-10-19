@@ -50,7 +50,7 @@ class PrefixedEmailSubjectTest:
 
 class IsGitAuthErrorTextTest:
     """Direct contract test for the shared marker set used by both the clone-retry self-heal
-    (codebase.clients.gitlab) and the push-failure classifier (automation.agent.git_manager).
+    (codebase.clients.gitlab) and the push-failure classifier (automation.agent.workspace.git_manager).
     A marker dropped here silently widens or narrows both behaviours, so pin them explicitly."""
 
     @pytest.mark.parametrize(

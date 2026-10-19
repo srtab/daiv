@@ -9,7 +9,7 @@ import pytest
 from git import GitCommandError, Repo
 from unidiff import PatchSet
 
-from automation.agent.git_manager import (
+from automation.agent.workspace.git_manager import (
     GitManager,
     GitPushNetworkError,
     GitPushPermissionError,
@@ -17,7 +17,7 @@ from automation.agent.git_manager import (
     PendingMerge,
     _is_push_stale_error_text,
 )
-from automation.agent.git_runners import GitResult, LocalGitRunner, SandboxGitRunner
+from automation.agent.workspace.git_runners import GitResult, LocalGitRunner, SandboxGitRunner
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import FakeSandboxClient, sandbox_backend_on
 

@@ -18,10 +18,10 @@ from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
-from automation.agent.git_runners import LocalGitRunner
 from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
 from automation.agent.workspace.disk import DiskWorkspace
+from automation.agent.workspace.git_runners import LocalGitRunner
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import Scope
 from codebase.clients.base import GitEgressCredential

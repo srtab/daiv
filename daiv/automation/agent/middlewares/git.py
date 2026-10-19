@@ -15,7 +15,6 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
-from automation.agent.git_runners import SandboxGitProtocolError
 from automation.agent.publishers import (
     GitChangePublisher,
     UnresolvedMergeConflictsError,
@@ -23,6 +22,7 @@ from automation.agent.publishers import (
     effective_merge_request,
 )
 from automation.agent.utils import conversation_thread_id, final_assistant_text, streamed_assistant_message
+from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001

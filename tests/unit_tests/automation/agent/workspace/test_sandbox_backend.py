@@ -168,7 +168,7 @@ async def test_agrep_no_match_with_regex_looking_pattern_does_not_hint_here(back
     """The literal-semantics hint deliberately does NOT live at this level: the composite
     treats a sub-backend GrepResult.error as a backend failure and would suppress real
     matches from sibling backends. A zero-match here stays a clean empty result; the hint
-    fires on the aggregate in DAIVCompositeBackend.agrep (tested in test_file_system.py)."""
+    fires on the aggregate in DAIVCompositeBackend.agrep (tested in test_backends.py)."""
     client.fs_grep.return_value = FsGrepResponse(matches=[])
     result = await backend.agrep("get_catalog|list_relations", path="/workspace", glob=None)
     assert result.error is None

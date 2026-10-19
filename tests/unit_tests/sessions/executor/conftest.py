@@ -123,7 +123,7 @@ def agent_stack(
         patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.PipelineWatch", _Watch),
         patch(
-            "automation.agent.middlewares.sandbox._seed_archives",
+            "automation.agent.workspace.session._seed_archives",
             AsyncMock(return_value=SessionSeed(empty_archive(), None, [])),
         ),
     ):

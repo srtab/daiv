@@ -4,9 +4,9 @@ import logging
 from typing import TYPE_CHECKING
 
 from automation.agent.constants import WORKSPACE_PATH
-from automation.agent.git_manager import GitManager
-from automation.agent.git_runners import SandboxGitRunner
-from automation.agent.middlewares.file_system import DAIVCompositeBackend
+from automation.agent.workspace.backends import DAIVCompositeBackend
+from automation.agent.workspace.git_manager import GitManager
+from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 if TYPE_CHECKING:

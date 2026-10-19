@@ -4,8 +4,8 @@ import httpx
 import pytest
 
 from automation.agent.constants import WORKSPACE_PATH
-from automation.agent.git_runners import SandboxGitRunner
-from automation.agent.middlewares.file_system import DAIVCompositeBackend
+from automation.agent.workspace.backends import DAIVCompositeBackend
+from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession

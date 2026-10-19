@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from git import Repo
 
-from automation.agent.middlewares.sandbox import SandboxMiddleware, acquire_sandbox
+from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.workspace.sandbox import SandboxWorkspace
-from automation.agent.workspace.session import SandboxSession
+from automation.agent.workspace.session import SandboxSession, acquire_sandbox
 from codebase.base import Scope as RepoScope
 from codebase.clients.base import GitEgressCredential
 from codebase.context import set_runtime_ctx

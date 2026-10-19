@@ -13,7 +13,7 @@ from core.utils import is_git_auth_error_text
 if TYPE_CHECKING:
     from typing import NoReturn
 
-    from automation.agent.git_runners import GitResult, GitRunner
+    from automation.agent.workspace.git_runners import GitResult, GitRunner
 
 logger = logging.getLogger("daiv.tools")
 
@@ -59,7 +59,7 @@ class PendingMerge:
 
 
 class GitManager:
-    """Run git operations against the run's repository through a :class:`~automation.agent.git_runners.GitRunner`.
+    """Run git operations against the run's repository through a :class:`~.git_runners.GitRunner`.
 
     Args:
         runner: Where the git commands run.

@@ -30,8 +30,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from automation.agent.agent_settings import AgentSettings
-    from automation.agent.git_manager import PendingMerge
     from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.git_manager import PendingMerge
     from codebase.context import RuntimeCtx
 
 

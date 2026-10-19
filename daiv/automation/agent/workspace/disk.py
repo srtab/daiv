@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
-from automation.agent.git_manager import GitManager
-from automation.agent.git_runners import LocalGitRunner
-from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS, build_disk_workspace_backend
+from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS, build_disk_workspace_backend
+from automation.agent.workspace.git_manager import GitManager
+from automation.agent.workspace.git_runners import LocalGitRunner
 from codebase.clients import RepoClient
 
 if TYPE_CHECKING:

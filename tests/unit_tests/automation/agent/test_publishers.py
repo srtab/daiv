@@ -11,7 +11,6 @@ from langchain_core.runnables import RunnableLambda
 from pydantic import SecretStr
 
 from accounts.utils import PlatformIdentity
-from automation.agent.git_manager import PendingMerge, RepoStatus
 from automation.agent.publishers import (
     SESSION_TRAILER,
     GitChangePublisher,
@@ -22,6 +21,7 @@ from automation.agent.publishers import (
     effective_merge_request,
     run_base_branch,
 )
+from automation.agent.workspace.git_manager import PendingMerge, RepoStatus
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import (
     GitPlatform,
@@ -1164,7 +1164,7 @@ class TestPublishSuggestsContextFile:
     async def test_publish_propagates_push_failure_without_creating_mr(self, publisher, monkeypatch):
         """If the daiv-direct push fails, publish() must propagate (fail loud) and NOT open an MR
         against a branch that never landed on the remote."""
-        from automation.agent.git_manager import GitPushNetworkError
+        from automation.agent.workspace.git_manager import GitPushNetworkError
 
         gm = _fake_git_manager()
         gm.push_head_to = AsyncMock(side_effect=GitPushNetworkError("no network"))

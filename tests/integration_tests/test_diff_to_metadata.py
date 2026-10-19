@@ -7,7 +7,7 @@ from sandbox_envs.services import build_sandbox_spec
 
 from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_graph
 from automation.agent.diff_to_metadata.prompts import sanitize_agent_report
-from automation.agent.middlewares.file_system import build_disk_workspace_backend
+from automation.agent.workspace.backends import build_disk_workspace_backend
 from codebase.base import GitPlatform, Scope
 from codebase.context import set_runtime_ctx
 

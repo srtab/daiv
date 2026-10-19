@@ -1,17 +1,27 @@
 import asyncio
 import io
 import tarfile
-from unittest.mock import AsyncMock
+from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
 from sandbox_envs.spec import SandboxSpec
 
-from automation.agent.workspace.session import SandboxAcquisition, SandboxSession, SessionSeed
+from automation.agent.workspace.session import (
+    SandboxAcquisition,
+    SandboxSession,
+    SessionSeed,
+    _make_global_skills_archive,
+    acquire_sandbox,
+)
 from codebase.clients.base import GitEgressCredential
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
-from tests.unit_tests.conftest import FakeSandboxClient, acquired_session, sandbox_spec
+from tests.unit_tests.conftest import FakeSandboxClient, acquired_session, sandbox_spec, write_skill
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _repo_archive() -> bytes:
@@ -571,3 +581,82 @@ class TestRelease:
         await _session(client).release(resumable=False)
 
         assert client.calls == []
+
+
+def _tar_members(archive: bytes | None) -> dict[str, bytes]:
+    assert archive is not None
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
+        return {member.name: member.type for member in tf.getmembers()}
+
+
+async def test_acquire_sandbox_seeds_a_fresh_session_with_the_repo_and_the_global_skills(tmp_path: Path, skill_roots):
+    repo_dir = tmp_path / "repoX"
+    repo_dir.mkdir(parents=True)
+    (repo_dir / "README.md").write_text("hello")
+    builtin, _ = skill_roots
+    write_skill(builtin, "skill-one", "x")
+    client = FakeSandboxClient.opened()
+    session = _session(client)
+
+    await acquire_sandbox(session, Mock(gitrepo=Mock(working_dir=str(repo_dir))), {})
+
+    seeded = client.sessions[session.session_id]
+    assert seeded.repo_files == {"README.md"}
+    assert seeded.skills_files == {"skill-one/SKILL.md"}
+
+
+class TestGlobalSkillsArchive:
+    def test_make_global_skills_archive_packs_builtin_and_custom(self, skill_roots):
+        builtin, custom = skill_roots
+        write_skill(builtin, "code-review", "x")
+        write_skill(custom, "deploy", "x")
+
+        archive, errors = _make_global_skills_archive()
+
+        assert _tar_members(archive) == {
+            "code-review": tarfile.DIRTYPE,
+            "code-review/SKILL.md": tarfile.REGTYPE,
+            "deploy": tarfile.DIRTYPE,
+            "deploy/SKILL.md": tarfile.REGTYPE,
+        }
+        assert errors == []
+
+    def test_make_global_skills_archive_skips_and_reports_an_unreadable_file(self, skill_roots, chmod):
+        builtin, _ = skill_roots
+        write_skill(builtin, "code-review", "x")
+        write_skill(builtin, "plan", "x", {"scripts/helper.py": "print()"})
+        chmod(builtin / "plan" / "scripts" / "helper.py", 0)
+
+        archive, errors = _make_global_skills_archive()
+
+        members = _tar_members(archive)
+        assert {"code-review/SKILL.md", "plan/SKILL.md"} <= set(members)
+        assert "plan/scripts/helper.py" not in members
+        assert errors == ["Skill 'plan' may be incomplete: failed to load 'helper.py' (Permission denied)"]
+
+    def test_make_global_skills_archive_packs_a_symlinked_file_as_a_regular_file(self, skill_roots, tmp_path: Path):
+        builtin, _ = skill_roots
+        write_skill(builtin, "plan", "x")
+        (tmp_path / "shared.md").write_text("shared")
+        (builtin / "plan" / "shared.md").symlink_to(tmp_path / "shared.md")
+        write_skill(builtin, "zeta", "x")
+
+        archive, _ = _make_global_skills_archive()
+
+        members = _tar_members(archive)
+        assert members["plan/shared.md"] == tarfile.REGTYPE
+        assert "zeta/SKILL.md" in members
+
+    def test_make_global_skills_archive_none_when_no_skills(self, skill_roots):
+        assert _make_global_skills_archive() == (None, [])
+
+    def test_make_global_skills_archive_reports_a_tar_error(self, skill_roots):
+        """A TarError mid-build must not abort the whole sandbox seed: it seeds without skills and says so."""
+        builtin, _ = skill_roots
+        write_skill(builtin, "code-review", "x")
+
+        with patch("automation.agent.workspace.session.tarfile.open", side_effect=tarfile.TarError("boom")):
+            archive, errors = _make_global_skills_archive()
+
+        assert archive is None
+        assert errors == ["Global skills failed to load: the sandbox could not be seeded with them"]

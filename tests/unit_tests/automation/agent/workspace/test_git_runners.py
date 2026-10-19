@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from git import GitCommandError, Repo
 
-from automation.agent.git_runners import (
+from automation.agent.workspace.git_runners import (
     GitResult,
     LocalGitRunner,
     SandboxGitProtocolError,
@@ -43,7 +43,7 @@ def _capture_subprocess(monkeypatch) -> dict[str, dict[str, str]]:
         captured["env"] = kwargs["env"]
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr("automation.agent.git_runners.subprocess.run", fake_run)
+    monkeypatch.setattr("automation.agent.workspace.git_runners.subprocess.run", fake_run)
     return captured
 
 
@@ -164,7 +164,7 @@ async def test_local_runner_reads_non_utf8_output_lossily(tmp_path: Path) -> Non
 async def test_local_runner_spawn_failure_raises_without_the_credential_in_any_frame(
     tmp_path: Path, monkeypatch
 ) -> None:
-    monkeypatch.setattr("automation.agent.git_runners.subprocess.run", MagicMock(side_effect=OSError("boom")))
+    monkeypatch.setattr("automation.agent.workspace.git_runners.subprocess.run", MagicMock(side_effect=OSError("boom")))
     auth_env = GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "sekret-token")
     secret = auth_env.header.get_secret_value()
 
@@ -175,7 +175,7 @@ async def test_local_runner_spawn_failure_raises_without_the_credential_in_any_f
     runner_frames = [
         frame
         for frame, _ in traceback.walk_tb(exc_info.value.__traceback__)
-        if frame.f_globals["__name__"] == "automation.agent.git_runners"
+        if frame.f_globals["__name__"] == "automation.agent.workspace.git_runners"
     ]
     assert runner_frames
     assert all(secret not in repr(frame.f_locals) for frame in runner_frames)

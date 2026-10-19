@@ -222,10 +222,10 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
 
     from automation.agent.agent_settings import resolve_agent_settings
     from automation.agent.graph import create_daiv_agent
-    from automation.agent.middlewares.sandbox import acquire_sandbox
     from automation.agent.middlewares.slash_commands import resets_thread, skips_sandbox
     from automation.agent.usage_tracking import track_usage_metadata
     from automation.agent.utils import build_langsmith_config
+    from automation.agent.workspace.session import acquire_sandbox
     from codebase.context import set_runtime_ctx
     from core.checkpointer import open_checkpointer
     from core.site_settings import site_settings

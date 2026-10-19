@@ -3,9 +3,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from automation.agent.git_runners import LocalGitRunner
-from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS
+from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.workspace.disk import DiskWorkspace
+from automation.agent.workspace.git_runners import LocalGitRunner
 from codebase.clients.base import GitAuthEnv
 
 
