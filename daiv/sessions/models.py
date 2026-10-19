@@ -440,40 +440,23 @@ class Run(models.Model):
                 return parsed["response"]
         return self.result_summary
 
-    def mark_failed(self, prefix: str, err: Exception) -> list[str]:
-        """Set the terminal FAILED fields in-memory and return the ``update_fields`` list.
-
-        Centralizes the exact field set + ``started_at`` backfill shared by the
-        post-create failure paths (batch-submit enqueue/link failure in
-        ``sessions.services`` and the dispatcher in ``sessions.signals``). The caller
-        owns the save and the ``run_finished`` emit — this only mutates the instance.
-        """
-        now = timezone.now()
-        self.status = RunStatus.FAILED
-        self.error_message = f"{prefix}: {type(err).__name__}: {err}"
-        self.finished_at = now
-        if self.started_at is None:
-            self.started_at = now
-        return ["status", "error_message", "finished_at", "started_at"]
-
     def sync_and_save(self) -> bool:
         """Sync from the linked DBTaskResult and persist changed fields.
 
-        Returns True if any field was updated (and a save was issued), else False.
-        Emits ``run_finished`` when the status transitions to a terminal state.
+        Returns True if any field was updated (and a write was issued and landed), else False.
+        A transition to a terminal status is written by ``RunManager.finish``, which emits
+        ``run_finished``. No write lands on a row that already finished.
 
-        Raises whatever ``sync_from_task_result`` or ``self.save`` raise — callers running
+        Raises whatever ``sync_from_task_result`` or the write raise — callers running
         in long-lived loops (signal handlers, management commands) must catch.
         """
-        previous_status = self.status
         changed = self.sync_from_task_result()
         if not changed:
             return False
-        self.save(update_fields=changed)
-        from sessions.signals import emit_run_finished_if_terminal  # local import to avoid circular deps
-
-        emit_run_finished_if_terminal(self, previous_status=previous_status)
-        return True
+        fields = {name: getattr(self, name) for name in changed}
+        if fields.get("status") in RunStatus.terminal():
+            return type(self).objects.finish(self, fields.pop("status"), **fields)
+        return type(self).objects.update_unfinished(self, **fields)
 
     def sync_from_task_result(self) -> list[str]:
         """Pull latest status/timing/result from the linked DBTaskResult.

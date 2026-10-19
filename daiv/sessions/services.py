@@ -13,11 +13,9 @@ from asgiref.sync import async_to_sync, sync_to_async
 
 from codebase.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
 from sessions.admission import aassert_repo_access
-from sessions.executor.tasks import run_job_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.queue import aenqueue_run, amark_failed_and_advance
 from sessions.repo_state import mr_to_payload
-from sessions.signal_defs import LINK_FAILED_PREFIX
-from sessions.signals import emit_run_finished_if_terminal
 from sessions.tasks import generate_batch_title_task
 from sessions.validators import MAX_REPOS_PER_BATCH
 
@@ -259,38 +257,6 @@ async def acreate_run(
     )
 
 
-async def amark_failed_and_advance(
-    run: Run, *, prefix: str, err: Exception, previous_status: str, log_context: str = "submit_batch_runs"
-) -> None:
-    """Transition a row to FAILED with finished_at and emit ``run_finished``.
-
-    Does NOT touch ``Session.active_run_id`` (that is ``SessionLock``'s job); the
-    "advance" is emitting ``run_finished`` so any QUEUED siblings on the session
-    get dispatched. Used by every post-create error path (enqueue or task-result-id-link
-    failure); pass ``log_context`` so the log names the caller, not this module's first
-    one. The emit is best-effort — if it raises, we log
-    loudly and recommend the operator run ``release_orphan_queued_sessions`` to
-    recover stranded siblings.
-    """
-    update_fields = run.mark_failed(prefix, err)
-    try:
-        await run.asave(update_fields=update_fields)
-    except Exception:
-        # Best-effort: on a failed save the row may be left non-terminal (still READY)
-        # while we still emit below to advance siblings. release_orphan_queued_sessions
-        # reconciles any row stranded this way.
-        logger.exception("%s: terminal save failed for run=%s", log_context, run.pk)
-    try:
-        await asyncio.to_thread(emit_run_finished_if_terminal, run, previous_status=previous_status)
-    except Exception:
-        logger.exception(
-            "%s: emit_run_finished_if_terminal failed for run=%s; "
-            "queued siblings on this session may be stranded — run release_orphan_queued_sessions",
-            log_context,
-            run.pk,
-        )
-
-
 async def asubmit_batch_runs(
     *,
     user: User | None,
@@ -311,8 +277,8 @@ async def asubmit_batch_runs(
     Each ``RepoTarget`` carries its own ``sandbox_environment_id`` (resolved upstream by
     :func:`sandbox_envs.selection.aresolve_repo_envs` or its sync wrapper), so the batch can mix per-repo envs.
 
-    Best-effort: any per-repo exception (enqueue failure or post-enqueue run-creation
-    failure) lands in ``result.failed`` while siblings continue.
+    Best-effort: a per-repo failure (run creation, refs merge, enqueue or link) lands in
+    ``result.failed`` while siblings continue.
     """
     _validate(repos)
     if user is not None:
@@ -391,52 +357,16 @@ async def asubmit_batch_runs(
                 # A READY row left behind would hold the one-active-per-session claim forever
                 # (never enqueued → run_finished never fires → siblings stay QUEUED).
                 logger.exception("submit_batch_runs: session ref merge failed for repo_id=%s", target.repo_id)
-                await amark_failed_and_advance(run, prefix="refs_merge_failed", err=err, previous_status=run.status)
-                return BatchSubmitFailure(
-                    repo_id=target.repo_id, ref=target.ref, error=f"RefsMergeFailed: {type(err).__name__}: {err}"
+                await amark_failed_and_advance(
+                    run, prefix="refs_merge_failed", err=err, log_context="submit_batch_runs"
                 )
+                return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
 
         if run.status == RunStatus.QUEUED:
             return run
 
-        try:
-            task = await run_job_task.aenqueue(
-                repo_id=target.repo_id,
-                prompt=prompt,
-                ref=target.ref or None,
-                agent_model=agent_model or None,
-                agent_thinking_level=agent_thinking_level or None,
-                thread_id=effective_thread_id,
-                sandbox_environment_id=target.sandbox_environment_id,
-                run_id=str(run.pk),
-                user_id=user.id if user is not None else None,
-                ask_user_enabled=trigger_type not in SessionOrigin.unattended(),
-            )
-        except Exception as err:  # noqa: BLE001
-            logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
-            await amark_failed_and_advance(run, prefix="enqueue_failed", err=err, previous_status=RunStatus.READY)
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
-
-        try:
-            run.task_result_id = task.id
-            await run.asave(update_fields=["task_result_id"])
-        except Exception as save_err:
-            # The broker now holds a task this Run row doesn't link to.
-            # Mark the row FAILED so callers see the failure and queued siblings advance;
-            # the orphan task itself will execute and ``_sync_run_for_task`` will no-op
-            # (no Run with that task_result_id).
-            logger.exception(
-                "submit_batch_runs: failed to link task_result_id=%s to run=%s (orphan task will run)", task.id, run.pk
-            )
-            # Surface in error_message that the agent may run to completion (push a
-            # commit / open an MR) while this row shows FAILED — the work is real but
-            # uncapturable because nothing links back to it.
-            await amark_failed_and_advance(
-                run, prefix=LINK_FAILED_PREFIX, err=save_err, previous_status=RunStatus.READY
-            )
-            return BatchSubmitFailure(
-                repo_id=target.repo_id, ref=target.ref, error=f"LinkFailed: {type(save_err).__name__}: {save_err}"
-            )
+        if await aenqueue_run(run, log_context="submit_batch_runs") is not None:
+            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
         return run
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the

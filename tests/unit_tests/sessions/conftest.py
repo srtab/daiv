@@ -2,7 +2,7 @@ import inspect
 import uuid
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -20,6 +20,7 @@ from sessions.models import (
     WatchState,
     artifact_upload_to,
 )
+from sessions.signal_defs import run_finished
 
 from accounts.models import User
 from codebase.base import Job, MergeRequest, Pipeline
@@ -91,6 +92,57 @@ def create_db_task_result():
         )
 
     return _create
+
+
+def make_run(*, session_id: str, status: str, trigger_type: str = SessionOrigin.API_JOB, **kwargs) -> Run:
+    """A run on the session ``session_id``, which is created on first use. SYNC ONLY."""
+    session = Session.objects.get_or_create(
+        thread_id=session_id, defaults={"origin": trigger_type, "repo_id": "acme/api"}
+    )[0]
+    return Run.objects.create(
+        session=session, trigger_type=trigger_type, repo_id="acme/api", status=status, prompt="p", **kwargs
+    )
+
+
+class FakeRun:
+    """The ``Run`` a patched ``sessions.services.acreate_run`` returns: the columns ``aenqueue_run`` reads."""
+
+    def __init__(self, **kwargs):
+        self.id = self.pk = uuid.uuid4()
+        self.task_result_id = kwargs.get("task_result_id")
+        self.session_id = kwargs.get("thread_id") or str(uuid.uuid4())
+        self.trigger_type = kwargs.get("trigger_type", "")
+        self.repo_id = kwargs.get("repo_id", "")
+        self.ref = kwargs.get("ref", "")
+        self.prompt = kwargs.get("prompt", "")
+        self.agent_model = kwargs.get("agent_model", "")
+        self.agent_thinking_level = kwargs.get("agent_thinking_level", "")
+        self.sandbox_environment_id = kwargs.get("sandbox_environment_id")
+        self.user_id = user.pk if (user := kwargs.get("user")) is not None else None
+        self.status = RunStatus.READY
+        self.error_message = ""
+        self.started_at = self.finished_at = None
+        self.asave = AsyncMock(return_value=None)
+
+
+async def fake_acreate_run(**kwargs) -> FakeRun:
+    return FakeRun(**kwargs)
+
+
+@pytest.fixture
+def run_finished_spy():
+    """A receiver connected to ``run_finished`` for the test."""
+    spy = MagicMock()
+    run_finished.connect(spy, dispatch_uid="tests-run-finished-spy")
+    yield spy
+    run_finished.disconnect(dispatch_uid="tests-run-finished-spy")
+
+
+@pytest.fixture
+def badge():
+    """The nav badge refresh, ``ui_events.publisher.runs_changed``, patched."""
+    with patch("core.ui_events.publisher.runs_changed") as publish:
+        yield publish
 
 
 @pytest.fixture

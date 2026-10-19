@@ -28,7 +28,7 @@ async def test_denied_user_gets_no_runs(member_user):
 @pytest.mark.django_db(transaction=True)
 async def test_webhook_style_submission_skips_check():
     check = Mock(return_value=None)
-    with patch("sessions.admission.assert_can_run", new=check), patch("sessions.services.run_job_task") as m_task:
+    with patch("sessions.admission.assert_can_run", new=check), patch("sessions.queue.run_job_task") as m_task:
         m_task.aenqueue = AsyncMock(side_effect=Exception("stop before enqueue matters"))
         await asubmit_batch_runs(
             user=None,
