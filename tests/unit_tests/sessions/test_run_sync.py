@@ -10,11 +10,10 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.signal_defs import run_finished
 
 pytestmark = pytest.mark.django_db
 
@@ -114,20 +113,15 @@ def test_sync_and_save_finishes_a_terminal_transition(create_db_task_result):
     assert (run.status, run.result_summary) == (RunStatus.SUCCESSFUL, "Done.")
 
 
-def test_sync_and_save_does_not_refinish_a_row_another_sync_finished(create_db_task_result):
+def test_sync_and_save_does_not_refinish_a_row_another_sync_finished(create_db_task_result, run_finished_spy):
     """Two syncs of one task (the worker's ``task_finished`` and the ``sync_stuck_runs`` cron) both read the row
     RUNNING; only the first may finish it, or ``run_finished`` reaches the receivers twice."""
     tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Done."})
     first = _run(tr, status=RunStatus.RUNNING)
     second = Run.objects.select_related("task_result").get(pk=first.pk)
-    received = MagicMock()
-    run_finished.connect(received, dispatch_uid="test-run-sync-refinish")
-    try:
-        assert first.sync_and_save() is True
-        assert second.sync_and_save() is False
-    finally:
-        run_finished.disconnect(dispatch_uid="test-run-sync-refinish")
-    assert received.call_count == 1
+    assert first.sync_and_save() is True
+    assert second.sync_and_save() is False
+    assert run_finished_spy.call_count == 1
 
 
 def test_a_stale_sync_does_not_reopen_a_finished_row(create_db_task_result):
@@ -144,12 +138,12 @@ def test_a_stale_sync_does_not_reopen_a_finished_row(create_db_task_result):
 
 
 def test_a_sync_that_starts_the_run_refreshes_the_badge_once_committed(
-    create_db_task_result, django_capture_on_commit_callbacks
+    create_db_task_result, badge, django_capture_on_commit_callbacks
 ):
     tr = create_db_task_result(status="RUNNING", started_at=_STARTED)
     run = _run(tr, status=RunStatus.READY)
 
-    with patch("core.ui_events.publisher.runs_changed") as badge, django_capture_on_commit_callbacks(execute=True):
+    with django_capture_on_commit_callbacks(execute=True):
         assert run.sync_and_save() is True
 
     badge.assert_called_once_with()

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import TYPE_CHECKING, Any
 
 from django.db import models, transaction
@@ -12,8 +11,6 @@ from sessions.signal_defs import run_finished
 if TYPE_CHECKING:
     from accounts.models import User
     from sessions.models import Run, RunArtifact, Session
-
-logger = logging.getLogger("daiv.sessions")
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
@@ -206,15 +203,7 @@ class RunManager(models.Manager["Run"]):
 
         if run.trigger_type == SessionOrigin.CHAT:
             return
-        results = run_finished.send_robust(sender=type(run), run=run, skip_dispatch=skip_dispatch)
-        for recv, response in results:
-            if isinstance(response, Exception):
-                logger.error(
-                    "Receiver %s failed for run_finished (run=%s)",
-                    getattr(recv, "__name__", recv),
-                    run.pk,
-                    exc_info=response,
-                )
+        run_finished.send_robust(sender=type(run), run=run, skip_dispatch=skip_dispatch)
 
 
 def _require_terminal(status: str) -> None:

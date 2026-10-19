@@ -8,7 +8,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signal_defs import run_finished
 
 from accounts.models import User
-from tests.unit_tests.sessions.conftest import commit_revision, make_artifact
+from tests.unit_tests.sessions.conftest import commit_revision, make_artifact, make_run
 
 
 def _make_session(*, thread_id: str | None = None) -> Session:
@@ -21,15 +21,6 @@ def _create_run(*, session: Session, status: str = RunStatus.READY, **kwargs) ->
     defaults = {"trigger_type": SessionOrigin.API_JOB, "repo_id": "group/project", "status": status}
     defaults.update(kwargs)
     return Run.objects.create(session=session, **defaults)
-
-
-def _make_run(*, session_id: str, status: str, **kwargs) -> Run:
-    session = Session.objects.get_or_create(
-        thread_id=session_id, defaults={"origin": SessionOrigin.API_JOB, "repo_id": "acme/api"}
-    )[0]
-    return Run.objects.create(
-        session=session, trigger_type=SessionOrigin.API_JOB, repo_id="acme/api", status=status, prompt="p", **kwargs
-    )
 
 
 @pytest.mark.django_db
@@ -216,21 +207,13 @@ class TestSyncRunOnTaskSignals:
 
 @pytest.mark.django_db(transaction=True)
 class TestDispatchNextInSession:
-    def test_releases_oldest_queued_sibling(self, create_db_task_result):
-        session_id = str(uuid.uuid4())
-        finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
-        oldest = _make_run(session_id=session_id, status=RunStatus.QUEUED)
-        _make_run(session_id=session_id, status=RunStatus.QUEUED)  # newer sibling
+    def test_dispatches_the_finished_runs_session(self):
+        finished = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL)
 
-        db_task = create_db_task_result()
-        fake_task = MagicMock(id=db_task.id)
-        with patch("sessions.queue.run_job_task") as mock_task:
-            mock_task.aenqueue = AsyncMock(return_value=fake_task)
+        with patch("sessions.signals.dispatch_next_queued") as dispatch:
             run_finished.send(sender=Run, run=finished)
 
-        oldest.refresh_from_db()
-        assert oldest.status == RunStatus.READY
-        assert oldest.task_result_id == fake_task.id
+        dispatch.assert_called_once_with(finished.session_id)
 
     def test_no_op_when_no_session_id(self):
         # Create a run without a session (shouldn't happen in practice but guard the code path)
@@ -247,8 +230,8 @@ class TestDispatchNextInSession:
     def test_skip_dispatch_kwarg_suppresses_dispatcher(self):
         """run_finished with skip_dispatch=True must not re-enter dispatch_next_in_session."""
         session_id = str(uuid.uuid4())
-        finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
-        queued = _make_run(session_id=session_id, status=RunStatus.QUEUED)
+        finished = make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
+        queued = make_run(session_id=session_id, status=RunStatus.QUEUED)
         with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock()
             run_finished.send(sender=Run, run=finished, skip_dispatch=True)
@@ -268,8 +251,8 @@ class TestSyncReleasesQueuedSibling:
 
         session_id = str(uuid.uuid4())
         tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "done"})
-        stuck = _make_run(session_id=session_id, status=RunStatus.RUNNING, task_result=tr)
-        queued = _make_run(session_id=session_id, status=RunStatus.QUEUED)
+        stuck = make_run(session_id=session_id, status=RunStatus.RUNNING, task_result=tr)
+        queued = make_run(session_id=session_id, status=RunStatus.QUEUED)
 
         fake_task = MagicMock(id=create_db_task_result().id)
         with patch("sessions.queue.run_job_task") as mock_task:
@@ -341,14 +324,6 @@ class TestClassifyOnRunFinished:
             classify_on_run_finished(sender=Run, run=run, skip_dispatch=True)
         task_mock.enqueue.assert_called_once_with(str(run.pk))
 
-    def test_non_failed_skip_dispatch_still_skips(self):
-        run = self._schedule_run(status=RunStatus.SUCCESSFUL)
-        from sessions.signals import classify_on_run_finished
-
-        with patch("sessions.signals.classify_run_task") as task_mock:
-            classify_on_run_finished(sender=Run, run=run, skip_dispatch=True)
-        task_mock.enqueue.assert_not_called()
-
     def test_skips_non_terminal_status(self):
         from sessions.signals import classify_on_run_finished
 
@@ -364,15 +339,6 @@ class TestClassifyOnRunFinished:
         with patch("sessions.signals.classify_run_task") as task_mock:
             classify_on_run_finished(sender=Run, run=run)
         task_mock.enqueue.assert_called_once_with(str(run.pk))
-
-    def test_skips_dispatch_failure_reemits(self):
-        """``skip_dispatch=True`` is checked first: the dispatcher or orphan sweep failed that run."""
-        from sessions.signals import classify_on_run_finished
-
-        run = self._schedule_run(status=RunStatus.SUCCESSFUL)
-        with patch("sessions.signals.classify_run_task") as task_mock:
-            classify_on_run_finished(sender=Run, run=run, skip_dispatch=True)
-        task_mock.enqueue.assert_not_called()
 
     def test_never_raises_on_enqueue_failure(self):
         from sessions.signals import classify_on_run_finished

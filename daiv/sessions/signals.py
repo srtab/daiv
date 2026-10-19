@@ -132,16 +132,12 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
 def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
     """Enqueue post-run classification for all non-chat origins (SCHEDULE + webhooks + prompt-driven).
 
-    Universal gate: every terminal, non-chat run gets a RunEnvelope. ``skip_dispatch=True`` marks
-    a run the dispatcher or orphan sweep failed to enqueue or link; that FAILED run still deserves a
-    ``failed`` envelope + failure notification, so only the non-FAILED skip_dispatch case returns early.
+    Universal gate: every terminal, non-chat run gets a RunEnvelope, including a FAILED one emitted with
+    ``skip_dispatch=True``, which still deserves a ``failed`` envelope + failure notification.
 
     Exception-safe: classification must never affect the run lifecycle.
     """
     try:
-        # A FAILED skip_dispatch emit still needs its `failed` envelope; only non-FAILED re-entry skips.
-        if kwargs.get("skip_dispatch") and run.status != RunStatus.FAILED:
-            return
         if run.trigger_type not in get_classify_origins():
             return
         if run.status not in RunStatus.terminal():

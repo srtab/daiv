@@ -440,20 +440,6 @@ class Run(models.Model):
                 return parsed["response"]
         return self.result_summary
 
-    def mark_failed(self, prefix: str, err: Exception) -> dict[str, Any]:
-        """Set the terminal FAILED fields in-memory and return them, ``status`` aside, for ``RunManager.afinish``.
-
-        It sets them before the write so a caller can read why the run failed even when that
-        write does not land.
-        """
-        now = timezone.now()
-        self.status = RunStatus.FAILED
-        self.error_message = f"{prefix}: {type(err).__name__}: {err}"
-        self.finished_at = now
-        if self.started_at is None:
-            self.started_at = now
-        return {"error_message": self.error_message, "finished_at": now, "started_at": self.started_at}
-
     def sync_and_save(self) -> bool:
         """Sync from the linked DBTaskResult and persist changed fields.
 
@@ -467,10 +453,10 @@ class Run(models.Model):
         changed = self.sync_from_task_result()
         if not changed:
             return False
-        if "status" in changed and self.status in RunStatus.terminal():
-            fields = {name: getattr(self, name) for name in changed if name != "status"}
-            return type(self).objects.finish(self, self.status, **fields)
-        return type(self).objects.update_unfinished(self, **{name: getattr(self, name) for name in changed})
+        fields = {name: getattr(self, name) for name in changed}
+        if fields.get("status") in RunStatus.terminal():
+            return type(self).objects.finish(self, fields.pop("status"), **fields)
+        return type(self).objects.update_unfinished(self, **fields)
 
     def sync_from_task_result(self) -> list[str]:
         """Pull latest status/timing/result from the linked DBTaskResult.
