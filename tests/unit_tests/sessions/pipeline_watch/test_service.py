@@ -6,14 +6,16 @@ from unittest.mock import patch
 from django.utils import timezone
 
 import pytest
+from notifications.choices import EventType
+from notifications.models import Notification
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
-from sessions.pipeline_watch.notifier import WatchNotifier
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.reconciler import WATCH_STALE_AFTER
 from sessions.pipeline_watch.service import PipelineWatch
+from sessions.signal_defs import watch_exhausted
 
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig
@@ -86,18 +88,23 @@ class RecordingDispatcher:
         self.dispatched.append(kwargs)
 
 
-class RecordingNotifier:
-    def __init__(self):
-        self.notified = []
+@pytest.fixture
+def exhausted():
+    """What ``watch_exhausted`` receivers were sent. The notifications receiver stays connected."""
+    received = []
 
-    async def anotify_exhausted(self, **kwargs):
-        self.notified.append(kwargs)
+    def receiver(sender, signal, **kwargs):
+        received.append({"sender": sender, **kwargs})
+
+    watch_exhausted.connect(receiver, weak=False, dispatch_uid="test-watch-exhausted")
+    yield received
+    watch_exhausted.disconnect(dispatch_uid="test-watch-exhausted")
 
 
 @pytest.fixture
-def watch():
+def watch(exhausted):
     """A ``PipelineWatch`` with the outside world faked and the store running for real."""
-    platform, dispatcher, notifier = FakePlatform(), RecordingDispatcher(), RecordingNotifier()
+    platform, dispatcher = FakePlatform(), RecordingDispatcher()
 
     def make(repo_id: str = "group/repo", *, config: RepositoryConfig | None = None) -> PipelineWatch:
         """A fresh instance per call: two concurrent events are two tasks and two instances,
@@ -108,14 +115,10 @@ def watch():
         takes.
         """
         return PipelineWatch(
-            repo_id,
-            platform=platform,
-            dispatcher=dispatcher,
-            notifier=notifier,
-            policy=WatchPolicy(config or RepositoryConfig()),
+            repo_id, platform=platform, dispatcher=dispatcher, policy=WatchPolicy(config or RepositoryConfig())
         )
 
-    return SimpleNamespace(make=make, platform=platform, dispatcher=dispatcher, notifier=notifier)
+    return SimpleNamespace(make=make, platform=platform, dispatcher=dispatcher, exhausted=exhausted)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -124,6 +127,7 @@ async def test_a_real_failure_dispatches_a_fix_run(watched_session, watch):
     await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
 
     assert len(watch.dispatcher.dispatched) == 1
+    assert watch.exhausted == []
     await watched_session.arefresh_from_db()
     assert watched_session.watch_state == WatchState.FIXING
     assert watched_session.watch_attempts == 1
@@ -162,31 +166,62 @@ async def test_an_uninjected_dispatcher_is_a_real_fix_run_dispatcher(watched_ses
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_an_uninjected_notifier_is_a_real_watch_notifier(watched_session, watch, monkeypatch):
-    """Production injects no notifier, so the ``WatchNotifier()`` default in ``PipelineWatch.__init__``
-    is the only path it takes — and every other test here injects one. This pins that ``__init__``
-    builds the real ``WatchNotifier`` type (the ``isinstance`` assertion below) and passes it the
-    right keyword arguments; ``anotify_exhausted`` itself is monkeypatched away, so its body is not
-    exercised here.
-    """
-    notified = []
-
-    async def fake_notify(self, **kwargs):
-        notified.append(kwargs)
-
-    monkeypatch.setattr(WatchNotifier, "anotify_exhausted", fake_notify)
-    pipeline = make_pipeline("failed", pipeline_id=901)
-    watch.platform.pipeline = pipeline
+async def test_giving_up_sends_the_pipeline_facts(watched_session, watch):
+    """Reading the pipeline is this package's job — the allow_failure job is not a real failure — and
+    everything else belongs to the receivers. The pipeline id travels too: it is what scopes the
+    notification's dedup key to one give-up rather than to the whole thread."""
+    watch.platform.pipeline = make_pipeline(
+        "failed", jobs=[make_job(name="tests"), make_job(name="flaky", allow_failure=True)], pipeline_id=901
+    )
     await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3)
 
-    pw = PipelineWatch("group/repo", platform=watch.platform)
-    assert isinstance(pw._notifier, WatchNotifier)
+    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=901)
 
-    await pw.aevaluate(ref="daiv/branch", pipeline_id=901)
+    assert watch.exhausted == [
+        {
+            "sender": Session,
+            "session": watched_session,
+            "failing_jobs": ["tests"],
+            "pipeline_url": "https://example.com/p/901",
+            "pipeline_id": 901,
+        }
+    ]
 
-    assert len(notified) == 1
-    assert notified[0]["report"].pipeline is pipeline
-    assert notified[0]["session"].thread_id == watched_session.thread_id
+
+@pytest.mark.django_db(transaction=True)
+async def test_giving_up_notifies_the_session_owner(watched_session, watch, django_user_model):
+    owner = await django_user_model.objects.acreate(username="owner", email="owner@example.com")
+    watch.platform.pipeline = make_pipeline("failed", pipeline_id=903)
+    await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3, user=owner)
+
+    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=903)
+
+    notification = await Notification.objects.aget()
+    assert notification.event_type == EventType.PIPELINE_WATCH_EXHAUSTED
+    assert notification.recipient_id == owner.pk
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failing_receiver_never_breaks_the_watch(watched_session, watch):
+    """The MR comment is the reliable channel, so a receiver failure must not propagate into the
+    state machine that has already recorded the watch as exhausted."""
+
+    def boom(sender, **kwargs):
+        raise RuntimeError("channel down")
+
+    watch_exhausted.connect(boom, weak=False, dispatch_uid="test-watch-exhausted-boom")
+    watch.platform.pipeline = make_pipeline("failed", pipeline_id=902)
+    await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3)
+
+    try:
+        await watch.make().aevaluate(ref="daiv/branch", pipeline_id=902)
+    finally:
+        watch_exhausted.disconnect(dispatch_uid="test-watch-exhausted-boom")
+
+    assert len(watch.platform.notes) == 1
+    assert len(watch.exhausted) == 1
+    await watched_session.arefresh_from_db()
+    assert watched_session.watch_state == WatchState.EXHAUSTED
 
 
 @pytest.mark.django_db(transaction=True)
@@ -195,6 +230,7 @@ async def test_a_green_pipeline_ends_the_watch(watched_session, watch):
     await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
 
     assert watch.dispatcher.dispatched == []
+    assert watch.exhausted == []
     await watched_session.arefresh_from_db()
     assert watched_session.watch_state == WatchState.GREEN
 
@@ -206,6 +242,7 @@ async def test_an_unreadable_pipeline_stops_the_watch_with_a_note(watched_sessio
 
     assert watch.dispatcher.dispatched == []
     assert len(watch.platform.notes) == 1
+    assert watch.exhausted == []
     await watched_session.arefresh_from_db()
     assert watched_session.watch_state == WatchState.UNCLEAR
 
@@ -373,7 +410,7 @@ async def test_two_concurrent_give_ups_comment_and_notify_once(watched_session, 
     )
 
     assert len(watch.platform.notes) == 1
-    assert len(watch.notifier.notified) == 1
+    assert len(watch.exhausted) == 1
     await watched_session.arefresh_from_db()
     assert watched_session.watch_state == WatchState.EXHAUSTED
 
@@ -419,7 +456,7 @@ async def test_two_concurrent_exhaustions_comment_and_notify_once(watched_sessio
     )
 
     assert len(watch.platform.notes) == 1
-    assert len(watch.notifier.notified) == 1
+    assert len(watch.exhausted) == 1
     await watched_session.arefresh_from_db()
     assert watched_session.watch_state == WatchState.EXHAUSTED
 
@@ -537,6 +574,7 @@ async def test_a_fix_run_that_changed_nothing_gives_up(watch):
     await watch.make().aexhaust(merge_request_iid=73, reason="the agent made no changes")
     session = await Session.objects.aget(thread_id=mr_thread)
     assert session.watch_state == WatchState.EXHAUSTED
+    assert watch.exhausted == []
 
 
 @pytest.mark.django_db(transaction=True)
@@ -714,7 +752,7 @@ async def test_arming_costs_one_site_settings_read(watch, monkeypatch):
     monkeypatch.setattr("sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: config)
     # No injected policy: this is the only test on the ``WatchPolicy.afor_repo`` fallback that
     # production takes, and the cost it measures is the fallback's.
-    pw = PipelineWatch("group/repo", platform=watch.platform, dispatcher=watch.dispatcher, notifier=watch.notifier)
+    pw = PipelineWatch("group/repo", platform=watch.platform, dispatcher=watch.dispatcher)
 
     with patch.object(SiteConfiguration, "get_cached", wraps=SiteConfiguration.get_cached) as get_cached:
         await pw.aarm(merge_request_iid=81, ref="daiv/branch", was_fix_run=False)

@@ -20,7 +20,7 @@ from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
 from sessions.artifacts import aserialize_run_artifacts_for_status
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Intent, Run, RunStatus, Session, SessionOrigin
 from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, asubmit_batch_runs
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
@@ -35,7 +35,7 @@ from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for MCPServer
 from daiv import __version__
 from mcp_api.auth import DjangoTokenVerifier, get_current_user
-from schedules.models import Frequency, Intent, ScheduledJob  # noqa: TC001 - runtime literal for MCPServer
+from schedules.models import Frequency, ScheduledJob  # noqa: TC001 - runtime literal for MCPServer
 from schedules.services import acreate_scheduled_job, alist_scheduled_jobs
 
 if TYPE_CHECKING:

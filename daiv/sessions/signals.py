@@ -7,31 +7,17 @@ from typing import Any
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models.signals import post_delete, post_save
-from django.dispatch import Signal, receiver
+from django.dispatch import receiver
 
 from asgiref.sync import async_to_sync
 from django_tasks.signals import task_finished, task_started
 
 from core import ui_events
 from sessions.executor.tasks import run_job_task
+from sessions.signal_defs import LINK_FAILED_PREFIX, run_finished
 from sessions.tasks import classify_run_task
 
 logger = logging.getLogger("daiv.sessions")
-
-# Emitted when a Run transitions to a terminal status (``RunStatus.terminal()``).
-# Arguments: run (Run instance).
-run_finished = Signal()
-
-# Emitted exactly once when a RunEnvelope is persisted for a Run.
-# Arguments: run (Run instance), envelope (RunEnvelope instance).
-run_classified = Signal()
-
-# ``error_message`` prefix for the orphan-task failure mode: the broker holds a task
-# that couldn't be linked back to its Run row, so the agent may run to completion
-# (push a commit / open an MR) while the row shows FAILED. Shared by both the
-# batch-submit path (services) and the dispatcher (signals) so the sentinel an
-# operator greps for stays identical across them.
-LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
 
 
 def get_classify_origins() -> frozenset[str]:

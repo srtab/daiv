@@ -23,7 +23,7 @@ from automation.agent.base import get_model
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from schedules.models import Intent
+    from sessions.models import Intent
 
 # Module-constant prompt (tunable / deferred). Instructs the model to classify a run's prose
 # report into one of the three non-failed statuses and emit one actionable per finding. The

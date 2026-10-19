@@ -35,7 +35,6 @@ from automation.agent.picker_context import agent_picker_context
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
-from schedules.models import ScheduledJob
 from sessions.artifacts import ArtifactKind, open_artifact_file
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
@@ -207,11 +206,10 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["statuses"] = RunStatus.choices
         context["ranges"] = RANGE_CHOICES
 
-        # Resolve schedule name for the filter-bar chip. Only the full page renders the
-        # filter bar, so skip this extra query on the HTMX results-fragment path.
-        if not is_htmx(self.request) and (schedule_id := context["current_schedule"]):
-            schedule = ScheduledJob.objects.filter(pk=schedule_id).values_list("name", flat=True).first()
-            context["schedule_name"] = schedule or ""
+        # The page rows are already scoped to this user and the schedule, so they name the chip.
+        if context["current_schedule"]:
+            first = next(iter(context["sessions"]), None)
+            context["schedule_name"] = first.scheduled_job.name if first else ""
 
         # In-flight RUN ids across the page's sessions, for the SSE status stream.
         page_ids = [s.pk for s in context["sessions"]]

@@ -283,7 +283,7 @@ def test_redrive_skips_single_repo_batch_run_already_delivered(member_user, emai
     assert per_run.count() == 1
 
     # Second pass must recognise the per-run row as delivered and not re-emit.
-    with patch("sessions.signals.run_classified.send_robust") as send_mock:
+    with patch("sessions.signal_defs.run_classified.send_robust") as send_mock:
         redrive_missing_notifications_cron_task.func()
     send_mock.assert_not_called()
     assert per_run.count() == 1
@@ -310,7 +310,7 @@ def test_redrive_skips_batch_not_yet_fully_classified(member_user, email_binding
         batch_id=batch_id,
     )
 
-    with patch("sessions.signals.run_classified.send_robust") as send_mock:
+    with patch("sessions.signal_defs.run_classified.send_robust") as send_mock:
         redrive_missing_notifications_cron_task.func()
     send_mock.assert_not_called()
     assert Notification.objects.filter(source_id=str(batch_id)).count() == 0
@@ -329,7 +329,7 @@ def test_redrive_leaves_webhook_question_runs_alone(member_user, email_binding, 
     _classified_finished_run(member_user, status=EnvelopeStatus.NEEDS_INPUT, origin=SessionOrigin.ISSUE_WEBHOOK)
 
     with (
-        patch("sessions.signals.run_classified.send_robust") as send_mock,
+        patch("sessions.signal_defs.run_classified.send_robust") as send_mock,
         caplog.at_level(logging.ERROR, logger="daiv.notifications"),
     ):
         redrive_missing_notifications_cron_task.func()

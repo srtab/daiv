@@ -7,7 +7,7 @@ from django_tasks.signals import task_finished, task_started
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.signals import run_finished
+from sessions.signal_defs import run_finished
 
 from accounts.models import User
 from tests.unit_tests.sessions.conftest import commit_revision, make_artifact
@@ -221,7 +221,7 @@ class TestRunFinishedSignal:
     def test_emitted_on_transition_to_successful(self, member_user):
         from unittest.mock import MagicMock
 
-        from sessions.signals import emit_run_finished_if_terminal, run_finished
+        from sessions.signals import emit_run_finished_if_terminal
 
         session = _make_session()
         run = _create_run(session=session, status=RunStatus.RUNNING, user=member_user)
@@ -241,7 +241,7 @@ class TestRunFinishedSignal:
     def test_not_emitted_when_still_running(self, member_user):
         from unittest.mock import MagicMock
 
-        from sessions.signals import emit_run_finished_if_terminal, run_finished
+        from sessions.signals import emit_run_finished_if_terminal
 
         session = _make_session()
         run = _create_run(session=session, status=RunStatus.RUNNING, user=member_user)
@@ -256,7 +256,7 @@ class TestRunFinishedSignal:
     def test_not_emitted_when_already_terminal(self, member_user):
         from unittest.mock import MagicMock
 
-        from sessions.signals import emit_run_finished_if_terminal, run_finished
+        from sessions.signals import emit_run_finished_if_terminal
 
         session = _make_session()
         run = _create_run(session=session, status=RunStatus.SUCCESSFUL, user=member_user)

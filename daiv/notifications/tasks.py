@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from crontask import cron
 from django_tasks import task
+from sessions.signal_defs import run_classified
 
 from core.constants import TASK_PRIORITY_NOTIFICATION, TASK_QUEUE_INTERACTIVE
 from core.site_settings import site_settings
@@ -117,7 +118,7 @@ def redrive_missing_notifications_cron_task():
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock.
     """
     from sessions.models import EnvelopeStatus, Run, RunStatus, SessionOrigin
-    from sessions.signals import get_classify_origins, run_classified
+    from sessions.signals import get_classify_origins
     from sessions.tasks import RECLASSIFY_MAX_AGE
 
     from notifications.models import Notification

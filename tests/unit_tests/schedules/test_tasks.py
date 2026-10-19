@@ -2,17 +2,19 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import DatabaseError
+from django.db import DatabaseError, connection
 
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
 from notifications.choices import EventType
 from notifications.models import Notification
+from notifications.signals import on_schedule_dispatch_failed
 from sessions.models import Run, SessionOrigin
 
 from accounts.models import User
 from codebase.authorization import RepositoryAccessDenied
 from schedules.models import DispatchError, Frequency, ScheduledJob
+from schedules.signals import schedule_dispatch_failed
 from schedules.tasks import dispatch_scheduled_jobs_cron_task
 
 
@@ -429,6 +431,9 @@ def _dispatch(*, denied=None, aenqueue=_aenqueue_ok):
         dispatch_scheduled_jobs_cron_task.func()
 
 
+NOTIFY_UID = "notifications.on_schedule_dispatch_failed"
+
+
 def _failure_notices():
     return Notification.objects.filter(event_type=EventType.SCHEDULE_DISPATCH_FAILED)
 
@@ -459,6 +464,41 @@ def test_dispatch_denied_records_the_failure_without_counting_a_run(member_user)
     assert schedule.dispatch_error == DispatchError.REPO_ACCESS_DENIED
     assert schedule.dispatch_error_repo_ids == ["acme/repo"]
     assert (schedule.last_run_at, schedule.run_count) == (None, 0)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_failed_dispatch_sends_schedule_dispatch_failed_after_commit(member_user):
+    schedule = _due_daily(member_user)
+    received = []
+
+    def receiver(sender, signal, **kwargs):
+        received.append({"sender": sender, "in_atomic_block": connection.in_atomic_block, **kwargs})
+
+    schedule_dispatch_failed.connect(receiver, weak=False, dispatch_uid="test-dispatch-failed")
+    try:
+        _dispatch(denied=RepositoryAccessDenied(["acme/repo"]))
+    finally:
+        schedule_dispatch_failed.disconnect(dispatch_uid="test-dispatch-failed")
+
+    assert received == [{"sender": ScheduledJob, "in_atomic_block": False, "schedule_pk": schedule.pk}]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_receiver_that_raises_first_does_not_stop_the_owner_notice(member_user):
+    _due_daily(member_user)
+
+    def boom(sender, **kwargs):
+        raise RuntimeError("receiver down")
+
+    schedule_dispatch_failed.disconnect(dispatch_uid=NOTIFY_UID)
+    schedule_dispatch_failed.connect(boom, weak=False, dispatch_uid="test-dispatch-failed-boom")
+    schedule_dispatch_failed.connect(on_schedule_dispatch_failed, dispatch_uid=NOTIFY_UID)
+    try:
+        _dispatch(denied=RepositoryAccessDenied(["acme/repo"]))
+    finally:
+        schedule_dispatch_failed.disconnect(dispatch_uid="test-dispatch-failed-boom")
+
+    assert list(_failure_notices().values_list("recipient", flat=True)) == [member_user.pk]
 
 
 @pytest.mark.django_db(transaction=True)

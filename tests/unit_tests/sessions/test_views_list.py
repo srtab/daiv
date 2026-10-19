@@ -12,6 +12,7 @@ import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
+from schedules.models import Frequency, ScheduledJob
 
 
 @pytest.fixture
@@ -39,6 +40,17 @@ def _create_session(**kwargs) -> Session:
     }
     defaults.update(kwargs)
     return Session.objects.create(**defaults)
+
+
+def _create_schedule(user: User, name: str, repo_id: str = "group/project") -> ScheduledJob:
+    return ScheduledJob.objects.create(
+        user=user,
+        name=name,
+        prompt="p",
+        repos=[{"repo_id": repo_id, "ref": ""}],
+        frequency=Frequency.DAILY,
+        time="09:00",
+    )
 
 
 def _create_run(session: Session, **kwargs) -> Run:
@@ -225,6 +237,24 @@ class TestSessionListView:
         assert response.context["current_mr"] == 42
         assert response.context["has_active_filters"] is True
         assert "Merge request !42" in response.content.decode()
+
+    def test_schedule_filter_chip_names_the_schedule(self, logged_in_client, user):
+        schedule = _create_schedule(user, "Nightly audit")
+        _create_session(user=user, scheduled_job=schedule)
+
+        response = logged_in_client.get(reverse("session_list"), {"schedule": str(schedule.pk)})
+
+        assert response.context["schedule_name"] == "Nightly audit"
+        assert "Schedule: Nightly audit" in response.content.decode()
+
+    def test_schedule_filter_chip_hides_another_users_schedule_name(self, logged_in_client, other_user):
+        schedule = _create_schedule(other_user, "Secret audit", repo_id="other/secret")
+        _create_session(user=other_user, repo_id="other/secret", scheduled_job=schedule)
+
+        response = logged_in_client.get(reverse("session_list"), {"schedule": str(schedule.pk)})
+
+        assert response.context["schedule_name"] == ""
+        assert "Secret audit" not in response.content.decode()
 
     def test_runs_are_prefetched_newest_first(self, logged_in_client, user, django_assert_num_queries):
         session = _create_session(user=user)

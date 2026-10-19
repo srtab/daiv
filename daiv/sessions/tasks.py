@@ -13,6 +13,7 @@ from django_tasks import task
 
 from core.constants import TASK_PRIORITY_TITLING, TASK_QUEUE_INTERACTIVE
 from core.utils import locked_task
+from sessions.signal_defs import run_classified
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -53,10 +54,9 @@ async def classify_run_task(run_id: str) -> None:
     envelope written).
     """
     from core.site_settings import site_settings
-    from schedules.models import Intent
     from sessions.classification import classify_response_text
     from sessions.envelopes import build_actionable_item, validate_actionable
-    from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus
+    from sessions.models import EnvelopeStatus, Intent, Run, RunEnvelope, RunStatus
 
     run = (
         await Run.objects
@@ -78,8 +78,6 @@ async def classify_run_task(run_id: str) -> None:
         # Write exactly one envelope. ``count`` is always ``len(actionable)`` (derived here so the two
         # can never disagree). The ``aexists`` guard above is check-then-act, so a concurrent task can
         # still race past it; the OneToOne then rejects the second insert with an ``IntegrityError``.
-        from sessions.signals import run_classified  # local import: sessions.signals imports sessions.tasks
-
         try:
             envelope = await RunEnvelope.objects.acreate(
                 run=run, status=status, count=len(actionable), summary=summary, actionable=actionable

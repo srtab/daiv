@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 from memory.signals import capture_run_observations
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.signals import run_finished
+from sessions.signal_defs import run_finished
 
 
 def _session(**kwargs):

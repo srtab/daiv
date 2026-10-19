@@ -12,11 +12,11 @@ from django.db import IntegrityError
 
 import pytest
 from sessions.classification import ActionableDraft, RunClassification
-from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
+from sessions.models import EnvelopeStatus, Intent, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 from sessions.tasks import classify_run_task
 
 from accounts.models import User
-from schedules.models import Frequency, Intent, ScheduledJob
+from schedules.models import Frequency, ScheduledJob
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
 
 
@@ -415,7 +415,7 @@ async def test_non_successful_run_is_skipped_without_llm_call():
 
 @pytest.mark.django_db(transaction=True)
 async def test_emits_run_classified_once_on_success(member_user):
-    from sessions.signals import run_classified
+    from sessions.signal_defs import run_classified
 
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND, response_text="")  # empty prose → all-clear fast path
     received = []
@@ -436,7 +436,7 @@ async def test_emits_run_classified_once_on_success(member_user):
 
 @pytest.mark.django_db(transaction=True)
 async def test_raced_loser_does_not_emit():
-    from sessions.signals import run_classified
+    from sessions.signal_defs import run_classified
 
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     classification = RunClassification(status="all-clear", summary="loser", actionable=[])

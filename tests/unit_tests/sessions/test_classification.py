@@ -10,9 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from sessions.classification import SYSTEM_PROMPT, RunClassification, _build_structured_llm, classify_response_text
-from sessions.models import EnvelopeStatus
-
-from schedules.models import Intent
+from sessions.models import EnvelopeStatus, Intent
 
 
 def test_status_literal_matches_envelope_status_minus_failed():
