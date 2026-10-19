@@ -42,6 +42,17 @@ def _create_session(**kwargs) -> Session:
     return Session.objects.create(**defaults)
 
 
+def _create_schedule(user: User, name: str, repo_id: str = "group/project") -> ScheduledJob:
+    return ScheduledJob.objects.create(
+        user=user,
+        name=name,
+        prompt="p",
+        repos=[{"repo_id": repo_id, "ref": ""}],
+        frequency=Frequency.DAILY,
+        time="09:00",
+    )
+
+
 def _create_run(session: Session, **kwargs) -> Run:
     defaults = {
         "session": session,
@@ -228,14 +239,7 @@ class TestSessionListView:
         assert "Merge request !42" in response.content.decode()
 
     def test_schedule_filter_chip_names_the_schedule(self, logged_in_client, user):
-        schedule = ScheduledJob.objects.create(
-            user=user,
-            name="Nightly audit",
-            prompt="p",
-            repos=[{"repo_id": "group/project", "ref": ""}],
-            frequency=Frequency.DAILY,
-            time="09:00",
-        )
+        schedule = _create_schedule(user, "Nightly audit")
         _create_session(user=user, scheduled_job=schedule)
 
         response = logged_in_client.get(reverse("session_list"), {"schedule": str(schedule.pk)})
@@ -243,17 +247,9 @@ class TestSessionListView:
         assert response.context["schedule_name"] == "Nightly audit"
         assert "Schedule: Nightly audit" in response.content.decode()
 
-    def test_schedule_filter_chip_hides_another_users_schedule_name(self, logged_in_client):
-        bob = User.objects.create_user(username="bob", email="bob@test.com", password="testpass123")  # noqa: S106
-        schedule = ScheduledJob.objects.create(
-            user=bob,
-            name="Secret audit",
-            prompt="p",
-            repos=[{"repo_id": "bob/secret", "ref": ""}],
-            frequency=Frequency.DAILY,
-            time="09:00",
-        )
-        _create_session(user=bob, repo_id="bob/secret", scheduled_job=schedule)
+    def test_schedule_filter_chip_hides_another_users_schedule_name(self, logged_in_client, other_user):
+        schedule = _create_schedule(other_user, "Secret audit", repo_id="other/secret")
+        _create_session(user=other_user, repo_id="other/secret", scheduled_job=schedule)
 
         response = logged_in_client.get(reverse("session_list"), {"schedule": str(schedule.pk)})
 

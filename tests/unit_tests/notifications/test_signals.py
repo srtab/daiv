@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 from notifications.choices import ChannelType, EventType
 from notifications.models import Notification, UserChannelBinding
-from sessions.models import Session, SessionOrigin
+from sessions.models import Session
 from sessions.signals import watch_exhausted
 
 from accounts.models import User
@@ -60,17 +60,6 @@ class TestUserBindingSeeder:
 
 @pytest.mark.django_db
 class TestOnWatchExhausted:
-    @pytest.fixture
-    def session(self, member_user):
-        return Session.objects.create(
-            thread_id="t3",
-            origin=SessionOrigin.MR_WEBHOOK,
-            repo_id="group/repo",
-            merge_request_iid=9,
-            watch_attempts=2,
-            user=member_user,
-        )
-
     def _send(self, session):
         watch_exhausted.send(
             sender=Session,
@@ -80,18 +69,18 @@ class TestOnWatchExhausted:
             pipeline_id=100,
         )
 
-    def test_the_owner_is_told_the_watch_gave_up(self, session, member_user):
-        self._send(session)
+    def test_the_owner_is_told_the_watch_gave_up(self, watch_session, member_user):
+        self._send(watch_session)
 
         notification = Notification.objects.get()
         assert notification.event_type == EventType.PIPELINE_WATCH_EXHAUSTED
         assert notification.recipient == member_user
 
-    def test_a_failing_emitter_is_logged_not_raised(self, session, caplog):
+    def test_a_failing_emitter_is_logged_not_raised(self, watch_session, caplog):
         with patch("notifications.signals.emit_watch_exhausted", side_effect=RuntimeError("channel down")):
-            self._send(session)
+            self._send(watch_session)
 
-        assert "on_watch_exhausted: unexpected error for thread_id=t3" in caplog.text
+        assert f"on_watch_exhausted: unexpected error for thread_id={watch_session.thread_id}" in caplog.text
 
 
 @pytest.mark.django_db

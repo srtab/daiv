@@ -206,17 +206,10 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["statuses"] = RunStatus.choices
         context["ranges"] = RANGE_CHOICES
 
-        # Name the schedule chip through the sessions this user may view (sessions must not import
-        # schedules). Only the full page renders the filter bar, so the HTMX fragment skips the query.
-        if not is_htmx(self.request) and (schedule_id := context["current_schedule"]):
-            schedule = (
-                Session.objects
-                .visible_to(self.request.user)
-                .filter(scheduled_job_id=schedule_id)
-                .values_list("scheduled_job__name", flat=True)
-                .first()
-            )
-            context["schedule_name"] = schedule or ""
+        # The page rows are already scoped to this user and the schedule, so they name the chip.
+        if context["current_schedule"]:
+            first = next(iter(context["sessions"]), None)
+            context["schedule_name"] = first.scheduled_job.name if first else ""
 
         # In-flight RUN ids across the page's sessions, for the SSE status stream.
         page_ids = [s.pk for s in context["sessions"]]

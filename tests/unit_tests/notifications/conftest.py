@@ -4,6 +4,7 @@ import pytest
 from notifications.choices import ChannelType
 from notifications.models import Notification, NotificationDelivery, UserChannelBinding
 from pydantic import SecretStr
+from sessions.models import Session, SessionOrigin
 
 from schedules.models import Frequency, ScheduledJob
 
@@ -22,6 +23,19 @@ def run_schedule(member_user, email_binding):
         repos=[{"repo_id": "x/y", "ref": ""}],
         frequency=Frequency.DAILY,
         time="12:00",
+    )
+
+
+@pytest.fixture
+def watch_session(member_user):
+    """A session whose CI watch used up its fix attempts. Shared by the watch-exhausted suites."""
+    return Session.objects.create(
+        thread_id="repo-mr-7",
+        origin=SessionOrigin.PIPELINE_WEBHOOK,
+        repo_id="group/repo",
+        merge_request_iid=7,
+        watch_attempts=3,
+        user=member_user,
     )
 
 

@@ -51,9 +51,7 @@ def _record_dispatch_failure(
             logger.exception("Failed to disable stuck scheduled job pk=%d (%s)", schedule.pk, schedule.name)
             return
 
-    transaction.on_commit(
-        partial(schedule_dispatch_failed.send_robust, sender=ScheduledJob, schedule_pk=schedule.pk), robust=True
-    )
+    transaction.on_commit(partial(schedule_dispatch_failed.send_robust, sender=ScheduledJob, schedule_pk=schedule.pk))
 
 
 @cron("* * * * *")
