@@ -122,11 +122,23 @@ class GlobalSkillFiles(NamedTuple):
     errors: list[str]
     """What was left out and why, worded for the agent: no host paths."""
 
+    def read(self, path: str) -> bytes | None:
+        """The bytes of the file at ``path``; ``None`` when it can't be read, which is logged and reported in
+        ``errors``: a skill's ``SKILL.md`` as ``Cannot load skill``, any other file as ``may be incomplete``."""
+        source = self.files[path]
+        try:
+            return source.read_bytes()
+        except OSError as exc:
+            name = path.split("/", 1)[0]
+            fatal = path == f"{name}/SKILL.md"
+            _report_unreadable(name, exc, self.errors, fatal=fatal, failed_to=f"load '{source.name}'")
+            return None
+
 
 def global_skill_files() -> GlobalSkillFiles:
-    """The directories and files of the global skills (:func:`global_skill_dirs`). A directory that can't be listed is
-    logged, left out and reported in ``errors``: the skill's own as ``Cannot load skill``, one below it as ``may be
-    incomplete``. Reading a file is left to :func:`read_global_skill_file`."""
+    """The directories and files of the global skills (:func:`global_skill_dirs`), hygiene noise such as
+    ``__pycache__`` left out. A directory that can't be listed is logged, left out and reported in ``errors``: the
+    skill's own as ``Cannot load skill``, one below it as ``may be incomplete``. ``read`` reads a file."""
     skill_dirs, errors = global_skill_dirs()
     found = GlobalSkillFiles({}, {}, errors)
     for name, skill_dir in skill_dirs.items():
@@ -140,24 +152,12 @@ def _walk_skill(name: str, skill_dir: Path, found: GlobalSkillFiles) -> None:
         _report_unreadable(name, exc, found.errors, fatal=fatal, failed_to="read a directory")
 
     for root, subdirs, filenames in skill_dir.walk(on_error=on_error):
-        subdirs[:] = [subdir for subdir in subdirs if subdir != "__pycache__"]
+        subdirs[:] = [subdir for subdir in subdirs if not _is_noise_part(subdir)]
         rel_root = Path(name) / root.relative_to(skill_dir)
         found.dirs[rel_root.as_posix()] = root
         for filename in filenames:
-            if not filename.endswith(".pyc"):
+            if not _is_noise_part(filename):
                 found.files[(rel_root / filename).as_posix()] = root / filename
-
-
-def read_global_skill_file(path: str, source: Path, errors: list[str]) -> bytes | None:
-    """The bytes of the global-skill file ``source``, at ``path`` relative to the skills root (see
-    :func:`global_skill_files`); ``None`` when it can't be read, which is logged and reported in ``errors``: a skill's
-    ``SKILL.md`` as ``Cannot load skill``, any other file as ``may be incomplete``."""
-    try:
-        return source.read_bytes()
-    except OSError as exc:
-        name = path.split("/", 1)[0]
-        _report_unreadable(name, exc, errors, fatal=path == f"{name}/SKILL.md", failed_to=f"load '{source.name}'")
-        return None
 
 
 def _report_unreadable(name: str, exc: OSError, errors: list[str], *, fatal: bool, failed_to: str) -> None:
@@ -168,6 +168,12 @@ def _report_unreadable(name: str, exc: OSError, errors: list[str], *, fatal: boo
         errors.append(f"Cannot load skill '{name}': {reason}")
     else:
         errors.append(f"Skill '{name}' may be incomplete: failed to {failed_to} ({reason})")
+
+
+def _is_noise_part(part: str) -> bool:
+    """Whether a skill path segment is hygiene noise (``__pycache__``, ``.git``, bytecode), dropped silently."""
+    _, dot, suffix = part.rpartition(".")
+    return part in FORBIDDEN_PATH_PARTS or (bool(dot) and f".{suffix.lower()}" in FORBIDDEN_SUFFIXES)
 
 
 def _skill_metadata(skill_dir: Path) -> SkillMetadata | None:
@@ -284,15 +290,7 @@ class SkillPackage:
     @staticmethod
     def _is_noise(info: zipfile.ZipInfo) -> bool:
         """Hygiene-only filter for entries we drop silently (vs reject)."""
-        parts = info.filename.split("/")
-        if any(part in FORBIDDEN_PATH_PARTS for part in parts):
-            return True
-        leaf = parts[-1]
-        if "." in leaf:
-            suffix = "." + leaf.rsplit(".", 1)[1].lower()
-            if suffix in FORBIDDEN_SUFFIXES:
-                return True
-        return False
+        return any(_is_noise_part(part) for part in info.filename.split("/"))
 
     @staticmethod
     def _check_entry(info: zipfile.ZipInfo) -> None:

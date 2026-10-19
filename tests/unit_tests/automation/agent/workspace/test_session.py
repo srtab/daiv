@@ -24,8 +24,8 @@ def _repo_archive() -> bytes:
     return buf.getvalue()
 
 
-def _seed(*skills_errors: str) -> AsyncMock:
-    return AsyncMock(return_value=SessionSeed(_repo_archive(), None, list(skills_errors)))
+def _seed(*skills_seed_errors: str) -> AsyncMock:
+    return AsyncMock(return_value=SessionSeed(_repo_archive(), None, list(skills_seed_errors)))
 
 
 def _credential(token: str | None, *, host: str = "github.com") -> GitEgressCredential:

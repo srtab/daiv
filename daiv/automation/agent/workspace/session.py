@@ -65,7 +65,7 @@ class SessionSeed(NamedTuple):
 
     repo_archive: bytes
     skills_archive: bytes | None
-    skills_errors: list[str]
+    skills_seed_errors: list[str]
     """What the global-skills archive left out, worded for the agent."""
 
 
@@ -369,9 +369,9 @@ class SandboxSession:
 
     async def _seed(self, session_id: str, seed: Callable[[], Awaitable[SessionSeed]]) -> None:
         try:
-            repo_archive, skills_archive, skills_errors = await seed()
+            repo_archive, skills_archive, skills_seed_errors = await seed()
             await self._client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
-            self._skills_seed_errors = skills_errors
+            self._skills_seed_errors = skills_seed_errors
         # BaseException: a stopped turn must not leave the new container behind.
         except BaseException as exc:
             if isinstance(exc, Exception):

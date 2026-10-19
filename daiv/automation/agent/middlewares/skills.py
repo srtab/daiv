@@ -14,7 +14,7 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
-from skills.services import global_skill_files, read_global_skill_file, record_invocation
+from skills.services import global_skill_files, record_invocation
 
 from automation.agent.constants import SKILLS_TOOL_NAME
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
@@ -119,7 +119,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]
         self._copies_global_skills = copy_global_skills
-        self._provisioning_errors = list(provisioning_errors)
+        self._provisioning_errors = tuple(provisioning_errors)
 
     async def abefore_agent(
         self, state: DAIVSkillsState, runtime: Runtime[RuntimeCtx], config: RunnableConfig
@@ -171,12 +171,12 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         Returns source-level load errors so callers can surface them via ``skills_load_errors``.
         """
         files_to_upload: list[tuple[str, bytes]] = []
-        _, files, errors = global_skill_files()
-        for path, source in files.items():
+        skills = global_skill_files()
+        for path in skills.files:
             # ``SKILLS_PATH`` is virtual; its host twin under ``SKILLS_CACHE_PATH`` makes re-uploads a no-op.
             if (SKILLS_CACHE_PATH / path).exists():
                 continue
-            if (content := read_global_skill_file(path, source, errors)) is not None:
+            if (content := skills.read(path)) is not None:
                 files_to_upload.append((f"{SKILLS_PATH}/{path}", content))
 
         responses = await self._backend.aupload_files(files_to_upload)
@@ -190,7 +190,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             extra = f"; first failure at '{first_dest}': {first_err}"
             raise RuntimeError(f"Failed to upload {len(failures)} skill file(s){extra}")
 
-        return errors
+        return skills.errors
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:

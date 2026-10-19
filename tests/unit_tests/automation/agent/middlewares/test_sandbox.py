@@ -416,25 +416,10 @@ class TestSandboxMiddleware:
         }
         assert errors == []
 
-    def test_make_global_skills_archive_leaves_out_bytecode(self, skill_roots):
-        builtin, _ = skill_roots
-        write_skill(builtin, "plan", "x")
-        scripts = builtin / "plan" / "scripts"
-        (scripts / "__pycache__").mkdir(parents=True)
-        (scripts / "run.py").write_text("print()")
-        (scripts / "run.pyc").write_bytes(b"")
-        (scripts / "__pycache__" / "run.cpython-314.pyc").write_bytes(b"")
-
-        archive, _ = _make_global_skills_archive()
-
-        assert set(_tar_members(archive)) == {"plan", "plan/SKILL.md", "plan/scripts", "plan/scripts/run.py"}
-
     def test_make_global_skills_archive_skips_and_reports_an_unreadable_file(self, skill_roots, chmod):
         builtin, _ = skill_roots
         write_skill(builtin, "code-review", "x")
-        write_skill(builtin, "plan", "x")
-        (builtin / "plan" / "scripts").mkdir()
-        (builtin / "plan" / "scripts" / "helper.py").write_text("print()")
+        write_skill(builtin, "plan", "x", {"scripts/helper.py": "print()"})
         chmod(builtin / "plan" / "scripts" / "helper.py", 0)
 
         archive, errors = _make_global_skills_archive()
@@ -443,6 +428,19 @@ class TestSandboxMiddleware:
         assert {"code-review/SKILL.md", "plan/SKILL.md"} <= set(members)
         assert "plan/scripts/helper.py" not in members
         assert errors == ["Skill 'plan' may be incomplete: failed to load 'helper.py' (Permission denied)"]
+
+    def test_make_global_skills_archive_packs_a_symlinked_file_as_a_regular_file(self, skill_roots, tmp_path: Path):
+        builtin, _ = skill_roots
+        write_skill(builtin, "plan", "x")
+        (tmp_path / "shared.md").write_text("shared")
+        (builtin / "plan" / "shared.md").symlink_to(tmp_path / "shared.md")
+        write_skill(builtin, "zeta", "x")
+
+        archive, _ = _make_global_skills_archive()
+
+        members = _tar_members(archive)
+        assert members["plan/shared.md"] == tarfile.REGTYPE
+        assert "zeta/SKILL.md" in members
 
     def test_make_global_skills_archive_none_when_no_skills(self, skill_roots):
         assert _make_global_skills_archive() == (None, [])

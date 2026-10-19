@@ -839,73 +839,23 @@ class TestCustomGlobalSkills:
         # Per-repo source wins (last source wins).
         assert skills["shared-skill"]["description"] == "repo version"
 
-    async def test_missing_skill_md_surfaces_in_load_errors(self, tmp_path: Path):
-        """When SKILL.md cannot be read, the skill's name must surface in errors so it doesn't silently vanish."""
-        from pathlib import Path as _Path
-
-        from deepagents.backends.filesystem import FilesystemBackend
-
-        builtin = tmp_path / "builtin_skills"
-        (builtin / "broken-skill").mkdir(parents=True)
-        skill_md = builtin / "broken-skill" / "SKILL.md"
-        skill_md.write_text(_make_skill_md(name="broken-skill", description="will fail to read"))
-
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
-
-        original_read_bytes = _Path.read_bytes
-
-        def _fail_on_skill_md(self):
-            if self.name == "SKILL.md":
-                # Three-arg form mirrors what the OS raises: ``str(exc)`` embeds the file path,
-                # so this exercises the path-stripping behavior of the middleware.
-                raise PermissionError(13, "Permission denied", str(self))
-            return original_read_bytes(self)
-
-        with (
-            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
-            patch.object(_Path, "read_bytes", _fail_on_skill_md),
-        ):
-            errors = await middleware._copy_global_skills()
-
-        # Agent-visible error must name the skill (so the agent can warn the user if invoked)
-        # but must not leak the host filesystem path of the SKILL.md file.
-        assert any("broken-skill" in err and "Permission denied" in err for err in errors)
-        assert not any(str(builtin) in err for err in errors)
-
-    async def test_abefore_agent_merges_copy_global_skills_errors_into_state(self, tmp_path: Path):
+    async def test_abefore_agent_merges_copy_global_skills_errors_into_state(self, tmp_path: Path, skill_roots, chmod):
         """Errors from _copy_global_skills must be merged into skills_load_errors returned by abefore_agent."""
-        from pathlib import Path as _Path
-
         from deepagents.backends.filesystem import FilesystemBackend
 
-        repo_name = "repoX"
-        builtin = tmp_path / "builtin_skills"
-        (builtin / "broken-skill").mkdir(parents=True)
-        (builtin / "broken-skill" / "SKILL.md").write_text(_make_skill_md(name="broken-skill", description="ok"))
-
+        builtin, _ = skill_roots
+        write_skill(builtin, "broken-skill", "ok")
+        chmod(builtin / "broken-skill" / "SKILL.md", 0)
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
-        runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / "repoX"))
         runtime.context.config = RepositoryConfig(slash_commands=SlashCommands(enabled=False))
 
-        original_read_bytes = _Path.read_bytes
-
-        def _fail_on_skill_md(self):
-            if self.name == "SKILL.md":
-                raise PermissionError(13, "Permission denied", str(self))
-            return original_read_bytes(self)
-
-        with (
-            patch("skills.services.BUILTIN_SKILLS_PATH", builtin),
-            patch.object(_Path, "read_bytes", _fail_on_skill_md),
-        ):
+        with patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", tmp_path / "cache"):
             result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
 
         assert result is not None
-        assert "skills_load_errors" in result
-        assert any("broken-skill" in err for err in result["skills_load_errors"])
-        assert not any(str(builtin) in err for err in result["skills_load_errors"])
+        assert "Cannot load skill 'broken-skill': Permission denied" in result["skills_load_errors"]
 
     async def test_upload_failure_includes_dest_path_in_error(self, tmp_path: Path):
         """Upload errors must include the destination path so operators can pinpoint the failing file."""

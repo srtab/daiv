@@ -347,9 +347,13 @@ def chmod():
         path.chmod(mode)
 
 
-def write_skill(root: Path, name: str, description: str) -> None:
+def write_skill(root: Path, name: str, description: str, files: dict[str, str] | None = None) -> None:
+    """Write the skill ``name`` under ``root``, plus ``files`` by their path in the skill."""
     (root / name).mkdir(parents=True)
     (root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n")
+    for path, content in (files or {}).items():
+        (root / name / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / name / path).write_text(content)
 
 
 @pytest.fixture

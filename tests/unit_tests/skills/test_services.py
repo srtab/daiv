@@ -6,14 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from skills.models import GlobalSkill, SkillInvocation
-from skills.services import (
-    _classify_source,
-    global_skill_dirs,
-    global_skill_files,
-    list_builtins,
-    list_global_skills,
-    read_global_skill_file,
-)
+from skills.services import _classify_source, global_skill_dirs, global_skill_files, list_builtins, list_global_skills
 
 from tests.unit_tests.conftest import write_skill
 
@@ -89,17 +82,20 @@ def test_custom_dir_without_skill_md_does_not_shadow_the_builtin(skill_roots):
 
 def test_global_skill_files_leave_out_bytecode(skill_roots):
     builtin, _ = skill_roots
-    write_skill(builtin, "plan", "x")
-    scripts = builtin / "plan" / "scripts"
-    (scripts / "__pycache__").mkdir(parents=True)
-    (scripts / "run.py").write_text("print()")
-    (scripts / "run.pyc").write_bytes(b"")
-    (scripts / "__pycache__" / "run.cpython-314.pyc").write_bytes(b"")
+    write_skill(
+        builtin,
+        "plan",
+        "x",
+        {"scripts/run.py": "print()", "scripts/run.pyc": "", "scripts/__pycache__/run.cpython-314.pyc": ""},
+    )
 
     dirs, files, errors = global_skill_files()
 
     assert list(dirs) == ["plan", "plan/scripts"]
-    assert files == {"plan/SKILL.md": builtin / "plan" / "SKILL.md", "plan/scripts/run.py": scripts / "run.py"}
+    assert files == {
+        "plan/SKILL.md": builtin / "plan" / "SKILL.md",
+        "plan/scripts/run.py": builtin / "plan" / "scripts" / "run.py",
+    }
     assert errors == []
 
 
@@ -117,9 +113,7 @@ def test_global_skill_files_leave_out_bytecode(skill_roots):
 )
 def test_global_skill_files_report_an_unreadable_directory(skill_roots, chmod, unreadable, mode, expected):
     builtin, _ = skill_roots
-    write_skill(builtin, "secret-skill", "x")
-    (builtin / "secret-skill" / "scripts").mkdir()
-    (builtin / "secret-skill" / "scripts" / "run.py").write_text("print()")
+    write_skill(builtin, "secret-skill", "x", {"scripts/run.py": "print()"})
     chmod(builtin / "secret-skill" / unreadable, mode)
 
     assert global_skill_files().errors == [expected]
@@ -136,20 +130,17 @@ def test_global_skill_files_report_an_unreadable_directory(skill_roots, chmod, u
         ),
     ],
 )
-def test_read_global_skill_file_reports_an_unreadable_file(skill_roots, chmod, caplog, path, expected):
+def test_global_skill_files_read_reports_an_unreadable_file(skill_roots, chmod, caplog, path, expected):
     builtin, _ = skill_roots
-    write_skill(builtin, "plan", "x")
-    (builtin / "plan" / "scripts").mkdir()
-    (builtin / "plan" / "scripts" / "helper.py").write_text("print()")
-    source = builtin / path
-    chmod(source, 0)
-    errors: list[str] = []
+    write_skill(builtin, "plan", "x", {"scripts/helper.py": "print()"})
+    chmod(builtin / path, 0)
+    skills = global_skill_files()
 
     with caplog.at_level(logging.WARNING, logger="daiv.skills"):
-        assert read_global_skill_file(path, source, errors) is None
+        assert skills.read(path) is None
 
-    assert errors == [expected]
-    assert str(source) in caplog.text
+    assert skills.errors == [expected]
+    assert str(builtin / path) in caplog.text
 
 
 def test_list_global_skills_keys_by_frontmatter_name(skill_roots):
