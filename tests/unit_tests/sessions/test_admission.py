@@ -63,6 +63,7 @@ def test_assert_repo_access_hides_which_repository_was_denied():
     ):
         assert_repo_access(Mock(), ["a/b"])
     assert str(err.value) == REPO_ACCESS_DENIED_MESSAGE
+    assert err.value.repo_ids == ["a/b"]
 
 
 @pytest.mark.django_db(transaction=True)

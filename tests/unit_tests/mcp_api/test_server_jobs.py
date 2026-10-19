@@ -265,6 +265,18 @@ async def test_submit_job_denied_repo_returns_error():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_submit_job_access_revoked_before_submit_returns_error():
+    from mcp_api.server import submit_job
+
+    from codebase.authorization import RepositoryAccessDenied
+
+    with patch("sessions.admission.assert_can_run", side_effect=[None, RepositoryAccessDenied(["a/b"])]):
+        result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
+
+    assert json.loads(result)["error"] == "Repository not found or not accessible."
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_job_rate_limited():
     from mcp_api.server import submit_job
 

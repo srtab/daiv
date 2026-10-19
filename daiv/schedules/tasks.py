@@ -65,11 +65,11 @@ def dispatch_scheduled_jobs_cron_task():
     does not roll back updates for other schedules.
     """
     from sandbox_envs.selection import resolve_repo_envs
+    from sessions.admission import RepoAccessError
     from sessions.models import SessionOrigin
     from sessions.services import RepoTarget, submit_batch_runs
 
     from accounts.models import User
-    from codebase.authorization import RepositoryAccessDenied
 
     now = datetime.now(tz=UTC)
     dispatched = 0
@@ -128,7 +128,7 @@ def dispatch_scheduled_jobs_cron_task():
                                 *recovery_fields,
                             ]
                         )
-            except RepositoryAccessDenied as err:
+            except RepoAccessError as err:
                 logger.warning(
                     "Scheduled job pk=%d (%s) skipped: owner lacks access to %s",
                     schedule.pk,

@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, connection
 
@@ -424,7 +424,7 @@ def _make_due(schedule):
 
 def _dispatch(*, denied=None, aenqueue=_aenqueue_ok):
     with (
-        patch("sessions.services.aassert_can_run", new=AsyncMock(side_effect=denied, return_value=None)),
+        patch("sessions.admission.assert_can_run", side_effect=denied, return_value=None),
         patch("sessions.services.run_job_task") as mock_task,
     ):
         mock_task.aenqueue.side_effect = aenqueue
@@ -604,7 +604,7 @@ def test_a_database_error_recording_one_failure_keeps_the_other_dispatches(membe
     denied = _due_daily(member_user, name="denied", repos=[{"repo_id": "acme/denied", "ref": ""}])
     healthy = _due_daily(member_user, name="healthy", repos=[{"repo_id": "acme/ok", "ref": ""}])
 
-    async def can_run(user, repo_ids):
+    def can_run(user, repo_ids):
         if "acme/denied" in repo_ids:
             raise RepositoryAccessDenied(["acme/denied"])
 

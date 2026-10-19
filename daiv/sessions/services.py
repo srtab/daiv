@@ -11,8 +11,8 @@ from django.db.models import Q
 
 from asgiref.sync import async_to_sync, sync_to_async
 
-from codebase.authorization import aassert_can_run
 from codebase.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
+from sessions.admission import aassert_repo_access
 from sessions.executor.tasks import run_job_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.repo_state import mr_to_payload
@@ -318,7 +318,7 @@ async def asubmit_batch_runs(
     if user is not None:
         # Gate only when a user is attached. All current callers supply one; the None branch
         # is a defensive allowance for future internal callers with no user context.
-        await aassert_can_run(user, [target.repo_id for target in repos])
+        await aassert_repo_access(user, [target.repo_id for target in repos])
     if thread_id is not None:
         if not thread_id:
             raise ValueError("thread_id must be a non-empty UUID string")

@@ -290,9 +290,7 @@ class TestScheduleRunNowView:
         before run creation, so this must not fall through to the generic handler)."""
         from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
 
-        with mock.patch(
-            "sessions.services.aassert_can_run", new=mock.AsyncMock(side_effect=RepositoryAccessDenied(["owner/repo"]))
-        ):
+        with mock.patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["owner/repo"])):
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]), follow=True)
 
         assert response.status_code == 200

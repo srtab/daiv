@@ -39,7 +39,7 @@ async def _validate_thread_id(thread_id: UUID, user: User) -> tuple[bool, str | 
     return True, None
 
 
-@jobs_router.post("", response={202: JobSubmitResponse, 400: dict, 503: dict}, throttle=[JobsRateThrottle()])
+@jobs_router.post("", response={202: JobSubmitResponse, 400: dict, 404: dict, 503: dict}, throttle=[JobsRateThrottle()])
 async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     """Submit a batch of 1-20 agent jobs. Each repository runs as an independent job.
 
@@ -63,23 +63,22 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             agent_thinking_level=payload.agent_thinking_level,
             environment=payload.environment,
         )
+        result = await asubmit_batch_runs(
+            user=request.auth,
+            prompt=payload.prompt,
+            repos=admission.targets,
+            agent_model=admission.agent_model,
+            agent_thinking_level=admission.agent_thinking_level,
+            muted=payload.muted,
+            trigger_type=SessionOrigin.API_JOB,
+            thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
+            references=payload.references,
+        )
     except RepoAccessError as err:
         # Opaque 404: don't confirm the repo's existence to unauthorized callers.
         raise HttpError(404, str(err)) from err
     except AdmissionError as err:
         return 400, {"detail": str(err)}
-
-    result = await asubmit_batch_runs(
-        user=request.auth,
-        prompt=payload.prompt,
-        repos=admission.targets,
-        agent_model=admission.agent_model,
-        agent_thinking_level=admission.agent_thinking_level,
-        muted=payload.muted,
-        trigger_type=SessionOrigin.API_JOB,
-        thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
-        references=payload.references,
-    )
 
     failed_keys = {(f.repo_id, f.ref) for f in result.failed}
     runs_iter = iter(result.runs)

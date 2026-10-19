@@ -31,10 +31,11 @@ from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context
 
 from automation.agent.picker_context import agent_picker_context
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
+from codebase.authorization import can_run
 from core.mixins import Breadcrumb, BreadcrumbMixin
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
+from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
@@ -636,10 +637,10 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             )
         except Http404, PermissionDenied, SuspiciousOperation:
             raise
-        except RepositoryAccessDenied:
+        except RepoAccessError as err:
             # Access can be revoked between form.clean() and submit; surface it on the field
             # rather than as a generic failure.
-            form.add_error("repos", REPO_ACCESS_DENIED_MESSAGE)
+            form.add_error("repos", str(err))
             return self.form_invalid(form)
         except Exception:
             logger.exception(
