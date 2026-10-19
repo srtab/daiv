@@ -55,6 +55,7 @@ async def address_issue_task(
     thread_id: str,
     use_max: bool,
     mention_comment_id: str | None = None,
+    mention_note_id: int | None = None,
     ref: str | None = None,
     sandbox_environment_id: str | None = None,
 ) -> AgentResult | None:
@@ -68,6 +69,8 @@ async def address_issue_task(
         thread_id (str): The LangGraph checkpoint key minted by the caller.
         use_max (bool): The max mode the callback decided and stamped on the ``Run``.
         mention_comment_id (str | None): The mention comment id. Defaults to None.
+        mention_note_id (int | None): The note that mentioned DAIV; only part of the dedup key, so each reply in one
+            GitLab discussion gets its own run.
         ref (str | None): The ref to clone. Defaults to the session's working branch, else the repository default.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
     """
@@ -98,6 +101,7 @@ async def address_mr_comments_task(
     mention_comment_id: str,
     thread_id: str,
     use_max: bool,
+    mention_note_id: int | None = None,
     sandbox_environment_id: str | None = None,
 ) -> AgentResult:
     """
@@ -110,6 +114,8 @@ async def address_mr_comments_task(
         mention_comment_id (str): The mention comment id.
         thread_id (str): The LangGraph checkpoint key minted by the caller.
         use_max (bool): The max mode the callback decided and stamped on the ``Run``.
+        mention_note_id (int | None): The note that mentioned DAIV; only part of the dedup key, so each reply in one
+            GitLab discussion gets its own run.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
     """
     from webhooks.managers.review_addressor import CommentsAddressorManager

@@ -1,6 +1,8 @@
 import logging
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.db import IntegrityError
+
 import pytest
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
@@ -37,12 +39,14 @@ async def test_a_label_trigger_reacts_then_enqueues_without_a_mention_then_recor
         "acreate_run",
     ]
     steps.client.create_issue_emoji.assert_called_once_with("group/repo", 7, Emoji.EYES, None)
-    assert "mention_comment_id" not in steps.address_issue_task.aenqueue.call_args.kwargs
+    task_kwargs = steps.address_issue_task.aenqueue.call_args.kwargs
+    assert task_kwargs["mention_comment_id"] is None
+    assert task_kwargs["mention_note_id"] is None
     assert steps.acreate_run.call_args.kwargs["task_result_id"] == "task-1"
     assert steps.acreate_run.call_args.kwargs["external_username"] == "alice"
 
 
-async def test_a_mention_reacts_on_its_note_and_answers_its_comment(steps):
+async def test_a_mention_reacts_on_its_note_answers_its_comment_and_dedups_on_its_note(steps):
     await dispatch_issue_run(
         client=steps.client,
         repo_id="group/repo",
@@ -55,6 +59,7 @@ async def test_a_mention_reacts_on_its_note_and_answers_its_comment(steps):
 
     steps.client.create_issue_emoji.assert_called_once_with("group/repo", 7, Emoji.EYES, 200)
     assert steps.address_issue_task.aenqueue.call_args.kwargs["mention_comment_id"] == "discussion-1"
+    assert steps.address_issue_task.aenqueue.call_args.kwargs["mention_note_id"] == 200
     assert steps.acreate_run.call_args.kwargs["mention_comment_id"] == "discussion-1"
 
 
@@ -78,6 +83,7 @@ async def test_a_missing_source_branch_is_fetched_after_the_enqueue(steps):
         "client.get_merge_request",
         "acreate_run",
     ]
+    assert steps.address_mr_comments_task.aenqueue.call_args.kwargs["mention_note_id"] == 300
     assert steps.acreate_run.call_args.kwargs["ref"] == "feat/x"
 
 
@@ -110,3 +116,18 @@ async def test_a_failed_run_insert_is_logged_not_raised(steps, caplog):
 
     steps.address_issue_task.aenqueue.assert_awaited_once()
     assert "Failed to create run" in caplog.text
+
+
+@pytest.mark.parametrize(("run_exists", "level"), [(True, logging.INFO), (False, logging.ERROR)])
+async def test_a_task_result_that_already_has_its_run_is_a_repeated_trigger(steps, caplog, run_exists, level):
+    steps.acreate_run.side_effect = IntegrityError("UNIQUE constraint failed: agent_sessions_run.task_result_id")
+
+    with (
+        patch("webhooks.dispatch.Run.objects.filter", return_value=Mock(aexists=AsyncMock(return_value=run_exists))),
+        caplog.at_level(logging.INFO, logger="daiv.webhooks"),
+    ):
+        await dispatch_issue_run(
+            client=steps.client, repo_id="group/repo", issue_iid=7, title="Bug", use_max=False, author=AUTHOR
+        )
+
+    assert [record.levelno for record in caplog.records] == [level]

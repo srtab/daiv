@@ -1,18 +1,21 @@
 """Start an addressor run for a webhook event that a platform's callback has parsed and accepted.
 
 Each dispatch reacts with 👀 on what triggered it, enqueues the addressor task, then records the ``Run`` linked
-one-to-one to the task result. The task's kwargs are its ``dedup`` key, so their names and values are a contract.
+one-to-one to the task result. The task's kwargs are its ``dedup`` key: a repeated delivery or an edited comment
+gets the earlier trigger's task back, which already has its ``Run``.
 """
 
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from django.db import IntegrityError
+
 from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
 from sandbox_envs.selection import resolve_env_for_run
-from sessions.models import SessionOrigin
+from sessions.models import Run, SessionOrigin
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
@@ -42,7 +45,7 @@ class Mention:
     """A comment that mentioned DAIV."""
 
     note_id: int
-    """The comment DAIV reacts on."""
+    """The comment DAIV reacts on, and the one run it may start."""
 
     comment_id: str
     """What the addressor reads and answers: GitLab's discussion id, GitHub's comment id."""
@@ -65,11 +68,11 @@ async def dispatch_issue_run(
         logger.exception("Failed to add reaction to issue %s#%s", repo_id, issue_iid)
 
     thread_id, sandbox_environment_id = await _session_keys(repo_id, Scope.ISSUE, issue_iid)
-    mention_kwargs = {"mention_comment_id": mention.comment_id} if mention else {}
     result = await address_issue_task.aenqueue(
         repo_id=repo_id,
         issue_iid=issue_iid,
-        **mention_kwargs,
+        mention_comment_id=mention.comment_id if mention else None,
+        mention_note_id=mention.note_id if mention else None,
         thread_id=thread_id,
         sandbox_environment_id=sandbox_environment_id,
         use_max=use_max,
@@ -80,7 +83,7 @@ async def dispatch_issue_run(
         trigger_type=SessionOrigin.ISSUE_WEBHOOK,
         repo_id=repo_id,
         issue_iid=issue_iid,
-        **mention_kwargs,
+        mention_comment_id=mention.comment_id if mention else "",
         use_max=use_max,
         title=title,
         thread_id=thread_id,
@@ -114,6 +117,7 @@ async def dispatch_mr_comment_run(
         repo_id=repo_id,
         merge_request_id=merge_request_iid,
         mention_comment_id=mention.comment_id,
+        mention_note_id=mention.note_id,
         thread_id=thread_id,
         sandbox_environment_id=sandbox_environment_id,
         use_max=use_max,
@@ -156,5 +160,8 @@ async def _record_run(task_result_id: str, author: Author, **run_kwargs: Any) ->
     user = await resolve_user(author.provider, author.uid, username=author.username, email=author.email)
     try:
         await acreate_run(task_result_id=task_result_id, user=user, external_username=author.username, **run_kwargs)
-    except Exception:
-        logger.exception("Failed to create run for task result %s on %s", task_result_id, run_kwargs["repo_id"])
+    except Exception as exc:
+        if isinstance(exc, IntegrityError) and await Run.objects.filter(task_result_id=task_result_id).aexists():
+            logger.info("Task result %s already has its run; skipping the repeated trigger", task_result_id)
+        else:
+            logger.exception("Failed to create run for task result %s on %s", task_result_id, run_kwargs["repo_id"])
