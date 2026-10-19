@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ParamSpec, TypeVar
 from django.db import transaction
 from django.utils.version import PY311
 
+from asgiref.sync import sync_to_async
 from django_tasks.base import Task, TaskResultStatus
 from django_tasks.utils import normalize_json
 from django_tasks_db import DatabaseBackend
@@ -42,7 +43,7 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
 
     def enqueue(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> DatabaseTaskResult[T]:
         """
-        Enqueue a task unless a matching dedup key is already queued.
+        Enqueue a task unless a matching dedup key is already queued, running or done.
 
         Returns the existing TaskResult when a duplicate is detected.
 
@@ -54,16 +55,33 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
         Returns:
             The task result for the new or existing task.
         """
-        if task.dedup and (existing_result := self._get_existing_task_result(task.module_path, args, kwargs)):
-            logger.info("Skipping duplicate task: %s with args: %r and kwargs: %r", task.module_path, args, kwargs)
-            return existing_result.task_result
+        if task.dedup and (duplicate := self._duplicate_of(task, args, kwargs)):
+            return duplicate
 
         return super().enqueue(task, args, kwargs)
+
+    async def aenqueue(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> DatabaseTaskResult[T]:
+        """
+        Async twin of :meth:`enqueue`: the parent's ``aenqueue`` writes the row itself rather than calling
+        ``enqueue``, so without this override ``dedup`` never applies to ``Task.aenqueue``.
+        """
+        if task.dedup and (duplicate := await sync_to_async(self._duplicate_of)(task, args, kwargs)):
+            return duplicate
+
+        return await super().aenqueue(task, args, kwargs)
+
+    def _duplicate_of(
+        self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs
+    ) -> DatabaseTaskResult[T] | None:
+        if existing_result := self._get_existing_task_result(task.module_path, args, kwargs):
+            logger.info("Skipping duplicate task: %s with args: %r and kwargs: %r", task.module_path, args, kwargs)
+            return existing_result.task_result
+        return None
 
     @transaction.atomic
     def _get_existing_task_result(self, task_path: str, args: P.args, kwargs: P.kwargs) -> DBTaskResult | None:
         """
-        Fetch the oldest ready or running task matching the dedup key.
+        Fetch a ready, running or successful task matching the dedup key.
 
         Args:
             task_path: Fully-qualified task path.

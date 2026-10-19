@@ -1,5 +1,5 @@
 import pytest
-from django_tasks import task
+from django_tasks import TaskResultStatus, task
 from django_tasks.utils import normalize_json
 from django_tasks_db.models import DBTaskResult
 
@@ -52,3 +52,27 @@ def test_dedup_backend_creates_new_for_different_args(database_task_backend):
 
     assert result.id != second_result.id
     assert DBTaskResult.objects.filter(task_path=sample_issue_task.module_path).count() == 2
+
+
+@task
+def sample_cron_task(repo_id: str) -> str:
+    return repo_id
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_dedup_backend_skips_duplicate_aenqueue(database_task_backend):
+    result = await sample_issue_task.aenqueue("repo-1", 7)
+    await DBTaskResult.objects.filter(id=result.id).aupdate(status=TaskResultStatus.SUCCESSFUL)
+
+    duplicate_result = await sample_issue_task.aenqueue("repo-1", 7)
+
+    assert result.id == duplicate_result.id
+    assert await DBTaskResult.objects.filter(task_path=sample_issue_task.module_path).acount() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aenqueue_without_dedup_always_creates_a_task(database_task_backend):
+    result = await sample_cron_task.aenqueue("repo-1")
+    second_result = await sample_cron_task.aenqueue("repo-1")
+
+    assert result.id != second_result.id

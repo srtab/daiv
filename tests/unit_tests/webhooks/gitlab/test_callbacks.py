@@ -847,3 +847,23 @@ async def test_a_second_mention_in_a_discussion_runs_after_the_first_succeeded(m
 
     assert await DBTaskResult.objects.acount() == 2
     assert await Run.objects.filter(task_result__isnull=False).acount() == 2
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.usefixtures("database_task_backend")
+async def test_a_redelivered_note_starts_no_second_run(monkeypatch_dependencies, caplog):
+    import logging
+
+    from django_tasks import TaskResultStatus
+    from django_tasks_db.models import DBTaskResult
+    from sessions.models import Run
+
+    await create_issue_note_callback(note_id=200, discussion_id="d1").process_callback()
+    await DBTaskResult.objects.aupdate(status=TaskResultStatus.SUCCESSFUL)
+    with caplog.at_level(logging.INFO, logger="daiv.webhooks"):
+        await create_issue_note_callback(note_id=200, discussion_id="d1").process_callback()
+
+    assert await DBTaskResult.objects.acount() == 1
+    assert await Run.objects.acount() == 1
+    assert "already has its run" in caplog.text
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
