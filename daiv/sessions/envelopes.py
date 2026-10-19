@@ -39,7 +39,7 @@ def validate_actionable(items: list) -> None:
     Each item must be a mapping carrying every key in ``REQUIRED_ACTIONABLE_KEYS``, none in
     ``FORBIDDEN_ACTIONABLE_KEYS``, contract-correct value types (``id``/``kind``/``label``/
     ``ref`` are ``str``, ``schema_version`` is ``int``), and a unique ``id`` within the list.
-    Other keys are ignored, so rows stored with a since-dropped key (``fix_prompt``) still validate.
+    Other keys are ignored: stored rows may carry keys outside the contract.
 
     Raises:
         django.core.exceptions.ValidationError: if any item breaks the contract. This is the

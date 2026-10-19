@@ -1,7 +1,6 @@
 import asyncio
 import hashlib
 import logging
-import mimetypes
 from functools import wraps
 from inspect import Signature, signature
 from urllib.parse import urlparse, urlunparse
@@ -12,9 +11,6 @@ from django.core.cache import cache
 from redis.exceptions import LockError, LockNotOwnedError
 
 logger = logging.getLogger("daiv.core")
-
-
-mimetypes.add_type("image/webp", ".webp")  # Add webp mimetype, not included by default
 
 
 def is_git_auth_error_text(text: str) -> bool:

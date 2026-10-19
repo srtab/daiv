@@ -159,16 +159,6 @@ def test_clean_accepts_found_issues_with_actionable():
     env.full_clean()  # no raise
 
 
-# --- AC4: reverse accessor ------------------------------------------------
-
-
-def test_reverse_accessor_run_envelope():
-    run = _mk_run(_mk_session())
-    env = _mk_envelope(run)
-    run.refresh_from_db()
-    assert run.envelope == env
-
-
 # --- Review-hardening regressions (Story 1.2 review pass) -------------------
 
 

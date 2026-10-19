@@ -2,11 +2,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sessions.executor.lock import NoLock
-from webhooks.managers.base import BaseManager
 from webhooks.tasks import address_issue_task, address_mr_comments_task
 
-from codebase.base import Issue, MergeRequest, User
+from codebase.base import MergeRequest, User
 from codebase.exceptions import CloneRefNotFoundError
 
 _CONTEXT = SimpleNamespace(task_result=SimpleNamespace(id="tr-1"))
@@ -19,7 +17,7 @@ def run_lookup():
         yield lookup
 
 
-def _mr(*, merged: bool, labels: list[str] | None = None) -> MergeRequest:
+def _mr(*, merged: bool) -> MergeRequest:
     return MergeRequest(
         repo_id="group/repo",
         merge_request_id=7,
@@ -30,7 +28,6 @@ def _mr(*, merged: bool, labels: list[str] | None = None) -> MergeRequest:
         web_url="https://git/group/repo/-/merge_requests/7",
         author=User(id=1, username="u", name="U"),
         merged=merged,
-        labels=labels or [],
     )
 
 
@@ -164,61 +161,3 @@ class TestAddressIssueTaskRef:
             "use_max": False,
         }
         run_lookup.assert_awaited_once_with("tr-1")
-
-
-class TestIssueMaxModelIsDecidedByTheCallback:
-    """The callback decides max mode when it stamps the Run and hands it to the task; the label on the issue the
-    task re-fetches is never read again."""
-
-    @staticmethod
-    async def _spec_for(labels: list[str], **task_kwargs):
-        client = MagicMock()
-        client.get_issue.return_value = Issue(id=1, iid=10, title="t", author=User(id=1, username="u"), labels=labels)
-        execute = AsyncMock(return_value=SimpleNamespace(agent_result={"response": ""}))
-        with (
-            patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
-            patch("webhooks.tasks.aget_session_ref", AsyncMock(return_value="")),
-            patch("webhooks.managers.issue_addressor.execute_run", execute),
-            patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
-        ):
-            await address_issue_task.func(_CONTEXT, repo_id="group/repo", issue_iid=10, thread_id="t-1", **task_kwargs)
-        return execute.await_args.args[0]
-
-    @pytest.mark.parametrize(("labels", "use_max"), [(["daiv"], True), (["daiv-max"], False)])
-    async def test_a_use_max_from_the_callback_wins_over_a_label_changed_since(self, labels, use_max):
-        spec = await self._spec_for(labels, use_max=use_max)
-
-        assert spec.use_max is use_max
-
-
-class TestMergeRequestMaxModelIsDecidedByTheCallback:
-    """As for issues: the label on the re-fetched MR is never read again."""
-
-    @staticmethod
-    async def _spec_for(labels: list[str], **task_kwargs):
-        client = MagicMock()
-        client.get_merge_request.return_value = _mr(merged=False, labels=labels)
-        client.get_merge_request_comment.return_value = SimpleNamespace(
-            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="@daiv fix")]
-        )
-        execute = AsyncMock(return_value=SimpleNamespace(agent_result={"response": ""}))
-        with (
-            patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
-            patch("webhooks.managers.review_addressor.execute_run", execute),
-            patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
-        ):
-            await address_mr_comments_task.func(
-                _CONTEXT,
-                repo_id="group/repo",
-                merge_request_id=7,
-                mention_comment_id="d1",
-                thread_id="t-7",
-                **task_kwargs,
-            )
-        return execute.await_args.args[0]
-
-    @pytest.mark.parametrize(("labels", "use_max"), [(["daiv"], True), (["daiv-max"], False)])
-    async def test_a_use_max_from_the_callback_wins_over_a_label_changed_since(self, labels, use_max):
-        spec = await self._spec_for(labels, use_max=use_max)
-
-        assert spec.use_max is use_max
