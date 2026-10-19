@@ -53,7 +53,7 @@ class TestCaptureRunObservations:
         task_mock.enqueue.assert_not_called()
 
     def test_skips_dispatch_failure_reemits(self):
-        """skip_dispatch=True marks re-emits for runs that never actually executed."""
+        """skip_dispatch=True marks a run the dispatcher or orphan sweep failed to enqueue or link."""
         session = _session()
         run = _run(session, status=RunStatus.FAILED)
         with patch("memory.signals.extract_observations_task") as task_mock:

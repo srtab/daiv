@@ -96,9 +96,15 @@ async def finalize_chat_run(
         update["error_message"] = error_message[:2000]
     if agent_result:
         update.update(agent_result_field_updates(agent_result))
-    if usage:
-        update.update(usage_field_updates(usage, run_ref=run.pk))
-    await Run.objects.afinish(run, status, **update)
+    usage_fields = usage_field_updates(usage, run_ref=run.pk) if usage else {}
+    if await Run.objects.afinish(run, status, **update, **usage_fields):
+        return
+    logger.warning(
+        "finalize_chat_run: run=%s finished before its stream did; its %s outcome is dropped", run.pk, status
+    )
+    if usage_fields:
+        # The tokens were spent whichever writer finished the run.
+        await Run.objects.filter(pk=run.pk).aupdate(**usage_fields)
 
 
 # GitState fields that survive the ag-ui output-schema filter and reach the

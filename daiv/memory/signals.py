@@ -17,8 +17,8 @@ def capture_run_observations(sender: type, run: Any, **kwargs: Any) -> None:
     """Enqueue transcript extraction when a run reaches a terminal status.
 
     FAILED runs are included — failures are valuable learning signal.
-    ``skip_dispatch=True`` marks re-emits from dispatch-failure paths: those
-    runs never executed, so there is no new transcript to mine.
+    ``skip_dispatch=True`` marks a run the dispatcher or orphan sweep failed to
+    enqueue or link: nothing captured a transcript for it, so there is none to mine.
     CHAT-triggered runs are skipped — interactive chat turns are not agent
     sessions worth mining for repository-scoped memory.
     Exception-safe: memory capture must never affect the run lifecycle (the

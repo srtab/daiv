@@ -919,9 +919,9 @@ async def test_a_failed_ref_merge_fails_the_run_instead_of_stranding_it():
             references=[RefIn(key="GONE-1", provider="sentry", relation="closes")],
         )
     assert result.runs == []
-    assert "RefsMergeFailed" in result.failed[0].error
     run = await Run.objects.aget(session__thread_id=thread_id)
     assert run.status == RunStatus.FAILED
+    assert result.failed[0].error == run.error_message == "refs_merge_failed: RuntimeError: bus down"
     mock_task.aenqueue.assert_not_called()
     session = await Session.objects.aget(thread_id=thread_id)
     assert session.external_refs == []

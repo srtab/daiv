@@ -9,7 +9,7 @@ from asgiref.sync import sync_to_async
 
 from sessions.models import RunStatus, SessionOrigin
 from sessions.pipeline_watch.store import WatchStore
-from sessions.queue import LINK_FAILED_PREFIX, aenqueue_run
+from sessions.queue import aenqueue_run
 from sessions.services import acreate_run
 
 if TYPE_CHECKING:
@@ -77,8 +77,8 @@ class FixRunDispatcher:
             agent_thinking_level=agent_thinking_level,
             status=RunStatus.READY,
         )
-        queued = await aenqueue_run(run, log_context="pipeline_watch")
-        if not queued and not run.error_message.startswith(LINK_FAILED_PREFIX):
-            # The claim already charged the attempt and moved the row to FIXING, but no task will run: refund both
-            # so the watch stays live instead of waiting out the stale sweep. A link failure's task still runs.
+        failure = await aenqueue_run(run, log_context="pipeline_watch")
+        if failure is not None and not failure.task_enqueued:
+            # The claim already charged the attempt and moved the watch to FIXING, but no task will run: refund both
+            # so the watch stays live instead of waiting out the stale sweep.
             await self._store.arefund_attempt(session.thread_id)

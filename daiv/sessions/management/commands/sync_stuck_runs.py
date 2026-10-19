@@ -7,7 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from sessions.locks import stale_cutoff
-from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -64,7 +64,10 @@ class Command(BaseCommand):
         seconds by a live stream — so a genuinely long-running chat turn is never reaped. The
         finish re-checks that signal, so a stream that heartbeats after the scan keeps its run.
         """
-        stale = Q(status=RunStatus.RUNNING, session__last_active_at__lt=stale_cutoff())
+        # A subquery, not a join: Django runs a joined UPDATE as ``id IN (SELECT ...)``, and Postgres does not redo
+        # that subquery's status check after waiting on the row lock, so a finish committed meanwhile would be lost.
+        stale_sessions = Session.objects.filter(last_active_at__lt=stale_cutoff()).values("pk")
+        stale = Q(status=RunStatus.RUNNING, session_id__in=stale_sessions)
         orphans = Run.objects.filter(stale, trigger_type=SessionOrigin.CHAT, task_result__isnull=True)
         reaped = sum(
             Run.objects.finish(

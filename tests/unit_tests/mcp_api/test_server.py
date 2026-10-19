@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
+from django_tasks_db.models import DBTaskResult
 from mcp_api.server import (
     DEFAULT_LIST_LIMIT,
     _batch_response,
@@ -13,6 +14,7 @@ from mcp_api.server import (
     list_repositories,
     submit_job,
 )
+from sessions.executor.tasks import run_job_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
@@ -129,19 +131,29 @@ async def test_submit_job_multi_repo_enqueues_each():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_reports_partial_failure():
+    task_row = await DBTaskResult.objects.acreate(
+        id=uuid.uuid4(),
+        status="READY",
+        task_path=run_job_task.module_path,
+        args_kwargs={"args": [], "kwargs": {}},
+        queue_name="default",
+        backend_name="default",
+        run_after="9999-01-01T00:00:00Z",
+        return_value={},
+    )
+
     async def _flaky(**kwargs):
         if kwargs["repo_id"] == "o/b":
             raise RuntimeError("boom")
-        return _mock_task()
+        return MagicMock(id=task_row.id)
 
-    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.queue.run_job_task") as mock_task:
         mock_task.aenqueue = _flaky
         result = await submit_job(repos=[{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": None}], prompt="p")
 
     data = json.loads(result)
-    assert len(data["jobs"]) == 1
-    assert len(data["failed"]) == 1
-    assert data["failed"][0]["repo_id"] == "o/b"
+    assert [job["repo_id"] for job in data["jobs"]] == ["o/a"]
+    assert [(f["repo_id"], f["error"]) for f in data["failed"]] == [("o/b", "enqueue_failed: RuntimeError: boom")]
 
 
 @pytest.mark.django_db(transaction=True)

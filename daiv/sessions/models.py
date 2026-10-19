@@ -443,9 +443,8 @@ class Run(models.Model):
     def mark_failed(self, prefix: str, err: Exception) -> dict[str, Any]:
         """Set the terminal FAILED fields in-memory and return them, ``status`` aside, for ``RunManager.afinish``.
 
-        Centralizes the exact field set + ``started_at`` backfill of the post-create failure
-        paths (``sessions.queue.amark_failed_and_advance``). It sets them before the write
-        so a caller can read why the run failed even when that write does not land.
+        It sets them before the write so a caller can read why the run failed even when that
+        write does not land.
         """
         now = timezone.now()
         self.status = RunStatus.FAILED
@@ -460,7 +459,7 @@ class Run(models.Model):
 
         Returns True if any field was updated (and a write was issued and landed), else False.
         A transition to a terminal status is written by ``RunManager.finish``, which emits
-        ``run_finished``; it does not land on a row that already finished.
+        ``run_finished``. No write lands on a row that already finished.
 
         Raises whatever ``sync_from_task_result`` or the write raise — callers running
         in long-lived loops (signal handlers, management commands) must catch.
@@ -471,8 +470,7 @@ class Run(models.Model):
         if "status" in changed and self.status in RunStatus.terminal():
             fields = {name: getattr(self, name) for name in changed if name != "status"}
             return type(self).objects.finish(self, self.status, **fields)
-        self.save(update_fields=changed)
-        return True
+        return type(self).objects.update_unfinished(self, **{name: getattr(self, name) for name in changed})
 
     def sync_from_task_result(self) -> list[str]:
         """Pull latest status/timing/result from the linked DBTaskResult.

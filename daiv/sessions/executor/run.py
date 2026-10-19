@@ -215,8 +215,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
 
 @asynccontextmanager
 async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]:
-    # Imported here so the modules that import this one at their top (chat streaming, the webhook addressors)
-    # never load the agent stack.
+    # Deferred so importing this module never loads the agent stack.
     from langgraph.checkpoint.memory import InMemorySaver
     from mcp_connectors.services import build_runtime_servers
     from sandbox_envs.services import build_sandbox_spec

@@ -9,6 +9,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.queue import (
     LINK_FAILED_PREFIX,
     MAX_CONSECUTIVE_DISPATCH_FAILURES,
+    EnqueueFailure,
     aenqueue_run,
     amark_failed_and_advance,
     dispatch_next_queued,
@@ -28,7 +29,7 @@ def _make_run(*, session_id: str, status: str, trigger_type: str = SessionOrigin
 
 @pytest.fixture
 def emitted():
-    """The ``skip_dispatch`` value of every ``run_finished`` emit, by run id."""
+    """Every ``run_finished`` emit, in order, as a ``(run id, skip_dispatch)`` pair."""
     seen: list[tuple[str, bool | None]] = []
 
     def _spy(sender, run, **kwargs):
@@ -63,7 +64,7 @@ class TestAenqueueRun:
 
         with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
-            assert await aenqueue_run(run, log_context="test") is True
+            assert await aenqueue_run(run, log_context="test") is None
 
         assert mock_task.aenqueue.call_args.kwargs == {
             "repo_id": "acme/api",
@@ -98,11 +99,12 @@ class TestAenqueueRun:
 
         with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(side_effect=RuntimeError("queue down"))
-            assert await aenqueue_run(run, log_context="test", skip_dispatch=skip_dispatch) is False
+            failure = await aenqueue_run(run, log_context="test", skip_dispatch=skip_dispatch)
 
+        assert failure == EnqueueFailure(error="enqueue_failed: RuntimeError: queue down", task_enqueued=False)
         await run.arefresh_from_db()
         assert run.status == RunStatus.FAILED
-        assert run.error_message == "enqueue_failed: RuntimeError: queue down"
+        assert run.error_message == failure.error
         assert run.finished_at is not None
         assert run.task_result_id is None
         assert emitted == [(str(run.pk), skip_dispatch)]
@@ -112,10 +114,13 @@ class TestAenqueueRun:
 
         with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))  # no such task result row
-            assert await aenqueue_run(run, log_context="test") is False
+            failure = await aenqueue_run(run, log_context="test")
 
+        assert failure is not None
+        assert failure.task_enqueued is True
         await run.arefresh_from_db()
         assert run.status == RunStatus.FAILED
+        assert run.error_message == failure.error
         assert run.error_message.startswith(f"{LINK_FAILED_PREFIX}: IntegrityError")
         assert run.task_result_id is None
         assert emitted == [(str(run.pk), False)]
@@ -186,7 +191,7 @@ class TestDispatchNextQueued:
         assert bad.status == RunStatus.FAILED
         assert bad.error_message == "enqueue_failed: RuntimeError: queue down"
         assert (next_q.status, next_q.task_result_id) == (RunStatus.READY, fake_task.id)
-        # The re-emit must not re-enter the dispatcher, which moves on by itself.
+        # The emit must not re-enter the dispatcher, which moves on by itself.
         assert emitted == [(str(bad.pk), True)]
 
     def test_a_failed_link_fails_the_row_and_moves_to_the_next(self, create_db_task_result, emitted):

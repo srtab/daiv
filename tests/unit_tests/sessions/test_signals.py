@@ -333,7 +333,7 @@ class TestClassifyOnRunFinished:
         task_mock.enqueue.assert_not_called()
 
     def test_failed_run_classifies_even_on_skip_dispatch(self):
-        # F5: a skip_dispatch re-emit that is FAILED still deserves a `failed` envelope + notification.
+        # F5: a skip_dispatch emit that is FAILED still deserves a `failed` envelope + notification.
         run = self._schedule_run(status=RunStatus.FAILED)
         from sessions.signals import classify_on_run_finished
 
@@ -366,7 +366,7 @@ class TestClassifyOnRunFinished:
         task_mock.enqueue.assert_called_once_with(str(run.pk))
 
     def test_skips_dispatch_failure_reemits(self):
-        """``skip_dispatch=True`` is checked first: re-emitted runs never executed."""
+        """``skip_dispatch=True`` is checked first: the dispatcher or orphan sweep failed that run."""
         from sessions.signals import classify_on_run_finished
 
         run = self._schedule_run(status=RunStatus.SUCCESSFUL)

@@ -115,3 +115,19 @@ async def test_finalize_chat_run_leaves_a_reaped_run_as_the_reaper_left_it(djang
 
     await run.arefresh_from_db()
     assert (run.status, run.error_message, run.result_summary) == (RunStatus.FAILED, "reaped", "")
+
+
+async def test_finalize_chat_run_keeps_the_usage_of_a_reaped_run(django_user_model, caplog):
+    user = await _mk_user(django_user_model)
+    session = await _mk_chat_session(user)
+    run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hi", repo_id="g/r", ref="main")
+    await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED, error_message="reaped")
+
+    await finalize_chat_run(
+        run, success=True, usage={"input_tokens": 10, "total_tokens": 12, "cost_usd": "0.5"}, response_text="done"
+    )
+
+    await run.arefresh_from_db()
+    assert (run.status, run.result_summary) == (RunStatus.FAILED, "")
+    assert (run.input_tokens, run.total_tokens, run.cost_usd) == (10, 12, Decimal("0.5"))
+    assert f"run={run.pk} finished before its stream did" in caplog.text

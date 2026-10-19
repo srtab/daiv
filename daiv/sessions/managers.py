@@ -142,10 +142,11 @@ class RunManager(models.Manager["Run"]):
         The write is one guarded ``UPDATE``: it lands only while the row is not terminal yet and matches ``where``,
         so a finish never overwrites one that got there first. Returns whether this call finished the run. When it
         did, ``run`` takes the written values, the nav badge is refreshed once the write commits, and
-        ``run_finished`` goes out (with ``skip_dispatch``) unless ``run`` is a chat run, whose turn the
-        notification, memory and dispatch receivers never act on.
+        ``run_finished`` goes out (with ``skip_dispatch``) unless ``run`` is a chat run, which the classification,
+        memory and dispatch receivers must not see.
         """
-        if not self._unfinished(run, status, where).update(status=status, **fields):
+        _require_terminal(status)
+        if not self._unfinished(run, where).update(status=status, **fields):
             return False
         self._apply(run, status, fields)
         transaction.on_commit(ui_events.publisher.runs_changed)
@@ -158,23 +159,38 @@ class RunManager(models.Manager["Run"]):
         """:meth:`finish` for async callers, from any event loop.
 
         The badge refresh and the receivers run in a worker thread: the receivers do synchronous ORM work, and the
-        shared async Redis client is bound to the web worker's loop, which an ``async_to_sync`` caller is not on.
+        shared async Redis client is bound to the loop that first used it, and an ``async_to_sync`` caller runs on a
+        fresh one.
         """
-        if not await self._unfinished(run, status, where).aupdate(status=status, **fields):
+        _require_terminal(status)
+        if not await self._unfinished(run, where).aupdate(status=status, **fields):
             return False
         self._apply(run, status, fields)
         await asyncio.to_thread(self._announce_finished, run, skip_dispatch=skip_dispatch)
+        return True
+
+    def update_unfinished(self, run: Run, **fields: Any) -> bool:
+        """Write a non-terminal change onto ``run``'s row unless the run has finished, so a stale sync never reopens it.
+
+        Returns whether the write landed. When it moved the status, the nav badge is refreshed once it commits.
+        """
+        from sessions.models import RunStatus
+
+        if fields.get("status") in RunStatus.terminal():
+            raise ValueError(f"{fields['status']!r} is a terminal run status; finish the run instead")
+        if not self._unfinished(run).update(**fields):
+            return False
+        if "status" in fields:
+            transaction.on_commit(ui_events.publisher.runs_changed)
         return True
 
     def _announce_finished(self, run: Run, *, skip_dispatch: bool) -> None:
         ui_events.publisher.runs_changed()
         self._emit_run_finished(run, skip_dispatch=skip_dispatch)
 
-    def _unfinished(self, run: Run, status: str, where: models.Q | None) -> models.QuerySet[Run]:
+    def _unfinished(self, run: Run, where: models.Q | None = None) -> models.QuerySet[Run]:
         from sessions.models import RunStatus
 
-        if status not in RunStatus.terminal():
-            raise ValueError(f"{status!r} is not a terminal run status")
         rows = self.filter(pk=run.pk).exclude(status__in=RunStatus.terminal())
         return rows if where is None else rows.filter(where)
 
@@ -199,6 +215,13 @@ class RunManager(models.Manager["Run"]):
                     run.pk,
                     exc_info=response,
                 )
+
+
+def _require_terminal(status: str) -> None:
+    from sessions.models import RunStatus
+
+    if status not in RunStatus.terminal():
+        raise ValueError(f"{status!r} is not a terminal run status")
 
 
 class RunArtifactManager(models.Manager["RunArtifact"]):

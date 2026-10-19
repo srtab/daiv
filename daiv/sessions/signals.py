@@ -69,8 +69,8 @@ def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwarg
     while a missed one leaves a stale badge until the connection's next resync. A
     create is exact instead: the status is in hand, and every other run creation
     (``READY``/``QUEUED`` from the webhook, API, MCP, schedule and batch paths) is a
-    row no reader's count can include. A run's finish skips this signal: ``RunManager.finish``
-    refreshes the badge itself.
+    row no reader's count can include. A run's finish and a sync's non-terminal write skip this
+    signal: ``RunManager.finish`` and ``RunManager.update_unfinished`` refresh the badge themselves.
     """
     if created:
         if instance.status == RunStatus.RUNNING:
@@ -119,8 +119,8 @@ def sync_run_on_task_signal(sender: type, task_result: Any, **kwargs: Any) -> No
 def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
     """Release the next QUEUED run on the finished run's session (:func:`sessions.queue.dispatch_next_queued`).
 
-    ``skip_dispatch=True`` (passed by re-emits from dispatch-failure paths) suppresses
-    re-entry while still letting notification receivers fire.
+    ``skip_dispatch=True`` (set when the dispatcher or orphan sweep fails a run it could not enqueue or link)
+    suppresses re-entry while still letting the other receivers fire.
     """
     if kwargs.get("skip_dispatch"):
         return
@@ -133,13 +133,13 @@ def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
     """Enqueue post-run classification for all non-chat origins (SCHEDULE + webhooks + prompt-driven).
 
     Universal gate: every terminal, non-chat run gets a RunEnvelope. ``skip_dispatch=True`` marks
-    re-emits from dispatch/link failures; a FAILED re-emit still deserves a ``failed`` envelope
-    + failure notification, so only the non-FAILED skip_dispatch case returns early.
+    a run the dispatcher or orphan sweep failed to enqueue or link; that FAILED run still deserves a
+    ``failed`` envelope + failure notification, so only the non-FAILED skip_dispatch case returns early.
 
     Exception-safe: classification must never affect the run lifecycle.
     """
     try:
-        # A FAILED skip_dispatch re-emit still needs its `failed` envelope; only non-FAILED re-entry skips.
+        # A FAILED skip_dispatch emit still needs its `failed` envelope; only non-FAILED re-entry skips.
         if kwargs.get("skip_dispatch") and run.status != RunStatus.FAILED:
             return
         if run.trigger_type not in get_classify_origins():

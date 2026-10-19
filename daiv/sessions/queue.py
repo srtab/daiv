@@ -1,17 +1,17 @@
 """Putting a READY ``Run`` on the task queue, and what happens to the row when that does not land.
 
-Every path that queues a run — a batch submit, a CI fix run, a QUEUED sibling released after its predecessor
-finished, the orphan sweep — goes through :func:`aenqueue_run`, which builds ``run_job_task``'s arguments from the
-row, so each ``Run`` column reaches the agent the same way whichever path queued it. A failed enqueue or link marks
-the row FAILED and emits ``run_finished`` (:func:`amark_failed_and_advance`), so the session's QUEUED siblings advance
-instead of waiting behind a row that will never finish.
+Every path that queues ``run_job_task`` for a run — a batch submit, a CI fix run, a QUEUED sibling released after
+its predecessor finished, the orphan sweep — goes through :func:`aenqueue_run`, which builds the task's arguments
+from the row, so each ``Run`` column reaches the agent the same way whichever path queued it. Webhook runs are not
+among them: their callbacks enqueue their own tasks. A failed enqueue or link marks the row FAILED and emits
+``run_finished`` (:func:`amark_failed_and_advance`), so the session's QUEUED siblings advance instead of waiting
+behind a row that will never finish.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
 
 from django.db import IntegrityError
 from django.db.models import Q
@@ -24,46 +24,48 @@ from sessions.models import Run, RunStatus, SessionOrigin
 logger = logging.getLogger("daiv.sessions")
 
 ENQUEUE_FAILED_PREFIX = "enqueue_failed"
-# ``error_message`` prefix for a Run whose task could not be linked back to it: the agent may still push a
-# commit or open an MR while the row shows FAILED. One constant, so operators grep one sentinel.
+# The agent may still push a commit or open an MR while the row shows FAILED.
 LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
 
-#: Without a cap a broker outage fails a session's whole QUEUED backlog in one pass; past it the rest stay
-#: QUEUED for ``release_orphan_queued_sessions``.
 MAX_CONSECUTIVE_DISPATCH_FAILURES = 3
 
 
-def _task_kwargs(run: Run) -> dict[str, Any]:
-    return {
-        "repo_id": run.repo_id,
-        "prompt": run.prompt,
-        "thread_id": str(run.session_id),
-        "ref": run.ref or None,
-        "agent_model": run.agent_model or None,
-        "agent_thinking_level": run.agent_thinking_level or None,
-        "sandbox_environment_id": str(run.sandbox_environment_id) if run.sandbox_environment_id else None,
-        "run_id": str(run.pk),
-        "user_id": run.user_id,
-        "ask_user_enabled": run.trigger_type not in SessionOrigin.unattended(),
-    }
+@dataclass(frozen=True)
+class EnqueueFailure:
+    """Why :func:`aenqueue_run` could not get a run going."""
+
+    error: str
+    #: True when the task reached the queue but could not be linked to the row: the agent runs regardless.
+    task_enqueued: bool
 
 
-async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = False) -> bool:
+async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = False) -> EnqueueFailure | None:
     """Enqueue ``run_job_task`` for a READY ``run`` and link its task result to the row.
 
-    Returns ``False`` when either step fails, with the row marked FAILED by :func:`amark_failed_and_advance`
-    (``skip_dispatch`` is forwarded to it). Its ``error_message`` then starts with ``ENQUEUE_FAILED_PREFIX`` when no
-    task reached the broker, or with ``LINK_FAILED_PREFIX`` when one did: that task still runs, and
-    ``sessions.signals._sync_run_for_task`` no-ops on its result because no row links to it.
+    Returns ``None`` once both steps land. When either fails, :func:`amark_failed_and_advance` marks the row FAILED
+    unless it moved on meanwhile, and the returned failure carries ``run.error_message``, which starts with
+    ``ENQUEUE_FAILED_PREFIX`` when no task reached the queue, or with ``LINK_FAILED_PREFIX`` when one did: that task
+    still runs, and ``sessions.signals._sync_run_for_task`` no-ops on its result because no row links to it.
     """
     try:
-        task = await run_job_task.aenqueue(**_task_kwargs(run))
+        task = await run_job_task.aenqueue(
+            repo_id=run.repo_id,
+            prompt=run.prompt,
+            thread_id=str(run.session_id),
+            ref=run.ref or None,
+            agent_model=run.agent_model or None,
+            agent_thinking_level=run.agent_thinking_level or None,
+            sandbox_environment_id=str(run.sandbox_environment_id) if run.sandbox_environment_id else None,
+            run_id=str(run.pk),
+            user_id=run.user_id,
+            ask_user_enabled=run.trigger_type not in SessionOrigin.unattended(),
+        )
     except Exception as err:  # noqa: BLE001
         logger.exception("%s: enqueue failed for run=%s repo_id=%s", log_context, run.pk, run.repo_id)
         await amark_failed_and_advance(
             run, prefix=ENQUEUE_FAILED_PREFIX, err=err, log_context=log_context, skip_dispatch=skip_dispatch
         )
-        return False
+        return EnqueueFailure(error=run.error_message, task_enqueued=False)
 
     try:
         run.task_result_id = task.id
@@ -75,8 +77,8 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
         await amark_failed_and_advance(
             run, prefix=LINK_FAILED_PREFIX, err=err, log_context=log_context, skip_dispatch=skip_dispatch
         )
-        return False
-    return True
+        return EnqueueFailure(error=run.error_message, task_enqueued=True)
+    return None
 
 
 async def amark_failed_and_advance(
@@ -86,9 +88,10 @@ async def amark_failed_and_advance(
 
     The write lands only while the row still has the status the caller left it in, so a task that got running
     after all keeps its row. Does NOT touch ``Session.active_run_id`` (that is ``SessionLock``'s job); the
-    "advance" is the ``run_finished`` emit, which dispatches the session's QUEUED siblings unless
-    ``skip_dispatch`` says the caller is the dispatcher, which moves on by itself. ``log_context`` names the
-    caller in the logs; ``run.error_message`` says why the run failed even when the write does not land.
+    "advance" is the ``run_finished`` emit, which dispatches the session's QUEUED siblings unless the caller sets
+    ``skip_dispatch`` because it handles the session's next run itself (the dispatcher) or leaves it for its next
+    pass (the orphan sweep). ``log_context`` names the caller in the logs; ``run.error_message`` says why the run
+    failed even when the write does not land.
     """
     expected_status = run.status
     fields = run.mark_failed(prefix, err)
@@ -98,10 +101,11 @@ async def amark_failed_and_advance(
         )
     except Exception:
         logger.exception(
-            "%s: failed to mark run=%s FAILED; queued siblings on this session may be stranded — "
-            "run release_orphan_queued_sessions",
+            "%s: failed to mark run=%s FAILED; it may be left %s, holding its session's slot so no QUEUED sibling "
+            "runs — mark it FAILED by hand, then run release_orphan_queued_sessions",
             log_context,
             run.pk,
+            expected_status,
         )
         return
     if not failed:
@@ -120,8 +124,8 @@ def _claim_queued(run: Run) -> bool:
 
 
 def _enqueue_claimed(run: Run, *, log_context: str) -> bool:
-    # skip_dispatch: both sync callers move on to the next row themselves, so a failure must not re-enter them.
-    return async_to_sync(aenqueue_run)(run, log_context=log_context, skip_dispatch=True)
+    # skip_dispatch: dispatch_next_queued tries the next sibling itself; the orphan sweep leaves it for its next pass.
+    return async_to_sync(aenqueue_run)(run, log_context=log_context, skip_dispatch=True) is None
 
 
 def dispatch_next_queued(session_id: str) -> None:
@@ -130,7 +134,7 @@ def dispatch_next_queued(session_id: str) -> None:
     Atomic compare-and-swap (``filter(pk=, status=QUEUED).update(status=READY)``) wins
     the race against concurrent dispatchers reading the same row. A losing race is
     retried on the next QUEUED row; a unique-constraint violation against a peer claim
-    ends the pass. Enqueue failures mark the row FAILED (with ``finished_at`` set) and
+    ends the pass. Enqueue or link failures mark the row FAILED (with ``finished_at`` set) and
     loop to the next sibling so a single bad row does not block the session — bounded
     by ``MAX_CONSECUTIVE_DISPATCH_FAILURES`` so a broker outage doesn't mass-fail the
     whole backlog.
@@ -174,8 +178,9 @@ class OrphanRelease:
 def release_orphan_queued_runs() -> OrphanRelease:
     """Queue the oldest QUEUED run of every session that has no READY/RUNNING sibling.
 
-    Mitigates a rare TOCTOU loss where the dispatcher missed a terminal transition or
-    the row was created QUEUED but never picked up.
+    Recovers the sessions :func:`dispatch_next_queued` gave up on after ``MAX_CONSECUTIVE_DISPATCH_FAILURES``,
+    and the rare TOCTOU loss where the dispatcher missed a terminal transition or the row was created QUEUED but
+    never picked up.
     """
     active_sessions = set(
         Run.objects.filter(status__in=[RunStatus.READY, RunStatus.RUNNING]).values_list("session_id", flat=True)

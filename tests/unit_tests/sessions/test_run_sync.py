@@ -128,3 +128,30 @@ def test_sync_and_save_does_not_refinish_a_row_another_sync_finished(create_db_t
     finally:
         run_finished.disconnect(dispatch_uid="test-run-sync-refinish")
     assert received.call_count == 1
+
+
+def test_a_stale_sync_does_not_reopen_a_finished_row(create_db_task_result):
+    """``sync_stuck_runs`` read the row READY while its task ran; the worker finished the row before the cron's
+    write, which must not move it back to RUNNING, or the next sync finishes it and emits a second time."""
+    tr = create_db_task_result(status="RUNNING", started_at=_STARTED)
+    stale = Run.objects.select_related("task_result").get(pk=_run(tr, status=RunStatus.READY).pk)
+    Run.objects.filter(pk=stale.pk).update(status=RunStatus.SUCCESSFUL)
+
+    assert stale.sync_and_save() is False
+
+    stale.refresh_from_db()
+    assert (stale.status, stale.started_at) == (RunStatus.SUCCESSFUL, None)
+
+
+def test_a_sync_that_starts_the_run_refreshes_the_badge_once_committed(
+    create_db_task_result, django_capture_on_commit_callbacks
+):
+    tr = create_db_task_result(status="RUNNING", started_at=_STARTED)
+    run = _run(tr, status=RunStatus.READY)
+
+    with patch("core.ui_events.publisher.runs_changed") as badge, django_capture_on_commit_callbacks(execute=True):
+        assert run.sync_and_save() is True
+
+    badge.assert_called_once_with()
+    run.refresh_from_db()
+    assert (run.status, run.started_at) == (RunStatus.RUNNING, _STARTED)

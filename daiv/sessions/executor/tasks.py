@@ -43,8 +43,8 @@ async def run_job_task(
     Webhook callers (issue/review addressors) bypass this task; ``use_max`` is therefore
     not accepted here.
     """
-    # Heavy imports live here so enqueue-side importers of this module stay light; the executor also imports
-    # sessions.services, which enqueues through this module.
+    # Deferred: enqueue-side importers stay light, and executor.run -> sessions.services -> sessions.queue imports
+    # this module.
     from langchain_core.messages import HumanMessage
 
     from sessions.executor.run import execute_run

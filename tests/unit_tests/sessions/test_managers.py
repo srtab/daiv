@@ -98,6 +98,43 @@ class TestFinish:
         with pytest.raises(ValueError, match="not a terminal run status"):
             Run.objects.finish(run, RunStatus.RUNNING)
 
+    def test_a_failing_receiver_neither_stops_the_others_nor_the_finish(self, caplog):
+        def _broken(sender, run, **kwargs):
+            raise RuntimeError("receiver down")
+
+        later = MagicMock()
+        run_finished.connect(_broken, dispatch_uid="test-managers-broken")
+        run_finished.connect(later, dispatch_uid="test-managers-later")
+        try:
+            run = _create_run()
+            assert Run.objects.finish(run, RunStatus.SUCCESSFUL) is True
+        finally:
+            run_finished.disconnect(dispatch_uid="test-managers-broken")
+            run_finished.disconnect(dispatch_uid="test-managers-later")
+
+        later.assert_called_once()
+        run.refresh_from_db()
+        assert run.status == RunStatus.SUCCESSFUL
+        assert "failed for run_finished" in caplog.text
+
+
+@pytest.mark.django_db
+class TestUpdateUnfinished:
+    def test_a_finished_row_is_left_alone(self, badge):
+        run = _create_run(status=RunStatus.SUCCESSFUL)
+
+        assert Run.objects.update_unfinished(run, status=RunStatus.RUNNING) is False
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.SUCCESSFUL
+        badge.assert_not_called()
+
+    def test_a_terminal_status_is_refused(self):
+        run = _create_run(status=RunStatus.RUNNING)
+
+        with pytest.raises(ValueError, match="is a terminal run status"):
+            Run.objects.update_unfinished(run, status=RunStatus.FAILED)
+
 
 @pytest.mark.django_db(transaction=True)
 class TestAfinish:

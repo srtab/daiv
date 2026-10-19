@@ -131,6 +131,28 @@ class TestSyncStuckRunsCommand:
         assert run.status == RunStatus.RUNNING
         assert any("chat runs reaped: 0" in rec.message for rec in caplog.records)
 
+    def test_a_chat_run_that_heartbeats_after_the_scan_is_not_reaped(self):
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()),
+            origin=SessionOrigin.CHAT,
+            repo_id="group/project",
+            last_active_at=timezone.now() - timedelta(hours=1),
+        )
+        run = Run.objects.create(
+            session=session, trigger_type=SessionOrigin.CHAT, repo_id="group/project", status=RunStatus.RUNNING
+        )
+        finish = Run.objects.finish
+
+        def _heartbeat_then_finish(*args, **kwargs):
+            Session.objects.filter(pk=session.pk).update(last_active_at=timezone.now())
+            return finish(*args, **kwargs)
+
+        with patch.object(Run.objects, "finish", side_effect=_heartbeat_then_finish):
+            call_command("sync_stuck_runs")
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.RUNNING
+
     def test_continues_after_per_row_error(self, caplog, create_db_task_result):
         ok_tr = create_db_task_result(
             status="SUCCESSFUL",

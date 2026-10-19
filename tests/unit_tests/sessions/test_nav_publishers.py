@@ -1,9 +1,9 @@
 """Every Run write that moves the running-runs badge must poke the nav readers.
 
 The badge is only as live as its pokes, and the ways a Run's status changes are not
-uniform: a create or a non-terminal move goes through ``save()`` (and so through
-``post_save``), but a finish is a guarded ``update`` in ``RunManager.finish``, which fires
-no signal and pokes for itself. These tests cover both kinds, because a missed poke is
+uniform: a create goes through ``save()`` (and so through ``post_save``), but a finish and
+a sync's move to RUNNING are guarded ``update``s in ``RunManager``, which fire no signal
+and poke for themselves. These tests cover both kinds, because a missed poke is
 invisible — the badge just sits on a stale number until the stream's next reconnect.
 """
 

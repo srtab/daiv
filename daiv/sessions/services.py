@@ -277,8 +277,8 @@ async def asubmit_batch_runs(
     Each ``RepoTarget`` carries its own ``sandbox_environment_id`` (resolved upstream by
     :func:`sandbox_envs.selection.aresolve_repo_envs` or its sync wrapper), so the batch can mix per-repo envs.
 
-    Best-effort: any per-repo exception (enqueue failure or post-enqueue run-creation
-    failure) lands in ``result.failed`` while siblings continue.
+    Best-effort: a per-repo failure (run creation, refs merge, enqueue or link) lands in
+    ``result.failed`` while siblings continue.
     """
     _validate(repos)
     if user is not None:
@@ -360,15 +360,13 @@ async def asubmit_batch_runs(
                 await amark_failed_and_advance(
                     run, prefix="refs_merge_failed", err=err, log_context="submit_batch_runs"
                 )
-                return BatchSubmitFailure(
-                    repo_id=target.repo_id, ref=target.ref, error=f"RefsMergeFailed: {type(err).__name__}: {err}"
-                )
+                return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
 
         if run.status == RunStatus.QUEUED:
             return run
 
-        if not await aenqueue_run(run, log_context="submit_batch_runs"):
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
+        if (failure := await aenqueue_run(run, log_context="submit_batch_runs")) is not None:
+            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=failure.error)
         return run
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
