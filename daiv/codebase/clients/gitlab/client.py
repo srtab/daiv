@@ -24,9 +24,6 @@ from codebase.base import (
     MergeRequestCommit,
     MergeRequestDiffStats,
     Note,
-    NoteDiffPosition,
-    NotePosition,
-    NotePositionLineRange,
     Pipeline,
     RepoAccessLevel,
     RepoMember,
@@ -632,7 +629,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
-        return self._serialize_note(issue.notes.get(note_id).attributes)
+        return Note.model_validate(issue.notes.get(note_id).attributes)
 
     def create_issue_comment(
         self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
@@ -1139,7 +1136,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        return self._serialize_note(merge_request.notes.get(note_id).attributes)
+        return Note.model_validate(merge_request.notes.get(note_id).attributes)
 
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """
@@ -1215,68 +1212,10 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
         return [
-            Note(
-                id=note.id,
-                body=note.body,
-                type=note.type,
-                noteable_type=note.noteable_type,
-                system=note.system,
-                resolvable=note.resolvable,
-                resolved=note.resolvable and note.resolved or None,
-                author=User(
-                    id=note.author.get("id"), username=note.author.get("username"), name=note.author.get("name")
-                ),
-            )
+            Note.model_validate(note.attributes)
             for note in issue.notes.list(get_all=True)
             if not note.system and not note.resolvable
         ]
-
-    def _serialize_note(self, note: dict) -> Note:
-        """
-        Serialize a note's API attributes to a Note.
-
-        Args:
-            note: The note attributes.
-
-        Returns:
-            The Note object.
-        """
-        return Note(
-            id=note["id"],
-            body=note["body"],
-            type=note["type"],
-            noteable_type=note["noteable_type"],
-            system=note["system"],
-            resolvable=note["resolvable"],
-            resolved=note.get("resolved"),
-            author=User(
-                id=note["author"].get("id"), username=note["author"].get("username"), name=note["author"].get("name")
-            ),
-            position=NotePosition(
-                head_sha=note["position"].get("head_sha"),
-                old_path=note["position"].get("old_path"),
-                new_path=note["position"].get("new_path"),
-                position_type=note["position"].get("position_type"),
-                old_line=note["position"].get("old_line"),
-                new_line=note["position"].get("new_line"),
-                line_range=NotePositionLineRange(
-                    start=NoteDiffPosition(
-                        type=note["position"]["line_range"]["start"]["type"],
-                        old_line=note["position"]["line_range"]["start"]["old_line"],
-                        new_line=note["position"]["line_range"]["start"]["new_line"],
-                    ),
-                    end=NoteDiffPosition(
-                        type=note["position"]["line_range"]["end"]["type"],
-                        old_line=note["position"]["line_range"]["end"]["old_line"],
-                        new_line=note["position"]["line_range"]["end"]["new_line"],
-                    ),
-                )
-                if note["position"].get("line_range")
-                else None,
-            )
-            if "position" in note
-            else None,
-        )
 
     def _serialize_merge_request(
         self, repo_id: str, merge_request: ProjectMergeRequest, *, merged: bool = False

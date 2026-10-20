@@ -6,12 +6,11 @@ from webhooks.managers.issue_addressor import IssueAddressorManager
 from codebase.base import Issue, User
 
 
-def _manager(thread_id: str, **mention) -> IssueAddressorManager:
+def _manager(thread_id: str) -> IssueAddressorManager:
     return IssueAddressorManager(
         repo_id="owner/repo",
         issue=Issue(id=1, iid=42, title="t", author=User(id=1, username="alice")),
         thread_id=thread_id,
-        **mention,
     )
 
 
