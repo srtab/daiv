@@ -13,11 +13,11 @@ from automation.agent.publishers import (
     SESSION_TRAILER,
     GitChangePublisher,
     PublishOutcome,
-    SessionLinks,
     UnresolvedMergeConflictsError,
     append_trailer,
     run_base_branch,
 )
+from automation.agent.session_links import SessionLinks
 from automation.agent.workspace.git_manager import PendingMerge, RepoStatus
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import (
@@ -129,7 +129,10 @@ def _make_publisher(
         ctx.repository.html_url = "https://github.com/owner/repo"
 
     publisher = GitChangePublisher(
-        ctx, FakeWorkspace(), settings=settings or agent_settings(), session_links=session_links
+        ctx,
+        FakeWorkspace(),
+        settings=settings or agent_settings(),
+        session_links=AsyncMock(return_value=session_links) if session_links else None,
     )
     publisher.client = Mock()
     publisher.client.is_branch_protected.return_value = False
@@ -320,8 +323,10 @@ class TestCreateMergeRequestSessionLink:
 
     @staticmethod
     async def _description(session_links: SessionLinks | None) -> str:
-        publisher = _publisher_no_issue(session_links=session_links)
-        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
+        publisher = _publisher_no_issue()
+        await publisher._create_merge_request(
+            "feature", "Title", "Body", target_branch="main", session_links=session_links
+        )
         return publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
 
     async def test_links_the_sessions_merge_request_resolver(self):
@@ -376,36 +381,35 @@ class TestCommitSessionTrailer:
 
     def test_appends_trailer_referencing_the_session(self):
         """Placement itself is pinned by TestAppendTrailer; this is the composed token+URL."""
-        assert _publisher_no_issue(session_links=_LINKS)._with_trailers("msg") == (
-            f"msg\n\nDAIV-Session: {_LINKS.detail}"
-        )
+        assert _publisher_no_issue()._with_trailers("msg", _LINKS) == (f"msg\n\nDAIV-Session: {_LINKS.detail}")
 
     def test_trailer_joins_an_existing_trailer_block(self):
         """git parses only the last paragraph, so a new one would strip Co-authored-by of its
         trailer status — losing platform co-author attribution on the commit."""
-        result = _publisher_no_issue(session_links=_LINKS)._with_trailers(
-            "subject\n\nbody\n\nCo-authored-by: A <a@x>\nCloses: #12"
-        )
+        result = _publisher_no_issue()._with_trailers("subject\n\nbody\n\nCo-authored-by: A <a@x>\nCloses: #12", _LINKS)
 
         assert result.endswith(f"Co-authored-by: A <a@x>\nCloses: #12\nDAIV-Session: {_LINKS.detail}")
 
     def test_message_untouched_without_session_links(self):
-        assert _publisher_no_issue()._with_trailers("msg") == "msg"
+        assert _publisher_no_issue()._with_trailers("msg", None) == "msg"
 
 
 class TestReferenceTrailers:
     def test_ref_trailers_precede_the_session_trailer(self):
-        publisher = _publisher_no_issue(session_links=_LINKS)
+        publisher = _publisher_no_issue()
         publisher.ctx.references = (
             ExternalRef(key="DAIV-1V", provider="sentry", relation="closes"),
             ExternalRef(key="PROJ-9", provider="jira"),
         )
-        assert publisher._with_trailers("msg") == f"msg\n\nFixes DAIV-1V\n\nRefs: PROJ-9\nDAIV-Session: {_LINKS.detail}"
+        assert (
+            publisher._with_trailers("msg", _LINKS)
+            == f"msg\n\nFixes DAIV-1V\n\nRefs: PROJ-9\nDAIV-Session: {_LINKS.detail}"
+        )
 
     def test_ref_trailers_apply_even_without_a_session_link(self):
         publisher = _publisher_no_issue()
         publisher.ctx.references = (ExternalRef(key="PROJ-9", provider="jira"),)
-        assert publisher._with_trailers("msg") == "msg\n\nRefs: PROJ-9"
+        assert publisher._with_trailers("msg", None) == "msg\n\nRefs: PROJ-9"
 
 
 class TestCreateMergeRequestAssignee:
@@ -917,6 +921,42 @@ class TestPublishCommitMessage:
 
     async def test_commit_message_untouched_without_session_links(self):
         assert await self._commit_message(session_links=None) == "commit msg"
+
+
+class TestPublishSessionLinks:
+    """A publish builds the session links only once it has something to push, and builds them once."""
+
+    async def test_a_publish_with_nothing_to_push_never_builds_them(self):
+        publisher = _publisher_no_issue(session_links=_LINKS)
+        _use_git_manager(publisher, _fake_git_manager(dirty=False, diff=""))
+
+        outcome = await publisher.publish(merge_request=None)
+
+        assert outcome.published is False
+        publisher.session_links.assert_not_awaited()
+
+    async def test_the_commit_and_the_new_merge_request_share_one_build(self):
+        publisher = _publisher_no_issue(session_links=_LINKS)
+        gm = _fake_git_manager()
+        _use_git_manager(publisher, gm)
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            patch.object(publisher, "_create_merge_request", return_value=_make_merge_request()) as create_mr,
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            await publisher.publish(merge_request=None)
+
+        publisher.session_links.assert_awaited_once()
+        assert gm.commit_all.await_args.args[0].endswith(_LINKS.detail)
+        assert create_mr.await_args.kwargs["session_links"] is _LINKS
 
 
 class TestPublishSuggestsContextFile:

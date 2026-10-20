@@ -6,7 +6,7 @@ from git import GitCommandError
 from langchain_core.messages import AIMessage
 
 from automation.agent.middlewares.git import GitMiddleware
-from automation.agent.publishers import PublishOutcome, SessionLinks, UnresolvedMergeConflictsError
+from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflictsError
 from automation.agent.workspace.git_manager import GitPushPermissionError
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
@@ -95,11 +95,7 @@ class TestGitMiddleware:
         assert result["code_changes"] is True
         assert result["protected_branch_fallback_source"] is None
 
-    @pytest.mark.parametrize(
-        "session_links",
-        [SessionLinks(detail="https://daiv.test/s/t-1/", merge_request="https://daiv.test/s/t-1/mr/"), None],
-        ids=["linked", "unlinked"],
-    )
+    @pytest.mark.parametrize("session_links", [AsyncMock(), None], ids=["linked", "unlinked"])
     async def test_aafter_agent_passes_session_links_to_publisher(self, session_links):
         """A run without links (one-shot, or links off) still publishes, just without them."""
         mw = GitMiddleware(

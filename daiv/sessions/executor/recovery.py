@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
 
     from automation.agent.agent_settings import AgentSettings
-    from automation.agent.publishers import SessionLinks
+    from automation.agent.session_links import SessionLinksResolver
     from automation.agent.workspace.base import Workspace
     from codebase.context import RuntimeCtx
 
@@ -23,7 +23,7 @@ async def recover_draft(
     thread_id: str,
     workspace: Workspace,
     settings: AgentSettings,
-    session_links: SessionLinks | None,
+    session_links: SessionLinksResolver | None,
 ) -> bool:
     """Publish a draft merge request from the agent's checkpoint after the agent raised; return whether one landed.
 

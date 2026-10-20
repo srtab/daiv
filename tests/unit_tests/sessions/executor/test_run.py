@@ -21,8 +21,8 @@ from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
-from automation.agent.publishers import SessionLinks
 from automation.agent.questions import render_questions
+from automation.agent.session_links import SessionLinks
 from automation.agent.validators import AgentConfigurationError
 from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.git_runners import LocalGitRunner
@@ -104,7 +104,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         workspace=ANY,
         artifact_store=ANY,
         mcp_servers=stack.build_servers.return_value,
-        session_links=_session_links(spec.thread_id),
+        session_links=ANY,
     )
     stack.langsmith.assert_called_once_with(
         stack.ctx,
@@ -572,7 +572,7 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
         workspace=ANY,
         artifact_store=ANY,
         mcp_servers=[],
-        session_links=_session_links(spec.thread_id),
+        session_links=ANY,
         capture_patch=True,
     )
 
@@ -596,16 +596,31 @@ async def test_a_run_without_a_session_to_link_hands_the_agent_no_links(spec_ove
     build_absolute_url.assert_not_called()
 
 
-async def test_session_links_that_cannot_be_built_do_not_fail_the_run(caplog):
-    """A link is cosmetic: a missing Sites row costs the run its links, not its work."""
+async def test_the_agent_gets_the_sessions_links_unbuilt():
+    spec = make_spec()
+
+    with (
+        agent_stack(_agent()) as stack,
+        patch("sessions.executor.run.build_absolute_url", side_effect=lambda path: f"{SITE_URL}{path}") as build,
+    ):
+        await execute_run(spec)
+        build.assert_not_called()
+        links = await stack.create_agent.await_args.kwargs["session_links"]()
+
+    assert links == _session_links(spec.thread_id)
+
+
+async def test_session_links_that_cannot_be_built_publish_without_them(caplog):
+    """A link is cosmetic: a missing Sites row costs the publish its links, not its work."""
     with (
         agent_stack(_agent()) as stack,
         patch("sessions.executor.run.build_absolute_url", side_effect=Site.DoesNotExist("no site")),
         caplog.at_level("WARNING", logger="daiv.sessions"),
     ):
         await execute_run(make_spec())
+        links = await stack.create_agent.await_args.kwargs["session_links"]()
 
-    assert stack.create_agent.await_args.kwargs["session_links"] is None
+    assert links is None
     assert "could not build the session links" in caplog.text
 
 

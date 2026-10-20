@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from langgraph.runtime import Runtime
 
     from automation.agent.agent_settings import AgentSettings
-    from automation.agent.publishers import SessionLinks
+    from automation.agent.session_links import SessionLinksResolver
     from automation.agent.workspace.base import Workspace
 
 
@@ -163,7 +163,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             large patches never stream through ``STATE_SNAPSHOT`` events.
         workspace: The run's workspace; its git backs the pre-run check and patch capture, and the publisher uses it.
         settings: The run's resolved agent settings.
-        session_links: The session links the publisher puts in the commit and the merge request; ``None`` for none.
+        session_links: What builds the links the publisher puts in the commit and the merge request; ``None`` for none.
 
     Example:
         ```python
@@ -191,7 +191,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         skip_ci: bool = False,
         auto_commit_changes: bool = True,
         capture_patch: bool = False,
-        session_links: SessionLinks | None = None,
+        session_links: SessionLinksResolver | None = None,
     ) -> None:
         """
         Initialize the middleware.

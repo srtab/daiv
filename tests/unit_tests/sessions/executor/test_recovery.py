@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from sessions.executor.recovery import recover_draft
 
-from automation.agent.publishers import SessionLinks
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import MergeRequest, User
@@ -117,7 +116,7 @@ class TestPublishTarget:
         assert pub_cls.call_args.args[1] is workspace
 
     async def test_it_hands_the_publisher_the_runs_session_links(self):
-        links = SessionLinks(detail="https://daiv.test/s/t-1/", merge_request="https://daiv.test/s/t-1/mr/")
+        links = AsyncMock()
 
         pub_cls = await _publish(checkpointed_mr=None, current_ref="master", session_links=links)
 

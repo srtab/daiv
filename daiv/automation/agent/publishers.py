@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from automation.agent.agent_settings import AgentSettings
+    from automation.agent.session_links import SessionLinks, SessionLinksResolver
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.git_manager import PendingMerge
     from codebase.context import RuntimeCtx
@@ -103,24 +104,21 @@ class PublishOutcome:
     prepared answers zero."""
 
 
-@dataclass(frozen=True)
-class SessionLinks:
-    """Absolute URLs of the session a publish comes from, resolved by the run executor: ``detail`` goes in the
-    commit's session trailer, ``merge_request`` in the merge request description."""
-
-    detail: str
-    merge_request: str
-
-
 class GitChangePublisher:
     """
     Publisher for changes made by the agent to the Git repository.
 
-    ``session_links`` is ``None`` when the run has no session to link, or links are off.
+    ``session_links`` builds the links a publish puts in the commit and the merge request, only once it has something
+    to push; ``None`` when the run has no session to link, or links are off.
     """
 
     def __init__(
-        self, ctx: RuntimeCtx, workspace: Workspace, *, settings: AgentSettings, session_links: SessionLinks | None
+        self,
+        ctx: RuntimeCtx,
+        workspace: Workspace,
+        *,
+        settings: AgentSettings,
+        session_links: SessionLinksResolver | None,
     ):
         self.ctx = ctx
         self.workspace = workspace
@@ -200,6 +198,8 @@ class GitChangePublisher:
             logger.info("No changes to open a merge request with.")
             return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
 
+        session_links = await self.session_links() if self.session_links else None
+
         pr_metadata_diff = (
             snapshot.diff if merge_request is None or (merge_request.draft and as_draft is False) else None
         )
@@ -220,7 +220,7 @@ class GitChangePublisher:
             )
             if skip_ci:
                 commit_message = f"[skip ci] {commit_message}"
-            await git_manager.commit_all(self._with_trailers(commit_message))
+            await git_manager.commit_all(self._with_trailers(commit_message, session_links))
 
         if merge_request is None:
             branch_name = git_manager.unique_branch_name(
@@ -268,6 +268,7 @@ class GitChangePublisher:
                     target_branch=self._live_target_branch(base_branch, snapshot.remote_branches, default_branch),
                     as_draft=as_draft,
                     fallback_from_mr=fallback_from_mr,
+                    session_links=session_links,
                 )
             except MergeRequestBranchNotVisibleError:
                 # Branch is pushed but GitLab won't open the MR yet; failing here would orphan the work
@@ -496,6 +497,7 @@ class GitChangePublisher:
         target_branch: str,
         as_draft: bool = False,
         fallback_from_mr: MergeRequest | None = None,
+        session_links: SessionLinks | None = None,
     ) -> MergeRequest:
         """
         Update or create the merge request.
@@ -509,6 +511,7 @@ class GitChangePublisher:
             as_draft: Whether to create the merge request as a draft.
             fallback_from_mr: The original MR whose protected source branch forced this fresh MR;
                 the description back-links to it so reviewers can trace the relationship.
+            session_links: The session links; the description links to the session's merge request page.
 
         Returns:
             The merge request.
@@ -534,7 +537,7 @@ class GitChangePublisher:
                     "bot_username": self.ctx.bot_username,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
                     "fallback_from_mr": fallback_from_mr,
-                    "session_url": self.session_links.merge_request if self.session_links else None,
+                    "session_url": session_links.merge_request if session_links else None,
                 },
             ),
         )
@@ -577,7 +580,7 @@ class GitChangePublisher:
             )
         return assignee_id
 
-    def _with_trailers(self, commit_message: str) -> str:
+    def _with_trailers(self, commit_message: str, session_links: SessionLinks | None) -> str:
         """Append reference trailers and the session trailer to ``commit_message``.
 
         Reference lines come first so the session trailer — the only line needing git-trailer
@@ -586,8 +589,8 @@ class GitChangePublisher:
         message = commit_message
         for line in render_commit_trailers(self.ctx.references):
             message = append_trailer(message, line)
-        if self.session_links:
-            message = append_trailer(message, f"{SESSION_TRAILER}: {self.session_links.detail}")
+        if session_links:
+            message = append_trailer(message, f"{SESSION_TRAILER}: {session_links.detail}")
         return message
 
     async def _suggest_context_file(self, merge_request: MergeRequest) -> None:
