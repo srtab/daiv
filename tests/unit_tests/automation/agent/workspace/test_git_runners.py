@@ -2,6 +2,7 @@ import shlex
 import subprocess  # noqa: S404
 import traceback
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -36,10 +37,11 @@ def _replying(*results: RunCommandResult) -> MagicMock:
     return client
 
 
-def _capture_subprocess(monkeypatch) -> dict[str, dict[str, str]]:
-    captured: dict[str, dict[str, str]] = {}
+def _capture_subprocess(monkeypatch) -> dict[str, Any]:
+    captured: dict[str, Any] = {}
 
     def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
         captured["env"] = kwargs["env"]
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
@@ -213,11 +215,71 @@ async def test_local_git_never_prompts_for_credentials(tmp_path: Path, monkeypat
     assert captured["env"]["GIT_ASKPASS"] == ""
 
 
-async def test_local_env_overlay_keeps_process_environment(tmp_path: Path, monkeypatch) -> None:
-    """The overlay extends the inherited environment: replacing it would drop PATH/HOME and break git."""
-    monkeypatch.setenv("DAIV_TEST_SENTINEL", "kept")
+async def test_local_git_env_keeps_only_what_git_needs(tmp_path: Path, monkeypatch) -> None:
+    repo = _init_repo(tmp_path)
+    worker_env = {
+        "PATH": "/usr/bin",
+        "HOME": "/home/daiv",
+        "https_proxy": "http://proxy:3128",
+        "DAIV_ENCRYPTION_KEY": "k",
+    }
+    monkeypatch.setattr("automation.agent.workspace.git_runners.os.environ", worker_env)
     captured = _capture_subprocess(monkeypatch)
 
-    await LocalGitRunner(_init_repo(tmp_path)).run(("status",))
+    await LocalGitRunner(repo).run(("status",))
 
-    assert captured["env"]["DAIV_TEST_SENTINEL"] == "kept"
+    assert captured["env"] == {
+        "PATH": "/usr/bin",
+        "HOME": "/home/daiv",
+        "https_proxy": "http://proxy:3128",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "",
+    }
+
+
+async def test_local_git_disables_command_hooks(tmp_path: Path, monkeypatch) -> None:
+    captured = _capture_subprocess(monkeypatch)
+    repo = _init_repo(tmp_path)
+
+    await LocalGitRunner(repo).run(("status", "--porcelain"))
+    assert captured["cmd"] == [
+        "git",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-C",
+        repo.working_dir,
+        "status",
+        "--porcelain",
+    ]
+
+    await LocalGitRunner(repo).run(("diff", "HEAD"))
+    assert captured["cmd"][-4:] == ["diff", "--no-ext-diff", "--no-textconv", "HEAD"]
+
+
+async def test_local_git_never_runs_a_planted_command(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    work = Path(repo.working_dir)
+    marker = tmp_path / "ran"
+    planted = f"touch {marker}"
+    with repo.config_writer() as config:
+        config.set_value("core", "fsmonitor", planted)
+        config.set_value("diff", "external", planted)
+        config.set_value('diff "planted"', "textconv", planted)
+        config.set_value("user", "name", "DAIV")
+        config.set_value("user", "email", "daiv@example.com")
+    hook = work / ".git" / "hooks" / "pre-commit"
+    hook.write_text(f"#!/bin/sh\n{planted}\n")
+    hook.chmod(0o755)
+    (work / ".gitattributes").write_text("*.txt diff=planted\n")
+    (work / "a.txt").write_text("one\n")
+    runner = LocalGitRunner(repo)
+    for args in (("add", "-A"), ("commit", "-m", "init")):
+        assert (await runner.run(args)).exit_code == 0
+    (work / "a.txt").write_text("two\n")
+
+    for args in (("status", "--porcelain"), ("diff", "HEAD"), ("commit", "-am", "two")):
+        await runner.run(args)
+
+    assert not marker.exists()

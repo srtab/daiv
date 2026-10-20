@@ -13,6 +13,8 @@ from automation.agent.workspace.backends import (
     WORKSPACE_FENCE_PERMISSIONS,
     DAIVCompositeBackend,
     DAIVFilesystemBackend,
+    RepoFilesystemBackend,
+    SkillsCacheBackend,
     build_disk_workspace_backend,
 )
 
@@ -309,27 +311,57 @@ class TestDAIVCompositeBackend:
 
 
 class TestWorkspaceFencePermissions:
-    """Disk-mode fence: allow read+write under the three real subtrees, read-only access to the
-    offloaded-artifact dirs (so eviction read-back works), and deny the bare /workspace root plus
-    any other path beneath it."""
+    """Disk-mode fence: allow read+write under the repo and tmp subtrees, read-only access to the skills cache and the
+    offloaded-artifact dirs, no access to any ``.git`` in the repo, and deny the bare /workspace root plus any other
+    path beneath it, dot-named paths included."""
 
-    def test_allows_real_subtrees(self):
+    def test_allows_repo_and_tmp_subtrees(self):
         for op in ("read", "write"):
             for path in (
                 "/workspace/repo",
                 "/workspace/repo/daiv/foo.py",
-                "/workspace/skills",
-                "/workspace/skills/code-review/SKILL.md",
+                "/workspace/repo/.github/workflows/ci.yml",
+                "/workspace/repo/.gitlab-ci.yml",
+                "/workspace/repo/.daiv.yml",
+                "/workspace/repo/.gitignore",
+                "/workspace/repo/.agents/skills/x/SKILL.md",
+                "/workspace/repo/src/.env.example",
                 "/workspace/tmp",
                 "/workspace/tmp/scratch.txt",
+                "/workspace/tmp/.scratch",
             ):
                 assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "allow", (op, path)
+
+    def test_denies_git_metadata(self):
+        for op in ("read", "write"):
+            for path in (
+                "/workspace/repo/.git",
+                "/workspace/repo/.git/config",
+                "/workspace/repo/.git/hooks/pre-commit",
+                "/workspace/repo/.git/info/.attributes",
+                "/workspace/repo/vendor/lib/.git",
+                "/workspace/repo/vendor/lib/.git/config",
+            ):
+                assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "deny", (op, path)
+
+    def test_skills_cache_is_readable_but_not_writable(self):
+        for path in ("/workspace/skills", "/workspace/skills/code-review/SKILL.md", "/workspace/skills/x/.hidden"):
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", path) == "allow", path
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "write", path) == "deny", path
 
     def test_denies_bare_root_and_unrelated_workspace_paths(self):
         # Bare /workspace (the deny needs the literal pattern; /workspace/** does not match it) and
         # any path under /workspace that isn't a real subtree or an artifact dir are denied both ways.
         for op in ("read", "write"):
-            for path in ("/workspace", "/workspace/random", "/workspace/repofoo", "/workspace/repofoo/x"):
+            for path in (
+                "/workspace",
+                "/workspace/random",
+                "/workspace/repofoo",
+                "/workspace/repofoo/x",
+                "/workspace/.foo",
+                "/workspace/.foo/bar",
+                "/workspace/random/.foo",
+            ):
                 assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "deny", (op, path)
 
     def test_artifact_dirs_are_readable_but_not_writable(self):
@@ -374,14 +406,105 @@ class TestBuildDiskWorkspaceBackend:
         assert (await backend.awrite("/workspace/repo/a.txt", "R")).error is None
         assert (clone_dir / "a.txt").read_text() == "R"
 
-        assert (await backend.awrite("/workspace/skills/s.txt", "S")).error is None
+        (upload,) = await backend.aupload_files([("/workspace/skills/s.txt", b"S")])
+        assert upload.error is None
         assert (skills_cache / "s.txt").read_text() == "S"
 
         assert (await backend.awrite("/workspace/tmp/t.txt", "T")).error is None
-        assert (clone_dir.parent / "workspace" / "tmp" / "t.txt").read_text() == "T"
+        assert (clone_dir.parent / "scratch" / "workspace" / "tmp" / "t.txt").read_text() == "T"
+
+    async def test_unrouted_paths_cannot_reach_the_clone(self, tmp_path):
+        clone_dir = _clone_with_git_config(tmp_path)
+        backend = build_disk_workspace_backend(clone_dir, skills_cache=tmp_path / "skills_cache")
+
+        assert (await backend.aedit("/repo/.git/config", "original", "planted")).error is not None
+        assert (await backend.awrite("/repo/a.txt", "A")).error is None
+
+        assert (clone_dir / ".git" / "config").read_text() == "original"
+        assert not (clone_dir / "a.txt").exists()
 
     def test_artifacts_root_is_workspace(self, tmp_path):
         clone_dir = tmp_path / "repo"
         clone_dir.mkdir()
         backend = build_disk_workspace_backend(clone_dir, skills_cache=tmp_path / "skills_cache")
         assert backend.artifacts_root == "/workspace"
+
+
+def _clone_with_git_config(tmp_path: Path) -> Path:
+    clone_dir = tmp_path / "repo"
+    (clone_dir / ".git").mkdir(parents=True)
+    (clone_dir / ".git" / "config").write_text("original")
+    return clone_dir
+
+
+class TestRepoFilesystemBackend:
+    """Git metadata in the clone is off limits to the file tools at any depth and through any alias."""
+
+    async def test_refuses_git_metadata(self, tmp_path: Path):
+        clone_dir = _clone_with_git_config(tmp_path)
+        backend = RepoFilesystemBackend(root_dir=clone_dir, virtual_mode=True)
+
+        assert (await backend.awrite("/.git/config", "planted")).error is not None
+        assert (await backend.aedit("/.git/config", "original", "planted")).error is not None
+        assert (await backend.awrite("/.git/hooks/pre-commit", "planted")).error is not None
+        assert (await backend.awrite("/vendor/lib/.git", "gitdir: /tmp/planted")).error is not None
+        assert (await backend.aread("/.git/config")).error is not None
+        assert (await backend.als("/.git")).error is not None
+        (download,) = await backend.adownload_files(["/.git/config"])
+        assert download.error is not None
+
+        assert (clone_dir / ".git" / "config").read_text() == "original"
+        assert not (clone_dir / ".git" / "hooks").exists()
+        assert not (clone_dir / "vendor").exists()
+
+    async def test_refuses_git_metadata_through_a_symlink(self, tmp_path: Path):
+        clone_dir = _clone_with_git_config(tmp_path)
+        (clone_dir / "alias").symlink_to(".git")
+        backend = RepoFilesystemBackend(root_dir=clone_dir, virtual_mode=True)
+
+        assert (await backend.aedit("/alias/config", "original", "planted")).error is not None
+        assert (clone_dir / ".git" / "config").read_text() == "original"
+
+    async def test_allows_dot_named_repository_files(self, tmp_path: Path):
+        clone_dir = _clone_with_git_config(tmp_path)
+        backend = RepoFilesystemBackend(root_dir=clone_dir, virtual_mode=True)
+
+        for path in ("/.github/workflows/ci.yml", "/.gitlab-ci.yml", "/.daiv.yml", "/.gitignore"):
+            assert (await backend.awrite(path, "content")).error is None, path
+            assert (clone_dir / path.lstrip("/")).read_text() == "content"
+
+    async def test_grep_skips_git_metadata(self, tmp_path: Path):
+        clone_dir = _clone_with_git_config(tmp_path)
+        (clone_dir / ".git" / "config").write_text("needle")
+        (clone_dir / "a.py").write_text("needle")
+        backend = RepoFilesystemBackend(root_dir=clone_dir, virtual_mode=True)
+
+        result = await backend.agrep("needle")
+
+        assert [m["path"] for m in result.matches or []] == ["/a.py"]
+
+
+class TestSkillsCacheBackend:
+    """The worker-wide skills cache only grows through ``SkillsMiddleware``'s uploads, so no run can plant a file that
+    a later run loads."""
+
+    async def test_refuses_file_tool_writes(self, tmp_path: Path):
+        (tmp_path / "code-review").mkdir()
+        (tmp_path / "code-review" / "SKILL.md").write_text("original")
+        backend = SkillsCacheBackend(root_dir=tmp_path, virtual_mode=True)
+
+        assert (await backend.awrite("/code-review/SKILL.md", "planted")).error is not None
+        assert (await backend.awrite("/new-skill/SKILL.md", "planted")).error is not None
+        assert (await backend.aedit("/code-review/SKILL.md", "original", "planted")).error is not None
+        assert (await backend.adelete("/code-review/SKILL.md")).error is not None
+
+        assert (tmp_path / "code-review" / "SKILL.md").read_text() == "original"
+        assert not (tmp_path / "new-skill").exists()
+
+    async def test_accepts_uploads(self, tmp_path: Path):
+        backend = SkillsCacheBackend(root_dir=tmp_path, virtual_mode=True)
+
+        (upload,) = await backend.aupload_files([("/code-review/SKILL.md", b"body")])
+
+        assert upload.error is None
+        assert (tmp_path / "code-review" / "SKILL.md").read_text() == "body"
