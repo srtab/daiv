@@ -123,9 +123,10 @@ def _run_git(working_dir: str | os.PathLike[str], args: tuple[str, ...], auth_en
 class LocalGitRunner:
     """Runs git as a subprocess over the worker's clone: a disk-backed run's repository.
 
-    The agent can write the clone, so git runs with fsmonitor, hooks and external diff and textconv drivers switched
-    off, since a planted config could point any of them at a command, and with only the variables of the worker's
-    environment that git needs: the rest holds DAIV's secrets.
+    The agent can write the clone, though not its ``.git``. Behind that refusal, git runs with fsmonitor, hooks and
+    external diff and textconv drivers switched off (a planted config has other ways to name a command, such as
+    ``filter.*.clean``), and with only the variables of the worker's environment that git needs: the rest holds
+    DAIV's secrets.
 
     ``auth_env`` (``RepoClient.get_git_auth_env``) is added to every subprocess's environment so network git
     (push/fetch/ls-remote) can authenticate — the clone's ``.git/config`` deliberately holds no credential. Git's

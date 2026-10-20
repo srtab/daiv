@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from deepagents.graph import _apply_custom_middleware
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
-from deepagents.middleware.filesystem import FilesystemPermission
+from deepagents.middleware.filesystem import FilesystemPermission, _check_fs_permission
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
@@ -204,6 +204,10 @@ class TestReadOnlyPermissions:
         """Locks the read-only contract of the explore subagent and the code-review detectors: relaxing this constant
         would silently grant them write capability."""
         assert [FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")] == READ_ONLY_PERMISSIONS
+
+    def test_deny_dot_paths(self):
+        for path in ("/workspace/repo/.gitlab-ci.yml", "/workspace/repo/.github/workflows/ci.yml", "/a/.b/.c/d"):
+            assert _check_fs_permission(READ_ONLY_PERMISSIONS, "write", path) == "deny", path
 
 
 # ---------------------------------------------------------------------------

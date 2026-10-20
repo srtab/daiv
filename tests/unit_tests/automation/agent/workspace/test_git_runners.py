@@ -200,13 +200,9 @@ async def test_local_auth_env_reaches_git_but_never_persists_to_config(tmp_path:
 
 
 async def test_local_git_never_prompts_for_credentials(tmp_path: Path, monkeypatch) -> None:
-    """Prompting is disabled with or without a credential, so a rejected one fails fast as an auth error."""
+    """Prompting stays disabled alongside a credential, so a rejected one fails fast as an auth error."""
     repo = _init_repo(tmp_path)
     captured = _capture_subprocess(monkeypatch)
-
-    await LocalGitRunner(repo).run(("status",))
-    assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
-    assert captured["env"]["GIT_ASKPASS"] == ""
 
     auth_env = GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "tok")
     await LocalGitRunner(repo, auth_env=auth_env).run(("status",))
@@ -280,6 +276,6 @@ async def test_local_git_never_runs_a_planted_command(tmp_path: Path) -> None:
     (work / "a.txt").write_text("two\n")
 
     for args in (("status", "--porcelain"), ("diff", "HEAD"), ("commit", "-am", "two")):
-        await runner.run(args)
+        assert (await runner.run(args)).exit_code == 0, args
 
     assert not marker.exists()

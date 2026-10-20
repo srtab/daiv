@@ -326,6 +326,7 @@ class TestWorkspaceFencePermissions:
                 "/workspace/repo/.gitignore",
                 "/workspace/repo/.agents/skills/x/SKILL.md",
                 "/workspace/repo/src/.env.example",
+                "/workspace/repo/.a/.b/c",
                 "/workspace/tmp",
                 "/workspace/tmp/scratch.txt",
                 "/workspace/tmp/.scratch",
@@ -341,11 +342,18 @@ class TestWorkspaceFencePermissions:
                 "/workspace/repo/.git/info/.attributes",
                 "/workspace/repo/vendor/lib/.git",
                 "/workspace/repo/vendor/lib/.git/config",
+                "/workspace/repo/.agents/vendor/.git/config",
+                "/workspace/repo/.git/a/.b/.c",
             ):
                 assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "deny", (op, path)
 
     def test_skills_cache_is_readable_but_not_writable(self):
-        for path in ("/workspace/skills", "/workspace/skills/code-review/SKILL.md", "/workspace/skills/x/.hidden"):
+        for path in (
+            "/workspace/skills",
+            "/workspace/skills/code-review/SKILL.md",
+            "/workspace/skills/x/.hidden",
+            "/workspace/skills/.a/.b/c",
+        ):
             assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", path) == "allow", path
             assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "write", path) == "deny", path
 
@@ -361,6 +369,7 @@ class TestWorkspaceFencePermissions:
                 "/workspace/.foo",
                 "/workspace/.foo/bar",
                 "/workspace/random/.foo",
+                "/workspace/.a/.b/c",
             ):
                 assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "deny", (op, path)
 
@@ -372,6 +381,7 @@ class TestWorkspaceFencePermissions:
             "/workspace/large_tool_results/call_abc",
             "/workspace/conversation_history",
             "/workspace/conversation_history/uuid.md",
+            "/workspace/large_tool_results/.x/.y",
         ):
             assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", path) == "allow", path
             assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "write", path) == "deny", path

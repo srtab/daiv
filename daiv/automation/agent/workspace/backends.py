@@ -8,26 +8,25 @@ import logging
 import re
 import stat
 import time
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
 
 import wcmatch.glob as wcglob
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import DEFAULT_GREP_TIMEOUT, FilesystemBackend
 from deepagents.backends.protocol import BackendProtocol, DeleteResult, EditResult, GrepMatch, GrepResult, WriteResult
-from deepagents.middleware.filesystem import FilesystemPermission
 from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
 
 from automation.agent.constants import REPO_PATH, TMP_PATH, WORKSPACE_PATH
+
+# Through DAIV's middleware module, whose import makes the permission globs below match dot paths.
+from automation.agent.middlewares.file_system import FilesystemPermission
 
 logger = logging.getLogger("daiv.tools")
 
 
 def _tree(root: str) -> list[str]:
-    """``root`` and the paths beneath it with at most one dot-named component: deepagents globs without DOTGLOB, so
-    ``**`` never matches a ``.name``. Deeper dot nesting falls through to the default allow, which the backends
-    bound."""
-    return [root, f"{root}/**", f"{root}/**/.*", f"{root}/**/.*/**"]
+    return [root, f"{root}/**"]
 
 
 # Offloaded-artifact dirs derived from ``artifacts_root`` (= /workspace in the disk composite).
@@ -185,13 +184,13 @@ class DAIVFilesystemBackend(FilesystemBackend):
             for fp in root.rglob("*"):
                 if time.monotonic() > deadline:
                     return _timed_out()
+                rel = fp.relative_to(root)
+                if ".git" in rel.parts:
+                    continue
                 try:
                     if not fp.is_file():
                         continue
                 except OSError, RuntimeError:
-                    continue
-                rel = fp.relative_to(root)
-                if ".git" in rel.parts:
                     continue
                 if glob_matcher is not None and not glob_matcher.match(str(rel)):
                     continue
@@ -275,12 +274,12 @@ class DAIVFilesystemBackend(FilesystemBackend):
 class RepoFilesystemBackend(DAIVFilesystemBackend):
     """The clone's backend, refusing every path into a ``.git``: host git runs the hooks and config it finds there.
 
-    The resolved path is checked too, so a symlink committed to the repository cannot alias one.
+    The check is on the resolved path, so a symlink committed to the repository cannot alias one.
     """
 
     def _resolve_path(self, key: str) -> Path:
         resolved = super()._resolve_path(key)
-        if ".git" in PurePosixPath(key).parts or ".git" in resolved.relative_to(self.cwd).parts:
+        if ".git" in resolved.relative_to(self.cwd).parts:
             raise PermissionError("git metadata is not accessible")
         return resolved
 
