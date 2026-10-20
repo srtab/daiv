@@ -105,6 +105,9 @@ msgstr "Envelopes de execução"
 msgid "Run failed."
 msgstr "A execução falhou."
 
+msgid "Waiting for your answer."
+msgstr "À espera da sua resposta."
+
 msgid "Username is required."
 msgstr "O nome de utilizador é obrigatório."
 

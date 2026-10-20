@@ -8,12 +8,11 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from sessions.models import RunStatus
+from sessions.models import RunStatus, SessionOrigin
 from sessions.signal_defs import run_finished, watch_exhausted
 
 from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding
-from notifications.policy import get_classify_origins
 from notifications.schedule_notifiers import emit_schedule_dispatch_failed
 from notifications.tasks import classify_run_task
 from notifications.watch_notifiers import emit_watch_exhausted
@@ -32,7 +31,7 @@ def classify_on_run_finished(sender, run, **kwargs) -> None:
     Exception-safe: classification must never affect the run lifecycle.
     """
     try:
-        if run.trigger_type not in get_classify_origins():
+        if run.trigger_type not in SessionOrigin.classified():
             return
         if run.status not in RunStatus.terminal():
             return

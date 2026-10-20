@@ -22,13 +22,6 @@ def is_schedule_run(run) -> bool:
     return session is not None and session.scheduled_job_id is not None and session.scheduled_job is not None
 
 
-def get_classify_origins() -> frozenset[str]:
-    """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven)."""
-    from sessions.models import SessionOrigin
-
-    return frozenset({SessionOrigin.SCHEDULE}) | SessionOrigin.webhooks() | SessionOrigin.prompt_driven()
-
-
 def notify_worthy_statuses() -> frozenset[str]:
     return frozenset({
         EnvelopeStatus.FOUND_ISSUES,

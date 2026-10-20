@@ -78,6 +78,15 @@ def test_session_origin_includes_chat():
     }
 
 
+def test_classified_origins_exclude_chat_and_pipeline_webhook():
+    """Classification is "universal for non-chat" except pipeline-watch runs, which have a
+    separate result path. Pinning the set forces a newly-added SessionOrigin to decide."""
+    assert SessionOrigin.classified() == frozenset(SessionOrigin.values) - {
+        SessionOrigin.CHAT,
+        SessionOrigin.PIPELINE_WEBHOOK,
+    }
+
+
 def test_one_active_api_run_per_session_constraint():
     session = _mk_session()
     _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.API_JOB)

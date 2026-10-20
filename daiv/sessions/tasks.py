@@ -6,6 +6,9 @@ from django.core.management import call_command
 from crontask import cron
 from django_tasks import task
 
+# Alias for one release: rows queued before classification moved still store these ``sessions.tasks`` paths.
+from notifications.tasks import classify_run_task, reclassify_missing_envelopes_cron_task  # noqa: F401
+
 from core.constants import TASK_PRIORITY_TITLING, TASK_QUEUE_INTERACTIVE
 from core.utils import locked_task
 

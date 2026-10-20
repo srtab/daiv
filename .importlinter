@@ -170,6 +170,9 @@ forbidden_modules =
     notifications
     schedules
     webhooks
+# One-release alias for task rows queued before classification moved to notifications.
+ignore_imports =
+    sessions.tasks -> notifications.tasks
 allow_indirect_imports = True
 
 [importlinter:contract:memory]

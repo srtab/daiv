@@ -19,6 +19,7 @@ from core.site_settings import site_settings
 from core.utils import locked_task
 from notifications.channels.registry import get_channel
 from notifications.choices import DeliveryStatus, EnvelopeStatus
+from notifications.classification.envelopes import build_actionable_item, validate_actionable
 from notifications.exceptions import UnknownChannelError, UnrecoverableDeliveryError
 from notifications.models import NotificationDelivery, RunEnvelope
 from notifications.run_notifiers import emit_run_notification
@@ -149,7 +150,6 @@ async def classify_run_task(run_id: str) -> None:
     """
     from sessions.models import Run, RunStatus
 
-    from notifications.classification.envelopes import build_actionable_item, validate_actionable
     from notifications.classification.llm import classify_response_text
     from schedules.models import Intent
 
@@ -170,13 +170,10 @@ async def classify_run_task(run_id: str) -> None:
         return
 
     async def _persist(*, status: EnvelopeStatus, summary: str, actionable: list) -> None:
-        # Write exactly one envelope. ``count`` is always ``len(actionable)`` (derived here so the two
-        # can never disagree). The ``aexists`` guard above is check-then-act, so a concurrent task can
-        # still race past it; the OneToOne then rejects the second insert with an ``IntegrityError``.
+        # The ``aexists`` guard above is check-then-act, so a concurrent task can still race past it;
+        # the OneToOne then rejects the second insert with an ``IntegrityError``.
         try:
-            envelope = await RunEnvelope.objects.acreate(
-                run=run, status=status, count=len(actionable), summary=summary, actionable=actionable
-            )
+            envelope = await RunEnvelope.objects.acreate(run=run, status=status, summary=summary, actionable=actionable)
         except IntegrityError:
             # Only the documented race is a benign no-op: if an envelope now exists, a concurrent task
             # wrote it and we lost — the raced loser returns WITHOUT notifying (fire-once). Any other
@@ -278,7 +275,7 @@ def reclassify_missing_envelopes_cron_task():
     failed unrecoverably (provider errors past all retries + fallback) or an ``.enqueue()`` that was
     dropped (a broker/DB blip, swallowed in ``classify_on_run_finished``) would otherwise strand the
     run at "classifying…" forever — nothing re-fires the signal. This periodic sweep re-targets
-    terminal non-chat runs (all origins returned by ``get_classify_origins()``) that still have no
+    terminal non-chat runs (all origins returned by ``SessionOrigin.classified()``) that still have no
     ``RunEnvelope`` and re-enqueues classification, which is idempotent (``dedup=True`` + the in-task
     ``aexists`` guard) so re-enqueuing an in-flight or already-classified run is a safe no-op.
     A FAILED run with no envelope is likewise re-targeted and gets its ``failed`` envelope with no LLM
@@ -295,9 +292,7 @@ def reclassify_missing_envelopes_cron_task():
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock, so a pass
     that overruns the interval is never double-dispatched.
     """
-    from sessions.models import Run, RunStatus
-
-    from notifications.policy import get_classify_origins
+    from sessions.models import Run, RunStatus, SessionOrigin
 
     now = timezone.now()
     grace_cutoff = now - RECLASSIFY_GRACE
@@ -305,7 +300,7 @@ def reclassify_missing_envelopes_cron_task():
     stranded_ids = list(
         Run.objects
         .filter(
-            trigger_type__in=get_classify_origins(),
+            trigger_type__in=SessionOrigin.classified(),
             status__in=RunStatus.terminal(),
             envelope__isnull=True,
             classify_eligible=True,
@@ -343,7 +338,6 @@ def redrive_missing_notifications_cron_task():
 
     from notifications.models import Notification
     from notifications.policy import (
-        get_classify_origins,
         notification_source_for_run,
         notifies,
         notify_worthy_statuses,
@@ -362,7 +356,7 @@ def redrive_missing_notifications_cron_task():
     candidates = (
         Run.objects
         .filter(
-            trigger_type__in=get_classify_origins(),
+            trigger_type__in=SessionOrigin.classified(),
             status__in=RunStatus.terminal(),
             classify_eligible=True,
             envelope__isnull=False,
