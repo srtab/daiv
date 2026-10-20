@@ -563,7 +563,7 @@ def mock_repo_client():
         mock_client.get_issue.return_value = Mock()
         mock_client.create_issue_comment.return_value = None
         mock_client.create_issue_emoji.return_value = None
-        mock_client.get_issue_comment.return_value = Mock()
+        mock_client.get_issue_note.return_value = Mock()
 
         # Mock merge request operations
         merge_request = MergeRequest(
@@ -581,7 +581,7 @@ def mock_repo_client():
         mock_client.update_or_create_merge_request.return_value = merge_request
         mock_client.update_merge_request.return_value = merge_request
         mock_client.get_merge_request.return_value = merge_request
-        mock_client.get_merge_request_comment.return_value = Mock()
+        mock_client.get_merge_request_note.return_value = Mock()
         mock_client.create_merge_request_comment.return_value = None
         mock_client.create_merge_request_note_emoji.return_value = None
         mock_client.mark_merge_request_comment_as_resolved.return_value = None

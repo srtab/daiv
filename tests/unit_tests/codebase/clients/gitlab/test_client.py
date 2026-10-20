@@ -453,30 +453,29 @@ class TestGitLabClient:
         assert gitlab_client.get_merge_request("group/repo", 7).merged is merged
 
     @pytest.mark.parametrize(
-        ("noteable", "fetch"), [("issues", "get_issue_comment"), ("mergerequests", "get_merge_request_comment")]
+        ("noteable", "fetch", "noteable_type"),
+        [("issues", "get_issue_note", "Issue"), ("mergerequests", "get_merge_request_note", "MergeRequest")],
     )
-    def test_a_discussion_keeps_its_thread_replies(self, gitlab_client, noteable, fetch):
-        """GitLab types every note of a thread ``DiscussionNote``; the mention run looks its note up among them."""
-
-        def _note(note_id: int) -> dict:
-            return {
-                "id": note_id,
-                "body": f"note {note_id}",
+    def test_a_note_is_read_by_its_id(self, gitlab_client, noteable, fetch, noteable_type):
+        mock_project = Mock()
+        gitlab_client.client.projects.get.return_value = mock_project
+        notes = getattr(mock_project, noteable).get.return_value.notes
+        notes.get.return_value = Mock(
+            attributes={
+                "id": 12,
+                "body": "@daiv please",
                 "type": "DiscussionNote",
-                "noteable_type": "Issue" if noteable == "issues" else "MergeRequest",
+                "noteable_type": noteable_type,
                 "system": False,
                 "resolvable": False,
                 "author": {"id": 2, "username": "bob", "name": "Bob"},
             }
+        )
 
-        discussion = Mock(id="d-1", attributes={"notes": [_note(11), _note(12)]})
-        mock_project = Mock()
-        gitlab_client.client.projects.get.return_value = mock_project
-        getattr(mock_project, noteable).get.return_value.discussions.get.return_value = discussion
+        note = getattr(gitlab_client, fetch)("group/repo", 7, 12)
 
-        result = getattr(gitlab_client, fetch)("group/repo", 7, "d-1")
-
-        assert [note.id for note in result.notes] == [11, 12]
+        notes.get.assert_called_once_with(12)
+        assert (note.id, note.body, note.author.username) == (12, "@daiv please", "bob")
 
     def test_create_merge_request_inline_discussion_sends_position_payload(self, gitlab_client):
         """create_merge_request_inline_discussion must pass body + position dict to discussions.create."""

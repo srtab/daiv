@@ -110,8 +110,7 @@ class TestGitHubClient:
             "https://api.github.com/repos/owner/repo/issues/42/reactions",
         )
 
-    def test_get_merge_request_comment_converts_comment_id_to_int_issue_comment(self, github_client):
-        """Test that get_merge_request_comment converts string comment_id to int for issue comments."""
+    def test_get_merge_request_note_reads_the_comment_through_the_issue(self, github_client):
         mock_repo = Mock()
         mock_issue = Mock()
         mock_user = Mock()
@@ -128,14 +127,12 @@ class TestGitHubClient:
         mock_repo.get_issue.return_value = mock_issue
         mock_issue.get_comment.return_value = mock_comment
 
-        # Pass comment_id as a string
-        result = github_client.get_merge_request_comment("owner/repo", 712, "3645723306")
+        result = github_client.get_merge_request_note("owner/repo", 712, 3645723306)
 
         # The PR is reached as an issue, so the whole PR payload is never fetched.
         mock_repo.get_pull.assert_not_called()
         mock_issue.get_comment.assert_called_once_with(3645723306)
-        assert result.id == "3645723306"
-        assert len(result.notes) == 1
+        assert (result.id, result.body, result.noteable_type) == (3645723306, "Test comment", "MergeRequest")
 
     @patch("codebase.clients.github.client.Repo.clone_from")
     def test_load_repo_configures_git_identity_with_app_bot(self, mock_clone_from, github_client, monkeypatch):

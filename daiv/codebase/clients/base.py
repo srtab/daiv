@@ -14,12 +14,12 @@ from urllib.parse import urlparse
 from pydantic import SecretStr
 
 from codebase.base import (
-    Discussion,
     GitPlatform,
     Issue,
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    Note,
     Pipeline,
     RepoAccessLevel,
     RepoMember,
@@ -350,7 +350,7 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
+    def get_issue_note(self, repo_id: str, issue_id: int, note_id: int) -> Note:
         pass
 
     @abc.abstractmethod
@@ -491,8 +491,8 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
-        pass
+    def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
+        """`note_id` names a conversation comment, as for `create_merge_request_note_emoji`."""
 
     @abc.abstractmethod
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):

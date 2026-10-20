@@ -13,8 +13,6 @@ if TYPE_CHECKING:
     from sessions.executor.lock import LockPolicy
     from sessions.executor.spec import RunOutcome
 
-    from codebase.base import Discussion, Note
-
 
 class BaseManager:
     """
@@ -39,17 +37,11 @@ class BaseManager:
         """The mention a failure comment answers under; GitHub can't reply to a comment, so only GitLab gets one."""
         return self.mention_comment_id if self.client.git_platform == GitPlatform.GITLAB else None
 
-    def _mention_note(self, discussion: Discussion, *, fallback_index: int) -> Note:
-        """The note that mentioned DAIV within the ``mention_comment_id`` discussion.
-
-        A task queued before it carried ``mention_note_id`` takes the note at ``fallback_index``, as runs did then.
-        """
+    def _require_mention_note_id(self) -> int:
+        """The note a mention run answers; a mention task queued without one fails instead of guessing."""
         if self.mention_note_id is None:
-            return discussion.notes[fallback_index]
-        for note in discussion.notes:
-            if note.id == self.mention_note_id:
-                return note
-        raise LookupError(f"Note {self.mention_note_id} is not in discussion {discussion.id}.")
+            raise ValueError(f"The mention run on {self.repo_id} has no mention_note_id.")
+        return self.mention_note_id
 
     @staticmethod
     def _append_footer(body: str, footer: str | None) -> str:

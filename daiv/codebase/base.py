@@ -220,22 +220,6 @@ class Note(BaseModel):
     hunk: str | None = None
 
 
-class SimpleDiscussion(BaseModel):
-    id: str
-    resolve_id: str | None = None  # The id of the comment to resolve, only used for GitHub.
-    is_thread: bool = False
-    is_resolvable: bool = False
-
-
-class Discussion(SimpleDiscussion):
-    notes: list[Note] = Field(default_factory=list)
-
-    def as_simple(self) -> SimpleDiscussion:
-        return SimpleDiscussion(
-            id=self.id, resolve_id=self.resolve_id, is_thread=self.is_thread, is_resolvable=self.is_resolvable
-        )
-
-
 class IssueType(StrEnum):
     ISSUE = "issue"
     TASK = "task"

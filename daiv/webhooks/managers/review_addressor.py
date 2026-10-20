@@ -229,7 +229,7 @@ class CommentsAddressorManager(BaseManager):
             mention_comment_id: The mention comment id.
             thread_id: The session's thread id.
             use_max: The max mode the callback decided.
-            mention_note_id: The note in the mention discussion the run answers.
+            mention_note_id: The note that mentioned the bot, which the run answers.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
 
@@ -254,10 +254,9 @@ class CommentsAddressorManager(BaseManager):
             raise
 
     async def _address_comments(self, *, sandbox_env_id: str | None, run_id: str | None, use_max: bool) -> AgentResult:
-        discussion = self.client.get_merge_request_comment(
-            self.repo_id, self.merge_request.merge_request_id, self.mention_comment_id
+        note = self.client.get_merge_request_note(
+            self.repo_id, self.merge_request.merge_request_id, self._require_mention_note_id()
         )
-        note = self._mention_note(discussion, fallback_index=0)
         outcome = await execute_run(
             RunSpec(
                 thread_id=self.thread_id,

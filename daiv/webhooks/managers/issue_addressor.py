@@ -117,7 +117,7 @@ class IssueAddressorManager(BaseManager):
             thread_id: The session's thread id.
             use_max: The max mode the callback decided.
             mention_comment_id: The discussion that mentioned the bot, or ``None`` for a label trigger.
-            mention_note_id: The note in that discussion the run answers.
+            mention_note_id: The note that mentioned the bot, which the run answers.
             ref: The branch to clone; ``None`` for the repository default.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
@@ -177,8 +177,7 @@ class IssueAddressorManager(BaseManager):
     def _input_message(self, *, issue_message_id: str) -> tuple[HumanMessage, str]:
         """The turn's message and who triggered it: the mention comment, or the prompt the bot label implies."""
         if self.mention_comment_id:
-            discussion = self.client.get_issue_comment(self.repo_id, self.issue.iid, self.mention_comment_id)
-            comment = self._mention_note(discussion, fallback_index=-1)
+            comment = self.client.get_issue_note(self.repo_id, self.issue.iid, self._require_mention_note_id())
             return (
                 HumanMessage(name=comment.author.username, id=comment.id, content=comment.body),
                 comment.author.username,

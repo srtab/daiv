@@ -3,7 +3,7 @@ from sessions.executor.lock import NoLock, Wait
 from sessions.models import Session, SessionOrigin
 from webhooks.managers.issue_addressor import IssueAddressorManager
 
-from codebase.base import Discussion, Issue, Note, NoteableType, User
+from codebase.base import Issue, User
 
 
 def _manager(thread_id: str, **mention) -> IssueAddressorManager:
@@ -13,11 +13,6 @@ def _manager(thread_id: str, **mention) -> IssueAddressorManager:
         thread_id=thread_id,
         **mention,
     )
-
-
-def _discussion(*note_ids: int) -> Discussion:
-    fields = {"author": User(id=2, username="bob"), "noteable_type": NoteableType.ISSUE, "system": False}
-    return Discussion(id="d-1", notes=[Note(id=i, body=f"note {i}", resolvable=False, **fields) for i in note_ids])
 
 
 @pytest.mark.django_db(transaction=True)
@@ -48,25 +43,3 @@ class TestClaimUnableNote:
 
         assert manager._claim_unable_note() is True
         assert manager._claim_unable_note() is False
-
-
-class TestMentionNote:
-    def test_it_picks_the_mentioning_note_among_the_replies(self, stub_base_init):
-        manager = _manager("t-1", mention_comment_id="d-1", mention_note_id=12)
-
-        assert manager._mention_note(_discussion(11, 12, 13), fallback_index=-1).id == 12
-
-    def test_a_note_missing_from_the_discussion_raises(self, stub_base_init):
-        """A deleted mention must fail the run rather than answer another note in its place."""
-        manager = _manager("t-1", mention_comment_id="d-1", mention_note_id=99)
-
-        with pytest.raises(LookupError, match="99"):
-            manager._mention_note(_discussion(11, 12), fallback_index=-1)
-
-    @pytest.mark.parametrize(("fallback_index", "expected"), [(0, 11), (-1, 13)])
-    def test_a_task_queued_without_the_note_id_falls_back_to_the_index(
-        self, stub_base_init, fallback_index: int, expected: int
-    ):
-        manager = _manager("t-1", mention_comment_id="d-1")
-
-        assert manager._mention_note(_discussion(11, 12, 13), fallback_index=fallback_index).id == expected

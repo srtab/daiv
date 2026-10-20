@@ -11,12 +11,12 @@ from typing import TYPE_CHECKING
 from git import Repo
 
 from codebase.base import (
-    Discussion,
     GitPlatform,
     Issue,
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    Note,
     RepoMember,
     Repository,
     User,
@@ -230,7 +230,7 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support issue creation")
 
-    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
+    def get_issue_note(self, repo_id: str, issue_id: int, note_id: int) -> Note:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support issue comments")
 
@@ -309,7 +309,7 @@ class SWERepoClient(RepoClient):
         MR lookup) then fall through gracefully."""
         return None
 
-    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
+    def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request comments")
 

@@ -206,11 +206,11 @@ class TestIssueAfterRunMatrix:
         assert reply.args[2] == "done"
 
     async def test_a_question_is_posted_under_the_mention_with_the_reply_footer(self, captured_client):
-        captured_client.get_issue_comment.return_value = SimpleNamespace(
-            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
+        captured_client.get_issue_note.return_value = SimpleNamespace(
+            author=SimpleNamespace(username="bob"), id=11, body="please"
         )
         with addressor_run(_question_agent(), ctx=_ctx()):
-            await _address(mention_comment_id="c-1")
+            await _address(mention_comment_id="c-1", mention_note_id=11)
 
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == (
@@ -227,8 +227,8 @@ class TestIssueAfterRunMatrix:
 
     async def test_a_question_on_github_is_not_threaded(self, captured_client):
         captured_client.git_platform = GitPlatform.GITHUB
-        captured_client.get_issue_comment.return_value = SimpleNamespace(
-            id="7", notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id=7, body="please")]
+        captured_client.get_issue_note.return_value = SimpleNamespace(
+            author=SimpleNamespace(username="bob"), id=7, body="please"
         )
         with addressor_run(_question_agent(), ctx=_ctx()):
             await _address(mention_comment_id="7", mention_note_id=7)
@@ -282,11 +282,11 @@ class TestIssueAfterRunMatrix:
         assert "To avoid losing progress" in note.args[2]
 
     async def test_a_missing_model_says_it_cannot_run_yet_and_returns(self, captured_client):
-        captured_client.get_issue_comment.return_value = SimpleNamespace(
-            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
+        captured_client.get_issue_note.return_value = SimpleNamespace(
+            author=SimpleNamespace(username="bob"), id=11, body="please"
         )
         with addressor_run(addressor_agent(), kwargs_error=AgentConfigurationError("no model")) as run:
-            result = await _address(mention_comment_id="c-1")
+            result = await _address(mention_comment_id="c-1", mention_note_id=11)
 
         assert result is None
         run.create_agent.assert_not_awaited()
@@ -340,35 +340,39 @@ class TestIssueAfterRunMatrix:
         assert prompt_message.content == prompt.format(issue_iid=42)
 
     async def test_a_mention_run_sends_the_issue_before_the_comment(self, captured_client):
-        captured_client.get_issue_comment.return_value = SimpleNamespace(
-            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="@daiv-bot please fix it")]
+        captured_client.get_issue_note.return_value = SimpleNamespace(
+            author=SimpleNamespace(username="bob"), id=11, body="@daiv-bot please fix it"
         )
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
 
         with addressor_run(agent, ctx=_ctx()):
-            await _address(issue=_described_issue(), mention_comment_id="c-1")
+            await _address(issue=_described_issue(), mention_comment_id="c-1", mention_note_id=11)
 
         issue_message, prompt_message = agent.ainvoke.await_args.args[0]["messages"]
         assert is_synthetic(issue_message)
         assert "<title>Crash on save</title>" in issue_message.content
         assert prompt_message.content == "@daiv-bot please fix it"
 
-    async def test_a_mention_run_answers_its_own_note_not_a_later_reply(self, captured_client):
-        """Two replies in one discussion start two runs; the first must not answer the second's note."""
-        captured_client.get_issue_comment.return_value = SimpleNamespace(
-            id="c-1",
-            notes=[
-                SimpleNamespace(author=SimpleNamespace(username="bob"), id=11, body="@daiv-bot first ask"),
-                SimpleNamespace(author=SimpleNamespace(username="carol"), id=12, body="@daiv-bot second ask"),
-            ],
+    async def test_a_mention_run_answers_the_note_it_was_started_for(self, captured_client):
+        captured_client.get_issue_note.return_value = SimpleNamespace(
+            author=SimpleNamespace(username="carol"), id=12, body="@daiv-bot second ask"
         )
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
 
         with addressor_run(agent, ctx=_ctx()):
-            await _address(mention_comment_id="c-1", mention_note_id=11)
+            await _address(mention_comment_id="c-1", mention_note_id=12)
 
+        captured_client.get_issue_note.assert_called_once_with("owner/repo", 42, 12)
         _, prompt_message = agent.ainvoke.await_args.args[0]["messages"]
-        assert (prompt_message.name, prompt_message.content) == ("bob", "@daiv-bot first ask")
+        assert (prompt_message.name, prompt_message.content) == ("carol", "@daiv-bot second ask")
+
+    async def test_a_mention_without_a_note_id_says_it_is_unable_and_raises(self, captured_client):
+        with addressor_run(addressor_agent(), ctx=_ctx()) as run, pytest.raises(ValueError, match="mention_note_id"):
+            await _address(mention_comment_id="c-1")
+
+        run.create_agent.assert_not_awaited()
+        [note] = captured_client.create_issue_comment.call_args_list
+        assert _UNABLE in note.args[2]
 
     async def test_the_reply_is_posted_repo_relative(self, captured_client):
         agent = addressor_agent(return_value={"messages": [AIMessage(content="Fixed /workspace/repo/daiv/x.py:3.")]})

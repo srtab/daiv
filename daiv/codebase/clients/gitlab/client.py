@@ -17,7 +17,6 @@ from gitlab.const import AccessLevel
 from gitlab.exceptions import GitlabError, GitlabGetError
 
 from codebase.base import (
-    Discussion,
     GitPlatform,
     Issue,
     Job,
@@ -619,22 +618,21 @@ class GitLabClient(RepoClient):
         issue = project.issues.create(issue_data)
         return issue.iid
 
-    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
+    def get_issue_note(self, repo_id: str, issue_id: int, note_id: int) -> Note:
         """
-        Get a comment from an issue.
+        Get a note on an issue.
 
         Args:
             repo_id: The repository ID.
-            issue_id: The issue ID.
-            comment_id: The comment ID.
+            issue_id: The issue IID.
+            note_id: The note ID.
 
         Returns:
-            The discussion object.
+            The note.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
-        discussion = issue.discussions.get(comment_id)
-        return Discussion(id=comment_id, notes=self._serialize_notes(discussion.attributes["notes"]))
+        return self._serialize_note(issue.notes.get(note_id).attributes)
 
     def create_issue_comment(
         self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
@@ -1127,22 +1125,21 @@ class GitLabClient(RepoClient):
         mr = project.mergerequests.get(merge_request_id)
         return self._serialize_merge_request(repo_id, mr, merged=mr.state == "merged")
 
-    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
+    def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
         """
-        Get a comment from a merge request.
+        Get a note on a merge request.
 
         Args:
             repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            comment_id: The comment ID.
+            merge_request_id: The merge request IID.
+            note_id: The note ID.
 
         Returns:
-            The discussion object.
+            The note.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        discussion = merge_request.discussions.get(comment_id)
-        return Discussion(id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"]))
+        return self._serialize_note(merge_request.notes.get(note_id).attributes)
 
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """
@@ -1234,58 +1231,52 @@ class GitLabClient(RepoClient):
             if not note.system and not note.resolvable
         ]
 
-    def _serialize_notes(self, notes: list[dict]) -> list[Note]:
+    def _serialize_note(self, note: dict) -> Note:
         """
-        Serialize dictionary of notes to Note objects, leaving out system notes.
+        Serialize a note's API attributes to a Note.
 
         Args:
-            notes: The list of notes.
+            note: The note attributes.
 
         Returns:
-            The list of Note objects.
+            The Note object.
         """
-        return [
-            Note(
-                id=note["id"],
-                body=note["body"],
-                type=note["type"],
-                noteable_type=note["noteable_type"],
-                system=note["system"],
-                resolvable=note["resolvable"],
-                resolved=note.get("resolved"),
-                author=User(
-                    id=note["author"].get("id"),
-                    username=note["author"].get("username"),
-                    name=note["author"].get("name"),
-                ),
-                position=NotePosition(
-                    head_sha=note["position"].get("head_sha"),
-                    old_path=note["position"].get("old_path"),
-                    new_path=note["position"].get("new_path"),
-                    position_type=note["position"].get("position_type"),
-                    old_line=note["position"].get("old_line"),
-                    new_line=note["position"].get("new_line"),
-                    line_range=NotePositionLineRange(
-                        start=NoteDiffPosition(
-                            type=note["position"]["line_range"]["start"]["type"],
-                            old_line=note["position"]["line_range"]["start"]["old_line"],
-                            new_line=note["position"]["line_range"]["start"]["new_line"],
-                        ),
-                        end=NoteDiffPosition(
-                            type=note["position"]["line_range"]["end"]["type"],
-                            old_line=note["position"]["line_range"]["end"]["old_line"],
-                            new_line=note["position"]["line_range"]["end"]["new_line"],
-                        ),
-                    )
-                    if note["position"].get("line_range")
-                    else None,
+        return Note(
+            id=note["id"],
+            body=note["body"],
+            type=note["type"],
+            noteable_type=note["noteable_type"],
+            system=note["system"],
+            resolvable=note["resolvable"],
+            resolved=note.get("resolved"),
+            author=User(
+                id=note["author"].get("id"), username=note["author"].get("username"), name=note["author"].get("name")
+            ),
+            position=NotePosition(
+                head_sha=note["position"].get("head_sha"),
+                old_path=note["position"].get("old_path"),
+                new_path=note["position"].get("new_path"),
+                position_type=note["position"].get("position_type"),
+                old_line=note["position"].get("old_line"),
+                new_line=note["position"].get("new_line"),
+                line_range=NotePositionLineRange(
+                    start=NoteDiffPosition(
+                        type=note["position"]["line_range"]["start"]["type"],
+                        old_line=note["position"]["line_range"]["start"]["old_line"],
+                        new_line=note["position"]["line_range"]["start"]["new_line"],
+                    ),
+                    end=NoteDiffPosition(
+                        type=note["position"]["line_range"]["end"]["type"],
+                        old_line=note["position"]["line_range"]["end"]["old_line"],
+                        new_line=note["position"]["line_range"]["end"]["new_line"],
+                    ),
                 )
-                if "position" in note
+                if note["position"].get("line_range")
                 else None,
             )
-            for note in notes
-            if not note["system"]
-        ]
+            if "position" in note
+            else None,
+        )
 
     def _serialize_merge_request(
         self, repo_id: str, merge_request: ProjectMergeRequest, *, merged: bool = False

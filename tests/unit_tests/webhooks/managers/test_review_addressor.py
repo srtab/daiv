@@ -54,8 +54,8 @@ def _ctx() -> SimpleNamespace:
 
 @pytest.fixture
 def mention(captured_client):
-    captured_client.get_merge_request_comment.return_value = SimpleNamespace(
-        notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please fix")]
+    captured_client.get_merge_request_note.return_value = SimpleNamespace(
+        author=SimpleNamespace(username="bob"), id=11, body="please fix"
     )
     return captured_client
 
@@ -74,6 +74,7 @@ async def _address(**kwargs):
                 "repo_id": "owner/repo",
                 "merge_request": _merge_request(),
                 "mention_comment_id": "c-1",
+                "mention_note_id": 11,
                 "thread_id": "t-mr",
                 "use_max": False,
             }
@@ -175,26 +176,31 @@ class TestReviewAfterRunMatrix:
         )
         assert reply.kwargs["reply_to_id"] == "c-1"
 
-    async def test_a_mention_run_answers_its_own_note_in_the_discussion(self, captured_client):
-        captured_client.get_merge_request_comment.return_value = SimpleNamespace(
-            id="c-1",
-            notes=[
-                SimpleNamespace(author=SimpleNamespace(username="bob"), id=11, body="this needs a test"),
-                SimpleNamespace(author=SimpleNamespace(username="carol"), id=12, body="@daiv-bot add it"),
-            ],
+    async def test_a_mention_run_answers_the_note_it_was_started_for(self, captured_client):
+        captured_client.get_merge_request_note.return_value = SimpleNamespace(
+            author=SimpleNamespace(username="carol"), id=12, body="@daiv-bot add it"
         )
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
 
         with addressor_run(agent, ctx=_ctx()):
             await _address(mention_note_id=12)
 
+        captured_client.get_merge_request_note.assert_called_once_with("owner/repo", 99, 12)
         [prompt_message] = agent.ainvoke.await_args.args[0]["messages"]
         assert (prompt_message.name, prompt_message.content) == ("carol", "@daiv-bot add it")
 
+    async def test_a_mention_without_a_note_id_says_it_is_unable_and_raises(self, mention):
+        with addressor_run(addressor_agent(), ctx=_ctx()) as run, pytest.raises(ValueError, match="mention_note_id"):
+            await _address(mention_note_id=None)
+
+        run.create_agent.assert_not_awaited()
+        [note] = mention.create_merge_request_comment.call_args_list
+        assert _UNABLE in note.args[2]
+
     async def test_a_question_on_github_is_not_threaded(self, mention):
         mention.git_platform = GitPlatform.GITHUB
-        mention.get_merge_request_comment.return_value = SimpleNamespace(
-            id="7", notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id=7, body="please fix")]
+        mention.get_merge_request_note.return_value = SimpleNamespace(
+            author=SimpleNamespace(username="bob"), id=7, body="please fix"
         )
         messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
         agent = addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
