@@ -5,9 +5,10 @@ from django.db import IntegrityError, transaction
 
 import pytest
 from notifications.choices import DeliveryStatus, EnvelopeStatus, EventType
-from notifications.classification.envelopes import build_actionable_item
 from notifications.models import Notification, NotificationDelivery, RunEnvelope, UserChannelBinding
 from sessions.models import Run, RunStatus, Session, SessionOrigin
+
+from tests.unit_tests.notifications.conftest import actionable_item
 
 
 @pytest.mark.django_db
@@ -209,12 +210,6 @@ def _mk_envelope(run: Run, **overrides) -> RunEnvelope:
     return RunEnvelope.objects.create(run=run, **defaults)
 
 
-def _item(item_id: str = "f1", **overrides) -> dict:
-    item = build_actionable_item(id=item_id, kind="finding", label="Fix the bug", ref="app/module.py:10")
-    item.update(overrides)
-    return item
-
-
 @pytest.mark.django_db
 class TestRunEnvelope:
     def test_run_envelope_status_constraint_literals_match_enum(self):
@@ -264,7 +259,9 @@ class TestRunEnvelope:
             env.full_clean()
 
     def test_clean_accepts_found_issues_with_actionable(self):
-        env = RunEnvelope(run=_mk_run(_mk_session()), status=EnvelopeStatus.FOUND_ISSUES, actionable=[_item()])
+        env = RunEnvelope(
+            run=_mk_run(_mk_session()), status=EnvelopeStatus.FOUND_ISSUES, actionable=[actionable_item()]
+        )
         env.full_clean()  # no raise
 
     def test_ordering_has_deterministic_tiebreaker(self):
@@ -272,7 +269,7 @@ class TestRunEnvelope:
 
     def test_clean_rejects_non_found_issues_carrying_actionable(self):
         """The reverse coherence direction: only a found-issues envelope may carry actionable items."""
-        env = RunEnvelope(run=_mk_run(_mk_session()), status=EnvelopeStatus.ALL_CLEAR, actionable=[_item()])
+        env = RunEnvelope(run=_mk_run(_mk_session()), status=EnvelopeStatus.ALL_CLEAR, actionable=[actionable_item()])
         with pytest.raises(ValidationError):
             env.full_clean()
 
@@ -280,7 +277,10 @@ class TestRunEnvelope:
         """``count`` mirrors ``len(actionable)`` regardless of any value a caller passes to ``create``."""
         run = _mk_run(_mk_session())
         env = RunEnvelope.objects.create(
-            run=run, status=EnvelopeStatus.FOUND_ISSUES, actionable=[_item("a"), _item("b")], count=99
+            run=run,
+            status=EnvelopeStatus.FOUND_ISSUES,
+            actionable=[actionable_item("a"), actionable_item("b")],
+            count=99,
         )
         env.refresh_from_db()
         assert env.count == 2

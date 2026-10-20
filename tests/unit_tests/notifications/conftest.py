@@ -2,6 +2,7 @@ from django.utils import timezone
 
 import pytest
 from notifications.choices import ChannelType
+from notifications.classification.envelopes import build_actionable_item
 from notifications.models import Notification, NotificationDelivery, UserChannelBinding
 from pydantic import SecretStr
 from sessions.models import Session, SessionOrigin
@@ -9,12 +10,18 @@ from sessions.models import Session, SessionOrigin
 from schedules.models import Frequency, ScheduledJob
 
 
+def actionable_item(item_id: str = "f1", **overrides) -> dict:
+    item = build_actionable_item(id=item_id, kind="finding", label="Fix the bug", ref="app/module.py:10")
+    item.update(overrides)
+    return item
+
+
 @pytest.fixture
 def run_schedule(member_user, email_binding):
     """A daily schedule owned by ``member_user`` with notifications always on.
 
     Shared by the run-signal notification suites (``test_signals.py`` and
-    ``test_run_signals.py``).
+    ``test_run_notifiers.py``).
     """
     return ScheduledJob.objects.create(
         user=member_user,

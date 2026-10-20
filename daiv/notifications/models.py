@@ -205,7 +205,7 @@ class RunEnvelope(models.Model):
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
 
     class Meta:
-        # Renaming the table would rewrite it along with its index and constraint names.
+        # Kept from sessions so the model move issued no SQL; a rename breaks pods still on the old code mid-deploy.
         db_table = "agent_sessions_runenvelope"
         verbose_name = _("Run Envelope")
         verbose_name_plural = _("Run Envelopes")
@@ -229,8 +229,7 @@ class RunEnvelope(models.Model):
 
         ``count`` is a queryable column (the Feed badge) but never an independently-authored value:
         deriving it here means no writer — an admin edit, a data fix, a future second producer — can
-        persist a count that disagrees with the list. (The classifier task also sets it explicitly;
-        this makes the coherence structural rather than convention.)
+        persist a count that disagrees with the list.
         """
         self.count = len(self.actionable)
         update_fields = kwargs.get("update_fields")

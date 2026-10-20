@@ -12,6 +12,7 @@ from sessions.signal_defs import run_finished, watch_exhausted
 from accounts.models import User
 from schedules.models import DispatchError, Frequency, ScheduledJob
 from schedules.signals import schedule_dispatch_failed
+from tests.unit_tests.sessions.conftest import make_run
 
 
 @pytest.mark.django_db
@@ -120,10 +121,7 @@ class TestClassifyOnRunFinished:
     """The gated ``classify_on_run_finished`` receiver (Story 1.3, AC1)."""
 
     def _schedule_run(self, *, status=RunStatus.SUCCESSFUL, **kwargs):
-        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id="acme/api")
-        return Run.objects.create(
-            session=session, trigger_type=SessionOrigin.SCHEDULE, repo_id="acme/api", status=status, **kwargs
-        )
+        return make_run(session_id=str(uuid.uuid4()), status=status, trigger_type=SessionOrigin.SCHEDULE, **kwargs)
 
     def test_enqueues_for_scheduled_terminal_run(self):
         run = self._schedule_run(status=RunStatus.SUCCESSFUL)
@@ -145,19 +143,13 @@ class TestClassifyOnRunFinished:
             SessionOrigin.MCP_JOB,
             SessionOrigin.UI_JOB,
         ):
-            session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=origin, repo_id="acme/api")
-            run = Run.objects.create(
-                session=session, trigger_type=origin, repo_id="acme/api", status=RunStatus.SUCCESSFUL
-            )
+            run = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=origin)
             with patch("notifications.signals.classify_run_task") as task_mock:
                 classify_on_run_finished(sender=Run, run=run)
             task_mock.enqueue.assert_called_once_with(str(run.pk))
 
     def test_skips_chat_trigger(self):
-        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="acme/api")
-        run = Run.objects.create(
-            session=session, trigger_type=SessionOrigin.CHAT, repo_id="acme/api", status=RunStatus.SUCCESSFUL
-        )
+        run = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=SessionOrigin.CHAT)
         with patch("notifications.signals.classify_run_task") as task_mock:
             classify_on_run_finished(sender=Run, run=run)
         task_mock.enqueue.assert_not_called()

@@ -13,6 +13,7 @@ from django.utils.translation import gettext
 from asgiref.sync import sync_to_async
 from crontask import cron
 from django_tasks import task
+from sessions.models import Run, RunStatus, SessionOrigin
 
 from core.constants import TASK_PRIORITY_NOTIFICATION, TASK_QUEUE_INTERACTIVE
 from core.site_settings import site_settings
@@ -21,8 +22,16 @@ from notifications.channels.registry import get_channel
 from notifications.choices import DeliveryStatus, EnvelopeStatus
 from notifications.classification.envelopes import build_actionable_item, validate_actionable
 from notifications.exceptions import UnknownChannelError, UnrecoverableDeliveryError
-from notifications.models import NotificationDelivery, RunEnvelope
-from notifications.run_notifiers import emit_run_notification
+from notifications.models import Notification, NotificationDelivery, RunEnvelope
+from notifications.policy import (
+    NOTIFY_WORTHY_STATUSES,
+    RECLASSIFY_MAX_AGE,
+    notification_source_for_run,
+    notifies,
+    within_relevance_window,
+)
+from notifications.run_notifiers import emit_run_notification, resolve_recipients
+from schedules.models import Intent
 
 logger = logging.getLogger("daiv.notifications")
 
@@ -110,9 +119,6 @@ RECLASSIFY_GRACE = timedelta(minutes=15)
 # Bounded per tick so a backlog after a long provider/broker outage drains steadily rather than
 # storming the queue in a single pass.
 RECLASSIFY_BATCH_LIMIT = 200
-# Recency floor so a first deploy of universal classification never sweeps every historical webhook/job
-# run into paid classification; the notification relevance window reuses this same value.
-RECLASSIFY_MAX_AGE = timedelta(hours=24)
 
 
 def _notify_classified(run, envelope) -> None:
@@ -148,10 +154,7 @@ async def classify_run_task(run_id: str) -> None:
     unclassified ("classifying…"). An unrecoverable method error propagates (task FAILED, no partial
     envelope written).
     """
-    from sessions.models import Run, RunStatus
-
     from notifications.classification.llm import classify_response_text
-    from schedules.models import Intent
 
     run = (
         await Run.objects
@@ -175,9 +178,8 @@ async def classify_run_task(run_id: str) -> None:
         try:
             envelope = await RunEnvelope.objects.acreate(run=run, status=status, summary=summary, actionable=actionable)
         except IntegrityError:
-            # Only the documented race is a benign no-op: if an envelope now exists, a concurrent task
-            # wrote it and we lost — the raced loser returns WITHOUT notifying (fire-once). Any other
-            # IntegrityError must surface as a FAILED task, not be disguised as a race.
+            # Only the lost race is benign, and its loser must not notify (fire-once); any other
+            # IntegrityError fails the task.
             if await RunEnvelope.objects.filter(run=run).aexists():
                 logger.debug("classify_run_task: envelope for run %s already exists (raced), skipping", run_id)
                 return
@@ -292,8 +294,6 @@ def reclassify_missing_envelopes_cron_task():
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock, so a pass
     that overruns the interval is never double-dispatched.
     """
-    from sessions.models import Run, RunStatus, SessionOrigin
-
     now = timezone.now()
     grace_cutoff = now - RECLASSIFY_GRACE
     age_floor = now - RECLASSIFY_MAX_AGE
@@ -334,16 +334,6 @@ def redrive_missing_notifications_cron_task():
 
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock.
     """
-    from sessions.models import Run, RunStatus, SessionOrigin
-
-    from notifications.models import Notification
-    from notifications.policy import (
-        notification_source_for_run,
-        notifies,
-        notify_worthy_statuses,
-        within_relevance_window,
-    )
-    from notifications.run_notifiers import resolve_recipients
 
     def _delivered(source_type: str, source_id: str, event_type: str) -> set:
         return set(
@@ -360,7 +350,7 @@ def redrive_missing_notifications_cron_task():
             status__in=RunStatus.terminal(),
             classify_eligible=True,
             envelope__isnull=False,
-            envelope__status__in=notify_worthy_statuses(),
+            envelope__status__in=NOTIFY_WORTHY_STATUSES,
             finished_at__isnull=False,
             finished_at__gte=now - RECLASSIFY_MAX_AGE,
         )

@@ -11,10 +11,10 @@ from notifications.choices import DeliveryStatus, EnvelopeStatus, EventType
 from notifications.classification.llm import ActionableDraft, RunClassification
 from notifications.exceptions import UnknownChannelError, UnrecoverableDeliveryError
 from notifications.models import Notification, RunEnvelope
+from notifications.policy import RECLASSIFY_MAX_AGE
 from notifications.tasks import (
     MAX_RETRY_AFTER_SECONDS,
     RECLASSIFY_GRACE,
-    RECLASSIFY_MAX_AGE,
     _deliver_notification,
     classify_run_task,
     reclassify_missing_envelopes_cron_task,
@@ -443,13 +443,6 @@ def _llm_returning(classification: RunClassification) -> MagicMock:
     return llm
 
 
-def _fake_site_settings(*, model="openrouter:primary", fallback="openrouter:fallback") -> MagicMock:
-    ss = MagicMock()
-    ss.run_classifier_model_name = model
-    ss.run_classifier_fallback_model_name = fallback
-    return ss
-
-
 async def _make_scheduled_run(
     *,
     intent: str = Intent.WATCH_FIND,
@@ -640,13 +633,11 @@ async def test_schedule_deleted_defaults_intent_to_watch_find():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_no_model_configured_leaves_run_unclassified():
+async def test_no_model_configured_leaves_run_unclassified(site_settings_override):
     run = await _make_scheduled_run()
+    site_settings_override(run_classifier_model_name="", run_classifier_fallback_model_name="")
 
-    with (
-        patch("notifications.tasks.site_settings", _fake_site_settings(model="", fallback="")),
-        patch("notifications.classification.llm._build_structured_llm") as build,
-    ):
+    with patch("notifications.classification.llm._build_structured_llm") as build:
         await classify_run_task.func(str(run.pk))  # must not raise
 
     build.assert_not_called()
@@ -730,16 +721,14 @@ async def test_successful_run_with_empty_prose_is_all_clear_without_llm_call():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_forwards_run_prose_and_model_names_to_method():
+async def test_forwards_run_prose_and_model_names_to_method(site_settings_override):
     # Seam assertion: the run's prose and the primary-before-fallback model tuple (empties filtered)
     # actually reach the classification method — not just that the output happens to be right.
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND, response_text="classify this exact prose")
     llm = _llm_returning(RunClassification(status="all-clear", summary="ok", actionable=[]))
+    site_settings_override(run_classifier_model_name="primary", run_classifier_fallback_model_name="fallback")
 
-    with (
-        patch("notifications.tasks.site_settings", _fake_site_settings(model="primary", fallback="fallback")),
-        patch("notifications.classification.llm._build_structured_llm", return_value=llm) as build,
-    ):
+    with patch("notifications.classification.llm._build_structured_llm", return_value=llm) as build:
         await classify_run_task.func(str(run.pk))
 
     build.assert_called_once_with(RunClassification, ("primary", "fallback"))
@@ -748,15 +737,13 @@ async def test_forwards_run_prose_and_model_names_to_method():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_single_configured_model_forwards_one_tuple():
+async def test_single_configured_model_forwards_one_tuple(site_settings_override):
     # The empty-fallback is filtered out, so the method receives a 1-tuple (not an empty or 2-tuple).
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     llm = _llm_returning(RunClassification(status="all-clear", summary="ok", actionable=[]))
+    site_settings_override(run_classifier_model_name="only", run_classifier_fallback_model_name="")
 
-    with (
-        patch("notifications.tasks.site_settings", _fake_site_settings(model="only", fallback="")),
-        patch("notifications.classification.llm._build_structured_llm", return_value=llm) as build,
-    ):
+    with patch("notifications.classification.llm._build_structured_llm", return_value=llm) as build:
         await classify_run_task.func(str(run.pk))
 
     build.assert_called_once_with(RunClassification, ("only",))
@@ -891,14 +878,14 @@ async def test_raced_loser_does_not_notify():
     [("There is prose here.", "openrouter:primary"), ("", "openrouter:primary"), ("There is prose here.", "")],
     ids=["prose", "empty-prose", "no-classifier-model"],
 )
-async def test_waiting_input_run_is_needs_input_with_the_question_lines_and_no_llm_call(response_text, model):
+async def test_waiting_input_run_is_needs_input_with_the_question_lines_and_no_llm_call(
+    site_settings_override, response_text, model
+):
     run = await _make_scheduled_run(status=RunStatus.WAITING_INPUT, response_text=response_text)
     await Run.objects.filter(pk=run.pk).aupdate(question=SAMPLE_QUESTION_PAYLOAD)
+    site_settings_override(run_classifier_model_name=model, run_classifier_fallback_model_name="")
 
-    with (
-        patch("notifications.tasks.site_settings", _fake_site_settings(model=model, fallback="")),
-        patch("notifications.classification.llm._build_structured_llm") as build,
-    ):
+    with patch("notifications.classification.llm._build_structured_llm") as build:
         await classify_run_task.func(str(run.pk))
 
     build.assert_not_called()

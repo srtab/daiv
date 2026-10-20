@@ -11,13 +11,13 @@ from django.utils.translation import gettext as _
 from notifications.channels.registry import enabled_channel_types
 from notifications.choices import EnvelopeStatus
 from notifications.policy import (
+    NOTIFY_WORTHY_STATUSES,
     batch_status_tone,
     envelope_tone,
     is_schedule_run,
     notification_source_for_run,
     notifies,
     notify_worthy,
-    notify_worthy_statuses,
     status_severity,
     within_relevance_window,
 )
@@ -294,7 +294,7 @@ def _handle_batch_completion(run, siblings, total: int) -> None:
         clear=Count("id", filter=Q(envelope__status=EnvelopeStatus.ALL_CLEAR)),
         # Counted off the predicate, not summed from the per-status counts above: a new
         # notify-worthy status would leave that sum at zero and silently dismiss the batch.
-        notable=Count("id", filter=Q(envelope__status__in=notify_worthy_statuses())),
+        notable=Count("id", filter=Q(envelope__status__in=NOTIFY_WORTHY_STATUSES)),
         total_input_tokens=Sum("input_tokens"),
         total_output_tokens=Sum("output_tokens"),
         total_total_tokens=Sum("total_tokens"),

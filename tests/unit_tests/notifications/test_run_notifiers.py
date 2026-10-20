@@ -7,7 +7,7 @@ from django.utils import timezone
 import pytest
 from notifications.choices import ChannelType, EnvelopeStatus
 from notifications.models import Notification, NotificationDelivery, RunEnvelope
-from notifications.policy import notify_worthy_statuses
+from notifications.policy import NOTIFY_WORTHY_STATUSES, RECLASSIFY_MAX_AGE
 from notifications.run_notifiers import ACTIONABLE_CONTEXT_LIMIT, NOTABLE_RUNS_CONTEXT_LIMIT, emit_run_notification
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
@@ -298,8 +298,6 @@ class TestNotificationPolicy:
     def test_stale_run_outside_window_suppressed(self, member_user, email_binding):
         from datetime import timedelta
 
-        from notifications.tasks import RECLASSIFY_MAX_AGE
-
         session = _session(user=member_user)
         run, envelope = _classified_run(
             session,
@@ -495,7 +493,7 @@ class TestBatchNotableRuns:
         )
         assert [row["kind"] for row in ctx["notable_runs"]] == ["Needs attention"]
 
-    @pytest.mark.parametrize("status", sorted(notify_worthy_statuses()))
+    @pytest.mark.parametrize("status", sorted(NOTIFY_WORTHY_STATUSES))
     def test_every_notify_worthy_status_counts_toward_the_rollup(self, member_user, email_binding, status):
         """A status the batch aggregate misses leaves ``notable`` at zero and the whole batch is
         dismissed as clean — no rollup, no error."""
