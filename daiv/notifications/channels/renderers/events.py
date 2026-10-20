@@ -8,14 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from notifications.channels.renderers.base import (
-    TOTAL_COST_LABEL,
-    Row,
-    breakdown_value,
-    fmt_duration,
-    repo_list,
-    usage_rows,
-)
+from notifications.channels.renderers.base import Row, breakdown_value, fmt_duration, repo_list, usage_rows
 from notifications.choices import EventType
 
 if TYPE_CHECKING:
@@ -49,7 +42,7 @@ def _job_batch_finished(ctx: dict) -> list[Row]:
     ]
     if owner := ctx.get("trigger_owner"):
         rows.append(Row("Owner", owner))
-    rows += usage_rows(ctx, cost_label=TOTAL_COST_LABEL)
+    rows += usage_rows(ctx, cost_label="Total cost")
     if repo_ids := ctx.get("repo_ids"):
         rows.append(Row("Repositories", repo_list(repo_ids), wide=True))
     return rows

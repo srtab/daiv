@@ -7,24 +7,17 @@ and the tone → emoji map; per-channel styling (Rocket Chat's hex colours) stay
 
 from __future__ import annotations
 
-import inspect
-from abc import ABC
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 from core.utils import build_absolute_url
 
 if TYPE_CHECKING:
-    from notifications.choices import EventType
     from notifications.models import Notification
 
 TONE_EMOJI = {"success": "✅", "failure": "❌", "warning": "⚠️"}
 
 REPO_BREAKDOWN_LIMIT = 8
-
-USAGE_LABEL = "Usage"
-COST_LABEL = "Cost"
-TOTAL_COST_LABEL = "Total cost"
 
 
 @dataclass(frozen=True)
@@ -73,20 +66,13 @@ def fmt_duration(seconds: float | None) -> str:
     return f"{total // 3600}h {(total % 3600) // 60:02d}m"
 
 
-def usage_value(ctx: dict) -> str | None:
-    """The combined in/out token line, or ``None`` when neither count is present."""
-    in_tokens = fmt_tokens(ctx.get("input_tokens"))
-    out_tokens = fmt_tokens(ctx.get("output_tokens"))
-    if in_tokens is None and out_tokens is None:
-        return None
-    return f"{in_tokens or '—'} in · {out_tokens or '—'} out"
-
-
-def usage_rows(ctx: dict, *, cost_label: str = COST_LABEL) -> list[Row]:
+def usage_rows(ctx: dict, *, cost_label: str = "Cost") -> list[Row]:
     """Usage and cost rows — zero, one, or two, depending on what the context carries."""
     rows: list[Row] = []
-    if (usage := usage_value(ctx)) is not None:
-        rows.append(Row(USAGE_LABEL, usage))
+    in_tokens = fmt_tokens(ctx.get("input_tokens"))
+    out_tokens = fmt_tokens(ctx.get("output_tokens"))
+    if in_tokens is not None or out_tokens is not None:
+        rows.append(Row("Usage", f"{in_tokens or '—'} in · {out_tokens or '—'} out"))
     if (cost := fmt_cost(ctx.get("cost_usd"))) is not None:
         rows.append(Row(cost_label, cost))
     return rows
@@ -135,32 +121,3 @@ def tone_of(ctx: dict) -> str:
 def summary_of(ctx: dict) -> str:
     """The classifier's summary, stripped; empty when the context carries none."""
     return (ctx.get("summary") or "").strip()
-
-
-class BaseRenderer(ABC):
-    """Base for per-event renderers on any channel.
-
-    Subclasses set ``event_type``, declare their own channel-shaped ``render``, and register
-    with their channel's ``@register_renderer``.
-    """
-
-    event_type: ClassVar[EventType]
-
-    def __init_subclass__(cls, **kwargs) -> None:
-        super().__init_subclass__(**kwargs)
-        # Concrete renderers must declare ``event_type`` so the registry can key them and so a
-        # forgotten assignment surfaces at import time rather than mid-delivery.
-        if not inspect.isabstract(cls) and "event_type" not in cls.__dict__:
-            raise TypeError(f"{cls.__name__} must define `event_type` (a notifications.choices.EventType value)")
-
-    _fmt_duration = staticmethod(fmt_duration)
-    _usage_value = staticmethod(usage_value)
-    _breakdown_value = staticmethod(breakdown_value)
-    _link = staticmethod(link_of)
-    _tone = staticmethod(tone_of)
-    _repo_list = staticmethod(repo_list)
-
-    @staticmethod
-    def _cost_value(ctx: dict) -> str | None:
-        """The formatted cost, or ``None`` when the context carries none."""
-        return fmt_cost(ctx.get("cost_usd"))
