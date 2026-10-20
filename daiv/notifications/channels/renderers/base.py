@@ -36,8 +36,8 @@ class Row:
 def compose_plain_text(notification: Notification) -> str:
     """The unstyled subject/body/link form every channel falls back to without a renderer."""
     parts = [notification.subject, "", notification.body]
-    if notification.link_url:
-        parts.extend(["", build_absolute_url(notification.link_url)])
+    if link := link_of(notification):
+        parts.extend(["", link])
     return "\n".join(parts)
 
 

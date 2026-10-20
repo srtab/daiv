@@ -24,8 +24,8 @@ logger = logging.getLogger("daiv.notifications")
 def _build_payload(notification: Notification, delivery: NotificationDelivery) -> dict:
     """Build the ``sendMessage`` body.
 
-    Falls back to plain text when no renderer is registered for the event type, so a
-    newly-introduced event delivers before its renderer ships.
+    Falls back to plain text when the event type has no ``EVENT_ROWS`` definition, so a
+    newly-introduced event delivers before its rows ship.
     """
     rendered = render(notification)
     if rendered is None:

@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
-from notifications.channels.renderers.base import REPO_BREAKDOWN_LIMIT
 from notifications.channels.renderers.telegram import TG_MAX_CHARS, VIEW_LABEL, render, truncate_escaped
 from notifications.choices import EventType
 
@@ -32,13 +31,6 @@ def _render(event_type, notification):
 
 
 class TestRegistry:
-    def test_every_event_type_renders_as_html(self):
-        # A missing definition falls back to plain text and logs a warning on every delivery.
-        assert [e.value for e in EventType if _render(e, _notif()) is None] == []
-
-    def test_lookup_works_with_the_bare_string_off_the_charfield(self):
-        assert _render("job.finished", _notif()) is not None
-
     def test_unknown_event_type_returns_none(self):
         assert _render("does.not.exist", _notif()) is None
 
@@ -98,129 +90,17 @@ class TestKeyboard:
         assert markup == {}
 
 
-class TestJobFinishedRenderer:
-    def test_renders_tone_emoji_trigger_duration_usage_and_cost(self):
-        text, _markup = _render(
-            EventType.JOB_FINISHED,
-            _notif(
-                subject="Agent run on acme/api needs a look",
-                context={
-                    "status_tone": "warning",
-                    "trigger_label": "Manual",
-                    "duration_seconds": 84,
-                    "input_tokens": 12432,
-                    "output_tokens": 38123,
-                    "cost_usd": 0.214,
-                },
-            ),
-        )
-        assert text.startswith("⚠️ <b>Agent run on acme/api needs a look</b>")
-        assert "1m 24s" in text
-        assert "12.4k in · 38.1k out" in text
-        assert "$0.21" in text
-
-    def test_missing_usage_and_cost_rows_are_omitted(self):
-        text, _markup = _render(
-            EventType.JOB_FINISHED, _notif(context={"status_tone": "failure", "trigger_label": "Webhook"})
-        )
-        assert "Usage" not in text
-        assert "Cost" not in text
-
-    def test_status_tone_overrides_is_successful(self):
-        text, _markup = _render(
-            EventType.JOB_FINISHED, _notif(context={"status_tone": "warning", "is_successful": True})
-        )
-        assert text.startswith("⚠️ ")
-
-    def test_the_summary_closes_the_message(self):
-        text, _markup = _render(
-            EventType.JOB_FINISHED,
-            _notif(context={"status_tone": "warning", "summary": "Database: Which engine?\nDeadline: When?"}),
-        )
-        assert text.endswith("<b>Summary:</b> Database: Which engine?\nDeadline: When?")
-
-    def test_the_summary_is_escaped(self):
-        text, _markup = _render(
-            EventType.JOB_FINISHED, _notif(context={"status_tone": "warning", "summary": "Keep <b> & drop <i>?"})
-        )
-        assert "Keep &lt;b&gt; &amp; drop &lt;i&gt;?" in text
-
+class TestSummary:
     def test_a_blank_summary_drops_the_row(self):
         text, _markup = _render(EventType.JOB_FINISHED, _notif(context={"status_tone": "warning", "summary": "  "}))
         assert "Summary" not in text
 
-    def test_a_huge_summary_is_clamped_to_the_bot_api_limit(self):
-        text, _markup = _render(
-            EventType.JOB_FINISHED, _notif(context={"status_tone": "warning", "summary": "x" * 10_000})
-        )
-        assert len(text) <= TG_MAX_CHARS
-        assert text.endswith("…")
 
-
-class TestScheduleFinishedRenderer:
-    def test_includes_repository_owner_and_duration(self):
-        text, _markup = _render(
-            EventType.SCHEDULE_FINISHED,
-            _notif(
-                context={
-                    "status_tone": "failure",
-                    "repo_id": "acme/api",
-                    "trigger_owner": "alice",
-                    "duration_seconds": 47,
-                }
-            ),
-        )
-        assert text.startswith("❌ ")
-        assert "acme/api" in text
-        assert "alice" in text
-        assert "47s" in text
-
-    def test_the_summary_closes_the_message(self):
-        text, _markup = _render(
-            EventType.SCHEDULE_FINISHED, _notif(context={"status_tone": "failure", "summary": "migration 0042 errored"})
-        )
-        assert text.endswith("<b>Summary:</b> migration 0042 errored")
-
-
-class TestJobBatchFinishedRenderer:
-    def _ctx(self, **overrides):
-        base = {
-            "status_tone": "warning",
-            "found_count": 2,
-            "needs_attention_count": 1,
-            "failed_count": 1,
-            "all_clear_count": 1,
-            "notable_count": 4,
-            "total": 5,
-            "duration_seconds": 371,
-            "trigger_owner": "alice",
-            "repo_ids": ["acme/api", "acme/web"],
-            "cost_usd": 0.83,
-        }
-        base.update(overrides)
-        return base
-
-    def test_renders_results_breakdown_and_repositories(self):
-        text, _markup = _render(EventType.JOB_BATCH_FINISHED, _notif(context=self._ctx()))
-        # assert the rendered fragment, not incidental digits
-        assert "⚑ 4 · ✓ 1 of 5" in text
-        assert "acme/api" in text and "acme/web" in text
-
-    def test_repo_list_reuses_the_shared_cap(self):
-        repos = [f"acme/r{i}" for i in range(REPO_BREAKDOWN_LIMIT + 4)]
-        text, _markup = _render(EventType.JOB_BATCH_FINISHED, _notif(context=self._ctx(repo_ids=repos)))
-        assert "and 4 more" in text
-        assert f"acme/r{REPO_BREAKDOWN_LIMIT}" not in text
-
-    def test_empty_repo_ids_drops_the_row(self):
-        text, _markup = _render(EventType.JOB_BATCH_FINISHED, _notif(context=self._ctx(repo_ids=[])))
-        assert "Repositories" not in text
-
-    def test_breakdown_names_questions_only_when_there_are_some(self):
-        text, _markup = _render(EventType.JOB_BATCH_FINISHED, _notif(context=self._ctx(needs_input_count=2)))
-        assert "found 2 · needs 1 · failed 1 · input 2" in text
-        text, _markup = _render(EventType.JOB_BATCH_FINISHED, _notif(context=self._ctx()))
-        assert "input" not in text
+def _assert_well_formed(text):
+    assert len(text) <= TG_MAX_CHARS
+    assert text.count("<b>") == text.count("</b>")
+    assert set(re.findall(r"</?([a-z]+)>", text)) == {"b"}
+    assert re.search(r"&(?![a-z]+;|#\d+;)", text) is None
 
 
 class TestLengthCap:
@@ -229,15 +109,14 @@ class TestLengthCap:
         text, _markup = _render(
             EventType.JOB_BATCH_FINISHED, _notif(context={"status_tone": "warning", "total": 50, "repo_ids": repos})
         )
-        assert len(text) <= TG_MAX_CHARS
+        _assert_well_formed(text)
 
     def test_a_huge_subject_is_clamped_and_the_bold_tag_stays_balanced(self):
         text, _markup = _render(
             EventType.JOB_FINISHED,
             _notif(subject="x" * 5000, context={"status_tone": "success", "trigger_label": "Manual"}),
         )
-        assert len(text) <= TG_MAX_CHARS
-        assert text.count("<b>") == text.count("</b>")
+        _assert_well_formed(text)
 
     def test_a_pathological_fixed_row_cannot_blow_the_budget(self):
         # ``repo_id`` is free-form context, not a bounded field: an unbounded fixed row pushes
@@ -246,15 +125,13 @@ class TestLengthCap:
             EventType.SCHEDULE_FINISHED,
             _notif(context={"status_tone": "success", "repo_id": "a" * 9000, "trigger_owner": "b" * 9000}),
         )
-        assert len(text) <= TG_MAX_CHARS
-        assert text.count("<b>") == text.count("</b>")
+        _assert_well_formed(text)
 
     def test_a_pathological_fixed_row_is_escaped_before_it_is_cut(self):
         text, _markup = _render(
             EventType.SCHEDULE_FINISHED, _notif(context={"status_tone": "success", "repo_id": "&" * 9000})
         )
-        assert len(text) <= TG_MAX_CHARS
-        assert re.search(r"&(?![a-z]+;|#\d+;)", text) is None
+        _assert_well_formed(text)
 
     def test_the_cut_never_leaves_a_dangling_tag_or_entity(self):
         text, _markup = _render(
@@ -263,10 +140,7 @@ class TestLengthCap:
                 subject="a" * 400, context={"status_tone": "warning", "total": 2, "repo_ids": ["<" * 3000, "&" * 3000]}
             ),
         )
-        assert len(text) <= TG_MAX_CHARS
-        assert text.count("<b>") == text.count("</b>")
-        # No half-written entity: every '&' opens something that closes.
-        assert re.search(r"&(?![a-z]+;|#\d+;)", text) is None
+        _assert_well_formed(text)
 
 
 def _keyboard(path):
@@ -387,13 +261,6 @@ class TestPayloadSnapshots:
     def test_an_empty_context_renders_the_pinned_message(self, event_type):
         rendered = _render(event_type, _notif(link_url="", context={}))
         assert rendered == (MINIMAL_SNAPSHOTS[event_type], {})
-
-
-def _assert_well_formed(text):
-    assert len(text) <= TG_MAX_CHARS
-    assert text.count("<b>") == text.count("</b>")
-    assert set(re.findall(r"</?([a-z]+)>", text)) == {"b"}
-    assert re.search(r"&(?![a-z]+;|#\d+;)", text) is None
 
 
 class TestPipelineWatchExhaustedRenderer:

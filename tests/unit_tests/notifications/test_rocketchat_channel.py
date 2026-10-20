@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
-from unittest.mock import patch
 
 from django.utils import timezone
 
 import httpx
 import pytest
 from notifications.channels.registry import get_channel
-from notifications.channels.renderers.base import compose_plain_text
 from notifications.channels.rocketchat import (
     RocketChatChannel,
     RocketChatPermanentError,
@@ -177,7 +174,7 @@ class TestSend:
     def test_happy_path_posts_renderer_payload_to_user_dm(
         self, httpx_mock, notification_with_delivery, rocketchat_configured
     ):
-        # event_type="schedule.finished" on the fixture → uses ScheduleFinishedRenderer.
+        # event_type="schedule.finished" on the fixture → renders the schedule-finished rows.
         n, d = notification_with_delivery
         d.channel_type = ChannelType.ROCKETCHAT
         d.address = "alice"
@@ -255,7 +252,7 @@ class TestSend:
     ):
         # End-to-end pin: a JOB_BATCH_FINISHED notification dispatched through send() must
         # produce a payload whose attachments include the per-repo ✓/✗ breakdown. Catches
-        # any regression in the renderer-registry wiring for the most complex event.
+        # any regression in the EVENT_ROWS wiring for the most complex event.
         from notifications.choices import EventType
 
         n, d = notification_with_delivery
@@ -311,20 +308,6 @@ class TestSend:
         httpx_mock.add_response(method="POST", url="https://rc.example.com/api/v1/chat.postMessage", status_code=503)
         with pytest.raises(httpx.HTTPStatusError):
             RocketChatChannel().send(n, d)
-
-
-class TestComposeText:
-    def _notif(self, subject, body, link_url=""):
-        return SimpleNamespace(subject=subject, body=body, link_url=link_url)
-
-    def test_without_link_url(self):
-        result = compose_plain_text(self._notif("Subject", "Body"))
-        assert result == "Subject\n\nBody"
-
-    def test_with_link_url_appends_absolute_url(self):
-        with patch("notifications.channels.renderers.base.build_absolute_url", return_value="https://daiv.test/x/"):
-            result = compose_plain_text(self._notif("Subject", "Body", "/x/"))
-        assert result == "Subject\n\nBody\n\nhttps://daiv.test/x/"
 
 
 class TestExtractRcError:

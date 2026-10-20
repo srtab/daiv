@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import patch
+
 import pytest
 from notifications.channels.renderers.base import (
     REPO_BREAKDOWN_LIMIT,
     TONE_EMOJI,
     Row,
+    breakdown_value,
+    compose_plain_text,
     fmt_cost,
     fmt_duration,
     fmt_tokens,
@@ -22,6 +27,10 @@ class TestToneResolution:
     def test_a_context_predating_the_tone_key_falls_back_to_is_successful(self):
         assert tone_of({"is_successful": True}) == "success"
         assert tone_of({"is_successful": False}) == "failure"
+
+    def test_the_envelope_tone_beats_is_successful(self):
+        # A found-issues run finishes successfully but its envelope tone is a warning.
+        assert tone_of({"status_tone": "warning", "is_successful": True}) == "warning"
 
     def test_an_unknown_tone_falls_back_rather_than_raising(self):
         assert tone_of({"status_tone": "bogus", "is_successful": True}) == "success"
@@ -56,11 +65,15 @@ class TestUsageRows:
     def test_no_usage_row_when_both_tokens_missing(self):
         assert usage_rows({"cost_usd": 0.10}) == [Row("Cost", "$0.10")]
 
-    def test_usage_renders_when_only_one_side_present(self):
-        assert usage_rows({"input_tokens": 1000, "output_tokens": None}) == [Row("Usage", "1.0k in · — out")]
-
-    def test_cost_row_skipped_when_cost_missing(self):
+    def test_one_token_side_without_a_cost_gives_only_a_usage_row(self):
         assert usage_rows({"input_tokens": 1000}) == [Row("Usage", "1.0k in · — out")]
+
+
+class TestBreakdownValue:
+    def test_the_input_count_appears_only_when_some_run_is_waiting(self):
+        ctx = {"found_count": 2, "needs_attention_count": 1, "failed_count": 1}
+        assert breakdown_value(ctx) == "found 2 · needs 1 · failed 1"
+        assert breakdown_value({**ctx, "needs_input_count": 2}) == "found 2 · needs 1 · failed 1 · input 2"
 
 
 class TestSharedRepoList:
@@ -72,3 +85,16 @@ class TestSharedRepoList:
 
     def test_empty_input_renders_empty(self):
         assert repo_list([]) == ""
+
+
+class TestComposePlainText:
+    def _notif(self, subject, body, link_url=""):
+        return SimpleNamespace(subject=subject, body=body, link_url=link_url)
+
+    def test_without_link_url(self):
+        assert compose_plain_text(self._notif("Subject", "Body")) == "Subject\n\nBody"
+
+    def test_with_link_url_appends_absolute_url(self):
+        with patch("notifications.channels.renderers.base.build_absolute_url", return_value="https://daiv.test/x/"):
+            result = compose_plain_text(self._notif("Subject", "Body", "/x/"))
+        assert result == "Subject\n\nBody\n\nhttps://daiv.test/x/"

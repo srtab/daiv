@@ -10,7 +10,7 @@ from __future__ import annotations
 import html
 from typing import TYPE_CHECKING
 
-from notifications.channels.renderers.base import TONE_EMOJI, link_of, summary_of, tone_of
+from notifications.channels.renderers.base import TONE_EMOJI, Row, link_of, summary_of, tone_of
 from notifications.channels.renderers.events import event_rows
 
 if TYPE_CHECKING:
@@ -81,12 +81,12 @@ def render(notification: Notification) -> tuple[str, dict] | None:
     ]
     text = "\n".join(lines)
 
-    extra = [(row.label, row.value) for row in rows if row.wide]
+    extra = [row for row in rows if row.wide]
     if summary := summary_of(ctx):
-        extra.append(("Summary", summary))
-    for label, value in extra:
-        prefix = f"{text}\n<b>{esc(label)}:</b> "
+        extra.append(Row("Summary", summary))
+    for row in extra:
+        prefix = f"{text}\n<b>{esc(row.label)}:</b> "
         if len(prefix) >= TG_MAX_CHARS:
             break
-        text = prefix + truncate_escaped(esc(value), TG_MAX_CHARS - len(prefix))
+        text = prefix + truncate_escaped(esc(row.value), TG_MAX_CHARS - len(prefix))
     return text, _keyboard(notification)

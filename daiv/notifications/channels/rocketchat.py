@@ -157,8 +157,8 @@ def verify_username(username: str) -> tuple[str | None, str | None]:
 def _build_payload(notification: Notification, delivery: NotificationDelivery) -> dict:
     """Build the ``chat.postMessage`` body for ``notification``.
 
-    Falls back to a plain-text message when no renderer is registered for the
-    event type, so newly-introduced events deliver before their renderer ships.
+    Falls back to a plain-text message when the event type has no ``EVENT_ROWS``
+    definition, so newly-introduced events deliver before their rows ship.
     """
     channel = f"@{delivery.address}"
     rendered = render(notification)

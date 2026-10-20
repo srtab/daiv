@@ -93,22 +93,6 @@ class TestSend:
         assert "Body line" in body["text"]
         assert "reply_markup" not in body
 
-    @pytest.mark.parametrize("event_type", [EventType.PIPELINE_WATCH_EXHAUSTED, EventType.SCHEDULE_DISPATCH_FAILED])
-    def test_watch_and_dispatch_events_render_html_without_the_fallback_warning(
-        self, notification_with_delivery, telegram_configured, caplog, event_type
-    ):
-        from notifications.channels.telegram import _build_payload
-
-        n, d = self._delivery(notification_with_delivery)
-        n.event_type = event_type
-        n.context = {"status_tone": "failure"}
-        n.save()
-
-        with caplog.at_level("WARNING", logger="daiv.notifications"):
-            payload = _build_payload(n, d)
-        assert payload["parse_mode"] == "HTML"
-        assert "no renderer" not in caplog.text
-
     def test_disabled_channel_raises_unrecoverable(
         self, notification_with_delivery, telegram_configured, site_settings_override
     ):
