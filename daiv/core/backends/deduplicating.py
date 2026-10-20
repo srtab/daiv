@@ -49,13 +49,9 @@ class DeduplicatingTask(Task[P, T]):
     Whether a successful task still counts as a duplicate. False: only a queued or running one does.
     """
 
-    async def aget_or_enqueue(self, *args: P.args, **kwargs: P.kwargs) -> tuple[TaskResult[T], bool]:
-        """``aenqueue``, also saying whether it created the task: ``False`` when ``dedup`` matched an earlier one."""
-        return await self.get_backend().aget_or_enqueue(self, args, kwargs)  # ty: ignore[unresolved-attribute]
-
-    async def afind_duplicate(self, *args: P.args, **kwargs: P.kwargs) -> TaskResult[T] | None:
-        """The earlier task :meth:`aget_or_enqueue` would hand back for these arguments, read without its lock."""
-        return await self.get_backend().afind_duplicate(self, args, kwargs)  # ty: ignore[unresolved-attribute]
+    def get_or_enqueue(self, *args: P.args, **kwargs: P.kwargs) -> tuple[TaskResult[T], bool]:
+        """``enqueue``, also saying whether it created the task: ``False`` when ``dedup`` matched an earlier one."""
+        return self.get_backend().get_or_enqueue(self, args, kwargs)  # ty: ignore[unresolved-attribute]
 
 
 class DeduplicatingDatabaseBackend(DatabaseBackend):
@@ -74,8 +70,11 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
         return self.get_or_enqueue(task, args, kwargs)[0]
 
     async def aenqueue(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> DatabaseTaskResult[T]:
-        """Async twin of :meth:`enqueue`."""
-        return (await self.aget_or_enqueue(task, args, kwargs))[0]
+        """Async twin of :meth:`enqueue`: the parent's ``aenqueue`` writes the row itself rather than calling
+        ``enqueue``, so a ``dedup`` task goes through :meth:`enqueue` instead."""
+        if not task.dedup:
+            return await super().aenqueue(task, args, kwargs)
+        return await sync_to_async(self.enqueue)(task, args, kwargs)
 
     def get_or_enqueue(
         self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs
@@ -90,7 +89,9 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
 
         Returns:
             The task result for the new or existing task, and whether this call created it. The lookup and the insert
-            share one advisory lock, so of concurrent calls with one key exactly one gets ``True``.
+            share one advisory lock, so of concurrent calls with one key exactly one gets ``True``. Called inside a
+            transaction, the lock holds until that commits: rows the caller writes there commit with the task, and a
+            concurrent call sees all of them or none.
         """
         if not task.dedup:
             return super().enqueue(task, args, kwargs), True
@@ -102,31 +103,6 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
                 logger.info("Skipping duplicate task: %s with args: %r and kwargs: %r", task.module_path, args, kwargs)
                 return existing_result.task_result, False
             return super().enqueue(task, args, kwargs), True
-
-    async def aget_or_enqueue(
-        self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs
-    ) -> tuple[DatabaseTaskResult[T], bool]:
-        """
-        Async twin of :meth:`get_or_enqueue`: the parent's ``aenqueue`` writes the row itself rather than calling
-        ``enqueue``, so a ``dedup`` task goes through :meth:`get_or_enqueue` instead.
-        """
-        if not task.dedup:
-            return await super().aenqueue(task, args, kwargs), True
-
-        return await sync_to_async(self.get_or_enqueue)(task, args, kwargs)
-
-    async def afind_duplicate(
-        self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs
-    ) -> DatabaseTaskResult[T] | None:
-        """
-        The task :meth:`aget_or_enqueue` would hand back, looked up without the advisory lock: a cheap early look for
-        a caller with work to skip on a repeat. A duplicate enqueued concurrently can be missed; the enqueue still
-        catches it.
-        """
-        if not task.dedup:
-            return None
-        existing = await self._existing_task_results(task, self._dedup_key(task, args, kwargs)).afirst()
-        return existing.task_result if existing else None
 
     def _dedup_key(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> dict[str, Any]:
         """The JSON a duplicate matches: the whole ``args_kwargs``, or only the ``dedup_on`` kwargs."""

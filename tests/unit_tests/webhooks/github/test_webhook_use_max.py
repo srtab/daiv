@@ -58,8 +58,7 @@ async def test_issue_callback_persists_agent_model(_stub_github, labels, expect_
         sender=User(id=2, login="reviewer"),
     )
     with patch("webhooks.dispatch.address_issue_label_task") as mock_task:
-        mock_task.aget_or_enqueue = AsyncMock(return_value=(MagicMock(id=task_id), True))
-        mock_task.afind_duplicate = AsyncMock(return_value=None)
+        mock_task.get_or_enqueue.return_value = (MagicMock(id=task_id), True)
         await callback.process_callback()
 
     run = await Run.objects.aget(task_result_id=task_id)
@@ -90,8 +89,7 @@ async def test_issue_comment_callback_persists_agent_model(_stub_github, labels,
         patch("webhooks.dispatch.address_issue_task") as mock_task,
         patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
     ):
-        mock_task.aget_or_enqueue = AsyncMock(return_value=(MagicMock(id=task_id), True))
-        mock_task.afind_duplicate = AsyncMock(return_value=None)
+        mock_task.get_or_enqueue.return_value = (MagicMock(id=task_id), True)
         await callback.process_callback()
 
     run = await Run.objects.aget(task_result_id=task_id)
@@ -122,8 +120,7 @@ async def test_pr_comment_callback_persists_agent_model(_stub_github, labels, ex
         patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
         patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
     ):
-        mock_task.aget_or_enqueue = AsyncMock(return_value=(MagicMock(id=task_id), True))
-        mock_task.afind_duplicate = AsyncMock(return_value=None)
+        mock_task.get_or_enqueue.return_value = (MagicMock(id=task_id), True)
         await callback.process_callback()
 
     run = await Run.objects.aget(task_result_id=task_id)
@@ -154,8 +151,7 @@ async def test_two_issue_events_share_one_session(_stub_github):
         )
         callback.issue = _issue([Label(id=1, name="daiv")])
         with patch("webhooks.dispatch.address_issue_label_task") as mock_task:
-            mock_task.aget_or_enqueue = AsyncMock(return_value=(MagicMock(id=task_id), True))
-            mock_task.afind_duplicate = AsyncMock(return_value=None)
+            mock_task.get_or_enqueue.return_value = (MagicMock(id=task_id), True)
             # Patch compute_thread_id to use our specific repo/issue
             with patch("webhooks.dispatch.compute_thread_id", return_value=thread_id):
                 await callback.process_callback()

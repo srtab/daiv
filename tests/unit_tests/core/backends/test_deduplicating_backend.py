@@ -1,5 +1,7 @@
 from dataclasses import replace
 
+from django.db import transaction
+
 import pytest
 from django_tasks import TaskResultStatus, task
 from django_tasks.utils import normalize_json
@@ -112,36 +114,34 @@ def test_without_dedup_successful_only_a_queued_or_running_task_is_a_duplicate(d
     assert active_only.enqueue(repo_id="repo-1", note_id=5).id != result.id
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_afind_duplicate_finds_what_an_enqueue_would_hand_back(database_task_backend):
-    assert await sample_mention_task.afind_duplicate(repo_id="repo-1", note_id=5) is None
-
-    result = await sample_mention_task.aenqueue(repo_id="repo-1", note_id=5)
-
-    assert (await sample_mention_task.afind_duplicate(repo_id="repo-1", note_id=5, use_max=True)).id == result.id
-    assert await sample_mention_task.afind_duplicate(repo_id="repo-1", note_id=6) is None
-    assert await sample_cron_task.afind_duplicate("repo-1") is None
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_aget_or_enqueue_says_whether_it_created_the_task(database_task_backend):
-    result, created = await sample_mention_task.aget_or_enqueue(repo_id="repo-1", note_id=5)
-    duplicate, duplicate_created = await sample_mention_task.aget_or_enqueue(repo_id="repo-1", note_id=5, use_max=True)
+@pytest.mark.django_db
+def test_get_or_enqueue_says_whether_it_created_the_task(database_task_backend):
+    result, created = sample_mention_task.get_or_enqueue(repo_id="repo-1", note_id=5)
+    duplicate, duplicate_created = sample_mention_task.get_or_enqueue(repo_id="repo-1", note_id=5, use_max=True)
 
     assert (created, duplicate_created) == (True, False)
     assert duplicate.id == result.id
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_aget_or_enqueue_without_dedup_always_creates(database_task_backend):
-    first, second = await sample_cron_task.aget_or_enqueue("repo-1"), await sample_cron_task.aget_or_enqueue("repo-1")
+@pytest.mark.django_db
+def test_get_or_enqueue_without_dedup_always_creates(database_task_backend):
+    first, second = sample_cron_task.get_or_enqueue("repo-1"), sample_cron_task.get_or_enqueue("repo-1")
 
     assert (first[1], second[1]) == (True, True)
     assert first[0].id != second[0].id
 
 
-async def test_the_immediate_backend_runs_and_creates_every_time():
-    result, created = await sample_mention_task.aget_or_enqueue(repo_id="repo-1", note_id=5)
+@pytest.mark.django_db
+def test_a_task_enqueued_in_a_rolled_back_transaction_is_no_duplicate(database_task_backend):
+    with pytest.raises(RuntimeError), transaction.atomic():
+        sample_mention_task.get_or_enqueue(repo_id="repo-1", note_id=5)
+        raise RuntimeError
+
+    assert sample_mention_task.get_or_enqueue(repo_id="repo-1", note_id=5)[1] is True
+
+
+def test_the_immediate_backend_runs_and_creates_every_time():
+    result, created = sample_mention_task.get_or_enqueue(repo_id="repo-1", note_id=5)
 
     assert created is True
     assert result.return_value == "repo-1"

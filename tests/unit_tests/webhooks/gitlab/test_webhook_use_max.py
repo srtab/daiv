@@ -70,8 +70,7 @@ async def test_issue_callback_persists_agent_model(_stub_gitlab, labels, expect_
         ),
     )
     with patch("webhooks.dispatch.address_issue_label_task") as mock_task:
-        mock_task.aget_or_enqueue = AsyncMock(return_value=(MagicMock(id=task_id), True))
-        mock_task.afind_duplicate = AsyncMock(return_value=None)
+        mock_task.get_or_enqueue.return_value = (MagicMock(id=task_id), True)
         await callback.process_callback()
 
     run = await Run.objects.select_related("session").aget(task_result_id=task_id)
@@ -114,8 +113,7 @@ async def test_note_callback_on_mr_persists_agent_model(_stub_gitlab, labels, ex
         patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
         patch("webhooks.gitlab.callbacks.note_mentions_daiv", return_value=True),
     ):
-        mock_task.aget_or_enqueue = AsyncMock(return_value=(MagicMock(id=task_id), True))
-        mock_task.afind_duplicate = AsyncMock(return_value=None)
+        mock_task.get_or_enqueue.return_value = (MagicMock(id=task_id), True)
         await callback.process_callback()
 
     run = await Run.objects.aget(task_result_id=task_id)
@@ -155,8 +153,7 @@ async def test_note_callback_on_issue_persists_agent_model(_stub_gitlab, labels,
         patch("webhooks.dispatch.address_issue_task") as mock_task,
         patch("webhooks.gitlab.callbacks.note_mentions_daiv", return_value=True),
     ):
-        mock_task.aget_or_enqueue = AsyncMock(return_value=(MagicMock(id=task_id), True))
-        mock_task.afind_duplicate = AsyncMock(return_value=None)
+        mock_task.get_or_enqueue.return_value = (MagicMock(id=task_id), True)
         await callback.process_callback()
 
     run = await Run.objects.aget(task_result_id=task_id)
@@ -196,8 +193,7 @@ async def test_two_issue_events_share_one_session(_stub_gitlab):
             ),
         )
         with patch("webhooks.dispatch.address_issue_label_task") as mock_task:
-            mock_task.aget_or_enqueue = AsyncMock(return_value=(MagicMock(id=task_id), True))
-            mock_task.afind_duplicate = AsyncMock(return_value=None)
+            mock_task.get_or_enqueue.return_value = (MagicMock(id=task_id), True)
             await callback.process_callback()
 
     assert await Session.objects.filter(thread_id=thread_id).acount() == 1

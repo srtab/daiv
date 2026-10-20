@@ -1,7 +1,5 @@
 import uuid
-from unittest.mock import AsyncMock, patch
 
-import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
 
 
@@ -18,10 +16,3 @@ async def make_db_task_result() -> uuid.UUID:
         return_value={},
     )
     return task_id
-
-
-@pytest.fixture
-def webhook_session():
-    """Stub the session dispatch opens before it enqueues, so a test that mocks the enqueue needs no database."""
-    with patch("webhooks.dispatch.aget_or_create_session", new=AsyncMock()) as open_session:
-        yield open_session

@@ -1,24 +1,26 @@
 """Start an addressor run for a webhook event that a platform's callback has parsed and accepted.
 
-Each dispatch reacts with 👀 on what triggered it, opens the issue's or merge request's ``Session``, enqueues the
-addressor task, then records the ``Run`` linked one-to-one to the task result. The session exists before the task
-can run, so every addressor run waits for the session's slot, its first included. The repository, iid and mentioning
+Each dispatch enqueues the addressor task and records its ``Run`` on the issue's or merge request's ``Session`` in
+one transaction, then reacts with 👀 on what triggered it. A worker sees the task only once its session and ``Run``
+exist, so every addressor run waits for the session's slot and knows its ``Run``. The repository, iid and mentioning
 note are the task's ``dedup_on`` key: a repeated delivery or an edited comment finds the earlier trigger's task,
-which already has its ``Run``, and stops before it reacts or writes anything. A label trigger only repeats a queued
-or running one. That first look takes no lock, so the enqueue checks again under the lock it dedups with: of two
-concurrent deliveries only the one that created the task records a ``Run``.
+which has its ``Run`` already, and stops without writing or reacting. A label trigger only repeats a queued or
+running one. The enqueue holds the key's lock until the transaction commits, so of concurrent deliveries exactly one
+creates the task and its ``Run``.
 """
 
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from django.db import transaction
+
 from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
 from sandbox_envs.selection import resolve_env_for_run
 from sessions.models import SessionOrigin
-from sessions.services import acreate_run, aget_or_create_session
+from sessions.services import create_run
 
 from accounts.utils import resolve_user
 from codebase.base import GitPlatform, Scope
@@ -68,7 +70,6 @@ async def dispatch_issue_run(
 ) -> None:
     """Address an issue, triggered by its DAIV label or, with ``mention``, by a comment on it."""
     note_id, comment_id = (mention.note_id, mention.comment_id) if mention else (None, None)
-    task = address_issue_task if mention else address_issue_label_task
     task_kwargs = await _task_kwargs(
         repo_id,
         Scope.ISSUE,
@@ -78,16 +79,8 @@ async def dispatch_issue_run(
         mention_comment_id=comment_id,
         mention_note_id=note_id,
     )
-    if await _is_repeat(task, task_kwargs):
-        return
-
-    try:
-        await sync_to_async(client.create_issue_emoji)(repo_id, issue_iid, Emoji.EYES, note_id)
-    except GitlabError, GithubException, OSError:
-        logger.exception("Failed to add reaction to issue %s#%s", repo_id, issue_iid)
-
-    await _start_run(
-        task,
+    started = await _start_run(
+        address_issue_task if mention else address_issue_label_task,
         task_kwargs,
         author,
         trigger_type=SessionOrigin.ISSUE_WEBHOOK,
@@ -95,6 +88,13 @@ async def dispatch_issue_run(
         issue_iid=issue_iid,
         mention_comment_id=comment_id or "",
     )
+    if not started:
+        return
+
+    try:
+        await sync_to_async(client.create_issue_emoji)(repo_id, issue_iid, Emoji.EYES, note_id)
+    except GitlabError, GithubException, OSError:
+        logger.exception("Failed to add reaction to issue %s#%s", repo_id, issue_iid)
 
 
 async def dispatch_mr_comment_run(
@@ -122,19 +122,9 @@ async def dispatch_mr_comment_run(
         mention_comment_id=mention.comment_id,
         mention_note_id=mention.note_id,
     )
-    if await _is_repeat(address_mr_comments_task, task_kwargs):
-        return
-
-    try:
-        await sync_to_async(client.create_merge_request_note_emoji)(
-            repo_id, merge_request_iid, Emoji.EYES, mention.note_id
-        )
-    except GitlabError, GithubException, OSError:
-        logger.exception("Failed to add reaction to merge request comment %s#%s", repo_id, merge_request_iid)
-
     if ref is None:
         ref = await _fetch_source_branch(client, repo_id, merge_request_iid)
-    await _start_run(
+    started = await _start_run(
         address_mr_comments_task,
         task_kwargs,
         author,
@@ -144,6 +134,15 @@ async def dispatch_mr_comment_run(
         merge_request_iid=merge_request_iid,
         mention_comment_id=mention.comment_id,
     )
+    if not started:
+        return
+
+    try:
+        await sync_to_async(client.create_merge_request_note_emoji)(
+            repo_id, merge_request_iid, Emoji.EYES, mention.note_id
+        )
+    except GitlabError, GithubException, OSError:
+        logger.exception("Failed to add reaction to merge request comment %s#%s", repo_id, merge_request_iid)
 
 
 async def _task_kwargs(repo_id: str, scope: Scope, entity_iid: int, **kwargs: Any) -> dict[str, Any]:
@@ -157,17 +156,6 @@ async def _task_kwargs(repo_id: str, scope: Scope, entity_iid: int, **kwargs: An
         "sandbox_environment_id": str(sandbox_env.id) if sandbox_env is not None else None,
         **kwargs,
     }
-
-
-async def _is_repeat(task: Task, task_kwargs: dict[str, Any]) -> bool:
-    if (earlier := await task.afind_duplicate(**task_kwargs)) is None:
-        return False
-    _log_repeat(earlier)
-    return True
-
-
-def _log_repeat(task_result: TaskResult) -> None:
-    logger.info("Task result %s already has its run; skipping the repeated trigger", task_result.id)
 
 
 def _pinned_model(use_max: bool) -> tuple[str, str]:
@@ -197,39 +185,39 @@ async def _start_run(
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
     mention_comment_id: str = "",
-) -> None:
-    """Open the session, enqueue ``task`` and record its ``Run``, unless the enqueue handed back an earlier trigger's
-    task, which already has its ``Run``. The session keys come from ``task_kwargs`` (see :func:`_task_kwargs`).
+) -> bool:
+    """Enqueue ``task`` and record its ``Run`` on the issue's or merge request's ``Session`` in one transaction, and
+    say whether it did: ``False`` when the enqueue found an earlier trigger's task, which has its ``Run`` already.
+    The session keys come from ``task_kwargs`` (see :func:`_task_kwargs`).
 
-    A failed session write raises before anything is queued. A failed ``Run`` insert is only logged: the task is
-    queued by then and runs without one.
+    A failed session or ``Run`` write rolls the enqueue back and raises, so the platform redelivers the event.
     """
     agent_model, agent_thinking_level = _pinned_model(task_kwargs["use_max"])
-    shared: dict[str, Any] = {
-        "repo_id": task_kwargs["repo_id"],
-        "ref": ref,
-        "user": await resolve_user(author.provider, author.uid, username=author.username, email=author.email),
-        "external_username": author.username,
-        "title": title,
-        "agent_model": agent_model,
-        "agent_thinking_level": agent_thinking_level,
-        "sandbox_environment_id": task_kwargs["sandbox_environment_id"],
-        "merge_request_iid": merge_request_iid,
-    }
-    session = await aget_or_create_session(
-        thread_id=task_kwargs["thread_id"], origin=trigger_type, issue_iid=issue_iid, **shared
-    )
-    result, created = await task.aget_or_enqueue(**task_kwargs)
+    user = await resolve_user(author.provider, author.uid, username=author.username, email=author.email)
+
+    def enqueue_with_run() -> tuple[TaskResult, bool]:
+        with transaction.atomic():
+            result, created = task.get_or_enqueue(**task_kwargs)
+            if created:
+                create_run(
+                    trigger_type=trigger_type,
+                    task_result_id=result.id,
+                    thread_id=task_kwargs["thread_id"],
+                    repo_id=task_kwargs["repo_id"],
+                    ref=ref,
+                    agent_model=agent_model,
+                    agent_thinking_level=agent_thinking_level,
+                    issue_iid=issue_iid,
+                    merge_request_iid=merge_request_iid,
+                    mention_comment_id=mention_comment_id,
+                    user=user,
+                    external_username=author.username,
+                    title=title,
+                    sandbox_environment_id=task_kwargs["sandbox_environment_id"],
+                )
+        return result, created
+
+    result, created = await sync_to_async(enqueue_with_run)()
     if not created:
-        _log_repeat(result)
-        return
-    try:
-        await acreate_run(
-            session=session,
-            task_result_id=result.id,
-            trigger_type=trigger_type,
-            mention_comment_id=mention_comment_id,
-            **shared,
-        )
-    except Exception:
-        logger.exception("Failed to create run for task result %s on %s", result.id, shared["repo_id"])
+        logger.info("Task result %s already has its run; skipping the repeated trigger", result.id)
+    return created

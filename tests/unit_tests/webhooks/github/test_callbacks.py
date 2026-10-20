@@ -304,12 +304,12 @@ class TestPullRequestCallback:
 
 
 @pytest.mark.django_db
-@pytest.mark.usefixtures("webhook_session")
+@pytest.mark.django_db
 class TestProcessCallbackThreadId:
     """The deterministic thread_id minted in the callback must reach both the task
     and the Activity row, so the Activity can later be joined to LangSmith traces."""
 
-    async def test_issue_callback_passes_thread_id(self, monkeypatch_dependencies, mock_repo_client, webhook_session):
+    async def test_issue_callback_passes_thread_id(self, monkeypatch_dependencies, mock_repo_client):
         from unittest.mock import AsyncMock, patch
 
         from codebase.base import Scope
@@ -321,21 +321,17 @@ class TestProcessCallbackThreadId:
 
         with (
             patch("webhooks.dispatch.address_issue_label_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.create_run") as mock_activity,
             patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
-            mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
-            mock_task.afind_duplicate = AsyncMock(return_value=None)
-            mock_activity.side_effect = AsyncMock(return_value=None)
+            mock_task.get_or_enqueue.return_value = (Mock(id="task-1"), True)
             await callback.process_callback()
 
-        assert mock_task.aget_or_enqueue.call_args.kwargs["thread_id"] == expected
-        assert webhook_session.call_args.kwargs["thread_id"] == expected
+        assert mock_task.get_or_enqueue.call_args.kwargs["thread_id"] == expected
+        assert mock_activity.call_args.kwargs["thread_id"] == expected
 
-    async def test_issue_comment_callback_passes_thread_id(
-        self, monkeypatch_dependencies, mock_repo_config, webhook_session
-    ):
+    async def test_issue_comment_callback_passes_thread_id(self, monkeypatch_dependencies, mock_repo_config):
         from unittest.mock import AsyncMock, patch
 
         from codebase.base import Scope
@@ -352,22 +348,18 @@ class TestProcessCallbackThreadId:
 
         with (
             patch("webhooks.dispatch.address_issue_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.create_run") as mock_activity,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
             patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
-            mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
-            mock_task.afind_duplicate = AsyncMock(return_value=None)
-            mock_activity.side_effect = AsyncMock(return_value=None)
+            mock_task.get_or_enqueue.return_value = (Mock(id="task-1"), True)
             await callback.process_callback()
 
-        assert mock_task.aget_or_enqueue.call_args.kwargs["thread_id"] == expected
-        assert webhook_session.call_args.kwargs["thread_id"] == expected
+        assert mock_task.get_or_enqueue.call_args.kwargs["thread_id"] == expected
+        assert mock_activity.call_args.kwargs["thread_id"] == expected
 
-    async def test_pr_review_comment_callback_passes_thread_id(
-        self, monkeypatch_dependencies, mock_repo_config, webhook_session
-    ):
+    async def test_pr_review_comment_callback_passes_thread_id(self, monkeypatch_dependencies, mock_repo_config):
         from unittest.mock import AsyncMock, patch
 
         from codebase.base import Scope
@@ -388,23 +380,21 @@ class TestProcessCallbackThreadId:
 
         with (
             patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.create_run") as mock_activity,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
             patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
-            mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
-            mock_task.afind_duplicate = AsyncMock(return_value=None)
-            mock_activity.side_effect = AsyncMock(return_value=None)
+            mock_task.get_or_enqueue.return_value = (Mock(id="task-1"), True)
             callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
             await callback.process_callback()
 
-        assert mock_task.aget_or_enqueue.call_args.kwargs["thread_id"] == expected
-        assert webhook_session.call_args.kwargs["thread_id"] == expected
+        assert mock_task.get_or_enqueue.call_args.kwargs["thread_id"] == expected
+        assert mock_activity.call_args.kwargs["thread_id"] == expected
         assert mock_activity.call_args.kwargs["ref"] == "feat/x"
 
 
-@pytest.mark.usefixtures("webhook_session")
+@pytest.mark.django_db
 class TestProcessCallbackSandboxEnvironment:
     """Webhook callbacks must forward the resolved env id to both the task and the Activity row."""
 
@@ -417,16 +407,14 @@ class TestProcessCallbackSandboxEnvironment:
 
         with (
             patch("webhooks.dispatch.address_issue_label_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.create_run") as mock_activity,
             patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
-            mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
-            mock_task.afind_duplicate = AsyncMock(return_value=None)
-            mock_activity.side_effect = AsyncMock(return_value=None)
+            mock_task.get_or_enqueue.return_value = (Mock(id="task-1"), True)
             await callback.process_callback()
 
-        assert mock_task.aget_or_enqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-1"
+        assert mock_task.get_or_enqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-1"
         assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-1"
 
     async def test_pr_review_comment_callback_propagates_env_id(self, monkeypatch_dependencies, mock_repo_config):
@@ -446,18 +434,16 @@ class TestProcessCallbackSandboxEnvironment:
 
         with (
             patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.create_run") as mock_activity,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
             patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
-            mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
-            mock_task.afind_duplicate = AsyncMock(return_value=None)
-            mock_activity.side_effect = AsyncMock(return_value=None)
+            mock_task.get_or_enqueue.return_value = (Mock(id="task-1"), True)
             callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
             await callback.process_callback()
 
-        assert mock_task.aget_or_enqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-2"
+        assert mock_task.get_or_enqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-2"
         assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-2"
 
     async def test_issue_comment_callback_propagates_env_id(self, monkeypatch_dependencies, mock_repo_config):
@@ -474,21 +460,19 @@ class TestProcessCallbackSandboxEnvironment:
 
         with (
             patch("webhooks.dispatch.address_issue_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
+            patch("webhooks.dispatch.create_run") as mock_activity,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
             patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
-            mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
-            mock_task.afind_duplicate = AsyncMock(return_value=None)
-            mock_activity.side_effect = AsyncMock(return_value=None)
+            mock_task.get_or_enqueue.return_value = (Mock(id="task-1"), True)
             await callback.process_callback()
 
-        assert mock_task.aget_or_enqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
+        assert mock_task.get_or_enqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
         assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
 
 
-@pytest.mark.usefixtures("webhook_session")
+@pytest.mark.django_db
 class TestReactionFailureVisibility:
     """The 👀 reaction is best-effort, but its failure must be visible and must not lose the run."""
 
@@ -512,21 +496,19 @@ class TestReactionFailureVisibility:
 
         with (
             patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_run,
+            patch("webhooks.dispatch.create_run"),
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
             patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
             # Capture below ERROR so the level assertion below can actually fail.
             caplog.at_level(logging.WARNING, logger="daiv.webhooks"),
         ):
-            mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
-            mock_task.afind_duplicate = AsyncMock(return_value=None)
-            mock_run.side_effect = AsyncMock(return_value=None)
+            mock_task.get_or_enqueue.return_value = (Mock(id="task-1"), True)
             callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
             await callback.process_callback()
 
         mock_repo_client.create_merge_request_note_emoji.assert_called_once_with("owner/repo", 99, Emoji.EYES, 300)
-        mock_task.aget_or_enqueue.assert_awaited_once()
+        mock_task.get_or_enqueue.assert_called_once()
         record = next(r for r in caplog.records if "reaction" in r.message)
         assert record.levelno == logging.ERROR
         assert record.exc_info is not None
@@ -545,21 +527,19 @@ class TestReactionFailureVisibility:
 
         with (
             patch("webhooks.dispatch.address_issue_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_run,
+            patch("webhooks.dispatch.create_run"),
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
             patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
-            mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-2"), True))
-            mock_task.afind_duplicate = AsyncMock(return_value=None)
-            mock_run.side_effect = AsyncMock(return_value=None)
+            mock_task.get_or_enqueue.return_value = (Mock(id="task-2"), True)
             await callback.process_callback()
 
         mock_repo_client.create_issue_emoji.assert_called_once_with("owner/repo", 7, Emoji.EYES, 301)
 
 
 @pytest.mark.parametrize(("label", "use_max"), [(BOT_MAX_LABEL, True), (BOT_LABEL, False)])
-@pytest.mark.usefixtures("webhook_session")
+@pytest.mark.django_db
 class TestProcessCallbackUseMax:
     """The max mode a callback stamps on the Run is the one it hands the task, so the task does not decide again."""
 
@@ -569,17 +549,15 @@ class TestProcessCallbackUseMax:
 
         with (
             patch(f"webhooks.dispatch.{task}") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_run,
+            patch("webhooks.dispatch.create_run") as mock_run,
             patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
             patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
-            mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
-            mock_task.afind_duplicate = AsyncMock(return_value=None)
-            mock_run.side_effect = AsyncMock(return_value=None)
+            mock_task.get_or_enqueue.return_value = (Mock(id="task-1"), True)
             await callback.process_callback()
 
-        return mock_task.aget_or_enqueue.call_args.kwargs, mock_run.call_args.kwargs
+        return mock_task.get_or_enqueue.call_args.kwargs, mock_run.call_args.kwargs
 
     async def test_issue_callback_hands_the_task_the_max_mode_it_stamped(
         self, monkeypatch_dependencies, label, use_max
