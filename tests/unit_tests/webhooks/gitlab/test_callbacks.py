@@ -747,7 +747,7 @@ class TestProcessCallbackUseMax:
         assert run_kwargs["use_max"] is use_max
 
 
-def create_issue_note_callback(*, note_id: int) -> NoteCallback:
+def create_issue_note_callback(*, note_id: int, discussion_id: str) -> NoteCallback:
     return NoteCallback(
         object_kind="note",
         project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
@@ -768,7 +768,7 @@ def create_issue_note_callback(*, note_id: int) -> NoteCallback:
             action=NoteAction.CREATE,
             noteable_type=NoteableType.ISSUE,
             noteable_id=7,
-            discussion_id="d1",
+            discussion_id=discussion_id,
             note="@daiv please look",
             system=False,
         ),
@@ -780,7 +780,7 @@ def create_issue_note_callback(*, note_id: int) -> NoteCallback:
 @pytest.mark.parametrize(
     "make_callback",
     [
-        pytest.param(lambda note_id: create_issue_note_callback(note_id=note_id), id="issue"),
+        pytest.param(lambda note_id: create_issue_note_callback(note_id=note_id, discussion_id="d1"), id="issue"),
         pytest.param(
             lambda note_id: create_note_callback("@daiv please review", note_id=note_id, note_type="DiscussionNote"),
             id="merge_request",
@@ -811,10 +811,10 @@ async def test_a_redelivered_note_starts_no_second_run(monkeypatch_dependencies,
     from django_tasks_db.models import DBTaskResult
     from sessions.models import Run
 
-    await create_issue_note_callback(note_id=200).process_callback()
+    await create_issue_note_callback(note_id=200, discussion_id="d1").process_callback()
     await DBTaskResult.objects.aupdate(status=TaskResultStatus.SUCCESSFUL)
     with caplog.at_level(logging.INFO, logger="daiv.webhooks"):
-        await create_issue_note_callback(note_id=200).process_callback()
+        await create_issue_note_callback(note_id=200, discussion_id="d1").process_callback()
 
     assert await DBTaskResult.objects.acount() == 1
     assert await Run.objects.acount() == 1
