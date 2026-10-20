@@ -1,12 +1,11 @@
-import logging
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from github.GithubException import GithubException
+from webhooks.dispatch import Author, Mention
 from webhooks.github.callbacks import IssueCallback, IssueCommentCallback, PullRequestCallback
 from webhooks.github.models import Comment, Issue, Label, PullRequest, Ref, Repository, User
 
-from codebase.clients.base import Emoji
+from codebase.base import GitPlatform
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
@@ -260,8 +259,6 @@ class TestPullRequestCallback:
 
     async def test_process_callback_enqueues_task(self):
         """Test that process_callback enqueues the merge metrics task with correct args."""
-        from unittest.mock import AsyncMock, patch
-
         callback = create_pull_request_callback()
         with patch("codebase.tasks.record_merge_metrics_task") as mock_task:
             mock_task.aenqueue = AsyncMock()
@@ -279,8 +276,6 @@ class TestPullRequestCallback:
 
     async def test_process_callback_coalesces_none_merged_at(self):
         """Test that process_callback passes empty string when merged_at is None."""
-        from unittest.mock import AsyncMock, patch
-
         callback = PullRequestCallback(
             action="closed",
             repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
@@ -302,316 +297,84 @@ class TestPullRequestCallback:
         assert mock_task.aenqueue.call_args.kwargs["merged_at"] == ""
 
 
-@pytest.mark.django_db
-@pytest.mark.usefixtures("first_trigger")
-class TestProcessCallbackThreadId:
-    """The deterministic thread_id minted in the callback must reach both the task
-    and the Activity row, so the Activity can later be joined to LangSmith traces."""
-
-    async def test_issue_callback_passes_thread_id(self, monkeypatch_dependencies, mock_repo_client):
-        from unittest.mock import AsyncMock, patch
-
-        from codebase.base import Scope
-        from codebase.utils import compute_thread_id
-
-        callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=BOT_LABEL)])
-        callback.sender = User(**{"id": 10, "login": "testuser"})
-        expected = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-
-        with (
-            patch("webhooks.dispatch.address_issue_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
-            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
-        assert mock_activity.call_args.kwargs["thread_id"] == expected
-
-    async def test_issue_comment_callback_passes_thread_id(self, monkeypatch_dependencies, mock_repo_config):
-        from unittest.mock import AsyncMock, patch
-
-        from codebase.base import Scope
-        from codebase.utils import compute_thread_id
-
-        # Plain issue (no pull_request) → ISSUE scope branch.
-        callback = IssueCommentCallback(
-            action="created",
-            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
-            issue=Issue(id=100, number=42, title="Bug", state="open", labels=[]),
-            comment=Comment(id=200, body="@daiv help", user=User(**{"id": 10, "login": "alice"})),
-        )
-        expected = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-
-        with (
-            patch("webhooks.dispatch.address_issue_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
-            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
-        assert mock_activity.call_args.kwargs["thread_id"] == expected
-
-    async def test_pr_review_comment_callback_passes_thread_id(self, monkeypatch_dependencies, mock_repo_config):
-        from unittest.mock import AsyncMock, patch
-
-        from codebase.base import Scope
-        from codebase.utils import compute_thread_id
-
-        mock_repo_config.pull_request_assistant.enabled = True
-
-        # Issue with pull_request set → MR review branch.
-        callback = IssueCommentCallback(
-            action="created",
-            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
-            issue=Issue(
-                id=100, number=99, title="PR", state="open", labels=[], pull_request={"url": "https://example/pr/99"}
-            ),
-            comment=Comment(id=300, body="@daiv review", user=User(**{"id": 10, "login": "alice"})),
-        )
-        expected = compute_thread_id(repo_slug="owner/repo", scope=Scope.MERGE_REQUEST, entity_iid=99)
-
-        with (
-            patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
-            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
-        assert mock_activity.call_args.kwargs["thread_id"] == expected
-        assert mock_activity.call_args.kwargs["ref"] == "feat/x"
-
-
-@pytest.mark.usefixtures("first_trigger")
-class TestProcessCallbackSandboxEnvironment:
-    """Webhook callbacks must forward the resolved env id to both the task and the Activity row."""
-
-    async def test_issue_callback_propagates_env_id(self, monkeypatch_dependencies, mock_repo_client):
-        from unittest.mock import AsyncMock, Mock, patch
-
-        callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=BOT_LABEL)])
-        callback.sender = User(**{"id": 10, "login": "testuser"})
-        env_row = Mock(id="env-uuid-1")
-
-        with (
-            patch("webhooks.dispatch.address_issue_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
-            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-1"
-        assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-1"
-
-    async def test_pr_review_comment_callback_propagates_env_id(self, monkeypatch_dependencies, mock_repo_config):
-        from unittest.mock import AsyncMock, Mock, patch
-
-        mock_repo_config.pull_request_assistant.enabled = True
-
-        callback = IssueCommentCallback(
-            action="created",
-            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
-            issue=Issue(
-                id=100, number=99, title="PR", state="open", labels=[], pull_request={"url": "https://example/pr/99"}
-            ),
-            comment=Comment(id=300, body="@daiv review", user=User(**{"id": 10, "login": "alice"})),
-        )
-        env_row = Mock(id="env-uuid-2")
-
-        with (
-            patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
-            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-2"
-        assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-2"
-
-    async def test_issue_comment_callback_propagates_env_id(self, monkeypatch_dependencies, mock_repo_config):
-        from unittest.mock import AsyncMock, Mock, patch
-
-        # Plain issue (no pull_request) → ISSUE-comment branch.
-        callback = IssueCommentCallback(
-            action="created",
-            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
-            issue=Issue(id=100, number=42, title="Bug", state="open", labels=[]),
-            comment=Comment(id=200, body="@daiv help", user=User(**{"id": 10, "login": "alice"})),
-        )
-        env_row = Mock(id="env-uuid-3")
-
-        with (
-            patch("webhooks.dispatch.address_issue_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_activity,
-            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
-        assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
-
-
-@pytest.mark.usefixtures("first_trigger")
-class TestReactionFailureVisibility:
-    """The 👀 reaction is best-effort, but its failure must be visible and must not lose the run."""
-
-    @pytest.mark.parametrize("exc", [GithubException(403, {}, {}), ConnectionError("dns")], ids=["api", "transport"])
-    async def test_pr_comment_reaction_failure_logs_error_and_still_enqueues(
-        self, monkeypatch_dependencies, mock_repo_config, mock_repo_client, caplog, exc
-    ):
-        from unittest.mock import AsyncMock, patch
-
-        mock_repo_config.pull_request_assistant.enabled = True
-        mock_repo_client.create_merge_request_note_emoji.side_effect = exc
-
-        callback = IssueCommentCallback(
-            action="created",
-            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
-            issue=Issue(
-                id=100, number=99, title="PR", state="open", labels=[], pull_request={"url": "https://example/pr/99"}
-            ),
-            comment=Comment(id=300, body="@daiv review", user=User(**{"id": 10, "login": "alice"})),
-        )
-
-        with (
-            patch("webhooks.dispatch.address_mr_comments_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_run,
-            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
-            # Capture below ERROR so the level assertion below can actually fail.
-            caplog.at_level(logging.WARNING, logger="daiv.webhooks"),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
-            mock_run.side_effect = AsyncMock(return_value=None)
-            callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
-            await callback.process_callback()
-
-        mock_repo_client.create_merge_request_note_emoji.assert_called_once_with("owner/repo", 99, Emoji.EYES, 300)
-        mock_task.aenqueue.assert_awaited_once()
-        record = next(r for r in caplog.records if "reaction" in r.message)
-        assert record.levelno == logging.ERROR
-        assert record.exc_info is not None
-
-    async def test_issue_comment_reaction_is_attempted(
-        self, monkeypatch_dependencies, mock_repo_config, mock_repo_client
-    ):
-        from unittest.mock import AsyncMock, patch
-
-        callback = IssueCommentCallback(
-            action="created",
-            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
-            issue=Issue(id=100, number=7, title="Bug", state="open", labels=[]),
-            comment=Comment(id=301, body="@daiv fix", user=User(**{"id": 10, "login": "alice"})),
-        )
-
-        with (
-            patch("webhooks.dispatch.address_issue_task") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_run,
-            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-2"))
-            mock_run.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        mock_repo_client.create_issue_emoji.assert_called_once_with("owner/repo", 7, Emoji.EYES, 301)
+def create_issue_comment_callback(*, labels: list[str], pull_request: dict | None = None) -> IssueCommentCallback:
+    number, title, comment_id = (99, "PR", 300) if pull_request else (42, "Bug", 200)
+    return IssueCommentCallback(
+        action="created",
+        repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+        issue=Issue(
+            id=100,
+            number=number,
+            title=title,
+            state="open",
+            labels=[Label(id=1, name=name) for name in labels],
+            pull_request=pull_request,
+        ),
+        comment=Comment(id=comment_id, body="@daiv help", user=User(**{"id": 10, "login": "alice"})),
+    )
 
 
 @pytest.mark.parametrize(("label", "use_max"), [(BOT_MAX_LABEL, True), (BOT_LABEL, False)])
-@pytest.mark.usefixtures("first_trigger")
-class TestProcessCallbackUseMax:
-    """The max mode a callback stamps on the Run is the one it hands the task, so the task does not decide again."""
+class TestProcessCallback:
+    """What each accepted event hands dispatch: the entity, its max mode, who triggered it and the mention."""
 
-    @staticmethod
-    async def _process(callback, task: str = "address_issue_task") -> tuple[dict, dict]:
-        from unittest.mock import AsyncMock, patch
-
-        with (
-            patch(f"webhooks.dispatch.{task}") as mock_task,
-            patch("webhooks.dispatch.acreate_run") as mock_run,
-            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
-            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
-            mock_run.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        return mock_task.aenqueue.call_args.kwargs, mock_run.call_args.kwargs
-
-    async def test_issue_callback_hands_the_task_the_max_mode_it_stamped(
-        self, monkeypatch_dependencies, label, use_max
+    async def test_an_issue_label_dispatches_an_issue_run(
+        self, monkeypatch_dependencies, mock_repo_client, label, use_max
     ):
         callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=label)])
 
-        task_kwargs, run_kwargs = await self._process(callback)
+        with patch("webhooks.github.callbacks.dispatch_issue_run", new=AsyncMock()) as dispatch:
+            await callback.process_callback()
 
-        assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["use_max"] is use_max
-
-    async def test_issue_comment_callback_hands_the_task_the_max_mode_it_stamped(
-        self, monkeypatch_dependencies, label, use_max
-    ):
-        callback = IssueCommentCallback(
-            action="created",
-            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
-            issue=Issue(id=100, number=42, title="Bug", state="open", labels=[Label(id=1, name=label)]),
-            comment=Comment(id=200, body="@daiv help", user=User(**{"id": 10, "login": "alice"})),
+        dispatch.assert_awaited_once_with(
+            client=mock_repo_client,
+            repo_id="owner/repo",
+            issue_iid=42,
+            title="Test Issue",
+            use_max=use_max,
+            author=Author(provider=GitPlatform.GITHUB, uid=10, username="testuser"),
         )
 
-        task_kwargs, run_kwargs = await self._process(callback)
+    async def test_an_issue_comment_dispatches_an_issue_run_for_it(
+        self, monkeypatch_dependencies, mock_repo_client, label, use_max
+    ):
+        callback = create_issue_comment_callback(labels=[label])
 
-        assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["use_max"] is use_max
+        with (
+            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
+            patch("webhooks.github.callbacks.dispatch_issue_run", new=AsyncMock()) as dispatch,
+        ):
+            await callback.process_callback()
 
-    async def test_pr_comment_callback_hands_the_task_the_max_mode_it_stamped(
-        self, monkeypatch_dependencies, mock_repo_config, label, use_max
+        dispatch.assert_awaited_once_with(
+            client=mock_repo_client,
+            repo_id="owner/repo",
+            issue_iid=42,
+            title="Bug",
+            use_max=use_max,
+            author=Author(provider=GitPlatform.GITHUB, uid=10, username="alice"),
+            mention=Mention(note_id=200, comment_id="200"),
+        )
+
+    async def test_a_pull_request_comment_dispatches_a_comment_run_leaving_the_branch_to_fetch(
+        self, monkeypatch_dependencies, mock_repo_client, mock_repo_config, label, use_max
     ):
         mock_repo_config.pull_request_assistant.enabled = True
-        callback = IssueCommentCallback(
-            action="created",
-            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
-            issue=Issue(
-                id=100,
-                number=99,
-                title="PR",
-                state="open",
-                labels=[Label(id=1, name=label)],
-                pull_request={"url": "https://example/pr/99"},
-            ),
-            comment=Comment(id=300, body="@daiv review", user=User(**{"id": 10, "login": "alice"})),
+        callback = create_issue_comment_callback(labels=[label], pull_request={"url": "https://example/pr/99"})
+
+        with (
+            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
+            patch("webhooks.github.callbacks.dispatch_mr_comment_run", new=AsyncMock()) as dispatch,
+        ):
+            await callback.process_callback()
+
+        dispatch.assert_awaited_once_with(
+            client=mock_repo_client,
+            repo_id="owner/repo",
+            merge_request_iid=99,
+            ref=None,
+            title="PR",
+            use_max=use_max,
+            author=Author(provider=GitPlatform.GITHUB, uid=10, username="alice"),
+            mention=Mention(note_id=300, comment_id="300"),
         )
-        callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
-
-        task_kwargs, run_kwargs = await self._process(callback, task="address_mr_comments_task")
-
-        assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["use_max"] is use_max
