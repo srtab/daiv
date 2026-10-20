@@ -192,6 +192,12 @@ class TestUserListView:
 
 @pytest.mark.django_db
 class TestUserCreateView:
+    def test_renders_breadcrumb(self, admin_client):
+        response = admin_client.get(reverse("user_create"))
+        assert b'data-testid="app-breadcrumb"' in response.content
+        assert b"Users" in response.content
+        assert b"New user" in response.content
+
     def test_admin_can_create_user(self, admin_client):
         response = admin_client.post(
             reverse("user_create"), {"name": "New User", "email": "new@test.com", "role": Role.MEMBER}

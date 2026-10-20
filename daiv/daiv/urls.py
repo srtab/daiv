@@ -4,7 +4,7 @@ from django.urls import include, path, reverse
 
 from dashboard.views import homepage
 from mcp_api.oauth import oauth_metadata
-from notifications.urls import user_channels_urlpatterns
+from notifications.views import UserChannelsView
 from sessions.urls_legacy import legacy_activity_urlpatterns, legacy_chat_urlpatterns
 
 from core.views import HealthCheckView, VersionView
@@ -25,7 +25,7 @@ urlpatterns = [
     path("", homepage, name="homepage"),
     path("accounts/", include("accounts.urls.allauth")),
     path("accounts/api-keys/", include("accounts.urls.api_keys")),
-    path("accounts/channels/", include(user_channels_urlpatterns)),
+    path("accounts/channels/", UserChannelsView.as_view(), name="user_channels"),
     path("accounts/users/", include("accounts.urls.users")),
     path("dashboard/", include("dashboard.urls")),
     path("dashboard/configuration/", include("configuration.urls")),

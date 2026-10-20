@@ -69,9 +69,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         if period not in PERIOD_DAYS:
             period = DEFAULT_PERIOD
         days = PERIOD_DAYS[period]
-        cutoff_date = localdate() - timedelta(days=days) if days is not None else None
-        if days == 0:
-            cutoff_date = localdate()
+        cutoff_date = localdate() - timedelta(days=max(days - 1, 0)) if days is not None else None
 
         user = self.request.user
         context["activity"] = self._get_activity_data(cutoff_date, user)
