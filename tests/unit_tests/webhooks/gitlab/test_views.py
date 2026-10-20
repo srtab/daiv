@@ -4,9 +4,11 @@ from unittest.mock import patch
 import pytest
 from ninja.testing import TestAsyncClient
 from webhooks.conf import settings as webhooks_settings
-from webhooks.gitlab.callbacks import NoteCallback, PushCallback
+from webhooks.gitlab.callbacks import PushCallback
 from webhooks.gitlab.models import Project
 
+from codebase.base import GitPlatform
+from codebase.conf import settings as codebase_settings
 from daiv.api import api
 
 ISSUE_NOTE = json.dumps({
@@ -28,15 +30,6 @@ ISSUE_NOTE = json.dumps({
 @pytest.fixture
 def client():
     return TestAsyncClient(api)
-
-
-@pytest.fixture
-def platform_calls():
-    with (
-        patch("webhooks.gitlab.callbacks.RepositoryConfig.get_config") as get_config,
-        patch("webhooks.gitlab.callbacks.RepoClient.create_instance") as create_instance,
-    ):
-        yield get_config, create_instance
 
 
 @pytest.fixture
@@ -120,24 +113,10 @@ async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_c
     process_callback.assert_not_called()
 
 
-async def test_a_valid_token_parses_the_note(client: TestAsyncClient):
-    with (
-        patch.object(NoteCallback, "accept_callback", return_value=True) as accept_callback,
-        patch.object(NoteCallback, "process_callback") as process_callback,
-    ):
-        response = await client.post(
-            "/codebase/callbacks/gitlab/", data=ISSUE_NOTE, headers={"X-Gitlab-Token": "test_secret"}
-        )
-
-    assert response.status_code == 204
-    accept_callback.assert_called_once()
-    process_callback.assert_awaited_once()
-
-
 @pytest.mark.parametrize(
     "headers", [pytest.param({}, id="no-token"), pytest.param({"X-Gitlab-Token": "invalid_secret"}, id="wrong-token")]
 )
-async def test_an_unverified_request_is_rejected_before_the_payload_is_parsed(
+async def test_an_unverified_request_is_rejected_without_platform_calls(
     client: TestAsyncClient, platform_calls, headers
 ):
     response = await client.post("/codebase/callbacks/gitlab/", data=ISSUE_NOTE, headers=headers)
@@ -147,11 +126,22 @@ async def test_an_unverified_request_is_rejected_before_the_payload_is_parsed(
         platform_call.assert_not_called()
 
 
-async def test_an_unauthenticated_malformed_payload_is_401_not_422(client: TestAsyncClient):
+@pytest.mark.parametrize("path", ["/codebase/callbacks/gitlab", "/codebase/callbacks/gitlab/"])
+async def test_an_unauthenticated_malformed_payload_is_401_not_422(client: TestAsyncClient, path):
     """A 422 would mean the body was parsed, and its error detail leaked, before the token was checked."""
-    response = await client.post("/codebase/callbacks/gitlab/", data=b'{"object_kind": "note"}')
+    response = await client.post(path, data=b'{"object_kind": "note"}')
 
     assert response.status_code == 401
+
+
+async def test_another_platform_is_403_before_the_payload_is_parsed(client: TestAsyncClient, monkeypatch):
+    monkeypatch.setattr(codebase_settings, "CLIENT", GitPlatform.GITHUB)
+
+    response = await client.post(
+        "/codebase/callbacks/gitlab/", data=b'{"object_kind": "note"}', headers={"X-Gitlab-Token": "test_secret"}
+    )
+
+    assert response.status_code == 403
 
 
 async def test_without_a_configured_secret_every_request_is_rejected(

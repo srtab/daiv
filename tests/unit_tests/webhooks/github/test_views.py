@@ -34,19 +34,11 @@ def client():
     return TestAsyncClient(api)
 
 
-@pytest.fixture
-def platform_calls():
-    with (
-        patch("webhooks.github.callbacks.RepositoryConfig.get_config") as get_config,
-        patch("webhooks.github.callbacks.RepoClient.create_instance") as create_instance,
-    ):
-        yield get_config, create_instance
+CALLBACK_PATH = "/codebase/callbacks/github/"
 
 
-async def _post(client: TestAsyncClient, body: bytes, headers: dict[str, str] | None = None):
-    return await client.post(
-        "/codebase/callbacks/github/", data=body, headers={"X-GitHub-Event": "issues", **(headers or {})}
-    )
+async def _post(client: TestAsyncClient, body: bytes, headers: dict[str, str] | None = None, path: str = CALLBACK_PATH):
+    return await client.post(path, data=body, headers={"X-GitHub-Event": "issues", **(headers or {})})
 
 
 async def test_a_signed_request_is_processed(client: TestAsyncClient):
@@ -69,7 +61,7 @@ async def test_a_signed_request_is_processed(client: TestAsyncClient):
         pytest.param({"X-Hub-Signature-256": _sign(ISSUE_OPENED, key=b"other")}, id="other-secret"),
     ],
 )
-async def test_an_unverified_request_is_rejected_before_the_payload_is_parsed(
+async def test_an_unverified_request_is_rejected_without_platform_calls(
     client: TestAsyncClient, platform_calls, headers
 ):
     response = await _post(client, ISSUE_OPENED, headers)
@@ -79,11 +71,20 @@ async def test_an_unverified_request_is_rejected_before_the_payload_is_parsed(
         platform_call.assert_not_called()
 
 
-async def test_an_unsigned_malformed_payload_is_401_not_422(client: TestAsyncClient):
+@pytest.mark.parametrize("path", ["/codebase/callbacks/github", "/codebase/callbacks/github/"])
+async def test_an_unsigned_malformed_payload_is_401_not_422(client: TestAsyncClient, path):
     """A 422 would mean the body was parsed, and its error detail leaked, before the signature was checked."""
-    response = await _post(client, b'{"action": "opened"}')
+    response = await _post(client, b'{"action": "opened"}', path=path)
 
     assert response.status_code == 401
+
+
+async def test_another_platform_is_403_before_the_payload_is_parsed(client: TestAsyncClient, monkeypatch):
+    monkeypatch.setattr(codebase_settings, "CLIENT", GitPlatform.GITLAB)
+
+    response = await _post(client, b'{"action": "opened"}')
+
+    assert response.status_code == 403
 
 
 async def test_without_a_configured_secret_every_request_is_rejected(

@@ -32,6 +32,14 @@ class GitHubCallback(BaseCallback):
 
     repository: Repository
 
+    @cached_property
+    def _repo_config(self) -> RepositoryConfig:
+        return RepositoryConfig.get_config(self.repository.full_name)
+
+    @property
+    def _client(self) -> RepoClient:
+        return RepoClient.create_instance()
+
 
 class IssueCallback(GitHubCallback):
     """
@@ -42,14 +50,6 @@ class IssueCallback(GitHubCallback):
     issue: Issue
     label: Label | None = None
     sender: User
-
-    @cached_property
-    def _repo_config(self) -> RepositoryConfig:
-        return RepositoryConfig.get_config(self.repository.full_name)
-
-    @cached_property
-    def _client(self) -> RepoClient:
-        return RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         # Check basic conditions
@@ -114,14 +114,6 @@ class IssueCommentCallback(GitHubCallback):
     action: Literal["created", "edited", "deleted"]
     issue: Issue
     comment: Comment
-
-    @cached_property
-    def _repo_config(self) -> RepositoryConfig:
-        return RepositoryConfig.get_config(self.repository.full_name)
-
-    @cached_property
-    def _client(self) -> RepoClient:
-        return RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         """
@@ -265,10 +257,6 @@ class WorkflowRunCallback(GitHubCallback):
 
     action: str
     workflow_run: WorkflowRun
-
-    @cached_property
-    def _repo_config(self) -> RepositoryConfig:
-        return RepositoryConfig.get_config(self.repository.full_name)
 
     def accept_callback(self) -> bool:
         """Accept finished workflow runs on repos with the watch enabled.
