@@ -90,18 +90,8 @@ class IssueAddressorManager(BaseManager):
     message's, so a re-run on a changed issue appends both instead of rewriting the earlier prompt in place.
     """
 
-    def __init__(
-        self,
-        *,
-        repo_id: str,
-        issue: Issue,
-        thread_id: str,
-        mention_comment_id: str | None = None,
-        mention_note_id: int | None = None,
-    ):
-        super().__init__(
-            repo_id=repo_id, thread_id=thread_id, mention_comment_id=mention_comment_id, mention_note_id=mention_note_id
-        )
+    def __init__(self, *, issue: Issue, **kwargs):
+        super().__init__(**kwargs)
         self.issue = issue
 
     @classmethod

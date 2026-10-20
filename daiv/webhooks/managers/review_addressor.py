@@ -203,18 +203,8 @@ class CommentsAddressorManager(BaseManager):
     else may own. Pinned by ``test_a_successful_run_neither_moves_the_ref_nor_arms_the_watch``.
     """
 
-    def __init__(
-        self,
-        *,
-        repo_id: str,
-        merge_request: MergeRequest,
-        mention_comment_id: str,
-        thread_id: str,
-        mention_note_id: int | None = None,
-    ):
-        super().__init__(
-            repo_id=repo_id, thread_id=thread_id, mention_comment_id=mention_comment_id, mention_note_id=mention_note_id
-        )
+    def __init__(self, *, merge_request: MergeRequest, **kwargs):
+        super().__init__(**kwargs)
         self.merge_request = merge_request
 
     @classmethod

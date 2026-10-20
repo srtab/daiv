@@ -28,7 +28,6 @@ from codebase.base import (
     NoteDiffPosition,
     NotePosition,
     NotePositionLineRange,
-    NoteType,
     Pipeline,
     RepoAccessLevel,
     RepoMember,
@@ -635,9 +634,7 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
         discussion = issue.discussions.get(comment_id)
-        return Discussion(
-            id=comment_id, notes=self._serialize_notes(discussion.attributes["notes"], only_resolvable=False)
-        )
+        return Discussion(id=comment_id, notes=self._serialize_notes(discussion.attributes["notes"]))
 
     def create_issue_comment(
         self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
@@ -1145,9 +1142,7 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         discussion = merge_request.discussions.get(comment_id)
-        return Discussion(
-            id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"], only_resolvable=False)
-        )
+        return Discussion(id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"]))
 
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """
@@ -1239,16 +1234,12 @@ class GitLabClient(RepoClient):
             if not note.system and not note.resolvable
         ]
 
-    def _serialize_notes(
-        self, notes: list[dict], note_types: list[NoteType] | None = None, only_resolvable: bool = True
-    ) -> list[Note]:
+    def _serialize_notes(self, notes: list[dict]) -> list[Note]:
         """
-        Serialize dictionary of notes to Note objects.
+        Serialize dictionary of notes to Note objects, leaving out system notes.
 
         Args:
             notes: The list of notes.
-            note_types: The list of note types.
-            only_resolvable: Whether to only return resolvable notes.
 
         Returns:
             The list of Note objects.
@@ -1294,8 +1285,6 @@ class GitLabClient(RepoClient):
             )
             for note in notes
             if not note["system"]
-            and (only_resolvable is False or note["resolvable"] and not note["resolved"])
-            and (note_types is None or note["type"] in note_types)
         ]
 
     def _serialize_merge_request(

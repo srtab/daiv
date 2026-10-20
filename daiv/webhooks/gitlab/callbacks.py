@@ -6,7 +6,7 @@ from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.service import PipelineWatch
 
-from codebase.base import GitPlatform
+from codebase.base import GitPlatform, NoteType
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
@@ -190,7 +190,7 @@ class NoteCallback(BaseCallback):
         """
         return bool(
             self._repo_config.pull_request_assistant.enabled
-            and self.object_attributes.type in (None, "DiscussionNote")
+            and self.object_attributes.type in (None, NoteType.DISCUSSION_NOTE)
             and self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
             and self.object_attributes.action in [NoteAction.CREATE, NoteAction.UPDATE]
             and self.merge_request
