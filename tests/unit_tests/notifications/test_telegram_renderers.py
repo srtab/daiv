@@ -42,11 +42,6 @@ class TestRegistry:
     def test_unknown_event_type_returns_none(self):
         assert get_renderer("does.not.exist") is None
 
-    def test_the_telegram_registry_is_separate_from_rocket_chats(self):
-        from notifications.channels.rocketchat_renderers.registry import get_renderer as rc_get
-
-        assert not isinstance(rc_get(EventType.JOB_FINISHED), JobFinishedRenderer)
-
 
 class TestTruncateEscaped:
     def test_short_text_is_returned_unchanged(self):

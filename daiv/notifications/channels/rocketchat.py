@@ -13,7 +13,7 @@ from core.utils import build_uri
 from notifications.channels.base import NotificationChannel
 from notifications.channels.registry import register_channel
 from notifications.channels.renderers.base import compose_plain_text
-from notifications.channels.rocketchat_renderers.registry import get_renderer
+from notifications.channels.renderers.rocketchat import render
 from notifications.choices import ChannelType
 from notifications.exceptions import UnrecoverableDeliveryError
 
@@ -161,12 +161,12 @@ def _build_payload(notification: Notification, delivery: NotificationDelivery) -
     event type, so newly-introduced events deliver before their renderer ships.
     """
     channel = f"@{delivery.address}"
-    renderer = get_renderer(notification.event_type)
-    if renderer is None:
+    rendered = render(notification)
+    if rendered is None:
         # Log so a missing renderer doesn't silently degrade to plain text forever.
         logger.warning("Rocket Chat: no renderer for event_type=%r; sending plain text", notification.event_type)
         return {"channel": channel, "text": compose_plain_text(notification)}
-    text, attachments = renderer.render(notification)
+    text, attachments = rendered
     return {"channel": channel, "text": text, "attachments": attachments}
 
 

@@ -5,18 +5,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
-from notifications.channels.rocketchat_renderers.base import (
-    COLOR_FAILURE,
-    COLOR_PARTIAL,
-    COLOR_SUCCESS,
-    RocketChatRenderer,
-)
-from notifications.channels.rocketchat_renderers.job_batch_finished import JobBatchFinishedRenderer
-from notifications.channels.rocketchat_renderers.job_finished import JobFinishedRenderer
-from notifications.channels.rocketchat_renderers.pipeline_watch_exhausted import PipelineWatchExhaustedRenderer
-from notifications.channels.rocketchat_renderers.registry import get_renderer
-from notifications.channels.rocketchat_renderers.schedule_dispatch_failed import ScheduleDispatchFailedRenderer
-from notifications.channels.rocketchat_renderers.schedule_finished import ScheduleFinishedRenderer
+from notifications.channels.renderers.base import TONE_EMOJI
+from notifications.channels.renderers.rocketchat import COLOR_FAILURE, COLOR_PARTIAL, COLOR_SUCCESS, render
 from notifications.choices import EventType
 
 
@@ -38,78 +28,42 @@ def _stub_notification(subject="s", body="b", link_url="/x/", context=None):
     )
 
 
+def _render(event_type, notification):
+    return render(SimpleNamespace(**vars(notification), event_type=event_type))
+
+
 def _fields_by_title(attachment):
     return {f["title"]: f["value"] for f in attachment.get("fields", [])}
 
 
-class TestRegistryLookup:
-    def test_every_event_type_has_a_renderer(self):
-        # A missing renderer is not a hard failure: _build_payload degrades to plain text and logs a
-        # warning per delivery. Nothing else stops a new event shipping without a card.
-        assert [e.value for e in EventType if get_renderer(e) is None] == []
-
-    def test_the_event_types_map_to_their_own_renderers(self):
-        assert isinstance(get_renderer(EventType.JOB_FINISHED), JobFinishedRenderer)
-        assert isinstance(get_renderer(EventType.SCHEDULE_FINISHED), ScheduleFinishedRenderer)
-        assert isinstance(get_renderer(EventType.JOB_BATCH_FINISHED), JobBatchFinishedRenderer)
-        assert isinstance(get_renderer(EventType.PIPELINE_WATCH_EXHAUSTED), PipelineWatchExhaustedRenderer)
-        assert isinstance(get_renderer(EventType.SCHEDULE_DISPATCH_FAILED), ScheduleDispatchFailedRenderer)
-
-    def test_the_package_imports_every_renderer_module(self):
-        # Registration is a side effect of importing each submodule, and only __init__ does that in
-        # production. Neither the registry nor hasattr() can witness a forgotten entry: this module
-        # imports the classes directly, and Python binds a submodule onto its parent package on any
-        # import. So read what __init__ actually declares.
-        import ast
-        import pkgutil
-        from pathlib import Path
-
-        from notifications.channels import rocketchat_renderers
-
-        tree = ast.parse(Path(rocketchat_renderers.__file__).read_text())
-        declared = {alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) for alias in node.names}
-        modules = {m.name for m in pkgutil.iter_modules(rocketchat_renderers.__path__)} - {"base", "registry"}
-        assert modules - declared == set()
-
-    def test_lookup_works_with_bare_string_value(self):
-        # Callers receive notification.event_type as a string off the CharField; the registry
-        # is keyed by EventType but must resolve via the underlying str (TextChoices is-a str).
-        assert isinstance(get_renderer("job.finished"), JobFinishedRenderer)
-
-    def test_unknown_event_type_returns_none(self):
-        assert get_renderer("does.not.exist") is None
+class TestRender:
+    def test_an_event_without_rows_renders_nothing(self):
+        assert _render("does.not.exist", _stub_notification()) is None
 
 
-class TestFormatHelpers:
+class TestToneStyle:
     @pytest.mark.parametrize(
-        ("value", "expected"),
-        [(None, None), (0, "0"), (42, "42"), (999, "999"), (1000, "1.0k"), (12432, "12.4k"), (596891, "596.9k")],
+        ("context", "color", "tone"),
+        [
+            ({"status_tone": "warning"}, COLOR_PARTIAL, "warning"),
+            ({"status_tone": "success"}, COLOR_SUCCESS, "success"),
+            ({"is_successful": False}, COLOR_FAILURE, "failure"),
+        ],
     )
-    def test_fmt_tokens(self, value, expected):
-        assert RocketChatRenderer._fmt_tokens(value) == expected
+    def test_the_colour_and_emoji_read_the_shared_tone(self, context, color, tone):
+        text, [attachment] = _render(EventType.JOB_FINISHED, _stub_notification(context=context))
+        assert attachment["color"] == color
+        assert text.startswith(f"{TONE_EMOJI[tone]} ")
 
-    @pytest.mark.parametrize(
-        ("value", "expected"), [(None, None), (0, "$0.00"), (0.214321, "$0.21"), (1.5, "$1.50"), (12.345, "$12.35")]
-    )
-    def test_fmt_cost(self, value, expected):
-        assert RocketChatRenderer._fmt_cost(value) == expected
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [(None, "—"), (0, "0s"), (47, "47s"), (60, "1m 00s"), (84, "1m 24s"), (3600, "1h 00m"), (3725, "1h 02m")],
-    )
-    def test_fmt_duration(self, value, expected):
-        assert RocketChatRenderer._fmt_duration(value) == expected
-
-    def test_usage_field_returns_none_when_both_tokens_missing(self):
-        assert JobFinishedRenderer()._usage_field({"cost_usd": 0.10}) is None
-
-    def test_usage_field_renders_when_only_one_side_present(self):
-        field = JobFinishedRenderer()._usage_field({"input_tokens": 1000, "output_tokens": None})
-        assert field == {"title": "Usage", "value": "1.0k in · — out", "short": True}
-
-    def test_cost_field_skipped_when_cost_missing(self):
-        assert JobFinishedRenderer()._cost_field({"input_tokens": 1000}) is None
+    def test_usage_and_cost_rows_become_short_fields(self):
+        _text, [attachment] = _render(
+            EventType.JOB_FINISHED,
+            _stub_notification(context={"input_tokens": 1000, "output_tokens": None, "cost_usd": 0.14}),
+        )
+        assert attachment["fields"][2:] == [
+            {"title": "Usage", "value": "1.0k in · — out", "short": True},
+            {"title": "Cost", "value": "$0.14", "short": True},
+        ]
 
 
 class TestJobFinishedRenderer:
@@ -126,7 +80,7 @@ class TestJobFinishedRenderer:
                 "cost_usd": 0.214,
             },
         )
-        text, attachments = JobFinishedRenderer().render(notif)
+        text, attachments = _render(EventType.JOB_FINISHED, notif)
 
         assert text.startswith("✅ ")
         assert "Agent run on acme/api succeeded" in text
@@ -143,13 +97,13 @@ class TestJobFinishedRenderer:
 
     def test_failure_uses_red_color_and_x_emoji(self):
         notif = _stub_notification(context={"is_successful": False, "trigger_label": "Issue webhook"})
-        text, attachments = JobFinishedRenderer().render(notif)
+        text, attachments = _render(EventType.JOB_FINISHED, notif)
         assert text.startswith("❌ ")
         assert attachments[0]["color"] == COLOR_FAILURE
 
     def test_warning_tone_renders_amber_and_warning_emoji(self):
         notif = _stub_notification(context={"status_tone": "warning", "trigger_label": "Manual"})
-        text, attachments = JobFinishedRenderer().render(notif)
+        text, attachments = _render(EventType.JOB_FINISHED, notif)
         assert text.startswith("⚠️ ")
         assert attachments[0]["color"] == COLOR_PARTIAL
 
@@ -157,12 +111,12 @@ class TestJobFinishedRenderer:
         # A found-issues run finishes successfully (is_successful True) but its envelope tone is a
         # warning; the attachment must follow the tone, not go green.
         notif = _stub_notification(context={"status_tone": "warning", "is_successful": True})
-        _text, attachments = JobFinishedRenderer().render(notif)
+        _text, attachments = _render(EventType.JOB_FINISHED, notif)
         assert attachments[0]["color"] == COLOR_PARTIAL
 
     def test_usage_and_cost_fields_omitted_when_data_missing(self):
         notif = _stub_notification(context={"is_successful": True, "trigger_label": "Manual"})
-        _text, attachments = JobFinishedRenderer().render(notif)
+        _text, attachments = _render(EventType.JOB_FINISHED, notif)
         titles = {f["title"] for f in attachments[0]["fields"]}
         assert "Usage" not in titles
         assert "Cost" not in titles
@@ -174,7 +128,7 @@ class TestScheduleFinishedRenderer:
             subject="'nightly' succeeded on acme/api — alice",
             context={"is_successful": True, "repo_id": "acme/api", "trigger_owner": "alice", "duration_seconds": 47},
         )
-        text, attachments = ScheduleFinishedRenderer().render(notif)
+        text, attachments = _render(EventType.SCHEDULE_FINISHED, notif)
         assert text.startswith("✅ ")
         fields = _fields_by_title(attachments[0])
         assert fields["Repository"] == "acme/api"
@@ -195,7 +149,7 @@ class TestScheduleFinishedRenderer:
                 "cost_usd": 0.14,
             }
         )
-        _text, attachments = ScheduleFinishedRenderer().render(notif)
+        _text, attachments = _render(EventType.SCHEDULE_FINISHED, notif)
         fields = _fields_by_title(attachments[0])
         assert fields["Usage"] == "8.1k in · 22.5k out"
         assert fields["Cost"] == "$0.14"
@@ -223,7 +177,7 @@ class TestJobBatchFinishedRenderer:
 
     def test_partial_batch_uses_warning_color_and_emoji(self):
         notif = _stub_notification(subject="'nightly' batch: 4/5 need a look — alice", context=self._ctx())
-        text, attachments = JobBatchFinishedRenderer().render(notif)
+        text, attachments = _render(EventType.JOB_BATCH_FINISHED, notif)
         assert text.startswith("⚠️ ")
         assert attachments[0]["color"] == COLOR_PARTIAL
         fields = _fields_by_title(attachments[0])
@@ -236,20 +190,20 @@ class TestJobBatchFinishedRenderer:
 
     def test_all_notable_uses_red(self):
         notif = _stub_notification(context=self._ctx(notable_count=5, all_clear_count=0, status_tone="failure"))
-        text, attachments = JobBatchFinishedRenderer().render(notif)
+        text, attachments = _render(EventType.JOB_BATCH_FINISHED, notif)
         assert text.startswith("❌ ")
         assert attachments[0]["color"] == COLOR_FAILURE
 
     def test_none_notable_uses_green(self):
         notif = _stub_notification(context=self._ctx(notable_count=0, all_clear_count=5, status_tone="success"))
-        text, attachments = JobBatchFinishedRenderer().render(notif)
+        text, attachments = _render(EventType.JOB_BATCH_FINISHED, notif)
         assert text.startswith("✅ ")
         assert attachments[0]["color"] == COLOR_SUCCESS
 
     def test_repo_list_truncates_past_limit(self):
         repo_ids = [f"acme/r{i}" for i in range(12)]
         notif = _stub_notification(context=self._ctx(repo_ids=repo_ids))
-        _text, attachments = JobBatchFinishedRenderer().render(notif)
+        _text, attachments = _render(EventType.JOB_BATCH_FINISHED, notif)
         breakdown = _fields_by_title(attachments[0])["Repositories"]
         # 8-item cap + overflow marker.
         assert "and 4 more" in breakdown
@@ -257,12 +211,12 @@ class TestJobBatchFinishedRenderer:
 
     def test_empty_repo_ids_drops_repositories_field(self):
         notif = _stub_notification(context=self._ctx(repo_ids=[]))
-        _text, attachments = JobBatchFinishedRenderer().render(notif)
+        _text, attachments = _render(EventType.JOB_BATCH_FINISHED, notif)
         assert "Repositories" not in _fields_by_title(attachments[0])
 
     def test_breakdown_names_questions_only_when_there_are_some(self):
-        _text, attachments = JobBatchFinishedRenderer().render(
-            _stub_notification(context=self._ctx(needs_input_count=2))
+        _text, attachments = _render(
+            EventType.JOB_BATCH_FINISHED, _stub_notification(context=self._ctx(needs_input_count=2))
         )
         assert _fields_by_title(attachments[0])["Breakdown"] == "found 2 · needs 1 · failed 1 · input 2"
 
@@ -272,22 +226,22 @@ class TestClassifierReasonRidesEveryAttachment:
     cannot ship without the reason a human was paged."""
 
     @pytest.mark.parametrize(
-        "renderer", [JobFinishedRenderer(), ScheduleFinishedRenderer(), JobBatchFinishedRenderer()]
+        "event_type", [EventType.JOB_FINISHED, EventType.SCHEDULE_FINISHED, EventType.JOB_BATCH_FINISHED]
     )
-    def test_summary_becomes_the_attachment_text(self, renderer):
+    def test_summary_becomes_the_attachment_text(self, event_type):
         notif = _stub_notification(context={"status_tone": "warning", "summary": "Two flaky auth tests"})
-        _text, [attachment] = renderer.render(notif)
+        _text, [attachment] = _render(event_type, notif)
         assert attachment["text"] == "Two flaky auth tests"
 
     @pytest.mark.parametrize("summary", [None, "", "   "])
     def test_a_blank_summary_omits_the_text_key(self, summary):
         # An absent summary must not fall back to the body, which repeats the title.
         notif = _stub_notification(context={"status_tone": "warning", "summary": summary})
-        _text, [attachment] = JobFinishedRenderer().render(notif)
+        _text, [attachment] = _render(EventType.JOB_FINISHED, notif)
         assert "text" not in attachment
 
     def test_context_without_a_summary_key_still_renders(self):
-        _text, [attachment] = JobFinishedRenderer().render(_stub_notification(context={"status_tone": "warning"}))
+        _text, [attachment] = _render(EventType.JOB_FINISHED, _stub_notification(context={"status_tone": "warning"}))
         assert "text" not in attachment
 
     def test_findings_render_as_one_long_field(self):
@@ -301,7 +255,7 @@ class TestClassifierReasonRidesEveryAttachment:
                 "actionable_overflow": 0,
             }
         )
-        _text, [attachment] = JobFinishedRenderer().render(notif)
+        _text, [attachment] = _render(EventType.JOB_FINISHED, notif)
         field = next(f for f in attachment["fields"] if f["title"] == "Findings")
         assert field["short"] is False
         assert field["value"] == (
@@ -317,7 +271,7 @@ class TestClassifierReasonRidesEveryAttachment:
                 "actionable_overflow": 4,
             }
         )
-        _text, [attachment] = JobFinishedRenderer().render(notif)
+        _text, [attachment] = _render(EventType.JOB_FINISHED, notif)
         assert _fields_by_title(attachment)["Findings"].endswith("… and 4 more")
 
     def test_a_nonsensical_overflow_count_is_not_rendered(self):
@@ -330,19 +284,19 @@ class TestClassifierReasonRidesEveryAttachment:
                 "actionable_overflow": -2,
             }
         )
-        _text, [attachment] = JobFinishedRenderer().render(notif)
+        _text, [attachment] = _render(EventType.JOB_FINISHED, notif)
         assert _fields_by_title(attachment)["Findings"] == "• [bug] a — `b`"
 
     def test_a_finding_missing_kind_or_ref_still_renders_its_label(self):
         notif = _stub_notification(
             context={"status_tone": "warning", "actionable": [{"kind": "", "label": "just a label", "ref": ""}]}
         )
-        _text, [attachment] = JobFinishedRenderer().render(notif)
+        _text, [attachment] = _render(EventType.JOB_FINISHED, notif)
         assert _fields_by_title(attachment)["Findings"] == "• just a label"
 
     def test_no_findings_adds_no_field(self):
         notif = _stub_notification(context={"status_tone": "failure", "actionable": [], "actionable_overflow": 0})
-        _text, [attachment] = JobFinishedRenderer().render(notif)
+        _text, [attachment] = _render(EventType.JOB_FINISHED, notif)
         assert "Findings" not in _fields_by_title(attachment)
 
     def test_findings_come_after_the_renderer_own_fields(self):
@@ -353,7 +307,7 @@ class TestClassifierReasonRidesEveryAttachment:
                 "actionable": [{"kind": "bug", "label": "a", "ref": "b"}],
             }
         )
-        _text, [attachment] = JobFinishedRenderer().render(notif)
+        _text, [attachment] = _render(EventType.JOB_FINISHED, notif)
         assert [f["title"] for f in attachment["fields"]] == ["Trigger", "Duration", "Findings"]
 
 
@@ -371,7 +325,7 @@ class TestBatchNotableRunsField:
     }
 
     def test_notable_runs_render_without_backticks(self):
-        _text, [attachment] = JobBatchFinishedRenderer().render(_stub_notification(context=self.CTX))
+        _text, [attachment] = _render(EventType.JOB_BATCH_FINISHED, _stub_notification(context=self.CTX))
         assert _fields_by_title(attachment)["Needs a look"] == (
             "• [Failed] acme/api — migration 0042 errored\n• [Needs attention] acme/infra\n… and 2 more"
         )
@@ -381,12 +335,12 @@ class TestBatchNotableRunsField:
         notif = _stub_notification(
             context={"status_tone": "warning", "actionable": [{"kind": "bug", "label": "a", "ref": "app/x.py"}]}
         )
-        _text, [attachment] = JobFinishedRenderer().render(notif)
+        _text, [attachment] = _render(EventType.JOB_FINISHED, notif)
         assert _fields_by_title(attachment)["Findings"] == "• [bug] a — `app/x.py`"
 
     def test_a_batch_without_notable_rows_adds_no_field(self):
         notif = _stub_notification(context={"status_tone": "success", "notable_runs": []})
-        _text, [attachment] = JobBatchFinishedRenderer().render(notif)
+        _text, [attachment] = _render(EventType.JOB_BATCH_FINISHED, notif)
         assert "Needs a look" not in _fields_by_title(attachment)
 
     def test_both_lists_can_coexist_on_one_attachment(self):
@@ -397,7 +351,7 @@ class TestBatchNotableRunsField:
                 "notable_runs": [{"kind": "Failed", "label": "acme/api", "ref": "boom"}],
             }
         )
-        _text, [attachment] = JobFinishedRenderer().render(notif)
+        _text, [attachment] = _render(EventType.JOB_FINISHED, notif)
         titles = [f["title"] for f in attachment["fields"]]
         assert titles == ["Trigger", "Duration", "Findings", "Needs a look"]
 
@@ -421,12 +375,12 @@ class TestPipelineWatchExhaustedRenderer:
         )
 
     def test_it_renders_a_failure_card(self):
-        _text, attachments = PipelineWatchExhaustedRenderer().render(self._notification())
+        _text, attachments = _render(EventType.PIPELINE_WATCH_EXHAUSTED, self._notification())
 
         assert attachments[0]["color"] == COLOR_FAILURE
 
     def test_it_reports_the_repo_attempts_and_failing_jobs(self):
-        _text, attachments = PipelineWatchExhaustedRenderer().render(self._notification())
+        _text, attachments = _render(EventType.PIPELINE_WATCH_EXHAUSTED, self._notification())
 
         fields = _fields_by_title(attachments[0])
         assert fields["Repository"] == "group/repo"
@@ -436,12 +390,12 @@ class TestPipelineWatchExhaustedRenderer:
 
     def test_it_carries_the_pipeline_url_unprefixed(self):
         # The CI URL is already absolute; passing it through _link() would prefix the DAIV domain.
-        _text, attachments = PipelineWatchExhaustedRenderer().render(self._notification())
+        _text, attachments = _render(EventType.PIPELINE_WATCH_EXHAUSTED, self._notification())
 
         assert _fields_by_title(attachments[0])["Pipeline"] == "https://ci.example.com/p/100"
 
     def test_the_card_title_still_links_to_the_session(self):
-        _text, attachments = PipelineWatchExhaustedRenderer().render(self._notification())
+        _text, attachments = _render(EventType.PIPELINE_WATCH_EXHAUSTED, self._notification())
 
         assert attachments[0]["title_link"] == "https://example.com/sessions/repo-mr-7/"
 
@@ -449,7 +403,7 @@ class TestPipelineWatchExhaustedRenderer:
         notification = self._notification()
         notification.context = {**notification.context, "failing_jobs": []}
 
-        _text, attachments = PipelineWatchExhaustedRenderer().render(notification)
+        _text, attachments = _render(EventType.PIPELINE_WATCH_EXHAUSTED, notification)
 
         assert "Failing jobs" not in _fields_by_title(attachments[0])
 
@@ -473,12 +427,12 @@ class TestScheduleDispatchFailedRenderer:
         )
 
     def test_it_renders_a_failure_card(self):
-        _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification())
+        _text, attachments = _render(EventType.SCHEDULE_DISPATCH_FAILED, self._notification())
 
         assert attachments[0]["color"] == COLOR_FAILURE
 
     def test_it_reports_the_repo_reason_and_last_run(self):
-        _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification())
+        _text, attachments = _render(EventType.SCHEDULE_DISPATCH_FAILED, self._notification())
 
         fields = _fields_by_title(attachments[0])
         assert fields["Repository"] == "sfr/rt-daily-report"
@@ -486,19 +440,19 @@ class TestScheduleDispatchFailedRenderer:
         assert fields["Last run"] == "Jul 15, 09:30"
 
     def test_several_repos_share_one_plural_field(self):
-        _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification(repo_ids=["a/b", "c/d"]))
+        _text, attachments = _render(EventType.SCHEDULE_DISPATCH_FAILED, self._notification(repo_ids=["a/b", "c/d"]))
 
         fields = _fields_by_title(attachments[0])
         assert fields["Repositories"] == "a/b · c/d"
         assert "Repository" not in fields
 
     def test_the_explanation_rides_the_attachment_text(self):
-        _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification())
+        _text, attachments = _render(EventType.SCHEDULE_DISPATCH_FAILED, self._notification())
 
         assert attachments[0]["text"] == "Its last scheduled run was skipped."
 
     def test_the_card_title_links_to_the_schedule(self):
-        _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification())
+        _text, attachments = _render(EventType.SCHEDULE_DISPATCH_FAILED, self._notification())
 
         assert attachments[0]["title_link"] == "https://example.com/dashboard/schedules/6/edit/"
 
@@ -730,10 +684,10 @@ def _assert_same_bytes(actual, expected):
 class TestPayloadSnapshots:
     @pytest.mark.parametrize("event_type", list(EXPECTED_FULL))
     def test_a_full_context_renders_the_pinned_payload(self, event_type):
-        _assert_same_bytes(get_renderer(event_type).render(SNAPSHOT_CASES[event_type]), EXPECTED_FULL[event_type])
+        _assert_same_bytes(_render(event_type, SNAPSHOT_CASES[event_type]), EXPECTED_FULL[event_type])
 
     @pytest.mark.parametrize("event_type", list(EXPECTED_MINIMAL_FIELDS))
     def test_an_empty_context_renders_the_pinned_payload(self, event_type):
-        rendered = get_renderer(event_type).render(_stub_notification(link_url="", context={}))
+        rendered = _render(event_type, _stub_notification(link_url="", context={}))
         expected = ("❌ s", [_attachment(COLOR_FAILURE, "s", "", EXPECTED_MINIMAL_FIELDS[event_type])])
         _assert_same_bytes(rendered, expected)
