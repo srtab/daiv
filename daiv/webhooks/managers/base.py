@@ -3,8 +3,7 @@ from typing import TYPE_CHECKING
 
 from django.template.loader import render_to_string
 
-from sessions.executor.lock import wait_unless_sessionless
-from sessions.models import Session
+from sessions.executor.lock import wait_for_slot
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
@@ -72,11 +71,6 @@ class BaseManager:
         self._unable_note_posted = True
         return True
 
-    async def _lock_policy(self) -> LockPolicy:
-        """Wait for the session's slot, or run unlocked on a thread's first turn: the callback creates the
-        ``Session`` row just after enqueueing this run, so the row may not exist yet."""
-        return wait_unless_sessionless(
-            self.thread_id,
-            session_exists=await Session.objects.filter(pk=self.thread_id).aexists(),
-            holder_id=f"webhook-{uuid.uuid4().hex}",
-        )
+    def _lock_policy(self) -> LockPolicy:
+        """Wait for the session's slot, which ``webhooks.dispatch`` opened before it enqueued this run."""
+        return wait_for_slot(f"webhook-{uuid.uuid4().hex}")

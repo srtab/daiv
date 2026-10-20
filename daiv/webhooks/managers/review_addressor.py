@@ -264,7 +264,7 @@ class CommentsAddressorManager(BaseManager):
                 scope=Scope.MERGE_REQUEST,
                 input_messages=(HumanMessage(name=note.author.username, id=note.id, content=note.body),),
                 trigger="mention",
-                lock=await self._lock_policy(),
+                lock=self._lock_policy(),
                 ref=self.merge_request.source_branch,
                 merge_request=self.merge_request,
                 use_max=use_max,

@@ -340,14 +340,13 @@ async def test_a_daiv_max_comment_runs_on_the_max_model_it_stamped(mention):
             repo_id="owner/repo",
             ref="feature",
             merge_request_iid=99,
-            use_max=True,
+            agent_model="site-max",
+            agent_thinking_level="high",
             thread_id=thread_id,
         )
-        stamped = (run.agent_model, run.agent_thinking_level)
         with addressor_run(agent, ctx=_ctx(), resolve=resolve_agent_settings, site=site_snapshot(**site)) as stack:
             await _address(thread_id=thread_id, run_id=str(run.pk), use_max=True)
 
     await run.arefresh_from_db()
-    assert stamped == ("site-max", "high")
     assert stack.create_agent.await_args.kwargs["settings"].agent.names[0] == "site-max"
     assert (run.agent_model, run.agent_thinking_level) == ("site-max", "high")

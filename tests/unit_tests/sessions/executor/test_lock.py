@@ -2,17 +2,9 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sessions.executor.lock import (
-    LOCK_WAIT_TIMEOUT_S,
-    Held,
-    NoLock,
-    SessionLockTimeoutError,
-    Wait,
-    hold_session_lock,
-    still_held,
-    wait_unless_sessionless,
-)
+from sessions.executor.lock import Held, NoLock, SessionLockTimeoutError, Wait, hold_session_lock, still_held
 from sessions.locks import SessionLock
+from sessions.models import Session
 
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 
@@ -93,6 +85,16 @@ class TestWait:
 
         body.assert_not_awaited()
         assert await active_holder(thread_id) == "chat-run"
+
+    async def test_a_thread_without_a_session_row_fails_instead_of_waiting(self):
+        body = AsyncMock()
+
+        with patch("sessions.executor.lock.asyncio.sleep") as sleep, pytest.raises(Session.DoesNotExist):
+            async with hold_session_lock(Wait(holder_id="run-1", timeout_s=60), "t-gone"):
+                await body()
+
+        body.assert_not_awaited()
+        sleep.assert_not_called()
 
 
 class TestHeld:
@@ -230,17 +232,3 @@ class TestStillHeld:
             assert await still_held("t-1", "run-1") is True
 
         assert "heartbeat failed" in caplog.text
-
-
-class TestWaitUnlessSessionless:
-    def test_a_thread_with_a_session_waits_for_its_slot(self):
-        policy = wait_unless_sessionless("t-1", session_exists=True, holder_id="run-1")
-
-        assert policy == Wait(holder_id="run-1", timeout_s=LOCK_WAIT_TIMEOUT_S)
-
-    def test_a_thread_without_a_session_runs_unlocked_and_says_so(self, caplog):
-        with caplog.at_level("WARNING", logger="daiv.sessions"):
-            policy = wait_unless_sessionless("t-new", session_exists=False, holder_id="run-1")
-
-        assert policy == NoLock()
-        assert "no session row for thread_id=t-new" in caplog.text

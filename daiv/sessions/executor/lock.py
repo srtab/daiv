@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sessions.locks import STALE_RUN_MINUTES, SessionLock
+from sessions.models import Session
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -37,19 +38,15 @@ class Held:
 
 @dataclass(frozen=True)
 class NoLock:
-    """Run without the slot, for a run that has no ``Session`` row."""
+    """Run without the slot, for a one-shot run (``thread_id=None``), which has no ``Session`` row."""
 
 
 LockPolicy = Wait | Held | NoLock
 
 
-def wait_unless_sessionless(thread_id: str, *, session_exists: bool, holder_id: str) -> LockPolicy:
-    """``Wait`` for ``thread_id``'s slot under ``holder_id``, or ``NoLock`` when the thread has no ``Session`` row:
-    the slot lives on that row, so nothing else can hold it either."""
-    if session_exists:
-        return Wait(holder_id=holder_id, timeout_s=LOCK_WAIT_TIMEOUT_S)
-    logger.warning("executor: no session row for thread_id=%s; running %s without lock", thread_id, holder_id)
-    return NoLock()
+def wait_for_slot(holder_id: str) -> Wait:
+    """``Wait`` for the session's slot under ``holder_id``, up to ``LOCK_WAIT_TIMEOUT_S``."""
+    return Wait(holder_id=holder_id, timeout_s=LOCK_WAIT_TIMEOUT_S)
 
 
 class SessionLockTimeoutError(TimeoutError):
@@ -106,7 +103,8 @@ async def still_held(thread_id: str, holder_id: str) -> bool:
 async def _acquire_session_lock(policy: LockPolicy, thread_id: str) -> str | None:
     """Return the holder id that now holds the slot, or ``None`` to run unlocked.
 
-    ``Wait`` raises ``SessionLockTimeoutError`` if the slot never frees within ``timeout_s``. Takeover needs
+    ``Wait`` raises ``SessionLockTimeoutError`` if the slot never frees within ``timeout_s``, and
+    ``Session.DoesNotExist`` at once when there is no slot to free: the thread has no ``Session`` row. Takeover needs
     the holder's last heartbeat to be ``STALE_RUN_MINUTES`` old, so with ``timeout_s`` at that length
     (``LOCK_WAIT_TIMEOUT_S``) a waiter that started before a crashed holder's last heartbeat times out before
     it can take over.
@@ -128,6 +126,8 @@ async def _acquire_session_lock(policy: LockPolicy, thread_id: str) -> str | Non
                     policy.holder_id,
                 )
             return policy.holder_id
+        if not polled:
+            await Session.objects.only("thread_id").aget(pk=thread_id)
         polled = True
         await asyncio.sleep(LOCK_POLL_INTERVAL_S)
     raise SessionLockTimeoutError(f"session lock for thread_id={thread_id} not released within {policy.timeout_s}s")

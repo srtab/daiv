@@ -1,4 +1,5 @@
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from django.conf import settings as django_settings
@@ -92,6 +93,10 @@ async def address_issue_task(
         run_id=await aget_task_run_id(context.task_result.id),
         use_max=use_max,
     )
+
+
+# A label trigger whose run finished is a new request: DAIV's reaction, once removed, no longer blocks it.
+address_issue_label_task = replace(address_issue_task, dedup_successful=False)
 
 
 @task(dedup=True, dedup_on=("repo_id", "merge_request_id", "mention_note_id"), takes_context=True)

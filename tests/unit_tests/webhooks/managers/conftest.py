@@ -84,7 +84,7 @@ def addressor_run(
     """Stub the executor around ``agent`` for one manager run; yield the ``agent_stack`` namespace plus ``recover``.
 
     ``stub_recovery=False`` keeps the real draft recovery (``recover`` is then ``None``). ``real_lock`` keeps the
-    real session-row check and lock; otherwise the run is unlocked and needs no database.
+    real session lock; otherwise the run is unlocked and needs no database.
     """
     resolve = resolve or MagicMock(return_value=resolved_to("m", thinking_level="medium"), side_effect=kwargs_error)
     recovery = (
@@ -94,7 +94,7 @@ def addressor_run(
     )
     with (
         agent_stack(agent, ctx=ctx, context=context, resolve=resolve, site=site, checkpointed=checkpointed) as stack,
-        nullcontext() if real_lock else patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
+        nullcontext() if real_lock else patch.object(BaseManager, "_lock_policy", return_value=NoLock()),
         recovery as recover,
     ):
         stack.recover = recover
