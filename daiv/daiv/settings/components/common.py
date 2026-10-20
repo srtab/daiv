@@ -19,6 +19,7 @@ LOCAL_APPS = [
     "codebase",
     "configuration",
     "core",
+    "dashboard",
     "mcp_api",
     "mcp_connectors",
     "memory",
@@ -85,7 +86,8 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "notifications.context_processors.unread_notification_count",
-                "accounts.context_processors.nav",
+                "dashboard.context_processors.nav",
+                "codebase.context_processors.git_platform",
                 "core.context_processors.build_info",
             ]
         },

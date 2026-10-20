@@ -77,6 +77,14 @@ def test_session_new_chat_renders_empty_state(member_client):
 
 
 @pytest.mark.django_db
+def test_session_new_chat_has_no_breadcrumb(member_client):
+    """The chat page is the composer plus the transcript; "Sessions › New" only
+    pushes both down, and the sidebar already links back to the list."""
+    resp = member_client.get(reverse("session_new_chat"))
+    assert b'data-testid="app-breadcrumb"' not in resp.content
+
+
+@pytest.mark.django_db
 def test_session_new_renders_chooser_with_both_paths(member_client):
     resp = member_client.get(reverse("session_new"))
     assert resp.status_code == 200

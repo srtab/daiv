@@ -487,7 +487,7 @@ class TestArtifactListView:
 
         html = member_client.get(reverse("artifact_list"), {"kind": "markdown"}).content.decode()
 
-        assert 'href="?kind=markdown&amp;repo=group/project"' in html
+        assert 'href="?kind=markdown&amp;repo=group%2Fproject"' in html
 
     @pytest.mark.parametrize(
         ("query", "expected"),

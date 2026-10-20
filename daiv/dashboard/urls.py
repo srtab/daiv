@@ -1,5 +1,5 @@
 from django.urls import path
 
-from accounts.views import DashboardView
+from dashboard.views import DashboardView
 
 urlpatterns = [path("", DashboardView.as_view(), name="dashboard")]

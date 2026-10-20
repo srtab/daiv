@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load dashboard_tags i18n static %}
+{% load i18n static %}
 
 {% block title %}Scheduled Jobs — DAIV{% endblock %}
 
@@ -33,7 +33,7 @@
         {% include "schedules/_schedule_row.html" %}
         {% endfor %}
     </div>
-    {% include "accounts/_pagination.html" %}
+    {% include "core/_pagination.html" %}
     {% else %}
     <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
         <p class="text-[15px] text-gray-400">{% translate "No scheduled jobs yet. Create one to automate agent runs." %}</p>

@@ -1,4 +1,4 @@
-"""Tests for the nav SSE stream (``accounts.api.views.nav_events``).
+"""Tests for the nav SSE stream (``dashboard.api.views.nav_events``).
 
 The frames are asserted by driving ``_nav_frames`` directly with a fake bus stream: the
 whole point of the endpoint is what it does *between* changes — recompute, compare, and
@@ -17,10 +17,10 @@ from django.db import Error as DatabaseError
 
 import pytest
 from asgiref.sync import sync_to_async
+from dashboard.api.views import _nav_frames
 from notifications.models import Notification
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
-from accounts.api.views import _nav_frames
 from accounts.models import User
 
 
@@ -57,7 +57,7 @@ async def read_frames(user, stream: FakeStream, count: int) -> list[str]:
     """Pull ``count`` frames, then abandon the (endless) stream."""
     frames = []
     generator = _nav_frames(user)
-    with patch("accounts.api.views.UIEventStream.for_user", return_value=stream):
+    with patch("dashboard.api.views.UIEventStream.for_user", return_value=stream):
         try:
             async for frame in generator:
                 frames.append(frame)
@@ -127,7 +127,7 @@ class TestNavFrames:
         assert snapshots(frames)[0]["unread_count"] == 0
 
     async def test_it_listens_for_the_pokes_this_viewer_needs(self, member_user):
-        with patch("accounts.api.views.UIEventStream.for_user", return_value=FakeStream()) as for_user:
+        with patch("dashboard.api.views.UIEventStream.for_user", return_value=FakeStream()) as for_user:
             generator = _nav_frames(member_user)
             try:
                 await anext(generator)
@@ -150,7 +150,7 @@ class TestNavFrames:
     async def test_a_change_to_a_count_sends_a_fresh_snapshot(self, member_user):
         stream = FakeStream()
         generator = _nav_frames(member_user)
-        with patch("accounts.api.views.UIEventStream.for_user", return_value=stream):
+        with patch("dashboard.api.views.UIEventStream.for_user", return_value=stream):
             try:
                 assert await anext(generator) == "retry: 3000\n\n"
                 first = await anext(generator)
@@ -195,7 +195,7 @@ class TestNavFrames:
     async def test_a_recount_that_failed_leaves_the_badges_alone(self, member_user, caplog):
         """The counts degrade to 0 on a page render, but a live badge holding the right
         number must not be blanked by a zero the reader cannot vouch for."""
-        with patch("accounts.api.views.query_unread_count", side_effect=DatabaseError("connection lost")):
+        with patch("dashboard.api.views.query_unread_count", side_effect=DatabaseError("connection lost")):
             frames = await read_frames(member_user, FakeStream([True]), count=3)
         assert snapshots(frames) == []
         assert frames[1:] == [": keep-alive\n\n", ": keep-alive\n\n"]
@@ -209,7 +209,7 @@ class TestNavEventsEndpoint:
         assert response.status_code == 401
 
     def test_it_is_served_as_an_event_stream(self, member_client):
-        with patch("accounts.api.views._nav_frames", return_value=iter([])):
+        with patch("dashboard.api.views._nav_frames", return_value=iter([])):
             response = member_client.get("/api/nav/events")
         assert response.status_code == 200
         assert response["Content-Type"] == "text/event-stream"

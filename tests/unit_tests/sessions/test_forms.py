@@ -85,14 +85,16 @@ def _form_data(**overrides):
 
 def test_clean_surfaces_agent_model_backstop_error(member_user):
     """If ensure_agent_model_available rejects (no system default), it is surfaced on agent_model."""
-    with patch("sessions.admission.ensure_agent_model_available", side_effect=AgentOverrideError("no default model")):
+    with patch(
+        "automation.agent.validators.ensure_agent_model_available", side_effect=AgentOverrideError("no default model")
+    ):
         form = AgentRunCreateForm(data=_form_data(), user=member_user)
         assert not form.is_valid()
         assert "agent_model" in form.errors
 
 
 def test_clean_passes_when_agent_model_available(member_user):
-    with patch("sessions.admission.ensure_agent_model_available", return_value=None):
+    with patch("automation.agent.validators.ensure_agent_model_available", return_value=None):
         form = AgentRunCreateForm(data=_form_data(), user=member_user)
         assert form.is_valid(), form.errors
 

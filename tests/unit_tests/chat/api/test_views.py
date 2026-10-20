@@ -608,7 +608,7 @@ async def test_completion_denied_repo_returns_404_and_no_thread(client: TestAsyn
     thread_id = str(uuid.uuid4())
     body = _run_agent_input(threadId=thread_id)
 
-    with patch("sessions.admission.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["group/repo"]))):
+    with patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["group/repo"])):
         response = await client.post(
             "/chat/completions", json=body, headers=_auth_headers(raw, **{"X-Repo-ID": "group/repo", "X-Ref": "main"})
         )

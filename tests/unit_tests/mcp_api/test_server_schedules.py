@@ -366,7 +366,7 @@ async def test_schedule_job_denied_repo_returns_error():
     user = await _user("sj_denied")
     with (
         patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)),
-        patch("sessions.admission.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))),
+        patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["a/b"])),
     ):
         result = await schedule_job(name="s", prompt="p", repos=[{"repo_id": "a/b", "ref": None}], frequency="hourly")
 

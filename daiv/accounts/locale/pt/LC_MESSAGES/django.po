@@ -97,56 +97,6 @@ msgstr ""
 msgid "Your DAIV Sign-In Code"
 msgstr "O Seu Código de Autenticação DAIV"
 
-msgid "Dashboard"
-msgstr "Painel"
-
-msgid "Sessions"
-msgstr "Sessões"
-
-#, python-brace-format
-msgid "{count} running"
-msgstr "{count} em execução"
-
-msgid "Schedules"
-msgstr "Agendamentos"
-
-msgid "Sandbox environments"
-msgstr "Ambientes sandbox"
-
-msgid "Memory"
-msgstr "Memória"
-
-msgid "Account"
-msgstr "Conta"
-
-msgid "Notification channels"
-msgstr "Canais de notificação"
-
-msgid "API keys"
-msgstr "Chaves API"
-
-msgid "Users"
-msgstr "Utilizadores"
-
-msgid "Configuration"
-msgstr "Configuração"
-
-#| msgid "Schedules"
-msgid "Schedule templates"
-msgstr "Modelos de agendamento"
-
-msgid "Skills"
-msgstr "Competências"
-
-msgid "MCP servers"
-msgstr "Servidores MCP"
-
-msgid "API documentation"
-msgstr "Documentação da API"
-
-msgid "Sign out"
-msgstr "Terminar sessão"
-
 msgid "No users found."
 msgstr "Nenhum utilizador encontrado."
 
@@ -199,9 +149,6 @@ msgstr ""
 "Pode autenticar-se com um código único enviado para o seu email, ou usar a "
 "sua conta GitHub ou GitLab se estiver associada ao mesmo endereço de email."
 
-msgid "Open navigation"
-msgstr "Abrir navegação"
-
 msgid "Authorization request"
 msgstr "Pedido de autorização"
 
@@ -222,9 +169,6 @@ msgstr "Autorizar"
 
 msgid "Authorizing will grant this application access to your DAIV account"
 msgstr "Ao autorizar, irá conceder a esta aplicação acesso à sua conta DAIV"
-
-msgid "Artifacts"
-msgstr "Artefactos"
 
 #~ msgid "Activity"
 #~ msgstr "Atividade"

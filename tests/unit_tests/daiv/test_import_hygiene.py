@@ -83,10 +83,10 @@ def test_import_contracts_place_every_app_in_the_layering():
     }
     top_layer = set.intersection(*forbidden.values())
 
-    unplaced = root_packages - forbidden.keys() - top_layer - {"daiv", "accounts"}
+    unplaced = root_packages - forbidden.keys() - top_layer - {"daiv"}
     assert not unplaced, (
         f"{sorted(unplaced)} has no forbidden contract: add one forbidding every app above it, or forbid it "
-        "in every contract if it belongs in the top layer. `accounts` is exempt until the app shell is split out."
+        "in every contract if it belongs in the top layer."
     )
     for source, above in forbidden.items():
         for app in above & forbidden.keys():

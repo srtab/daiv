@@ -33,6 +33,12 @@ def schedule(member_user):
 
 @pytest.mark.django_db
 class TestScheduleCreateView:
+    def test_renders_breadcrumb(self, member_client):
+        response = member_client.get(reverse("schedule_create"))
+        assert b'data-testid="app-breadcrumb"' in response.content
+        assert b"Schedules" in response.content
+        assert b"New schedule" in response.content
+
     def test_form_renders_muted_checkbox(self, member_client):
         response = member_client.get(reverse("schedule_create"))
         assert response.status_code == 200
@@ -290,9 +296,7 @@ class TestScheduleRunNowView:
         before run creation, so this must not fall through to the generic handler)."""
         from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
 
-        with mock.patch(
-            "sessions.services.aassert_can_run", new=mock.AsyncMock(side_effect=RepositoryAccessDenied(["owner/repo"]))
-        ):
+        with mock.patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["owner/repo"])):
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]), follow=True)
 
         assert response.status_code == 200

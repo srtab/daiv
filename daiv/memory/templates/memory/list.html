@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load dashboard_tags i18n icon_tags static %}
+{% load i18n icon_tags static %}
 
 {% block title %}{% translate "Memory" %} — DAIV{% endblock %}
 
@@ -35,11 +35,11 @@
              @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
     </div>
     <div class="filter-seg">
-      <a href="?{% querystring_without 'status' 'page' %}"
+      <a href="{% querystring status=None page=None %}"
          class="filter-seg-item {% if not current_status %}filter-seg-item--active{% endif %}"
          @click.prevent="setStatus('')" :class="{ 'filter-seg-item--active': status === '' }">{% translate "All" %}</a>
       {% for value, label in statuses %}
-      <a href="?{% querystring_without 'status' 'page' %}status={{ value }}"
+      <a href="{% querystring status=value page=None %}"
          class="filter-seg-item {% if current_status == value %}filter-seg-item--active{% endif %}"
          @click.prevent="setStatus('{{ value }}')" :class="{ 'filter-seg-item--active': status === '{{ value }}' }">{{ label }}</a>
       {% endfor %}

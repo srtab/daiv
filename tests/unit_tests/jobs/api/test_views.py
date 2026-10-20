@@ -285,7 +285,7 @@ async def test_submit_job_accepts_an_explicit_model_when_the_site_has_none(authe
     captured: dict = {}
     with (
         patch.multiple(site_settings, agent_model_name=""),
-        patch("sessions.admission.validate_agent_override", return_value=("openrouter:z-ai/glm-5.2", "")),
+        patch("automation.agent.validators.validate_agent_override", return_value=("openrouter:z-ai/glm-5.2", "")),
         patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)),
     ):
         response = await authenticated_client.post(
@@ -536,17 +536,26 @@ async def test_thread_validation_uses_session_ownership(authenticated_client: Te
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_denied_repo_returns_opaque_404(authenticated_client: TestAsyncClient):
-    from unittest.mock import AsyncMock, patch
-
     from codebase.authorization import RepositoryAccessDenied
 
-    with patch(
-        "sessions.admission.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["group/project"]))
-    ):
+    with patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["group/project"])):
         response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="p"))
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Repository not found or not accessible."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_access_revoked_before_submit_returns_opaque_404(authenticated_client: TestAsyncClient):
+    from codebase.authorization import RepositoryAccessDenied
+
+    revoked = [None, RepositoryAccessDenied(["group/project"])]
+    with patch("sessions.admission.assert_can_run", side_effect=revoked):
+        response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="p"))
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Repository not found or not accessible."
+    assert await Run.objects.acount() == 0
 
 
 @pytest.mark.django_db(transaction=True)

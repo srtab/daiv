@@ -1,4 +1,4 @@
-{% load dashboard_tags i18n icon_tags session_tags %}
+{% load i18n icon_tags session_tags %}
 <div class="animate-fade-up relative z-10 mt-8 flex flex-col gap-3" style="animation-delay: 50ms"
      x-data="filterBar()">
     <div class="flex flex-wrap items-center gap-3">
@@ -14,11 +14,11 @@
 
         {# Status segmented control #}
         <div class="filter-seg">
-            <a href="?{% querystring_without 'status' 'page' %}"
+            <a href="{% querystring status=None page=None %}"
                class="filter-seg-item {% if not current_status %}filter-seg-item--active{% endif %}"
                @click.prevent="setStatus('')" :class="{ 'filter-seg-item--active': status === '' }">{% translate "All" %}</a>
             {% for value, label in statuses %}
-            <a href="?{% querystring_without 'status' 'page' %}&status={{ value }}"
+            <a href="{% querystring status=value page=None %}"
                class="filter-seg-item {% if current_status == value %}filter-seg-item--active{% endif %}"
                @click.prevent="setStatus('{{ value }}')" :class="{ 'filter-seg-item--active': status === '{{ value }}' }">
                 <span class="status-dot status-dot-{{ value|status_variant }}"></span>{{ label }}
@@ -27,22 +27,23 @@
         </div>
 
         {# Type dropdown #}
+        {% querystring trigger=None page=None as clear_trigger_url %}
         <div class="relative" @click.outside="if (open === 'type') open = null">
             <button type="button" class="filter-control {% if current_trigger %}filter-control--active{% endif %}"
                     :class="{ 'filter-control--active': !!trigger }" @click="toggle('type')">
                 {% icon "bars-3" "h-4 w-4" %}
                 <span x-text="triggerLabel || $el.dataset.defaultLabel" data-default-label="{% translate 'Type' %}">{% if current_trigger %}{{ current_trigger_label }}{% else %}{% translate "Type" %}{% endif %}</span>
-                <a href="?{% querystring_without 'trigger' 'page' %}" @click.stop.prevent="clearTrigger()"
+                <a href="{{ clear_trigger_url }}" @click.stop.prevent="clearTrigger()"
                    x-show="!!trigger" style="{% if not current_trigger %}display:none{% endif %}"
                    class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear type filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
                 <span x-show="!trigger" style="{% if current_trigger %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
             </button>
             <div class="filter-menu" x-show="open === 'type'" x-cloak>
-                <a href="?{% querystring_without 'trigger' 'page' %}"
+                <a href="{{ clear_trigger_url }}"
                    class="filter-menu-item {% if not current_trigger %}filter-menu-item--active{% endif %}"
                    @click.prevent="clearTrigger()" :class="{ 'filter-menu-item--active': !trigger }">{% translate "All types" %}</a>
                 {% for value, label in origins %}
-                <a href="?{% querystring_without 'trigger' 'page' %}&trigger={{ value }}"
+                <a href="{% querystring trigger=value page=None %}"
                    class="filter-menu-item {% if current_trigger == value %}filter-menu-item--active{% endif %}"
                    data-trigger-value="{{ value }}" data-label="{{ label }}"
                    @click.prevent="setTrigger('{{ value }}')"
@@ -54,6 +55,7 @@
         </div>
 
         {# Time dropdown #}
+        {% querystring range=None date_from=None date_to=None page=None as clear_time_url %}
         <div class="relative" @click.outside="if (open === 'time') open = null">
             <button type="button" class="filter-control {% if current_range or current_from or current_to %}filter-control--active{% endif %}"
                     :class="{ 'filter-control--active': timeActive }" @click="toggle('time')">
@@ -63,17 +65,17 @@
                     {% elif current_from or current_to %}{{ current_from|default:"…" }} – {{ current_to|default:"…" }}
                     {% else %}{% translate "Time" %}{% endif %}
                 </span>
-                <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}" @click.stop.prevent="clearTime()"
+                <a href="{{ clear_time_url }}" @click.stop.prevent="clearTime()"
                    x-show="timeActive" style="{% if not current_range and not current_from and not current_to %}display:none{% endif %}"
                    class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear time filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
                 <span x-show="!timeActive" style="{% if current_range or current_from or current_to %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
             </button>
             <div class="filter-menu" x-show="open === 'time'" x-cloak>
-                <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}"
+                <a href="{{ clear_time_url }}"
                    class="filter-menu-item {% if not current_range and not current_from and not current_to %}filter-menu-item--active{% endif %}"
                    @click.prevent="clearTime()" :class="{ 'filter-menu-item--active': !range && !from && !to }">{% translate "All time" %}</a>
                 {% for value, label in ranges %}
-                <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}&range={{ value }}"
+                <a href="{% querystring range=value date_from=None date_to=None page=None %}"
                    class="filter-menu-item {% if current_range == value %}filter-menu-item--active{% endif %}"
                    data-range-value="{{ value }}" data-label="{{ label }}"
                    @click.prevent="setRange('{{ value }}')"
@@ -100,28 +102,28 @@
         {% if current_repo %}
         <span class="filter-chip" x-show="!!repo">
             <span>{% blocktranslate with name=current_repo %}Repository: {{ name }}{% endblocktranslate %}</span>
-            <a href="?{% querystring_without 'repo' 'mr' 'page' %}" @click.prevent="clearParam('repo', 'mr')"
+            <a href="{% querystring repo=None mr=None page=None %}" @click.prevent="clearParam('repo', 'mr')"
                class="filter-chip__x" aria-label="{% translate 'Clear repository filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
         {% if current_mr %}
         <span class="filter-chip" x-show="!!mr">
             <span>{% blocktranslate with iid=current_mr %}Merge request !{{ iid }}{% endblocktranslate %}</span>
-            <a href="?{% querystring_without 'mr' 'page' %}" @click.prevent="clearParam('mr')"
+            <a href="{% querystring mr=None page=None %}" @click.prevent="clearParam('mr')"
                class="filter-chip__x" aria-label="{% translate 'Clear merge request filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
         {% if current_schedule %}
         <span class="filter-chip" x-show="!!schedule">
             <span>{% blocktranslate with name=schedule_name %}Schedule: {{ name }}{% endblocktranslate %}</span>
-            <a href="?{% querystring_without 'schedule' 'page' %}" @click.prevent="clearParam('schedule')"
+            <a href="{% querystring schedule=None page=None %}" @click.prevent="clearParam('schedule')"
                class="filter-chip__x" aria-label="{% translate 'Clear schedule filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
         {% if current_batch %}
         <span class="filter-chip" x-show="!!batch">
             <span>{% blocktranslate with id=current_batch_short %}Batch {{ id }}{% endblocktranslate %}</span>
-            <a href="?{% querystring_without 'batch' 'page' %}" @click.prevent="clearParam('batch')"
+            <a href="{% querystring batch=None page=None %}" @click.prevent="clearParam('batch')"
                class="filter-chip__x" aria-label="{% translate 'Clear batch filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}

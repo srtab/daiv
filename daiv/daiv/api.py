@@ -1,10 +1,10 @@
+from dashboard.api.views import nav_router
 from jobs.api.views import jobs_router
 from mcp_api.api.views import oauth_router
 from ninja import NinjaAPI
 from notifications.api.views import router as notifications_router
 from sessions.api.views import sessions_router
 
-from accounts.api.views import nav_router
 from automation.api.views import router as automation_router
 from chat.api.views import chat_router
 from codebase.api.router import router as codebase_router

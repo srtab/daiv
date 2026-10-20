@@ -15,7 +15,6 @@ from django.views.generic import TemplateView
 from asgiref.sync import async_to_sync
 from django_filters.views import FilterView
 
-from accounts.context_processors import NAV_SECTION_MCP_GLOBAL
 from core.encryption import DecryptionError
 from core.mixins import AdminRequiredMixin
 from mcp_connectors import services
@@ -44,11 +43,11 @@ def _decorate(servers, *, global_names=frozenset()):
 
 
 def _pin_nav_section(request, obj: MCPServer) -> None:
-    """Pin the sidebar to the global section for a global row. The edit/delete URLs
+    """Highlight the global list's sidebar item for a global row. The edit/delete URLs
     are shared with the personal page and resolve to the personal section by default,
-    so global rows need the explicit override; no-op for user-scoped rows."""
+    so global rows borrow the global list's view name; no-op for user-scoped rows."""
     if obj.scope == MCPServer.Scope.GLOBAL:
-        request.nav_section_override = NAV_SECTION_MCP_GLOBAL
+        request.nav_view_name = "mcp_connectors:global_list"
 
 
 def _list_url_for_scope(scope) -> str:
