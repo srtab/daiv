@@ -20,13 +20,13 @@ from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
 from sandbox_envs.selection import resolve_env_for_run
+from sessions.ids import compute_thread_id
 from sessions.models import SessionOrigin
 from sessions.services import create_run
 
 from accounts.utils import resolve_user
 from codebase.base import GitPlatform, Scope
 from codebase.clients.base import Emoji
-from codebase.utils import compute_thread_id
 from core.site_settings import site_settings
 from webhooks.tasks import address_issue_label_task, address_issue_task, address_mr_comments_task
 

@@ -13,13 +13,13 @@ import pytest
 from asgiref.sync import sync_to_async
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.models import Scope as SandboxScope
+from sessions.ids import compute_thread_id
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.judgment import PipelineReport
 from sessions.queue import LINK_FAILED_PREFIX
 
 from codebase.base import Scope
-from codebase.utils import compute_thread_id
 
 from ..conftest import amake_watched_session, make_pipeline
 

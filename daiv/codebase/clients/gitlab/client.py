@@ -34,8 +34,8 @@ from codebase.base import (
 from codebase.clients import RepoClient
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
 from codebase.exceptions import CloneRefNotFoundError, MergeRequestBranchNotVisibleError
+from codebase.utils import is_git_auth_error_text, is_git_ref_not_found_text
 from core.constants import BOT_NAME
-from core.utils import is_git_auth_error_text, is_git_ref_not_found_text
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
@@ -86,7 +86,7 @@ def _is_clone_auth_error(error: GitCommandError) -> bool:
     Only auth rejections are worth retrying (with propagation backoff, then one re-mint); everything
     else would fail identically on a retry and so propagates immediately. A clone that under-matches
     would silently keep serving the dead cached token — the exact wedge this self-heal exists to
-    break — so it reuses the shared marker set (:func:`core.utils.is_git_auth_error_text`) the push
+    break — so it reuses the shared marker set (:func:`codebase.utils.is_git_auth_error_text`) the push
     side uses. Keep the markers tight, though: with the retry loop, over-matching a non-credential
     failure (e.g. a proxy or WAF 403) now costs the full propagation-and-re-mint budget (~30s / up to
     ten attempts) before the real error surfaces.

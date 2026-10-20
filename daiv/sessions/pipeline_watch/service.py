@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from django.utils.translation import gettext as _
 
 from codebase.base import Scope
-from codebase.utils import compute_thread_id
+from sessions.ids import compute_thread_id
 from sessions.models import WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.judgment import Judgment, PipelineReport
