@@ -214,11 +214,11 @@ Repository access sync
 
 ### GitLab Integration
 
-| Variable                         | Description                                | Default  | Example                 |
-| -------------------------------- | ------------------------------------------ | -------- | ----------------------- |
-| `CODEBASE_GITLAB_URL`            | URL of the GitLab instance                 | *(none)* | `https://gitlab.com`    |
-| `CODEBASE_GITLAB_AUTH_TOKEN`     | Authentication token for GitLab            | *(none)* | `glpat-xyz`             |
-| `CODEBASE_GITLAB_WEBHOOK_SECRET` | Secret token for GitLab webhook validation | *(none)* | `random-webhook-secret` |
+| Variable                         | Description                                                                                               | Default  | Example                 |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------- | -------- | ----------------------- |
+| `CODEBASE_GITLAB_URL`            | URL of the GitLab instance                                                                                | *(none)* | `https://gitlab.com`    |
+| `CODEBASE_GITLAB_AUTH_TOKEN`     | Authentication token for GitLab                                                                           | *(none)* | `glpat-xyz`             |
+| `CODEBASE_GITLAB_WEBHOOK_SECRET` | Secret token for GitLab webhook validation. Without it, every GitLab webhook request is rejected with 401 | *(none)* | `random-webhook-secret` |
 
 Note
 
@@ -228,13 +228,13 @@ For git clone/push, DAIV does not embed this PAT in the repository workspace. In
 
 ### GitHub Integration
 
-| Variable                          | Description                                | Default  | Example                 |
-| --------------------------------- | ------------------------------------------ | -------- | ----------------------- |
-| `CODEBASE_GITHUB_URL`             | URL of the GitHub instance                 | *(none)* | `https://github.com`    |
-| `CODEBASE_GITHUB_APP_ID`          | GitHub App ID                              | *(none)* | `123456`                |
-| `CODEBASE_GITHUB_INSTALLATION_ID` | GitHub App Installation ID                 | *(none)* | `789012`                |
-| `CODEBASE_GITHUB_PRIVATE_KEY`     | GitHub App private key (PEM format)        | *(none)* |                         |
-| `CODEBASE_GITHUB_WEBHOOK_SECRET`  | Secret token for GitHub webhook validation | *(none)* | `random-webhook-secret` |
+| Variable                          | Description                                                                                               | Default  | Example                 |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------- | -------- | ----------------------- |
+| `CODEBASE_GITHUB_URL`             | URL of the GitHub instance                                                                                | *(none)* | `https://github.com`    |
+| `CODEBASE_GITHUB_APP_ID`          | GitHub App ID                                                                                             | *(none)* | `123456`                |
+| `CODEBASE_GITHUB_INSTALLATION_ID` | GitHub App Installation ID                                                                                | *(none)* | `789012`                |
+| `CODEBASE_GITHUB_PRIVATE_KEY`     | GitHub App private key (PEM format)                                                                       | *(none)* |                         |
+| `CODEBASE_GITHUB_WEBHOOK_SECRET`  | Secret token for GitHub webhook validation. Without it, every GitHub webhook request is rejected with 401 | *(none)* | `random-webhook-secret` |
 
 Note
 
