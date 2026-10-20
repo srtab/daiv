@@ -3,7 +3,7 @@ import logging
 from hashlib import sha256
 from typing import TYPE_CHECKING
 
-from codebase.conf import settings
+from webhooks.conf import settings
 
 if TYPE_CHECKING:
     from django.http import HttpRequest

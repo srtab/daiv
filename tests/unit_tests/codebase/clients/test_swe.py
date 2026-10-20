@@ -199,9 +199,9 @@ class TestSWERepoClient:
             ("get_issue", ("repo", 1)),
             ("create_issue_comment", ("repo", 1, "body")),
             ("create_issue_emoji", ("repo", 1, Mock(), "note_id")),
-            ("get_issue_comment", ("repo", 1, "comment_id")),
+            ("get_issue_note", ("repo", 1, 2)),
             ("get_merge_request", ("repo", 1)),
-            ("get_merge_request_comment", ("repo", 1, "comment_id")),
+            ("get_merge_request_note", ("repo", 1, 2)),
             ("create_merge_request_note_emoji", ("repo", 1, Mock(), "note_id")),
             ("mark_merge_request_comment_as_resolved", ("repo", 1, "discussion_id")),
         ]

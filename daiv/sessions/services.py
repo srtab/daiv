@@ -30,8 +30,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.sessions")
 
-TASK_RUN_LOOKUP_DELAYS_S = (0.5, 1.0, 2.0)
-
 
 @dataclass(frozen=True)
 class RepoTarget:
@@ -61,7 +59,7 @@ def _validate(repos: list[RepoTarget]) -> None:
         raise ValueError(f"repos exceeds the maximum of {MAX_REPOS_PER_BATCH}")
 
 
-async def aget_or_create_session(
+def get_or_create_session(
     *,
     thread_id: str,
     origin: str,
@@ -83,7 +81,7 @@ async def aget_or_create_session(
     continued via API keeps origin=issue_webhook). External refs never land here —
     :func:`_amerge_session_refs` writes them only after a run row exists.
     """
-    session, created = await Session.objects.aget_or_create(
+    session, created = Session.objects.get_or_create(
         thread_id=thread_id,
         defaults={
             "origin": origin,
@@ -102,7 +100,7 @@ async def aget_or_create_session(
         },
     )
     if not created:
-        await session.atouch()
+        session.touch()
     return session
 
 
@@ -160,16 +158,10 @@ async def aget_session_ref(*, thread_id: str) -> str:
 async def aget_task_run_id(task_result_id: uuid.UUID | str) -> str | None:
     """The id of the ``Run`` linked to a task result, or ``None`` when none is.
 
-    A webhook callback creates the Run only after enqueueing its task, so a worker that claims the task in
-    between finds no row yet; the lookup waits a few seconds for it before giving up.
+    A webhook callback commits the Run with its task (see ``webhooks.dispatch``), so a worker that sees the task
+    sees its Run too.
     """
-    lookup = Run.objects.filter(task_result_id=task_result_id).values_list("pk", flat=True)
-    run_id = await lookup.afirst()
-    for delay in TASK_RUN_LOOKUP_DELAYS_S:
-        if run_id is not None:
-            break
-        await asyncio.sleep(delay)
-        run_id = await lookup.afirst()
+    run_id = await Run.objects.filter(task_result_id=task_result_id).values_list("pk", flat=True).afirst()
     if run_id is None:
         logger.warning("No run is linked to task result %s; running without one", task_result_id)
         return None
@@ -185,7 +177,7 @@ async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
     await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
 
 
-async def acreate_run(
+def create_run(
     *,
     trigger_type: str,
     task_result_id: uuid.UUID | None,
@@ -194,7 +186,6 @@ async def acreate_run(
     prompt: str = "",
     agent_model: str = "",
     agent_thinking_level: str = "",
-    use_max: bool = False,
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
     mention_comment_id: str = "",
@@ -209,19 +200,9 @@ async def acreate_run(
     status: str = RunStatus.READY,
     mcp_overrides: dict | None = None,
 ) -> Run:
-    """Async: create a Session (idempotent) then a Run linked to it.
-
-    ``use_max=True`` pins the site-configured max agent model/thinking level (used by
-    the ``daiv-max`` webhook label) unless an explicit ``agent_model`` was supplied.
-    """
-    if use_max and not agent_model:
-        from core.site_settings import site_settings
-
-        agent_model = site_settings.agent_max_model_name
-        agent_thinking_level = site_settings.agent_max_thinking_level
-    effective_thread_id = thread_id or str(uuid.uuid4())
-    session = await aget_or_create_session(
-        thread_id=effective_thread_id,
+    """Create a Session (idempotent) then a Run linked to it."""
+    session = get_or_create_session(
+        thread_id=thread_id or str(uuid.uuid4()),
         origin=trigger_type,
         repo_id=repo_id,
         ref=ref,
@@ -236,7 +217,7 @@ async def acreate_run(
         merge_request_iid=merge_request_iid,
         mcp_overrides=mcp_overrides,
     )
-    return await Run.objects.acreate(
+    return Run.objects.create(
         session=session,
         trigger_type=trigger_type,
         status=status,
@@ -255,6 +236,9 @@ async def acreate_run(
         merge_request_iid=merge_request_iid,
         mention_comment_id=mention_comment_id,
     )
+
+
+acreate_run = sync_to_async(create_run)
 
 
 async def asubmit_batch_runs(

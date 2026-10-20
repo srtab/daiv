@@ -2,23 +2,18 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
-from gitlab.exceptions import GitlabError
-from sandbox_envs.selection import resolve_env_for_run
-from sessions.models import SessionOrigin
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.service import PipelineWatch
-from sessions.services import acreate_run
 
-from accounts.utils import resolve_user
-from codebase.base import Scope
+from codebase.base import GitPlatform, NoteType
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from codebase.utils import compute_thread_id, note_mentions_daiv
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from codebase.utils import note_mentions_daiv
+from core.constants import has_bot_label, has_max_label
 from webhooks.callbacks import BaseCallback
-from webhooks.tasks import address_issue_task, address_mr_comments_task
+from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
 from .models import (  # noqa: TC001
     Issue,
@@ -36,6 +31,10 @@ from .models import (  # noqa: TC001
 )
 
 logger = logging.getLogger("daiv.webhooks")
+
+
+def _author(user: User) -> Author:
+    return Author(provider=GitPlatform.GITLAB, uid=user.id, username=user.username, email=user.email)
 
 
 class IssueCallback(BaseCallback):
@@ -89,21 +88,16 @@ class IssueCallback(BaseCallback):
                 logger.debug("Issue update without label changes, ignoring")
                 return False
 
-            # Check if a DAIV label was added
-            daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
             previous_labels = {label.title.lower() for label in self.changes.labels.previous}
-            current_labels = {label.title.lower() for label in self.changes.labels.current}
-
-            # Find labels that were added
-            added_labels = current_labels - previous_labels
-            daiv_label_added = bool(added_labels & daiv_labels)
-
-            if not daiv_label_added:
+            added_labels = [
+                label.title for label in self.changes.labels.current if label.title.lower() not in previous_labels
+            ]
+            if not has_bot_label(added_labels):
                 logger.debug("No DAIV label was added in this update, ignoring")
                 return False
 
         # For OPEN action, check if issue has DAIV label
-        elif not self.object_attributes.is_daiv():
+        elif not has_bot_label(self.object_attributes.label_names):
             return False
 
         return True
@@ -112,42 +106,14 @@ class IssueCallback(BaseCallback):
         """
         Trigger the task to address the issue.
         """
-        try:
-            self._client.create_issue_emoji(self.project.path_with_namespace, self.object_attributes.iid, Emoji.EYES)
-        except GitlabError, OSError:
-            logger.exception("Failed to add reaction to issue %s", self.object_attributes.iid)
-        thread_id = compute_thread_id(
-            repo_slug=self.project.path_with_namespace, scope=Scope.ISSUE, entity_iid=self.object_attributes.iid
-        )
-        # user=None: the webhook fires for whoever touched the issue/MR, not the agent owner, so USER envs never apply.
-        sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
-        sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
-        use_max = self.object_attributes.has_max_label()
-        result = await address_issue_task.aenqueue(
+        await dispatch_issue_run(
+            client=self._client,
             repo_id=self.project.path_with_namespace,
             issue_iid=self.object_attributes.iid,
-            thread_id=thread_id,
-            sandbox_environment_id=sandbox_environment_id,
-            use_max=use_max,
+            title=self.object_attributes.title,
+            use_max=has_max_label(self.object_attributes.label_names),
+            author=_author(self.user),
         )
-        daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
-        try:
-            await acreate_run(
-                trigger_type=SessionOrigin.ISSUE_WEBHOOK,
-                task_result_id=result.id,
-                repo_id=self.project.path_with_namespace,
-                issue_iid=self.object_attributes.iid,
-                use_max=use_max,
-                user=daiv_user,
-                external_username=self.user.username,
-                title=self.object_attributes.title,
-                thread_id=thread_id,
-                sandbox_environment_id=sandbox_environment_id,
-            )
-        except Exception:
-            logger.exception(
-                "Failed to create run for issue %s#%s", self.project.path_with_namespace, self.object_attributes.iid
-            )
 
 
 class NoteCallback(BaseCallback):
@@ -194,90 +160,28 @@ class NoteCallback(BaseCallback):
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
-        daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
-
+        mention = Mention(note_id=self.object_attributes.id, comment_id=self.object_attributes.discussion_id)
         if self.issue and self._is_issue_comment:
-            try:
-                self._client.create_issue_emoji(
-                    self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
-                )
-            except GitlabError, OSError:
-                logger.exception("Failed to add reaction to issue comment %s", self.object_attributes.id)
-            thread_id = compute_thread_id(
-                repo_slug=self.project.path_with_namespace, scope=Scope.ISSUE, entity_iid=self.issue.iid
-            )
-            sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
-            sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
-            use_max = self.issue.has_max_label()
-            result = await address_issue_task.aenqueue(
+            await dispatch_issue_run(
+                client=self._client,
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.issue.iid,
-                mention_comment_id=self.object_attributes.discussion_id,
-                thread_id=thread_id,
-                sandbox_environment_id=sandbox_environment_id,
-                use_max=use_max,
+                title=self.issue.title,
+                use_max=has_max_label(self.issue.label_names),
+                author=_author(self.user),
+                mention=mention,
             )
-            try:
-                await acreate_run(
-                    trigger_type=SessionOrigin.ISSUE_WEBHOOK,
-                    task_result_id=result.id,
-                    repo_id=self.project.path_with_namespace,
-                    issue_iid=self.issue.iid,
-                    mention_comment_id=self.object_attributes.discussion_id,
-                    use_max=use_max,
-                    user=daiv_user,
-                    external_username=self.user.username,
-                    title=self.issue.title,
-                    thread_id=thread_id,
-                    sandbox_environment_id=sandbox_environment_id,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to create run for issue comment %s#%s", self.project.path_with_namespace, self.issue.iid
-                )
-
         elif self.merge_request and self._is_merge_request_comment:
-            try:
-                self._client.create_merge_request_note_emoji(
-                    self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
-                )
-            except GitlabError, OSError:
-                logger.exception("Failed to add reaction to MR comment %s", self.object_attributes.id)
-            thread_id = compute_thread_id(
-                repo_slug=self.project.path_with_namespace, scope=Scope.MERGE_REQUEST, entity_iid=self.merge_request.iid
-            )
-            sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
-            sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
-            use_max = self.merge_request.has_max_label()
-            result = await address_mr_comments_task.aenqueue(
+            await dispatch_mr_comment_run(
+                client=self._client,
                 repo_id=self.project.path_with_namespace,
-                merge_request_id=self.merge_request.iid,
-                mention_comment_id=self.object_attributes.discussion_id,
-                thread_id=thread_id,
-                sandbox_environment_id=sandbox_environment_id,
-                use_max=use_max,
+                merge_request_iid=self.merge_request.iid,
+                ref=self.merge_request.source_branch,
+                title=self.merge_request.title,
+                use_max=has_max_label(self.merge_request.label_names),
+                author=_author(self.user),
+                mention=mention,
             )
-            try:
-                await acreate_run(
-                    trigger_type=SessionOrigin.MR_WEBHOOK,
-                    task_result_id=result.id,
-                    repo_id=self.project.path_with_namespace,
-                    ref=self.merge_request.source_branch,
-                    merge_request_iid=self.merge_request.iid,
-                    mention_comment_id=self.object_attributes.discussion_id,
-                    use_max=use_max,
-                    user=daiv_user,
-                    external_username=self.user.username,
-                    title=self.merge_request.title,
-                    thread_id=thread_id,
-                    sandbox_environment_id=sandbox_environment_id,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to create run for MR comment %s#%s",
-                    self.project.path_with_namespace,
-                    self.merge_request.iid,
-                )
 
     @cached_property
     def _is_merge_request_comment(self) -> bool:
@@ -286,7 +190,7 @@ class NoteCallback(BaseCallback):
         """
         return bool(
             self._repo_config.pull_request_assistant.enabled
-            and self.object_attributes.type is None  # This is a comment note.
+            and self.object_attributes.type in (None, NoteType.DISCUSSION_NOTE)
             and self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
             and self.object_attributes.action in [NoteAction.CREATE, NoteAction.UPDATE]
             and self.merge_request

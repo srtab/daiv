@@ -210,9 +210,9 @@ class Session(models.Model):
         )
         return {self.merge_request_iid, *run_iids} - {None}
 
-    async def atouch(self) -> None:
-        """Bump ``last_active_at`` (queryset update; safe from async contexts)."""
-        await type(self).objects.filter(pk=self.pk).aupdate(last_active_at=timezone.now())
+    def touch(self) -> None:
+        """Bump ``last_active_at`` (a queryset update, so no other column is written)."""
+        type(self).objects.filter(pk=self.pk).update(last_active_at=timezone.now())
 
     def external_references(self) -> tuple[ExternalRef, ...]:
         """The stored refs as validated objects — the one route from this column into a run, so no

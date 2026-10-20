@@ -4,8 +4,6 @@ from typing import Literal
 from ninja import Field
 from pydantic import BaseModel
 
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
-
 
 class MergeRequestAction(StrEnum):
     """
@@ -68,21 +66,9 @@ class Issue(BaseModel):
     labels: list[Label]
     type: Literal["Issue", "Task"]
 
-    def is_daiv(self) -> bool:
-        """
-        Check if the issue is a DAIV issue by checking for any DAIV label (daiv, daiv-auto, daiv-max).
-
-        All three labels are triggers that launch the agent:
-        - daiv: Standard mode
-        - daiv-auto: Triggers agent with auto-approval enabled
-        - daiv-max: High-performance mode
-        """
-        daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
-        return any(label.title.lower() in daiv_labels for label in self.labels)
-
-    def has_max_label(self) -> bool:
-        """Check if the issue carries the ``daiv-max`` label (case-insensitive)."""
-        return any(label.title.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
+    @property
+    def label_names(self) -> list[str]:
+        return [label.title for label in self.labels]
 
 
 class MergeRequest(BaseModel):
@@ -101,21 +87,9 @@ class MergeRequest(BaseModel):
     assignee_id: int | None = None
     labels: list[Label] = Field(default_factory=list)
 
-    def is_daiv(self) -> bool:
-        """
-        Check if the merge request is a DAIV merge request by checking for any DAIV label (daiv, daiv-auto, daiv-max).
-
-        All three labels are triggers that launch the agent:
-        - daiv: Standard mode
-        - daiv-auto: Triggers agent with auto-approval enabled
-        - daiv-max: High-performance mode
-        """
-        daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
-        return any(label.title.lower() in daiv_labels for label in self.labels)
-
-    def has_max_label(self) -> bool:
-        """Check if the merge request carries the ``daiv-max`` label (case-insensitive)."""
-        return any(label.title.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
+    @property
+    def label_names(self) -> list[str]:
+        return [label.title for label in self.labels]
 
 
 class NoteableType(StrEnum):

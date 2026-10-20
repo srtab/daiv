@@ -5,8 +5,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from core.constants import BOT_AUTO_LABEL
-
 
 class GitPlatform(StrEnum):
     GITLAB = "gitlab"
@@ -222,22 +220,6 @@ class Note(BaseModel):
     hunk: str | None = None
 
 
-class SimpleDiscussion(BaseModel):
-    id: str
-    resolve_id: str | None = None  # The id of the comment to resolve, only used for GitHub.
-    is_thread: bool = False
-    is_resolvable: bool = False
-
-
-class Discussion(SimpleDiscussion):
-    notes: list[Note] = Field(default_factory=list)
-
-    def as_simple(self) -> SimpleDiscussion:
-        return SimpleDiscussion(
-            id=self.id, resolve_id=self.resolve_id, is_thread=self.is_thread, is_resolvable=self.is_resolvable
-        )
-
-
 class IssueType(StrEnum):
     ISSUE = "issue"
     TASK = "task"
@@ -254,12 +236,3 @@ class Issue(BaseModel):
     issue_type: IssueType = IssueType.ISSUE
     notes: list[Note] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
-
-    def has_auto_label(self) -> bool:
-        """
-        Check if the issue has the daiv-auto label (case-insensitive).
-
-        Returns:
-            bool: True if the issue has the daiv-auto label, False otherwise.
-        """
-        return any(label.lower() == BOT_AUTO_LABEL.lower() for label in self.labels)

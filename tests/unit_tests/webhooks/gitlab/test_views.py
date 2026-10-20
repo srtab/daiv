@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 from ninja.testing import TestAsyncClient
+from webhooks.conf import settings as webhooks_settings
 from webhooks.gitlab.callbacks import PushCallback
 from webhooks.gitlab.models import Project
 
@@ -75,11 +76,11 @@ async def test_gitlab_callback_non_ascii_token_is_401_not_500(client: TestAsyncC
     process_callback.assert_not_called()
 
 
-async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback, mock_settings):
+async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback, monkeypatch):
     """
     Test GitLab callback with not accepted webhook.
     """
-    mock_settings.GITLAB_WEBHOOK_SECRET = None
+    monkeypatch.setattr(webhooks_settings, "GITLAB_WEBHOOK_SECRET", None)
 
     # Execute
     with (

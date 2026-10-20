@@ -3,8 +3,6 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic.fields import Field
 
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
-
 
 class User(BaseModel):
     """
@@ -48,21 +46,9 @@ class Issue(BaseModel):
     pull_request: dict | None = None
     draft: bool = False
 
-    def is_daiv(self) -> bool:
-        """
-        Check if the issue is a DAIV issue by checking for any DAIV label (daiv, daiv-auto, daiv-max).
-
-        All three labels are triggers that launch the agent:
-        - daiv: Standard mode
-        - daiv-auto: Triggers agent with auto-approval enabled
-        - daiv-max: High-performance mode
-        """
-        daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
-        return any(label.name.lower() in daiv_labels for label in self.labels)
-
-    def has_max_label(self) -> bool:
-        """Check if the issue/PR carries the ``daiv-max`` label (case-insensitive)."""
-        return any(label.name.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
+    @property
+    def label_names(self) -> list[str]:
+        return [label.name for label in self.labels]
 
     def is_pull_request(self) -> bool:
         """
@@ -139,10 +125,6 @@ class PullRequest(BaseModel):
     base: Ref
     labels: list[Label] = Field(default_factory=list)
     user: User | None = None
-
-    def has_max_label(self) -> bool:
-        """Check if the pull request carries the ``daiv-max`` label (case-insensitive)."""
-        return any(label.name.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
 
 
 class WorkflowRun(BaseModel):

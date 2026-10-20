@@ -1,13 +1,15 @@
 import logging
 
 from django.core.management.base import BaseCommand
+from django.urls import reverse
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.base import WebhookSetupResult
-from codebase.conf import settings
+from codebase.conf import settings as codebase_settings
 from core.conf import settings as core_settings
 from core.utils import build_uri
+from webhooks.conf import settings
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -34,7 +36,7 @@ class Command(BaseCommand):
         parser.add_argument("--repo-id", type=str, help="Restrict setup to a specific repository ID", default=None)
 
     def handle(self, *args, **options):
-        if settings.CLIENT == GitPlatform.GITHUB:
+        if codebase_settings.CLIENT == GitPlatform.GITHUB:
             logger.warning(
                 "GitHub webhooks must be set on the GitHub App configuration: "
                 "https://srtab.github.io/daiv/dev/getting-started/platform-setup/#step-4-verify-webhook-configuration"
@@ -48,7 +50,7 @@ class Command(BaseCommand):
             secret_token = settings.GITLAB_WEBHOOK_SECRET.get_secret_value()
 
         update = options["update"]
-        callback_url = build_uri(options["base_url"], f"/api/codebase/callbacks/{settings.CLIENT}/")
+        callback_url = build_uri(options["base_url"], reverse("api:gitlab_callback"))
 
         if options["repo_id"]:
             projects = [repo_client.get_repository(options["repo_id"])]

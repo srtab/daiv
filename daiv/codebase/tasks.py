@@ -1,9 +1,6 @@
 import logging
 from datetime import UTC
 
-from django.conf import settings
-from django.core.management import call_command
-
 from crontask import cron
 from django_tasks import task
 from github.GithubException import GithubException
@@ -15,17 +12,6 @@ from codebase.conf import settings as codebase_settings
 from core.utils import locked_task
 
 logger = logging.getLogger("daiv.tasks")
-
-
-if codebase_settings.CLIENT == GitPlatform.GITLAB:
-
-    @cron(codebase_settings.WEBHOOK_SETUP_CRON)
-    @task
-    def setup_webhooks_cron_task():
-        """
-        Setup webhooks for all repositories periodically.
-        """
-        call_command("setup_webhooks", disable_ssl_verification=settings.DEBUG)  # noqa: S106
 
 
 @cron(codebase_settings.REPO_ACCESS_SYNC_CRON)

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import webhooks.tasks as webhooks_tasks
 from webhooks.tasks import address_issue_task, address_mr_comments_task
 
 from codebase.base import MergeRequest, User
@@ -15,6 +16,16 @@ def run_lookup():
     """The Run a webhook linked to ``_CONTEXT``'s task result, stubbed so these tests need no database."""
     with patch("webhooks.tasks.aget_task_run_id", AsyncMock(return_value="run-1")) as lookup:
         yield lookup
+
+
+async def test_setup_webhooks_cron_task_calls_command():
+    if not hasattr(webhooks_tasks, "setup_webhooks_cron_task"):
+        pytest.skip("setup_webhooks_cron_task is only defined for the GitLab client")
+
+    with patch("webhooks.tasks.call_command") as mock_call_command, patch("webhooks.tasks.django_settings.DEBUG", True):
+        await webhooks_tasks.setup_webhooks_cron_task.aenqueue()
+
+    mock_call_command.assert_called_once_with("setup_webhooks", disable_ssl_verification=True)
 
 
 def _mr(*, merged: bool) -> MergeRequest:
@@ -85,6 +96,7 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
             repo_id="group/repo",
             merge_request_id=7,
             mention_comment_id="d1",
+            mention_note_id=5,
             thread_id="t-7",
             use_max=False,
             sandbox_environment_id="e",
@@ -95,6 +107,7 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         "repo_id": "group/repo",
         "merge_request": merge_request,
         "mention_comment_id": "d1",
+        "mention_note_id": 5,
         "thread_id": "t-7",
         "sandbox_env_id": "e",
         "run_id": "run-1",
@@ -125,6 +138,7 @@ class TestAddressIssueTaskRef:
                 repo_id="group/repo",
                 issue_iid=10,
                 mention_comment_id="d1",
+                mention_note_id=5,
                 thread_id="t-1",
                 use_max=False,
                 ref=ref,
@@ -154,6 +168,7 @@ class TestAddressIssueTaskRef:
             "repo_id": "group/repo",
             "issue": addressed.issue,
             "mention_comment_id": "d1",
+            "mention_note_id": 5,
             "ref": None,
             "thread_id": "t-1",
             "sandbox_env_id": "e",

@@ -12,7 +12,6 @@ from github import Consts, Github, GithubIntegration, Installation
 from github.GithubException import GithubException
 
 from codebase.base import (
-    Discussion,
     GitPlatform,
     Issue,
     Job,
@@ -376,7 +375,7 @@ class GitHubClient(RepoClient):
             if issue.assignee
             else None,
             author=User(id=issue.user.id, username=issue.user.login, name=issue.user.name) if issue.user else None,
-            notes=self._serialize_comments(issue.get_comments()),
+            notes=[self._serialize_comment(comment, NoteableType.ISSUE) for comment in issue.get_comments()],
             labels=[label.name for label in issue.labels],
         )
 
@@ -397,24 +396,20 @@ class GitHubClient(RepoClient):
         issue = repo.create_issue(title=title, body=description, labels=labels or [])
         return issue.number
 
-    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
+    def get_issue_note(self, repo_id: str, issue_id: int, note_id: int) -> Note:
         """
-        Get a comment from an issue.
-
-        For GitHub, there's no distinction between comments and notes.
+        Get a comment on an issue.
 
         Args:
             repo_id: The repository ID.
-            issue_id: The issue ID.
-            comment_id: The comment ID.
+            issue_id: The issue number.
+            note_id: The comment ID.
 
         Returns:
-            The discussion object.
+            The comment as a note.
         """
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
-        comment = issue.get_comment(int(comment_id))
-        # GitHub doesn't have discussions like GitLab. This is a workaround to get the notes of an issue.
-        return Discussion(id=str(comment_id), notes=self._serialize_comments([comment]))
+        return self._serialize_comment(issue.get_comment(note_id), NoteableType.ISSUE)
 
     def create_issue_comment(
         self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
@@ -771,23 +766,22 @@ class GitHubClient(RepoClient):
         mr = repo.get_pull(merge_request_id)
         return self._serialize_pull_request(repo_id, mr, merged=mr.merged)
 
-    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
+    def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
         """
-        Get a comment from a merge request.
+        Get a comment on the pull request conversation.
 
         Args:
             repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            comment_id: The comment ID.
+            merge_request_id: The pull request number.
+            note_id: The comment ID.
 
         Returns:
-            The discussion object.
+            The comment as a note.
         """
         # A comment on the pull request conversation is an issue comment. Going through the issue
         # keeps this to one request: reaching it via ``get_pull`` would fetch the whole PR first.
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(merge_request_id)
-        comment = issue.get_comment(int(comment_id))
-        return Discussion(id=str(comment_id), notes=self._serialize_comments([comment], from_merge_request=True))
+        return self._serialize_comment(issue.get_comment(note_id), NoteableType.MERGE_REQUEST)
 
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """
@@ -820,27 +814,24 @@ class GitHubClient(RepoClient):
         user = self.client.get_user(f"{self.client_installation.app_slug}[bot]")
         return User(id=user.id, username=self.client_installation.app_slug, name=user.name)
 
-    def _serialize_comments(self, comments: list[IssueComment], from_merge_request: bool = False) -> list[Note]:
+    def _serialize_comment(self, comment: IssueComment, noteable_type: NoteableType) -> Note:
         """
-        Get the notes of an issue or a merge request.
+        Serialize an issue comment, which is also what a pull request conversation comment is.
 
         Only issue comments arrive here — DAIV subscribes to no review-comment event — so no note
-        carries a diff position.
+        carries a diff position. The author's ``name`` is left out: nothing reads it, and PyGithub completes a
+        missing one with a ``/users`` request per comment.
         """
-        return [
-            Note(
-                id=note.id,
-                body=note.body,
-                type=NoteType.DISCUSSION_NOTE,
-                noteable_type=NoteableType.MERGE_REQUEST if from_merge_request else NoteableType.ISSUE,
-                system=False,
-                resolvable=False,
-                resolved=False,
-                author=User(id=note.user.id, username=note.user.login, name=note.user.name),
-                position=None,
-            )
-            for note in comments
-        ]
+        return Note(
+            id=comment.id,
+            body=comment.body,
+            type=NoteType.DISCUSSION_NOTE,
+            noteable_type=noteable_type,
+            system=False,
+            resolvable=False,
+            resolved=False,
+            author=User(id=comment.user.id, username=comment.user.login),
+        )
 
     def _serialize_pull_request(self, repo_id: str, pr: PullRequest, *, merged: bool = False) -> MergeRequest:
         return MergeRequest(

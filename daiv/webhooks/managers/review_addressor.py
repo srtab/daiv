@@ -203,8 +203,8 @@ class CommentsAddressorManager(BaseManager):
     else may own. Pinned by ``test_a_successful_run_neither_moves_the_ref_nor_arms_the_watch``.
     """
 
-    def __init__(self, *, repo_id: str, merge_request: MergeRequest, mention_comment_id: str, thread_id: str):
-        super().__init__(repo_id=repo_id, thread_id=thread_id, mention_comment_id=mention_comment_id)
+    def __init__(self, *, merge_request: MergeRequest, **kwargs):
+        super().__init__(**kwargs)
         self.merge_request = merge_request
 
     @classmethod
@@ -216,6 +216,7 @@ class CommentsAddressorManager(BaseManager):
         mention_comment_id: str,
         thread_id: str,
         use_max: bool,
+        mention_note_id: int | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
     ) -> AgentResult:
@@ -228,6 +229,7 @@ class CommentsAddressorManager(BaseManager):
             mention_comment_id: The mention comment id.
             thread_id: The session's thread id.
             use_max: The max mode the callback decided.
+            mention_note_id: The note that mentioned the bot, which the run answers.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
 
@@ -236,7 +238,11 @@ class CommentsAddressorManager(BaseManager):
             raises ``CloneRefNotFoundError`` for the task to answer.
         """
         manager = cls(
-            repo_id=repo_id, merge_request=merge_request, mention_comment_id=mention_comment_id, thread_id=thread_id
+            repo_id=repo_id,
+            merge_request=merge_request,
+            mention_comment_id=mention_comment_id,
+            mention_note_id=mention_note_id,
+            thread_id=thread_id,
         )
 
         try:
@@ -248,9 +254,9 @@ class CommentsAddressorManager(BaseManager):
             raise
 
     async def _address_comments(self, *, sandbox_env_id: str | None, run_id: str | None, use_max: bool) -> AgentResult:
-        note = self.client.get_merge_request_comment(
-            self.repo_id, self.merge_request.merge_request_id, self.mention_comment_id
-        ).notes[0]
+        note = self.client.get_merge_request_note(
+            self.repo_id, self.merge_request.merge_request_id, self._require_mention_note_id()
+        )
         outcome = await execute_run(
             RunSpec(
                 thread_id=self.thread_id,
@@ -258,7 +264,7 @@ class CommentsAddressorManager(BaseManager):
                 scope=Scope.MERGE_REQUEST,
                 input_messages=(HumanMessage(name=note.author.username, id=note.id, content=note.body),),
                 trigger="mention",
-                lock=await self._lock_policy(),
+                lock=self._lock_policy(),
                 ref=self.merge_request.source_branch,
                 merge_request=self.merge_request,
                 use_max=use_max,

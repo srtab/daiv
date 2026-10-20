@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sessions.executor.lock import Held, NoLock, SessionLockTimeoutError, Wait, hold_session_lock, still_held
 from sessions.locks import SessionLock
+from sessions.models import Session
 
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 
@@ -84,6 +85,16 @@ class TestWait:
 
         body.assert_not_awaited()
         assert await active_holder(thread_id) == "chat-run"
+
+    async def test_a_thread_without_a_session_row_fails_instead_of_waiting(self):
+        body = AsyncMock()
+
+        with patch("sessions.executor.lock.asyncio.sleep") as sleep, pytest.raises(Session.DoesNotExist):
+            async with hold_session_lock(Wait(holder_id="run-1", timeout_s=60), "t-gone"):
+                await body()
+
+        body.assert_not_awaited()
+        sleep.assert_not_called()
 
 
 class TestHeld:

@@ -16,7 +16,7 @@ from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
 from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Scope
-from core.constants import BOT_NAME
+from core.constants import BOT_NAME, has_auto_label
 
 from .base import BaseManager
 
@@ -90,8 +90,8 @@ class IssueAddressorManager(BaseManager):
     message's, so a re-run on a changed issue appends both instead of rewriting the earlier prompt in place.
     """
 
-    def __init__(self, *, repo_id: str, issue: Issue, thread_id: str, mention_comment_id: str | None = None):
-        super().__init__(repo_id=repo_id, thread_id=thread_id, mention_comment_id=mention_comment_id)
+    def __init__(self, *, issue: Issue, **kwargs):
+        super().__init__(**kwargs)
         self.issue = issue
 
     @classmethod
@@ -103,6 +103,7 @@ class IssueAddressorManager(BaseManager):
         thread_id: str,
         use_max: bool,
         mention_comment_id: str | None = None,
+        mention_note_id: int | None = None,
         ref: str | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
@@ -116,6 +117,7 @@ class IssueAddressorManager(BaseManager):
             thread_id: The session's thread id.
             use_max: The max mode the callback decided.
             mention_comment_id: The discussion that mentioned the bot, or ``None`` for a label trigger.
+            mention_note_id: The note that mentioned the bot, which the run answers.
             ref: The branch to clone; ``None`` for the repository default.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
@@ -123,7 +125,13 @@ class IssueAddressorManager(BaseManager):
         Returns:
             An :class:`AgentResult`, or ``None`` when no model is configured (after saying so on the issue).
         """
-        manager = cls(repo_id=repo_id, issue=issue, mention_comment_id=mention_comment_id, thread_id=thread_id)
+        manager = cls(
+            repo_id=repo_id,
+            issue=issue,
+            mention_comment_id=mention_comment_id,
+            mention_note_id=mention_note_id,
+            thread_id=thread_id,
+        )
 
         try:
             return await manager._address_issue(ref=ref, sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max)
@@ -145,7 +153,7 @@ class IssueAddressorManager(BaseManager):
                 scope=Scope.ISSUE,
                 input_messages=(issue_message, prompt_message),
                 trigger="mention" if self.mention_comment_id else "label",
-                lock=await self._lock_policy(),
+                lock=self._lock_policy(),
                 ref=ref,
                 issue=self.issue,
                 fallback_ref_on_missing=True,
@@ -169,12 +177,12 @@ class IssueAddressorManager(BaseManager):
     def _input_message(self, *, issue_message_id: str) -> tuple[HumanMessage, str]:
         """The turn's message and who triggered it: the mention comment, or the prompt the bot label implies."""
         if self.mention_comment_id:
-            comment = self.client.get_issue_comment(self.repo_id, self.issue.iid, self.mention_comment_id).notes[-1]
+            comment = self.client.get_issue_note(self.repo_id, self.issue.iid, self._require_mention_note_id())
             return (
                 HumanMessage(name=comment.author.username, id=comment.id, content=comment.body),
                 comment.author.username,
             )
-        prompt = ADDRESS_ISSUE_PROMPT if self.issue.has_auto_label() else PLAN_ISSUE_PROMPT
+        prompt = ADDRESS_ISSUE_PROMPT if has_auto_label(self.issue.labels) else PLAN_ISSUE_PROMPT
         return (
             HumanMessage(
                 name=self.issue.author.username,

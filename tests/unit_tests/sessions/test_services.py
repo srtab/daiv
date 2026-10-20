@@ -8,6 +8,7 @@ from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult, get_date_max
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.queue import LINK_FAILED_PREFIX
@@ -15,12 +16,12 @@ from sessions.services import (
     BatchSubmitFailure,
     RepoTarget,
     acreate_run,
-    aget_or_create_session,
     aget_session_ref,
     aget_task_run_id,
     apersist_session_ref,
     areset_session_ref,
     asubmit_batch_runs,
+    get_or_create_session,
     submit_batch_runs,
 )
 from sessions.validators import validate_repo_list
@@ -92,19 +93,21 @@ def _patch_run_job_task(side_effect=None):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_aget_or_create_session_creates_with_origin():
+async def test_get_or_create_session_creates_with_origin():
     tid = str(uuid.uuid4())
-    session = await aget_or_create_session(thread_id=tid, origin=SessionOrigin.API_JOB, repo_id="g/r", ref="main")
+    session = await sync_to_async(get_or_create_session)(
+        thread_id=tid, origin=SessionOrigin.API_JOB, repo_id="g/r", ref="main"
+    )
     assert session.thread_id == tid
     assert session.origin == SessionOrigin.API_JOB
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_aget_or_create_session_existing_keeps_origin_and_touches():
+async def test_get_or_create_session_existing_keeps_origin_and_touches():
     tid = str(uuid.uuid4())
-    first = await aget_or_create_session(thread_id=tid, origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="g/r")
+    first = await sync_to_async(get_or_create_session)(thread_id=tid, origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="g/r")
     before = first.last_active_at
-    again = await aget_or_create_session(thread_id=tid, origin=SessionOrigin.API_JOB, repo_id="g/r")
+    again = await sync_to_async(get_or_create_session)(thread_id=tid, origin=SessionOrigin.API_JOB, repo_id="g/r")
     assert again.pk == first.pk
     assert again.origin == SessionOrigin.ISSUE_WEBHOOK  # first trigger wins
     await again.arefresh_from_db()
@@ -649,11 +652,10 @@ class TestSessionContinuation:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_aget_or_create_session_stamps_mcp_overrides():
+async def test_get_or_create_session_stamps_mcp_overrides():
     from sessions.models import SessionOrigin
-    from sessions.services import aget_or_create_session
 
-    s = await aget_or_create_session(
+    s = await sync_to_async(get_or_create_session)(
         thread_id="t-ov", origin=SessionOrigin.UI_JOB, repo_id="g/r", mcp_overrides={"a": "off"}
     )
     assert s.mcp_overrides == {"a": "off"}
@@ -662,12 +664,11 @@ async def test_aget_or_create_session_stamps_mcp_overrides():
 @pytest.mark.django_db(transaction=True)
 async def test_continuation_submit_does_not_clobber_stored_overrides():
     from sessions.models import SessionOrigin
-    from sessions.services import aget_or_create_session
 
-    await aget_or_create_session(
+    await sync_to_async(get_or_create_session)(
         thread_id="t-keep", origin=SessionOrigin.UI_JOB, repo_id="g/r", mcp_overrides={"a": "off"}
     )
-    again = await aget_or_create_session(
+    again = await sync_to_async(get_or_create_session)(
         thread_id="t-keep", origin=SessionOrigin.UI_JOB, repo_id="g/r", mcp_overrides={"b": "on"}
     )
     assert again.mcp_overrides == {"a": "off"}
@@ -803,28 +804,10 @@ async def test_task_run_id_is_the_run_linked_to_the_task_result():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_task_run_id_waits_for_a_run_the_webhook_links_after_enqueueing():
-    """The callback creates the Run only after ``aenqueue`` returns, so a worker can claim the task first."""
+async def test_task_run_id_is_none_when_no_run_is_linked(caplog):
     task_result = await _make_db_task_result()
 
-    async def _webhook_commits_the_run(_delay):
-        await acreate_run(trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result_id=task_result.id, repo_id="a/b")
-
-    with patch("sessions.services.asyncio.sleep", AsyncMock(side_effect=_webhook_commits_the_run)) as sleep:
-        run_id = await aget_task_run_id(task_result.id)
-
-    assert run_id == str((await Run.objects.aget(task_result_id=task_result.id)).pk)
-    assert sleep.await_count == 1
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_task_run_id_is_none_once_the_wait_runs_out(caplog):
-    task_result = await _make_db_task_result()
-
-    with patch("sessions.services.asyncio.sleep", AsyncMock()) as sleep:
-        assert await aget_task_run_id(task_result.id) is None
-
-    assert sleep.await_count > 0
+    assert await aget_task_run_id(task_result.id) is None
     assert f"No run is linked to task result {task_result.id}" in caplog.text
 
 
@@ -883,7 +866,7 @@ async def test_a_failed_run_creation_leaves_no_refs_on_the_session():
     surviving ``closes`` ref would auto-close an issue from the next turn's MR."""
     thread_id = str(uuid.uuid4())
     await _submit_turn(thread_id, references=[RefIn(key="PROJ-1", provider="jira")])
-    with patch("sessions.services.Run.objects.acreate", AsyncMock(side_effect=RuntimeError("boom"))):
+    with patch("sessions.services.Run.objects.create", side_effect=RuntimeError("boom")):
         result = await _submit_turn(thread_id, references=[RefIn(key="GONE-1", provider="sentry", relation="closes")])
     assert len(result.failed) == 1
     session = await Session.objects.aget(thread_id=thread_id)
@@ -894,7 +877,7 @@ async def test_a_failed_run_creation_leaves_no_refs_on_the_session():
 async def test_a_failed_run_creation_on_a_new_thread_leaves_no_refs():
     """First-turn variant: the seed must not land before the run row exists either."""
     thread_id = str(uuid.uuid4())
-    with patch("sessions.services.Run.objects.acreate", AsyncMock(side_effect=RuntimeError("boom"))):
+    with patch("sessions.services.Run.objects.create", side_effect=RuntimeError("boom")):
         result = await _submit_turn(thread_id, references=[RefIn(key="GONE-1", provider="sentry", relation="closes")])
     assert len(result.failed) == 1
     session = await Session.objects.aget(thread_id=thread_id)

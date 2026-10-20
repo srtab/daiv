@@ -1,11 +1,19 @@
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from django.conf import settings as django_settings
+from django.core.management import call_command
+
+from crontask import cron
 from django_tasks import task
 from sessions.services import aget_session_ref, aget_task_run_id
 
+from codebase.base import GitPlatform
 from codebase.clients import RepoClient
+from codebase.conf import settings as codebase_settings
 from codebase.exceptions import CloneRefNotFoundError
+from webhooks.conf import settings
 
 if TYPE_CHECKING:
     from django_tasks import TaskContext
@@ -14,6 +22,17 @@ if TYPE_CHECKING:
     from codebase.base import MergeRequest
 
 logger = logging.getLogger("daiv.tasks")
+
+
+if codebase_settings.CLIENT == GitPlatform.GITLAB:
+
+    @cron(settings.WEBHOOK_SETUP_CRON)
+    @task
+    def setup_webhooks_cron_task():
+        """
+        Setup webhooks for all repositories periodically.
+        """
+        call_command("setup_webhooks", disable_ssl_verification=django_settings.DEBUG)
 
 
 def _mr_comment_skip_result(response: str, merge_request: MergeRequest) -> AgentResult:
@@ -29,7 +48,7 @@ def _mr_comment_skip_result(response: str, merge_request: MergeRequest) -> Agent
     )
 
 
-@task(dedup=True, takes_context=True)
+@task(dedup=True, dedup_on=("repo_id", "issue_iid", "mention_note_id"), takes_context=True)
 async def address_issue_task(
     context: TaskContext,
     repo_id: str,
@@ -37,6 +56,7 @@ async def address_issue_task(
     thread_id: str,
     use_max: bool,
     mention_comment_id: str | None = None,
+    mention_note_id: int | None = None,
     ref: str | None = None,
     sandbox_environment_id: str | None = None,
 ) -> AgentResult | None:
@@ -50,6 +70,8 @@ async def address_issue_task(
         thread_id (str): The LangGraph checkpoint key minted by the caller.
         use_max (bool): The max mode the callback decided and stamped on the ``Run``.
         mention_comment_id (str | None): The mention comment id. Defaults to None.
+        mention_note_id (int | None): The note that mentioned DAIV, which the run answers; with ``repo_id`` and the
+            iid, the run's dedup key, so each reply in one GitLab discussion gets its own run.
         ref (str | None): The ref to clone. Defaults to the session's working branch, else the repository default.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
     """
@@ -64,6 +86,7 @@ async def address_issue_task(
         repo_id=repo_id,
         issue=issue,
         mention_comment_id=mention_comment_id,
+        mention_note_id=mention_note_id,
         ref=effective_ref or None,
         thread_id=thread_id,
         sandbox_env_id=sandbox_environment_id,
@@ -72,7 +95,11 @@ async def address_issue_task(
     )
 
 
-@task(dedup=True, takes_context=True)
+# A label trigger whose run finished is a new request: DAIV's reaction, once removed, no longer blocks it.
+address_issue_label_task = replace(address_issue_task, dedup_successful=False)
+
+
+@task(dedup=True, dedup_on=("repo_id", "merge_request_id", "mention_note_id"), takes_context=True)
 async def address_mr_comments_task(
     context: TaskContext,
     repo_id: str,
@@ -80,6 +107,7 @@ async def address_mr_comments_task(
     mention_comment_id: str,
     thread_id: str,
     use_max: bool,
+    mention_note_id: int | None = None,
     sandbox_environment_id: str | None = None,
 ) -> AgentResult:
     """
@@ -92,6 +120,8 @@ async def address_mr_comments_task(
         mention_comment_id (str): The mention comment id.
         thread_id (str): The LangGraph checkpoint key minted by the caller.
         use_max (bool): The max mode the callback decided and stamped on the ``Run``.
+        mention_note_id (int | None): The note that mentioned DAIV, which the run answers; with ``repo_id`` and the
+            iid, the run's dedup key, so each reply in one GitLab discussion gets its own run.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
     """
     from webhooks.managers.review_addressor import CommentsAddressorManager
@@ -114,6 +144,7 @@ async def address_mr_comments_task(
             repo_id=repo_id,
             merge_request=merge_request,
             mention_comment_id=mention_comment_id,
+            mention_note_id=mention_note_id,
             thread_id=thread_id,
             sandbox_env_id=sandbox_environment_id,
             run_id=await aget_task_run_id(context.task_result.id),

@@ -1,4 +1,8 @@
+from typing import Literal
+from unittest.mock import AsyncMock, patch
+
 import pytest
+from webhooks.dispatch import Author, Mention
 from webhooks.gitlab.callbacks import IssueCallback, MergeRequestCallback, NoteCallback
 from webhooks.gitlab.models import (
     Issue,
@@ -16,8 +20,7 @@ from webhooks.gitlab.models import (
     User,
 )
 
-from codebase.base import Discussion
-from codebase.base import Note as BaseNote
+from codebase.base import GitPlatform
 from codebase.base import User as BaseUser
 from codebase.repo_config import RepositoryConfig
 
@@ -25,14 +28,7 @@ from codebase.repo_config import RepositoryConfig
 class StubClient:
     def __init__(self):
         self.current_user = BaseUser(id=1, username="daiv", name="DAIV")
-        self._discussion = None
         self._has_reaction = False
-
-    def get_merge_request_comment(self, *_a, **_kw):
-        return self._discussion
-
-    def set_discussion(self, discussion):
-        self._discussion = discussion
 
     def has_issue_reaction(self, *_a, **_kw):
         return self._has_reaction
@@ -65,7 +61,13 @@ def monkeypatch_dependencies(monkeypatch, stub_client, repo_config):
     monkeypatch.setattr("webhooks.gitlab.callbacks.RepositoryConfig.get_config", lambda *args, **kwargs: repo_config)
 
 
-def create_note_callback(note_body: str, username: str = "reviewer", labels: list[str] | None = None) -> NoteCallback:
+def create_note_callback(
+    note_body: str,
+    username: str = "reviewer",
+    labels: list[str] | None = None,
+    note_id: int = 100,
+    note_type: Literal["DiffNote", "DiscussionNote"] | None = None,
+) -> NoteCallback:
     """Helper to create a minimal NoteCallback instance."""
     return NoteCallback(
         object_kind="note",
@@ -82,13 +84,14 @@ def create_note_callback(note_body: str, username: str = "reviewer", labels: lis
             labels=[Label(title=t) for t in labels or []],
         ),
         object_attributes=Note(
-            id=100,
+            id=note_id,
             action=NoteAction.CREATE,
             noteable_type=NoteableType.MERGE_REQUEST,
             noteable_id=1,
             discussion_id="discussion_1",
             note=note_body,
             system=False,
+            type=note_type,
         ),
     )
 
@@ -100,66 +103,17 @@ def test_accept_when_mention(monkeypatch_dependencies, stub_client):
     assert callback.accept_callback() is True
 
 
-def test_reject_when_thread_only_has_daiv(monkeypatch_dependencies, stub_client):
-    """Test that callback is rejected when discussion thread has only DAIV-authored notes."""
+@pytest.mark.parametrize(("note_type", "accepted"), [("DiscussionNote", True), ("DiffNote", False)])
+def test_a_mention_in_a_thread_reply_is_accepted_but_not_on_a_diff_line(
+    monkeypatch_dependencies, stub_client, note_type, accepted
+):
+    callback = create_note_callback("@daiv please review this code", note_type=note_type)
+
+    assert callback.accept_callback() is accepted
+
+
+def test_reject_when_not_mentioned(monkeypatch_dependencies, stub_client):
     callback = create_note_callback("This looks good to me")
-
-    # Create a discussion with the current note and a DAIV-authored note
-    discussion = Discussion(
-        id="discussion_1",
-        notes=[
-            BaseNote(
-                id=100,  # This is the incoming note
-                body="This looks good to me",
-                author=BaseUser(id=2, username="reviewer", name="Reviewer"),
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            ),
-            BaseNote(
-                id=99,  # Previous DAIV note in same discussion
-                body="I've updated the code based on your feedback",
-                author=BaseUser(id=1, username="daiv", name="DAIV"),
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            ),
-        ],
-    )
-
-    stub_client.set_discussion(discussion)
-
-    assert callback.accept_callback() is False
-
-
-def test_reject_unmentioned_and_no_daiv_thread(monkeypatch_dependencies, stub_client):
-    """Test that callback is rejected when no mention and discussion has no DAIV notes."""
-    callback = create_note_callback("This looks good to me")
-
-    # Create a discussion with only non-DAIV notes
-    discussion = Discussion(
-        id="discussion_1",
-        notes=[
-            BaseNote(
-                id=100,  # This is the incoming note
-                body="This looks good to me",
-                author=BaseUser(id=2, username="reviewer", name="Reviewer"),
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            ),
-            BaseNote(
-                id=101,  # Another reviewer note
-                body="I agree with the changes",
-                author=BaseUser(id=3, username="other_reviewer", name="Other Reviewer"),
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            ),
-        ],
-    )
-
-    stub_client.set_discussion(discussion)
 
     assert callback.accept_callback() is False
 
@@ -167,8 +121,6 @@ def test_reject_unmentioned_and_no_daiv_thread(monkeypatch_dependencies, stub_cl
 def test_reject_when_bare_daiv_mention(monkeypatch_dependencies, stub_client):
     """Test that callback is rejected when note body contains bare DAIV reference."""
     callback = create_note_callback("DAIV please fix this issue")
-
-    stub_client.set_discussion(Discussion(id="discussion_1", notes=[]))
 
     assert callback.accept_callback() is False
 
@@ -456,8 +408,6 @@ class TestMergeRequestCallback:
 
     async def test_process_callback_enqueues_task(self):
         """Test that process_callback enqueues the merge metrics task with correct args."""
-        from unittest.mock import AsyncMock, patch
-
         callback = create_merge_request_callback()
         with patch("codebase.tasks.record_merge_metrics_task") as mock_task:
             mock_task.aenqueue = AsyncMock()
@@ -494,8 +444,6 @@ class TestMergeRequestCallback:
 
     async def test_process_callback_coalesces_none_merged_at(self):
         """Test that process_callback passes empty string when merged_at is None."""
-        from unittest.mock import AsyncMock, patch
-
         callback = MergeRequestCallback(
             object_kind="merge_request",
             project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
@@ -519,277 +467,133 @@ class TestMergeRequestCallback:
         assert mock_task.aenqueue.call_args.kwargs["merged_at"] == ""
 
 
-@pytest.mark.django_db
-class TestProcessCallbackThreadId:
-    """The deterministic thread_id minted in the callback must reach both the task
-    and the Activity row, so the Activity can later be joined to LangSmith traces."""
-
-    async def test_issue_callback_passes_thread_id(self, monkeypatch_dependencies):
-        from unittest.mock import AsyncMock, patch
-
-        from codebase.base import Scope
-        from codebase.utils import compute_thread_id
-
-        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
-        expected = compute_thread_id(repo_slug="group/repo", scope=Scope.ISSUE, entity_iid=42)
-
-        with (
-            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
-            mock_activity.return_value = None
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
-        assert mock_activity.call_args.kwargs["thread_id"] == expected
-
-    async def test_note_callback_on_mr_passes_thread_id(self, monkeypatch_dependencies):
-        from unittest.mock import AsyncMock, patch
-
-        from codebase.base import Scope
-        from codebase.utils import compute_thread_id
-
-        callback = create_note_callback("@daiv please review")
-        expected = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=1)
-
-        with (
-            patch("webhooks.gitlab.callbacks.address_mr_comments_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
-        assert mock_activity.call_args.kwargs["thread_id"] == expected
-        assert mock_activity.call_args.kwargs["ref"] == "feat"
-
-    async def test_note_callback_on_issue_passes_thread_id(self, monkeypatch_dependencies):
-        from unittest.mock import AsyncMock, patch
-
-        from codebase.base import Scope
-        from codebase.utils import compute_thread_id
-
-        callback = NoteCallback(
-            object_kind="note",
-            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-            user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
-            issue=Issue(
-                id=100,
-                iid=7,
-                title="Bug",
-                description="x",
-                state="opened",
-                assignee_id=None,
-                action=IssueAction.OPEN,
-                labels=[],
-                type="Issue",
-            ),
-            object_attributes=Note(
-                id=200,
-                action=NoteAction.CREATE,
-                noteable_type=NoteableType.ISSUE,
-                noteable_id=7,
-                discussion_id="discussion_2",
-                note="@daiv please look",
-                system=False,
-            ),
-        )
-        expected = compute_thread_id(repo_slug="group/repo", scope=Scope.ISSUE, entity_iid=7)
-
-        with (
-            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
-        assert mock_activity.call_args.kwargs["thread_id"] == expected
-
-
-class TestProcessCallbackSandboxEnvironment:
-    """Webhook callbacks must forward the resolved env id to both the task and the Activity row."""
-
-    async def test_issue_callback_propagates_env_id(self, monkeypatch_dependencies):
-        from unittest.mock import AsyncMock, Mock, patch
-
-        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
-        env_row = Mock(id="env-uuid-1")
-
-        with (
-            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-1"
-        assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-1"
-
-    async def test_note_callback_on_mr_propagates_env_id(self, monkeypatch_dependencies):
-        from unittest.mock import AsyncMock, Mock, patch
-
-        callback = create_note_callback("@daiv please review")
-        env_row = Mock(id="env-uuid-2")
-
-        with (
-            patch("webhooks.gitlab.callbacks.address_mr_comments_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-2"
-        assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-2"
-
-    async def test_issue_callback_no_env_resolves_to_none(self, monkeypatch_dependencies):
-        from unittest.mock import AsyncMock, patch
-
-        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
-
-        with (
-            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] is None
-        assert mock_activity.call_args.kwargs["sandbox_environment_id"] is None
-
-    async def test_note_callback_on_issue_propagates_env_id(self, monkeypatch_dependencies):
-        from unittest.mock import AsyncMock, Mock, patch
-
-        callback = NoteCallback(
-            object_kind="note",
-            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-            user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
-            issue=Issue(
-                id=100,
-                iid=7,
-                title="Bug",
-                description="x",
-                state="opened",
-                assignee_id=None,
-                action=IssueAction.OPEN,
-                labels=[],
-                type="Issue",
-            ),
-            object_attributes=Note(
-                id=200,
-                action=NoteAction.CREATE,
-                noteable_type=NoteableType.ISSUE,
-                noteable_id=7,
-                discussion_id="discussion_2",
-                note="@daiv please look",
-                system=False,
-            ),
-        )
-        env_row = Mock(id="env-uuid-3")
-
-        with (
-            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_activity,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
-            mock_activity.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
-        assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
+def create_issue_note_callback(*, note_id: int, discussion_id: str, labels: list[str] | None = None) -> NoteCallback:
+    return NoteCallback(
+        object_kind="note",
+        project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+        user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
+        issue=Issue(
+            id=100,
+            iid=7,
+            title="Bug",
+            description="x",
+            state="opened",
+            assignee_id=None,
+            action=IssueAction.OPEN,
+            labels=[Label(title=t) for t in labels or []],
+            type="Issue",
+        ),
+        object_attributes=Note(
+            id=note_id,
+            action=NoteAction.CREATE,
+            noteable_type=NoteableType.ISSUE,
+            noteable_id=7,
+            discussion_id=discussion_id,
+            note="@daiv please look",
+            system=False,
+        ),
+    )
 
 
 @pytest.mark.parametrize(("label", "use_max"), [("daiv-max", True), ("daiv", False)])
-class TestProcessCallbackUseMax:
-    """The max mode a callback stamps on the Run is the one it hands the task, so the task does not decide again."""
+class TestProcessCallback:
+    """What each accepted event hands dispatch: the entity, its max mode, who triggered it and the mention."""
 
-    @staticmethod
-    async def _process(callback, task: str = "address_issue_task") -> tuple[dict, dict]:
-        from unittest.mock import AsyncMock, patch
-
-        with (
-            patch(f"webhooks.gitlab.callbacks.{task}") as mock_task,
-            patch("webhooks.gitlab.callbacks.acreate_run") as mock_run,
-            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
-            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
-        ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
-            mock_run.side_effect = AsyncMock(return_value=None)
-            await callback.process_callback()
-
-        return mock_task.aenqueue.call_args.kwargs, mock_run.call_args.kwargs
-
-    async def test_issue_callback_hands_the_task_the_max_mode_it_stamped(
-        self, monkeypatch_dependencies, label, use_max
-    ):
+    async def test_an_issue_label_dispatches_an_issue_run(self, monkeypatch_dependencies, stub_client, label, use_max):
         callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title=label)])
 
-        task_kwargs, run_kwargs = await self._process(callback)
+        with patch("webhooks.gitlab.callbacks.dispatch_issue_run", new=AsyncMock()) as dispatch:
+            await callback.process_callback()
 
-        assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["use_max"] is use_max
-
-    async def test_issue_comment_callback_hands_the_task_the_max_mode_it_stamped(
-        self, monkeypatch_dependencies, label, use_max
-    ):
-        callback = NoteCallback(
-            object_kind="note",
-            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-            user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
-            issue=Issue(
-                id=100,
-                iid=7,
-                title="Bug",
-                description="x",
-                state="opened",
-                assignee_id=None,
-                action=IssueAction.OPEN,
-                labels=[Label(title=label)],
-                type="Issue",
-            ),
-            object_attributes=Note(
-                id=200,
-                action=NoteAction.CREATE,
-                noteable_type=NoteableType.ISSUE,
-                noteable_id=7,
-                discussion_id="discussion_2",
-                note="@daiv please look",
-                system=False,
-            ),
+        dispatch.assert_awaited_once_with(
+            client=stub_client,
+            repo_id="group/repo",
+            issue_iid=42,
+            title="Test Issue",
+            use_max=use_max,
+            author=Author(provider=GitPlatform.GITLAB, uid=10, username="testuser", email="testuser@example.com"),
         )
 
-        task_kwargs, run_kwargs = await self._process(callback)
+    async def test_an_issue_mention_dispatches_an_issue_run_for_its_note(
+        self, monkeypatch_dependencies, stub_client, label, use_max
+    ):
+        callback = create_issue_note_callback(note_id=200, discussion_id="d1", labels=[label])
 
-        assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["use_max"] is use_max
+        with patch("webhooks.gitlab.callbacks.dispatch_issue_run", new=AsyncMock()) as dispatch:
+            await callback.process_callback()
 
-    async def test_mr_comment_callback_hands_the_task_the_max_mode_it_stamped(
-        self, monkeypatch_dependencies, label, use_max
+        dispatch.assert_awaited_once_with(
+            client=stub_client,
+            repo_id="group/repo",
+            issue_iid=7,
+            title="Bug",
+            use_max=use_max,
+            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer", email="reviewer@example.com"),
+            mention=Mention(note_id=200, comment_id="d1"),
+        )
+
+    async def test_a_merge_request_mention_dispatches_a_comment_run_on_its_source_branch(
+        self, monkeypatch_dependencies, stub_client, label, use_max
     ):
         callback = create_note_callback("@daiv please review", labels=[label])
 
-        task_kwargs, run_kwargs = await self._process(callback, task="address_mr_comments_task")
+        with patch("webhooks.gitlab.callbacks.dispatch_mr_comment_run", new=AsyncMock()) as dispatch:
+            await callback.process_callback()
 
-        assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["use_max"] is use_max
+        dispatch.assert_awaited_once_with(
+            client=stub_client,
+            repo_id="group/repo",
+            merge_request_iid=1,
+            ref="feat",
+            title="Some MR",
+            use_max=use_max,
+            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer", email="reviewer@example.com"),
+            mention=Mention(note_id=100, comment_id="discussion_1"),
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.usefixtures("database_task_backend")
+@pytest.mark.parametrize(
+    "make_callback",
+    [
+        pytest.param(lambda note_id: create_issue_note_callback(note_id=note_id, discussion_id="d1"), id="issue"),
+        pytest.param(
+            lambda note_id: create_note_callback("@daiv please review", note_id=note_id, note_type="DiscussionNote"),
+            id="merge_request",
+        ),
+    ],
+)
+async def test_a_second_mention_in_a_discussion_runs_after_the_first_succeeded(monkeypatch_dependencies, make_callback):
+    """GitLab replies share their discussion's id but dedup on their own note, while dedup also matches finished
+    tasks: a reply must still get its own run."""
+    from django_tasks import TaskResultStatus
+    from django_tasks_db.models import DBTaskResult
+    from sessions.models import Run
+
+    await make_callback(200).process_callback()
+    await DBTaskResult.objects.aupdate(status=TaskResultStatus.SUCCESSFUL)
+    await make_callback(201).process_callback()
+
+    assert await DBTaskResult.objects.acount() == 2
+    assert await Run.objects.filter(task_result__isnull=False).acount() == 2
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.usefixtures("database_task_backend")
+async def test_a_redelivered_note_starts_no_second_run(monkeypatch_dependencies, caplog):
+    import logging
+
+    from django_tasks import TaskResultStatus
+    from django_tasks_db.models import DBTaskResult
+    from sessions.models import Run
+
+    await create_issue_note_callback(note_id=200, discussion_id="d1").process_callback()
+    await DBTaskResult.objects.aupdate(status=TaskResultStatus.SUCCESSFUL)
+    with caplog.at_level(logging.INFO):
+        await create_issue_note_callback(note_id=200, discussion_id="d1").process_callback()
+
+    assert await DBTaskResult.objects.acount() == 1
+    assert await Run.objects.acount() == 1
+    assert "Skipping duplicate task" in caplog.text
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
