@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO, NamedTuple
+from typing import TYPE_CHECKING, Any, BinaryIO, NamedTuple
 
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
@@ -47,8 +47,6 @@ from skills.models import GlobalSkill, SkillInvocation
 if TYPE_CHECKING:
     from deepagents.middleware.skills import SkillMetadata, SkillsState
     from langchain.tools import ToolRuntime
-
-    from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.skills")
 
@@ -394,7 +392,7 @@ async def _classify_source(name: str, skill_path: str) -> SkillInvocation.Source
     return SkillInvocation.Source.REPO
 
 
-async def record_invocation(name: str, skill_path: str, runtime: ToolRuntime[RuntimeCtx, SkillsState]) -> None:
+async def record_invocation(name: str, skill_path: str, runtime: ToolRuntime[Any, SkillsState]) -> None:
     """Persist a SkillInvocation row.
 
     Telemetry failure must never abort a skill invocation, so DB and

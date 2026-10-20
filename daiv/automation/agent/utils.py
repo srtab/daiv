@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from langchain_core.messages import BaseMessage
 
-    from codebase.context import RuntimeCtx
+    from automation.agent.context import RuntimeCtx
 
 
 def extract_text_content(content: str | list) -> str:

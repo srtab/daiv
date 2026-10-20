@@ -9,10 +9,10 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime  # noqa: TC002
 from skills.services import list_global_skills
 
+from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.middlewares.skills import DAIVSkillsState
 from automation.agent.synthetic import is_person_message
 from automation.agent.utils import extract_text_content, streamed_assistant_message
-from codebase.context import RuntimeCtx  # noqa: TC001
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
 from slash_commands.registry import slash_command_registry
 

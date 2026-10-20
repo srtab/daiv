@@ -12,11 +12,11 @@ from django.template.loader import render_to_string
 from asgiref.sync import sync_to_async
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
+from automation.agent.references import render_agent_context, render_commit_trailers, render_references_block
 from automation.agent.utils import build_langsmith_config, repo_relative_text
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
-from codebase.references import render_agent_context, render_commit_trailers, render_references_block
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 
@@ -27,10 +27,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from automation.agent.agent_settings import AgentSettings
+    from automation.agent.context import RuntimeCtx
     from automation.agent.session_links import SessionLinks, SessionLinksResolver
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.git_manager import PendingMerge
-    from codebase.context import RuntimeCtx
 
 
 logger = logging.getLogger("daiv.tools")

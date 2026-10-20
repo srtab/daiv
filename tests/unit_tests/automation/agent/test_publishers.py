@@ -17,13 +17,13 @@ from automation.agent.publishers import (
     append_trailer,
     run_base_branch,
 )
+from automation.agent.references import ExternalRef
 from automation.agent.session_links import SessionLinks
 from automation.agent.workspace.git_manager import PendingMerge, RepoStatus
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import GitPlatform, Issue, MergeRequestDiffStats, Pipeline, Scope, TriggeredPipeline, User
 from codebase.clients.base import GitEgressCredential
 from codebase.exceptions import MergeRequestBranchNotVisibleError
-from codebase.references import ExternalRef
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential

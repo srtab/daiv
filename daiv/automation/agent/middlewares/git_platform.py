@@ -20,13 +20,13 @@ from langchain_core.messages import ToolMessage
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
+from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.utils import repo_relative_text
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.github.utils import get_github_integration
 from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
-from codebase.context import RuntimeCtx  # noqa: TC001
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:

@@ -12,6 +12,9 @@ class UnprocessableEntityResponse(BaseModel):
     detail: list[ErrorDetails]
 
 
+CALLBACK_RESPONSES = {204: None, 401: None, 403: None, 422: UnprocessableEntityResponse}
+
+
 class BaseCallback(BaseModel, ABC):
     """
     Base class for all callbacks.

@@ -30,7 +30,7 @@ from codebase.base import (
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji, WebhookSetupResult
 from codebase.exceptions import CloneRefNotFoundError
-from core.utils import is_git_ref_not_found_text
+from codebase.utils import is_git_ref_not_found_text
 
 if TYPE_CHECKING:
     from collections.abc import Generator

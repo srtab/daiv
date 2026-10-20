@@ -291,7 +291,7 @@ async def test_submit_job_forwards_references(_default_mcp_user):
     from mcp_api.server import submit_job
     from sessions.services import BatchSubmitResult
 
-    from codebase.references import RefIn
+    from automation.agent.references import RefIn
 
     run = await _run(await _session(user=_default_mcp_user, repo_id="a/b"))
 
@@ -341,7 +341,7 @@ def test_the_submit_job_description_advertises_every_special_provider():
 
     from mcp_api.server import MAX_REFS_PER_SUBMISSION, submit_job
 
-    from codebase.references import RefProvider
+    from automation.agent.references import RefProvider
 
     hints = typing.get_type_hints(submit_job, include_extras=True)
     description = typing.get_args(hints["references"])[1].description

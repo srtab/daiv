@@ -10,12 +10,12 @@ from sessions.executor.lock import NoLock
 from sessions.executor.spec import RunOutcome
 
 from automation.agent.base import ThinkingLevel
+from automation.agent.context import set_runtime_ctx
 from automation.agent.graph import create_daiv_agent
 from automation.agent.validators import AgentOverrideError
 from codebase.base import GitPlatform, Scope
 from codebase.clients import RepoClient
 from codebase.clients.swe import SWERepoClient
-from codebase.context import set_runtime_ctx
 from evals import swebench
 
 # Captured before the autouse ``mock_repo_client`` fixture replaces ``RepoClient.create_instance``,

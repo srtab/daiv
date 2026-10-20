@@ -5,11 +5,11 @@ import pytest
 from langsmith import testing as t
 from sandbox_envs.services import build_sandbox_spec
 
+from automation.agent.context import set_runtime_ctx
 from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_graph
 from automation.agent.diff_to_metadata.prompts import sanitize_agent_report
 from automation.agent.workspace.backends import build_disk_workspace_backend
 from codebase.base import GitPlatform, Scope
-from codebase.context import set_runtime_ctx
 
 from .description_shape import shape_violations, validate_expectation
 from .evaluators import get_correctness_evaluator

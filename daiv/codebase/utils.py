@@ -8,28 +8,45 @@ from unidiff.constants import LINE_TYPE_CONTEXT
 from unidiff.errors import UnidiffParseError
 from unidiff.patch import Line
 
-from core.utils import generate_uuid
-
 if TYPE_CHECKING:
     from git import Repo
 
-    from codebase.base import MergeRequestDiffStats, Scope, User
+    from codebase.base import MergeRequestDiffStats, User
 
 logger = logging.getLogger("daiv.codebase")
 
 
-def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
-    """Deterministic LangGraph checkpoint key for an issue or merge-request conversation.
+def is_git_auth_error_text(text: str) -> bool:
+    """True when git command output indicates the remote rejected the credential (auth/permission).
 
-    Webhook callbacks mint this and hand it to the addressor task, so every event on the same
-    issue or merge request resumes the same checkpointer state.
+    Single source of truth shared by the clone-retry self-heal (``codebase.clients.gitlab``) and the
+    push-failure classifier (``automation.agent.workspace.git_manager``) so both agree on what a rejected
+    credential looks like — git's wording varies by version and by smart- vs dumb-HTTP. ``"access
+    denied"`` already subsumes GitLab's ``"HTTP Basic: Access denied"``.
     """
-    if not repo_slug or scope is None or entity_iid is None or entity_iid == "":
-        raise ValueError(
-            f"compute_thread_id requires non-empty values; "
-            f"got repo_slug={repo_slug!r}, scope={scope!r}, entity_iid={entity_iid!r}"
+    lowered = text.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "authentication failed",
+            "access denied",
+            "returned error: 403",
+            "could not read username",
+            "permission denied",
+            "not authorized",
         )
-    return generate_uuid(f"{repo_slug}:{scope}/{entity_iid}")
+    )
+
+
+def is_git_ref_not_found_text(text: str) -> bool:
+    """True when git clone output indicates the requested branch/ref does not exist on the remote.
+
+    Distinct from an auth or network failure: retrying is pointless — a deleted branch will not
+    reappear — so callers fall back or skip instead of surfacing an opaque GitCommandError. Git's
+    wording for ``git clone --branch <x>`` against a missing ref is ``Remote branch <x> not found
+    in upstream origin``.
+    """
+    return "not found in upstream" in text.lower()
 
 
 def get_repo_branch(repo: Repo) -> str | None:

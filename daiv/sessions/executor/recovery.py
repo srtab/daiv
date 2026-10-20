@@ -8,9 +8,9 @@ if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
 
     from automation.agent.agent_settings import AgentSettings
+    from automation.agent.context import RuntimeCtx
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.workspace.base import Workspace
-    from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.sessions")
 

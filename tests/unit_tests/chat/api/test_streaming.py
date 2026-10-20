@@ -30,12 +30,12 @@ from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
 from automation.agent.questions import render_questions
+from automation.agent.references import ExternalRef
 from automation.agent.results import parse_agent_result
 from automation.agent.usage_tracking import ResolvedWindow
 from automation.agent.utils import streamed_assistant_message
 from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
-from codebase.references import ExternalRef
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
 from tests.unit_tests.sessions.conftest import amake_job_session, watch_recorder
@@ -948,7 +948,7 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
     start_chat_run = AsyncMock(return_value=SimpleNamespace(pk="run-pk"))
 
     with (
-        patch("codebase.context.set_runtime_ctx", _fallback_ctx),
+        patch("automation.agent.context.set_runtime_ctx", _fallback_ctx),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("chat.api.streaming.start_chat_run", new=start_chat_run),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
@@ -1028,7 +1028,7 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
 
     langsmith = MagicMock(return_value={})
     with (
-        patch("codebase.context.set_runtime_ctx", _capture_ctx),
+        patch("automation.agent.context.set_runtime_ctx", _capture_ctx),
         patch("automation.agent.utils.build_langsmith_config", langsmith),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
@@ -1160,7 +1160,7 @@ def _recorded_turn(
     heartbeat_mock = heartbeat if isinstance(heartbeat, AsyncMock) else AsyncMock(return_value=heartbeat)
     compiled = graph or _graph(**(checkpoint or {}))
     with (
-        patch("codebase.context.set_runtime_ctx", runtime_ctx),
+        patch("automation.agent.context.set_runtime_ctx", runtime_ctx),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=compiled)),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agui_agent),
         patch("chat.api.streaming.start_chat_run", side_effect=_start),

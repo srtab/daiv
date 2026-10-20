@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from git import GitCommandError
 
-from core.utils import is_git_auth_error_text
+from codebase.utils import is_git_auth_error_text
 
 if TYPE_CHECKING:
     from typing import NoReturn

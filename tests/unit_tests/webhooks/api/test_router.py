@@ -1,5 +1,4 @@
-"""``WebhooksConfig.ready()`` is what puts the platform callbacks on the API. The views live in ``webhooks`` but
-register onto ``codebase.api.router``, so the URLs every GitLab project and GitHub App already call stay put."""
+"""Every GitLab project and GitHub App already calls these URLs, so they must not move with the router."""
 
 from django.urls import resolve
 
