@@ -154,8 +154,8 @@ class TestPlainTextFallback:
         # The fallback exists so a new event type delivers before its renderer ships. body is an
         # unbounded TextField, and an over-length sendMessage is a 400 the channel files as
         # permanent — so without a cap the fallback loses the very message it exists to send.
+        from notifications.channels.renderers.telegram import TG_MAX_CHARS
         from notifications.channels.telegram import _build_payload
-        from notifications.channels.telegram_renderers.base import TG_MAX_CHARS
 
         n, d = notification_with_delivery
         d.channel_type = ChannelType.TELEGRAM

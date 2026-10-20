@@ -9,8 +9,7 @@ from core.site_settings import site_settings
 from notifications.channels.base import NotificationChannel
 from notifications.channels.registry import register_channel
 from notifications.channels.renderers.base import compose_plain_text
-from notifications.channels.telegram_renderers.base import TG_MAX_CHARS
-from notifications.channels.telegram_renderers.registry import get_renderer
+from notifications.channels.renderers.telegram import TG_MAX_CHARS, render
 from notifications.choices import ChannelType
 from notifications.exceptions import UnrecoverableDeliveryError
 from notifications.telegram.client import TelegramPermanentError, TGClient, is_unreachable_chat_error
@@ -25,11 +24,11 @@ logger = logging.getLogger("daiv.notifications")
 def _build_payload(notification: Notification, delivery: NotificationDelivery) -> dict:
     """Build the ``sendMessage`` body.
 
-    Falls back to plain text when no renderer is registered for the event type, so a
-    newly-introduced event delivers before its renderer ships.
+    Falls back to plain text when the event type has no ``EVENT_ROWS`` definition, so a
+    newly-introduced event delivers before its rows ship.
     """
-    renderer = get_renderer(notification.event_type)
-    if renderer is None:
+    rendered = render(notification)
+    if rendered is None:
         logger.warning("Telegram: no renderer for event_type=%r; sending plain text", notification.event_type)
         # Capped here too: ``body`` is an unbounded TextField, and Telegram answers an over-length
         # message with a 400 the channel files as permanent — losing the very notification this
@@ -41,7 +40,7 @@ def _build_payload(notification: Notification, delivery: NotificationDelivery) -
             )
             text = text[: TG_MAX_CHARS - 1] + "…"
         return {"chat_id": delivery.address, "text": text}
-    text, reply_markup = renderer.render(notification)
+    text, reply_markup = rendered
     payload: dict = {"chat_id": delivery.address, "text": text, "parse_mode": "HTML"}
     if reply_markup:
         payload["reply_markup"] = reply_markup
