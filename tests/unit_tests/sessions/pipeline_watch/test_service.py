@@ -10,6 +10,7 @@ from notifications.choices import EventType
 from notifications.models import Notification
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.models import Scope as SandboxScope
+from sessions.ids import compute_thread_id
 from sessions.models import Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.policy import WatchPolicy
@@ -19,7 +20,6 @@ from sessions.signal_defs import watch_exhausted
 
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig
-from codebase.utils import compute_thread_id
 from core.models import SiteConfiguration
 
 from ..conftest import amake_watched_session, make_job, make_pipeline

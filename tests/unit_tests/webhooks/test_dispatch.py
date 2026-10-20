@@ -7,12 +7,12 @@ from django_tasks import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
 from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
+from sessions.ids import compute_thread_id
 from sessions.models import Run, Session
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
 from codebase.base import GitPlatform, Scope
 from codebase.clients.base import Emoji
-from codebase.utils import compute_thread_id
 from core.site_settings import site_settings
 from tests.unit_tests.webhooks.conftest import make_db_task_result
 

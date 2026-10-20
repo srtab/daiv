@@ -11,11 +11,11 @@ from asgiref.sync import sync_to_async
 from git import Repo  # noqa: TC002
 from sandbox_envs.spec import SandboxSpec  # noqa: TC002
 
+from automation.agent.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
 from codebase.clients.base import GitEgressCredential  # noqa: TC001
-from codebase.exceptions import CloneRefNotFoundError, SingleRepoRequiredError
-from codebase.references import ExternalRef, assemble_run_references  # noqa: TC001
+from codebase.exceptions import CloneRefNotFoundError
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
 from codebase.utils import get_repo_ref
 from core.sandbox.client import DAIVSandboxClient
@@ -24,7 +24,21 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-logger = logging.getLogger("daiv.codebase")
+logger = logging.getLogger("daiv.agent")
+
+
+class SingleRepoRequiredError(RuntimeError):
+    """Raised when a ``RuntimeCtx`` is constructed or accessed without exactly one repo handle.
+
+    Today every run is enforced to be single-repo; the error guards the multi-repo seam.
+    ``actual`` is the number of handles supplied — ``0`` means the caller forgot to
+    supply one (likely a misuse), ``>= 2`` means multi-repo, which isn't supported yet.
+    """
+
+    def __init__(self, actual: int) -> None:
+        detail = "got 0 (no repository supplied)" if actual == 0 else f"got {actual} (multi-repo not yet supported)"
+        super().__init__(f"RuntimeCtx requires exactly one repository handle, {detail}.")
+        self.actual = actual
 
 
 @dataclass(frozen=True)
@@ -272,6 +286,6 @@ def get_runtime_ctx() -> RuntimeCtx:
         raise RuntimeError(
             "Runtime context not set. "
             "It needs to be set as early as possible on the request lifecycle or task execution. "
-            "Use the `codebase.context.set_runtime_ctx` context manager to set the context."
+            "Use the `automation.agent.context.set_runtime_ctx` context manager to set the context."
         )
     return ctx

@@ -112,7 +112,7 @@ def agent_stack(
 
     with (
         stub_sandbox_spec() as build_spec,
-        patch("codebase.context.set_runtime_ctx", context or _set_runtime_ctx),
+        patch("automation.agent.context.set_runtime_ctx", context or _set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer", _open_checkpointer),
         patch.object(site_settings, "snapshot", return_value=stack.site) as snapshot,
         patch("automation.agent.agent_settings.resolve_agent_settings", stack.resolve),

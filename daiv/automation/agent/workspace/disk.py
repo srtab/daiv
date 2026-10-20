@@ -13,7 +13,7 @@ from codebase.clients import RepoClient
 if TYPE_CHECKING:
     from deepagents.backends.protocol import FileDownloadResponse
 
-    from codebase.context import RuntimeCtx
+    from automation.agent.context import RuntimeCtx
 
 
 class DiskWorkspace:

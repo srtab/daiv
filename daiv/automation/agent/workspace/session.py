@@ -28,8 +28,8 @@ if TYPE_CHECKING:
 
     from sandbox_envs.spec import SandboxSpec
 
+    from automation.agent.context import RuntimeCtx
     from codebase.clients.base import GitEgressCredential
-    from codebase.context import RuntimeCtx
     from core.sandbox.client import DAIVSandboxClient
     from core.sandbox.schemas import EgressConfigRequest
 

@@ -13,39 +13,6 @@ from redis.exceptions import LockError, LockNotOwnedError
 logger = logging.getLogger("daiv.core")
 
 
-def is_git_auth_error_text(text: str) -> bool:
-    """True when git command output indicates the remote rejected the credential (auth/permission).
-
-    Single source of truth shared by the clone-retry self-heal (``codebase.clients.gitlab``) and the
-    push-failure classifier (``automation.agent.workspace.git_manager``) so both agree on what a rejected
-    credential looks like — git's wording varies by version and by smart- vs dumb-HTTP. ``"access
-    denied"`` already subsumes GitLab's ``"HTTP Basic: Access denied"``.
-    """
-    lowered = text.lower()
-    return any(
-        marker in lowered
-        for marker in (
-            "authentication failed",
-            "access denied",
-            "returned error: 403",
-            "could not read username",
-            "permission denied",
-            "not authorized",
-        )
-    )
-
-
-def is_git_ref_not_found_text(text: str) -> bool:
-    """True when git clone output indicates the requested branch/ref does not exist on the remote.
-
-    Distinct from an auth or network failure: retrying is pointless — a deleted branch will not
-    reappear — so callers fall back or skip instead of surfacing an opaque GitCommandError. Git's
-    wording for ``git clone --branch <x>`` against a missing ref is ``Remote branch <x> not found
-    in upstream origin``.
-    """
-    return "not found in upstream" in text.lower()
-
-
 def build_absolute_url(path: str) -> str:
     """Build an absolute https:// URL from a relative path using the current Site domain."""
     site = Site.objects.get_current()

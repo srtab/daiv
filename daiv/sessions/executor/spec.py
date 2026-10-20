@@ -10,9 +10,9 @@ if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
 
     from automation.agent.agent_settings import RunOverrides
+    from automation.agent.references import ExternalRef
     from automation.agent.results import AgentResult
     from codebase.base import Issue, MergeRequest, Scope
-    from codebase.references import ExternalRef
     from sessions.executor.lock import LockPolicy
 
 

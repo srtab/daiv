@@ -4,10 +4,9 @@ from typing import TYPE_CHECKING
 from ninja import Router
 from ninja.errors import HttpError
 
-from codebase.api.router import router
 from codebase.base import GitPlatform
 from codebase.conf import settings
-from webhooks.callbacks import UnprocessableEntityResponse
+from webhooks.callbacks import CALLBACK_RESPONSES
 
 from .callbacks import IssueCallback, MergeRequestCallback, NoteCallback, PipelineCallback, PushCallback  # noqa: TC001
 from .security import validate_gitlab_webhook
@@ -28,14 +27,11 @@ def _authenticate(request: HttpRequest) -> bool:
     return validate_gitlab_webhook(request)
 
 
-gitlab_router = Router(auth=_authenticate)
-router.add_router("", gitlab_router)
-
-_RESPONSES = {204: None, 401: None, 403: None, 422: UnprocessableEntityResponse}
+router = Router(auth=_authenticate)
 
 
-@gitlab_router.post("/callbacks/gitlab", response=_RESPONSES)
-@gitlab_router.post("/callbacks/gitlab/", response=_RESPONSES, url_name="gitlab_callback")
+@router.post("/gitlab", response=CALLBACK_RESPONSES)
+@router.post("/gitlab/", response=CALLBACK_RESPONSES, url_name="gitlab_callback")
 async def callback(
     request, payload: IssueCallback | MergeRequestCallback | NoteCallback | PushCallback | PipelineCallback
 ):

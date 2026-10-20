@@ -144,7 +144,7 @@ class GitAuthEnv:
         ``GIT_CONFIG_{COUNT,KEY_0,VALUE_0}`` apply the command-scoped ``extraheader``.
         ``GIT_TERMINAL_PROMPT=0`` **and** ``GIT_ASKPASS=""`` together disable every prompt path so a
         *rejected* credential fails fast with ``could not read Username`` — one of
-        :func:`core.utils.is_git_auth_error_text`'s markers, so the clone-retry self-heal and
+        :func:`codebase.utils.is_git_auth_error_text`'s markers, so the clone-retry self-heal and
         push-failure classifier keep recognising auth errors. Both are needed: with only
         ``GIT_TERMINAL_PROMPT=0`` git still falls back to an inherited ``SSH_ASKPASS`` GUI helper and
         hangs; the empty ``GIT_ASKPASS`` is non-null (short-circuiting that fallback chain) yet empty

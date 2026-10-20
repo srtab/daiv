@@ -4,11 +4,11 @@ from sandbox_envs.services import build_sandbox_spec
 
 from automation.agent.agent_settings import ModelChain
 from automation.agent.constants import REPO_PATH
+from automation.agent.context import set_runtime_ctx
 from automation.agent.middlewares.file_system import READ_ONLY_FS_TOOLS
 from automation.agent.subagents import create_explore_subagent
 from automation.agent.workspace.disk import DiskWorkspace
 from codebase.base import Scope
-from codebase.context import set_runtime_ctx
 
 from .coverage_grading import absolute_paths, calls_outside
 from .prompt_leak import assert_no_prompt_leak

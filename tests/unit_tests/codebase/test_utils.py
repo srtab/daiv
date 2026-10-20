@@ -2,8 +2,14 @@ import logging
 
 import pytest
 
-from codebase.base import Scope, User
-from codebase.utils import compute_thread_id, diff_line_stats, note_mentions_daiv, redact_diff_content
+from codebase.base import User
+from codebase.utils import (
+    diff_line_stats,
+    is_git_auth_error_text,
+    is_git_ref_not_found_text,
+    note_mentions_daiv,
+    redact_diff_content,
+)
 
 
 class TestNoteMentionsDaiv:
@@ -60,41 +66,6 @@ class TestNoteMentionsDaiv:
         current_user = User(id=1, username="bot", name="Bot")
         note_body = "@bot please review this code"
         assert note_mentions_daiv(note_body, current_user) is True
-
-
-class TestComputeThreadId:
-    def test_deterministic(self):
-        a = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-        b = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-        assert a == b
-
-    def test_scope_distinguishes(self):
-        issue = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-        mr = compute_thread_id(repo_slug="owner/repo", scope=Scope.MERGE_REQUEST, entity_iid=42)
-        assert issue != mr
-
-    def test_entity_iid_distinguishes(self):
-        a = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-        b = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=43)
-        assert a != b
-
-    def test_repo_slug_distinguishes(self):
-        a = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-        b = compute_thread_id(repo_slug="other/repo", scope=Scope.ISSUE, entity_iid=42)
-        assert a != b
-
-    @pytest.mark.parametrize(
-        ("repo_slug", "scope", "entity_iid"),
-        [
-            ("", Scope.ISSUE, 42),
-            ("owner/repo", None, 42),
-            ("owner/repo", Scope.ISSUE, None),
-            ("owner/repo", Scope.ISSUE, ""),
-        ],
-    )
-    def test_rejects_falsy_inputs(self, repo_slug, scope, entity_iid):
-        with pytest.raises(ValueError):
-            compute_thread_id(repo_slug=repo_slug, scope=scope, entity_iid=entity_iid)
 
 
 class TestRedactDiffContent:
@@ -226,3 +197,51 @@ class TestDiffLineStats:
         diff = "diff --git a/a.c b/a.c\n--- a/a.c\n+++ b/a.c\n@@ -1,2 +1,2 @@\n+++i;\n--- audit trail\n"
         stats = diff_line_stats(diff)
         assert (stats.lines_added, stats.lines_removed) == (1, 1)
+
+
+class TestIsGitAuthErrorText:
+    """Direct contract test for the shared marker set used by both the clone-retry self-heal
+    (codebase.clients.gitlab) and the push-failure classifier (automation.agent.workspace.git_manager).
+    A marker dropped here silently widens or narrows both behaviours, so pin them explicitly."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "fatal: Authentication failed for 'https://gitlab.example/acme/repo.git'",
+            "remote: HTTP Basic: Access denied",  # subsumed by "access denied"
+            "The requested URL returned error: 403",
+            "fatal: could not read Username for 'https://...': terminal prompts disabled",
+            "remote: Permission denied",
+            "remote: You are not authorized to push to this repository",
+            "AUTHENTICATION FAILED",  # case-insensitive
+        ],
+    )
+    def test_auth_markers_return_true(self, text):
+        assert is_git_auth_error_text(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "fatal: unable to access 'https://...': Could not resolve host",
+            "fatal: couldn't find remote ref refs/heads/missing",
+            "",
+            "Everything up-to-date",
+        ],
+    )
+    def test_non_auth_text_returns_false(self, text):
+        assert is_git_auth_error_text(text) is False
+
+
+class TestIsGitRefNotFoundText:
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("fatal: Remote branch chore/x not found in upstream origin", True),
+            ("Remote branch feature-1 not found in upstream origin\n", True),
+            ("fatal: could not read Username for 'https://...'", False),  # auth, not a missing ref
+            ("fatal: unable to access '...': Could not resolve host", False),  # network
+            ("", False),
+        ],
+    )
+    def test_is_git_ref_not_found_text(self, text, expected):
+        assert is_git_ref_not_found_text(text) is expected

@@ -17,10 +17,10 @@ from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
 from skills.services import global_skill_files, record_invocation
 
 from automation.agent.constants import SKILLS_TOOL_NAME
+from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
 from automation.agent.synthetic import is_person_message
 from automation.agent.utils import extract_body_from_frontmatter
-from codebase.context import RuntimeCtx  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
