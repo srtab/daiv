@@ -1,6 +1,6 @@
-"""The ``actionable[]`` item contract for :class:`sessions.models.RunEnvelope`.
+"""The ``actionable[]`` item contract for :class:`notifications.models.RunEnvelope`.
 
-This is a **pure** module: it must never import from ``sessions.models`` (the model
+This is a **pure** module: it must never import from ``notifications.models`` (the model
 imports the validator from here), keeping the contract a standalone source of truth that
 the classifier (Story 1.3) and every reader build/read against.
 """

@@ -12,17 +12,11 @@ from django.dispatch import receiver
 from django_tasks.signals import task_finished, task_started
 
 from core import ui_events
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session
 from sessions.queue import dispatch_next_queued
 from sessions.signal_defs import run_finished
-from sessions.tasks import classify_run_task
 
 logger = logging.getLogger("daiv.sessions")
-
-
-def get_classify_origins() -> frozenset[str]:
-    """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven)."""
-    return frozenset({SessionOrigin.SCHEDULE}) | SessionOrigin.webhooks() | SessionOrigin.prompt_driven()
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
@@ -126,25 +120,6 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
         return
     if session_id := getattr(run, "session_id", None):
         dispatch_next_queued(session_id)
-
-
-@receiver(run_finished, dispatch_uid="agent_sessions.classify_on_run_finished")
-def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
-    """Enqueue post-run classification for all non-chat origins (SCHEDULE + webhooks + prompt-driven).
-
-    Universal gate: every terminal, non-chat run gets a RunEnvelope, including a ``never_started`` FAILED one,
-    which still deserves a ``failed`` envelope + failure notification.
-
-    Exception-safe: classification must never affect the run lifecycle.
-    """
-    try:
-        if run.trigger_type not in get_classify_origins():
-            return
-        if run.status not in RunStatus.terminal():
-            return
-        classify_run_task.enqueue(str(run.pk))
-    except Exception:
-        logger.exception("classify_on_run_finished: failed to enqueue classification for run=%s", run.pk)
 
 
 @receiver(post_delete, sender="agent_sessions.RunArtifact", dispatch_uid="sessions.delete_artifact_file")

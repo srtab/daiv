@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from django.utils import timezone
 
-from notifications.choices import EventType
+from notifications.choices import EnvelopeStatus, EventType
 
 logger = logging.getLogger("daiv.notifications")
 
@@ -15,6 +16,25 @@ SOURCE_BATCH = "sessions.Batch"
 SOURCE_SESSION = "sessions.Session"
 SOURCE_SCHEDULE = "schedules.ScheduledJob"
 
+# Recency floor so a first deploy of universal classification never sweeps every historical webhook/job
+# run into paid classification; the notification relevance window reuses this same value.
+RECLASSIFY_MAX_AGE = timedelta(hours=24)
+
+NOTIFY_WORTHY_STATUSES = frozenset({
+    EnvelopeStatus.FOUND_ISSUES,
+    EnvelopeStatus.NEEDS_ATTENTION,
+    EnvelopeStatus.NEEDS_INPUT,
+    EnvelopeStatus.FAILED,
+})
+
+STATUS_TONES = {
+    EnvelopeStatus.FAILED: "failure",
+    EnvelopeStatus.FOUND_ISSUES: "warning",
+    EnvelopeStatus.NEEDS_ATTENTION: "warning",
+    EnvelopeStatus.NEEDS_INPUT: "warning",
+    EnvelopeStatus.ALL_CLEAR: "success",
+}
+
 
 def is_schedule_run(run) -> bool:
     """True when ``run`` belongs to a session with a still-loadable ScheduledJob."""
@@ -22,26 +42,15 @@ def is_schedule_run(run) -> bool:
     return session is not None and session.scheduled_job_id is not None and session.scheduled_job is not None
 
 
-def notify_worthy_statuses() -> frozenset[str]:
-    from sessions.models import EnvelopeStatus
-
-    return frozenset({
-        EnvelopeStatus.FOUND_ISSUES,
-        EnvelopeStatus.NEEDS_ATTENTION,
-        EnvelopeStatus.NEEDS_INPUT,
-        EnvelopeStatus.FAILED,
-    })
-
-
 def notify_worthy(status: str) -> bool:
     """Whether an envelope status is worth a look; ``all-clear`` is silent (it lives in the Feed).
     Per-run delivery decisions go through ``notifies()``, which adds the run-level exceptions."""
-    return status in notify_worthy_statuses()
+    return status in NOTIFY_WORTHY_STATUSES
 
 
 def notifies(run, status: str) -> bool:
     """Whether this run's outcome notifies. A webhook question is already posted on the forge, mentioning the asker."""
-    from sessions.models import EnvelopeStatus, SessionOrigin
+    from sessions.models import SessionOrigin
 
     if status == EnvelopeStatus.NEEDS_INPUT and run.trigger_type in SessionOrigin.webhooks():
         return False
@@ -54,8 +63,6 @@ def status_severity(status: str) -> int:
     An unranked status sorts *first* — under a cap, being dropped is the one outcome a reader
     cannot recover from.
     """
-    from sessions.models import EnvelopeStatus
-
     try:
         return EnvelopeStatus.worst_first().index(status)
     except ValueError:
@@ -69,8 +76,6 @@ def within_relevance_window(finished_at) -> bool:
     The window reuses ``RECLASSIFY_MAX_AGE`` (one shared knob): inside it we prefer late delivery over
     dropping, so an outage-delayed but genuinely-recent run still notifies.
     """
-    from sessions.tasks import RECLASSIFY_MAX_AGE
-
     if finished_at is None:
         return False
     now = timezone.now()
@@ -115,24 +120,10 @@ def batch_status_tone(notable: int, total: int) -> str:
     return "warning"
 
 
-def status_tones() -> dict[str, str]:
-    """Every status's channel tone. ``all-clear`` is spelled out rather than left to fall through,
-    which is what makes an untoned status detectable."""
-    from sessions.models import EnvelopeStatus
-
-    return {
-        EnvelopeStatus.FAILED: "failure",
-        EnvelopeStatus.FOUND_ISSUES: "warning",
-        EnvelopeStatus.NEEDS_ATTENTION: "warning",
-        EnvelopeStatus.NEEDS_INPUT: "warning",
-        EnvelopeStatus.ALL_CLEAR: "success",
-    }
-
-
 def envelope_tone(status: str) -> str:
     """A single run's tone, shared by the email pill and the RocketChat attachment so the two
     channels agree. An untoned status renders as a failure, never green."""
-    if (tone := status_tones().get(status)) is None:
+    if (tone := STATUS_TONES.get(status)) is None:
         logger.error("envelope_tone: untoned envelope status %r, rendering it as a failure", status)
         return "failure"
     return tone

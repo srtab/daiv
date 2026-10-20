@@ -1,8 +1,14 @@
+import uuid
+
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
 import pytest
-from notifications.choices import DeliveryStatus, EventType
-from notifications.models import Notification, NotificationDelivery, UserChannelBinding
+from notifications.choices import DeliveryStatus, EnvelopeStatus, EventType
+from notifications.models import Notification, NotificationDelivery, RunEnvelope, UserChannelBinding
+from sessions.models import Run, RunStatus, Session, SessionOrigin
+
+from tests.unit_tests.notifications.conftest import actionable_item
 
 
 @pytest.mark.django_db
@@ -184,3 +190,97 @@ def test_schedule_finished_event_dedup_constraint_rejects_duplicate(member_user)
     Notification.objects.create(**kwargs)
     with pytest.raises(IntegrityError), transaction.atomic():
         Notification.objects.create(**kwargs)
+
+
+def _mk_session(**kwargs) -> Session:
+    defaults = {"thread_id": str(uuid.uuid4()), "origin": SessionOrigin.SCHEDULE, "repo_id": "group/repo"}
+    defaults.update(kwargs)
+    return Session.objects.create(**defaults)
+
+
+def _mk_run(session: Session, **kwargs) -> Run:
+    defaults = {"trigger_type": SessionOrigin.SCHEDULE, "repo_id": session.repo_id, "status": RunStatus.SUCCESSFUL}
+    defaults.update(kwargs)
+    return Run.objects.create(session=session, **defaults)
+
+
+def _mk_envelope(run: Run, **overrides) -> RunEnvelope:
+    defaults = {"status": EnvelopeStatus.ALL_CLEAR}
+    defaults.update(overrides)
+    return RunEnvelope.objects.create(run=run, **defaults)
+
+
+@pytest.mark.django_db
+class TestRunEnvelope:
+    def test_run_envelope_status_constraint_literals_match_enum(self):
+        """The ``run_envelope_status_valid`` CHECK references ``EnvelopeStatus.values`` so it cannot
+        drift; assert that intent-documenting equivalence (mirrors the ``Run`` drift guard)."""
+        constraint = next(c for c in RunEnvelope._meta.constraints if c.name == "run_envelope_status_valid")
+        conditions = dict(constraint.condition.children)
+        assert set(conditions["status__in"]) == set(EnvelopeStatus.values)
+
+    def test_valid_all_clear_envelope_persists(self):
+        env = _mk_envelope(_mk_run(_mk_session()), status=EnvelopeStatus.ALL_CLEAR)
+        env.refresh_from_db()
+        assert env.status == EnvelopeStatus.ALL_CLEAR
+        assert env.count == 0
+        assert env.summary == ""
+        assert env.actionable == []
+
+    def test_bogus_status_create_rejected_by_check_constraint(self):
+        run = _mk_run(_mk_session())
+        with pytest.raises(IntegrityError):
+            RunEnvelope.objects.create(run=run, status="bogus")
+
+    def test_bogus_status_update_rejected_by_check_constraint(self):
+        """``.update()`` bypasses field validation, so the DB CHECK is the real guarantee."""
+        env = _mk_envelope(_mk_run(_mk_session()), status=EnvelopeStatus.ALL_CLEAR)
+        with pytest.raises(IntegrityError):
+            RunEnvelope.objects.filter(pk=env.pk).update(status="bogus")
+
+    def test_duplicate_envelope_for_same_run_rejected(self):
+        run = _mk_run(_mk_session())
+        _mk_envelope(run, status=EnvelopeStatus.ALL_CLEAR)
+        with pytest.raises(IntegrityError):
+            _mk_envelope(run, status=EnvelopeStatus.NEEDS_ATTENTION)
+
+    def test_full_clean_rejects_malformed_actionable(self):
+        env = RunEnvelope(run=_mk_run(_mk_session()), status=EnvelopeStatus.NEEDS_ATTENTION, actionable=[{"id": "x"}])
+        with pytest.raises(ValidationError):
+            env.full_clean()
+
+    def test_needs_input_passes_the_status_check_constraint(self):
+        env = RunEnvelope.objects.create(run=_mk_run(_mk_session()), status=EnvelopeStatus.NEEDS_INPUT)
+        assert env.status == "needs-input"
+
+    def test_clean_rejects_found_issues_with_empty_actionable(self):
+        env = RunEnvelope(run=_mk_run(_mk_session()), status=EnvelopeStatus.FOUND_ISSUES, actionable=[])
+        with pytest.raises(ValidationError):
+            env.full_clean()
+
+    def test_clean_accepts_found_issues_with_actionable(self):
+        env = RunEnvelope(
+            run=_mk_run(_mk_session()), status=EnvelopeStatus.FOUND_ISSUES, actionable=[actionable_item()]
+        )
+        env.full_clean()  # no raise
+
+    def test_ordering_has_deterministic_tiebreaker(self):
+        assert RunEnvelope._meta.ordering == ["-created_at", "-id"]
+
+    def test_clean_rejects_non_found_issues_carrying_actionable(self):
+        """The reverse coherence direction: only a found-issues envelope may carry actionable items."""
+        env = RunEnvelope(run=_mk_run(_mk_session()), status=EnvelopeStatus.ALL_CLEAR, actionable=[actionable_item()])
+        with pytest.raises(ValidationError):
+            env.full_clean()
+
+    def test_count_is_derived_from_actionable_on_save(self):
+        """``count`` mirrors ``len(actionable)`` regardless of any value a caller passes to ``create``."""
+        run = _mk_run(_mk_session())
+        env = RunEnvelope.objects.create(
+            run=run,
+            status=EnvelopeStatus.FOUND_ISSUES,
+            actionable=[actionable_item("a"), actionable_item("b")],
+            count=99,
+        )
+        env.refresh_from_db()
+        assert env.count == 2

@@ -72,6 +72,42 @@ msgstr "Agendamento terminado"
 msgid "Job batch finished"
 msgstr "Lote de tarefas terminado"
 
+msgid "All clear"
+msgstr "Tudo em ordem"
+
+msgid "Found issues"
+msgstr "Problemas encontrados"
+
+msgid "Needs attention"
+msgstr "Requer atenção"
+
+msgid "run"
+msgstr "execução"
+
+msgid "count"
+msgstr "contagem"
+
+msgid "summary"
+msgstr "resumo"
+
+msgid "actionable"
+msgstr "itens acionáveis"
+
+msgid "created at"
+msgstr "criado em"
+
+msgid "Run Envelope"
+msgstr "Envelope de execução"
+
+msgid "Run Envelopes"
+msgstr "Envelopes de execução"
+
+msgid "Run failed."
+msgstr "A execução falhou."
+
+msgid "Waiting for your answer."
+msgstr "À espera da sua resposta."
+
 msgid "Username is required."
 msgstr "O nome de utilizador é obrigatório."
 

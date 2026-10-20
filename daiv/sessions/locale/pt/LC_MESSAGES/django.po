@@ -92,24 +92,6 @@ msgstr "Webhook de issue"
 msgid "MR/PR Webhook"
 msgstr "Webhook de MR/PR"
 
-msgid "All clear"
-msgstr "Tudo em ordem"
-
-msgid "Found issues"
-msgstr "Problemas encontrados"
-
-msgid "Needs attention"
-msgstr "Requer atenção"
-
-msgid "Watch & find"
-msgstr "Vigiar e encontrar"
-
-msgid "Do & change"
-msgstr "Fazer e alterar"
-
-msgid "Report"
-msgstr "Relatar"
-
 msgid "None"
 msgstr "Nenhuma"
 
@@ -241,24 +223,6 @@ msgstr "Execuções"
 
 msgid "run"
 msgstr "execução"
-
-msgid "count"
-msgstr "contagem"
-
-msgid "summary"
-msgstr "resumo"
-
-msgid "actionable"
-msgstr "itens acionáveis"
-
-msgid "Run Envelope"
-msgstr "Envelope de execução"
-
-msgid "Run Envelopes"
-msgstr "Envelopes de execução"
-
-msgid "Run failed."
-msgstr "A execução falhou."
 
 msgid "Repository already in the list: __LABEL__."
 msgstr "Repositório já na lista: __LABEL__."

@@ -4,17 +4,18 @@ from types import SimpleNamespace
 
 from django.utils import timezone
 
+from notifications.choices import EnvelopeStatus
 from notifications.policy import (
+    NOTIFY_WORTHY_STATUSES,
+    RECLASSIFY_MAX_AGE,
+    STATUS_TONES,
     envelope_tone,
     notifies,
     notify_worthy,
-    notify_worthy_statuses,
     status_severity,
-    status_tones,
     within_relevance_window,
 )
-from sessions.models import EnvelopeStatus, SessionOrigin
-from sessions.tasks import RECLASSIFY_MAX_AGE
+from sessions.models import SessionOrigin
 
 
 def test_notify_worthy_truth_table():
@@ -56,13 +57,13 @@ class TestEveryStatusIsTriaged:
 
     def test_every_status_is_either_notify_worthy_or_deliberately_silent(self):
         # A new member absent from both sides never notifies, and nothing else would say so.
-        assert notify_worthy_statuses() | {EnvelopeStatus.ALL_CLEAR} == set(EnvelopeStatus)
+        assert NOTIFY_WORTHY_STATUSES | {EnvelopeStatus.ALL_CLEAR} == set(EnvelopeStatus)
 
     def test_every_status_has_a_severity_rank(self):
         assert set(EnvelopeStatus.worst_first()) == set(EnvelopeStatus)
 
     def test_every_status_has_a_tone(self):
-        assert set(status_tones()) == set(EnvelopeStatus)
+        assert set(STATUS_TONES) == set(EnvelopeStatus)
 
     def test_only_all_clear_ever_renders_green(self):
         # "success" is the pill that tells a reader there is nothing to do; only a clean run earns it.

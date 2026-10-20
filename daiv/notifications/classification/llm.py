@@ -3,7 +3,7 @@
 This module proposes a **draft** classification of a finished scheduled run's prose
 report; it never persists anything and never enforces the load-bearing invariants
 (``report`` -> no findings, ``found-issues`` -> non-empty, ``failed`` -> not a finding).
-Those are enforced deterministically in :func:`sessions.tasks.classify_run_task` so that
+Those are enforced deterministically in :func:`notifications.tasks.classify_run_task` so that
 no future method choice (model swap, prompt tuning, or a heuristic) can violate them.
 
 Deliberately standalone: it must **not** import from ``memory`` — the structured-output
@@ -23,7 +23,7 @@ from automation.agent.base import get_model
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from sessions.models import Intent
+    from schedules.models import Intent
 
 # Module-constant prompt (tunable / deferred). Instructs the model to classify a run's prose
 # report into one of the three non-failed statuses and emit one actionable per finding. The
@@ -54,7 +54,7 @@ class ActionableDraft(BaseModel):
     """One proposed actionable item authored by the classifier.
 
     Carries only the classifier-authored fields; the ``id`` and ``schema_version`` are stamped
-    downstream by :func:`sessions.envelopes.build_actionable_item`, never by the model.
+    downstream by :func:`notifications.classification.envelopes.build_actionable_item`, never by the model.
     """
 
     kind: str = Field(description="Short machine-friendly category for the finding (e.g. 'bug', 'test-failure').")
@@ -98,7 +98,7 @@ async def classify_response_text(text: str, *, intent: Intent, model_names: Sequ
     """Classify a run's prose report into a draft :class:`RunClassification`.
 
     ``intent`` is carried into the trace metadata only; the report/found-issues/failed
-    invariants are enforced by the caller (:func:`sessions.tasks.classify_run_task`), never
+    invariants are enforced by the caller (:func:`notifications.tasks.classify_run_task`), never
     here. ``model_names`` (primary + optional fallbacks) is supplied by the caller from the
     ``run_classifier_*`` site settings.
     """

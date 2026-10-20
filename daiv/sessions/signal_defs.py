@@ -9,10 +9,6 @@ from django.dispatch import Signal
 # skip_dispatch (bool, the sender releases the next run itself), never_started (bool, failed before it started).
 run_finished = Signal()
 
-# Emitted exactly once when a RunEnvelope is persisted for a Run.
-# Arguments: run (Run instance), envelope (RunEnvelope instance).
-run_classified = Signal()
-
 # Emitted when the CI watch runs out of fix attempts with CI still failing; at most once per armed watch.
 # Arguments: session (Session), failing_jobs (list[str]), pipeline_url (str), pipeline_id (int).
 watch_exhausted = Signal()

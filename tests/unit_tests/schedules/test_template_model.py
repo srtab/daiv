@@ -4,9 +4,8 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 import pytest
-from sessions.models import Intent
 
-from schedules.models import Frequency, ScheduleTemplate
+from schedules.models import Frequency, Intent, ScheduleTemplate
 
 
 @pytest.mark.django_db

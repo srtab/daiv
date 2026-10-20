@@ -3,7 +3,7 @@ import uuid
 from django.db import IntegrityError
 
 import pytest
-from sessions.models import Intent, Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.workspace.session import SandboxAcquisition
 
@@ -63,14 +63,6 @@ def test_a_successful_task_result_without_a_question_stays_successful(create_db_
     assert run.question is None
 
 
-class TestIntentEnum:
-    def test_values(self):
-        assert set(Intent.values) == {"watch-find", "do-change", "report"}
-
-    def test_finding_bearing_excludes_report(self):
-        assert Intent.finding_bearing() == frozenset({Intent.WATCH_FIND, Intent.DO_CHANGE})
-
-
 def test_session_origin_includes_chat():
     assert SessionOrigin.CHAT == "chat"
     # All Activity trigger values survive with identical strings.
@@ -83,6 +75,15 @@ def test_session_origin_includes_chat():
         "issue_webhook",
         "mr_webhook",
         "pipeline_webhook",
+    }
+
+
+def test_classified_origins_exclude_chat_and_pipeline_webhook():
+    """Classification is "universal for non-chat" except pipeline-watch runs, which have a
+    separate result path. Pinning the set forces a newly-added SessionOrigin to decide."""
+    assert SessionOrigin.classified() == frozenset(SessionOrigin.values) - {
+        SessionOrigin.CHAT,
+        SessionOrigin.PIPELINE_WEBHOOK,
     }
 
 

@@ -45,7 +45,13 @@ TASK_MODULES = sorted(
     for path in DAIV_DIR.rglob("tasks.py")
     if not path.is_relative_to(DAIV_DIR / "daiv")
 )
-TASK_ALIASES = {"jobs.tasks": "sessions.executor.tasks:run_job_task"}
+TASK_ALIASES = {
+    "jobs.tasks.run_job_task": "sessions.executor.tasks:run_job_task",
+    "sessions.tasks.classify_run_task": "notifications.tasks:classify_run_task",
+    "sessions.tasks.reclassify_missing_envelopes_cron_task": (
+        "notifications.tasks:reclassify_missing_envelopes_cron_task"
+    ),
+}
 
 DECLARED_QUEUES = set(settings.TASKS["default"]["QUEUES"])
 
@@ -54,8 +60,8 @@ DECLARED_QUEUES = set(settings.TASKS["default"]["QUEUES"])
 # task drifting back to ``default`` regains the latency the split removed, and a long one
 # joining ``interactive`` hands that latency to everything already there.
 INTERACTIVE_TASKS = {
+    "notifications.tasks:classify_run_task",
     "notifications.tasks:deliver_notification_task",
-    "sessions.tasks:classify_run_task",
     "sessions.tasks:evaluate_pipeline_watch_task",
     "sessions.tasks:generate_batch_title_task",
     "sessions.tasks:generate_title_task",
@@ -96,7 +102,8 @@ def queues_served(stack: str) -> set[str]:
 
 
 def test_every_task_runs_on_a_queue_the_backend_declares():
-    silent = set(TASK_MODULES) - set(TASK_ALIASES) - {name.split(":")[0] for name in ALL_TASKS}
+    aliased = {alias_path.rsplit(".", 1)[0] for alias_path in TASK_ALIASES}
+    silent = set(TASK_MODULES) - aliased - {name.split(":")[0] for name in ALL_TASKS}
     assert not silent, f"no task discovered in {silent} — the tasks.py layout drifted"
 
     undeclared = {name: task.queue_name for name, task in ALL_TASKS.items() if task.queue_name not in DECLARED_QUEUES}
@@ -106,11 +113,9 @@ def test_every_task_runs_on_a_queue_the_backend_declares():
 def test_a_row_queued_under_an_alias_path_runs_the_task_it_names():
     """``db_worker`` runs a row through ``import_string(row.task_path)``, so a row queued before its task moved
     must still reach that very task, while every row enqueued now stores the task's own path."""
-    for alias_module, target in TASK_ALIASES.items():
+    for alias_path, target in TASK_ALIASES.items():
         task = ALL_TASKS[target]
-        row = DBTaskResult(
-            task_path=f"{alias_module}.{target.split(':')[1]}", queue_name=task.queue_name, backend_name=task.backend
-        )
+        row = DBTaskResult(task_path=alias_path, queue_name=task.queue_name, backend_name=task.backend)
 
         assert import_string(row.task_path) is task
         assert row.task.func is task.func

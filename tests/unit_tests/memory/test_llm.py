@@ -10,7 +10,7 @@ def _models(*models):
 
 def test_build_structured_llm_adds_no_retry_layer():
     # A retry re-sends a byte-identical request, and the dominant failure is a None result rather
-    # than an exception, so the layer never helped. sessions.classification keeps its retry
+    # than an exception, so the layer never helped. notifications.classification.llm keeps its retry
     # deliberately — do not reconcile the two by re-adding one here.
     model = MagicMock()
 

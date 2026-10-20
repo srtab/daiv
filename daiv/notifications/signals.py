@@ -8,25 +8,36 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from sessions.signal_defs import run_classified, watch_exhausted
+from sessions.models import RunStatus, SessionOrigin
+from sessions.signal_defs import run_finished, watch_exhausted
 
 from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding
-from notifications.run_notifiers import emit_run_notification
 from notifications.schedule_notifiers import emit_schedule_dispatch_failed
+from notifications.tasks import classify_run_task
 from notifications.watch_notifiers import emit_watch_exhausted
 from schedules.signals import schedule_dispatch_failed
 
 logger = logging.getLogger("daiv.notifications")
 
 
-@receiver(run_classified, dispatch_uid="notifications.on_run_classified")
-def on_run_classified(sender, run, envelope, **kwargs) -> None:
-    """Deliver notifications for a classified Run; swallow errors so the signal never propagates."""
+@receiver(run_finished, dispatch_uid="notifications.classify_on_run_finished")
+def classify_on_run_finished(sender, run, **kwargs) -> None:
+    """Enqueue post-run classification for all non-chat origins (SCHEDULE + webhooks + prompt-driven).
+
+    Universal gate: every terminal, non-chat run gets a RunEnvelope, including a ``never_started`` FAILED one,
+    which still deserves a ``failed`` envelope + failure notification.
+
+    Exception-safe: classification must never affect the run lifecycle.
+    """
     try:
-        emit_run_notification(run, envelope)
+        if run.trigger_type not in SessionOrigin.classified():
+            return
+        if run.status not in RunStatus.terminal():
+            return
+        classify_run_task.enqueue(str(run.pk))
     except Exception:
-        logger.exception("on_run_classified: unexpected error for run=%s", getattr(run, "pk", run))
+        logger.exception("classify_on_run_finished: failed to enqueue classification for run=%s", run.pk)
 
 
 @receiver(watch_exhausted, dispatch_uid="notifications.on_watch_exhausted")
