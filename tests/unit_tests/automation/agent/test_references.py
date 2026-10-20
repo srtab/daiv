@@ -4,8 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from automation.agent.diff_to_metadata.prompts import human_pr_metadata, system
-from codebase.base import GitPlatform, Issue, Scope, User
-from codebase.references import (
+from automation.agent.references import (
     MAX_REFS_PER_SESSION,
     ExternalRef,
     RefIn,
@@ -17,6 +16,7 @@ from codebase.references import (
     render_commit_trailers,
     render_references_block,
 )
+from codebase.base import GitPlatform, Issue, Scope, User
 
 _AGENT_CONTEXT_HEADER = (
     "External work items this change addresses. Use their identifiers for the branch name and "
@@ -153,7 +153,7 @@ class TestStoredRoundTrip:
         assert refs_from_stored(raw) == ()
 
     def test_a_malformed_column_warns_like_a_malformed_entry(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="daiv.codebase"):
+        with caplog.at_level(logging.WARNING, logger="daiv.agent"):
             assert refs_from_stored("junk") == ()
         assert "malformed stored external refs column" in caplog.text
 
@@ -187,19 +187,19 @@ class TestMerge:
     def test_dropping_refs_at_the_cap_is_logged(self, caplog):
         existing = [{"key": f"K-{i}", "provider": "generic", "url": "", "relation": "relates"} for i in range(50)]
         new = [{"key": f"N-{i}", "provider": "generic", "url": "", "relation": "relates"} for i in range(3)]
-        with caplog.at_level(logging.WARNING, logger="daiv.codebase"):
+        with caplog.at_level(logging.WARNING, logger="daiv.agent"):
             merge_stored_refs(existing, new)
         assert "dropping the 3 newest" in caplog.text
 
     def test_a_non_dict_entry_is_logged_when_skipped(self, caplog):
         new = [{"key": "K-1", "provider": "generic", "url": "", "relation": "relates"}]
-        with caplog.at_level(logging.WARNING, logger="daiv.codebase"):
+        with caplog.at_level(logging.WARNING, logger="daiv.agent"):
             merged = merge_stored_refs(["junk"], new)
         assert [m["key"] for m in merged] == ["K-1"]
         assert "malformed stored external ref" in caplog.text
 
     def test_a_merge_within_budget_logs_nothing(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="daiv.codebase"):
+        with caplog.at_level(logging.WARNING, logger="daiv.agent"):
             merge_stored_refs([], [{"key": "K-1", "provider": "generic", "url": "", "relation": "relates"}])
         assert "budget" not in caplog.text
 

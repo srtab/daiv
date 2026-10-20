@@ -19,8 +19,8 @@ from langchain_core.tools import BaseTool, tool
 
 from automation.agent.artifacts import FETCH_ARTIFACT_TOOL_NAME, PUBLISH_ARTIFACT_TOOL_NAME, ArtifactError
 from automation.agent.constants import TMP_PATH, WORKSPACE_PATH
+from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, _fs_transport_failure_text, is_workspace_path
-from codebase.context import RuntimeCtx  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

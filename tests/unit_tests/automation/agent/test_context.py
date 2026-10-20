@@ -1,15 +1,16 @@
 from contextlib import contextmanager, nullcontext
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from git import Repo
 
+from automation.agent.context import RepoHandle, RuntimeCtx, SingleRepoRequiredError, set_runtime_ctx
 from automation.agent.middlewares.sandbox import SandboxMiddleware
+from automation.agent.references import ExternalRef
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession, acquire_sandbox
 from codebase.base import Scope as RepoScope
 from codebase.clients.base import GitEgressCredential
-from codebase.context import set_runtime_ctx
 from codebase.exceptions import CloneRefNotFoundError
 from core.sandbox.schemas import EgressConfigRequest, EgressSecret
 from tests.unit_tests.conftest import FakeSandboxClient, sandbox_spec
@@ -35,7 +36,7 @@ def _repo_client(credential: GitEgressCredential | None = None, working_dir: str
 def _context_deps(repo_client=None):
     """Patch ``set_runtime_ctx`` to load ``repo_client``'s repo."""
     return patch.multiple(
-        "codebase.context",
+        "automation.agent.context",
         RepoClient=MagicMock(create_instance=MagicMock(return_value=repo_client or _repo_client())),
         RepositoryConfig=MagicMock(get_config=MagicMock(return_value=MagicMock(default_branch="main"))),
     )
@@ -45,7 +46,7 @@ async def test_set_runtime_ctx_opens_and_closes_transport_when_sandbox_enabled()
     fake_client = MagicMock()
     fake_client.open = AsyncMock(return_value=fake_client)
     fake_client.close = AsyncMock()
-    with _context_deps(), patch("codebase.context.DAIVSandboxClient", return_value=fake_client):
+    with _context_deps(), patch("automation.agent.context.DAIVSandboxClient", return_value=fake_client):
         async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec()) as ctx:
             assert ctx.sandbox_client is fake_client
             fake_client.close.assert_not_awaited()
@@ -54,7 +55,7 @@ async def test_set_runtime_ctx_opens_and_closes_transport_when_sandbox_enabled()
 
 
 async def test_set_runtime_ctx_skips_transport_when_sandbox_disabled():
-    with _context_deps(), patch("codebase.context.DAIVSandboxClient") as ctor:
+    with _context_deps(), patch("automation.agent.context.DAIVSandboxClient") as ctor:
         async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)) as ctx:
             assert ctx.sandbox_client is None
         ctor.assert_not_called()
@@ -64,7 +65,7 @@ async def test_set_runtime_ctx_skips_transport_when_sandbox_disabled():
 def _sandbox_run(credential: GitEgressCredential | None, working_dir: str = "/tmp/repo"):  # noqa: S108
     """Patch ``set_runtime_ctx``'s collaborators for a run over a fake sandbox transport; yield the repo client."""
     repo_client = _repo_client(credential, working_dir)
-    with _context_deps(repo_client), patch("codebase.context.DAIVSandboxClient", FakeSandboxClient):
+    with _context_deps(repo_client), patch("automation.agent.context.DAIVSandboxClient", FakeSandboxClient):
         yield repo_client
 
 
@@ -189,7 +190,7 @@ async def test_set_runtime_ctx_falls_back_to_default_when_ref_missing():
     gone_cm.__enter__ = MagicMock(side_effect=CloneRefNotFoundError("gone", "r/p"))
     gone_cm.__exit__ = MagicMock(return_value=False)
 
-    with patch("codebase.context.RepoClient.create_instance") as mock_client_factory:
+    with patch("automation.agent.context.RepoClient.create_instance") as mock_client_factory:
         client = mock_client_factory.return_value
         client.get_repository.return_value = type("R", (), {"name": "x", "slug": "r/p"})()
         client.git_platform = "gitlab"
@@ -197,7 +198,7 @@ async def test_set_runtime_ctx_falls_back_to_default_when_ref_missing():
         client.get_git_egress_credential.return_value = None
         client.load_repo.side_effect = [gone_cm, good_cm]
 
-        with patch("codebase.context.RepositoryConfig.get_config") as gc:
+        with patch("automation.agent.context.RepositoryConfig.get_config") as gc:
             from codebase.repo_config import RepositoryConfig
 
             gc.return_value = RepositoryConfig.model_validate({"default_branch": "main"})
@@ -223,7 +224,7 @@ async def test_set_runtime_ctx_reraises_missing_ref_without_fallback():
     gone_cm.__enter__ = MagicMock(side_effect=CloneRefNotFoundError("gone", "r/p"))
     gone_cm.__exit__ = MagicMock(return_value=False)
 
-    with patch("codebase.context.RepoClient.create_instance") as mock_client_factory:
+    with patch("automation.agent.context.RepoClient.create_instance") as mock_client_factory:
         client = mock_client_factory.return_value
         client.get_repository.return_value = type("R", (), {"name": "x", "slug": "r/p"})()
         client.git_platform = "gitlab"
@@ -231,7 +232,7 @@ async def test_set_runtime_ctx_reraises_missing_ref_without_fallback():
         client.get_git_egress_credential.return_value = None
         client.load_repo.side_effect = [gone_cm]
 
-        with patch("codebase.context.RepositoryConfig.get_config") as gc:
+        with patch("automation.agent.context.RepositoryConfig.get_config") as gc:
             from codebase.repo_config import RepositoryConfig
 
             gc.return_value = RepositoryConfig.model_validate({"default_branch": "main"})
@@ -250,7 +251,7 @@ async def test_set_runtime_ctx_reraises_when_missing_ref_is_the_default_branch()
     gone_cm.__enter__ = MagicMock(side_effect=CloneRefNotFoundError("main", "r/p"))
     gone_cm.__exit__ = MagicMock(return_value=False)
 
-    with patch("codebase.context.RepoClient.create_instance") as mock_client_factory:
+    with patch("automation.agent.context.RepoClient.create_instance") as mock_client_factory:
         client = mock_client_factory.return_value
         client.get_repository.return_value = type("R", (), {"name": "x", "slug": "r/p"})()
         client.git_platform = "gitlab"
@@ -258,7 +259,7 @@ async def test_set_runtime_ctx_reraises_when_missing_ref_is_the_default_branch()
         client.get_git_egress_credential.return_value = None
         client.load_repo.side_effect = [gone_cm]
 
-        with patch("codebase.context.RepositoryConfig.get_config") as gc:
+        with patch("automation.agent.context.RepositoryConfig.get_config") as gc:
             from codebase.repo_config import RepositoryConfig
 
             gc.return_value = RepositoryConfig.model_validate({"default_branch": "main"})
@@ -283,7 +284,7 @@ def test_load_repo_fallback_body_raise_does_not_trigger_fallback():
     must NOT be swallowed into a spurious second clone (which would also raise
     "generator didn't stop"). Only clone acquisition may reach the fallback.
     """
-    from codebase.context import _load_repo_with_optional_fallback
+    from automation.agent.context import _load_repo_with_optional_fallback
 
     fake_repo = type("Repo", (), {})()
     good_cm = MagicMock()
@@ -313,14 +314,13 @@ async def test_set_runtime_ctx_assembles_references_for_issue_scope():
     gitlab-issue ref would appear — causing this assertion to fail.
     """
     from codebase.base import Issue, User
-    from codebase.references import ExternalRef
 
     issue = Issue(iid=42, title="Bug", author=User(id=1, username="u"))
     sentry_ref = ExternalRef(key="PROJ-123", provider="sentry", relation="closes")
     duplicate_issue_ref = ExternalRef(key="42", provider="gitlab-issue", relation="closes")
     declared = (sentry_ref, duplicate_issue_ref)
 
-    with patch("codebase.context.RepoClient.create_instance") as mock_client_factory:
+    with patch("automation.agent.context.RepoClient.create_instance") as mock_client_factory:
         client = mock_client_factory.return_value
         client.get_repository.return_value = type("R", (), {"name": "x"})()
         client.git_platform = "gitlab"
@@ -330,7 +330,7 @@ async def test_set_runtime_ctx_assembles_references_for_issue_scope():
         ctx_mgr.__enter__.return_value = MagicMock()
         ctx_mgr.__exit__ = lambda *a: None
 
-        with patch("codebase.context.RepositoryConfig.get_config") as gc:
+        with patch("automation.agent.context.RepositoryConfig.get_config") as gc:
             from codebase.repo_config import RepositoryConfig
 
             gc.return_value = RepositoryConfig.model_validate({})
@@ -346,7 +346,7 @@ async def test_set_runtime_ctx_assembles_references_for_issue_scope():
 
 
 async def test_the_handle_records_how_long_the_clone_took():
-    with _context_deps(), patch("codebase.context.monotonic", side_effect=[100.0, 102.5]):
+    with _context_deps(), patch("automation.agent.context.monotonic", side_effect=[100.0, 102.5]):
         async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)) as ctx:
             assert ctx.repo.clone_seconds == 2.5
 
@@ -372,7 +372,7 @@ async def test_a_fallback_clone_is_timed_across_both_attempts():
     repo_client = _repo_client()
     repo_client.load_repo.side_effect = [gone, fallback]
 
-    with _context_deps(repo_client), patch("codebase.context.monotonic", side_effect=lambda: clock[0]):
+    with _context_deps(repo_client), patch("automation.agent.context.monotonic", side_effect=lambda: clock[0]):
         async with set_runtime_ctx(
             "repo-1",
             scope=RepoScope.GLOBAL,
@@ -383,3 +383,60 @@ async def test_a_fallback_clone_is_timed_across_both_attempts():
             assert (ctx.repo.ref, ctx.repo.clone_seconds) == ("main", 4.0)
 
     assert repo_client.load_repo.call_count == 2
+
+
+def _make_handle() -> RepoHandle:
+    return RepoHandle(
+        repo_id="acme/api",
+        git_platform=Mock(),
+        repository=Mock(slug="acme/api"),
+        gitrepo=Mock(),
+        config=Mock(),
+        ref="main",
+        current_ref="main",
+        head_detached=False,
+        clone_seconds=0.0,
+    )
+
+
+def test_runtime_ctx_accepts_exactly_one_repo():
+    handle = _make_handle()
+    ctx = RuntimeCtx(bot_username="daiv", repos=(handle,))
+    assert ctx.repo is handle
+    assert ctx.repository is handle.repository
+    assert ctx.gitrepo is handle.gitrepo
+    assert ctx.config is handle.config
+
+
+def test_runtime_ctx_rejects_zero_repos():
+    with pytest.raises(SingleRepoRequiredError) as exc:
+        RuntimeCtx(bot_username="daiv", repos=())
+    assert exc.value.actual == 0
+    assert "0" in str(exc.value)
+
+
+def test_runtime_ctx_rejects_multiple_repos():
+    with pytest.raises(SingleRepoRequiredError) as exc:
+        RuntimeCtx(bot_username="daiv", repos=(_make_handle(), _make_handle()))
+    assert exc.value.actual == 2
+    assert "multi-repo" in str(exc.value)
+
+
+def test_runtime_ctx_normalises_list_to_tuple():
+    """``__post_init__`` coerces non-tuple iterables so the frozen dataclass stays hashable."""
+    handle = _make_handle()
+    ctx = RuntimeCtx(bot_username="daiv", repos=[handle])  # type: ignore[arg-type]
+    assert isinstance(ctx.repos, tuple)
+    assert ctx.repos == (handle,)
+
+
+def test_runtime_ctx_defaults_to_no_references():
+    ctx = RuntimeCtx(bot_username="bot", repos=(_make_handle(),))
+    assert ctx.references == ()
+
+
+def test_runtime_ctx_normalises_references_to_a_tuple():
+    ref = ExternalRef(key="PROJ-1", provider="jira")
+    ctx = RuntimeCtx(bot_username="daiv", repos=(_make_handle(),), references=[ref])  # type: ignore[arg-type]
+    assert isinstance(ctx.references, tuple)
+    assert ctx.references == (ref,)

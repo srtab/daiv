@@ -46,8 +46,8 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
     from automation.agent.agent_settings import ModelChain
+    from automation.agent.context import RuntimeCtx
     from automation.agent.workspace.base import Workspace
-    from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.agent")
 

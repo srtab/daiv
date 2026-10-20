@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from codebase.base import Issue
 
-logger = logging.getLogger("daiv.codebase")
+logger = logging.getLogger("daiv.agent")
 
 
 class RefProvider(StrEnum):

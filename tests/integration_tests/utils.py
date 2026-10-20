@@ -24,8 +24,8 @@ if TYPE_CHECKING:
     from langchain_core.tools import ToolCall
 
     from automation.agent.agent_settings import AgentSettings
+    from automation.agent.context import RuntimeCtx
     from automation.agent.mcp.schemas import UserMcpServer
-    from codebase.context import RuntimeCtx
 
 INTERRUPT_ALL_TOOLS_CONFIG = {
     # SkillMiddleware
@@ -230,10 +230,10 @@ async def run_agent_once(
     from langgraph.checkpoint.memory import InMemorySaver
     from sandbox_envs.services import build_sandbox_spec
 
+    from automation.agent.context import set_runtime_ctx
     from automation.agent.graph import create_daiv_agent
     from automation.agent.workspace.disk import DiskWorkspace
     from codebase.base import Scope
-    from codebase.context import set_runtime_ctx
 
     async with set_runtime_ctx(
         repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=await build_sandbox_spec(None)

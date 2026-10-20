@@ -42,10 +42,10 @@ if TYPE_CHECKING:
     from sessions.executor.run import AgentRun
     from sessions.executor.spec import RunOutcome
 
+    from automation.agent.context import RuntimeCtx
+    from automation.agent.references import ExternalRef
     from automation.agent.results import AgentResult
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
-    from codebase.context import RuntimeCtx
-    from codebase.references import ExternalRef
 
 logger = logging.getLogger("daiv.chat")
 

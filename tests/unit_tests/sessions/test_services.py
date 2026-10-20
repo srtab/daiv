@@ -26,9 +26,9 @@ from sessions.services import (
 )
 from sessions.validators import validate_repo_list
 
+from automation.agent.references import RefIn
 from codebase.base import MergeRequest
 from codebase.base import User as CodebaseUser
-from codebase.references import RefIn
 
 pytestmark = pytest.mark.django_db
 

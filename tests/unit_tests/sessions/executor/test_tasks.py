@@ -33,7 +33,7 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
 
     with (
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
-        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent_mock,
         patch(
             "automation.agent.agent_settings.resolve_agent_settings",
@@ -84,7 +84,7 @@ async def test_run_job_task_builds_the_sandbox_spec_from_its_env_id():
     with (
         stub_sandbox_spec() as build_spec,
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
-        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("automation.agent.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer"),
         patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
         patch("automation.agent.agent_settings.resolve_agent_settings", return_value=resolved_to("m")),
@@ -122,7 +122,7 @@ async def test_run_job_task_forwards_overrides():
 
     with (
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
-        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch("automation.agent.agent_settings.resolve_agent_settings", side_effect=capture),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
@@ -174,7 +174,7 @@ async def test_run_job_task_persists_resolved_model():
     with (
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
-        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch(
             "automation.agent.agent_settings.resolve_agent_settings",
@@ -243,7 +243,7 @@ async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolutio
     with (
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("core.checkpointer.open_checkpointer"),
-        patch("codebase.context.set_runtime_ctx", _boom),
+        patch("automation.agent.context.set_runtime_ctx", _boom),
         patch(
             "automation.agent.agent_settings.resolve_agent_settings",
             return_value=resolved_to("m", thinking_level="high"),
@@ -280,7 +280,7 @@ def _job_scaffolding(agent, *, real_lock: bool = False, armed: list[dict] | None
         else patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         nullcontext() if armed is None else patch("sessions.executor.run.PipelineWatch", watch_recorder(armed)),
         patch("core.checkpointer.open_checkpointer"),
-        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch(
             "automation.agent.agent_settings.resolve_agent_settings",
@@ -355,7 +355,7 @@ async def _runtime_ctx_kwargs(thread_id: str, **job_kwargs) -> dict:
 
     with (
         _job_scaffolding(AsyncMock()),
-        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("automation.agent.context.set_runtime_ctx", _fake_set_runtime_ctx),
         suppress(Exception),
     ):
         await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id, **job_kwargs)
@@ -376,7 +376,7 @@ async def test_run_job_task_forwards_ref_and_acting_user():
 @pytest.mark.django_db(transaction=True)
 async def test_run_job_task_forwards_session_references():
     """run_job_task must pass Session.external_refs to set_runtime_ctx as ExternalRef objects."""
-    from codebase.references import ExternalRef
+    from automation.agent.references import ExternalRef
 
     thread_id = str(uuid.uuid4())
     await Session.objects.acreate(
@@ -694,7 +694,7 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
     with (
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
-        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch(
             "automation.agent.agent_settings.resolve_agent_settings",

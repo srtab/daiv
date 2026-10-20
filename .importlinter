@@ -46,7 +46,7 @@ forbidden_modules =
 allow_indirect_imports = True
 
 [importlinter:contract:sandbox-envs]
-name = sandbox_envs sits below codebase and the agent
+name = sandbox_envs sits beside codebase, below the agent
 type = forbidden
 source_modules = sandbox_envs
 forbidden_modules =
@@ -83,6 +83,7 @@ forbidden_modules =
     mcp_connectors
     memory
     notifications
+    sandbox_envs
     schedules
     sessions
     skills

@@ -12,6 +12,7 @@ from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
+from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.workspace.bash_policy.command_parser import CommandParseError, parse_command
 from automation.agent.workspace.bash_policy.command_policy import (
     CommandPolicy,
@@ -19,7 +20,6 @@ from automation.agent.workspace.bash_policy.command_policy import (
     evaluate_command_policy,
     parse_rule,
 )
-from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
 from core.sandbox.client import is_transient_sandbox_error
 from core.site_settings import site_settings

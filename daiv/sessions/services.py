@@ -11,7 +11,7 @@ from django.db.models import Q
 
 from asgiref.sync import async_to_sync, sync_to_async
 
-from codebase.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
+from automation.agent.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
 from sessions.admission import aassert_repo_access
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.queue import aenqueue_run, amark_failed_and_advance
@@ -24,8 +24,8 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from accounts.models import User
+    from automation.agent.references import RefIn
     from codebase.base import MergeRequest
-    from codebase.references import RefIn
     from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.sessions")

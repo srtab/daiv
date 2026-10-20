@@ -82,7 +82,7 @@ def patched_streamer():
 
     with (
         patch("core.checkpointer.open_checkpointer", _mock_stream),
-        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.context.set_runtime_ctx", _mock_stream),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
         patch("chat.api.views.ChatRunStreamer") as m_streamer_cls,
@@ -137,7 +137,7 @@ async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient
     _, raw, user = authed
     with (
         patch("core.checkpointer.open_checkpointer", _mock_stream),
-        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.context.set_runtime_ctx", _mock_stream),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
@@ -187,7 +187,7 @@ async def test_first_message_auto_resolves_user_env_onto_thread(
 
     with (
         patch("core.checkpointer.open_checkpointer", _mock_stream),
-        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.context.set_runtime_ctx", _mock_stream),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
@@ -243,7 +243,7 @@ async def test_existing_thread_keeps_original_env_even_when_resolution_would_pic
 
     with (
         patch("core.checkpointer.open_checkpointer", _mock_stream),
-        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.context.set_runtime_ctx", _mock_stream),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
@@ -366,7 +366,7 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(
 
     with (
         patch("core.checkpointer.open_checkpointer", _mock_stream),
-        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.context.set_runtime_ctx", _mock_stream),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
@@ -777,7 +777,7 @@ async def test_chat_forwards_the_sessions_external_refs_to_the_streamer(
     later chat turns, because they live on the session row."""
     from django.core.cache import cache
 
-    from codebase.references import ExternalRef
+    from automation.agent.references import ExternalRef
 
     _, raw, user = authed
     await cache.aclear()  # isolate from the shared per-username job-throttle bucket

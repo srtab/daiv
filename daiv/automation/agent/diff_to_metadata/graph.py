@@ -11,9 +11,9 @@ from langchain_core.runnables import RunnableLambda, RunnableParallel
 
 from automation.agent.base import get_model
 from automation.agent.constants import REPO_PATH
+from automation.agent.context import RuntimeCtx
 from automation.agent.middlewares.memory import build_agents_memory_middleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
-from codebase.context import RuntimeCtx
 
 from .prompts import human_commit_message, human_pr_metadata, memory_section, system
 from .schemas import CommitMetadata, PullRequestMetadata
