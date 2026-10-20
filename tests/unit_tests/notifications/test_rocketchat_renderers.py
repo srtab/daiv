@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -500,3 +501,239 @@ class TestScheduleDispatchFailedRenderer:
         _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification())
 
         assert attachments[0]["title_link"] == "https://example.com/dashboard/schedules/6/edit/"
+
+
+SNAPSHOT_CASES = {
+    EventType.JOB_FINISHED: _stub_notification(
+        subject="Agent run on acme/api needs a look",
+        link_url="/sessions/1/",
+        context={
+            "status_tone": "warning",
+            "trigger_label": "Manual",
+            "duration_seconds": 84,
+            "input_tokens": 12432,
+            "output_tokens": 38123,
+            "cost_usd": 0.214,
+            "summary": "  Two flaky auth tests  ",
+            "actionable": [
+                {"kind": "bug", "label": "off-by-one", "ref": "app/views.py:42"},
+                {"kind": "", "label": "flaky", "ref": ""},
+            ],
+            "actionable_overflow": 3,
+        },
+    ),
+    EventType.SCHEDULE_FINISHED: _stub_notification(
+        subject="'nightly' failed on acme/api — alice",
+        link_url="/sessions/2/",
+        context={
+            "status_tone": "failure",
+            "repo_id": "acme/api",
+            "trigger_owner": "alice",
+            "duration_seconds": 3725,
+            "input_tokens": 999,
+            "output_tokens": 1000,
+            "cost_usd": 1.5,
+            "summary": "migration 0042 errored",
+        },
+    ),
+    EventType.JOB_BATCH_FINISHED: _stub_notification(
+        subject="'nightly' batch: 4/5 need a look — alice",
+        link_url="/sessions/?batch=1",
+        context={
+            "status_tone": "warning",
+            "found_count": 2,
+            "needs_attention_count": 1,
+            "needs_input_count": 1,
+            "failed_count": 1,
+            "all_clear_count": 1,
+            "notable_count": 4,
+            "total": 5,
+            "duration_seconds": 371,
+            "trigger_owner": "alice",
+            "repo_ids": [f"acme/r{i}" for i in range(10)],
+            "input_tokens": 184_217,
+            "output_tokens": 412_780,
+            "cost_usd": 0.83,
+            "notable_runs": [
+                {"kind": "Failed", "label": "acme/api", "ref": "migration errored"},
+                {"kind": "Needs attention", "label": "acme/web", "ref": ""},
+            ],
+            "notable_runs_overflow": 2,
+        },
+    ),
+    EventType.PIPELINE_WATCH_EXHAUSTED: _stub_notification(
+        subject="CI still failing on group/repo!7",
+        link_url="/sessions/repo-mr-7/",
+        context={
+            "status_tone": "failure",
+            "status_label": "CI still failing",
+            "repo_id": "group/repo",
+            "merge_request_iid": 7,
+            "attempts": 3,
+            "failing_jobs": ["tests", "lint"],
+            "pipeline_url": "https://ci.example.com/p/100",
+        },
+    ),
+    EventType.SCHEDULE_DISPATCH_FAILED: _stub_notification(
+        subject='Schedule "RT Daily" can\'t run',
+        link_url="/dashboard/schedules/6/edit/",
+        context={
+            "status_tone": "failure",
+            "repo_ids": ["a/b", "c/d"],
+            "reason": "Owner has no write access",
+            "last_run": "Jul 15, 09:30",
+            "summary": "Its last scheduled run was skipped.",
+        },
+    ),
+}
+
+TS = 1779278400
+
+
+def _attachment(color, title, title_link, fields, **extra):
+    return {
+        "color": color,
+        "title": title,
+        "title_link": title_link,
+        "fields": fields,
+        "footer": "DAIV",
+        "ts": TS,
+        **extra,
+    }
+
+
+def _short(title, value):
+    return {"title": title, "value": value, "short": True}
+
+
+def _wide(title, value):
+    return {"title": title, "value": value, "short": False}
+
+
+EXPECTED_FULL = {
+    EventType.JOB_FINISHED: (
+        "⚠️ Agent run on acme/api needs a look",
+        [
+            _attachment(
+                COLOR_PARTIAL,
+                "Agent run on acme/api needs a look",
+                "https://example.com/sessions/1/",
+                [
+                    _short("Trigger", "Manual"),
+                    _short("Duration", "1m 24s"),
+                    _short("Usage", "12.4k in · 38.1k out"),
+                    _short("Cost", "$0.21"),
+                    _wide("Findings", "• [bug] off-by-one — `app/views.py:42`\n• flaky\n… and 3 more"),
+                ],
+                text="Two flaky auth tests",
+            )
+        ],
+    ),
+    EventType.SCHEDULE_FINISHED: (
+        "❌ 'nightly' failed on acme/api — alice",
+        [
+            _attachment(
+                COLOR_FAILURE,
+                "'nightly' failed on acme/api — alice",
+                "https://example.com/sessions/2/",
+                [
+                    _short("Repository", "acme/api"),
+                    _short("Owner", "alice"),
+                    _short("Duration", "1h 02m"),
+                    _short("Usage", "999 in · 1.0k out"),
+                    _short("Cost", "$1.50"),
+                ],
+                text="migration 0042 errored",
+            )
+        ],
+    ),
+    EventType.JOB_BATCH_FINISHED: (
+        "⚠️ 'nightly' batch: 4/5 need a look — alice",
+        [
+            _attachment(
+                COLOR_PARTIAL,
+                "'nightly' batch: 4/5 need a look — alice",
+                "https://example.com/sessions/?batch=1",
+                [
+                    _short("Results", "⚑ 4 · ✓ 1 of 5"),
+                    _short("Breakdown", "found 2 · needs 1 · failed 1 · input 1"),
+                    _short("Duration", "6m 11s"),
+                    _short("Owner", "alice"),
+                    _short("Usage", "184.2k in · 412.8k out"),
+                    _short("Total cost", "$0.83"),
+                    _wide(
+                        "Repositories",
+                        "acme/r0 · acme/r1 · acme/r2 · acme/r3 · acme/r4 · acme/r5 · acme/r6 · acme/r7 · … and 2 more",
+                    ),
+                    _wide(
+                        "Needs a look",
+                        "• [Failed] acme/api — migration errored\n• [Needs attention] acme/web\n… and 2 more",
+                    ),
+                ],
+            )
+        ],
+    ),
+    EventType.PIPELINE_WATCH_EXHAUSTED: (
+        "❌ CI still failing on group/repo!7",
+        [
+            _attachment(
+                COLOR_FAILURE,
+                "CI still failing on group/repo!7",
+                "https://example.com/sessions/repo-mr-7/",
+                [
+                    _short("Repository", "group/repo"),
+                    _short("Merge request", "!7"),
+                    _short("Attempts", "3"),
+                    _wide("Failing jobs", "tests, lint"),
+                    _wide("Pipeline", "https://ci.example.com/p/100"),
+                ],
+            )
+        ],
+    ),
+    EventType.SCHEDULE_DISPATCH_FAILED: (
+        '❌ Schedule "RT Daily" can\'t run',
+        [
+            _attachment(
+                COLOR_FAILURE,
+                'Schedule "RT Daily" can\'t run',
+                "https://example.com/dashboard/schedules/6/edit/",
+                [
+                    _short("Repositories", "a/b · c/d"),
+                    _short("Last run", "Jul 15, 09:30"),
+                    _wide("Reason", "Owner has no write access"),
+                ],
+                text="Its last scheduled run was skipped.",
+            )
+        ],
+    ),
+}
+
+EXPECTED_MINIMAL_FIELDS = {
+    EventType.JOB_FINISHED: [_short("Trigger", "—"), _short("Duration", "—")],
+    EventType.SCHEDULE_FINISHED: [_short("Repository", "—"), _short("Owner", "—"), _short("Duration", "—")],
+    EventType.JOB_BATCH_FINISHED: [
+        _short("Results", "⚑ 0 · ✓ 0 of 0"),
+        _short("Breakdown", "found 0 · needs 0 · failed 0"),
+        _short("Duration", "—"),
+    ],
+    EventType.PIPELINE_WATCH_EXHAUSTED: [_short("Repository", "—"), _short("Attempts", "—")],
+    EventType.SCHEDULE_DISPATCH_FAILED: [_short("Repository", "—"), _short("Last run", "—"), _wide("Reason", "—")],
+}
+
+
+def _assert_same_bytes(actual, expected):
+    # httpx serialises the payload in insertion order, so key order is part of the contract.
+    assert actual == expected
+    assert json.dumps(actual, ensure_ascii=False) == json.dumps(expected, ensure_ascii=False)
+
+
+class TestPayloadSnapshots:
+    @pytest.mark.parametrize("event_type", list(EXPECTED_FULL))
+    def test_a_full_context_renders_the_pinned_payload(self, event_type):
+        _assert_same_bytes(get_renderer(event_type).render(SNAPSHOT_CASES[event_type]), EXPECTED_FULL[event_type])
+
+    @pytest.mark.parametrize("event_type", list(EXPECTED_MINIMAL_FIELDS))
+    def test_an_empty_context_renders_the_pinned_payload(self, event_type):
+        rendered = get_renderer(event_type).render(_stub_notification(link_url="", context={}))
+        expected = ("❌ s", [_attachment(COLOR_FAILURE, "s", "", EXPECTED_MINIMAL_FIELDS[event_type])])
+        _assert_same_bytes(rendered, expected)

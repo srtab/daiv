@@ -274,3 +274,123 @@ class TestEventTypeGuard:
             class Nameless(TelegramRenderer):
                 def render(self, notification):
                     return "", {}
+
+
+def _keyboard(path):
+    return {"inline_keyboard": [[{"text": VIEW_LABEL, "url": f"https://daiv.test{path}"}]]}
+
+
+SNAPSHOTS = {
+    EventType.JOB_FINISHED: (
+        _notif(
+            subject="Agent run on acme/api needs a look",
+            link_url="/sessions/1/",
+            context={
+                "status_tone": "warning",
+                "trigger_label": "Manual",
+                "duration_seconds": 84,
+                "input_tokens": 12432,
+                "output_tokens": 38123,
+                "cost_usd": 0.214,
+                "summary": "  Two flaky auth tests  ",
+                "actionable": [{"kind": "bug", "label": "off-by-one", "ref": "app/views.py:42"}],
+                "actionable_overflow": 3,
+            },
+        ),
+        (
+            "⚠️ <b>Agent run on acme/api needs a look</b>\n"
+            "\n"
+            "<b>Trigger:</b> Manual\n"
+            "<b>Duration:</b> 1m 24s\n"
+            "<b>Usage:</b> 12.4k in · 38.1k out\n"
+            "<b>Cost:</b> $0.21\n"
+            "<b>Summary:</b> Two flaky auth tests",
+            _keyboard("/sessions/1/"),
+        ),
+    ),
+    EventType.SCHEDULE_FINISHED: (
+        _notif(
+            subject="'nightly' failed on acme/api — alice",
+            link_url="/sessions/2/",
+            context={
+                "status_tone": "failure",
+                "repo_id": "acme/api",
+                "trigger_owner": "alice",
+                "duration_seconds": 3725,
+                "input_tokens": 999,
+                "output_tokens": 1000,
+                "cost_usd": 1.5,
+                "summary": "migration 0042 errored",
+            },
+        ),
+        (
+            "❌ <b>'nightly' failed on acme/api — alice</b>\n"
+            "\n"
+            "<b>Repository:</b> acme/api\n"
+            "<b>Owner:</b> alice\n"
+            "<b>Duration:</b> 1h 02m\n"
+            "<b>Usage:</b> 999 in · 1.0k out\n"
+            "<b>Cost:</b> $1.50\n"
+            "<b>Summary:</b> migration 0042 errored",
+            _keyboard("/sessions/2/"),
+        ),
+    ),
+    EventType.JOB_BATCH_FINISHED: (
+        _notif(
+            subject="'nightly' batch: 4/5 need a look — alice",
+            link_url="/sessions/?batch=1",
+            context={
+                "status_tone": "warning",
+                "found_count": 2,
+                "needs_attention_count": 1,
+                "needs_input_count": 1,
+                "failed_count": 1,
+                "all_clear_count": 1,
+                "notable_count": 4,
+                "total": 5,
+                "duration_seconds": 371,
+                "trigger_owner": "alice",
+                "repo_ids": [f"acme/r{i}" for i in range(10)],
+                "input_tokens": 184_217,
+                "output_tokens": 412_780,
+                "cost_usd": 0.83,
+                "notable_runs": [{"kind": "Failed", "label": "acme/api", "ref": "migration errored"}],
+                "notable_runs_overflow": 2,
+            },
+        ),
+        (
+            "⚠️ <b>'nightly' batch: 4/5 need a look — alice</b>\n"
+            "\n"
+            "<b>Results:</b> ⚑ 4 · ✓ 1 of 5\n"
+            "<b>Breakdown:</b> found 2 · needs 1 · failed 1 · input 1\n"
+            "<b>Duration:</b> 6m 11s\n"
+            "<b>Owner:</b> alice\n"
+            "<b>Usage:</b> 184.2k in · 412.8k out\n"
+            "<b>Total cost:</b> $0.83\n"
+            "<b>Repositories:</b> acme/r0 · acme/r1 · acme/r2 · acme/r3 · acme/r4 · acme/r5 · acme/r6 · acme/r7"
+            " · … and 2 more",
+            _keyboard("/sessions/?batch=1"),
+        ),
+    ),
+}
+
+MINIMAL_SNAPSHOTS = {
+    EventType.JOB_FINISHED: "❌ <b>s</b>\n\n<b>Trigger:</b> —\n<b>Duration:</b> —",
+    EventType.SCHEDULE_FINISHED: "❌ <b>s</b>\n\n<b>Repository:</b> —\n<b>Owner:</b> —\n<b>Duration:</b> —",
+    EventType.JOB_BATCH_FINISHED: (
+        "❌ <b>s</b>\n\n<b>Results:</b> ⚑ 0 · ✓ 0 of 0\n"
+        "<b>Breakdown:</b> found 0 · needs 0 · failed 0\n<b>Duration:</b> —"
+    ),
+}
+
+
+class TestPayloadSnapshots:
+    @pytest.mark.parametrize("event_type", list(SNAPSHOTS))
+    def test_a_full_context_renders_the_pinned_message(self, event_type):
+        notification, expected = SNAPSHOTS[event_type]
+        assert get_renderer(event_type).render(notification) == expected
+
+    @pytest.mark.parametrize("event_type", list(MINIMAL_SNAPSHOTS))
+    def test_an_empty_context_renders_the_pinned_message(self, event_type):
+        rendered = get_renderer(event_type).render(_notif(link_url="", context={}))
+        assert rendered == (MINIMAL_SNAPSHOTS[event_type], {})
