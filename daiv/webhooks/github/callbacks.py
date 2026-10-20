@@ -6,6 +6,7 @@ from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.service import PipelineWatch
 
+from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.clients.github.client import github_conclusion_to_status
@@ -21,7 +22,7 @@ logger = logging.getLogger("daiv.webhooks")
 
 
 def _author(user: User) -> Author:
-    return Author(provider="github", uid=user.id, username=user.username)
+    return Author(provider=GitPlatform.GITHUB, uid=user.id, username=user.username)
 
 
 class GitHubCallback(BaseCallback):

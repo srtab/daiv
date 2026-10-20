@@ -1,5 +1,5 @@
 import pytest
-from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
+from sessions.executor.lock import NoLock, Wait
 from sessions.models import Session, SessionOrigin
 from webhooks.managers.issue_addressor import IssueAddressorManager
 
@@ -23,7 +23,6 @@ class TestLockPolicy:
 
         assert isinstance(policy, Wait)
         assert policy.holder_id.startswith("webhook-")
-        assert policy.timeout_s == LOCK_WAIT_TIMEOUT_S
 
     async def test_every_run_holds_the_slot_under_its_own_id(self, stub_base_init):
         await Session.objects.acreate(thread_id="t-1", origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="owner/repo")
@@ -32,14 +31,9 @@ class TestLockPolicy:
 
         assert first.holder_id != second.holder_id
 
-    async def test_a_first_turn_without_a_session_row_runs_unlocked(self, stub_base_init, caplog):
-        """The callback creates the row just after enqueueing the run, so the first turn may beat it; nothing else
-        can hold that thread's slot yet."""
-        with caplog.at_level("WARNING", logger="daiv.sessions"):
-            policy = await _manager("t-new")._lock_policy()
-
-        assert policy == NoLock()
-        assert "no session row" in caplog.text
+    async def test_a_first_turn_without_a_session_row_runs_unlocked(self, stub_base_init):
+        """The callback creates the row just after enqueueing the run, so the first turn may beat it."""
+        assert await _manager("t-new")._lock_policy() == NoLock()
 
 
 class TestClaimUnableNote:

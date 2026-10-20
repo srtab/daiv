@@ -1,26 +1,10 @@
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, call
 
 from django.core.management import call_command
 
-import pytest
-from pydantic import SecretStr
-from webhooks.conf import settings
-
 from codebase.clients.base import WebhookSetupResult
-from codebase.conf import settings as codebase_settings
 
 callback_url = "https://test.com/api/codebase/callbacks/gitlab/"
-
-
-@pytest.fixture(scope="module", autouse=True)
-def mock_secret_token():
-    """Fixture to mock the secret token for testing."""
-    with (
-        patch.object(settings, "GITLAB_WEBHOOK_SECRET", SecretStr("test_secret")),
-        patch.object(settings, "GITHUB_WEBHOOK_SECRET", SecretStr("test_secret")),
-        patch.object(codebase_settings, "CLIENT", "gitlab"),
-    ):
-        yield
 
 
 def test_setup_webhooks_success(mock_repo_client):

@@ -6,6 +6,7 @@ from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.service import PipelineWatch
 
+from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
@@ -33,7 +34,7 @@ logger = logging.getLogger("daiv.webhooks")
 
 
 def _author(user: User) -> Author:
-    return Author(provider="gitlab", uid=user.id, username=user.username, email=user.email)
+    return Author(provider=GitPlatform.GITLAB, uid=user.id, username=user.username, email=user.email)
 
 
 class IssueCallback(BaseCallback):

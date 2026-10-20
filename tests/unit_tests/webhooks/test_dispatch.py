@@ -6,9 +6,10 @@ from django_tasks_db.models import DBTaskResult
 from sessions.models import Run
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
+from codebase.base import GitPlatform
 from codebase.clients.base import Emoji
 
-AUTHOR = Author(provider="gitlab", uid=2, username="alice", email="alice@example.com")
+AUTHOR = Author(provider=GitPlatform.GITLAB, uid=2, username="alice", email="alice@example.com")
 
 
 @pytest.fixture

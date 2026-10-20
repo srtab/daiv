@@ -838,8 +838,8 @@ def create_issue_note_callback(*, note_id: int, discussion_id: str) -> NoteCallb
     ],
 )
 async def test_a_second_mention_in_a_discussion_runs_after_the_first_succeeded(monkeypatch_dependencies, make_callback):
-    """GitLab replies share their discussion's id, which the task's dedup key carries, while dedup also matches
-    finished tasks: a reply must still get its own run."""
+    """GitLab replies share their discussion's id but dedup on their own note, while dedup also matches finished
+    tasks: a reply must still get its own run."""
     from django_tasks import TaskResultStatus
     from django_tasks_db.models import DBTaskResult
     from sessions.models import Run

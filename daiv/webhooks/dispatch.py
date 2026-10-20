@@ -7,7 +7,7 @@ delivery or an edited comment gets the earlier trigger's task back, which alread
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
@@ -17,7 +17,7 @@ from sessions.models import Run, SessionOrigin
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
-from codebase.base import Scope
+from codebase.base import GitPlatform, Scope
 from codebase.clients.base import Emoji
 from codebase.utils import compute_thread_id
 from webhooks.tasks import address_issue_task, address_mr_comments_task
@@ -32,7 +32,7 @@ logger = logging.getLogger("daiv.webhooks")
 class Author:
     """The platform account that triggered the event."""
 
-    provider: Literal["gitlab", "github"]
+    provider: GitPlatform
     uid: int
     username: str
     email: str = ""
@@ -60,10 +60,9 @@ async def dispatch_issue_run(
     mention: Mention | None = None,
 ) -> None:
     """Address an issue, triggered by its DAIV label or, with ``mention``, by a comment on it."""
+    note_id, comment_id = (mention.note_id, mention.comment_id) if mention else (None, None)
     try:
-        await sync_to_async(client.create_issue_emoji)(
-            repo_id, issue_iid, Emoji.EYES, mention.note_id if mention else None
-        )
+        await sync_to_async(client.create_issue_emoji)(repo_id, issue_iid, Emoji.EYES, note_id)
     except GitlabError, GithubException, OSError:
         logger.exception("Failed to add reaction to issue %s#%s", repo_id, issue_iid)
 
@@ -71,8 +70,8 @@ async def dispatch_issue_run(
     result = await address_issue_task.aenqueue(
         repo_id=repo_id,
         issue_iid=issue_iid,
-        mention_comment_id=mention.comment_id if mention else None,
-        mention_note_id=mention.note_id if mention else None,
+        mention_comment_id=comment_id,
+        mention_note_id=note_id,
         thread_id=thread_id,
         sandbox_environment_id=sandbox_environment_id,
         use_max=use_max,
@@ -85,7 +84,7 @@ async def dispatch_issue_run(
         trigger_type=SessionOrigin.ISSUE_WEBHOOK,
         repo_id=repo_id,
         issue_iid=issue_iid,
-        mention_comment_id=mention.comment_id if mention else "",
+        mention_comment_id=comment_id or "",
         use_max=use_max,
         title=title,
         thread_id=thread_id,

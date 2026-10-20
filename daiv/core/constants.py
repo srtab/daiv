@@ -22,6 +22,11 @@ def has_max_label(label_names: Iterable[str]) -> bool:
     return has_bot_label(label_names, among=[BOT_MAX_LABEL])
 
 
+def has_auto_label(label_names: Iterable[str]) -> bool:
+    """Whether ``label_names`` asks to address the issue without a plan first, ignoring case."""
+    return has_bot_label(label_names, among=[BOT_AUTO_LABEL])
+
+
 SANDBOX_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
 
 # User-facing terminal messages for chat runs. Written by the chat streamer (as the
