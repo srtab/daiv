@@ -9,6 +9,7 @@ from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.references import ExternalRef
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession, acquire_sandbox
+from codebase.base import GitPlatform
 from codebase.base import Scope as RepoScope
 from codebase.clients.base import GitEgressCredential
 from codebase.exceptions import CloneRefNotFoundError
@@ -177,103 +178,64 @@ async def test_set_runtime_ctx_mints_nothing_for_a_disabled_sandbox():
     repo_client.get_git_egress_credential.assert_not_called()
 
 
-@pytest.mark.asyncio
+def _gone_clone(ref: str) -> MagicMock:
+    """A ``load_repo`` context whose clone fails because ``ref`` vanished from the remote."""
+    clone = MagicMock()
+    clone.__enter__ = MagicMock(side_effect=CloneRefNotFoundError(ref, "r/p"))
+    return clone
+
+
 async def test_set_runtime_ctx_falls_back_to_default_when_ref_missing():
     """With fallback enabled, a gone ref retries the clone on the default branch and records it."""
     fake_repo = MagicMock()
     fake_repo.active_branch.name = "main"
     fake_repo.head.is_detached = False
-    good_cm = MagicMock()
-    good_cm.__enter__ = MagicMock(return_value=fake_repo)
-    good_cm.__exit__ = MagicMock(return_value=False)
-    gone_cm = MagicMock()
-    gone_cm.__enter__ = MagicMock(side_effect=CloneRefNotFoundError("gone", "r/p"))
-    gone_cm.__exit__ = MagicMock(return_value=False)
+    repo_client = _repo_client()
+    repo_client.load_repo.side_effect = [_gone_clone("gone"), nullcontext(fake_repo)]
 
-    with patch("automation.agent.context.RepoClient.create_instance") as mock_client_factory:
-        client = mock_client_factory.return_value
-        client.get_repository.return_value = type("R", (), {"name": "x", "slug": "r/p"})()
-        client.git_platform = "gitlab"
-        client.current_user.username = "bot"
-        client.get_git_egress_credential.return_value = None
-        client.load_repo.side_effect = [gone_cm, good_cm]
+    with _context_deps(repo_client):
+        async with set_runtime_ctx(
+            repo_id="r/p",
+            scope=RepoScope.GLOBAL,
+            ref="gone",
+            fallback_ref_on_missing=True,
+            sandbox_spec=sandbox_spec(base_image=None),
+        ) as ctx:
+            assert ctx.repo.ref == "main"
+            assert ctx.repo.current_ref == "main"
 
-        with patch("automation.agent.context.RepositoryConfig.get_config") as gc:
-            from codebase.repo_config import RepositoryConfig
-
-            gc.return_value = RepositoryConfig.model_validate({"default_branch": "main"})
-            async with set_runtime_ctx(
-                repo_id="r/p",
-                scope=RepoScope.GLOBAL,
-                ref="gone",
-                fallback_ref_on_missing=True,
-                sandbox_spec=sandbox_spec(base_image=None),
-            ) as ctx:
-                assert ctx.repo.ref == "main"
-                assert ctx.repo.current_ref == "main"
-
-    assert client.load_repo.call_count == 2
-    assert client.load_repo.call_args_list[0].kwargs["sha"] == "gone"
-    assert client.load_repo.call_args_list[1].kwargs["sha"] == "main"
+    assert [c.kwargs["sha"] for c in repo_client.load_repo.call_args_list] == ["gone", "main"]
 
 
-@pytest.mark.asyncio
 async def test_set_runtime_ctx_reraises_missing_ref_without_fallback():
     """Default behavior (fallback disabled) propagates CloneRefNotFoundError unchanged."""
-    gone_cm = MagicMock()
-    gone_cm.__enter__ = MagicMock(side_effect=CloneRefNotFoundError("gone", "r/p"))
-    gone_cm.__exit__ = MagicMock(return_value=False)
+    repo_client = _repo_client()
+    repo_client.load_repo.return_value = _gone_clone("gone")
 
-    with patch("automation.agent.context.RepoClient.create_instance") as mock_client_factory:
-        client = mock_client_factory.return_value
-        client.get_repository.return_value = type("R", (), {"name": "x", "slug": "r/p"})()
-        client.git_platform = "gitlab"
-        client.current_user.username = "bot"
-        client.get_git_egress_credential.return_value = None
-        client.load_repo.side_effect = [gone_cm]
-
-        with patch("automation.agent.context.RepositoryConfig.get_config") as gc:
-            from codebase.repo_config import RepositoryConfig
-
-            gc.return_value = RepositoryConfig.model_validate({"default_branch": "main"})
-            with pytest.raises(CloneRefNotFoundError):
-                async with set_runtime_ctx(
-                    repo_id="r/p", scope=RepoScope.GLOBAL, ref="gone", sandbox_spec=sandbox_spec(base_image=None)
-                ) as _:
-                    pass
+    with _context_deps(repo_client), pytest.raises(CloneRefNotFoundError):
+        async with set_runtime_ctx(
+            repo_id="r/p", scope=RepoScope.GLOBAL, ref="gone", sandbox_spec=sandbox_spec(base_image=None)
+        ):
+            pass
 
 
-@pytest.mark.asyncio
 async def test_set_runtime_ctx_reraises_when_missing_ref_is_the_default_branch():
     """Fallback enabled but the gone ref already IS the default branch: there is nothing to fall
     back to, so the error propagates and the clone is attempted only once."""
-    gone_cm = MagicMock()
-    gone_cm.__enter__ = MagicMock(side_effect=CloneRefNotFoundError("main", "r/p"))
-    gone_cm.__exit__ = MagicMock(return_value=False)
+    repo_client = _repo_client()
+    repo_client.load_repo.return_value = _gone_clone("main")
 
-    with patch("automation.agent.context.RepoClient.create_instance") as mock_client_factory:
-        client = mock_client_factory.return_value
-        client.get_repository.return_value = type("R", (), {"name": "x", "slug": "r/p"})()
-        client.git_platform = "gitlab"
-        client.current_user.username = "bot"
-        client.get_git_egress_credential.return_value = None
-        client.load_repo.side_effect = [gone_cm]
+    with _context_deps(repo_client), pytest.raises(CloneRefNotFoundError):
+        async with set_runtime_ctx(
+            repo_id="r/p",
+            scope=RepoScope.GLOBAL,
+            ref="main",
+            fallback_ref_on_missing=True,
+            sandbox_spec=sandbox_spec(base_image=None),
+        ):
+            pass
 
-        with patch("automation.agent.context.RepositoryConfig.get_config") as gc:
-            from codebase.repo_config import RepositoryConfig
-
-            gc.return_value = RepositoryConfig.model_validate({"default_branch": "main"})
-            with pytest.raises(CloneRefNotFoundError):
-                async with set_runtime_ctx(
-                    repo_id="r/p",
-                    scope=RepoScope.GLOBAL,
-                    ref="main",
-                    fallback_ref_on_missing=True,
-                    sandbox_spec=sandbox_spec(base_image=None),
-                ) as _:
-                    pass
-
-    assert client.load_repo.call_count == 1
+    assert repo_client.load_repo.call_count == 1
 
 
 def test_load_repo_fallback_body_raise_does_not_trigger_fallback():
@@ -305,7 +267,6 @@ def test_load_repo_fallback_body_raise_does_not_trigger_fallback():
     good_cm.__exit__.assert_called_once()
 
 
-@pytest.mark.asyncio
 async def test_set_runtime_ctx_assembles_references_for_issue_scope():
     """ctx.references carries both declared refs and the derived platform issue ref, deduped.
 
@@ -320,29 +281,19 @@ async def test_set_runtime_ctx_assembles_references_for_issue_scope():
     duplicate_issue_ref = ExternalRef(key="42", provider="gitlab-issue", relation="closes")
     declared = (sentry_ref, duplicate_issue_ref)
 
-    with patch("automation.agent.context.RepoClient.create_instance") as mock_client_factory:
-        client = mock_client_factory.return_value
-        client.get_repository.return_value = type("R", (), {"name": "x"})()
-        client.git_platform = "gitlab"
-        client.current_user.username = "bot"
-        client.get_git_egress_credential.return_value = None
-        ctx_mgr = client.load_repo.return_value
-        ctx_mgr.__enter__.return_value = MagicMock()
-        ctx_mgr.__exit__ = lambda *a: None
+    repo_client = _repo_client()
+    repo_client.git_platform = GitPlatform.GITLAB
 
-        with patch("automation.agent.context.RepositoryConfig.get_config") as gc:
-            from codebase.repo_config import RepositoryConfig
-
-            gc.return_value = RepositoryConfig.model_validate({})
-            async with set_runtime_ctx(
-                repo_id="r/p",
-                scope=RepoScope.ISSUE,
-                issue=issue,
-                references=declared,
-                sandbox_spec=sandbox_spec(base_image=None),
-            ) as ctx:
-                # The derived issue ref leads so a declared duplicate can't demote the auto-close.
-                assert ctx.references == (duplicate_issue_ref, sentry_ref)
+    with _context_deps(repo_client):
+        async with set_runtime_ctx(
+            repo_id="r/p",
+            scope=RepoScope.ISSUE,
+            issue=issue,
+            references=declared,
+            sandbox_spec=sandbox_spec(base_image=None),
+        ) as ctx:
+            # The derived issue ref leads so a declared duplicate can't demote the auto-close.
+            assert ctx.references == (duplicate_issue_ref, sentry_ref)
 
 
 async def test_the_handle_records_how_long_the_clone_took():

@@ -199,7 +199,7 @@ class TestDiffLineStats:
         assert (stats.lines_added, stats.lines_removed) == (1, 1)
 
 
-class IsGitAuthErrorTextTest:
+class TestIsGitAuthErrorText:
     """Direct contract test for the shared marker set used by both the clone-retry self-heal
     (codebase.clients.gitlab) and the push-failure classifier (automation.agent.workspace.git_manager).
     A marker dropped here silently widens or narrows both behaviours, so pin them explicitly."""
@@ -232,15 +232,16 @@ class IsGitAuthErrorTextTest:
         assert is_git_auth_error_text(text) is False
 
 
-@pytest.mark.parametrize(
-    "text,expected",
-    [
-        ("fatal: Remote branch chore/x not found in upstream origin", True),
-        ("Remote branch feature-1 not found in upstream origin\n", True),
-        ("fatal: could not read Username for 'https://...'", False),  # auth, not a missing ref
-        ("fatal: unable to access '...': Could not resolve host", False),  # network
-        ("", False),
-    ],
-)
-def test_is_git_ref_not_found_text(text, expected):
-    assert is_git_ref_not_found_text(text) is expected
+class TestIsGitRefNotFoundText:
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("fatal: Remote branch chore/x not found in upstream origin", True),
+            ("Remote branch feature-1 not found in upstream origin\n", True),
+            ("fatal: could not read Username for 'https://...'", False),  # auth, not a missing ref
+            ("fatal: unable to access '...': Could not resolve host", False),  # network
+            ("", False),
+        ],
+    )
+    def test_is_git_ref_not_found_text(self, text, expected):
+        assert is_git_ref_not_found_text(text) is expected
