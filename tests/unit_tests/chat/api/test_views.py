@@ -644,7 +644,7 @@ async def test_chat_creation_stamps_mcp_overrides(
     from django.core.cache import cache
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     response = await client.post(
         "/chat/completions",
         json=_run_agent_input(threadId="t-mcp-new", forwardedProps={"mcp_servers": ["b"]}),
@@ -669,7 +669,7 @@ async def test_chat_retunes_mcp_selection_on_an_existing_thread(
     from django.core.cache import cache
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT,
         thread_id="t-mcp-retune",
@@ -715,7 +715,7 @@ async def test_chat_rejects_malformed_mcp_servers_payload(client: TestAsyncClien
 
     _, raw, user = authed
     for i, bad in enumerate([123, [["x"]], "b"]):
-        await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+        await cache.aclear()  # isolate from the shared per-user job-throttle bucket
         response = await client.post(
             "/chat/completions",
             json=_run_agent_input(threadId=f"t-mcp-bad-{i}", forwardedProps={"mcp_servers": bad}),
@@ -739,7 +739,7 @@ async def test_chat_mcp_selection_is_pool_relative_across_status_flip(
     from mcp_connectors.models import MCPServer
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     await MCPServer.objects.all().adelete()
     server = await MCPServer.objects.acreate(
         name="b",
@@ -780,7 +780,7 @@ async def test_chat_forwards_the_sessions_external_refs_to_the_streamer(
     from codebase.references import ExternalRef
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT,
         thread_id="t-refs",
@@ -812,7 +812,7 @@ async def test_chat_rejects_out_of_bounds_mcp_servers_payload(client: TestAsyncC
     from django.core.cache import cache
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     thread_id = f"t-mcp-bounds-{uuid.uuid4()}"
     response = await client.post(
         "/chat/completions",
@@ -833,7 +833,7 @@ async def test_a_rejected_duplicate_run_does_not_rewrite_the_selection(
     from django.core.cache import cache
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT,
         thread_id="t-mcp-locked",
@@ -1138,7 +1138,7 @@ async def test_completion_invalid_env_header_returns_400_and_no_thread(client: T
     from django.core.cache import cache
 
     _, raw, user = authed
-    # The per-user job throttle keys on the (constant) test username, so completion
+    # The per-user job throttle keys on the (constant) test user, so completion
     # POSTs share one bucket across the file — reset it so this test isn't throttled.
     await cache.aclear()
     with patch("sessions.admission.resolve_env_for_user", new=AsyncMock(side_effect=LookupError("unknown env"))):
@@ -1163,7 +1163,7 @@ async def test_completion_no_resolvable_model_returns_400(client: TestAsyncClien
     from automation.agent.validators import AgentOverrideError
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     with patch(
         "chat.api.views.ensure_agent_model_available", side_effect=AgentOverrideError("no agent model configured")
     ):
@@ -1244,7 +1244,7 @@ async def test_completion_releases_slot_when_spawn_rejects_run_id(
     from django.core.cache import cache
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     with patch("chat.api.runner.supervisor.spawn", side_effect=RuntimeError("already live for run_id=r-1")):
         response = await client.post(
             "/chat/completions",
