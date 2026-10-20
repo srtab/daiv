@@ -1,6 +1,8 @@
 import logging
+from typing import TYPE_CHECKING
 
 from ninja import Router
+from ninja.errors import HttpError
 
 from codebase.base import GitPlatform
 from codebase.conf import settings
@@ -9,9 +11,23 @@ from webhooks.callbacks import CALLBACK_RESPONSES
 from .callbacks import IssueCallback, MergeRequestCallback, NoteCallback, PipelineCallback, PushCallback  # noqa: TC001
 from .security import validate_gitlab_webhook
 
+if TYPE_CHECKING:
+    from django.http import HttpRequest
+
 logger = logging.getLogger("daiv.webhooks")
 
-router = Router()
+
+def _authenticate(request: HttpRequest) -> bool:
+    """
+    Answer 403 when the client type is not GitLab, else check the token. ninja runs this before parsing the body.
+    """
+    if settings.CLIENT != GitPlatform.GITLAB:
+        logger.warning("GitLab Hook: Client type is not set to GitLab, skipping callback.")
+        raise HttpError(403, "Client type is not set to GitLab")
+    return validate_gitlab_webhook(request)
+
+
+router = Router(auth=_authenticate)
 
 
 @router.post("/gitlab", response=CALLBACK_RESPONSES)
@@ -20,19 +36,8 @@ async def callback(
     request, payload: IssueCallback | MergeRequestCallback | NoteCallback | PushCallback | PipelineCallback
 ):
     """
-    GitLab callback endpoint for processing callbacks.
-
-    Validates the webhook secret before processing the callback and returns 401 Unauthorized if validation fails.
-    Returns 403 Forbidden if client type is not set to GitLab.
+    GitLab callback endpoint for processing callbacks; the router's ``_authenticate`` has already passed.
     """
-    if settings.CLIENT != GitPlatform.GITLAB:
-        logger.warning("GitLab Hook: Client type is not set to GitLab, skipping callback.")
-        return 403, None
-
-    if not validate_gitlab_webhook(request):
-        logger.warning("GitLab Hook: Unauthorized webhook request for project %d", payload.project.id)
-        return 401, None
-
     if payload.accept_callback():
         logger.info("GitLab Hook: Processing hook '%s' for project %d", payload.object_kind, payload.project.id)
         await payload.process_callback()

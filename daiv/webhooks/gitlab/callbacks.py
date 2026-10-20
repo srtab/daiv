@@ -1,6 +1,6 @@
 import logging
 from functools import cached_property
-from typing import Any, Literal
+from typing import Literal
 
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
@@ -37,20 +37,31 @@ def _author(user: User) -> Author:
     return Author(provider=GitPlatform.GITLAB, uid=user.id, username=user.username, email=user.email)
 
 
-class IssueCallback(BaseCallback):
+class GitLabCallback(BaseCallback):
+    """
+    Base class for GitLab callbacks.
+    """
+
+    project: Project
+
+    @cached_property
+    def _repo_config(self) -> RepositoryConfig:
+        return RepositoryConfig.get_config(self.project.path_with_namespace)
+
+    @property
+    def _client(self) -> RepoClient:
+        return RepoClient.create_instance()
+
+
+class IssueCallback(GitLabCallback):
     """
     Gitlab Issue Webhook
     """
 
     object_kind: Literal["issue", "work_item"]
-    project: Project
     user: User
     object_attributes: Issue
     changes: IssueChanges | None = None
-
-    def model_post_init(self, __context: Any):
-        self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
-        self._client = RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         # Check basic conditions
@@ -116,21 +127,16 @@ class IssueCallback(BaseCallback):
         )
 
 
-class NoteCallback(BaseCallback):
+class NoteCallback(GitLabCallback):
     """
     Gitlab Note Webhook
     """
 
     object_kind: Literal["note"]
-    project: Project
     user: User
     merge_request: MergeRequest | None = None
     issue: Issue | None = None
     object_attributes: Note
-
-    def model_post_init(self, __context: Any):
-        self._repo_config = RepositoryConfig.get_config(self.project.path_with_namespace)
-        self._client = RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         """
@@ -213,13 +219,12 @@ class NoteCallback(BaseCallback):
         )
 
 
-class MergeRequestCallback(BaseCallback):
+class MergeRequestCallback(GitLabCallback):
     """
     Gitlab Merge Request Webhook for tracking merge metrics.
     """
 
     object_kind: Literal["merge_request"]
-    project: Project
     user: User
     object_attributes: MergeRequestEvent
 
@@ -251,13 +256,12 @@ class MergeRequestCallback(BaseCallback):
         )
 
 
-class PushCallback(BaseCallback):
+class PushCallback(GitLabCallback):
     """
     Gitlab Push Webhook for invalidating repository configuration cache.
     """
 
     object_kind: Literal["push"]
-    project: Project
     checkout_sha: str
     ref: str
 
@@ -274,19 +278,14 @@ class PushCallback(BaseCallback):
         RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
 
 
-class PipelineCallback(BaseCallback):
+class PipelineCallback(GitLabCallback):
     """
     GitLab Pipeline Webhook for babysitting CI on merge requests DAIV published.
     """
 
     object_kind: Literal["pipeline"]
-    project: Project
     user: User
     object_attributes: PipelineEvent
-
-    @cached_property
-    def _repo_config(self) -> RepositoryConfig:
-        return RepositoryConfig.get_config(self.project.path_with_namespace)
 
     def accept_callback(self) -> bool:
         """Accept pipelines the judge has an outcome for, on repos with the watch enabled.

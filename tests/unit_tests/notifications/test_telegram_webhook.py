@@ -105,9 +105,8 @@ class TestSecret:
 
 class TestBlankSecretFailsClosed:
     def test_blank_stored_secret_rejects_every_update(self, client, site_settings_override):
-        # Deliberate divergence from validate_gitlab_webhook, which returns True when no secret
-        # is configured. /stop carries no token, so a fail-open route would let anyone who can
-        # reach it unbind users by guessing chat ids.
+        # /stop carries no token, so a fail-open route would let anyone who can reach it unbind
+        # users by guessing chat ids.
 
         site_settings_override(telegram_webhook_secret=None, telegram_enabled=True)
         assert _post(client, _stop(), secret="anything").status_code == 401  # noqa: S106
