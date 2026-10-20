@@ -17,6 +17,8 @@ from django_tasks_db import DatabaseBackend
 from django_tasks_db.models import DBTaskResult
 
 if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
     from django_tasks_db.backend import TaskResult as DatabaseTaskResult
 
 logger = logging.getLogger("daiv.tasks")
@@ -96,7 +98,7 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
         dedup_key = self._dedup_key(task, args, kwargs)
         with transaction.atomic():
             self._lock_dedup_key(task.module_path, dedup_key)
-            if existing_result := self._get_existing_task_result(task, dedup_key):
+            if existing_result := self._existing_task_results(task, dedup_key).first():
                 logger.info("Skipping duplicate task: %s with args: %r and kwargs: %r", task.module_path, args, kwargs)
                 return existing_result.task_result, False
             return super().enqueue(task, args, kwargs), True
@@ -123,7 +125,7 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
         """
         if not task.dedup:
             return None
-        existing = await sync_to_async(self._get_existing_task_result)(task, self._dedup_key(task, args, kwargs))
+        existing = await self._existing_task_results(task, self._dedup_key(task, args, kwargs)).afirst()
         return existing.task_result if existing else None
 
     def _dedup_key(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> dict[str, Any]:
@@ -143,18 +145,13 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", [int.from_bytes(digest, signed=True)])
 
-    def _get_existing_task_result(
-        self, task: DeduplicatingTask[P, T], dedup_key: dict[str, Any]
-    ) -> DBTaskResult | None:
+    def _existing_task_results(self, task: DeduplicatingTask[P, T], dedup_key: dict[str, Any]) -> QuerySet:
         """
-        Fetch a ready or running task matching the dedup key, or a successful one when ``dedup_successful``.
+        The ready or running tasks matching the dedup key, and the successful ones when ``dedup_successful``.
 
         Args:
             task: Task instance being enqueued.
             dedup_key: The key from :meth:`_dedup_key`.
-
-        Returns:
-            The matching DB task result, or None if not found.
         """
         if task.dedup_on is None:
             key_filter = Q(args_kwargs=dedup_key)
@@ -173,4 +170,4 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
             statuses.append(TaskResultStatus.SUCCESSFUL)
         return DBTaskResult.objects.filter(
             key_filter, backend_name=self.alias, task_path=task.module_path, status__in=statuses
-        ).first()
+        )

@@ -1,5 +1,4 @@
 import pytest
-from sessions.services import pin_max_model
 from webhooks.gitlab.callbacks import IssueCallback, MergeRequestCallback, NoteCallback
 from webhooks.gitlab.models import (
     Issue,
@@ -21,6 +20,7 @@ from codebase.base import Discussion
 from codebase.base import Note as BaseNote
 from codebase.base import User as BaseUser
 from codebase.repo_config import RepositoryConfig
+from core.site_settings import site_settings
 
 
 class StubClient:
@@ -91,6 +91,37 @@ def create_note_callback(
             noteable_id=1,
             discussion_id="discussion_1",
             note=note_body,
+            system=False,
+        ),
+    )
+
+
+def create_issue_note_callback(
+    *, note_id: int = 200, discussion_id: str = "discussion_2", labels: list[str] | None = None
+) -> NoteCallback:
+    """Helper to create a NoteCallback for a comment mentioning DAIV on issue #7."""
+    return NoteCallback(
+        object_kind="note",
+        project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+        user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
+        issue=Issue(
+            id=100,
+            iid=7,
+            title="Bug",
+            description="x",
+            state="opened",
+            assignee_id=None,
+            action=IssueAction.OPEN,
+            labels=[Label(title=t) for t in labels or []],
+            type="Issue",
+        ),
+        object_attributes=Note(
+            id=note_id,
+            action=NoteAction.CREATE,
+            noteable_type=NoteableType.ISSUE,
+            noteable_id=7,
+            discussion_id=discussion_id,
+            note="@daiv please look",
             system=False,
         ),
     )
@@ -582,31 +613,7 @@ class TestProcessCallbackThreadId:
         from codebase.base import Scope
         from codebase.utils import compute_thread_id
 
-        callback = NoteCallback(
-            object_kind="note",
-            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-            user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
-            issue=Issue(
-                id=100,
-                iid=7,
-                title="Bug",
-                description="x",
-                state="opened",
-                assignee_id=None,
-                action=IssueAction.OPEN,
-                labels=[],
-                type="Issue",
-            ),
-            object_attributes=Note(
-                id=200,
-                action=NoteAction.CREATE,
-                noteable_type=NoteableType.ISSUE,
-                noteable_id=7,
-                discussion_id="discussion_2",
-                note="@daiv please look",
-                system=False,
-            ),
-        )
+        callback = create_issue_note_callback()
         expected = compute_thread_id(repo_slug="group/repo", scope=Scope.ISSUE, entity_iid=7)
 
         with (
@@ -690,31 +697,7 @@ class TestProcessCallbackSandboxEnvironment:
     async def test_note_callback_on_issue_propagates_env_id(self, monkeypatch_dependencies):
         from unittest.mock import AsyncMock, Mock, patch
 
-        callback = NoteCallback(
-            object_kind="note",
-            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-            user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
-            issue=Issue(
-                id=100,
-                iid=7,
-                title="Bug",
-                description="x",
-                state="opened",
-                assignee_id=None,
-                action=IssueAction.OPEN,
-                labels=[],
-                type="Issue",
-            ),
-            object_attributes=Note(
-                id=200,
-                action=NoteAction.CREATE,
-                noteable_type=NoteableType.ISSUE,
-                noteable_id=7,
-                discussion_id="discussion_2",
-                note="@daiv please look",
-                system=False,
-            ),
-        )
+        callback = create_issue_note_callback()
         env_row = Mock(id="env-uuid-3")
 
         with (
@@ -762,41 +745,17 @@ class TestProcessCallbackUseMax:
         task_kwargs, run_kwargs = await self._process(callback, task="address_issue_label_task")
 
         assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["agent_model"] == pin_max_model(use_max)[0]
+        assert run_kwargs["agent_model"] == (site_settings.agent_max_model_name if use_max else "")
 
     async def test_issue_comment_callback_hands_the_task_the_max_mode_it_stamped(
         self, monkeypatch_dependencies, label, use_max
     ):
-        callback = NoteCallback(
-            object_kind="note",
-            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-            user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
-            issue=Issue(
-                id=100,
-                iid=7,
-                title="Bug",
-                description="x",
-                state="opened",
-                assignee_id=None,
-                action=IssueAction.OPEN,
-                labels=[Label(title=label)],
-                type="Issue",
-            ),
-            object_attributes=Note(
-                id=200,
-                action=NoteAction.CREATE,
-                noteable_type=NoteableType.ISSUE,
-                noteable_id=7,
-                discussion_id="discussion_2",
-                note="@daiv please look",
-                system=False,
-            ),
-        )
+        callback = create_issue_note_callback(labels=[label])
 
         task_kwargs, run_kwargs = await self._process(callback)
 
         assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["agent_model"] == pin_max_model(use_max)[0]
+        assert run_kwargs["agent_model"] == (site_settings.agent_max_model_name if use_max else "")
 
     async def test_mr_comment_callback_hands_the_task_the_max_mode_it_stamped(
         self, monkeypatch_dependencies, label, use_max
@@ -806,35 +765,7 @@ class TestProcessCallbackUseMax:
         task_kwargs, run_kwargs = await self._process(callback, task="address_mr_comments_task")
 
         assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["agent_model"] == pin_max_model(use_max)[0]
-
-
-def create_issue_note_callback(*, note_id: int, discussion_id: str) -> NoteCallback:
-    return NoteCallback(
-        object_kind="note",
-        project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-        user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
-        issue=Issue(
-            id=100,
-            iid=7,
-            title="Bug",
-            description="x",
-            state="opened",
-            assignee_id=None,
-            action=IssueAction.OPEN,
-            labels=[],
-            type="Issue",
-        ),
-        object_attributes=Note(
-            id=note_id,
-            action=NoteAction.CREATE,
-            noteable_type=NoteableType.ISSUE,
-            noteable_id=7,
-            discussion_id=discussion_id,
-            note="@daiv please look",
-            system=False,
-        ),
-    )
+        assert run_kwargs["agent_model"] == (site_settings.agent_max_model_name if use_max else "")
 
 
 @pytest.mark.django_db(transaction=True)

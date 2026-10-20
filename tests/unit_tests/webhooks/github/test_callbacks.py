@@ -3,13 +3,13 @@ from unittest.mock import Mock
 
 import pytest
 from github.GithubException import GithubException
-from sessions.services import pin_max_model
 from webhooks.github.callbacks import IssueCallback, IssueCommentCallback, PullRequestCallback
 from webhooks.github.models import Comment, Issue, Label, PullRequest, Ref, Repository, User
 
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from core.site_settings import site_settings
 
 
 @pytest.fixture
@@ -589,7 +589,7 @@ class TestProcessCallbackUseMax:
         task_kwargs, run_kwargs = await self._process(callback, task="address_issue_label_task")
 
         assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["agent_model"] == pin_max_model(use_max)[0]
+        assert run_kwargs["agent_model"] == (site_settings.agent_max_model_name if use_max else "")
 
     async def test_issue_comment_callback_hands_the_task_the_max_mode_it_stamped(
         self, monkeypatch_dependencies, label, use_max
@@ -604,7 +604,7 @@ class TestProcessCallbackUseMax:
         task_kwargs, run_kwargs = await self._process(callback)
 
         assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["agent_model"] == pin_max_model(use_max)[0]
+        assert run_kwargs["agent_model"] == (site_settings.agent_max_model_name if use_max else "")
 
     async def test_pr_comment_callback_hands_the_task_the_max_mode_it_stamped(
         self, monkeypatch_dependencies, mock_repo_config, label, use_max
@@ -628,4 +628,4 @@ class TestProcessCallbackUseMax:
         task_kwargs, run_kwargs = await self._process(callback, task="address_mr_comments_task")
 
         assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["agent_model"] == pin_max_model(use_max)[0]
+        assert run_kwargs["agent_model"] == (site_settings.agent_max_model_name if use_max else "")

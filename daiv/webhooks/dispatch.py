@@ -18,16 +18,17 @@ from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
 from sandbox_envs.selection import resolve_env_for_run
 from sessions.models import SessionOrigin
-from sessions.services import acreate_run, aget_or_create_session, pin_max_model
+from sessions.services import acreate_run, aget_or_create_session
 
 from accounts.utils import resolve_user
 from codebase.base import GitPlatform, Scope
 from codebase.clients.base import Emoji
 from codebase.utils import compute_thread_id
+from core.site_settings import site_settings
 from webhooks.tasks import address_issue_label_task, address_issue_task, address_mr_comments_task
 
 if TYPE_CHECKING:
-    from django_tasks import Task
+    from django_tasks import Task, TaskResult
 
     from codebase.clients import RepoClient
 
@@ -72,7 +73,7 @@ async def dispatch_issue_run(
         repo_id,
         Scope.ISSUE,
         issue_iid,
-        use_max,
+        use_max=use_max,
         issue_iid=issue_iid,
         mention_comment_id=comment_id,
         mention_note_id=note_id,
@@ -116,7 +117,7 @@ async def dispatch_mr_comment_run(
         repo_id,
         Scope.MERGE_REQUEST,
         merge_request_iid,
-        use_max,
+        use_max=use_max,
         merge_request_id=merge_request_iid,
         mention_comment_id=mention.comment_id,
         mention_note_id=mention.note_id,
@@ -145,16 +146,15 @@ async def dispatch_mr_comment_run(
     )
 
 
-async def _task_kwargs(repo_id: str, scope: Scope, entity_iid: int, use_max: bool, **kwargs: Any) -> dict[str, Any]:
+async def _task_kwargs(repo_id: str, scope: Scope, entity_iid: int, **kwargs: Any) -> dict[str, Any]:
     """``kwargs`` plus what every addressor task takes: the repository, the thread id every event on this issue or
-    merge request shares, the sandbox environment to run in and ``use_max``."""
+    merge request shares, and the sandbox environment to run in."""
     # user=None: the webhook fires for whoever touched the issue/MR, not the agent owner, so USER envs never apply.
     sandbox_env = await resolve_env_for_run(user=None, repo_id=repo_id)
     return {
         "repo_id": repo_id,
         "thread_id": compute_thread_id(repo_slug=repo_id, scope=scope, entity_iid=entity_iid),
         "sandbox_environment_id": str(sandbox_env.id) if sandbox_env is not None else None,
-        "use_max": use_max,
         **kwargs,
     }
 
@@ -162,8 +162,19 @@ async def _task_kwargs(repo_id: str, scope: Scope, entity_iid: int, use_max: boo
 async def _is_repeat(task: Task, task_kwargs: dict[str, Any]) -> bool:
     if (earlier := await task.afind_duplicate(**task_kwargs)) is None:
         return False
-    logger.info("Task result %s already has its run; skipping the repeated trigger", earlier.id)
+    _log_repeat(earlier)
     return True
+
+
+def _log_repeat(task_result: TaskResult) -> None:
+    logger.info("Task result %s already has its run; skipping the repeated trigger", task_result.id)
+
+
+def _pinned_model(use_max: bool) -> tuple[str, str]:
+    """The agent model and thinking level to record: the site's max ones for ``daiv-max``, else none."""
+    if use_max:
+        return site_settings.agent_max_model_name, site_settings.agent_max_thinking_level
+    return "", ""
 
 
 async def _fetch_source_branch(client: RepoClient, repo_id: str, merge_request_iid: int) -> str:
@@ -193,43 +204,32 @@ async def _start_run(
     A failed session write raises before anything is queued. A failed ``Run`` insert is only logged: the task is
     queued by then and runs without one.
     """
-    repo_id, thread_id = task_kwargs["repo_id"], task_kwargs["thread_id"]
-    sandbox_environment_id = task_kwargs["sandbox_environment_id"]
-    user = await resolve_user(author.provider, author.uid, username=author.username, email=author.email)
-    agent_model, agent_thinking_level = pin_max_model(task_kwargs["use_max"])
+    agent_model, agent_thinking_level = _pinned_model(task_kwargs["use_max"])
+    shared: dict[str, Any] = {
+        "repo_id": task_kwargs["repo_id"],
+        "ref": ref,
+        "user": await resolve_user(author.provider, author.uid, username=author.username, email=author.email),
+        "external_username": author.username,
+        "title": title,
+        "agent_model": agent_model,
+        "agent_thinking_level": agent_thinking_level,
+        "sandbox_environment_id": task_kwargs["sandbox_environment_id"],
+        "merge_request_iid": merge_request_iid,
+    }
     session = await aget_or_create_session(
-        thread_id=thread_id,
-        origin=trigger_type,
-        repo_id=repo_id,
-        ref=ref,
-        user=user,
-        external_username=author.username,
-        title=title,
-        agent_model=agent_model,
-        agent_thinking_level=agent_thinking_level,
-        sandbox_environment_id=sandbox_environment_id,
-        issue_iid=issue_iid,
-        merge_request_iid=merge_request_iid,
+        thread_id=task_kwargs["thread_id"], origin=trigger_type, issue_iid=issue_iid, **shared
     )
     result, created = await task.aget_or_enqueue(**task_kwargs)
     if not created:
-        logger.info("Task result %s already has its run; skipping the repeated trigger", result.id)
+        _log_repeat(result)
         return
     try:
         await acreate_run(
             session=session,
             task_result_id=result.id,
             trigger_type=trigger_type,
-            repo_id=repo_id,
-            ref=ref,
-            agent_model=agent_model,
-            agent_thinking_level=agent_thinking_level,
-            merge_request_iid=merge_request_iid,
             mention_comment_id=mention_comment_id,
-            user=user,
-            external_username=author.username,
-            title=title,
-            sandbox_environment_id=sandbox_environment_id,
+            **shared,
         )
     except Exception:
-        logger.exception("Failed to create run for task result %s on %s", result.id, repo_id)
+        logger.exception("Failed to create run for task result %s on %s", result.id, shared["repo_id"])

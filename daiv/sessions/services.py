@@ -185,16 +185,6 @@ async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
     await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
 
 
-def pin_max_model(use_max: bool, agent_model: str = "", agent_thinking_level: str = "") -> tuple[str, str]:
-    """The agent model and thinking level a run asks for: ``use_max`` (the ``daiv-max`` webhook label) pins the
-    site-configured max ones unless an explicit ``agent_model`` was supplied."""
-    if use_max and not agent_model:
-        from core.site_settings import site_settings
-
-        return site_settings.agent_max_model_name, site_settings.agent_max_thinking_level
-    return agent_model, agent_thinking_level
-
-
 async def acreate_run(
     *,
     trigger_type: str,
@@ -204,7 +194,6 @@ async def acreate_run(
     prompt: str = "",
     agent_model: str = "",
     agent_thinking_level: str = "",
-    use_max: bool = False,
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
     mention_comment_id: str = "",
@@ -222,11 +211,9 @@ async def acreate_run(
 ) -> Run:
     """Async: create a Session (idempotent) then a Run linked to it.
 
-    ``use_max=True`` pins the site-configured max agent model/thinking level (see :func:`pin_max_model`).
     ``session`` is one the caller already opened: the Run joins it, and the arguments that only seed a new
     session (``thread_id``, ``issue_iid``, ``scheduled_job``, ``mcp_overrides``) go unused.
     """
-    agent_model, agent_thinking_level = pin_max_model(use_max, agent_model, agent_thinking_level)
     if session is None:
         session = await aget_or_create_session(
             thread_id=thread_id or str(uuid.uuid4()),

@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from sessions.executor.lock import wait_for_slot
-from sessions.models import Session
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
@@ -63,8 +62,6 @@ class BaseManager:
         self._unable_note_posted = True
         return True
 
-    async def _lock_policy(self) -> LockPolicy:
-        """Wait for the session's slot, which ``webhooks.dispatch`` opened before it enqueued this run. A missing
-        row (a deleted session) fails the run now, not after the slot's wait times out."""
-        await Session.objects.only("thread_id").aget(pk=self.thread_id)
+    def _lock_policy(self) -> LockPolicy:
+        """Wait for the session's slot, which ``webhooks.dispatch`` opened before it enqueued this run."""
         return wait_for_slot(f"webhook-{uuid.uuid4().hex}")
