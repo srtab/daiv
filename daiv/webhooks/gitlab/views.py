@@ -1,6 +1,7 @@
 import logging
 
-from codebase.api.router import router
+from ninja import Router
+
 from codebase.base import GitPlatform
 from codebase.conf import settings
 from webhooks.callbacks import UnprocessableEntityResponse
@@ -10,12 +11,12 @@ from .security import validate_gitlab_webhook
 
 logger = logging.getLogger("daiv.webhooks")
 
+router = Router()
 
-@router.post("/callbacks/gitlab", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
+
+@router.post("/gitlab", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
 @router.post(
-    "/callbacks/gitlab/",
-    response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse},
-    url_name="gitlab_callback",
+    "/gitlab/", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse}, url_name="gitlab_callback"
 )
 async def callback(
     request, payload: IssueCallback | MergeRequestCallback | NoteCallback | PushCallback | PipelineCallback

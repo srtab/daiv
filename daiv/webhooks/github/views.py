@@ -1,6 +1,7 @@
 import logging
 
-from codebase.api.router import router
+from ninja import Router
+
 from codebase.base import GitPlatform
 from codebase.conf import settings
 from webhooks.callbacks import UnprocessableEntityResponse
@@ -10,9 +11,11 @@ from .security import validate_github_webhook
 
 logger = logging.getLogger("daiv.webhooks")
 
+router = Router()
 
-@router.post("/callbacks/github", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
-@router.post("/callbacks/github/", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
+
+@router.post("/github", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
+@router.post("/github/", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
 async def callback(
     request, payload: IssueCallback | IssueCommentCallback | PullRequestCallback | PushCallback | WorkflowRunCallback
 ):
