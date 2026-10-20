@@ -129,6 +129,24 @@ async def test_acreate_run_creates_session_and_run():
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("use_max", [True, False])
+async def test_acreate_run_use_max_pins_the_max_model(use_max):
+    from core.site_settings import site_settings
+
+    run = await acreate_run(
+        trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result_id=None, repo_id="g/r", use_max=use_max
+    )
+
+    await run.arefresh_from_db()
+    if use_max:
+        assert run.agent_model == site_settings.agent_max_model_name
+        assert run.agent_thinking_level == site_settings.agent_max_thinking_level
+    else:
+        assert run.agent_model == ""
+        assert run.agent_thinking_level == ""
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_batch_creates_session_and_ready_run():
     task_id = uuid.uuid4()
     fake = await _atask_result_row(task_id)
