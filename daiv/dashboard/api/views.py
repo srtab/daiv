@@ -33,10 +33,11 @@ from asgiref.sync import sync_to_async
 from ninja import Router
 from ninja.security import django_auth
 from notifications.context_processors import query_unread_count
+from sessions.models import Run
 
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 from core.ui_events import UIEventStream, is_transient_bus_error, redis_connections
-from dashboard.context_processors import count_running, visible_runs
+from dashboard.context_processors import count_running
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -72,7 +73,7 @@ def _open_visible_runs(user: User):
     none of that changes for the life of a stream; only the RUNNING count does.
     """
     try:
-        return visible_runs(user)
+        return Run.objects.visible_to(user)
     finally:
         close_old_connections()
 

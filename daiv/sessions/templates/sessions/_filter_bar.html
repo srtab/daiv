@@ -27,18 +27,19 @@
         </div>
 
         {# Type dropdown #}
+        {% querystring trigger=None page=None as clear_trigger_url %}
         <div class="relative" @click.outside="if (open === 'type') open = null">
             <button type="button" class="filter-control {% if current_trigger %}filter-control--active{% endif %}"
                     :class="{ 'filter-control--active': !!trigger }" @click="toggle('type')">
                 {% icon "bars-3" "h-4 w-4" %}
                 <span x-text="triggerLabel || $el.dataset.defaultLabel" data-default-label="{% translate 'Type' %}">{% if current_trigger %}{{ current_trigger_label }}{% else %}{% translate "Type" %}{% endif %}</span>
-                <a href="{% querystring trigger=None page=None %}" @click.stop.prevent="clearTrigger()"
+                <a href="{{ clear_trigger_url }}" @click.stop.prevent="clearTrigger()"
                    x-show="!!trigger" style="{% if not current_trigger %}display:none{% endif %}"
                    class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear type filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
                 <span x-show="!trigger" style="{% if current_trigger %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
             </button>
             <div class="filter-menu" x-show="open === 'type'" x-cloak>
-                <a href="{% querystring trigger=None page=None %}"
+                <a href="{{ clear_trigger_url }}"
                    class="filter-menu-item {% if not current_trigger %}filter-menu-item--active{% endif %}"
                    @click.prevent="clearTrigger()" :class="{ 'filter-menu-item--active': !trigger }">{% translate "All types" %}</a>
                 {% for value, label in origins %}
@@ -54,6 +55,7 @@
         </div>
 
         {# Time dropdown #}
+        {% querystring range=None date_from=None date_to=None page=None as clear_time_url %}
         <div class="relative" @click.outside="if (open === 'time') open = null">
             <button type="button" class="filter-control {% if current_range or current_from or current_to %}filter-control--active{% endif %}"
                     :class="{ 'filter-control--active': timeActive }" @click="toggle('time')">
@@ -63,13 +65,13 @@
                     {% elif current_from or current_to %}{{ current_from|default:"…" }} – {{ current_to|default:"…" }}
                     {% else %}{% translate "Time" %}{% endif %}
                 </span>
-                <a href="{% querystring range=None date_from=None date_to=None page=None %}" @click.stop.prevent="clearTime()"
+                <a href="{{ clear_time_url }}" @click.stop.prevent="clearTime()"
                    x-show="timeActive" style="{% if not current_range and not current_from and not current_to %}display:none{% endif %}"
                    class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear time filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
                 <span x-show="!timeActive" style="{% if current_range or current_from or current_to %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
             </button>
             <div class="filter-menu" x-show="open === 'time'" x-cloak>
-                <a href="{% querystring range=None date_from=None date_to=None page=None %}"
+                <a href="{{ clear_time_url }}"
                    class="filter-menu-item {% if not current_range and not current_from and not current_to %}filter-menu-item--active{% endif %}"
                    @click.prevent="clearTime()" :class="{ 'filter-menu-item--active': !range && !from && !to }">{% translate "All time" %}</a>
                 {% for value, label in ranges %}

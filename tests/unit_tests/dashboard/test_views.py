@@ -9,9 +9,11 @@ import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 
-def _make_run(user, trigger_type, status=RunStatus.SUCCESSFUL):
+def _make_run(user, trigger_type):
     session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=trigger_type, repo_id="daiv/test", user=user)
-    return Run.objects.create(session=session, status=status, trigger_type=trigger_type, repo_id="daiv/test", user=user)
+    return Run.objects.create(
+        session=session, status=RunStatus.SUCCESSFUL, trigger_type=trigger_type, repo_id="daiv/test", user=user
+    )
 
 
 @pytest.mark.django_db

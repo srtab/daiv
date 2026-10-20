@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load dashboard_tags i18n icon_tags static %}
+{% load icon_tags session_tags %}
 
 {% block title %}Dashboard — DAIV{% endblock %}
 
@@ -43,7 +43,7 @@
                 <p class="mt-2 text-sm text-gray-400">jobs processed</p>
             </div>
             <div>
-                <p class="animate-number text-[42px] font-extrabold tabular-nums leading-none tracking-tight {{ activity.success_rate_raw|success_rate_color }}" style="animation-delay: 200ms">{{ activity.success_rate }}</p>
+                <p class="animate-number text-[42px] font-extrabold tabular-nums leading-none tracking-tight {{ activity.success_rate_css }}" style="animation-delay: 200ms">{{ activity.success_rate }}</p>
                 <p class="mt-2 text-sm text-gray-400">success rate</p>
             </div>
             <div>
@@ -58,7 +58,7 @@
                 <p class="mt-2 text-sm text-gray-400">with code changes <span class="text-gray-500">({{ activity.code_changes_pct }})</span></p>
             </div>
             <div>
-                <p class="animate-number text-[42px] font-extrabold tabular-nums leading-none tracking-tight text-white" style="animation-delay: 350ms">{{ activity.avg_duration }}</p>
+                <p class="animate-number text-[42px] font-extrabold tabular-nums leading-none tracking-tight text-white" style="animation-delay: 350ms">{{ activity.avg_duration_s|duration|default:"—" }}</p>
                 <p class="mt-2 text-sm text-gray-400">avg duration</p>
             </div>
         </div>

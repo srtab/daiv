@@ -45,6 +45,7 @@
     </div>
 
     {% if repos %}
+    {% querystring repo=None page=None as clear_repo_url %}
     <div class="relative" @click.outside="open = false" @keydown.escape="open = false">
         <button type="button" class="filter-control {% if current_repo %}filter-control--active{% endif %}"
                 :class="{ 'filter-control--active': !!repo }" @click="open = !open"
@@ -52,13 +53,13 @@
             {% icon "repo" "h-4 w-4" %}
             <span class="max-w-[200px] truncate" x-text="repo || $el.dataset.defaultLabel"
                   data-default-label="{% translate 'Repository' %}">{% if current_repo %}{{ current_repo }}{% else %}{% translate "Repository" %}{% endif %}</span>
-            <a href="{% querystring repo=None page=None %}" @click.stop.prevent="setFilter('repo', '')"
+            <a href="{{ clear_repo_url }}" @click.stop.prevent="setFilter('repo', '')"
                x-show="!!repo" style="{% if not current_repo %}display:none{% endif %}"
                class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear repository filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
             <span x-show="!repo" style="{% if current_repo %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
         </button>
         <div class="filter-menu right-0 max-h-80 max-w-[20rem] overflow-y-auto" x-show="open" x-cloak>
-            <a href="{% querystring repo=None page=None %}"
+            <a href="{{ clear_repo_url }}"
                class="filter-menu-item {% if not current_repo %}filter-menu-item--active{% endif %}"
                @click.prevent="setFilter('repo', '')" :class="{ 'filter-menu-item--active': !repo }">{% translate "All repositories" %}</a>
             {% for repo_id in repos %}

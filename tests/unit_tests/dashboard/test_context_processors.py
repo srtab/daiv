@@ -2,7 +2,7 @@ import uuid
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import Error as DatabaseError
-from django.test import Client, RequestFactory
+from django.test import RequestFactory
 from django.urls import reverse
 
 import pytest
@@ -12,24 +12,24 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from accounts.models import User
 
 
+def _nav_for(user) -> dict:
+    request = RequestFactory().get("/dashboard/")
+    request.user = user
+    request.resolver_match = None
+    return nav(request)
+
+
 @pytest.mark.django_db
 class TestNavContextProcessor:
     def test_returns_empty_for_anonymous_user(self):
-        request = RequestFactory().get("/dashboard/")
-        request.user = AnonymousUser()
-        assert nav(request) == {}
+        assert _nav_for(AnonymousUser()) == {}
 
     def test_returns_zero_running_jobs_when_none(self, member_user):
-        request = RequestFactory().get("/dashboard/")
-        request.user = member_user
-        request.resolver_match = None
-        out = nav(request)
+        out = _nav_for(member_user)
         assert out["nav_running_jobs"] == 0
         assert out["nav_active_section"] == ""
 
-    def test_counts_only_running_jobs_owned_by_user(self, member_user, db):
-        from sessions.models import Session
-
+    def test_counts_only_running_jobs_owned_by_user(self, member_user):
         session = Session.objects.create(
             thread_id="test-thread-1", origin=SessionOrigin.MCP_JOB, repo_id="daiv/api", user=member_user
         )
@@ -59,17 +59,10 @@ class TestNavContextProcessor:
             user=other,
         )
 
-        request = RequestFactory().get("/dashboard/")
-        request.user = member_user
-        request.resolver_match = None
-        out = nav(request)
-        assert out["nav_running_jobs"] == 1
+        assert _nav_for(member_user)["nav_running_jobs"] == 1
 
-    def test_resolves_active_section_from_url_name(self, db):
-        user_obj = User.objects.create_user(username="charlie", email="c@test.com", password="x123456789")  # noqa: S106
-        client = Client()
-        client.force_login(user_obj)
-        response = client.get(reverse("dashboard"))
+    def test_resolves_active_section_from_url_name(self, member_client):
+        response = member_client.get(reverse("dashboard"))
         assert response.context["nav_active_section"] == "dashboard"
 
     def test_running_jobs_falls_back_to_zero_on_database_error(self, member_user, mocker):
@@ -81,7 +74,7 @@ class TestNavContextProcessor:
         request.user = member_user
         assert running_jobs_count(request, member_user) == 0
 
-    def test_running_jobs_memoizes_on_request(self, member_user, db, mocker):
+    def test_running_jobs_memoizes_on_request(self, member_user, mocker):
         # Second call on the same request must not re-query the database.
         request = RequestFactory().get("/dashboard/")
         request.user = member_user
@@ -91,7 +84,7 @@ class TestNavContextProcessor:
         assert running_jobs_count(request, member_user) == 0
         spy.assert_not_called()
 
-    def test_counts_running_jobs_on_readable_repos(self, member_user, db):
+    def test_counts_running_jobs_on_readable_repos(self, member_user):
         from django.utils import timezone
 
         from allauth.socialaccount.models import SocialAccount
@@ -120,11 +113,7 @@ class TestNavContextProcessor:
             repo_id="daiv/api",
         )
 
-        request = RequestFactory().get("/dashboard/")
-        request.user = member_user
-        request.resolver_match = None
-        out = nav(request)
-        assert out["nav_running_jobs"] == 1  # bob's running job, on a repo the member can read
+        assert _nav_for(member_user)["nav_running_jobs"] == 1  # bob's running job, on a repo the member can read
 
 
 class TestResolveActiveSection:
@@ -155,11 +144,10 @@ class TestResolveActiveSection:
         request.resolver_match = type("Match", (), {"view_name": "runs:agent_run_new"})()
         assert _resolve_active_section(request) == "sessions"
 
-    def test_nav_section_override_wins(self):
-        # A view may pin the section explicitly — needed where one URL serves rows of
-        # several sections (e.g. mcp_connectors:edit renders global AND personal rows).
+    def test_nav_view_name_wins_over_resolved_url(self):
         request = RequestFactory().get("/dashboard/mcp-servers/1/edit/")
-        request.nav_section_override = "mcp_servers_global"
+        request.resolver_match = type("Match", (), {"view_name": "mcp_connectors:edit"})()
+        request.nav_view_name = "mcp_connectors:global_list"
         assert _resolve_active_section(request) == "mcp_servers_global"
 
     @pytest.mark.parametrize("view_name", ["artifact_list", "session_artifact_detail", "session_artifact_raw"])

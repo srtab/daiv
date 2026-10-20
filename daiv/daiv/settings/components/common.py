@@ -87,6 +87,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "notifications.context_processors.unread_notification_count",
                 "dashboard.context_processors.nav",
+                "codebase.context_processors.git_platform",
                 "core.context_processors.build_info",
             ]
         },

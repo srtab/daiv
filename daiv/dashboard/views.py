@@ -43,20 +43,15 @@ def _format_pct(numerator: int, denominator: int) -> str:
     return f"{raw}%" if raw is not None else "—"
 
 
-def _format_duration(td: timedelta | None) -> str:
-    """Format a timedelta as a compact human-readable string, or a dash when None."""
-    if td is None:
-        return "—"
-    total_seconds = int(td.total_seconds())
-    if total_seconds < 0:
-        return "—"
-    if total_seconds < 60:
-        return f"{total_seconds}s"
-    minutes, seconds = divmod(total_seconds, 60)
-    if minutes < 60:
-        return f"{minutes}m {seconds}s"
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours}h {minutes}m"
+def _success_rate_css(pct: int | None) -> str:
+    """Tailwind text color for a success-rate percentage; plain white when there is none."""
+    if pct is None:
+        return "text-white"
+    if pct >= 90:
+        return "text-emerald-400"
+    if pct >= 75:
+        return "text-amber-400"
+    return "text-red-400"
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
@@ -164,16 +159,17 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             })
 
         code_changes_count = stats["code_changes"]
+        avg_duration = stats["avg_duration"]
 
         return {
             "total": total,
             "running": running_count,
             "success_rate": _format_pct(successful_count, successful_count + failed_count),
-            "success_rate_raw": _raw_pct(successful_count, successful_count + failed_count),
+            "success_rate_css": _success_rate_css(_raw_pct(successful_count, successful_count + failed_count)),
             "failed": failed_count,
             "code_changes": code_changes_count,
             "code_changes_pct": _format_pct(code_changes_count, successful_count),
-            "avg_duration": _format_duration(stats["avg_duration"]),
+            "avg_duration_s": avg_duration.total_seconds() if avg_duration is not None else None,
             "activity_url": sessions_url,
             "segments": segments,
         }

@@ -266,7 +266,7 @@ def test_every_surface_class_is_on_the_surface_rise_roster():
 def test_the_group_helper_loads_before_the_component_definitions():
     """Alpine starts on the microtask after its own tag, so a script placed lower runs
     after every `init()` — `surfaceGroup` would be undefined there."""
-    source = (DAIV_DIR / "dashboard/templates/base.html").read_text(encoding="utf-8")
+    source = (DAIV_DIR / "core/templates/base.html").read_text(encoding="utf-8")
     helper = source.find("core/js/surface-group.js")
     block = source.find("{% block alpine_plugins %}")
 
