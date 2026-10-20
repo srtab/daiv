@@ -43,10 +43,11 @@ class Mention:
     """A comment that mentioned DAIV."""
 
     note_id: int
-    """The comment DAIV reacts on, and the one run it may start."""
+    """The comment DAIV reacts on, the one run it may start, and the note that run answers."""
 
     comment_id: str
-    """What the addressor reads and answers: GitLab's discussion id, GitHub's comment id."""
+    """The discussion holding it, which the addressor reads and replies under: GitLab's discussion id, GitHub's
+    comment id."""
 
 
 async def dispatch_issue_run(

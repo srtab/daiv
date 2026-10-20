@@ -90,8 +90,18 @@ class IssueAddressorManager(BaseManager):
     message's, so a re-run on a changed issue appends both instead of rewriting the earlier prompt in place.
     """
 
-    def __init__(self, *, repo_id: str, issue: Issue, thread_id: str, mention_comment_id: str | None = None):
-        super().__init__(repo_id=repo_id, thread_id=thread_id, mention_comment_id=mention_comment_id)
+    def __init__(
+        self,
+        *,
+        repo_id: str,
+        issue: Issue,
+        thread_id: str,
+        mention_comment_id: str | None = None,
+        mention_note_id: int | None = None,
+    ):
+        super().__init__(
+            repo_id=repo_id, thread_id=thread_id, mention_comment_id=mention_comment_id, mention_note_id=mention_note_id
+        )
         self.issue = issue
 
     @classmethod
@@ -103,6 +113,7 @@ class IssueAddressorManager(BaseManager):
         thread_id: str,
         use_max: bool,
         mention_comment_id: str | None = None,
+        mention_note_id: int | None = None,
         ref: str | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
@@ -116,6 +127,7 @@ class IssueAddressorManager(BaseManager):
             thread_id: The session's thread id.
             use_max: The max mode the callback decided.
             mention_comment_id: The discussion that mentioned the bot, or ``None`` for a label trigger.
+            mention_note_id: The note in that discussion the run answers.
             ref: The branch to clone; ``None`` for the repository default.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
@@ -123,7 +135,13 @@ class IssueAddressorManager(BaseManager):
         Returns:
             An :class:`AgentResult`, or ``None`` when no model is configured (after saying so on the issue).
         """
-        manager = cls(repo_id=repo_id, issue=issue, mention_comment_id=mention_comment_id, thread_id=thread_id)
+        manager = cls(
+            repo_id=repo_id,
+            issue=issue,
+            mention_comment_id=mention_comment_id,
+            mention_note_id=mention_note_id,
+            thread_id=thread_id,
+        )
 
         try:
             return await manager._address_issue(ref=ref, sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max)
@@ -169,7 +187,8 @@ class IssueAddressorManager(BaseManager):
     def _input_message(self, *, issue_message_id: str) -> tuple[HumanMessage, str]:
         """The turn's message and who triggered it: the mention comment, or the prompt the bot label implies."""
         if self.mention_comment_id:
-            comment = self.client.get_issue_comment(self.repo_id, self.issue.iid, self.mention_comment_id).notes[-1]
+            discussion = self.client.get_issue_comment(self.repo_id, self.issue.iid, self.mention_comment_id)
+            comment = self._mention_note(discussion, fallback_index=-1)
             return (
                 HumanMessage(name=comment.author.username, id=comment.id, content=comment.body),
                 comment.author.username,

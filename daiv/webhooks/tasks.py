@@ -69,8 +69,8 @@ async def address_issue_task(
         thread_id (str): The LangGraph checkpoint key minted by the caller.
         use_max (bool): The max mode the callback decided and stamped on the ``Run``.
         mention_comment_id (str | None): The mention comment id. Defaults to None.
-        mention_note_id (int | None): The note that mentioned DAIV; with ``repo_id`` and the iid, the run's dedup
-            key, so each reply in one GitLab discussion gets its own run.
+        mention_note_id (int | None): The note that mentioned DAIV, which the run answers; with ``repo_id`` and the
+            iid, the run's dedup key, so each reply in one GitLab discussion gets its own run.
         ref (str | None): The ref to clone. Defaults to the session's working branch, else the repository default.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
     """
@@ -85,6 +85,7 @@ async def address_issue_task(
         repo_id=repo_id,
         issue=issue,
         mention_comment_id=mention_comment_id,
+        mention_note_id=mention_note_id,
         ref=effective_ref or None,
         thread_id=thread_id,
         sandbox_env_id=sandbox_environment_id,
@@ -114,8 +115,8 @@ async def address_mr_comments_task(
         mention_comment_id (str): The mention comment id.
         thread_id (str): The LangGraph checkpoint key minted by the caller.
         use_max (bool): The max mode the callback decided and stamped on the ``Run``.
-        mention_note_id (int | None): The note that mentioned DAIV; with ``repo_id`` and the iid, the run's dedup
-            key, so each reply in one GitLab discussion gets its own run.
+        mention_note_id (int | None): The note that mentioned DAIV, which the run answers; with ``repo_id`` and the
+            iid, the run's dedup key, so each reply in one GitLab discussion gets its own run.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
     """
     from webhooks.managers.review_addressor import CommentsAddressorManager
@@ -138,6 +139,7 @@ async def address_mr_comments_task(
             repo_id=repo_id,
             merge_request=merge_request,
             mention_comment_id=mention_comment_id,
+            mention_note_id=mention_note_id,
             thread_id=thread_id,
             sandbox_env_id=sandbox_environment_id,
             run_id=await aget_task_run_id(context.task_result.id),

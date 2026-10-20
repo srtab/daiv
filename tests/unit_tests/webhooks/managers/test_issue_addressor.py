@@ -228,10 +228,10 @@ class TestIssueAfterRunMatrix:
     async def test_a_question_on_github_is_not_threaded(self, captured_client):
         captured_client.git_platform = GitPlatform.GITHUB
         captured_client.get_issue_comment.return_value = SimpleNamespace(
-            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
+            id="7", notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id=7, body="please")]
         )
         with addressor_run(_question_agent(), ctx=_ctx()):
-            await _address(mention_comment_id="c-1")
+            await _address(mention_comment_id="7", mention_note_id=7)
 
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.kwargs["reply_to_id"] is None
@@ -352,6 +352,23 @@ class TestIssueAfterRunMatrix:
         assert is_synthetic(issue_message)
         assert "<title>Crash on save</title>" in issue_message.content
         assert prompt_message.content == "@daiv-bot please fix it"
+
+    async def test_a_mention_run_answers_its_own_note_not_a_later_reply(self, captured_client):
+        """Two replies in one discussion start two runs; the first must not answer the second's note."""
+        captured_client.get_issue_comment.return_value = SimpleNamespace(
+            id="c-1",
+            notes=[
+                SimpleNamespace(author=SimpleNamespace(username="bob"), id=11, body="@daiv-bot first ask"),
+                SimpleNamespace(author=SimpleNamespace(username="carol"), id=12, body="@daiv-bot second ask"),
+            ],
+        )
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address(mention_comment_id="c-1", mention_note_id=11)
+
+        _, prompt_message = agent.ainvoke.await_args.args[0]["messages"]
+        assert (prompt_message.name, prompt_message.content) == ("bob", "@daiv-bot first ask")
 
     async def test_the_reply_is_posted_repo_relative(self, captured_client):
         agent = addressor_agent(return_value={"messages": [AIMessage(content="Fixed /workspace/repo/daiv/x.py:3.")]})

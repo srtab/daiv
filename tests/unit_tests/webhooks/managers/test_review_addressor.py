@@ -175,13 +175,32 @@ class TestReviewAfterRunMatrix:
         )
         assert reply.kwargs["reply_to_id"] == "c-1"
 
+    async def test_a_mention_run_answers_its_own_note_in_the_discussion(self, captured_client):
+        captured_client.get_merge_request_comment.return_value = SimpleNamespace(
+            id="c-1",
+            notes=[
+                SimpleNamespace(author=SimpleNamespace(username="bob"), id=11, body="this needs a test"),
+                SimpleNamespace(author=SimpleNamespace(username="carol"), id=12, body="@daiv-bot add it"),
+            ],
+        )
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address(mention_note_id=12)
+
+        [prompt_message] = agent.ainvoke.await_args.args[0]["messages"]
+        assert (prompt_message.name, prompt_message.content) == ("carol", "@daiv-bot add it")
+
     async def test_a_question_on_github_is_not_threaded(self, mention):
         mention.git_platform = GitPlatform.GITHUB
+        mention.get_merge_request_comment.return_value = SimpleNamespace(
+            id="7", notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id=7, body="please fix")]
+        )
         messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
         agent = addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
 
         with addressor_run(agent, ctx=_ctx()):
-            await _address()
+            await _address(mention_comment_id="7", mention_note_id=7)
 
         [reply] = mention.create_merge_request_comment.call_args_list
         assert reply.kwargs["reply_to_id"] is None
