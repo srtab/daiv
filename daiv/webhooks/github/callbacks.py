@@ -1,6 +1,6 @@
 import logging
 from functools import cached_property
-from typing import Any, Literal
+from typing import Literal
 
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
@@ -43,9 +43,13 @@ class IssueCallback(GitHubCallback):
     label: Label | None = None
     sender: User
 
-    def model_post_init(self, __context: Any):
-        self._repo_config = RepositoryConfig.get_config(self.repository.full_name)
-        self._client = RepoClient.create_instance()
+    @cached_property
+    def _repo_config(self) -> RepositoryConfig:
+        return RepositoryConfig.get_config(self.repository.full_name)
+
+    @cached_property
+    def _client(self) -> RepoClient:
+        return RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         # Check basic conditions
@@ -111,9 +115,13 @@ class IssueCommentCallback(GitHubCallback):
     issue: Issue
     comment: Comment
 
-    def model_post_init(self, __context: Any):
-        self._repo_config = RepositoryConfig.get_config(self.repository.full_name)
-        self._client = RepoClient.create_instance()
+    @cached_property
+    def _repo_config(self) -> RepositoryConfig:
+        return RepositoryConfig.get_config(self.repository.full_name)
+
+    @cached_property
+    def _client(self) -> RepoClient:
+        return RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         """

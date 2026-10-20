@@ -20,11 +20,11 @@ def validate_github_webhook(request: HttpRequest) -> bool:
         request: The HTTP request containing the webhook payload
 
     Returns:
-        True if the webhook is valid, False otherwise
+        True if the webhook is valid, False otherwise, including when no secret is configured
     """
     if not settings.GITHUB_WEBHOOK_SECRET:
-        logger.warning("GitHub webhook validation skipped: No secret token configured")
-        return True
+        logger.warning("GitHub webhook validation failed: CODEBASE_GITHUB_WEBHOOK_SECRET is not configured")
+        return False
 
     signature = request.headers.get("X-Hub-Signature-256")
     if not signature:

@@ -207,7 +207,7 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 |---------------------------------|---------------------------------------------|:---------:|----------------------|
 | :material-asterisk: `CODEBASE_GITLAB_URL`            | URL of the GitLab instance                  | *(none)*  | `https://gitlab.com` |
 | :material-asterisk: `CODEBASE_GITLAB_AUTH_TOKEN`  :material-lock:    | Authentication token for GitLab             | *(none)*  | `glpat-xyz`          |
-| `CODEBASE_GITLAB_WEBHOOK_SECRET` :material-lock:| Secret token for GitLab webhook validation  | *(none)*  | `random-webhook-secret` |
+| :material-asterisk: `CODEBASE_GITLAB_WEBHOOK_SECRET` :material-lock:| Secret token for GitLab webhook validation. Without it, every GitLab webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
 
 !!! note
     The `CODEBASE_GITLAB_AUTH_TOKEN` is used to authenticate with the GitLab instance using a
@@ -238,7 +238,7 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 | :material-asterisk: `CODEBASE_GITHUB_APP_ID`               | GitHub App ID                               | *(none)*  | `123456`             |
 | :material-asterisk: `CODEBASE_GITHUB_INSTALLATION_ID`      | GitHub App Installation ID                  | *(none)*  | `789012`             |
 | :material-asterisk: `CODEBASE_GITHUB_PRIVATE_KEY` :material-lock:         | GitHub App private key (PEM format)         | *(none)*  |                      |
-| `CODEBASE_GITHUB_WEBHOOK_SECRET` :material-lock:| Secret token for GitHub webhook validation  | *(none)*  | `random-webhook-secret` |
+| :material-asterisk: `CODEBASE_GITHUB_WEBHOOK_SECRET` :material-lock:| Secret token for GitHub webhook validation. Without it, every GitHub webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
 
 !!! note
     GitHub uses GitHub App authentication. You must create a GitHub App in your account or organization settings. The private key is a multi-line PEM file that should be stored securely using Docker secrets.

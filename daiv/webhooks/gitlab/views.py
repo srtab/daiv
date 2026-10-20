@@ -11,10 +11,15 @@ from .security import validate_gitlab_webhook
 logger = logging.getLogger("daiv.webhooks")
 
 
-@router.post("/callbacks/gitlab", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
+@router.post(
+    "/callbacks/gitlab",
+    response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse},
+    auth=validate_gitlab_webhook,
+)
 @router.post(
     "/callbacks/gitlab/",
     response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse},
+    auth=validate_gitlab_webhook,
     url_name="gitlab_callback",
 )
 async def callback(
@@ -23,16 +28,12 @@ async def callback(
     """
     GitLab callback endpoint for processing callbacks.
 
-    Validates the webhook secret before processing the callback and returns 401 Unauthorized if validation fails.
+    The token is verified (``auth``) before the payload is parsed; a request that fails it gets 401 Unauthorized.
     Returns 403 Forbidden if client type is not set to GitLab.
     """
     if settings.CLIENT != GitPlatform.GITLAB:
         logger.warning("GitLab Hook: Client type is not set to GitLab, skipping callback.")
         return 403, None
-
-    if not validate_gitlab_webhook(request):
-        logger.warning("GitLab Hook: Unauthorized webhook request for project %d", payload.project.id)
-        return 401, None
 
     if payload.accept_callback():
         logger.info("GitLab Hook: Processing hook '%s' for project %d", payload.object_kind, payload.project.id)
