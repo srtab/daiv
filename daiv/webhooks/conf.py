@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class WebhooksSettings(BaseSettings):
-    # CODEBASE_: these settings moved here from codebase; deployments already set the CODEBASE_ names.
+    # Keep the CODEBASE_ prefix: deployments set CODEBASE_GITLAB_WEBHOOK_SECRET and the rest.
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="CODEBASE_", env_parse_none_str="None")
 
     GITLAB_WEBHOOK_SECRET: SecretStr | None = Field(

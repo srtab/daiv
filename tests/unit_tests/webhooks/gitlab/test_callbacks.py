@@ -1,3 +1,5 @@
+from typing import Literal
+
 import pytest
 from webhooks.gitlab.callbacks import IssueCallback, MergeRequestCallback, NoteCallback
 from webhooks.gitlab.models import (
@@ -66,7 +68,11 @@ def monkeypatch_dependencies(monkeypatch, stub_client, repo_config):
 
 
 def create_note_callback(
-    note_body: str, username: str = "reviewer", labels: list[str] | None = None, note_id: int = 100
+    note_body: str,
+    username: str = "reviewer",
+    labels: list[str] | None = None,
+    note_id: int = 100,
+    note_type: Literal["DiffNote", "DiscussionNote"] | None = None,
 ) -> NoteCallback:
     """Helper to create a minimal NoteCallback instance."""
     return NoteCallback(
@@ -91,6 +97,7 @@ def create_note_callback(
             discussion_id="discussion_1",
             note=note_body,
             system=False,
+            type=note_type,
         ),
     )
 
@@ -100,6 +107,15 @@ def test_accept_when_mention(monkeypatch_dependencies, stub_client):
     callback = create_note_callback("@daiv please review this code")
 
     assert callback.accept_callback() is True
+
+
+@pytest.mark.parametrize(("note_type", "accepted"), [("DiscussionNote", True), ("DiffNote", False)])
+def test_a_mention_in_a_thread_reply_is_accepted_but_not_on_a_diff_line(
+    monkeypatch_dependencies, stub_client, note_type, accepted
+):
+    callback = create_note_callback("@daiv please review this code", note_type=note_type)
+
+    assert callback.accept_callback() is accepted
 
 
 def test_reject_when_thread_only_has_daiv(monkeypatch_dependencies, stub_client):
@@ -834,7 +850,10 @@ def create_issue_note_callback(*, note_id: int, discussion_id: str) -> NoteCallb
     "make_callback",
     [
         pytest.param(lambda note_id: create_issue_note_callback(note_id=note_id, discussion_id="d1"), id="issue"),
-        pytest.param(lambda note_id: create_note_callback("@daiv please review", note_id=note_id), id="merge_request"),
+        pytest.param(
+            lambda note_id: create_note_callback("@daiv please review", note_id=note_id, note_type="DiscussionNote"),
+            id="merge_request",
+        ),
     ],
 )
 async def test_a_second_mention_in_a_discussion_runs_after_the_first_succeeded(monkeypatch_dependencies, make_callback):

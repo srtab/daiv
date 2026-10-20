@@ -452,6 +452,32 @@ class TestGitLabClient:
         mock_project.mergerequests.get.return_value = _mr("merged" if merged else "opened")
         assert gitlab_client.get_merge_request("group/repo", 7).merged is merged
 
+    @pytest.mark.parametrize(
+        ("noteable", "fetch"), [("issues", "get_issue_comment"), ("mergerequests", "get_merge_request_comment")]
+    )
+    def test_a_discussion_keeps_its_thread_replies(self, gitlab_client, noteable, fetch):
+        """GitLab types every note of a thread ``DiscussionNote``; the mention run looks its note up among them."""
+
+        def _note(note_id: int) -> dict:
+            return {
+                "id": note_id,
+                "body": f"note {note_id}",
+                "type": "DiscussionNote",
+                "noteable_type": "Issue" if noteable == "issues" else "MergeRequest",
+                "system": False,
+                "resolvable": False,
+                "author": {"id": 2, "username": "bob", "name": "Bob"},
+            }
+
+        discussion = Mock(id="d-1", attributes={"notes": [_note(11), _note(12)]})
+        mock_project = Mock()
+        gitlab_client.client.projects.get.return_value = mock_project
+        getattr(mock_project, noteable).get.return_value.discussions.get.return_value = discussion
+
+        result = getattr(gitlab_client, fetch)("group/repo", 7, "d-1")
+
+        assert [note.id for note in result.notes] == [11, 12]
+
     def test_create_merge_request_inline_discussion_sends_position_payload(self, gitlab_client):
         """create_merge_request_inline_discussion must pass body + position dict to discussions.create."""
         mock_project = Mock()

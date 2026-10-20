@@ -636,7 +636,7 @@ class GitLabClient(RepoClient):
         issue = project.issues.get(issue_id, lazy=True)
         discussion = issue.discussions.get(comment_id)
         return Discussion(
-            id=comment_id, notes=self._serialize_notes(discussion.attributes["notes"], [None], only_resolvable=False)
+            id=comment_id, notes=self._serialize_notes(discussion.attributes["notes"], only_resolvable=False)
         )
 
     def create_issue_comment(
@@ -1146,7 +1146,7 @@ class GitLabClient(RepoClient):
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         discussion = merge_request.discussions.get(comment_id)
         return Discussion(
-            id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"], [None], only_resolvable=False)
+            id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"], only_resolvable=False)
         )
 
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
