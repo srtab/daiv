@@ -114,23 +114,21 @@ async def test_a_failed_source_branch_fetch_still_starts_the_run(steps, caplog):
     assert "source branch" in caplog.text
 
 
-async def test_a_repeat_records_no_run_and_does_not_react(steps, caplog):
+async def test_a_repeat_records_no_run_and_does_not_react(steps):
     steps.address_mr_comments_task.get_or_enqueue.return_value = (Mock(id="task-1"), False)
 
-    with caplog.at_level(logging.INFO, logger="daiv.webhooks"):
-        await dispatch_mr_comment_run(
-            client=steps.client,
-            repo_id="owner/repo",
-            merge_request_iid=99,
-            ref="feat/x",
-            title="PR",
-            use_max=False,
-            author=AUTHOR,
-            mention=Mention(note_id=300, comment_id="300"),
-        )
+    await dispatch_mr_comment_run(
+        client=steps.client,
+        repo_id="owner/repo",
+        merge_request_iid=99,
+        ref="feat/x",
+        title="PR",
+        use_max=False,
+        author=AUTHOR,
+        mention=Mention(note_id=300, comment_id="300"),
+    )
 
     assert [name for name, *_ in steps.mock_calls] == ["address_mr_comments_task.get_or_enqueue"]
-    assert "skipping the repeated trigger" in caplog.text
 
 
 @pytest.fixture
@@ -167,29 +165,23 @@ async def _finish_every_task() -> None:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.usefixtures("real_dispatch")
-async def test_a_repeated_trigger_reuses_the_first_run_even_when_max_mode_changed(caplog):
-    with caplog.at_level(logging.INFO, logger="daiv.webhooks"):
-        for use_max in (False, True):
-            await _dispatch_mention(use_max=use_max)
+async def test_a_repeated_trigger_reuses_the_first_run_even_when_max_mode_changed():
+    for use_max in (False, True):
+        await _dispatch_mention(use_max=use_max)
 
     assert await DBTaskResult.objects.acount() == 1
     assert await Run.objects.acount() == 1
-    assert "skipping the repeated trigger" in caplog.text
-    assert "Failed to create run" not in caplog.text
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.usefixtures("real_dispatch")
-async def test_concurrent_deliveries_of_one_mention_record_one_run(caplog):
-    with caplog.at_level(logging.INFO, logger="daiv.webhooks"):
-        await asyncio.gather(_dispatch_mention(), _dispatch_mention())
+async def test_concurrent_deliveries_of_one_mention_record_one_run():
+    await asyncio.gather(_dispatch_mention(), _dispatch_mention())
 
     run = await Run.objects.aget()
     assert await DBTaskResult.objects.acount() == 1
     assert str(run.task_result_id) == str((await DBTaskResult.objects.aget()).id)
     assert await Session.objects.acount() == 1
-    assert "skipping the repeated trigger" in caplog.text
-    assert "Failed to create run" not in caplog.text
 
 
 @pytest.mark.django_db(transaction=True)

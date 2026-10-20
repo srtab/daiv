@@ -138,10 +138,3 @@ def test_a_task_enqueued_in_a_rolled_back_transaction_is_no_duplicate(database_t
         raise RuntimeError
 
     assert sample_mention_task.get_or_enqueue(repo_id="repo-1", note_id=5)[1] is True
-
-
-def test_the_immediate_backend_runs_and_creates_every_time():
-    result, created = sample_mention_task.get_or_enqueue(repo_id="repo-1", note_id=5)
-
-    assert created is True
-    assert result.return_value == "repo-1"

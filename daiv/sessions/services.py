@@ -199,30 +199,24 @@ def create_run(
     sandbox_environment_id: str | None = None,
     status: str = RunStatus.READY,
     mcp_overrides: dict | None = None,
-    session: Session | None = None,
 ) -> Run:
-    """Create a Session (idempotent) then a Run linked to it.
-
-    ``session`` is one the caller already opened: the Run joins it, and the arguments that only seed a new
-    session (``thread_id``, ``issue_iid``, ``scheduled_job``, ``mcp_overrides``) go unused.
-    """
-    if session is None:
-        session = get_or_create_session(
-            thread_id=thread_id or str(uuid.uuid4()),
-            origin=trigger_type,
-            repo_id=repo_id,
-            ref=ref,
-            user=user,
-            external_username=external_username,
-            title=title,
-            agent_model=agent_model,
-            agent_thinking_level=agent_thinking_level,
-            sandbox_environment_id=sandbox_environment_id,
-            scheduled_job=scheduled_job,
-            issue_iid=issue_iid,
-            merge_request_iid=merge_request_iid,
-            mcp_overrides=mcp_overrides,
-        )
+    """Create a Session (idempotent) then a Run linked to it."""
+    session = get_or_create_session(
+        thread_id=thread_id or str(uuid.uuid4()),
+        origin=trigger_type,
+        repo_id=repo_id,
+        ref=ref,
+        user=user,
+        external_username=external_username,
+        title=title,
+        agent_model=agent_model,
+        agent_thinking_level=agent_thinking_level,
+        sandbox_environment_id=sandbox_environment_id,
+        scheduled_job=scheduled_job,
+        issue_iid=issue_iid,
+        merge_request_iid=merge_request_iid,
+        mcp_overrides=mcp_overrides,
+    )
     return Run.objects.create(
         session=session,
         trigger_type=trigger_type,

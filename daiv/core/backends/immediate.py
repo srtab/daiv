@@ -9,7 +9,3 @@ class ImmediateBackend(DJImmediateBackend):
     """
 
     task_class = DeduplicatingTask
-
-    def get_or_enqueue(self, task, args, kwargs):
-        """Run the task now, like every enqueue here: nothing is kept to deduplicate against, so it always creates."""
-        return self.enqueue(task, args, kwargs), True

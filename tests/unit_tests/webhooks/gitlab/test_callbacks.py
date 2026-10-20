@@ -787,10 +787,11 @@ async def test_a_redelivered_note_starts_no_second_run(monkeypatch_dependencies,
 
     await create_issue_note_callback(note_id=200, discussion_id="d1").process_callback()
     await DBTaskResult.objects.aupdate(status=TaskResultStatus.SUCCESSFUL)
-    with caplog.at_level(logging.INFO, logger="daiv.webhooks"):
+    with caplog.at_level(logging.INFO):
         await create_issue_note_callback(note_id=200, discussion_id="d1").process_callback()
 
     assert await DBTaskResult.objects.acount() == 1
     assert await Run.objects.acount() == 1
-    assert "already has its run" in caplog.text
+    assert "Skipping duplicate task" in caplog.text
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
     assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
