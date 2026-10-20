@@ -247,6 +247,7 @@ class TestIssueAfterRunMatrix:
             "thread_id": "t-issue",
             "workspace": run.create_agent.await_args.kwargs["workspace"],
             "settings": run.resolve.return_value,
+            "session_links": run.create_agent.await_args.kwargs["session_links"],
         }
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]

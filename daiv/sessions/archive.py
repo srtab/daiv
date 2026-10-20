@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from django.utils import timezone
 
+from automation.agent.git_state import checkpointed_merge_request
 from sessions.models import Session, SessionArchive
 
 if TYPE_CHECKING:
@@ -170,8 +171,6 @@ async def arestore_thread(agent: Pregel, checkpointer: BaseCheckpointSaver, conf
     A thread with a checkpoint, without an archive or whose latest context is closed is left alone. A context that
     fails to restore raises :class:`ArchiveRestoreError` rather than let the run start without it.
     """
-    from automation.agent.publishers import checkpointed_merge_request
-
     thread_id = config["configurable"]["thread_id"]
     if await checkpointer.aget_tuple(config) is not None:
         return False

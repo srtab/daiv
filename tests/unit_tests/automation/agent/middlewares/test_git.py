@@ -5,10 +5,10 @@ import pytest
 from git import GitCommandError
 from langchain_core.messages import AIMessage
 
-from automation.agent.git_manager import GitPushPermissionError
-from automation.agent.git_runners import SandboxGitProtocolError
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflictsError
+from automation.agent.workspace.git_manager import GitPushPermissionError
+from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings
 
@@ -95,19 +95,18 @@ class TestGitMiddleware:
         assert result["code_changes"] is True
         assert result["protected_branch_fallback_source"] is None
 
-    @pytest.mark.parametrize("thread_id", ["t-1", None], ids=["chat-run", "non-chat-automation-run"])
-    async def test_aafter_agent_passes_thread_id_to_publisher(self, thread_id):
-        """No conversation thread (non-chat automation run) still publishes, just without a link."""
-        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
+    @pytest.mark.parametrize("session_links", [AsyncMock(), None], ids=["linked", "unlinked"])
+    async def test_aafter_agent_passes_session_links_to_publisher(self, session_links):
+        """A run without links (one-shot, or links off) still publishes, just without them."""
+        mw = GitMiddleware(
+            settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace(), session_links=session_links
+        )
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
-        with (
-            patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
-            patch("automation.agent.middlewares.git.conversation_thread_id", return_value=thread_id),
-        ):
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
             await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
-        assert pub_cls.call_args.kwargs["thread_id"] == thread_id
+        assert pub_cls.call_args.kwargs["session_links"] is session_links
 
     async def test_aafter_agent_hands_the_publisher_the_runs_settings(self):
         mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())

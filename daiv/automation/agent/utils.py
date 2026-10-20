@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.config import get_config
 from skills.constants import FRONTMATTER_RE
 
 from .constants import REPO_PATH
@@ -92,15 +91,6 @@ def repo_relative_text(text: str) -> str:
     longer path, is kept. The root itself, with or without a trailing slash, is kept since it has no repo-relative form.
     """
     return _WORKSPACE_PATH_PREFIX.sub("", text)
-
-
-def conversation_thread_id() -> str | None:
-    """Read the conversation ``thread_id`` from the active run config; None outside a runnable context."""
-    try:
-        config = get_config()
-    except RuntimeError:
-        return None
-    return (config.get("configurable") or {}).get("thread_id")
 
 
 def build_langsmith_config(

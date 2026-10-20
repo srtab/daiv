@@ -6,12 +6,17 @@ import time
 import uuid
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Any
+
+from django.urls import reverse
 
 from asgiref.sync import sync_to_async
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
+from automation.agent.session_links import SessionLinks
+from core.utils import build_absolute_url
 from sessions.archive import aarchive_thread, arestore_thread
 from sessions.artifacts import RunArtifactStore, bind_active_run
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
@@ -31,6 +36,7 @@ if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
 
     from automation.agent.agent_settings import AgentSettings
+    from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.session import SandboxSession
@@ -52,7 +58,8 @@ class AgentRun:
     """The built agent and what it runs with. ``usage`` tallies the run's tokens and cost, subagents included.
     ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``workspace`` is where the
     agent works; draft recovery publishes through it, and the executor releases its sandbox session. ``settings`` is
-    what the run resolved once; draft recovery publishes with it."""
+    what the run resolved once, and ``session_links`` what builds the links they allow; draft recovery publishes with
+    both."""
 
     ctx: RuntimeCtx
     agent: CompiledAgent
@@ -61,6 +68,7 @@ class AgentRun:
     thread_id: str
     workspace: Workspace
     settings: AgentSettings
+    session_links: SessionLinksResolver | None
 
 
 async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
@@ -208,7 +216,13 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     if not spec.recover_draft:
         return
     recovery.draft_published = await recover_draft(
-        run.ctx, run.agent, run.config, thread_id=run.thread_id, workspace=run.workspace, settings=run.settings
+        run.ctx,
+        run.agent,
+        run.config,
+        thread_id=run.thread_id,
+        workspace=run.workspace,
+        settings=run.settings,
+        session_links=run.session_links,
     )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
 
@@ -222,10 +236,10 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
 
     from automation.agent.agent_settings import resolve_agent_settings
     from automation.agent.graph import create_daiv_agent
-    from automation.agent.middlewares.sandbox import acquire_sandbox
     from automation.agent.middlewares.slash_commands import resets_thread, skips_sandbox
     from automation.agent.usage_tracking import track_usage_metadata
     from automation.agent.utils import build_langsmith_config
+    from automation.agent.workspace.session import acquire_sandbox
     from codebase.context import set_runtime_ctx
     from core.checkpointer import open_checkpointer
     from core.site_settings import site_settings
@@ -271,6 +285,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
             await _persist_resolved_agent(
                 spec, run_id=run_id, model=model, thinking_level=settings.agent.thinking_level or ""
             )
+            session_links = _session_links(spec, settings)
             if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
             agent = await create_daiv_agent(
@@ -281,6 +296,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 workspace=workspace,
                 artifact_store=RunArtifactStore(),
                 mcp_servers=await sync_to_async(build_runtime_servers)(spec.acting_user_id, spec.mcp_overrides),
+                session_links=session_links,
                 **spec.agent_options,
             )
             config = build_langsmith_config(
@@ -305,6 +321,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     thread_id=thread_id,
                     workspace=workspace,
                     settings=settings,
+                    session_links=session_links,
                 )
                 try:
                     yield run
@@ -336,6 +353,34 @@ def _build_workspace(ctx: RuntimeCtx) -> Workspace:
     if ctx.sandbox is None or ctx.sandbox_client is None:
         return DiskWorkspace(ctx)
     return SandboxWorkspace(SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source))
+
+
+def _session_links(spec: RunSpec, settings: AgentSettings) -> SessionLinksResolver | None:
+    """What builds the session's links when the run publishes; ``None`` for a one-shot run, which has no session, or
+    when the settings turn them off."""
+    if spec.thread_id is None or not settings.features.session_link:
+        return None
+    return partial(_abuild_session_links, spec.thread_id)
+
+
+async def _abuild_session_links(thread_id: str) -> SessionLinks | None:
+    """The session's absolute links; ``None`` when they can't be built: a link is cosmetic, so it never fails the
+    publish."""
+    kwargs = {"thread_id": thread_id}
+    try:
+        return await sync_to_async(
+            lambda: SessionLinks(
+                detail=build_absolute_url(reverse("session_detail", kwargs=kwargs)),
+                merge_request=build_absolute_url(reverse("session_merge_request", kwargs=kwargs)),
+            )
+        )()
+    except Exception:
+        logger.warning(
+            "executor: could not build the session links for thread_id=%s; publishing without them",
+            thread_id,
+            exc_info=True,
+        )
+        return None
 
 
 async def _checkpointed_values(checkpointer: BaseCheckpointSaver, thread_id: str) -> dict[str, Any]:

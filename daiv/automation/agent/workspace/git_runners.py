@@ -52,7 +52,7 @@ class SandboxGitProtocolError(RuntimeError):
 
 
 class GitRunner(Protocol):
-    """Where a :class:`~automation.agent.git_manager.GitManager` runs its git commands.
+    """Where a :class:`~automation.agent.workspace.git_manager.GitManager` runs its git commands.
 
     Neither method raises on a non-zero exit: the manager decides which exits are failures.
     """

@@ -15,14 +15,10 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
-from automation.agent.git_runners import SandboxGitProtocolError
-from automation.agent.publishers import (
-    GitChangePublisher,
-    UnresolvedMergeConflictsError,
-    checkpointed_merge_request,
-    effective_merge_request,
-)
-from automation.agent.utils import conversation_thread_id, final_assistant_text, streamed_assistant_message
+from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
+from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
+from automation.agent.utils import final_assistant_text, streamed_assistant_message
+from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -46,6 +42,7 @@ if TYPE_CHECKING:
     from langgraph.runtime import Runtime
 
     from automation.agent.agent_settings import AgentSettings
+    from automation.agent.session_links import SessionLinksResolver
     from automation.agent.workspace.base import Workspace
 
 
@@ -166,6 +163,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             large patches never stream through ``STATE_SNAPSHOT`` events.
         workspace: The run's workspace; its git backs the pre-run check and patch capture, and the publisher uses it.
         settings: The run's resolved agent settings.
+        session_links: What builds the links the publisher puts in the commit and the merge request; ``None`` for none.
 
     Example:
         ```python
@@ -193,6 +191,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         skip_ci: bool = False,
         auto_commit_changes: bool = True,
         capture_patch: bool = False,
+        session_links: SessionLinksResolver | None = None,
     ) -> None:
         """
         Initialize the middleware.
@@ -202,6 +201,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         self.capture_patch = capture_patch
         self._workspace = workspace
         self._settings = settings
+        self._session_links = session_links
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -434,7 +434,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             agent_summary = None
 
         publisher = GitChangePublisher(
-            runtime.context, self._workspace, settings=self._settings, thread_id=conversation_thread_id()
+            runtime.context, self._workspace, settings=self._settings, session_links=self._session_links
         )
         try:
             outcome = await publisher.publish(

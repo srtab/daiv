@@ -7,7 +7,6 @@ import pytest
 from langchain.tools import ToolRuntime
 from langgraph.types import Command
 
-from automation.agent.middlewares.file_system import DAIVCompositeBackend
 from automation.agent.middlewares.git_platform import (
     GITHUB_CLI_ALLOW_COMMANDS,
     GITHUB_TOOL_DESCRIPTION,
@@ -21,6 +20,7 @@ from automation.agent.middlewares.git_platform import (
     _run_gitlab_subcommand,
     _write_output_to_file,
 )
+from automation.agent.workspace.backends import DAIVCompositeBackend
 from codebase.base import GitPlatform
 from tests.unit_tests.conftest import unacquired_backend
 

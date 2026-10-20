@@ -20,7 +20,7 @@ step sits where it does:
    ``spec.overrides()``, so a site-settings change applies from the next run. The model is recorded before the invoke,
    so a run that fails mid-way still shows what it ran with: on the ``Run`` and its session for a spec with ``run_id``,
    on the ``Run`` alone for one only ``on_context_ready`` started (chat reads the session's model as a pinned override).
-4. A sandbox run acquires its container (``automation.agent.middlewares.sandbox.acquire_sandbox``), reusing the warm one
+4. A sandbox run acquires its container (``automation.agent.workspace.session.acquire_sandbox``), reusing the warm one
    the thread's last checkpoint names when it can, so building the agent can read the repository's subagents from it;
    a builtin slash command that does not read the repository acquires none, as it never reaches the agent loop
    (``automation.agent.middlewares.slash_commands.skips_sandbox``). The agent is then built over the run's workspace

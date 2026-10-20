@@ -9,8 +9,8 @@ from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.constants import REPO_PATH
 from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_graph
 from automation.agent.diff_to_metadata.prompts import memory_section
-from automation.agent.middlewares.file_system import build_disk_workspace_backend
 from automation.agent.middlewares.memory import build_agents_memory_middleware
+from automation.agent.workspace.backends import build_disk_workspace_backend
 from tests.unit_tests.conftest import OPENROUTER_CACHE_SETTINGS, model_attempts_with_failing_primary
 
 

@@ -20,11 +20,7 @@ from langchain.agents.middleware import ModelFallbackMiddleware
 from automation.agent.agent_settings import ModelChain
 from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
-from automation.agent.middlewares.file_system import (
-    READ_ONLY_PERMISSIONS,
-    WORKSPACE_FENCE_PERMISSIONS,
-    DAIVFilesystemMiddleware,
-)
+from automation.agent.middlewares.file_system import READ_ONLY_PERMISSIONS, DAIVFilesystemMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
@@ -39,6 +35,7 @@ from automation.agent.subagents import (
     create_general_purpose_subagent,
     load_custom_subagents,
 )
+from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
 from tests.unit_tests.conftest import (
     OPENROUTER_CACHE_SETTINGS,
     FakeWorkspace,
@@ -489,7 +486,7 @@ class TestSubagentMcpTools:
         assert mock_create.call_args.kwargs["tools"] == []
 
     async def test_custom_subagents_receive_mcp_tools(self, tmp_path, mock_model, mock_runtime_ctx, mcp_tool):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -514,7 +511,7 @@ class TestSubagentMcpTools:
     ):
         # Custom subagents are a distinct create_agent call site (_compile_subagent), so the
         # deferral-off direct-bind path needs its own coverage alongside the general-purpose one.
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -617,7 +614,7 @@ class TestCustomSubagents:
         return ctx
 
     async def test_loads_custom_subagent(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -642,7 +639,7 @@ class TestCustomSubagents:
     async def test_threads_the_workspace_into_middleware(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         """The parent's workspace is forwarded into each custom subagent's middleware builder, so a custom subagent's
         bash tool runs in the parent's session rather than raising at runtime."""
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -663,7 +660,7 @@ class TestCustomSubagents:
         assert build_mw.call_args.args[1] is workspace
 
     async def test_fallback_attempt_carries_no_openrouter_cache_control(self, tmp_path: Path, mock_runtime_ctx):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -686,7 +683,7 @@ class TestCustomSubagents:
         ]
 
     async def test_loads_multiple_subagents(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -721,7 +718,7 @@ class TestCustomSubagents:
         backend.als.assert_not_called()
 
     async def test_skips_non_md_files(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -741,7 +738,7 @@ class TestCustomSubagents:
         assert result[0]["name"] == "my-agent"
 
     async def test_skips_directories(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -761,7 +758,7 @@ class TestCustomSubagents:
         assert result[0]["name"] == "my-agent"
 
     async def test_skips_missing_name(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -779,7 +776,7 @@ class TestCustomSubagents:
         assert len(result) == 0
 
     async def test_skips_missing_description(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -797,7 +794,7 @@ class TestCustomSubagents:
         assert len(result) == 0
 
     async def test_skips_empty_body(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -815,7 +812,7 @@ class TestCustomSubagents:
         assert len(result) == 0
 
     async def test_skips_no_frontmatter(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -867,7 +864,7 @@ class TestCustomSubagents:
 
     @pytest.mark.parametrize("reserved_name", ["general-purpose", "explore", "cr-security"])
     async def test_skips_builtin_name_collision(self, tmp_path: Path, mock_model, mock_runtime_ctx, reserved_name):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -890,7 +887,7 @@ class TestCustomSubagents:
         assert "custom" in names
 
     async def test_skips_invalid_model(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)

@@ -17,7 +17,7 @@ def is_git_auth_error_text(text: str) -> bool:
     """True when git command output indicates the remote rejected the credential (auth/permission).
 
     Single source of truth shared by the clone-retry self-heal (``codebase.clients.gitlab``) and the
-    push-failure classifier (``automation.agent.git_manager``) so both agree on what a rejected
+    push-failure classifier (``automation.agent.workspace.git_manager``) so both agree on what a rejected
     credential looks like — git's wording varies by version and by smart- vs dumb-HTTP. ``"access
     denied"`` already subsumes GitLab's ``"HTTP Basic: Access denied"``.
     """

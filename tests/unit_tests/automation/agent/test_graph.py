@@ -16,7 +16,7 @@ from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynam
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
-from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS, DAIVFilesystemMiddleware
+from automation.agent.middlewares.file_system import DAIVFilesystemMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import build_agents_memory_middleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
@@ -24,6 +24,7 @@ from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
+from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
