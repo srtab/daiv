@@ -76,3 +76,18 @@ async def test_aenqueue_without_dedup_always_creates_a_task(database_task_backen
     second_result = await sample_cron_task.aenqueue("repo-1")
 
     assert result.id != second_result.id
+
+
+@task(dedup=True, dedup_on=("repo_id", "note_id"))
+def sample_mention_task(repo_id: str, note_id: int | None = None, use_max: bool = False) -> str:
+    return repo_id
+
+
+@pytest.mark.django_db
+def test_dedup_on_ignores_the_arguments_it_does_not_name(database_task_backend):
+    result = sample_mention_task.enqueue(repo_id="repo-1", note_id=5, use_max=False)
+
+    assert sample_mention_task.enqueue(repo_id="repo-1", note_id=5, use_max=True).id == result.id
+    assert sample_mention_task.enqueue(repo_id="repo-1", note_id=6).id != result.id
+    assert sample_mention_task.enqueue(repo_id="repo-1").id != result.id
+    assert sample_mention_task.enqueue(repo_id="repo-1").id == sample_mention_task.enqueue(repo_id="repo-1").id

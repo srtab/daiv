@@ -1,9 +1,9 @@
 import logging
 from unittest.mock import AsyncMock, Mock, patch
 
-from django.db import IntegrityError
-
 import pytest
+from django_tasks_db.models import DBTaskResult
+from sessions.models import Run
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
 from codebase.clients.base import Emoji
@@ -12,7 +12,7 @@ AUTHOR = Author(provider="gitlab", uid=2, username="alice", email="alice@example
 
 
 @pytest.fixture
-def steps():
+def steps(first_trigger):
     """One mock recording the reaction, enqueue, branch fetch and Run insert in the order they happen."""
     steps = Mock()
     steps.address_issue_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
@@ -118,16 +118,28 @@ async def test_a_failed_run_insert_is_logged_not_raised(steps, caplog):
     assert "Failed to create run" in caplog.text
 
 
-@pytest.mark.parametrize(("run_exists", "level"), [(True, logging.INFO), (False, logging.ERROR)])
-async def test_a_task_result_that_already_has_its_run_is_a_repeated_trigger(steps, caplog, run_exists, level):
-    steps.acreate_run.side_effect = IntegrityError("UNIQUE constraint failed: agent_sessions_run.task_result_id")
+@pytest.mark.django_db(transaction=True)
+async def test_a_repeated_trigger_reuses_the_first_run_even_when_max_mode_changed(database_task_backend, caplog):
+    client = Mock()
+    mention = Mention(note_id=200, comment_id="discussion-1")
 
     with (
-        patch("webhooks.dispatch.Run.objects.filter", return_value=Mock(aexists=AsyncMock(return_value=run_exists))),
+        patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+        patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         caplog.at_level(logging.INFO, logger="daiv.webhooks"),
     ):
-        await dispatch_issue_run(
-            client=steps.client, repo_id="group/repo", issue_iid=7, title="Bug", use_max=False, author=AUTHOR
-        )
+        for use_max in (False, True):
+            await dispatch_issue_run(
+                client=client,
+                repo_id="group/repo",
+                issue_iid=7,
+                title="Bug",
+                use_max=use_max,
+                author=AUTHOR,
+                mention=mention,
+            )
 
-    assert [record.levelno for record in caplog.records] == [level]
+    assert await DBTaskResult.objects.acount() == 1
+    assert await Run.objects.acount() == 1
+    assert "skipping the repeated trigger" in caplog.text
+    assert "Failed to create run" not in caplog.text

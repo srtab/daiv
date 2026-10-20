@@ -47,7 +47,7 @@ def _mr_comment_skip_result(response: str, merge_request: MergeRequest) -> Agent
     )
 
 
-@task(dedup=True, takes_context=True)
+@task(dedup=True, dedup_on=("repo_id", "issue_iid", "mention_note_id"), takes_context=True)
 async def address_issue_task(
     context: TaskContext,
     repo_id: str,
@@ -69,8 +69,8 @@ async def address_issue_task(
         thread_id (str): The LangGraph checkpoint key minted by the caller.
         use_max (bool): The max mode the callback decided and stamped on the ``Run``.
         mention_comment_id (str | None): The mention comment id. Defaults to None.
-        mention_note_id (int | None): The note that mentioned DAIV; only part of the dedup key, so each reply in one
-            GitLab discussion gets its own run.
+        mention_note_id (int | None): The note that mentioned DAIV; with ``repo_id`` and the iid, the run's dedup
+            key, so each reply in one GitLab discussion gets its own run.
         ref (str | None): The ref to clone. Defaults to the session's working branch, else the repository default.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
     """
@@ -93,7 +93,7 @@ async def address_issue_task(
     )
 
 
-@task(dedup=True, takes_context=True)
+@task(dedup=True, dedup_on=("repo_id", "merge_request_id", "mention_note_id"), takes_context=True)
 async def address_mr_comments_task(
     context: TaskContext,
     repo_id: str,
@@ -114,8 +114,8 @@ async def address_mr_comments_task(
         mention_comment_id (str): The mention comment id.
         thread_id (str): The LangGraph checkpoint key minted by the caller.
         use_max (bool): The max mode the callback decided and stamped on the ``Run``.
-        mention_note_id (int | None): The note that mentioned DAIV; only part of the dedup key, so each reply in one
-            GitLab discussion gets its own run.
+        mention_note_id (int | None): The note that mentioned DAIV; with ``repo_id`` and the iid, the run's dedup
+            key, so each reply in one GitLab discussion gets its own run.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
     """
     from webhooks.managers.review_addressor import CommentsAddressorManager

@@ -1,5 +1,7 @@
 import uuid
+from unittest.mock import AsyncMock, patch
 
+import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
 
 
@@ -16,3 +18,10 @@ async def make_db_task_result() -> uuid.UUID:
         return_value={},
     )
     return task_id
+
+
+@pytest.fixture
+def first_trigger():
+    """Treat a mocked enqueue's result as a first trigger, so dispatch records its run without looking one up."""
+    with patch("webhooks.dispatch._is_repeated_trigger", new=AsyncMock(return_value=False)):
+        yield

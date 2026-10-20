@@ -522,6 +522,7 @@ class TestMergeRequestCallback:
 
 
 @pytest.mark.django_db
+@pytest.mark.usefixtures("first_trigger")
 class TestProcessCallbackThreadId:
     """The deterministic thread_id minted in the callback must reach both the task
     and the Activity row, so the Activity can later be joined to LangSmith traces."""
@@ -619,6 +620,7 @@ class TestProcessCallbackThreadId:
         assert mock_activity.call_args.kwargs["thread_id"] == expected
 
 
+@pytest.mark.usefixtures("first_trigger")
 class TestProcessCallbackSandboxEnvironment:
     """Webhook callbacks must forward the resolved env id to both the task and the Activity row."""
 
@@ -723,6 +725,7 @@ class TestProcessCallbackSandboxEnvironment:
 
 
 @pytest.mark.parametrize(("label", "use_max"), [("daiv-max", True), ("daiv", False)])
+@pytest.mark.usefixtures("first_trigger")
 class TestProcessCallbackUseMax:
     """The max mode a callback stamps on the Run is the one it hands the task, so the task does not decide again."""
 

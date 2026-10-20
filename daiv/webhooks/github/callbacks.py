@@ -11,7 +11,7 @@ from codebase.clients.base import Emoji
 from codebase.clients.github.client import github_conclusion_to_status
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import note_mentions_daiv
-from core.constants import BOT_MAX_LABEL, has_bot_label
+from core.constants import has_bot_label, has_max_label
 from webhooks.callbacks import BaseCallback
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
@@ -96,7 +96,7 @@ class IssueCallback(GitHubCallback):
             repo_id=self.repository.full_name,
             issue_iid=self.issue.number,
             title=self.issue.title,
-            use_max=has_bot_label(self.issue.label_names, among=[BOT_MAX_LABEL]),
+            use_max=has_max_label(self.issue.label_names),
             author=_author(self.sender),
         )
 
@@ -148,7 +148,7 @@ class IssueCommentCallback(GitHubCallback):
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
                 title=self.issue.title,
-                use_max=has_bot_label(self.issue.label_names, among=[BOT_MAX_LABEL]),
+                use_max=has_max_label(self.issue.label_names),
                 author=_author(self.comment.user),
                 mention=mention,
             )
@@ -159,7 +159,7 @@ class IssueCommentCallback(GitHubCallback):
                 merge_request_iid=self.issue.number,
                 ref=None,
                 title=self.issue.title,
-                use_max=has_bot_label(self.issue.label_names, among=[BOT_MAX_LABEL]),
+                use_max=has_max_label(self.issue.label_names),
                 author=_author(self.comment.user),
                 mention=mention,
             )

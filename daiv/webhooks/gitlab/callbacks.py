@@ -10,7 +10,7 @@ from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import note_mentions_daiv
-from core.constants import BOT_MAX_LABEL, has_bot_label
+from core.constants import has_bot_label, has_max_label
 from webhooks.callbacks import BaseCallback
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
@@ -110,7 +110,7 @@ class IssueCallback(BaseCallback):
             repo_id=self.project.path_with_namespace,
             issue_iid=self.object_attributes.iid,
             title=self.object_attributes.title,
-            use_max=has_bot_label(self.object_attributes.label_names, among=[BOT_MAX_LABEL]),
+            use_max=has_max_label(self.object_attributes.label_names),
             author=_author(self.user),
         )
 
@@ -166,7 +166,7 @@ class NoteCallback(BaseCallback):
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.issue.iid,
                 title=self.issue.title,
-                use_max=has_bot_label(self.issue.label_names, among=[BOT_MAX_LABEL]),
+                use_max=has_max_label(self.issue.label_names),
                 author=_author(self.user),
                 mention=mention,
             )
@@ -177,7 +177,7 @@ class NoteCallback(BaseCallback):
                 merge_request_iid=self.merge_request.iid,
                 ref=self.merge_request.source_branch,
                 title=self.merge_request.title,
-                use_max=has_bot_label(self.merge_request.label_names, among=[BOT_MAX_LABEL]),
+                use_max=has_max_label(self.merge_request.label_names),
                 author=_author(self.user),
                 mention=mention,
             )

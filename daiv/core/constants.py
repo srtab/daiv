@@ -17,6 +17,11 @@ def has_bot_label(label_names: Iterable[str], among: Collection[str] = BOT_LABEL
     return any(name.lower() in wanted for name in label_names)
 
 
+def has_max_label(label_names: Iterable[str]) -> bool:
+    """Whether ``label_names`` asks for max mode, ignoring case."""
+    return has_bot_label(label_names, among=[BOT_MAX_LABEL])
+
+
 SANDBOX_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
 
 # User-facing terminal messages for chat runs. Written by the chat streamer (as the

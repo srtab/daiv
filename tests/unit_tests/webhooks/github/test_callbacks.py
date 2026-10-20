@@ -303,6 +303,7 @@ class TestPullRequestCallback:
 
 
 @pytest.mark.django_db
+@pytest.mark.usefixtures("first_trigger")
 class TestProcessCallbackThreadId:
     """The deterministic thread_id minted in the callback must reach both the task
     and the Activity row, so the Activity can later be joined to LangSmith traces."""
@@ -395,6 +396,7 @@ class TestProcessCallbackThreadId:
         assert mock_activity.call_args.kwargs["ref"] == "feat/x"
 
 
+@pytest.mark.usefixtures("first_trigger")
 class TestProcessCallbackSandboxEnvironment:
     """Webhook callbacks must forward the resolved env id to both the task and the Activity row."""
 
@@ -475,6 +477,7 @@ class TestProcessCallbackSandboxEnvironment:
         assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
 
 
+@pytest.mark.usefixtures("first_trigger")
 class TestReactionFailureVisibility:
     """The 👀 reaction is best-effort, but its failure must be visible and must not lose the run."""
 
@@ -543,6 +546,7 @@ class TestReactionFailureVisibility:
 
 
 @pytest.mark.parametrize(("label", "use_max"), [(BOT_MAX_LABEL, True), (BOT_LABEL, False)])
+@pytest.mark.usefixtures("first_trigger")
 class TestProcessCallbackUseMax:
     """The max mode a callback stamps on the Run is the one it hands the task, so the task does not decide again."""
 

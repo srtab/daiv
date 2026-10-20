@@ -1,15 +1,13 @@
 """Start an addressor run for a webhook event that a platform's callback has parsed and accepted.
 
 Each dispatch reacts with 👀 on what triggered it, enqueues the addressor task, then records the ``Run`` linked
-one-to-one to the task result. The task's kwargs are its ``dedup`` key: a repeated delivery or an edited comment
-gets the earlier trigger's task back, which already has its ``Run``.
+one-to-one to the task result. The repository, iid and mentioning note are the task's ``dedup_on`` key: a repeated
+delivery or an edited comment gets the earlier trigger's task back, which already has its ``Run``, and stops there.
 """
 
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
-
-from django.db import IntegrityError
 
 from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
@@ -63,7 +61,9 @@ async def dispatch_issue_run(
 ) -> None:
     """Address an issue, triggered by its DAIV label or, with ``mention``, by a comment on it."""
     try:
-        client.create_issue_emoji(repo_id, issue_iid, Emoji.EYES, mention.note_id if mention else None)
+        await sync_to_async(client.create_issue_emoji)(
+            repo_id, issue_iid, Emoji.EYES, mention.note_id if mention else None
+        )
     except GitlabError, GithubException, OSError:
         logger.exception("Failed to add reaction to issue %s#%s", repo_id, issue_iid)
 
@@ -77,6 +77,8 @@ async def dispatch_issue_run(
         sandbox_environment_id=sandbox_environment_id,
         use_max=use_max,
     )
+    if await _is_repeated_trigger(result.id):
+        return
     await _record_run(
         result.id,
         author,
@@ -108,7 +110,9 @@ async def dispatch_mr_comment_run(
     it is then fetched after the enqueue, and left blank if that fails, since the run is still worth recording.
     """
     try:
-        client.create_merge_request_note_emoji(repo_id, merge_request_iid, Emoji.EYES, mention.note_id)
+        await sync_to_async(client.create_merge_request_note_emoji)(
+            repo_id, merge_request_iid, Emoji.EYES, mention.note_id
+        )
     except GitlabError, GithubException, OSError:
         logger.exception("Failed to add reaction to merge request comment %s#%s", repo_id, merge_request_iid)
 
@@ -122,6 +126,8 @@ async def dispatch_mr_comment_run(
         sandbox_environment_id=sandbox_environment_id,
         use_max=use_max,
     )
+    if await _is_repeated_trigger(result.id):
+        return
     if ref is None:
         ref = await _fetch_source_branch(client, repo_id, merge_request_iid)
     await _record_run(
@@ -156,12 +162,17 @@ async def _fetch_source_branch(client: RepoClient, repo_id: str, merge_request_i
     return merge_request.source_branch
 
 
+async def _is_repeated_trigger(task_result_id: str) -> bool:
+    """Whether the deduplicated enqueue handed back an earlier trigger's task, which already has its ``Run``."""
+    if await Run.objects.filter(task_result_id=task_result_id).aexists():
+        logger.info("Task result %s already has its run; skipping the repeated trigger", task_result_id)
+        return True
+    return False
+
+
 async def _record_run(task_result_id: str, author: Author, **run_kwargs: Any) -> None:
     user = await resolve_user(author.provider, author.uid, username=author.username, email=author.email)
     try:
         await acreate_run(task_result_id=task_result_id, user=user, external_username=author.username, **run_kwargs)
-    except Exception as exc:
-        if isinstance(exc, IntegrityError) and await Run.objects.filter(task_result_id=task_result_id).aexists():
-            logger.info("Task result %s already has its run; skipping the repeated trigger", task_result_id)
-        else:
-            logger.exception("Failed to create run for task result %s on %s", task_result_id, run_kwargs["repo_id"])
+    except Exception:
+        logger.exception("Failed to create run for task result %s on %s", task_result_id, run_kwargs["repo_id"])
