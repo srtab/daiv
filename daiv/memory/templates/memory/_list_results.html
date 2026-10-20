@@ -25,7 +25,7 @@
   </li>
   {% endfor %}
 </ul>
-{% include "accounts/_pagination.html" with paginate_swap=True %}
+{% include "core/_pagination.html" with paginate_swap=True %}
 {% elif has_active_filters %}
 <div class="rounded-2xl border border-white/[0.06] px-4 py-12 text-center text-sm text-gray-500">
   {% translate "No repositories match your search." %}

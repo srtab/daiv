@@ -13,7 +13,7 @@ ACTIVE_CLASSES = "bg-surface-3 text-text-strong sidebar__nav-item--active"
 def nav_active(context, section_key: str) -> str:
     """Return CSS classes when the sidebar item for ``section_key`` is the active section.
 
-    The active section is computed once per request by ``accounts.context_processors.nav``
+    The active section is computed once per request by ``dashboard.context_processors.nav``
     and exposed as ``nav_active_section`` in the template context.
     """
     if context.get("nav_active_section") == section_key:

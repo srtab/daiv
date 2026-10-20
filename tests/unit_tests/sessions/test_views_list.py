@@ -75,6 +75,10 @@ class TestSessionListView:
         response = logged_in_client.get(reverse("session_list"))
         assert response.status_code == 200
 
+    def test_has_no_breadcrumb(self, logged_in_client):
+        response = logged_in_client.get(reverse("session_list"))
+        assert b'data-testid="app-breadcrumb"' not in response.content
+
     def test_owner_scoping_excludes_other_users_sessions(self, logged_in_client, user):
         """Owner scoping is applied before filters — another user's sessions are invisible."""
         mine = _create_session(user=user, repo_id="mine/repo")
@@ -476,8 +480,7 @@ def test_pagination_partial_swap_marker_is_opt_in(rf):
 
     def _render(**extra):
         return render_to_string(
-            "accounts/_pagination.html",
-            {"is_paginated": True, "page_obj": _Page(), "request": rf.get("/x/?foo=bar"), **extra},
+            "core/_pagination.html", {"is_paginated": True, "page_obj": _Page(), **extra}, request=rf.get("/x/?foo=bar")
         )
 
     assert "data-page-swap" not in _render()  # default: plain links

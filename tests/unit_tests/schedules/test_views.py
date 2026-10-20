@@ -33,6 +33,12 @@ def schedule(member_user):
 
 @pytest.mark.django_db
 class TestScheduleCreateView:
+    def test_renders_breadcrumb(self, member_client):
+        response = member_client.get(reverse("schedule_create"))
+        assert b'data-testid="app-breadcrumb"' in response.content
+        assert b"Schedules" in response.content
+        assert b"New schedule" in response.content
+
     def test_form_renders_muted_checkbox(self, member_client):
         response = member_client.get(reverse("schedule_create"))
         assert response.status_code == 200

@@ -7,6 +7,7 @@ root_packages =
     configuration
     core
     daiv
+    dashboard
     jobs
     mcp_api
     mcp_connectors
@@ -30,6 +31,7 @@ forbidden_modules =
     chat
     codebase
     configuration
+    dashboard
     jobs
     mcp_api
     mcp_connectors
@@ -48,10 +50,12 @@ name = sandbox_envs sits below codebase and the agent
 type = forbidden
 source_modules = sandbox_envs
 forbidden_modules =
+    accounts
     automation
     chat
     codebase
     configuration
+    dashboard
     jobs
     mcp_api
     mcp_connectors
@@ -69,9 +73,32 @@ name = codebase is platform access only
 type = forbidden
 source_modules = codebase
 forbidden_modules =
+    accounts
     automation
     chat
     configuration
+    dashboard
+    jobs
+    mcp_api
+    mcp_connectors
+    memory
+    notifications
+    schedules
+    sessions
+    skills
+    slash_commands
+    webhooks
+allow_indirect_imports = True
+
+[importlinter:contract:accounts]
+name = accounts is identity only, below skills and the agent
+type = forbidden
+source_modules = accounts
+forbidden_modules =
+    automation
+    chat
+    configuration
+    dashboard
     jobs
     mcp_api
     mcp_connectors
@@ -92,6 +119,7 @@ forbidden_modules =
     automation
     chat
     configuration
+    dashboard
     jobs
     mcp_api
     mcp_connectors
@@ -111,6 +139,7 @@ forbidden_modules =
     automation
     chat
     configuration
+    dashboard
     jobs
     mcp_api
     mcp_connectors
@@ -128,6 +157,7 @@ source_modules = automation
 forbidden_modules =
     chat
     configuration
+    dashboard
     jobs
     mcp_api
     mcp_connectors
@@ -148,6 +178,7 @@ source_modules = mcp_connectors
 forbidden_modules =
     chat
     configuration
+    dashboard
     jobs
     mcp_api
     memory
@@ -164,6 +195,7 @@ source_modules = sessions
 forbidden_modules =
     chat
     configuration
+    dashboard
     jobs
     mcp_api
     memory
@@ -179,6 +211,7 @@ source_modules = memory
 forbidden_modules =
     chat
     configuration
+    dashboard
     jobs
     mcp_api
     notifications
@@ -193,6 +226,7 @@ source_modules = schedules
 forbidden_modules =
     chat
     configuration
+    dashboard
     jobs
     mcp_api
     memory
@@ -201,12 +235,13 @@ forbidden_modules =
 allow_indirect_imports = True
 
 [importlinter:contract:notifications]
-name = notifications sits below the trigger apps and configuration
+name = notifications sits below the triggers, configuration and dashboard
 type = forbidden
 source_modules = notifications
 forbidden_modules =
     chat
     configuration
+    dashboard
     jobs
     mcp_api
     webhooks

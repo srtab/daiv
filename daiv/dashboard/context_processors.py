@@ -6,12 +6,9 @@ from typing import Any
 from django.db import Error as DatabaseError
 from django.utils.functional import SimpleLazyObject
 
-logger = logging.getLogger("daiv.accounts")
+from sessions.models import Run, RunStatus
 
-# Section key for the admin-only global MCP servers page. Named because view code
-# also references it (via ``request.nav_section_override``) to pin the section on the
-# edit/delete URLs shared with the personal page — a bare literal would drift silently.
-NAV_SECTION_MCP_GLOBAL = "mcp_servers_global"
+logger = logging.getLogger("daiv.dashboard")
 
 SECTION_URL_NAMES: dict[str, set[str]] = {
     "dashboard": {"dashboard"},
@@ -70,48 +67,26 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     # return JSON (``test``) or redirect (``toggle``, ``refresh_tools``) never render a sidebar, so
     # they are omitted; ``delete`` stays because its GET renders a confirmation page.
     "mcp_servers": {"mcp_connectors:list", "mcp_connectors:create", "mcp_connectors:edit", "mcp_connectors:delete"},
-    NAV_SECTION_MCP_GLOBAL: {"mcp_connectors:global_list", "mcp_connectors:global_create"},
+    "mcp_servers_global": {"mcp_connectors:global_list", "mcp_connectors:global_create"},
 }
 
 
 def _resolve_active_section(request) -> str:
-    # A view may pin the section explicitly — needed where one URL serves rows of
+    # A view may borrow another URL's section — needed where one URL serves rows of
     # several sections (e.g. mcp_connectors:edit renders global AND personal rows).
-    override = getattr(request, "nav_section_override", None)
-    if override:
-        return override
     match = getattr(request, "resolver_match", None)
-    if match is None:
-        return ""
-    view_name = match.view_name or ""
+    view_name = getattr(request, "nav_view_name", None) or (match.view_name if match else "")
     for section_key, names in SECTION_URL_NAMES.items():
         if view_name in names:
             return section_key
     return ""
 
 
-def visible_runs(user):
-    """The runs ``user`` may see, as a queryset.
-
-    Split from the count so a long-lived reader (the nav SSE stream) resolves platform
-    identity once per connection instead of once per recount — the same hoist
-    ``SessionStreamView._stream`` documents.
-
-    SYNC ONLY — ``visible_to`` resolves that identity with a DB read at query-build time;
-    async callers must wrap this in ``sync_to_async``.
-    """
-    from sessions.models import Run  # local import to avoid circulars
-
-    return Run.objects.visible_to(user)
-
-
 def count_running(visible) -> int:
-    """RUNNING rows in a queryset from ``visible_runs``.
+    """RUNNING rows in a ``Run.objects.visible_to(user)`` queryset.
 
     ``values("pk")`` keeps the DISTINCT of the visibility join off every Run column.
     """
-    from sessions.models import RunStatus  # local import to avoid circulars
-
     return visible.filter(status=RunStatus.RUNNING).values("pk").count()
 
 
@@ -120,14 +95,14 @@ def query_running_jobs(user) -> int:
 
     The nav badge's single source of truth: the first page render reads it through
     ``nav`` below, and every subsequent update comes from the SSE endpoint
-    (``accounts.api.views``) recomputing it on a ``core.ui_events`` poke. Raises on
+    (``dashboard.api.views``) recomputing it on a ``core.ui_events`` poke. Raises on
     ``DatabaseError`` so each caller picks its own degradation — a page render shows 0,
     but a live stream must keep the browser's last value rather than push a zero it
     cannot distinguish from a real one.
 
-    SYNC ONLY — see ``visible_runs``.
+    SYNC ONLY — ``visible_to`` resolves platform identity with a DB read at query-build time.
     """
-    return count_running(visible_runs(user))
+    return count_running(Run.objects.visible_to(user))
 
 
 def running_jobs_count(request, user) -> int:
@@ -159,10 +134,7 @@ def nav(request) -> dict[str, Any]:
     if user is None or not user.is_authenticated:
         return {}
 
-    from codebase.conf import settings as codebase_settings
-
     return {
         "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
         "nav_active_section": _resolve_active_section(request),
-        "git_platform": codebase_settings.CLIENT.value,
     }

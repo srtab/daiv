@@ -2,7 +2,7 @@
 
 Three endpoints stream SSE to the browser — the chat run tail
 (``chat.api.views``), the session status stream (``sessions.views``) and the nav
-badges (``accounts.api.views``). They differ in what they put on the wire, not in
+badges (``dashboard.api.views``). They differ in what they put on the wire, not in
 how it is framed, so the response wrapper, the frame syntax and the duration cap
 live here rather than being restated per endpoint.
 """

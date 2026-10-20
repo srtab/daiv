@@ -1,12 +1,12 @@
 {% extends "base_app.html" %}
-{% load dashboard_tags humanize i18n icon_tags markdown_tags %}
+{% load humanize i18n icon_tags markdown_tags %}
 
 {% block title %}{{ repo_id }} — {% translate "Memory" %} — DAIV{% endblock %}
 
 {% block container_width %}max-w-4xl{% endblock %}
 
 {% block breadcrumb %}
-{% include "accounts/_breadcrumb.html" %}
+{% include "core/_breadcrumb.html" %}
 {% endblock breadcrumb %}
 
 {% block app_content %}
@@ -80,7 +80,7 @@
     </li>
     {% endfor %}
   </ul>
-  {% include "accounts/_pagination.html" %}
+  {% include "core/_pagination.html" %}
   {% else %}
   <div class="mt-3 rounded-2xl border border-white/[0.06] px-4 py-8 text-center text-sm text-gray-500">
     {% translate "No observations match the current filters." %}
