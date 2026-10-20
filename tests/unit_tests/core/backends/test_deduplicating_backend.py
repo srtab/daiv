@@ -91,3 +91,27 @@ def test_dedup_on_ignores_the_arguments_it_does_not_name(database_task_backend):
     assert sample_mention_task.enqueue(repo_id="repo-1", note_id=6).id != result.id
     assert sample_mention_task.enqueue(repo_id="repo-1").id != result.id
     assert sample_mention_task.enqueue(repo_id="repo-1").id == sample_mention_task.enqueue(repo_id="repo-1").id
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_enqueue_says_whether_it_created_the_task(database_task_backend):
+    result, created = await sample_mention_task.aget_or_enqueue(repo_id="repo-1", note_id=5)
+    duplicate, duplicate_created = await sample_mention_task.aget_or_enqueue(repo_id="repo-1", note_id=5, use_max=True)
+
+    assert (created, duplicate_created) == (True, False)
+    assert duplicate.id == result.id
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_enqueue_without_dedup_always_creates(database_task_backend):
+    first, second = await sample_cron_task.aget_or_enqueue("repo-1"), await sample_cron_task.aget_or_enqueue("repo-1")
+
+    assert (first[1], second[1]) == (True, True)
+    assert first[0].id != second[0].id
+
+
+async def test_the_immediate_backend_runs_and_creates_every_time():
+    result, created = await sample_mention_task.aget_or_enqueue(repo_id="repo-1", note_id=5)
+
+    assert created is True
+    assert result.return_value == "repo-1"

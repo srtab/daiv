@@ -9,3 +9,7 @@ class ImmediateBackend(DJImmediateBackend):
     """
 
     task_class = DeduplicatingTask
+
+    async def aget_or_enqueue(self, task, args, kwargs):
+        """Run the task now, like every enqueue here: nothing is kept to deduplicate against, so it always creates."""
+        return await self.aenqueue(task, args, kwargs), True

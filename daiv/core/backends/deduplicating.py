@@ -11,7 +11,7 @@ from django.db.models import Q
 from django.utils.version import PY311
 
 from asgiref.sync import sync_to_async
-from django_tasks.base import Task, TaskResultStatus
+from django_tasks.base import Task, TaskResult, TaskResultStatus
 from django_tasks.utils import normalize_json
 from django_tasks_db import DatabaseBackend
 from django_tasks_db.models import DBTaskResult
@@ -42,6 +42,10 @@ class DeduplicatingTask(Task[P, T]):
     every argument.
     """
 
+    async def aget_or_enqueue(self, *args: P.args, **kwargs: P.kwargs) -> tuple[TaskResult[T], bool]:
+        """``aenqueue``, also saying whether it created the task: ``False`` when ``dedup`` matched an earlier one."""
+        return await self.get_backend().aget_or_enqueue(self, args, kwargs)  # ty: ignore[unresolved-attribute]
+
 
 class DeduplicatingDatabaseBackend(DatabaseBackend):
     """
@@ -55,6 +59,18 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
         Enqueue a task unless a matching dedup key is already queued, running or done.
 
         Returns the existing TaskResult when a duplicate is detected.
+        """
+        return self.get_or_enqueue(task, args, kwargs)[0]
+
+    async def aenqueue(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> DatabaseTaskResult[T]:
+        """Async twin of :meth:`enqueue`."""
+        return (await self.aget_or_enqueue(task, args, kwargs))[0]
+
+    def get_or_enqueue(
+        self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs
+    ) -> tuple[DatabaseTaskResult[T], bool]:
+        """
+        Enqueue a task unless a matching dedup key is already queued, running or done.
 
         Args:
             task: Task instance being enqueued.
@@ -62,28 +78,31 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
             kwargs: Keyword arguments for the task.
 
         Returns:
-            The task result for the new or existing task.
+            The task result for the new or existing task, and whether this call created it. The lookup and the insert
+            share one advisory lock, so of concurrent calls with one key exactly one gets ``True``.
         """
         if not task.dedup:
-            return super().enqueue(task, args, kwargs)
+            return super().enqueue(task, args, kwargs), True
 
         dedup_key = self._dedup_key(task, args, kwargs)
         with transaction.atomic():
             self._lock_dedup_key(task.module_path, dedup_key)
             if existing_result := self._get_existing_task_result(task, dedup_key):
                 logger.info("Skipping duplicate task: %s with args: %r and kwargs: %r", task.module_path, args, kwargs)
-                return existing_result.task_result
-            return super().enqueue(task, args, kwargs)
+                return existing_result.task_result, False
+            return super().enqueue(task, args, kwargs), True
 
-    async def aenqueue(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> DatabaseTaskResult[T]:
+    async def aget_or_enqueue(
+        self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs
+    ) -> tuple[DatabaseTaskResult[T], bool]:
         """
-        Async twin of :meth:`enqueue`: the parent's ``aenqueue`` writes the row itself rather than calling
-        ``enqueue``, so a ``dedup`` task goes through :meth:`enqueue` instead.
+        Async twin of :meth:`get_or_enqueue`: the parent's ``aenqueue`` writes the row itself rather than calling
+        ``enqueue``, so a ``dedup`` task goes through :meth:`get_or_enqueue` instead.
         """
         if not task.dedup:
-            return await super().aenqueue(task, args, kwargs)
+            return await super().aenqueue(task, args, kwargs), True
 
-        return await sync_to_async(self.enqueue)(task, args, kwargs)
+        return await sync_to_async(self.get_or_enqueue)(task, args, kwargs)
 
     def _dedup_key(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> dict[str, Any]:
         """The JSON a duplicate matches: the whole ``args_kwargs``, or only the ``dedup_on`` kwargs."""

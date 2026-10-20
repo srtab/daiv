@@ -21,7 +21,7 @@ async def make_db_task_result() -> uuid.UUID:
 
 
 @pytest.fixture
-def first_trigger():
-    """Treat a mocked enqueue's result as a first trigger, so dispatch records its run without looking one up."""
-    with patch("webhooks.dispatch._is_repeated_trigger", new=AsyncMock(return_value=False)):
-        yield
+def webhook_session():
+    """Stub the session dispatch opens before it enqueues, so a test that mocks the enqueue needs no database."""
+    with patch("webhooks.dispatch.aget_or_create_session", new=AsyncMock()) as open_session:
+        yield open_session
