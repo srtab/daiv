@@ -145,7 +145,7 @@ class IssueAddressorManager(BaseManager):
                 scope=Scope.ISSUE,
                 input_messages=(issue_message, prompt_message),
                 trigger="mention" if self.mention_comment_id else "label",
-                lock=self._lock_policy(),
+                lock=await self._lock_policy(),
                 ref=ref,
                 issue=self.issue,
                 fallback_ref_on_missing=True,

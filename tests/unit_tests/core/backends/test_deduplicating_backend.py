@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 from django_tasks import TaskResultStatus, task
 from django_tasks.utils import normalize_json
@@ -91,6 +93,34 @@ def test_dedup_on_ignores_the_arguments_it_does_not_name(database_task_backend):
     assert sample_mention_task.enqueue(repo_id="repo-1", note_id=6).id != result.id
     assert sample_mention_task.enqueue(repo_id="repo-1").id != result.id
     assert sample_mention_task.enqueue(repo_id="repo-1").id == sample_mention_task.enqueue(repo_id="repo-1").id
+
+
+@pytest.mark.django_db
+def test_dedup_on_rejects_positional_arguments(database_task_backend):
+    with pytest.raises(TypeError, match="by keyword"):
+        sample_mention_task.enqueue("repo-1", 5)
+
+
+@pytest.mark.django_db
+def test_without_dedup_successful_only_a_queued_or_running_task_is_a_duplicate(database_task_backend):
+    active_only = replace(sample_mention_task, dedup_successful=False)
+    result = active_only.enqueue(repo_id="repo-1", note_id=5)
+    assert active_only.enqueue(repo_id="repo-1", note_id=5).id == result.id
+
+    DBTaskResult.objects.get(id=result.id).set_successful(return_value=None)
+
+    assert active_only.enqueue(repo_id="repo-1", note_id=5).id != result.id
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_afind_duplicate_finds_what_an_enqueue_would_hand_back(database_task_backend):
+    assert await sample_mention_task.afind_duplicate(repo_id="repo-1", note_id=5) is None
+
+    result = await sample_mention_task.aenqueue(repo_id="repo-1", note_id=5)
+
+    assert (await sample_mention_task.afind_duplicate(repo_id="repo-1", note_id=5, use_max=True)).id == result.id
+    assert await sample_mention_task.afind_duplicate(repo_id="repo-1", note_id=6) is None
+    assert await sample_cron_task.afind_duplicate("repo-1") is None
 
 
 @pytest.mark.django_db(transaction=True)

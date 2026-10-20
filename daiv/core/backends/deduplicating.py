@@ -39,12 +39,21 @@ class DeduplicatingTask(Task[P, T]):
     dedup_on: tuple[str, ...] | None = None
     """
     The keyword arguments that identify a duplicate, when the others may differ between repeats. Defaults to None:
-    every argument.
+    every argument. Those arguments must then be passed by keyword.
+    """
+
+    dedup_successful: bool = True
+    """
+    Whether a successful task still counts as a duplicate. False: only a queued or running one does.
     """
 
     async def aget_or_enqueue(self, *args: P.args, **kwargs: P.kwargs) -> tuple[TaskResult[T], bool]:
         """``aenqueue``, also saying whether it created the task: ``False`` when ``dedup`` matched an earlier one."""
         return await self.get_backend().aget_or_enqueue(self, args, kwargs)  # ty: ignore[unresolved-attribute]
+
+    async def afind_duplicate(self, *args: P.args, **kwargs: P.kwargs) -> TaskResult[T] | None:
+        """The earlier task :meth:`aget_or_enqueue` would hand back for these arguments, read without its lock."""
+        return await self.get_backend().afind_duplicate(self, args, kwargs)  # ty: ignore[unresolved-attribute]
 
 
 class DeduplicatingDatabaseBackend(DatabaseBackend):
@@ -104,10 +113,25 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
 
         return await sync_to_async(self.get_or_enqueue)(task, args, kwargs)
 
+    async def afind_duplicate(
+        self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs
+    ) -> DatabaseTaskResult[T] | None:
+        """
+        The task :meth:`aget_or_enqueue` would hand back, looked up without the advisory lock: a cheap early look for
+        a caller with work to skip on a repeat. A duplicate enqueued concurrently can be missed; the enqueue still
+        catches it.
+        """
+        if not task.dedup:
+            return None
+        existing = await sync_to_async(self._get_existing_task_result)(task, self._dedup_key(task, args, kwargs))
+        return existing.task_result if existing else None
+
     def _dedup_key(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> dict[str, Any]:
         """The JSON a duplicate matches: the whole ``args_kwargs``, or only the ``dedup_on`` kwargs."""
         if task.dedup_on is None:
             return normalize_json({"args": args, "kwargs": kwargs})
+        if args:
+            raise TypeError(f"{task.module_path} dedups on {task.dedup_on}: pass its arguments by keyword")
         return normalize_json({name: kwargs.get(name) for name in task.dedup_on})
 
     def _lock_dedup_key(self, task_path: str, dedup_key: dict[str, Any]) -> None:
@@ -123,7 +147,7 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
         self, task: DeduplicatingTask[P, T], dedup_key: dict[str, Any]
     ) -> DBTaskResult | None:
         """
-        Fetch a ready, running or successful task matching the dedup key.
+        Fetch a ready or running task matching the dedup key, or a successful one when ``dedup_successful``.
 
         Args:
             task: Task instance being enqueued.
@@ -144,9 +168,9 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
                     if value is not None
                     else Q(**{f"{lookup}__isnull": True}) | Q(**{lookup: None})
                 )
+        statuses = [TaskResultStatus.READY, TaskResultStatus.RUNNING]
+        if task.dedup_successful:
+            statuses.append(TaskResultStatus.SUCCESSFUL)
         return DBTaskResult.objects.filter(
-            key_filter,
-            backend_name=self.alias,
-            task_path=task.module_path,
-            status__in=[TaskResultStatus.READY, TaskResultStatus.RUNNING, TaskResultStatus.SUCCESSFUL],
+            key_filter, backend_name=self.alias, task_path=task.module_path, status__in=statuses
         ).first()

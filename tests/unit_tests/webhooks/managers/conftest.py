@@ -93,7 +93,7 @@ def addressor_run(
     )
     with (
         agent_stack(agent, ctx=ctx, context=context, resolve=resolve, site=site, checkpointed=checkpointed) as stack,
-        nullcontext() if real_lock else patch.object(BaseManager, "_lock_policy", return_value=NoLock()),
+        nullcontext() if real_lock else patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
         recovery as recover,
     ):
         stack.recover = recover

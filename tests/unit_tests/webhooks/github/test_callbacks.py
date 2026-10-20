@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 from github.GithubException import GithubException
+from sessions.services import pin_max_model
 from webhooks.github.callbacks import IssueCallback, IssueCommentCallback, PullRequestCallback
 from webhooks.github.models import Comment, Issue, Label, PullRequest, Ref, Repository, User
 
@@ -319,12 +320,13 @@ class TestProcessCallbackThreadId:
         expected = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
 
         with (
-            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.address_issue_label_task") as mock_task,
             patch("webhooks.dispatch.acreate_run") as mock_activity,
             patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
+            mock_task.afind_duplicate = AsyncMock(return_value=None)
             mock_activity.side_effect = AsyncMock(return_value=None)
             await callback.process_callback()
 
@@ -356,6 +358,7 @@ class TestProcessCallbackThreadId:
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
+            mock_task.afind_duplicate = AsyncMock(return_value=None)
             mock_activity.side_effect = AsyncMock(return_value=None)
             await callback.process_callback()
 
@@ -391,6 +394,7 @@ class TestProcessCallbackThreadId:
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
+            mock_task.afind_duplicate = AsyncMock(return_value=None)
             mock_activity.side_effect = AsyncMock(return_value=None)
             callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
             await callback.process_callback()
@@ -412,12 +416,13 @@ class TestProcessCallbackSandboxEnvironment:
         env_row = Mock(id="env-uuid-1")
 
         with (
-            patch("webhooks.dispatch.address_issue_task") as mock_task,
+            patch("webhooks.dispatch.address_issue_label_task") as mock_task,
             patch("webhooks.dispatch.acreate_run") as mock_activity,
             patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
             mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
+            mock_task.afind_duplicate = AsyncMock(return_value=None)
             mock_activity.side_effect = AsyncMock(return_value=None)
             await callback.process_callback()
 
@@ -447,6 +452,7 @@ class TestProcessCallbackSandboxEnvironment:
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
             mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
+            mock_task.afind_duplicate = AsyncMock(return_value=None)
             mock_activity.side_effect = AsyncMock(return_value=None)
             callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
             await callback.process_callback()
@@ -474,6 +480,7 @@ class TestProcessCallbackSandboxEnvironment:
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
             mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
+            mock_task.afind_duplicate = AsyncMock(return_value=None)
             mock_activity.side_effect = AsyncMock(return_value=None)
             await callback.process_callback()
 
@@ -513,6 +520,7 @@ class TestReactionFailureVisibility:
             caplog.at_level(logging.WARNING, logger="daiv.webhooks"),
         ):
             mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
+            mock_task.afind_duplicate = AsyncMock(return_value=None)
             mock_run.side_effect = AsyncMock(return_value=None)
             callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
             await callback.process_callback()
@@ -543,6 +551,7 @@ class TestReactionFailureVisibility:
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-2"), True))
+            mock_task.afind_duplicate = AsyncMock(return_value=None)
             mock_run.side_effect = AsyncMock(return_value=None)
             await callback.process_callback()
 
@@ -566,6 +575,7 @@ class TestProcessCallbackUseMax:
             patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aget_or_enqueue = AsyncMock(return_value=(Mock(id="task-1"), True))
+            mock_task.afind_duplicate = AsyncMock(return_value=None)
             mock_run.side_effect = AsyncMock(return_value=None)
             await callback.process_callback()
 
@@ -576,10 +586,10 @@ class TestProcessCallbackUseMax:
     ):
         callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=label)])
 
-        task_kwargs, run_kwargs = await self._process(callback)
+        task_kwargs, run_kwargs = await self._process(callback, task="address_issue_label_task")
 
         assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["use_max"] is use_max
+        assert run_kwargs["agent_model"] == pin_max_model(use_max)[0]
 
     async def test_issue_comment_callback_hands_the_task_the_max_mode_it_stamped(
         self, monkeypatch_dependencies, label, use_max
@@ -594,7 +604,7 @@ class TestProcessCallbackUseMax:
         task_kwargs, run_kwargs = await self._process(callback)
 
         assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["use_max"] is use_max
+        assert run_kwargs["agent_model"] == pin_max_model(use_max)[0]
 
     async def test_pr_comment_callback_hands_the_task_the_max_mode_it_stamped(
         self, monkeypatch_dependencies, mock_repo_config, label, use_max
@@ -618,4 +628,4 @@ class TestProcessCallbackUseMax:
         task_kwargs, run_kwargs = await self._process(callback, task="address_mr_comments_task")
 
         assert task_kwargs["use_max"] is use_max
-        assert run_kwargs["use_max"] is use_max
+        assert run_kwargs["agent_model"] == pin_max_model(use_max)[0]
