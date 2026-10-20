@@ -20,16 +20,7 @@ from automation.agent.publishers import (
 from automation.agent.session_links import SessionLinks
 from automation.agent.workspace.git_manager import PendingMerge, RepoStatus
 from automation.agent.workspace.sandbox import SandboxWorkspace
-from codebase.base import (
-    GitPlatform,
-    Issue,
-    MergeRequest,
-    MergeRequestDiffStats,
-    Pipeline,
-    Scope,
-    TriggeredPipeline,
-    User,
-)
+from codebase.base import GitPlatform, Issue, MergeRequestDiffStats, Pipeline, Scope, TriggeredPipeline, User
 from codebase.clients.base import GitEgressCredential
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import ExternalRef
@@ -37,6 +28,7 @@ from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
+from tests.unit_tests.automation.agent.conftest import make_merge_request
 from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, agent_settings, site_snapshot
 
 if TYPE_CHECKING:
@@ -83,21 +75,6 @@ def _triggered(*, head_synced: bool, sha: str = "a" * 40) -> TriggeredPipeline:
     return TriggeredPipeline(
         pipeline=Pipeline(id=5, sha=sha, status="pending", web_url="https://example.com/p/5"), head_synced=head_synced
     )
-
-
-def _make_merge_request(**overrides) -> MergeRequest:
-    defaults = {
-        "repo_id": "owner/repo",
-        "merge_request_id": 42,
-        "source_branch": "feature",
-        "target_branch": "main",
-        "title": "Test MR",
-        "description": "Test description",
-        "web_url": "https://example.com/owner/repo/-/merge_requests/42",
-        "author": User(id=1, username="testuser"),
-    }
-    defaults.update(overrides)
-    return MergeRequest(**defaults)
 
 
 def _settings(*, site: dict | None = None, **daiv_yml) -> AgentSettings:
@@ -168,7 +145,7 @@ class TestSuggestContextFile:
     async def test_posts_comment_when_file_missing(self):
         publisher = _make_publisher()
         publisher.client.get_repository_file.return_value = None
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         await publisher._suggest_context_file(mr)
 
@@ -181,7 +158,7 @@ class TestSuggestContextFile:
     async def test_skips_when_file_exists(self):
         publisher = _make_publisher()
         publisher.client.get_repository_file.return_value = "# AGENTS.md content"
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         await publisher._suggest_context_file(mr)
 
@@ -190,7 +167,7 @@ class TestSuggestContextFile:
 
     async def test_skips_when_context_file_name_none(self):
         publisher = _make_publisher(context_file_name=None)
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         await publisher._suggest_context_file(mr)
 
@@ -199,7 +176,7 @@ class TestSuggestContextFile:
 
     async def test_skips_when_context_file_name_empty(self):
         publisher = _make_publisher(context_file_name="")
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         await publisher._suggest_context_file(mr)
 
@@ -208,7 +185,7 @@ class TestSuggestContextFile:
 
     async def test_skips_when_disabled_per_repo(self):
         publisher = _make_publisher(settings=_settings(suggest_context_file=False))
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         await publisher._suggest_context_file(mr)
 
@@ -217,7 +194,7 @@ class TestSuggestContextFile:
 
     async def test_skips_when_globally_disabled(self):
         publisher = _make_publisher(settings=_settings(site={"suggest_context_file_enabled": False}))
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         await publisher._suggest_context_file(mr)
 
@@ -227,7 +204,7 @@ class TestSuggestContextFile:
     async def test_does_not_raise_on_error(self):
         publisher = _make_publisher()
         publisher.client.get_repository_file.side_effect = Exception("API error")
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         # Should not raise
         await publisher._suggest_context_file(mr)
@@ -235,7 +212,7 @@ class TestSuggestContextFile:
     async def test_custom_context_file_name(self):
         publisher = _make_publisher(context_file_name="CLAUDE.md")
         publisher.client.get_repository_file.return_value = None
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         await publisher._suggest_context_file(mr)
 
@@ -244,9 +221,9 @@ class TestSuggestContextFile:
         assert "CLAUDE.md" in comment_body
 
 
-def _publisher_no_issue(*, git_platform: GitPlatform = GitPlatform.GITLAB, **kwargs) -> GitChangePublisher:
+def _publisher_no_issue(**kwargs) -> GitChangePublisher:
     """A publisher rendering the description template on its own, with no issue to close."""
-    publisher = _make_publisher(git_platform=git_platform, **kwargs)
+    publisher = _make_publisher(**kwargs)
     publisher.ctx.issue = None
     publisher.ctx.bot_username = "daiv"
     return publisher
@@ -257,7 +234,7 @@ class TestCreateMergeRequestDescription:
 
     async def test_includes_back_link_when_fallback_provided(self):
         publisher = _publisher_no_issue()
-        original = _make_merge_request(
+        original = make_merge_request(
             source_branch="dev", merge_request_id=42, web_url="https://gitlab.com/owner/repo/-/merge_requests/42"
         )
 
@@ -280,7 +257,7 @@ class TestCreateMergeRequestDescription:
 
     async def test_back_link_uses_github_terminology(self):
         publisher = _publisher_no_issue(git_platform=GitPlatform.GITHUB)
-        original = _make_merge_request(
+        original = make_merge_request(
             source_branch="main", merge_request_id=10, web_url="https://github.com/owner/repo/pull/10"
         )
 
@@ -529,7 +506,7 @@ class TestCreateMergeRequestActingUserAssignee:
 
 class TestReferenceFooter:
     def _capture_description(self, publisher):
-        publisher.client.update_or_create_merge_request = Mock(return_value=_make_merge_request())
+        publisher.client.update_or_create_merge_request = Mock(return_value=make_merge_request())
         return publisher
 
     async def test_issue_webhook_footer_is_byte_identical(self):
@@ -612,7 +589,7 @@ class TestPublishDiffBase:
         gm = _fake_git_manager(dirty=False, diff="")
         _use_git_manager(publisher, gm)
 
-        await publisher.publish(merge_request=_make_merge_request(target_branch="release/x"))
+        await publisher.publish(merge_request=make_merge_request(target_branch="release/x"))
 
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
 
@@ -635,7 +612,7 @@ class TestPublishPendingMerge:
         _use_git_manager(publisher, gm)
 
         with pytest.raises(UnresolvedMergeConflictsError, match=r"a\.py, b\.py"):
-            await publisher.publish(merge_request=_make_merge_request())
+            await publisher.publish(merge_request=make_merge_request())
 
         gm.commit_all.assert_not_awaited()
         gm.push_head_to.assert_not_awaited()
@@ -664,7 +641,7 @@ class TestPublishPendingMerge:
         gm = _fake_git_manager(pending_merge=_pending_merge(unmerged_paths=unmerged_paths))
         _use_git_manager(publisher, gm)
 
-        outcome = await publisher.publish(merge_request=_make_merge_request())
+        outcome = await publisher.publish(merge_request=make_merge_request())
 
         gm.commit_all.assert_awaited_once_with(expected)
         assert gm.status_snapshot.await_args.kwargs["merge_head"] == "b" * 40
@@ -690,7 +667,7 @@ class TestPublishPendingMerge:
         gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False, pending_merge=_pending_merge())
         _use_git_manager(publisher, gm)
 
-        await publisher.publish(merge_request=_make_merge_request())
+        await publisher.publish(merge_request=make_merge_request())
 
         gm.commit_all.assert_awaited_once()
         gm.push_head_to.assert_awaited_once()
@@ -883,44 +860,46 @@ class TestPublishSandboxEgressRefreshAtTheSandbox:
         assert _injected_values(client.sessions[session_id].egress) == [turn_start.value.get_secret_value()]
 
 
+async def _publish_to_a_new_merge_request(
+    *, session_links: SessionLinks | None, skip_ci: bool = False
+) -> tuple[GitChangePublisher, Mock, AsyncMock]:
+    """Publish a dirty tree onto a fresh MR; return the publisher, its git manager and the ``_create_merge_request``
+    mock."""
+    publisher = _publisher_no_issue(session_links=session_links)
+    gm = _fake_git_manager()
+    _use_git_manager(publisher, gm)
+
+    with (
+        patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+        patch.object(publisher, "_create_merge_request", return_value=make_merge_request()) as create_mr,
+        patch.object(publisher, "_suggest_context_file"),
+    ):
+        await publisher.publish(merge_request=None, skip_ci=skip_ci)
+
+    return publisher, gm, create_mr
+
+
 class TestPublishCommitMessage:
     """What publish() actually hands to ``commit_all`` — the trailer and the skip-ci prefix."""
 
     async def _commit_message(self, *, session_links, skip_ci=False) -> str:
-        publisher = _publisher_no_issue(session_links=session_links)
-        gm = _fake_git_manager()
-        _use_git_manager(publisher, gm)
-
-        with (
-            patch.object(
-                publisher,
-                "_diff_to_metadata",
-                return_value={
-                    "pr_metadata": Mock(branch="feature", title="Title", description="Desc"),
-                    "commit_message": Mock(commit_message="commit msg"),
-                },
-            ),
-            patch.object(publisher, "_create_merge_request", return_value=_make_merge_request()),
-            patch.object(publisher, "_suggest_context_file"),
-        ):
-            await publisher.publish(merge_request=None, skip_ci=skip_ci)
-
+        _, gm, _ = await _publish_to_a_new_merge_request(session_links=session_links, skip_ci=skip_ci)
         return gm.commit_all.await_args.args[0]
 
     async def test_commit_carries_the_session_trailer(self):
         message = await self._commit_message(session_links=_LINKS)
 
-        assert message == f"commit msg\n\n{SESSION_TRAILER}: {_LINKS.detail}"
+        assert message == f"msg\n\n{SESSION_TRAILER}: {_LINKS.detail}"
 
     async def test_skip_ci_stays_on_the_subject_line(self):
         """The prefix belongs to the subject; a trailer appended around it would strand it."""
         message = await self._commit_message(session_links=_LINKS, skip_ci=True)
 
-        assert message.startswith("[skip ci] commit msg")
+        assert message.startswith("[skip ci] msg")
         assert message.splitlines()[-1].startswith(f"{SESSION_TRAILER}: ")
 
     async def test_commit_message_untouched_without_session_links(self):
-        assert await self._commit_message(session_links=None) == "commit msg"
+        assert await self._commit_message(session_links=None) == "msg"
 
 
 class TestPublishSessionLinks:
@@ -936,23 +915,7 @@ class TestPublishSessionLinks:
         publisher.session_links.assert_not_awaited()
 
     async def test_the_commit_and_the_new_merge_request_share_one_build(self):
-        publisher = _publisher_no_issue(session_links=_LINKS)
-        gm = _fake_git_manager()
-        _use_git_manager(publisher, gm)
-
-        with (
-            patch.object(
-                publisher,
-                "_diff_to_metadata",
-                return_value={
-                    "pr_metadata": Mock(branch="feature", title="Title", description="Desc"),
-                    "commit_message": Mock(commit_message="commit msg"),
-                },
-            ),
-            patch.object(publisher, "_create_merge_request", return_value=_make_merge_request()) as create_mr,
-            patch.object(publisher, "_suggest_context_file"),
-        ):
-            await publisher.publish(merge_request=None)
+        publisher, gm, create_mr = await _publish_to_a_new_merge_request(session_links=_LINKS)
 
         publisher.session_links.assert_awaited_once()
         assert gm.commit_all.await_args.args[0].endswith(_LINKS.detail)
@@ -967,7 +930,7 @@ class TestPublishSuggestsContextFile:
         return pub
 
     async def test_calls_suggest_on_new_mr(self, publisher, monkeypatch):
-        mr = _make_merge_request()
+        mr = make_merge_request()
         gm = _fake_git_manager()
         _use_git_manager(publisher, gm)
 
@@ -1024,7 +987,7 @@ class TestPublishSuggestsContextFile:
     async def test_degrade_preserves_protected_branch_fallback_source(self, publisher, monkeypatch):
         """The compound case: a protected source branch forced a fresh branch, which then hit the
         visibility race. The degrade outcome must still carry the fallback source."""
-        existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
+        existing_mr = make_merge_request(source_branch="dev", merge_request_id=42)
         publisher.client.is_branch_protected.return_value = True
         gm = _fake_git_manager(remote_branches=["main", "release/x"])
         _use_git_manager(publisher, gm)
@@ -1049,8 +1012,8 @@ class TestPublishSuggestsContextFile:
         )
 
     async def test_falls_back_to_new_mr_when_source_branch_protected(self, publisher, monkeypatch):
-        existing_mr = _make_merge_request(source_branch="dev", target_branch="release/x", merge_request_id=42)
-        new_mr = _make_merge_request(source_branch="feature-fix", merge_request_id=43)
+        existing_mr = make_merge_request(source_branch="dev", target_branch="release/x", merge_request_id=42)
+        new_mr = make_merge_request(source_branch="feature-fix", merge_request_id=43)
         publisher.client.is_branch_protected.return_value = True
         gm = _fake_git_manager(remote_branches=["main", "release/x"])
         _use_git_manager(publisher, gm)
@@ -1093,8 +1056,8 @@ class TestPublishSuggestsContextFile:
     async def test_protected_branch_fallback_is_per_call(self, publisher, monkeypatch):
         # The fallback source lives on the per-call PublishOutcome, so a protected-branch call that
         # reports it cannot leak the signal into a later clean publish.
-        existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
-        new_mr = _make_merge_request(source_branch="feature-fix", merge_request_id=43)
+        existing_mr = make_merge_request(source_branch="dev", merge_request_id=42)
+        new_mr = make_merge_request(source_branch="feature-fix", merge_request_id=43)
         publisher.client.is_branch_protected.return_value = True
         gm = _fake_git_manager()
         _use_git_manager(publisher, gm)
@@ -1148,7 +1111,7 @@ class TestPublishSuggestsContextFile:
             mock_suggest.assert_not_called()
 
     async def test_does_not_suggest_on_existing_mr(self, publisher, monkeypatch):
-        mr = _make_merge_request()
+        mr = make_merge_request()
         gm = _fake_git_manager()
         _use_git_manager(publisher, gm)
 
@@ -1188,7 +1151,7 @@ class TestPublishDecision:
 
     async def test_confirms_existing_mr_without_republishing_when_pushed(self, monkeypatch):
         publisher = _make_publisher()
-        mr = _make_merge_request(source_branch="feat/x", merge_request_id=42)
+        mr = make_merge_request(source_branch="feat/x", merge_request_id=42)
         gm = _fake_git_manager(dirty=False, diff="diff", remote_branches=["feat/x"], has_unpushed=False)
         _use_git_manager(publisher, gm)
 
@@ -1202,7 +1165,7 @@ class TestPublishDecision:
     async def test_diffs_against_existing_mr_target_branch(self, monkeypatch):
         """An in-review MR targeting a non-default branch is diffed against that branch, not main."""
         publisher = _make_publisher()
-        mr = _make_merge_request(source_branch="feat/x", target_branch="release/x", merge_request_id=42)
+        mr = make_merge_request(source_branch="feat/x", target_branch="release/x", merge_request_id=42)
         gm = _fake_git_manager(dirty=False, diff="diff", remote_branches=["feat/x"], has_unpushed=False)
         _use_git_manager(publisher, gm)
 
@@ -1219,7 +1182,7 @@ class TestPublishDecision:
         """A dirty tree on a non-default-target MR still diffs against that target and proceeds to
         commit/push — guards against a regression recomputing the base below the clean short-circuit."""
         publisher = _make_publisher()
-        mr = _make_merge_request(source_branch="feat/x", target_branch="release/x", merge_request_id=42)
+        mr = make_merge_request(source_branch="feat/x", target_branch="release/x", merge_request_id=42)
         gm = _fake_git_manager()  # dirty=True, has_unpushed=True → publish proceeds
         _use_git_manager(publisher, gm)
 
@@ -1261,7 +1224,7 @@ class TestTriggerServiceAccountPipeline:
     async def test_triggers_pipeline_via_client(self):
         publisher = _make_publisher()
         publisher.client.trigger_merge_request_pipeline = Mock(return_value=_triggered(head_synced=True))
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         await publisher._trigger_service_account_pipeline(mr, "abc123")
 
@@ -1271,7 +1234,7 @@ class TestTriggerServiceAccountPipeline:
     async def test_logs_and_notes_on_failure(self, caplog):
         publisher = _make_publisher()
         publisher.client.trigger_merge_request_pipeline = Mock(side_effect=RuntimeError("boom"))
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         with caplog.at_level("ERROR"):
             await publisher._trigger_service_account_pipeline(mr, "abc123")
@@ -1286,7 +1249,7 @@ class TestTriggerServiceAccountPipeline:
         publisher.client.trigger_merge_request_pipeline = Mock(side_effect=RuntimeError("boom"))
         publisher.client.create_merge_request_comment = Mock(side_effect=RuntimeError("note failed"))
 
-        await publisher._trigger_service_account_pipeline(_make_merge_request(), "abc123")  # must not raise
+        await publisher._trigger_service_account_pipeline(make_merge_request(), "abc123")  # must not raise
 
     async def test_notes_when_the_pipeline_cannot_be_confirmed_on_the_pushed_commit(self, caplog):
         """An unconfirmed pipeline leaves the MR blocked on its latest commit just as a missing one
@@ -1295,7 +1258,7 @@ class TestTriggerServiceAccountPipeline:
         publisher.client.trigger_merge_request_pipeline = Mock(return_value=_triggered(head_synced=False))
 
         with caplog.at_level("WARNING"):
-            await publisher._trigger_service_account_pipeline(_make_merge_request(), "fresh" * 8)
+            await publisher._trigger_service_account_pipeline(make_merge_request(), "fresh" * 8)
 
         assert any(r.levelname == "WARNING" for r in caplog.records)
         body = publisher.client.create_merge_request_comment.call_args[0][2]
@@ -1308,7 +1271,7 @@ class TestTriggerServiceAccountPipeline:
         publisher.client.trigger_merge_request_pipeline = Mock(return_value=_triggered(head_synced=False))
 
         with caplog.at_level("WARNING"):
-            await publisher._trigger_service_account_pipeline(_make_merge_request(), None)
+            await publisher._trigger_service_account_pipeline(make_merge_request(), None)
 
         assert any(r.levelname == "WARNING" for r in caplog.records)
         publisher.client.create_merge_request_comment.assert_not_called()
@@ -1332,7 +1295,7 @@ class TestPublishPipelineHeal:
         gm.push_head_to = AsyncMock(side_effect=_push)
         gm.head_sha = AsyncMock(side_effect=lambda: head["sha"])
         _use_git_manager(publisher, gm)
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
@@ -1350,7 +1313,7 @@ class TestPublishPipelineHeal:
         gm = _fake_git_manager()
         gm.head_sha = AsyncMock(side_effect=GitCommandError(["git", "rev-parse", "HEAD"], 128))
         _use_git_manager(publisher, gm)
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
@@ -1371,7 +1334,7 @@ class TestPublishPipelineHeal:
         publisher.client.push_uses_ephemeral_token.return_value = False
         gm = _fake_git_manager()
         _use_git_manager(publisher, gm)
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
@@ -1389,7 +1352,7 @@ class TestPublishPipelineHeal:
         publisher.client.push_uses_ephemeral_token.return_value = False
         gm = _fake_git_manager()
         _use_git_manager(publisher, gm)
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
@@ -1412,7 +1375,7 @@ class TestPublishPipelineHeal:
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
-            patch.object(publisher, "_create_merge_request", return_value=_make_merge_request()),
+            patch.object(publisher, "_create_merge_request", return_value=make_merge_request()),
             patch.object(publisher, "_suggest_context_file", AsyncMock()),
             patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
         ):
@@ -1429,7 +1392,7 @@ class TestPublishPipelineHeal:
         publisher.client.push_uses_ephemeral_token.return_value = True
         gm = _fake_git_manager()
         _use_git_manager(publisher, gm)
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
@@ -1450,11 +1413,11 @@ class TestPublishPipelineHeal:
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
-            patch.object(publisher, "_create_merge_request", return_value=_make_merge_request()),
+            patch.object(publisher, "_create_merge_request", return_value=make_merge_request()),
             patch.object(publisher, "_suggest_context_file", AsyncMock()),
             patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
         ):
-            await publisher.publish(merge_request=_make_merge_request())
+            await publisher.publish(merge_request=make_merge_request())
 
         trigger.assert_not_awaited()
 
@@ -1465,7 +1428,7 @@ class TestPublishPipelineHeal:
         publisher.client.push_uses_ephemeral_token.return_value = True
         gm = _fake_git_manager()
         _use_git_manager(publisher, gm)
-        mr = _make_merge_request()
+        mr = make_merge_request()
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
@@ -1483,7 +1446,7 @@ class TestPublishDiffStats:
 
     async def test_counts_the_snapshot_diff(self, monkeypatch):
         publisher = _make_publisher()
-        mr = _make_merge_request()
+        mr = make_merge_request()
         gm = _fake_git_manager(diff="diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1,2 @@\n+one\n+two\n-three\n")
         _use_git_manager(publisher, gm)
 
@@ -1502,7 +1465,7 @@ class TestPublishDiffStats:
         download on GitLab, truncates past a size cap, and answers zero while a
         just-created MR is still being prepared."""
         publisher = _make_publisher()
-        mr = _make_merge_request()
+        mr = make_merge_request()
         _use_git_manager(publisher, _fake_git_manager())
 
         with (
@@ -1689,7 +1652,7 @@ class TestAgentSummaryContext:
         _use_git_manager(publisher, gm)
 
         with (
-            patch.object(publisher, "_create_merge_request", return_value=_make_merge_request()),
+            patch.object(publisher, "_create_merge_request", return_value=make_merge_request()),
             patch.object(publisher, "_suggest_context_file"),
         ):
             await publisher.publish(merge_request=None, agent_summary="Skipped the linter.")
@@ -1756,7 +1719,7 @@ class TestDescriptionBoilerplate:
         """Both optional blocks at once is the combination that padded: the references block ends
         with its own blank line and the fallback block used to add another."""
         for references in ((), (ExternalRef(key="42", provider="gitlab-issue", relation="closes"),)):
-            description = await self._rendered(references=references, fallback_from_mr=_make_merge_request())
+            description = await self._rendered(references=references, fallback_from_mr=make_merge_request())
 
             assert "\n\n\n" not in description, references
             assert "is protected on the remote." in description, references
@@ -1765,7 +1728,7 @@ class TestDescriptionBoilerplate:
         """The lazy-continuation guard has to survive the block that follows it changing."""
         description = await self._rendered(
             references=(ExternalRef(key="42", provider="gitlab-issue", relation="closes"),),
-            fallback_from_mr=_make_merge_request(),
+            fallback_from_mr=make_merge_request(),
         )
         lines = description.splitlines()
         first_quote = next(i for i, line in enumerate(lines) if line.startswith(">"))

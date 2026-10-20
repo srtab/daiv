@@ -70,7 +70,7 @@ def agent_stack(
     ``checkpointed`` is the session thread's last checkpoint values (``None``: no checkpoint yet); a fresh container
     is seeded with an empty archive. ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed
     to the clone. ``build_servers`` stubs ``build_runtime_servers``; the servers it returns are the ones handed to the
-    agent. Session links resolve against ``SITE_URL``.
+    agent. ``build_absolute_url`` stubs the session links' URL builder, resolving against ``SITE_URL``.
     """
     last_checkpoint = None if checkpointed is None else SimpleNamespace(checkpoint={"channel_values": checkpointed})
     stack = SimpleNamespace(
@@ -125,7 +125,9 @@ def agent_stack(
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.PipelineWatch", _Watch),
-        patch("sessions.executor.run.build_absolute_url", side_effect=lambda path: f"{SITE_URL}{path}"),
+        patch(
+            "sessions.executor.run.build_absolute_url", side_effect=lambda path: f"{SITE_URL}{path}"
+        ) as build_absolute_url,
         patch(
             "automation.agent.workspace.session._seed_archives",
             AsyncMock(return_value=SessionSeed(empty_archive(), None, [])),
@@ -139,6 +141,7 @@ def agent_stack(
         stack.build_result = build_result
         stack.persist = persist
         stack.reset = reset
+        stack.build_absolute_url = build_absolute_url
         yield stack
 
 

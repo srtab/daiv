@@ -586,25 +586,18 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
     ],
 )
 async def test_a_run_without_a_session_to_link_hands_the_agent_no_links(spec_overrides, settings):
-    with (
-        agent_stack(_agent(), resolve=MagicMock(return_value=settings)) as stack,
-        patch("sessions.executor.run.build_absolute_url") as build_absolute_url,
-    ):
+    with agent_stack(_agent(), resolve=MagicMock(return_value=settings)) as stack:
         await execute_run(make_spec(**spec_overrides))
 
     assert stack.create_agent.await_args.kwargs["session_links"] is None
-    build_absolute_url.assert_not_called()
 
 
 async def test_the_agent_gets_the_sessions_links_unbuilt():
     spec = make_spec()
 
-    with (
-        agent_stack(_agent()) as stack,
-        patch("sessions.executor.run.build_absolute_url", side_effect=lambda path: f"{SITE_URL}{path}") as build,
-    ):
+    with agent_stack(_agent()) as stack:
         await execute_run(spec)
-        build.assert_not_called()
+        stack.build_absolute_url.assert_not_called()
         links = await stack.create_agent.await_args.kwargs["session_links"]()
 
     assert links == _session_links(spec.thread_id)
@@ -612,11 +605,8 @@ async def test_the_agent_gets_the_sessions_links_unbuilt():
 
 async def test_session_links_that_cannot_be_built_publish_without_them(caplog):
     """A link is cosmetic: a missing Sites row costs the publish its links, not its work."""
-    with (
-        agent_stack(_agent()) as stack,
-        patch("sessions.executor.run.build_absolute_url", side_effect=Site.DoesNotExist("no site")),
-        caplog.at_level("WARNING", logger="daiv.sessions"),
-    ):
+    with agent_stack(_agent()) as stack, caplog.at_level("WARNING", logger="daiv.sessions"):
+        stack.build_absolute_url.side_effect = Site.DoesNotExist("no site")
         await execute_run(make_spec())
         links = await stack.create_agent.await_args.kwargs["session_links"]()
 

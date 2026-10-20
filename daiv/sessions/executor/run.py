@@ -368,10 +368,10 @@ async def _abuild_session_links(thread_id: str) -> SessionLinks | None:
     publish."""
     kwargs = {"thread_id": thread_id}
     try:
-        detail, merge_request = await sync_to_async(
-            lambda: (
-                build_absolute_url(reverse("session_detail", kwargs=kwargs)),
-                build_absolute_url(reverse("session_merge_request", kwargs=kwargs)),
+        return await sync_to_async(
+            lambda: SessionLinks(
+                detail=build_absolute_url(reverse("session_detail", kwargs=kwargs)),
+                merge_request=build_absolute_url(reverse("session_merge_request", kwargs=kwargs)),
             )
         )()
     except Exception:
@@ -381,7 +381,6 @@ async def _abuild_session_links(thread_id: str) -> SessionLinks | None:
             exc_info=True,
         )
         return None
-    return SessionLinks(detail=detail, merge_request=merge_request)
 
 
 async def _checkpointed_values(checkpointer: BaseCheckpointSaver, thread_id: str) -> dict[str, Any]:

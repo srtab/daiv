@@ -198,7 +198,7 @@ class GitChangePublisher:
             logger.info("No changes to open a merge request with.")
             return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
 
-        session_links = await self.session_links() if self.session_links else None
+        links = await self.session_links() if self.session_links else None
 
         pr_metadata_diff = (
             snapshot.diff if merge_request is None or (merge_request.draft and as_draft is False) else None
@@ -220,7 +220,7 @@ class GitChangePublisher:
             )
             if skip_ci:
                 commit_message = f"[skip ci] {commit_message}"
-            await git_manager.commit_all(self._with_trailers(commit_message, session_links))
+            await git_manager.commit_all(self._with_trailers(commit_message, links))
 
         if merge_request is None:
             branch_name = git_manager.unique_branch_name(
@@ -268,7 +268,7 @@ class GitChangePublisher:
                     target_branch=self._live_target_branch(base_branch, snapshot.remote_branches, default_branch),
                     as_draft=as_draft,
                     fallback_from_mr=fallback_from_mr,
-                    session_links=session_links,
+                    session_links=links,
                 )
             except MergeRequestBranchNotVisibleError:
                 # Branch is pushed but GitLab won't open the MR yet; failing here would orphan the work
