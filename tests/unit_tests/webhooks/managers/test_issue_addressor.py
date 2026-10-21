@@ -283,11 +283,14 @@ class TestIssueAfterRunMatrix:
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]
 
-    async def test_a_missing_model_says_it_cannot_run_yet_and_returns(self, captured_client):
-        with addressor_run(addressor_agent(), kwargs_error=AgentConfigurationError("no model")) as run:
-            result = await _address(**_mention(captured_client))
+    async def test_a_missing_model_says_it_cannot_run_yet_and_re_raises(self, captured_client):
+        """Re-raised like the merge request addressor's, so the task and its Run end FAILED, not an empty success."""
+        with (
+            addressor_run(addressor_agent(), kwargs_error=AgentConfigurationError("no model")) as run,
+            pytest.raises(AgentConfigurationError),
+        ):
+            await _address(**_mention(captured_client))
 
-        assert result is None
         run.create_agent.assert_not_awaited()
         [note] = captured_client.create_issue_comment.call_args_list
         assert note.args[2] == "@alice I can't run yet: no model"

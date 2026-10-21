@@ -278,6 +278,14 @@ class TestSessionListView:
 
         assert re.search(r'<a href="https://git\.example/mr/31"[^>]*class="mr-pill[^"]*">.*?!31</a>', html, re.DOTALL)
 
+    def test_row_shows_the_model_the_latest_run_ran_on(self, logged_in_client, user):
+        session = _create_session(user=user, origin=SessionOrigin.API_JOB)
+        _create_run(session, agent_model="openrouter:z-ai/glm-5.2")
+
+        html = logged_in_client.get(reverse("session_list")).content.decode()
+
+        assert re.search(r'<span class="meta-pill[^"]*">openrouter:z-ai/glm-5\.2</span>', html)
+
     def test_more_rows_cost_no_more_queries(self, logged_in_client, user, django_assert_num_queries):
         """A run field the row reads but ``.only()`` leaves out costs a query per row."""
         _create_run(_create_session(user=user), merge_request_iid=1, merge_request_web_url="https://git.example/mr/1")

@@ -308,7 +308,8 @@ async def _job_run() -> tuple[Session, Run]:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("error", [None, RuntimeError("agent blew up")], ids=["succeeds", "fails"])
-async def test_a_run_records_the_model_it_resolved(error):
+async def test_a_run_records_the_model_it_resolved_on_the_run_only(error):
+    """``Session.agent_model`` is the thread's pin, which chat and CI fix runs reuse; an Auto run must not set it."""
     session, run = await _job_run()
     agent = _agent()
     agent.ainvoke.side_effect = error
@@ -318,7 +319,7 @@ async def test_a_run_records_the_model_it_resolved(error):
 
     await session.arefresh_from_db()
     await run.arefresh_from_db()
-    assert (session.agent_model, session.agent_thinking_level) == ("claude-4-7-opus", "medium")
+    assert (session.agent_model, session.agent_thinking_level) == ("", "")
     assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
 
 

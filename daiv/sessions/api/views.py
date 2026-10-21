@@ -9,6 +9,7 @@ from ninja.errors import HttpError
 from ninja.security import django_auth
 
 from accounts.api.security import AuthBearer
+from sessions.executor.lock import session_in_flight
 from sessions.hydration import ahydrate_thread
 from sessions.models import Session
 from sessions.transcript import annotate_transcript, artifact_turns
@@ -23,7 +24,8 @@ sessions_router = Router(tags=["sessions"], auth=[AuthBearer(), django_auth])
 
 
 async def _get_visible_session(user, thread_id: str) -> Session:
-    session = await Session.objects.by_owner(user).filter(thread_id=thread_id).afirst()
+    """The same visibility as the detail page this endpoint feeds, so a repo reader's poll does not 404."""
+    session = await sync_to_async(lambda: Session.objects.visible_to(user).filter(thread_id=thread_id).first())()
     if session is None:
         raise HttpError(404, "Session not found")
     return session
@@ -36,7 +38,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
     session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
-    turns = [] if hydrated.expired else annotate_transcript(build_turns(hydrated.messages), runs)
+    turns = annotate_transcript(build_turns(hydrated.messages), runs)
     if not hydrated.messages:
         turns += await sync_to_async(artifact_turns)(runs)
-    return {"turns": turns, "active": bool(session.active_run_id), "expired": hydrated.expired}
+    return {"turns": turns, "active": session_in_flight(session, runs), "expired": hydrated.expired}
