@@ -2,14 +2,13 @@
 
 import uuid
 
-import django.db.models.deletion
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
     initial = True
 
-    dependencies = [("activity", "0015_activity_agent_override_fields")]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
@@ -56,17 +55,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True, verbose_name="created at")),
-                (
-                    "activity",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="memory_observations",
-                        to="activity.activity",
-                        verbose_name="activity",
-                    ),
-                ),
             ],
             options={
                 "verbose_name": "Memory observation",

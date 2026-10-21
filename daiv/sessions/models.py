@@ -47,9 +47,8 @@ class SessionOrigin(models.TextChoices):
 
     Shared by ``Session.origin`` (first trigger) and ``Run.trigger_type`` (per run):
     a webhook-origin session can later contain chat runs.
-    Values for the non-chat members must stay identical to the old
-    ``activity.TriggerType`` strings — dashboards deep-link ``?trigger=<value>``
-    and the data migration copies them verbatim.
+    Values are stored on rows and deep-linked by dashboards (``?trigger=<value>``),
+    so they must not change.
     """
 
     CHAT = "chat", _("Chat")
@@ -146,13 +145,11 @@ class Session(models.Model):
 
     # Unified execution lock. NULL means "free slot"; any non-NULL value is the
     # holder id (AG-UI run_id for chat turns, str(Run.pk) for background runs).
-    # Same semantics as the old ChatThread.active_run_id.
     active_run_id = models.CharField(max_length=64, null=True, blank=True, default=None)  # noqa: DJ001
 
-    # default (not auto_now_add) so the data migration can backfill historical values.
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     # Ordering + lock staleness. Bumped explicitly by the lock service and run creation
-    # (not auto_now: queryset .aupdate() paths must control it, as ChatThread did).
+    # (not auto_now: queryset .aupdate() paths must control it).
     last_active_at = models.DateTimeField(_("last active at"), default=timezone.now)
 
     objects = SessionManager()
@@ -256,9 +253,7 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
 
 
 class Run(models.Model):
-    """One agent execution within a session. Successor of ``activity.Activity``;
-    UUIDs are preserved by the data migration so external job IDs keep resolving.
-    """
+    """One agent execution within a session."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="runs", verbose_name=_("session"))
