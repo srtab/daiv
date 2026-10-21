@@ -5,7 +5,6 @@ from django.urls import include, path, reverse
 from dashboard.views import homepage
 from mcp_api.oauth import oauth_metadata
 from notifications.views import UserChannelsView
-from sessions.urls_legacy import legacy_activity_urlpatterns, legacy_chat_urlpatterns
 
 from core.views import HealthCheckView, VersionView
 from daiv.api import api
@@ -29,10 +28,8 @@ urlpatterns = [
     path("accounts/users/", include("accounts.urls.users")),
     path("dashboard/", include("dashboard.urls")),
     path("dashboard/configuration/", include("configuration.urls")),
-    path("dashboard/activity/", include(legacy_activity_urlpatterns)),
     path("dashboard/sessions/", include("sessions.urls")),
     path("dashboard/artifacts/", include("sessions.urls_artifacts")),
-    path("dashboard/chat/", include(legacy_chat_urlpatterns)),
     path("dashboard/runs/", include("sessions.urls_runs", namespace="runs")),
     path("dashboard/notifications/", include("notifications.urls")),
     path("dashboard/sandbox-envs/", include("sandbox_envs.urls", namespace="sandbox_envs")),
