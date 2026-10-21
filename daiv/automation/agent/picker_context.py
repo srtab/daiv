@@ -13,8 +13,8 @@ import json
 import logging
 from typing import Any
 
-from automation.agent.base import parse_model_spec
 from automation.agent.display import display_model_name
+from automation.agent.model_spec import parse_model_spec
 from core.models import Provider, ThinkingLevelChoices
 from core.site_settings import site_settings
 
