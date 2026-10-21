@@ -8,9 +8,8 @@ from typing import TYPE_CHECKING
 from langchain.chat_models import init_chat_model
 
 from automation.agent.chat_models import ChatOpenRouter
-from automation.agent.model_catalog.exceptions import MissingApiKeyError
 from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, ResolvedProvider, parse_model_spec
-from automation.agent.provider_clients import build_sdk_client_kwargs
+from automation.agent.provider_clients import MissingApiKeyError, build_sdk_client_kwargs
 from core.constants import BOT_NAME
 from core.models import ProviderType
 from core.models import ThinkingLevelChoices as ThinkingLevel

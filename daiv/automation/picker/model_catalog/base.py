@@ -16,7 +16,8 @@ class ModelCatalogAdapter(ABC):
       - Return chat-capable model names only (no ``slug:`` prefix; the picker concatenates).
       - Output is alphabetically sorted; the frontend does not re-sort.
       - Empty list is a valid successful return.
-      - Missing API key → :class:`MissingApiKeyError` (raised by ``build_sdk_client_kwargs``).
+      - Missing API key → :class:`~automation.agent.provider_clients.MissingApiKeyError` (raised by
+        ``build_sdk_client_kwargs``).
       - SDK exceptions → wrapped as :class:`CatalogFetchError` with a safe ``detail``.
       - The adapter owns the lifecycle of any ``httpx.AsyncClient`` passed in via
         ``build_sdk_client_kwargs`` and closes it in a ``finally`` block.

@@ -4,8 +4,9 @@ from unittest.mock import patch
 import pytest
 
 from automation.agent.base import CLAUDE_THINKING_MODELS, OPENAI_THINKING_MODELS, get_model, get_model_kwargs
-from automation.agent.chat_models import OPENROUTER_BASE_URL, ChatOpenRouter
+from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.model_spec import parse_model_spec
+from automation.agent.provider_clients import OPENROUTER_BASE_URL
 from core.constants import ModelName
 from core.models import Provider, ProviderType, ThinkingLevelChoices
 

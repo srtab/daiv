@@ -42,7 +42,7 @@ make makemessages && make compilemessages
 
 ## Repo map (only what's non-obvious)
 
-- `daiv/automation/` — LangGraph/deepagents agent: tools are provided by middlewares (`agent/middlewares/`, e.g. `web_fetch.py`, `artifacts.py`), skills (`agent/skills/`), deferred tools (`agent/deferred/`); a run's context (`RuntimeCtx`, `set_runtime_ctx`) is in `agent/context.py`, its external references in `agent/references.py`
+- `daiv/automation/` — LangGraph/deepagents agent: tools are provided by middlewares (`agent/middlewares/`, e.g. `web_fetch.py`, `artifacts.py`), skills (`agent/skills/`), deferred tools (`agent/deferred/`); a run's context (`RuntimeCtx`, `set_runtime_ctx`) is in `agent/context.py`, its external references in `agent/references.py`. `agent/` is runtime only: the model-picker UI (display helpers, picker context, per-provider model catalog) is `picker/`
 - `daiv/codebase/` — platform access only: GitLab/GitHub clients (`clients/`), `.daiv.yml` repo config, repo authorization, the repository catalog
 - `daiv/webhooks/` — GitLab/GitHub webhook callbacks, the `address_*` tasks and the issue/MR addressors; each platform's `views.py` has its own router, composed in `webhooks/api/router.py` and mounted at `/codebase` in `daiv/daiv/api.py`, so the URLs stay `/api/codebase/callbacks/{gitlab,github}`
 - `daiv/mcp_api/` — DAIV's own MCP endpoint (`server.py`, mounted at `/mcp` by `daiv/daiv/asgi.py`) + its OAuth discovery and client registration; `daiv/mcp_connectors/` — the external MCP servers the agent connects to (`MCPServer`), app label still `mcp_servers` (tables, migrations, `apps.get_model`)

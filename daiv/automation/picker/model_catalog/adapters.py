@@ -13,10 +13,9 @@ import openai
 from google import genai as google_genai
 from google.genai import errors as google_errors
 
-from automation.agent.chat_models import OPENROUTER_BASE_URL
-from automation.agent.model_catalog.base import ModelCatalogAdapter
-from automation.agent.model_catalog.exceptions import CatalogFetchError
-from automation.agent.provider_clients import build_sdk_client_kwargs
+from automation.agent.provider_clients import OPENROUTER_BASE_URL, build_sdk_client_kwargs
+from automation.picker.model_catalog.base import ModelCatalogAdapter
+from automation.picker.model_catalog.exceptions import CatalogFetchError
 
 if TYPE_CHECKING:
     from core.models import Provider

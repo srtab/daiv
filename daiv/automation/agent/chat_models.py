@@ -70,6 +70,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_openai import ChatOpenAI
 
+from automation.agent.provider_clients import OPENROUTER_BASE_URL
 from core.models import ProviderType
 
 if TYPE_CHECKING:
@@ -80,8 +81,6 @@ if TYPE_CHECKING:
     from langchain_core.outputs import ChatGenerationChunk, ChatResult
 
 logger = logging.getLogger("daiv.automation")
-
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Stamped by ``langchain_openai._convert_chunk_to_generation_chunk`` inside its
 # ``if finish_reason := choice.get("finish_reason")`` block — see the module docstring.

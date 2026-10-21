@@ -4,9 +4,9 @@ from asgiref.sync import async_to_sync
 from ninja import Router
 from ninja.security import django_auth
 
-from automation.agent.model_catalog.service import fetch_catalog
 from automation.api.schemas import AgentModelsResponse, ProviderInfo
-from core.models import Provider
+from automation.picker.context import enabled_providers, provider_label
+from automation.picker.model_catalog.service import fetch_catalog
 
 router = Router(tags=["automation"])
 
@@ -18,13 +18,9 @@ def agent_models(request: HttpRequest) -> AgentModelsResponse:
     Disabled providers are filtered out. HTTP 200 even when individual
     providers errored — the per-provider error lives in the payload.
     """
-    enabled_rows = [row for row in Provider.get_cached_rows() if row.is_enabled]
+    enabled_rows = enabled_providers()
     catalog = async_to_sync(fetch_catalog)(enabled_rows)
 
     return AgentModelsResponse(
-        providers=[
-            ProviderInfo(slug=row.slug, label=row.display_name or row.slug.replace("_", " ").title())
-            for row in enabled_rows
-        ],
-        catalog=catalog,
+        providers=[ProviderInfo(slug=row.slug, label=provider_label(row)) for row in enabled_rows], catalog=catalog
     )

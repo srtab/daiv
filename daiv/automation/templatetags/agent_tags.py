@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django import template
 
-from automation.agent.display import MODEL_NAME_MAX_LEN, display_model_name, display_thinking_level
+from automation.picker.display import MODEL_NAME_MAX_LEN, display_model_name, display_thinking_level
 
 register = template.Library()
 

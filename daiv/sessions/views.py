@@ -30,7 +30,7 @@ from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context
 
-from automation.agent.picker_context import agent_picker_context
+from automation.picker.context import agent_picker_context
 from codebase.authorization import can_run
 from core.mixins import Breadcrumb, BreadcrumbMixin
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response

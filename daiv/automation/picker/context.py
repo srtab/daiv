@@ -13,12 +13,21 @@ import json
 import logging
 from typing import Any
 
-from automation.agent.display import display_model_name
 from automation.agent.model_spec import parse_model_spec
+from automation.picker.display import display_model_name
 from core.models import Provider, ThinkingLevelChoices
 from core.site_settings import site_settings
 
 logger = logging.getLogger("daiv.automation")
+
+
+def enabled_providers() -> list[Provider.Cached]:
+    """The providers the picker offers, in ``sort_order`` then ``slug`` order."""
+    return [row for row in Provider.get_cached_rows() if row.is_enabled]
+
+
+def provider_label(row: Provider.Cached) -> str:
+    return row.display_name or row.slug.replace("_", " ").title()
 
 
 def agent_picker_context(
@@ -26,7 +35,7 @@ def agent_picker_context(
 ) -> dict[str, Any]:
     """Build context vars for the ``_agent_picker.html`` partial.
 
-    Providers come from ``Provider.objects.filter(is_enabled=True)``. The model
+    Providers come from :func:`enabled_providers`. The model
     catalog itself is no longer rendered server-side: the Alpine component
     fetches it from ``api:agent_models`` on first popover open. We still
     ship the enabled providers (label + slug) and the stale-model flag — both
@@ -43,10 +52,7 @@ def agent_picker_context(
     the partial can render a "no longer available" hint instead of showing a
     silently-unselectable value.
     """
-    providers = [
-        {"slug": row.slug, "label": row.display_name or row.slug.replace("_", " ").title()}
-        for row in Provider.objects.filter(is_enabled=True).order_by("sort_order", "slug")
-    ]
+    providers = [{"slug": row.slug, "label": provider_label(row)} for row in enabled_providers()]
 
     resolved_model = initial_model
     resolved_thinking = initial_thinking_level

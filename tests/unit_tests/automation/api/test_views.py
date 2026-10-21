@@ -9,7 +9,7 @@ from django.urls import reverse
 
 import pytest
 
-from automation.agent.model_catalog.service import CatalogEntry
+from automation.picker.model_catalog.service import CatalogEntry
 from core.models import Provider, ProviderType
 
 

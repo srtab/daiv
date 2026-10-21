@@ -11,13 +11,10 @@ from typing import TYPE_CHECKING
 
 from django.core.cache import cache
 
-from automation.agent.model_catalog.cache_keys import MODEL_CATALOG_CACHE_KEY_FMT
-from automation.agent.model_catalog.exceptions import (
-    CatalogFetchError,
-    MissingApiKeyError,
-    UnsupportedProviderTypeError,
-)
-from automation.agent.model_catalog.registry import get_adapter
+from automation.agent.provider_clients import MissingApiKeyError
+from automation.picker.model_catalog.cache_keys import MODEL_CATALOG_CACHE_KEY_FMT
+from automation.picker.model_catalog.exceptions import CatalogFetchError, UnsupportedProviderTypeError
+from automation.picker.model_catalog.registry import get_adapter
 
 if TYPE_CHECKING:
     from core.models import Provider

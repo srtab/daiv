@@ -4,17 +4,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from automation.agent.model_catalog.adapters import (
+from automation.picker.model_catalog.adapters import (
     AnthropicAdapter,
     GoogleGenAIAdapter,
     OpenAIAdapter,
     OpenRouterAdapter,
 )
-from automation.agent.model_catalog.exceptions import UnsupportedProviderTypeError
+from automation.picker.model_catalog.exceptions import UnsupportedProviderTypeError
 from core.models import ProviderType
 
 if TYPE_CHECKING:
-    from automation.agent.model_catalog.base import ModelCatalogAdapter
+    from automation.picker.model_catalog.base import ModelCatalogAdapter
 
 _ADAPTERS: dict[ProviderType, ModelCatalogAdapter] = {
     ProviderType.OPENAI: OpenAIAdapter(),

@@ -5,12 +5,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypedDict
 
-from automation.agent.model_catalog.exceptions import MissingApiKeyError
-
 if TYPE_CHECKING:
     import httpx
 
     from core.models import Provider
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+class MissingApiKeyError(Exception):
+    """Provider row has no API key configured."""
 
 
 class SdkClientKwargs(TypedDict):

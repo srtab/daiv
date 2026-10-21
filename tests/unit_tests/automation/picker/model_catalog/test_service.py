@@ -10,13 +10,10 @@ from django.core.cache import cache
 import pytest
 from pydantic import SecretStr
 
-from automation.agent.model_catalog.cache_keys import MODEL_CATALOG_CACHE_KEY_FMT
-from automation.agent.model_catalog.exceptions import (
-    CatalogFetchError,
-    MissingApiKeyError,
-    UnsupportedProviderTypeError,
-)
-from automation.agent.model_catalog.service import CatalogEntry, fetch_catalog
+from automation.agent.provider_clients import MissingApiKeyError
+from automation.picker.model_catalog.cache_keys import MODEL_CATALOG_CACHE_KEY_FMT
+from automation.picker.model_catalog.exceptions import CatalogFetchError, UnsupportedProviderTypeError
+from automation.picker.model_catalog.service import CatalogEntry, fetch_catalog
 from core.models import Provider, ProviderType
 
 
@@ -48,7 +45,7 @@ async def test_returns_entry_per_row():
     fake_or = AsyncMock(return_value=["anthropic/claude-haiku-4.5"])
     fake_an = AsyncMock(return_value=["claude-opus-4.6"])
 
-    with patch("automation.agent.model_catalog.service.get_adapter") as get_adapter:
+    with patch("automation.picker.model_catalog.service.get_adapter") as get_adapter:
         get_adapter.side_effect = lambda pt: type(
             "A", (), {"list_models": fake_or if pt == ProviderType.OPENROUTER else fake_an}
         )()
@@ -67,7 +64,7 @@ async def test_cache_hit_skips_adapter():
         MODEL_CATALOG_CACHE_KEY_FMT.format(slug="openrouter"), CatalogEntry(models=["cached-model"], error=None), 60
     )
     fake_adapter = AsyncMock()
-    with patch("automation.agent.model_catalog.service.get_adapter") as get_adapter:
+    with patch("automation.picker.model_catalog.service.get_adapter") as get_adapter:
         get_adapter.return_value.list_models = fake_adapter
         result = await fetch_catalog([row])
 
@@ -78,7 +75,7 @@ async def test_cache_hit_skips_adapter():
 async def test_cache_populated_on_success():
     row = _row("openrouter")
     fake_adapter = AsyncMock(return_value=["m1", "m2"])
-    with patch("automation.agent.model_catalog.service.get_adapter") as get_adapter:
+    with patch("automation.picker.model_catalog.service.get_adapter") as get_adapter:
         get_adapter.return_value.list_models = fake_adapter
         await fetch_catalog([row])
 
@@ -89,7 +86,7 @@ async def test_cache_populated_on_success():
 async def test_cache_not_populated_on_error():
     row = _row("openrouter")
     fake_adapter = AsyncMock(side_effect=CatalogFetchError("upstream down"))
-    with patch("automation.agent.model_catalog.service.get_adapter") as get_adapter:
+    with patch("automation.picker.model_catalog.service.get_adapter") as get_adapter:
         get_adapter.return_value.list_models = fake_adapter
         result = await fetch_catalog([row])
 
@@ -101,7 +98,7 @@ async def test_cache_not_populated_on_error():
 async def test_missing_api_key_mapped_to_safe_string():
     row = _row("openrouter")
     fake_adapter = AsyncMock(side_effect=MissingApiKeyError("Provider 'openrouter' has no API key"))
-    with patch("automation.agent.model_catalog.service.get_adapter") as get_adapter:
+    with patch("automation.picker.model_catalog.service.get_adapter") as get_adapter:
         get_adapter.return_value.list_models = fake_adapter
         result = await fetch_catalog([row])
 
@@ -111,7 +108,7 @@ async def test_missing_api_key_mapped_to_safe_string():
 
 async def test_unsupported_provider_type_mapped():
     row = _row("weird")
-    with patch("automation.agent.model_catalog.service.get_adapter") as get_adapter:
+    with patch("automation.picker.model_catalog.service.get_adapter") as get_adapter:
         get_adapter.side_effect = UnsupportedProviderTypeError("no adapter")
         result = await fetch_catalog([row])
 
@@ -127,8 +124,8 @@ async def test_per_provider_timeout_mapped():
         return []
 
     with (
-        patch("automation.agent.model_catalog.service.get_adapter") as get_adapter,
-        patch("automation.agent.model_catalog.service.MODEL_CATALOG_FETCH_TIMEOUT", 0.05),
+        patch("automation.picker.model_catalog.service.get_adapter") as get_adapter,
+        patch("automation.picker.model_catalog.service.MODEL_CATALOG_FETCH_TIMEOUT", 0.05),
     ):
         get_adapter.return_value.list_models = _hang
         result = await fetch_catalog([row])
@@ -146,7 +143,7 @@ async def test_one_failing_provider_doesnt_block_others():
     async def _bad(_row):
         raise CatalogFetchError("nope")
 
-    with patch("automation.agent.model_catalog.service.get_adapter") as get_adapter:
+    with patch("automation.picker.model_catalog.service.get_adapter") as get_adapter:
 
         class _Routing:
             async def list_models(self, row):
@@ -191,9 +188,9 @@ async def test_total_timeout_cancels_inflight_tasks_and_marks_them_timed_out():
 
     adapter = _Adapter()
     with (
-        patch("automation.agent.model_catalog.service.get_adapter", return_value=adapter),
-        patch("automation.agent.model_catalog.service.MODEL_CATALOG_FETCH_TIMEOUT", 5.0),
-        patch("automation.agent.model_catalog.service.MODEL_CATALOG_TOTAL_TIMEOUT", 0.05),
+        patch("automation.picker.model_catalog.service.get_adapter", return_value=adapter),
+        patch("automation.picker.model_catalog.service.MODEL_CATALOG_FETCH_TIMEOUT", 5.0),
+        patch("automation.picker.model_catalog.service.MODEL_CATALOG_TOTAL_TIMEOUT", 0.05),
     ):
         result = await fetch_catalog([fast_row, slow_row])
 
@@ -208,7 +205,7 @@ async def test_total_timeout_cancels_inflight_tasks_and_marks_them_timed_out():
 async def test_empty_response_is_successful_and_cached():
     row = _row("openrouter")
     fake_adapter = AsyncMock(return_value=[])
-    with patch("automation.agent.model_catalog.service.get_adapter") as get_adapter:
+    with patch("automation.picker.model_catalog.service.get_adapter") as get_adapter:
         get_adapter.return_value.list_models = fake_adapter
         result = await fetch_catalog([row])
 
