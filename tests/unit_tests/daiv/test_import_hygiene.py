@@ -10,6 +10,10 @@ SOURCE_ROOT = Path(__file__).parents[3] / "daiv"
 # every process (uvicorn app, db_worker, crontask scheduler) pays the cost otherwise.
 HEAVY_ROOTS = ("langchain", "langgraph", "deepagents", "langsmith", "anthropic", "openai", "numpy")
 
+# The URLconf still loads langgraph and langchain_core (hydration, the chat streamer); it must not add
+# deepagents or a provider SDK (~+90MB), which only a run or a model-catalog fetch needs.
+PROVIDER_SDK_ROOTS = ("deepagents", "anthropic", "openai", "google", "langchain_anthropic", "langchain_openai")
+
 PROBE = """
 import importlib
 import os
@@ -26,13 +30,13 @@ print("OFFENDERS:" + ",".join(offenders))
 """
 
 
-def _heavy_roots_loaded(*modules: str) -> list[str]:
-    """Agent-stack roots in ``sys.modules`` of a fresh process after ``django.setup()`` and importing ``modules``."""
+def _heavy_roots_loaded(*modules: str, roots: tuple[str, ...] = HEAVY_ROOTS) -> list[str]:
+    """``roots`` found in ``sys.modules`` of a fresh process after ``django.setup()`` and importing ``modules``."""
     env = os.environ | {
         "DJANGO_SETTINGS_MODULE": "daiv.settings.test",
         "NINJA_SKIP_REGISTRY": "true",
         "DB_PASSWORD": os.environ.get("DB_PASSWORD", "unused"),
-        "HEAVY_ROOTS": ",".join(HEAVY_ROOTS),
+        "HEAVY_ROOTS": ",".join(roots),
         "IMPORT_AFTER_SETUP": ",".join(modules),
     }
     result = subprocess.run(  # noqa: S603
@@ -62,6 +66,14 @@ def test_model_spec_validation_does_not_load_agent_stack():
     """
     offenders = _heavy_roots_loaded("automation.agent.model_spec", "automation.agent.validators")
     assert not offenders, f"validating a model spec imports the agent stack via: {offenders}"
+
+
+def test_urlconf_does_not_load_provider_sdks():
+    offenders = _heavy_roots_loaded("daiv.urls", roots=PROVIDER_SDK_ROOTS)
+    assert not offenders, (
+        f"loading the URLconf imports {offenders}. Defer the import into the function that needs it "
+        "(see automation/picker/model_catalog/registry.py and skills/services.py)."
+    )
 
 
 def _import_linter_config() -> configparser.ConfigParser:
