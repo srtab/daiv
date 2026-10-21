@@ -87,7 +87,6 @@ async def test_a_label_trigger_records_the_run_with_its_task_then_reacts(steps):
     assert task_kwargs["mention_note_id"] is None
     run_kwargs = steps.create_run.call_args.kwargs
     assert run_kwargs["thread_id"] == task_kwargs["thread_id"]
-    assert run_kwargs["issue_iid"] == 7
     assert run_kwargs["task_result_id"] == "task-1"
     assert run_kwargs["external_username"] == "alice"
 
@@ -106,7 +105,6 @@ async def test_a_mention_reacts_on_its_note_answers_its_comment_and_dedups_on_it
     steps.client.create_issue_emoji.assert_called_once_with("group/repo", 7, Emoji.EYES, 200)
     assert steps.address_issue_task.get_or_enqueue.call_args.kwargs["mention_comment_id"] == "discussion-1"
     assert steps.address_issue_task.get_or_enqueue.call_args.kwargs["mention_note_id"] == 200
-    assert steps.create_run.call_args.kwargs["mention_comment_id"] == "discussion-1"
 
 
 async def test_a_missing_source_branch_is_fetched_before_the_run_is_recorded(steps):

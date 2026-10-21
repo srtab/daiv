@@ -135,7 +135,6 @@ class Session(models.Model):
         related_name="agent_sessions",
         verbose_name=_("scheduled job"),
     )
-    issue_iid = models.PositiveIntegerField(_("issue IID"), null=True, blank=True)
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     external_refs = models.JSONField(_("external references"), default=list, blank=True)
     watch_state = models.CharField(_("watch state"), max_length=10, choices=WatchState.choices, default=WatchState.OFF)
@@ -290,7 +289,6 @@ class Run(models.Model):
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
     muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)  # null = inherit
-    mention_comment_id = models.CharField(_("mention comment ID"), max_length=255, blank=True, default="")
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
     sandbox_environment = models.ForeignKey(

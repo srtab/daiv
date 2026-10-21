@@ -84,7 +84,6 @@ async def dispatch_issue_run(
         task_kwargs={"issue_iid": issue_iid, "mention_comment_id": comment_id, "mention_note_id": note_id},
         trigger_type=SessionOrigin.ISSUE_WEBHOOK,
         title=title,
-        mention_comment_id=comment_id or "",
     )
     if started:
         await _react(
@@ -125,7 +124,6 @@ async def dispatch_mr_comment_run(
         trigger_type=SessionOrigin.MR_WEBHOOK,
         title=title,
         ref=ref,
-        mention_comment_id=mention.comment_id,
     )
     if started:
         await _react(
@@ -169,7 +167,6 @@ async def _start_run(
     trigger_type: SessionOrigin,
     title: str,
     ref: str = "",
-    mention_comment_id: str = "",
 ) -> bool:
     """Enqueue ``task`` with ``task_kwargs`` plus what every addressor task takes, and record its ``Run`` on the
     issue's or merge request's ``Session`` in one transaction. Returns whether it did: ``False`` when the enqueue
@@ -203,9 +200,7 @@ async def _start_run(
                 ref=ref,
                 agent_model=agent_model,
                 agent_thinking_level=agent_thinking_level,
-                issue_iid=iid if scope == Scope.ISSUE else None,
                 merge_request_iid=iid if scope == Scope.MERGE_REQUEST else None,
-                mention_comment_id=mention_comment_id,
                 user=user,
                 external_username=author.username,
                 title=title,

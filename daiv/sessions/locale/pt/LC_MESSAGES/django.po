@@ -137,9 +137,6 @@ msgstr "ambiente sandbox"
 msgid "scheduled job"
 msgstr "tarefa agendada"
 
-msgid "issue IID"
-msgstr "IID da issue"
-
 msgid "merge request IID"
 msgstr "IID do merge request"
 
@@ -178,9 +175,6 @@ msgstr "ID da mensagem"
 
 msgid "notify on"
 msgstr "notificar em"
-
-msgid "mention comment ID"
-msgstr "ID do comentário de menção"
 
 msgid "merge request URL"
 msgstr "URL do merge request"
