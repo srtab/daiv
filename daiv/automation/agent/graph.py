@@ -275,7 +275,7 @@ async def create_daiv_agent(
         # source of write_todos and the harness profile excludes nothing here.
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=bash_tool_enabled)),
         *([SlashCommandMiddleware(subagents=subagents)] if settings.features.slash_commands else []),
-        *([SandboxMiddleware(agent_root=agent_root, workspace=workspace)] if bash_tool_enabled else []),
+        *([SandboxMiddleware(workspace=workspace)] if bash_tool_enabled else []),
         SkillsMiddleware(
             backend=backend,
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],

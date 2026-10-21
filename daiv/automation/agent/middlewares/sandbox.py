@@ -324,8 +324,6 @@ class SandboxMiddleware(AgentMiddleware):
     the parent's session and record the same values.
 
     Args:
-        agent_root: Virtual path prefix the agent's filesystem tools see (e.g. ``/workspace/repo``); the agent's repo
-            root.
         workspace: The run's sandbox workspace; its ``bash`` backs the tool and its session is recorded here.
 
     Example:
@@ -334,20 +332,19 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware(agent_root="/workspace/repo", workspace=SandboxWorkspace(session))],
+            middleware=[SandboxMiddleware(workspace=SandboxWorkspace(session))],
         )
         ```
     """
 
     state_schema = SandboxState
 
-    def __init__(self, *, agent_root: str, workspace: Workspace):
+    def __init__(self, *, workspace: Workspace):
         if site_settings.sandbox_api_key is None:
             raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
         bash, session = workspace.bash, workspace.session
         if bash is None or session is None:
             raise ValueError("SandboxMiddleware needs a workspace with a shell and a sandbox session")
-        self._agent_root = agent_root
         self._bash: SandboxFileBackend = bash
         self._session: SandboxSession = session
         self.tools = [self._build_bash_tool()]

@@ -75,4 +75,4 @@ async def test_the_watch_arm_reuses_the_state_the_result_needs(stub_base_init):
 
     agent = run.create_agent.return_value
     assert agent.aget_state.await_count == 1
-    assert run.build_result.await_args.kwargs["snapshot"] is agent.aget_state.return_value
+    assert run.build_result.call_args.kwargs["snapshot"] is agent.aget_state.return_value

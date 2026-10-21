@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from deepagents.backends.composite import CompositeBackend
+
 from automation.agent.constants import WORKSPACE_PATH
-from automation.agent.workspace.backends import DAIVCompositeBackend
 from automation.agent.workspace.git_manager import GitManager
 from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
@@ -32,7 +33,7 @@ class SandboxWorkspace:
         self.bash = SandboxFileBackend(session)
         # A composite only so the offloading middlewares get an ``artifacts_root`` under /workspace: a bare backend
         # defaults to "/", and the sandbox rejects evictions written there.
-        self.backend = DAIVCompositeBackend(default=self.bash, routes={}, artifacts_root=WORKSPACE_PATH)
+        self.backend = CompositeBackend(default=self.bash, routes={}, artifacts_root=WORKSPACE_PATH)
         self.git = GitManager(SandboxGitRunner(self.bash))
 
     @property

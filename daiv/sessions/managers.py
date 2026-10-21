@@ -108,12 +108,6 @@ class RunManager(models.Manager["Run"]):
             | models.Q(session__scheduled_job__subscribers=user)
         )
 
-    def by_owner(self, user: User) -> models.QuerySet[Run]:
-        """Runs the user owns (ownership only). Async-safe; see :meth:`SessionQuerySet.by_owner`."""
-        if user.is_admin:
-            return self.all()
-        return self.filter(self._owner_q(user)).distinct()
-
     def visible_to(self, user: User) -> models.QuerySet[Run]:
         """Runs the user may view: ownership OR a repository they can currently read.
 

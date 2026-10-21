@@ -235,7 +235,7 @@ class SWERepoClient(RepoClient):
         raise NotImplementedError("SWERepoClient does not support issue comments")
 
     def create_issue_comment(
-        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support issue comments")
@@ -276,13 +276,7 @@ class SWERepoClient(RepoClient):
         raise NotImplementedError("SWERepoClient does not support merge requests")
 
     def create_merge_request_comment(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        reply_to_id: str | None = None,
-        as_thread: bool = False,
-        mark_as_resolved: bool = False,
+        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request comments")
@@ -316,10 +310,6 @@ class SWERepoClient(RepoClient):
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request emojis")
-
-    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support resolving merge request comments")
 
     @cached_property
     def current_user(self) -> User:

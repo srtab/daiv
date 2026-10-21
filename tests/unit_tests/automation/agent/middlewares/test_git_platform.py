@@ -4,6 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from deepagents.backends.composite import CompositeBackend
 from langchain.tools import ToolRuntime
 from langgraph.types import Command
 
@@ -20,7 +21,6 @@ from automation.agent.middlewares.git_platform import (
     _run_gitlab_subcommand,
     _write_output_to_file,
 )
-from automation.agent.workspace.backends import DAIVCompositeBackend
 from codebase.base import GitPlatform
 from tests.unit_tests.conftest import unacquired_backend
 
@@ -357,7 +357,7 @@ class TestGitLabToolInlineDiscussionFallback:
 
 
 def test_large_tool_results_prefix_uses_artifacts_root_for_composite():
-    backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
+    backend = CompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
     assert _large_tool_results_prefix(backend) == "/workspace/large_tool_results"
 
 
@@ -686,13 +686,13 @@ class TestGitHubToolOutputToFileExtra:
 
 class TestGitPlatformMiddlewareWiring:
     def test_builds_gitlab_tool_and_prefix_from_backend(self):
-        backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
+        backend = CompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
         mw = GitPlatformMiddleware(git_platform=GitPlatform.GITLAB, backend=backend)
         assert mw._large_tool_results_prefix == "/workspace/large_tool_results"
         assert [t.name for t in mw.tools] == ["gitlab"]
 
     def test_builds_github_tool(self):
-        backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
+        backend = CompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
         mw = GitPlatformMiddleware(git_platform=GitPlatform.GITHUB, backend=backend)
         assert [t.name for t in mw.tools] == ["gh"]
 
@@ -700,7 +700,7 @@ class TestGitPlatformMiddlewareWiring:
         """Invoking the closure-built gitlab tool (not the underscore helper) must write through
         the middleware's own backend, at the prefix derived from that backend's artifacts_root —
         proving the closure captured and forwarded both ``backend`` and ``large_tool_results_prefix``."""
-        backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
+        backend = CompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
         backend.awrite = AsyncMock(return_value=Mock(error=None))
         mw = GitPlatformMiddleware(git_platform=GitPlatform.GITLAB, backend=backend)
 

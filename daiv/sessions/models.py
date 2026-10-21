@@ -36,11 +36,6 @@ class RunStatus(models.TextChoices):
     def terminal(cls) -> frozenset[str]:
         return frozenset({cls.SUCCESSFUL, cls.WAITING_INPUT, cls.FAILED})
 
-    @classmethod
-    def completed(cls) -> frozenset[str]:
-        """Terminal statuses that close the work, unlike ``WAITING_INPUT``, which waits for the user's answer."""
-        return frozenset({cls.SUCCESSFUL, cls.FAILED})
-
 
 class SessionOrigin(models.TextChoices):
     """How a session (or an individual run) was triggered.
@@ -371,12 +366,6 @@ class Run(models.Model):
         if schedule is not None:
             return schedule.muted
         return False  # non-scheduled runs notify unless the run itself is muted
-
-    @property
-    def is_retryable(self) -> bool:
-        return self.status in RunStatus.completed() and self.trigger_type not in (
-            SessionOrigin.webhooks() | {SessionOrigin.CHAT}
-        )
 
     @property
     def duration(self) -> float | None:

@@ -1,26 +1,27 @@
-"""The ``/workspace`` file backends: deepagents' disk and composite backends with DAIV's extensions, the disk run's
-composite and the fence that keeps its file tools inside it."""
+"""The ``/workspace`` file backends: deepagents' disk backend with DAIV's regex grep, the disk run's composite and the
+fence that keeps its file tools inside it."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-import stat
 import time
-from pathlib import Path
-from typing import Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING
 
 import wcmatch.glob as wcglob
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import DEFAULT_GREP_TIMEOUT, FilesystemBackend
-from deepagents.backends.protocol import BackendProtocol, DeleteResult, EditResult, GrepMatch, GrepResult, WriteResult
+from deepagents.backends.protocol import DeleteResult, EditResult, GrepMatch, GrepResult, WriteResult
 from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
 
 from automation.agent.constants import REPO_PATH, TMP_PATH, WORKSPACE_PATH
 
 # Through DAIV's middleware module, whose import makes the permission globs below match dot paths.
 from automation.agent.middlewares.file_system import FilesystemPermission
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger("daiv.tools")
 
@@ -52,49 +53,8 @@ WORKSPACE_FENCE_PERMISSIONS = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Backends
-#
-# Thin daiv-side extensions to deepagents' backends. Two methods that
-# ``BackendProtocol`` doesn't expose:
-#
-# - ``unlink(path)``: drop a single file (``Path.unlink`` under the hood).
-# - ``stat_mode(path)``: report a file's POSIX mode bits.
-#
-# ``DAIVBackendProtocol`` formalises the surface and ``DAIVCompositeBackend`` asserts
-# every routed backend implements it at construction time, so a new backend is a
-# matter of subclassing the deepagents primitive and supplying these two methods.
-#
-# ``unlink`` is deliberately not named ``delete``: deepagents 0.7 added its own
-# ``delete``/``adelete`` to ``BackendProtocol``, and ``adelete`` delegates to
-# ``self.delete`` via ``asyncio.to_thread`` — an async override would be handed back
-# as an un-awaited coroutine. Upstream's ``delete`` is also recursive over directories,
-# which the sandbox's file-only ``fs_delete`` RPC cannot honour.
-# ---------------------------------------------------------------------------
-
-
 class DAIVFilesystemBackend(FilesystemBackend):
-    """``FilesystemBackend`` plus DAIV's two backend-protocol extensions
-    (``unlink`` and ``stat_mode``)."""
-
-    def _to_path(self, virtual_path: str) -> Path:
-        return Path(self._resolve_path(virtual_path))
-
-    async def unlink(self, virtual_path: str) -> bool:
-        try:
-            await asyncio.to_thread(self._to_path(virtual_path).unlink, missing_ok=True)
-        except OSError:
-            logger.exception("disk unlink failed for %s", virtual_path)
-            return False
-        return True
-
-    async def stat_mode(self, virtual_path: str) -> int:
-        try:
-            st = await asyncio.to_thread(self._to_path(virtual_path).stat)
-        except OSError:
-            logger.exception("disk stat failed for %s; mirroring with 0o644 fallback", virtual_path)
-            return 0o644
-        return stat.S_IMODE(st.st_mode)
+    """``FilesystemBackend`` with a regex ``agrep``."""
 
     async def agrep(
         self,
@@ -258,7 +218,7 @@ class DAIVFilesystemBackend(FilesystemBackend):
         if file_errors:
             # A per-file read failure (permissions, a file unlinked mid-walk, transient I/O) is not
             # agent-actionable. When usable matches survive, return them clean and keep the failures
-            # in the operator logs rather than setting ``GrepResult.error`` — ``DAIVCompositeBackend``
+            # in the operator logs rather than setting ``GrepResult.error`` — ``CompositeBackend``
             # ``.agrep`` treats a set ``error`` as fatal and would drop matches from the *other* routed
             # backends (and the tool marks the call failed). Only when nothing matched do we surface,
             # so an empty-because-unreadable result isn't mistaken for a genuine zero-match. See the
@@ -307,73 +267,7 @@ class SkillsCacheBackend(DAIVFilesystemBackend):
         return DeleteResult(error=f"Error deleting '{file_path}': {_SKILLS_READ_ONLY}")
 
 
-@runtime_checkable
-class DAIVBackendProtocol(Protocol):
-    """The two methods DAIV adds on top of ``BackendProtocol``: ``unlink`` (drop a single
-    file) and ``stat_mode`` (report POSIX mode bits).
-
-    The composite asserts on this shape so a misconfigured route fails loudly at
-    construction time instead of with a runtime ``AttributeError`` on first unlink.
-    Defined as its own ``Protocol`` rather than extending ``BackendProtocol`` because
-    deepagents' base isn't a typing ``Protocol``.
-    """
-
-    async def unlink(self, virtual_path: str) -> bool: ...
-
-    async def stat_mode(self, virtual_path: str) -> int: ...
-
-
-def _require_daiv_backend(backend: BackendProtocol, label: str) -> None:
-    """Raise ``TypeError`` unless ``backend`` implements ``DAIVBackendProtocol``.
-
-    A silent ``AttributeError`` on the first ``unlink``/``stat_mode`` is worse than a
-    loud failure at wiring time, so both the constructor and ``add_route`` gate on this.
-    """
-    if not isinstance(backend, DAIVBackendProtocol):
-        raise TypeError(
-            f"{label} requires a backend implementing DAIVBackendProtocol (unlink + stat_mode); "
-            f"{type(backend).__name__} does not."
-        )
-
-
-class DAIVCompositeBackend(CompositeBackend):
-    """``CompositeBackend`` with the two DAIV extensions (``unlink``/``stat_mode``) and a
-    ``resolve_backend_for`` helper for callers that need to dispatch on the underlying
-    backend type (``isinstance``-style routing — e.g. the gitignore guard).
-
-    Routing-aware ``unlink``/``stat_mode`` strip the route prefix before delegating, so
-    underlying backends see the same key shape they would receive through any other
-    composite-routed call (``aupload_files``, ``adownload_files``, etc.).
-
-    Asserts on construction that every wired backend implements ``DAIVBackendProtocol``;
-    silent ``AttributeError`` on first rollback is worse than a startup crash.
-    """
-
-    def __init__(
-        self, default: BackendProtocol, routes: dict[str, BackendProtocol], *, artifacts_root: str = "/"
-    ) -> None:
-        for label, backend in (("default", default), *routes.items()):
-            _require_daiv_backend(backend, f"DAIVCompositeBackend route {label!r}")
-        super().__init__(default=default, routes=routes, artifacts_root=artifacts_root)
-
-    async def unlink(self, virtual_path: str) -> bool:
-        backend, stripped = self._get_backend_and_key(virtual_path)
-        return await cast("DAIVBackendProtocol", backend).unlink(stripped)
-
-    async def stat_mode(self, virtual_path: str) -> int:
-        backend, stripped = self._get_backend_and_key(virtual_path)
-        return await cast("DAIVBackendProtocol", backend).stat_mode(stripped)
-
-    def resolve_backend_for(self, virtual_path: str) -> BackendProtocol:
-        """Return the underlying backend that owns ``virtual_path``.
-
-        Used by callers that need to dispatch on the underlying backend shape.
-        """
-        backend, _ = self._get_backend_and_key(virtual_path)
-        return backend
-
-
-def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS_CACHE_PATH) -> DAIVCompositeBackend:
+def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS_CACHE_PATH) -> CompositeBackend:
     """Build the disk-backed composite that serves the unified ``/workspace`` namespace.
 
     Routes:
@@ -391,7 +285,7 @@ def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS
     repo_backend = RepoFilesystemBackend(root_dir=clone_dir, virtual_mode=True)
     skills_backend = SkillsCacheBackend(root_dir=skills_cache, virtual_mode=True)
     scratch_backend = DAIVFilesystemBackend(root_dir=clone_dir.parent / "scratch", virtual_mode=True)
-    return DAIVCompositeBackend(
+    return CompositeBackend(
         default=scratch_backend,
         routes={f"{REPO_PATH}/": repo_backend, f"{SKILLS_PATH}/": skills_backend},
         artifacts_root=WORKSPACE_PATH,
