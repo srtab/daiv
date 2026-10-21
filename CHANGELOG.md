@@ -109,6 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed concurrent GitHub API calls able to send each other's request: the GitHub client is shared by the whole process, and PyGithub kept each request on the shared connection between building and sending it, so two calls at once, such as two webhooks, could both send the same request and one of them act on the other's response.
 - Fixed webhook duplicate suppression never taking effect. Webhook tasks are enqueued asynchronously and the deduplicating task backend only checked synchronous enqueues, so a redelivered webhook, or an edit to a GitLab merge request comment or a GitHub comment that mentioned DAIV, each started another run. They now reuse the first one, while every new mention, including a reply in the same GitLab discussion, still starts its own run.
 - Fixed Claude models on OpenRouter running without extended thinking. The prompt-caching middleware sends `cache_control` in a per-call `extra_body`, which replaced the model's own and dropped its `reasoning` setting from every agent request.
 - Fixed run costs and the chat context meter ignoring cached tokens when OpenRouter serves a call from a priority ("fast") endpoint: langchain-openai renames the cache counts for those responses, so every cached token was priced at the full input rate. Affected runs were reported at up to five times their real cost.

@@ -55,7 +55,7 @@ class RepoHandle:
     repo_id: str
     client: RepoClient = field(compare=False, repr=False)
     """The run's platform client, built or handed in once by :func:`set_runtime_ctx`: the agent's client calls go
-    through it rather than through ``RepoClient.create_instance``. Thread-safety is as ``create_instance`` documents."""
+    through it rather than through ``RepoClient.create_instance``."""
     repository: Repository
     gitrepo: Repo
     config: RepositoryConfig

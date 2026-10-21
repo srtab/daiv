@@ -1,4 +1,19 @@
-from codebase.clients.github.utils import extract_last_command_from_github_logs, strip_iso_timestamps
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import Mock, patch
+
+import pytest
+import requests
+from github import Github
+from github.Requester import Requester
+
+from codebase.clients.github.utils import (
+    PerThreadHTTPConnection,
+    PerThreadHTTPSConnection,
+    extract_last_command_from_github_logs,
+    strip_iso_timestamps,
+    use_per_thread_connections,
+)
 
 
 def test_strip_iso_timestamps():
@@ -85,3 +100,31 @@ def test_extract_last_command_empty_log():
     """Test that _extract_last_command_from_github_logs handles empty logs."""
     result = extract_last_command_from_github_logs("")
     assert result == ""
+
+
+@pytest.mark.parametrize("connection_class", [PerThreadHTTPConnection, PerThreadHTTPSConnection])
+def test_threads_sharing_a_connection_each_send_their_own_request(connection_class):
+    connection = connection_class("api.github.com")
+    both_requested = threading.Barrier(2, timeout=5)
+
+    def call(path):
+        connection.request("GET", path, None, {})
+        both_requested.wait()
+        return connection.getresponse().read()
+
+    def echo(session, url, **kwargs):
+        return Mock(status_code=200, headers={}, text=url)
+
+    with patch.object(requests.Session, "get", new=echo), ThreadPoolExecutor(2) as pool:
+        first, second = pool.map(call, ["/first", "/second"])
+
+    assert (first.endswith("/first"), second.endswith("/second")) == (True, True)
+
+
+def test_requesters_built_after_the_switch_connect_per_thread(monkeypatch):
+    for name in ("_Requester__httpConnectionClass", "_Requester__httpsConnectionClass"):
+        monkeypatch.setattr(Requester, name, getattr(Requester, name))
+
+    use_per_thread_connections()
+
+    assert Github().requester._Requester__connectionClass is PerThreadHTTPSConnection  # noqa: SLF001

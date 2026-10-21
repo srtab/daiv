@@ -548,9 +548,7 @@ class RepoClient(abc.ABC):
         """
         Get the client of the configured git platform (``CODEBASE_CLIENT``).
 
-        Cached, so one instance serves the whole process, from any thread. Calls in sequence are safe across threads;
-        concurrent ones on a GitHub client are not, since PyGithub keeps each request on its shared connection between
-        sending and reading it.
+        Cached, so one instance serves the whole process, concurrently from any thread.
 
         Returns:
             The repository client instance.
