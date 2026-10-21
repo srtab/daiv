@@ -4,6 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from deepagents.backends.composite import CompositeBackend
 from langchain.tools import ToolRuntime
 from langgraph.types import Command
 
@@ -20,7 +21,6 @@ from automation.agent.middlewares.git_platform import (
     _run_gitlab_subcommand,
     _write_output_to_file,
 )
-from automation.agent.workspace.backends import DAIVCompositeBackend
 from codebase.base import GitPlatform
 from tests.unit_tests.conftest import unacquired_backend
 
@@ -215,21 +215,19 @@ class TestGitLabToolInlineDiscussionFallback:
     async def test_uses_python_api_when_position_flag_present(self):
         runtime = _make_gitlab_runtime()
 
-        with patch("automation.agent.middlewares.git_platform.RepoClient") as mock_rc:
-            mock_rc.create_instance.return_value.create_merge_request_inline_discussion.return_value = "disc-1"
+        runtime.context.repo.client.create_merge_request_inline_discussion.return_value = "disc-1"
 
-            position_json = json.dumps(VALID_POSITION)
-            result = await _run_gl(
-                f'project-merge-request-discussion create --mr-iid 10 --body "nice" '
-                f"--position {json.dumps(position_json)}",
-                runtime,
-            )
+        position_json = json.dumps(VALID_POSITION)
+        result = await _run_gl(
+            f'project-merge-request-discussion create --mr-iid 10 --body "nice" --position {json.dumps(position_json)}',
+            runtime,
+        )
 
         assert isinstance(result, str)
         data = json.loads(result)
         assert data["id"] == "disc-1"
         assert data["status"] == "created"
-        mock_rc.create_instance.return_value.create_merge_request_inline_discussion.assert_called_once_with(
+        runtime.context.repo.client.create_merge_request_inline_discussion.assert_called_once_with(
             "group/repo", 10, "nice", VALID_POSITION
         )
 
@@ -244,10 +242,9 @@ class TestGitLabToolInlineDiscussionFallback:
         # Wrap with shell single-quotes so shlex.split preserves the JSON as one token.
         subcommand = f"project-merge-request-discussion create --mr-iid 20 --body body '--position={position_json}'"
 
-        with patch("automation.agent.middlewares.git_platform.RepoClient") as mock_rc:
-            mock_rc.create_instance.return_value.create_merge_request_inline_discussion.return_value = "disc-eq"
+        runtime.context.repo.client.create_merge_request_inline_discussion.return_value = "disc-eq"
 
-            result = await _run_gl(subcommand, runtime)
+        result = await _run_gl(subcommand, runtime)
 
         assert json.loads(result)["id"] == "disc-eq"
 
@@ -260,7 +257,6 @@ class TestGitLabToolInlineDiscussionFallback:
         mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
 
         with (
-            patch("automation.agent.middlewares.git_platform.RepoClient") as mock_rc,
             patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
             patch("automation.agent.middlewares.git_platform.settings", mock_settings),
         ):
@@ -272,17 +268,16 @@ class TestGitLabToolInlineDiscussionFallback:
             result = await _run_gl('project-merge-request-discussion create --mr-iid 10 --body "hi"', runtime)
 
         assert result == "cli-output"
-        mock_rc.create_instance.return_value.create_merge_request_inline_discussion.assert_not_called()
+        runtime.context.repo.client.create_merge_request_inline_discussion.assert_not_called()
         create_proc.assert_called_once()
 
     async def test_error_when_mr_iid_missing(self):
         runtime = _make_gitlab_runtime()
         position_json = json.dumps(VALID_POSITION)
 
-        with patch("automation.agent.middlewares.git_platform.RepoClient"):
-            result = await _run_gl(
-                f'project-merge-request-discussion create --body "b" --position {json.dumps(position_json)}', runtime
-            )
+        result = await _run_gl(
+            f'project-merge-request-discussion create --body "b" --position {json.dumps(position_json)}', runtime
+        )
 
         assert result.startswith("error:")
         assert "--mr-iid" in result
@@ -291,10 +286,9 @@ class TestGitLabToolInlineDiscussionFallback:
         runtime = _make_gitlab_runtime()
         position_json = json.dumps(VALID_POSITION)
 
-        with patch("automation.agent.middlewares.git_platform.RepoClient"):
-            result = await _run_gl(
-                f"project-merge-request-discussion create --mr-iid 5 --position {json.dumps(position_json)}", runtime
-            )
+        result = await _run_gl(
+            f"project-merge-request-discussion create --mr-iid 5 --position {json.dumps(position_json)}", runtime
+        )
 
         assert result.startswith("error:")
         assert "--body" in result
@@ -302,10 +296,9 @@ class TestGitLabToolInlineDiscussionFallback:
     async def test_error_when_position_is_invalid_json(self):
         runtime = _make_gitlab_runtime()
 
-        with patch("automation.agent.middlewares.git_platform.RepoClient"):
-            result = await _run_gl(
-                'project-merge-request-discussion create --mr-iid 5 --body "b" --position "not-json"', runtime
-            )
+        result = await _run_gl(
+            'project-merge-request-discussion create --mr-iid 5 --body "b" --position "not-json"', runtime
+        )
 
         assert result.startswith("error:")
         assert "--position" in result
@@ -313,10 +306,9 @@ class TestGitLabToolInlineDiscussionFallback:
     async def test_error_when_position_is_not_an_object(self):
         runtime = _make_gitlab_runtime()
 
-        with patch("automation.agent.middlewares.git_platform.RepoClient"):
-            result = await _run_gl(
-                'project-merge-request-discussion create --mr-iid 5 --body "b" --position "[1,2,3]"', runtime
-            )
+        result = await _run_gl(
+            'project-merge-request-discussion create --mr-iid 5 --body "b" --position "[1,2,3]"', runtime
+        )
 
         assert result.startswith("error:")
 
@@ -324,16 +316,12 @@ class TestGitLabToolInlineDiscussionFallback:
         runtime = _make_gitlab_runtime()
         position_json = json.dumps(VALID_POSITION)
 
-        with patch("automation.agent.middlewares.git_platform.RepoClient") as mock_rc:
-            mock_rc.create_instance.return_value.create_merge_request_inline_discussion.side_effect = RuntimeError(
-                "GitLab 422"
-            )
+        runtime.context.repo.client.create_merge_request_inline_discussion.side_effect = RuntimeError("GitLab 422")
 
-            result = await _run_gl(
-                f'project-merge-request-discussion create --mr-iid 10 --body "b" '
-                f"--position {json.dumps(position_json)}",
-                runtime,
-            )
+        result = await _run_gl(
+            f'project-merge-request-discussion create --mr-iid 10 --body "b" --position {json.dumps(position_json)}',
+            runtime,
+        )
 
         assert result.startswith("error:")
         assert "GitLab 422" in result
@@ -349,15 +337,14 @@ class TestGitLabToolInlineDiscussionFallback:
     async def test_error_when_mr_iid_not_integer(self, subcommand):
         runtime = _make_gitlab_runtime()
 
-        with patch("automation.agent.middlewares.git_platform.RepoClient"):
-            result = await _run_gl(subcommand, runtime)
+        result = await _run_gl(subcommand, runtime)
 
         assert result.startswith("error:")
         assert "--mr-iid" in result
 
 
 def test_large_tool_results_prefix_uses_artifacts_root_for_composite():
-    backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
+    backend = CompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
     assert _large_tool_results_prefix(backend) == "/workspace/large_tool_results"
 
 
@@ -686,13 +673,13 @@ class TestGitHubToolOutputToFileExtra:
 
 class TestGitPlatformMiddlewareWiring:
     def test_builds_gitlab_tool_and_prefix_from_backend(self):
-        backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
+        backend = CompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
         mw = GitPlatformMiddleware(git_platform=GitPlatform.GITLAB, backend=backend)
         assert mw._large_tool_results_prefix == "/workspace/large_tool_results"
         assert [t.name for t in mw.tools] == ["gitlab"]
 
     def test_builds_github_tool(self):
-        backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
+        backend = CompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
         mw = GitPlatformMiddleware(git_platform=GitPlatform.GITHUB, backend=backend)
         assert [t.name for t in mw.tools] == ["gh"]
 
@@ -700,7 +687,7 @@ class TestGitPlatformMiddlewareWiring:
         """Invoking the closure-built gitlab tool (not the underscore helper) must write through
         the middleware's own backend, at the prefix derived from that backend's artifacts_root —
         proving the closure captured and forwarded both ``backend`` and ``large_tool_results_prefix``."""
-        backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
+        backend = CompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
         backend.awrite = AsyncMock(return_value=Mock(error=None))
         mw = GitPlatformMiddleware(git_platform=GitPlatform.GITLAB, backend=backend)
 
@@ -815,16 +802,15 @@ class TestPublishedTextIsRepoRelative:
 
     async def test_inline_discussion_body_is_repo_relative(self):
         runtime = _make_gitlab_runtime()
-        with patch("automation.agent.middlewares.git_platform.RepoClient") as mock_rc:
-            mock_rc.create_instance.return_value.create_merge_request_inline_discussion.return_value = "disc-1"
-            position_json = json.dumps(VALID_POSITION)
-            await _run_gl(
-                f'project-merge-request-discussion create --mr-iid 10 --body "see /workspace/repo/src/foo.py" '
-                f"--position {json.dumps(position_json)}",
-                runtime,
-            )
+        runtime.context.repo.client.create_merge_request_inline_discussion.return_value = "disc-1"
+        position_json = json.dumps(VALID_POSITION)
+        await _run_gl(
+            f'project-merge-request-discussion create --mr-iid 10 --body "see /workspace/repo/src/foo.py" '
+            f"--position {json.dumps(position_json)}",
+            runtime,
+        )
 
-        mock_rc.create_instance.return_value.create_merge_request_inline_discussion.assert_called_once_with(
+        runtime.context.repo.client.create_merge_request_inline_discussion.assert_called_once_with(
             "group/repo", 10, "see src/foo.py", VALID_POSITION
         )
 

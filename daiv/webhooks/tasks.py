@@ -57,9 +57,8 @@ async def address_issue_task(
     use_max: bool,
     mention_comment_id: str | None = None,
     mention_note_id: int | None = None,
-    ref: str | None = None,
     sandbox_environment_id: str | None = None,
-) -> AgentResult | None:
+) -> AgentResult:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
 
@@ -72,7 +71,6 @@ async def address_issue_task(
         mention_comment_id (str | None): The mention comment id. Defaults to None.
         mention_note_id (int | None): The note that mentioned DAIV, which the run answers; with ``repo_id`` and the
             iid, the run's dedup key, so each reply in one GitLab discussion gets its own run.
-        ref (str | None): The ref to clone. Defaults to the session's working branch, else the repository default.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
     """
     from webhooks.managers.issue_addressor import IssueAddressorManager
@@ -81,13 +79,13 @@ async def address_issue_task(
     issue = client.get_issue(repo_id, issue_iid)
     # Unguarded on purpose: degrading a failed read to "" re-clones the default branch, which is the exact loss
     # ``Session.ref`` exists to prevent.
-    effective_ref = ref or await aget_session_ref(thread_id=thread_id)
+    session_ref = await aget_session_ref(thread_id=thread_id)
     return await IssueAddressorManager.address_issue(
         repo_id=repo_id,
         issue=issue,
         mention_comment_id=mention_comment_id,
         mention_note_id=mention_note_id,
-        ref=effective_ref or None,
+        ref=session_ref or None,
         thread_id=thread_id,
         sandbox_env_id=sandbox_environment_id,
         run_id=await aget_task_run_id(context.task_result.id),

@@ -3,11 +3,9 @@ from datetime import UTC
 
 from crontask import cron
 from django_tasks import task
-from github.GithubException import GithubException
-from gitlab.exceptions import GitlabError
 
-from codebase.base import GitPlatform
 from codebase.clients import RepoClient
+from codebase.clients.base import PLATFORM_ERRORS
 from codebase.conf import settings as codebase_settings
 from core.utils import locked_task
 
@@ -42,9 +40,6 @@ def sync_repository_access_cron_task():
     from django.utils import timezone
 
     from codebase.models import RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
-
-    if codebase_settings.CLIENT == GitPlatform.SWE:
-        return
 
     provider = codebase_settings.CLIENT.value
     state, _ = RepositoryAccessSyncState.objects.get_or_create(pk=RepositoryAccessSyncState.SINGLETON_PK)
@@ -221,7 +216,7 @@ async def record_merge_metrics_task(
         lines_added = diff_stats.lines_added
         lines_removed = diff_stats.lines_removed
         files_changed = diff_stats.files_changed
-    except GitlabError, GithubException, OSError:
+    except PLATFORM_ERRORS:
         diff_stats_failed = True
         logger.exception("Failed to fetch diff stats for %s!%d on %s", repo_id, merge_request_iid, platform)
 
@@ -230,7 +225,7 @@ async def record_merge_metrics_task(
     bot_email: str | None = None
     try:
         bot_email = client.get_bot_commit_email()
-    except GitlabError, GithubException, OSError:
+    except PLATFORM_ERRORS:
         logger.exception("Failed to resolve bot email for %s on %s", repo_id, platform)
 
     # Fetch pre-squash commits for attribution
@@ -258,7 +253,7 @@ async def record_merge_metrics_task(
         if diff_stats_failed:
             lines_added = daiv_lines_added + human_lines_added
             lines_removed = daiv_lines_removed + human_lines_removed
-    except GitlabError, GithubException, OSError:
+    except PLATFORM_ERRORS:
         logger.exception("Failed to fetch commits for %s!%d on %s", repo_id, merge_request_iid, platform)
 
     # Parse merged_at timestamp

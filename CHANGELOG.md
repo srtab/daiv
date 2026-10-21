@@ -112,6 +112,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed a job left `READY` forever when its submitter stopped before queueing it (a client that disconnected mid-submit, for example), which on an API or MCP thread also kept every later job on that thread queued. The `sync_stuck_runs` sweep now fails such a job ten minutes after it was created and releases its thread's queue.
+- Fixed concurrent GitHub API calls able to send each other's request: the GitHub client is shared by the whole process, and PyGithub kept each request on the shared connection between building and sending it, so two calls at once, such as two webhooks, could both send the same request and one of them act on the other's response.
+- Fixed the Jobs API and MCP `get_job_status` cutting a job's `result` at 2,000 characters. It now returns the agent's whole last response.
+- Fixed a job, schedule or webhook run on the default model pinning its session to the model it resolved, so a chat turn on that session later failed with "the model pinned to this thread is no longer available" or a `409` for a model nobody chose. The resolved model is now recorded on the run only, and the session list shows the model the latest run used.
+- Fixed an issue run that could not start because no model is configured ending as an empty success: it now fails, like a merge request comment run, so it shows as failed and notifies.
+- Fixed the dashboard's "with code changes" count leaving out chat runs.
+- Fixed the session page's live transcript polling for a background run: a user who can read the repository but owns nothing in the session got `404`s, a session whose transcript expired dropped its failed runs on the first poll, and a run whose worker crashed kept the page polling forever.
 - Fixed webhook duplicate suppression never taking effect. Webhook tasks are enqueued asynchronously and the deduplicating task backend only checked synchronous enqueues, so a redelivered webhook, or an edit to a GitLab merge request comment or a GitHub comment that mentioned DAIV, each started another run. They now reuse the first one, while every new mention, including a reply in the same GitLab discussion, still starts its own run.
 - Fixed Claude models on OpenRouter running without extended thinking. The prompt-caching middleware sends `cache_control` in a per-call `extra_body`, which replaced the model's own and dropped its `reasoning` setting from every agent request.
 - Fixed run costs and the chat context meter ignoring cached tokens when OpenRouter serves a call from a priority ("fast") endpoint: langchain-openai renames the cache counts for those responses, so every cached token was priced at the full input rate. Affected runs were reported at up to five times their real cost.
@@ -164,6 +170,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Breaking:** `CODEBASE_CLIENT=swe` is no longer accepted; only `gitlab` and `github` are. The SWE-bench client now lives in `evals/` and the eval passes it to each run itself (run the eval with `python -m evals.swebench`).
 - The unused `GET /api/codebase/repositories/search` endpoint, along with the `repoSearch` Alpine component it fed. Both were superseded by the HTMX repository picker and had no remaining callers.
 - **Breaking:** Removed the `mcp-proxy` container, its API configuration endpoint, and the `MCP_PROXY_HOST`/`MCP_PROXY_ADDR`/`MCP_PROXY_AUTH_TOKEN`/`MCP_CONFIG_API_KEY` settings. MCP servers are managed as database rows from the dashboard; existing `docker-compose.yml` and stack files must be updated.
 - Removed the `sandbox:` block from `.daiv.yml` — sandbox runtime is configured exclusively through Sandbox Environments in the dashboard.

@@ -29,14 +29,14 @@ _BARE_TODO_CTOR = re.compile(r"(?<![A-Za-z0-9_])TodoListMiddleware\(")
 def test_graph_gates_sandbox_middleware_on_the_workspace_shell():
     src = inspect.getsource(graph_module)
     assert "bash_tool_enabled = workspace.bash is not None" in src
-    assert "*([SandboxMiddleware(agent_root=agent_root, workspace=workspace)] if bash_tool_enabled else [])" in src
+    assert "*([SandboxMiddleware(workspace=workspace)] if bash_tool_enabled else [])" in src
 
 
 def test_general_purpose_subagent_gates_sandbox_middleware_on_the_workspace_shell():
     src = inspect.getsource(subagents_module)
     assert "bash_tool_enabled = workspace.bash is not None" in src
     assert "if bash_tool_enabled:" in src
-    assert "SandboxMiddleware(agent_root=REPO_PATH, workspace=workspace)" in src
+    assert "SandboxMiddleware(workspace=workspace)" in src
 
 
 def test_global_skills_source_is_workspace_skills():
@@ -52,7 +52,7 @@ def test_middleware_order_slash_then_sandbox_then_skills():
     # and SkillsMiddleware must run AFTER SandboxMiddleware (so the backend is bound + seeded before
     # discovery reads it).
     slash = src.index("SlashCommandMiddleware(")
-    sandbox = src.index("SandboxMiddleware(agent_root=agent_root, workspace=workspace)")
+    sandbox = src.index("SandboxMiddleware(workspace=workspace)")
     skills = src.index("SkillsMiddleware(")
     assert slash < sandbox < skills, "order must be SlashCommandMiddleware -> SandboxMiddleware -> SkillsMiddleware"
 
@@ -83,7 +83,7 @@ def test_git_middleware_registered_after_sandbox_middleware():
     # before_agent hooks run in registration order, so GitMiddleware must come after SandboxMiddleware — otherwise
     # its pre-run check would run git in a session nothing has acquired yet.
     src = inspect.getsource(graph_module)
-    sandbox = src.index("SandboxMiddleware(agent_root=agent_root")
+    sandbox = src.index("SandboxMiddleware(workspace=workspace)")
     git = src.index("GitMiddleware(")
     assert sandbox < git, "GitMiddleware must be registered after SandboxMiddleware"
 

@@ -16,7 +16,13 @@ from mcp_api.server import (
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
-from tests.unit_tests.sessions.conftest import FakeRun, amake_job_session, fake_acreate_run, make_artifact
+from tests.unit_tests.sessions.conftest import (
+    FakeRun,
+    amake_job_session,
+    fake_acreate_run,
+    make_artifact,
+    make_task_result,
+)
 from tests.unit_tests.webhooks.conftest import make_db_task_result
 
 
@@ -314,7 +320,7 @@ async def test_submit_job_wait_success():
             finished = MagicMock()
             finished.id = created_runs[0].id
             finished.status = RunStatus.SUCCESSFUL
-            finished.result_summary = "All done"
+            finished.response_text = "All done"
             finished.merge_request_web_url = ""
             finished.session_id = None
             finished.created_at = now
@@ -442,7 +448,7 @@ async def test_get_job_status_wait_already_complete():
     mock_run = MagicMock()
     mock_run.id = uuid.UUID(job_id)
     mock_run.status = RunStatus.SUCCESSFUL
-    mock_run.result_summary = "Done"
+    mock_run.response_text = "Done"
     mock_run.merge_request_web_url = ""
     mock_run.session_id = None
     mock_run.created_at = now
@@ -480,7 +486,7 @@ async def test_get_job_status_wait_polls_until_complete():
     finished_result = MagicMock()
     finished_result.id = uuid.UUID(job_id)
     finished_result.status = RunStatus.SUCCESSFUL
-    finished_result.result_summary = "Done"
+    finished_result.response_text = "Done"
     finished_result.merge_request_web_url = ""
     finished_result.session_id = None
     finished_result.created_at = now
@@ -515,7 +521,7 @@ async def test_get_job_status_wait_not_found_then_appears():
     finished_result = MagicMock()
     finished_result.id = uuid.UUID(job_id)
     finished_result.status = RunStatus.SUCCESSFUL
-    finished_result.result_summary = "Done"
+    finished_result.response_text = "Done"
     finished_result.merge_request_web_url = ""
     finished_result.session_id = None
     finished_result.created_at = now
@@ -866,6 +872,29 @@ async def test_get_job_status_lists_artifacts(_default_mcp_user):
     )
     assert data["artifacts"][0]["download_url"].endswith("/raw/?download=1")
     assert data["artifacts"][0]["kind"] == "markdown"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_returns_the_full_response_past_the_summary_cap(_default_mcp_user):
+    from asgiref.sync import sync_to_async
+
+    response_text = "x" * 2500
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, repo_id="a/b", user=_default_mcp_user
+    )
+    run = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.MCP_JOB,
+        repo_id="a/b",
+        user=_default_mcp_user,
+        status=RunStatus.SUCCESSFUL,
+        result_summary=response_text[:2000],
+        task_result=await sync_to_async(make_task_result)(return_value={"response": response_text}),
+    )
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data["result"] == response_text
 
 
 async def _run_with_artifact(user, **run_kwargs) -> tuple[Run, object]:

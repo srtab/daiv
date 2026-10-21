@@ -132,13 +132,8 @@ async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     assert (outcome.agent_result["response"], outcome.agent_result["question"]) == ("done", None)
     assert outcome.snapshot is agent.aget_state.return_value
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
-    stack.build_result.assert_awaited_once_with(
-        agent,
-        stack.langsmith.return_value,
-        response="done",
-        usage={},
-        snapshot=agent.aget_state.return_value,
-        question=None,
+    stack.build_result.assert_called_once_with(
+        response="done", usage={}, snapshot=agent.aget_state.return_value, question=None
     )
     on_success.assert_awaited_once_with(outcome)
     on_failure.assert_not_awaited()
@@ -314,7 +309,8 @@ async def _job_run() -> tuple[Session, Run]:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("error", [None, RuntimeError("agent blew up")], ids=["succeeds", "fails"])
-async def test_a_run_records_the_model_it_resolved(error):
+async def test_a_run_records_the_model_it_resolved_on_the_run_only(error):
+    """``Session.agent_model`` is the thread's pin, which chat and CI fix runs reuse; an Auto run must not set it."""
     session, run = await _job_run()
     agent = _agent()
     agent.ainvoke.side_effect = error
@@ -324,7 +320,7 @@ async def test_a_run_records_the_model_it_resolved(error):
 
     await session.arefresh_from_db()
     await run.arefresh_from_db()
-    assert (session.agent_model, session.agent_thinking_level) == ("claude-4-7-opus", "medium")
+    assert (session.agent_model, session.agent_thinking_level) == ("", "")
     assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
 
 
@@ -487,7 +483,7 @@ async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
             "sandbox_environment_id": None,
         }
     ]
-    assert stack.build_result.await_args.kwargs["snapshot"] is None
+    assert stack.build_result.call_args.kwargs["snapshot"] is None
     [record] = caplog.records
     assert (record.levelname, record.exc_info[1]) == ("ERROR", error)
     assert "ref sync and the CI watch" in record.getMessage()
@@ -557,14 +553,15 @@ async def test_an_exact_model_chain_replaces_model_resolution(thinking_level):
 
 
 async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
+    repo_client = MagicMock()
     spec = make_spec(
-        context_options={"offline": True, "repo_host": "github.com"}, agent_options={"capture_patch": True}
+        context_options={"offline": True, "repo_client": repo_client}, agent_options={"capture_patch": True}
     )
 
     with agent_stack(_agent()) as stack:
         await execute_run(spec)
 
-    assert (stack.context_kwargs["offline"], stack.context_kwargs["repo_host"]) == (True, "github.com")
+    assert (stack.context_kwargs["offline"], stack.context_kwargs["repo_client"]) == (True, repo_client)
     stack.create_agent.assert_awaited_once_with(
         settings=stack.resolve.return_value,
         ctx=stack.ctx,

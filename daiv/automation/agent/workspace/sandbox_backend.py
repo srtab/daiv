@@ -34,7 +34,6 @@ from automation.agent.constants import WORKSPACE_PATH
 from core.constants import SANDBOX_DOWNLOAD_MAX_BYTES
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
 from core.sandbox.schemas import (
-    FsDeleteRequest,
     FsEditRequest,
     FsError,
     FsErrorCode,
@@ -239,9 +238,7 @@ class SandboxFileBackend(BackendProtocol):
 
     Only the async methods are implemented — the async agent path never calls the
     sync ones (the inherited sync methods raise ``NotImplementedError``; a sync call
-    here would be a programming error). ``unlink`` and ``stat_mode`` round out
-    ``DAIVBackendProtocol``; ``stat_mode`` returns a constant since the sandbox is
-    authoritative (no mirror to a local repo), so exact mode bits are irrelevant.
+    here would be a programming error).
 
     Note: ``awrite`` writes files at a fixed ``0o644`` (the file tools don't carry a mode), so
     an executable bit must be set via ``bash`` (``chmod +x``) in the sandbox, not through the
@@ -502,26 +499,3 @@ class SandboxFileBackend(BackendProtocol):
             else FileDownloadResponse(path=path, error=INVALID_PATH)
             for i, path in enumerate(paths)
         ]
-
-    # -- DAIVBackendProtocol -------------------------------------------------
-    async def unlink(self, virtual_path: str) -> bool:
-        client, session_id = self._require_bound()
-        # ``unlink``'s protocol return is a bare bool with no error channel, so any failure — a
-        # transport fault or a sandbox-reported reason — can only be reported as ``False``. Log it
-        # first in both branches so a failed unlink is diagnosable rather than a silent ``False``.
-        try:
-            resp = await client.fs_delete(session_id, FsDeleteRequest(path=self._abs(virtual_path)))
-        except httpx.HTTPError as exc:
-            logger.warning("Sandbox unlink transport failure for %s: %s", virtual_path, exc)
-            return False
-        if resp.error is not None:
-            logger.warning("Sandbox unlink failed for %s: %s", virtual_path, _fs_error_text(resp.error))
-            return False
-        if not resp.removed:
-            # Idempotent success: the path was already absent. Match ``DAIVFilesystemBackend.unlink``
-            # (``Path.unlink(missing_ok=True)``), which also reports success for a no-op removal.
-            logger.debug("Sandbox unlink: %s was already absent (nothing removed)", virtual_path)
-        return True
-
-    async def stat_mode(self, virtual_path: str) -> int:
-        return 0o644

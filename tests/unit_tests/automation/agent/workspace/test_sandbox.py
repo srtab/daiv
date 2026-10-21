@@ -2,9 +2,9 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from deepagents.backends.composite import CompositeBackend
 
 from automation.agent.constants import WORKSPACE_PATH
-from automation.agent.workspace.backends import DAIVCompositeBackend
 from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, SandboxFileBackend
@@ -21,7 +21,7 @@ def test_the_files_the_shell_and_git_all_reach_the_one_session():
 
     assert workspace.session is session
     assert isinstance(workspace.bash, SandboxFileBackend)
-    assert isinstance(workspace.backend, DAIVCompositeBackend)
+    assert isinstance(workspace.backend, CompositeBackend)
     assert (workspace.backend.default, workspace.backend.routes) == (workspace.bash, {})
     assert workspace.backend.artifacts_root == WORKSPACE_PATH
     assert workspace.git._runner == SandboxGitRunner(workspace.bash)

@@ -10,30 +10,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import httpx
-import requests
 from asgiref.sync import sync_to_async
-from github import GithubException
-from gitlab.exceptions import GitlabError
 
 from codebase.base import MergeRequest
 from codebase.clients import RepoClient
+from codebase.clients.base import PLATFORM_ERRORS, aget_open_merge_request
 from codebase.repo_config import RepositoryConfig
 
 logger = logging.getLogger("daiv.sessions")
-
-# Platform / transport errors that warrant a soft "no MR" fallback. The platform
-# SDKs (python-gitlab, PyGithub) are requests-based, so raw network failures
-# surface as requests exceptions; httpx covers the repo-config fetch inside the
-# same try block. Anything else (bugs, ConfigErrors, AttributeError, etc.)
-# propagates so the caller's error handling can surface it instead of silently
-# masking it as "no MR".
-_PLATFORM_ERRORS: tuple[type[BaseException], ...] = (
-    GitlabError,
-    GithubException,
-    httpx.HTTPError,
-    requests.RequestException,
-)
 
 
 def mr_to_payload(mr: object) -> dict[str, Any] | None:
@@ -70,11 +54,9 @@ async def aget_existing_mr_payload(repo_id: str, ref: str) -> dict[str, Any] | N
         return None
     try:
         config = await sync_to_async(RepositoryConfig.get_config)(repo_id)
-        if ref == config.default_branch:
-            return None
-        client = RepoClient.create_instance()
-        mr = await sync_to_async(client.get_merge_request_by_branches)(repo_id, ref)
-    except _PLATFORM_ERRORS:
-        logger.exception("Failed to look up existing merge request for %s on %s", repo_id, ref)
+    except PLATFORM_ERRORS:
+        logger.exception("Failed to read the repository configuration for %s", repo_id)
         return None
-    return mr_to_payload(mr)
+    if ref == config.default_branch:
+        return None
+    return mr_to_payload(await aget_open_merge_request(RepoClient.create_instance(), repo_id, ref))

@@ -15,7 +15,6 @@ from accounts.utils import PlatformIdentity, aget_platform_identity
 from automation.agent.references import render_agent_context, render_commit_trailers, render_references_block
 from automation.agent.utils import build_langsmith_config, repo_relative_text
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
-from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
@@ -123,7 +122,7 @@ class GitChangePublisher:
         self.ctx = ctx
         self.workspace = workspace
         self.settings = settings
-        self.client = RepoClient.create_instance()
+        self.client = ctx.repo.client
         self.session_links = session_links
 
     async def publish(

@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 from sessions.executor.result import AgentResult, build_agent_result, parse_agent_result
@@ -170,29 +169,27 @@ class TestParseAgentResultUsageFields:
 
 
 class TestBuildAgentResult:
-    async def test_a_merge_request_that_did_not_revive_is_dropped_loudly(self, caplog):
+    def test_a_merge_request_that_did_not_revive_is_dropped_loudly(self, caplog):
         envelope = {"lc": 2, "type": "constructor", "id": ["codebase.base", "MergeRequest"], "kwargs": {}}
         snapshot = SimpleNamespace(values={"merge_request": envelope, "code_changes": True})
 
         with caplog.at_level("ERROR"):
-            result = await build_agent_result(MagicMock(), {}, response="done", snapshot=snapshot)
+            result = build_agent_result(response="done", snapshot=snapshot)
 
         assert (result["merge_request_id"], result["merge_request_web_url"]) == (None, None)
         assert result["code_changes"] is True
         assert "revived as dict" in caplog.text
 
-    async def test_question_round_trips_into_the_result(self):
+    def test_question_round_trips_into_the_result(self):
         snapshot = SimpleNamespace(values={})
 
-        result = await build_agent_result(
-            MagicMock(), {}, response="done", snapshot=snapshot, question={"questions": []}
-        )
+        result = build_agent_result(response="done", snapshot=snapshot, question={"questions": []})
 
         assert result["question"] == {"questions": []}
 
-    async def test_question_defaults_to_none_including_the_snapshot_none_branch(self):
-        with_snapshot = await build_agent_result(MagicMock(), {}, response="done", snapshot=SimpleNamespace(values={}))
-        without_snapshot = await build_agent_result(MagicMock(), {}, response="done", snapshot=None)
+    def test_question_defaults_to_none_including_the_snapshot_none_branch(self):
+        with_snapshot = build_agent_result(response="done", snapshot=SimpleNamespace(values={}))
+        without_snapshot = build_agent_result(response="done", snapshot=None)
 
         assert with_snapshot["question"] is None
         assert without_snapshot["question"] is None

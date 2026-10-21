@@ -13,6 +13,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from asgiref.sync import sync_to_async
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, ConfigDict, Field
@@ -319,11 +320,12 @@ async def _build_job_response_dict(run: Run) -> dict:
     """Build a dict response from a Run (shared by single + batch paths)."""
     error = "Job execution failed." if run.status == RunStatus.FAILED else None
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
+    result = await sync_to_async(lambda: run.response_text)()
     return {
         "job_id": str(run.id),
         "status": str(run.status),
         "thread_id": str(run.session_id) if run.session_id else None,
-        "result": run.result_summary or None,
+        "result": result or None,
         "question": run.question,
         "merge_request_url": run.merge_request_web_url or None,
         "artifacts": [artifact.model_dump() for artifact in artifacts],

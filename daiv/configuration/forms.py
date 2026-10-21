@@ -444,19 +444,8 @@ class SiteConfigurationForm(forms.ModelForm):
         from codebase.base import GitPlatform
         from codebase.conf import settings as codebase_settings
 
-        client = codebase_settings.CLIENT
-        if client == GitPlatform.GITHUB:
+        if codebase_settings.CLIENT == GitPlatform.GITHUB:
             for name in ("auth_gitlab_url", "auth_gitlab_server_url"):
-                self.fields.pop(name, None)
-        elif client != GitPlatform.GITLAB:
-            for name in (
-                "auth_login_enabled",
-                "auth_signup_open",
-                "auth_client_id",
-                "auth_client_secret",
-                "auth_gitlab_url",
-                "auth_gitlab_server_url",
-            ):
                 self.fields.pop(name, None)
 
     def _restrict_to_group(self) -> None:

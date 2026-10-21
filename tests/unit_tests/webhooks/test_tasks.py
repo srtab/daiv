@@ -124,7 +124,7 @@ class TestAddressIssueTaskRef:
     ``tests/unit_tests/sessions/executor/test_run.py``)."""
 
     @staticmethod
-    async def _addressed(*, session_ref: str, ref: str | None = None) -> AsyncMock:
+    async def _addressed(*, session_ref: str) -> AsyncMock:
         client = MagicMock()
         client.get_issue.return_value = MagicMock()
         addressed = AsyncMock(return_value={"response": "", "code_changes": False})
@@ -141,7 +141,6 @@ class TestAddressIssueTaskRef:
                 mention_note_id=5,
                 thread_id="t-1",
                 use_max=False,
-                ref=ref,
                 sandbox_environment_id="e",
             )
 
@@ -157,10 +156,6 @@ class TestAddressIssueTaskRef:
         repository default."""
         addressed = await self._addressed(session_ref="")
         assert addressed.await_args.kwargs["ref"] is None
-
-    async def test_an_explicit_ref_wins_over_the_session(self):
-        addressed = await self._addressed(session_ref="fix/10", ref="release/1.2")
-        assert addressed.await_args.kwargs["ref"] == "release/1.2"
 
     async def test_the_task_hands_the_issue_and_its_run_to_the_addressor(self, run_lookup):
         addressed = await self._addressed(session_ref="")

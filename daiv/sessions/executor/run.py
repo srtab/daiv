@@ -23,7 +23,7 @@ from sessions.delegation import adelegator_for
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
-from sessions.models import Run, Session
+from sessions.models import Run
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import apersist_session_ref, areset_session_ref
 
@@ -489,9 +489,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         except Exception:
             logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)
 
-    agent_result = await build_agent_result(
-        run.agent,
-        run.config,
+    agent_result = build_agent_result(
         response=response_text,
         usage=build_usage_summary(run.usage).to_dict(),
         snapshot=snapshot,
@@ -529,17 +527,14 @@ async def _read_snapshot_after_recovery(run: AgentRun) -> StateSnapshot | None:
 
 async def _persist_resolved_agent(spec: RunSpec, *, run_id: str | None, model: str, thinking_level: str) -> None:
     """Overwrite the requested ``agent_model`` on the Run with the resolved one, so the detail view shows what ran
-    instead of the "Auto" pill. A spec that names its Run also updates the Session; a Run only the ``on_context_ready``
-    hook started (chat) does not, since chat reads ``Session.agent_model`` as a pinned override.
+    instead of the "Auto" pill. Never the Session: chat and CI fix runs read ``Session.agent_model`` as the thread's
+    pinned override, so writing the resolved model there would pin a model nobody chose.
     Best-effort: a DB error is logged, never raised.
     """
     if not run_id:
         return
-    fields = {"agent_model": model, "agent_thinking_level": thinking_level}
     try:
-        await Run.objects.filter(pk=run_id).aupdate(**fields)
-        if spec.run_id:
-            await Session.objects.filter(pk=spec.thread_id).aupdate(**fields)
+        await Run.objects.filter(pk=run_id).aupdate(agent_model=model, agent_thinking_level=thinking_level)
     except Exception:
         logger.exception("executor: failed to persist resolved agent model for thread_id=%s", spec.thread_id)
 

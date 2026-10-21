@@ -9,7 +9,7 @@ from automation.agent.context import set_runtime_ctx
 from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_graph
 from automation.agent.diff_to_metadata.prompts import sanitize_agent_report
 from automation.agent.workspace.backends import build_disk_workspace_backend
-from codebase.base import GitPlatform, Scope
+from codebase.base import Scope
 
 from .description_shape import shape_violations, validate_expectation
 from .evaluators import get_correctness_evaluator
@@ -61,12 +61,7 @@ async def test_diff_to_metadata(model_name, inputs, reference_outputs, expect):
     t.log_reference_outputs(reference_outputs)
 
     async with set_runtime_ctx(
-        "srtab/daiv",
-        scope=Scope.GLOBAL,
-        ref="main",
-        offline=True,
-        git_platform=GitPlatform.GITLAB,
-        sandbox_spec=await build_sandbox_spec(None),
+        "srtab/daiv", scope=Scope.GLOBAL, ref="main", offline=True, sandbox_spec=await build_sandbox_spec(None)
     ) as ctx:
         agent_path = Path(ctx.gitrepo.working_dir)
         if "context_file_content" in inputs:

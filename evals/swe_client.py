@@ -39,21 +39,20 @@ class SWERepoClient(RepoClient):
     This client is designed for SWE-bench style evaluations where repositories
     are cloned temporarily and cleaned up after use. It does not support
     issue/MR/CI operations as those are not needed for SWE-bench evaluations.
+
+    ``evals/swebench.py`` hands each run a fresh instance through ``set_runtime_ctx(repo_client=...)``, since the
+    loaded clone is per-instance state.
     """
 
     client: None = None  # No API client needed
     git_platform = GitPlatform.SWE
 
-    def __init__(self, repo_host: str | None = None):
+    def __init__(self, repo_host: str):
         """
         Initialize the SWE client.
 
         Args:
-            repo_host: The repository host to use for cloning. Optional so that
-                ``RepoClient.create_instance(git_platform=GitPlatform.SWE)`` works without
-                kwargs — callers like ``GitMiddleware`` only know the run's platform and
-                never clone. Cloning paths (:meth:`get_repository`) fail fast without it
-                rather than silently defaulting to a host.
+            repo_host: The repository host to clone from, e.g. ``github.com``.
         """
         self.repo_host = repo_host
         self._loaded_repo: Repo | None = None
@@ -68,13 +67,6 @@ class SWERepoClient(RepoClient):
         Returns:
             The repository object.
         """
-        if self.repo_host is None:
-            # A defaulted host could silently clone a same-named repo from the wrong
-            # place and corrupt an entire eval — require an explicit choice.
-            raise ValueError(
-                "SWERepoClient was constructed without repo_host; building clone URLs requires "
-                "an explicit host (pass repo_host= to RepoClient.create_instance / set_runtime_ctx)."
-            )
         if "/" not in repo_id:
             raise ValueError(f"Invalid repo_id format: {repo_id}. Expected format: 'owner/name'")
 
@@ -235,7 +227,7 @@ class SWERepoClient(RepoClient):
         raise NotImplementedError("SWERepoClient does not support issue comments")
 
     def create_issue_comment(
-        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support issue comments")
@@ -276,13 +268,7 @@ class SWERepoClient(RepoClient):
         raise NotImplementedError("SWERepoClient does not support merge requests")
 
     def create_merge_request_comment(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        reply_to_id: str | None = None,
-        as_thread: bool = False,
-        mark_as_resolved: bool = False,
+        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request comments")
@@ -316,10 +302,6 @@ class SWERepoClient(RepoClient):
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request emojis")
-
-    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support resolving merge request comments")
 
     @cached_property
     def current_user(self) -> User:

@@ -57,15 +57,13 @@ def _make_bash_runtime(repo: Repo) -> Mock:
 
 def _make_middleware() -> SandboxMiddleware:
     """A SandboxMiddleware over a session nothing acquired, for tests of the bash policy and the system prompt."""
-    return SandboxMiddleware(
-        agent_root="/dummy", workspace=SandboxWorkspace(SandboxSession(FakeSandboxClient(), sandbox_spec()))
-    )
+    return SandboxMiddleware(workspace=SandboxWorkspace(SandboxSession(FakeSandboxClient(), sandbox_spec())))
 
 
 def _bash_tool_with_fake_client(client: Mock):
     """The bash tool of a SandboxMiddleware over an acquired session on ``client``."""
     workspace = SandboxWorkspace(acquired_session(client, "sess_1"))
-    return SandboxMiddleware(agent_root="/dummy", workspace=workspace).tools[0]
+    return SandboxMiddleware(workspace=workspace).tools[0]
 
 
 class TestBashTool:
@@ -128,7 +126,7 @@ class TestBashTool:
         """A disk workspace has no shell to back the tool, so the middleware refuses it when it is built rather than on
         the first command."""
         with pytest.raises(ValueError, match="a shell and a sandbox session"):
-            SandboxMiddleware(agent_root="/dummy", workspace=FakeWorkspace())
+            SandboxMiddleware(workspace=FakeWorkspace())
 
 
 class TestBashToolPolicyEnforcement:
@@ -440,7 +438,7 @@ async def _turn(
     command through the backend, then the executor's release. Return the state the checkpoint would hold after it."""
     session = _run_session(client, runtime, token)
     workspace = SandboxWorkspace(session)
-    middleware = SandboxMiddleware(agent_root="/workspace/repo", workspace=workspace)
+    middleware = SandboxMiddleware(workspace=workspace)
     await acquire_sandbox(session, runtime.context, state)
     state = {**state, **(await middleware.abefore_agent(state, runtime) or {})}
     await workspace.bash.run_commands(list(_PROBE), fail_fast=True)
@@ -653,12 +651,12 @@ class TestPinnedSessionLifecycle:
         client = FakeSandboxClient.opened()
         runtime = _make_agent_runtime(repo_dir)
         workspace = SandboxWorkspace(_run_session(client, runtime, "tok-1"))
-        parent = SandboxMiddleware(agent_root="/workspace/repo", workspace=workspace)
+        parent = SandboxMiddleware(workspace=workspace)
         await acquire_sandbox(workspace.session, runtime.context, {})
         state = await parent.abefore_agent({}, runtime)
         calls_before = list(client.calls)
 
-        subagent = SandboxMiddleware(agent_root="/workspace/repo", workspace=workspace)
+        subagent = SandboxMiddleware(workspace=workspace)
         assert await subagent.abefore_agent(state, runtime) is None
 
         assert client.calls == calls_before

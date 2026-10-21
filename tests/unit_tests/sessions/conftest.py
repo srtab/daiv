@@ -8,6 +8,7 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 
 import pytest
+from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.models import DBTaskResult, get_date_max
 from sessions.artifacts import guess_content_type
 from sessions.models import (
@@ -25,11 +26,25 @@ from sessions.signal_defs import run_finished
 from accounts.models import User
 from codebase.base import Job, MergeRequest, Pipeline
 from codebase.base import User as PlatformUser
+from codebase.models import RepositoryAccess
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import site_snapshot
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+
+def grant_read_access(user, repo_id: str) -> None:
+    """SYNC ONLY: the platform identity and fresh ``RepositoryAccess`` row ``visible_to`` reads."""
+    SocialAccount.objects.get_or_create(user=user, provider="gitlab", uid=str(user.pk))
+    RepositoryAccess.objects.create(
+        provider="gitlab",
+        uid=str(user.pk),
+        username=user.username,
+        repo_id=repo_id,
+        access_level="read",
+        synced_at=timezone.now(),
+    )
 
 
 def make_artifact(
@@ -63,35 +78,30 @@ def commit_revision(loaded: RunArtifact, content: bytes) -> str:
     return revised
 
 
+def make_task_result(
+    *, status="SUCCESSFUL", return_value=None, started_at=None, finished_at=None, exception_class_path="", traceback=""
+) -> DBTaskResult:
+    """SYNC ONLY: a ``run_job_task`` DBTaskResult row."""
+    return DBTaskResult.objects.create(
+        id=uuid.uuid4(),
+        status=status,
+        task_path="sessions.executor.tasks.run_job_task",
+        args_kwargs={"args": [], "kwargs": {}},
+        queue_name="default",
+        backend_name="default",
+        run_after=get_date_max(),
+        return_value=return_value or {},
+        started_at=started_at,
+        finished_at=finished_at,
+        exception_class_path=exception_class_path,
+        traceback=traceback,
+    )
+
+
 @pytest.fixture
 def create_db_task_result():
     """Build a DBTaskResult row for signal / view / command tests."""
-
-    def _create(
-        *,
-        status="SUCCESSFUL",
-        return_value=None,
-        started_at=None,
-        finished_at=None,
-        exception_class_path="",
-        traceback="",
-    ):
-        return DBTaskResult.objects.create(
-            id=uuid.uuid4(),
-            status=status,
-            task_path="sessions.executor.tasks.run_job_task",
-            args_kwargs={"args": [], "kwargs": {}},
-            queue_name="default",
-            backend_name="default",
-            run_after=get_date_max(),
-            return_value=return_value or {},
-            started_at=started_at,
-            finished_at=finished_at,
-            exception_class_path=exception_class_path,
-            traceback=traceback,
-        )
-
-    return _create
+    return make_task_result
 
 
 def make_run(*, session_id: str, status: str, trigger_type: str = SessionOrigin.API_JOB, **kwargs) -> Run:

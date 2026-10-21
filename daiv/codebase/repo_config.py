@@ -15,6 +15,7 @@ from core.models import ThinkingLevelChoices as ThinkingLevel  # noqa: TC001
 
 if TYPE_CHECKING:
     from codebase.base import Repository
+    from codebase.clients import RepoClient
 
 CONFIGURATION_FILE_NAME = ".daiv.yml"
 CONFIGURATION_CACHE_KEY_PREFIX = "repo_config:"
@@ -222,7 +223,13 @@ class RepositoryConfig(BaseModel):
         return username.lower() in {u.lower() for u in self.allowed_usernames}
 
     @staticmethod
-    def get_config(repo_id: str, *, repository: Repository | None = None, offline: bool = False) -> RepositoryConfig:
+    def get_config(
+        repo_id: str,
+        *,
+        repository: Repository | None = None,
+        offline: bool = False,
+        repo_client: RepoClient | None = None,
+    ) -> RepositoryConfig:
         """
         Get the configuration for a repository.
         If the configuration file is not found, a default configuration is returned.
@@ -232,6 +239,8 @@ class RepositoryConfig(BaseModel):
             repo_id (str): The repository ID.
             repository (Repository | None): The repository object.
             offline (bool): Whether to use the cached configuration or to fetch it from the repository.
+            repo_client (RepoClient | None): The client to read the repository with; the configured platform's when
+                omitted.
 
         Returns:
             RepositoryConfig: The configuration for the repository.
@@ -243,7 +252,8 @@ class RepositoryConfig(BaseModel):
         if (cached_config := cache.get(cache_key)) is not None:
             return RepositoryConfig(**cached_config)
 
-        repo_client = RepoClient.create_instance()
+        if repo_client is None:
+            repo_client = RepoClient.create_instance()
 
         if repository is None:
             repository = repo_client.get_repository(repo_id)

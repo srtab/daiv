@@ -1,5 +1,4 @@
 import logging
-from typing import Literal
 
 from django.core.management import call_command
 
@@ -80,23 +79,19 @@ async def reconcile_pipeline_watches_cron_task():
 
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_TITLING)
-def generate_title_task(
-    entity_type: Literal["session", "run"], pk: str, prompt: str, repo_id: str, ref: str = ""
-) -> None:
-    """Overwrite a Session/Run title with an LLM-generated one.
+def generate_title_task(pk: str, prompt: str, repo_id: str, ref: str = "") -> None:
+    """Overwrite a chat Session's heuristic title with an LLM-generated one.
 
-    Failures propagate to django-tasks (which logs + marks the task failed); the
-    title set synchronously remains (heuristic for chat sessions, possibly empty
-    for prompt-driven runs).
+    Failures propagate to django-tasks (which logs + marks the task failed); the heuristic title set synchronously
+    remains.
     """
-    from sessions.models import Run, Session
+    from sessions.models import Session
     from sessions.titling import TitlerNotConfiguredError, generate_title
 
-    model_cls = Session if entity_type == "session" else Run
     try:
-        entity = model_cls.objects.get(pk=pk)
-    except model_cls.DoesNotExist:
-        logger.warning("generate_title_task: %s with pk=%s not found, skipping", entity_type, pk)
+        session = Session.objects.get(pk=pk)
+    except Session.DoesNotExist:
+        logger.warning("generate_title_task: session with pk=%s not found, skipping", pk)
         return
 
     try:
@@ -104,18 +99,16 @@ def generate_title_task(
             prompt,
             repo_id=repo_id,
             ref=ref,
-            run_metadata={"entity_type": entity_type, "entity_pk": pk, "repo_id": repo_id, "ref": ref},
+            run_metadata={"entity_type": "session", "entity_pk": pk, "repo_id": repo_id, "ref": ref},
         )
     except TitlerNotConfiguredError:
         logger.exception(
-            "generate_title_task: model not configured for %s pk=%s — feature disabled until API key is set",
-            entity_type,
-            pk,
+            "generate_title_task: model not configured for session pk=%s — feature disabled until API key is set", pk
         )
         return
 
-    entity.title = title
-    entity.save(update_fields=["title"])
+    session.title = title
+    session.save(update_fields=["title"])
 
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_TITLING)
