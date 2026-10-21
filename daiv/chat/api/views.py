@@ -11,7 +11,7 @@ from ninja.errors import HttpError
 from ninja.security import django_auth
 from sandbox_envs.selection import resolve_env_for_run
 from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_access, aresolve_environment
-from sessions.locks import SessionLock, stale_cutoff
+from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.models import Session
 from sessions.spend import build_session_spend
 

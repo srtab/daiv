@@ -1,14 +1,64 @@
 import asyncio
+from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
+from django.utils import timezone
+
 import pytest
-from sessions.executor.lock import Held, NoLock, SessionLockTimeoutError, Wait, hold_session_lock, still_held
-from sessions.locks import SessionLock
+from sessions.executor.lock import (
+    Held,
+    NoLock,
+    SessionLock,
+    SessionLockTimeoutError,
+    Wait,
+    hold_session_lock,
+    stale_cutoff,
+    still_held,
+)
 from sessions.models import Session
 
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 
 pytestmark = pytest.mark.django_db(transaction=True)
+
+
+class TestSessionLock:
+    async def test_it_claims_a_free_slot(self):
+        thread_id = await amake_job_session()
+
+        assert await SessionLock.try_claim(thread_id, "run-1") is True
+        assert await active_holder(thread_id) == "run-1"
+
+    async def test_it_refuses_a_live_holders_slot(self):
+        thread_id = await amake_job_session(active_run_id="run-1")
+
+        assert await SessionLock.try_claim(thread_id, "run-2") is False
+
+    async def test_it_takes_over_a_stale_holders_slot(self):
+        stale = stale_cutoff() - timedelta(minutes=1)
+        thread_id = await amake_job_session(active_run_id="run-1", last_active_at=stale)
+
+        assert await SessionLock.try_claim(thread_id, "run-2") is True
+        assert await active_holder(thread_id) == "run-2"
+
+    async def test_only_the_holder_releases(self):
+        thread_id = await amake_job_session(active_run_id="run-1")
+
+        await SessionLock.release(thread_id, "run-2")
+        assert await active_holder(thread_id) == "run-1"
+
+        await SessionLock.release(thread_id, "run-1")
+        assert await active_holder(thread_id) is None
+
+    async def test_only_the_holder_heartbeats(self):
+        old = timezone.now() - timedelta(minutes=10)
+        thread_id = await amake_job_session(active_run_id="run-1", last_active_at=old)
+
+        assert await SessionLock.heartbeat(thread_id, "run-2") is False
+        assert (await Session.objects.aget(pk=thread_id)).last_active_at == old
+
+        assert await SessionLock.heartbeat(thread_id, "run-1") is True
+        assert (await Session.objects.aget(pk=thread_id)).last_active_at > old
 
 
 class TestWait:

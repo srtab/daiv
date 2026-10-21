@@ -20,10 +20,9 @@ from ag_ui.core.events import (
 )
 from copilotkit import LangGraphAGUIAgent
 from langchain_core.messages import HumanMessage
-from sessions.executor.lock import Held, SessionLockLostError
+from sessions.executor.lock import Held, SessionLock, SessionLockLostError
 from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
-from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, SessionOrigin, agent_result_field_updates, usage_field_updates
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message

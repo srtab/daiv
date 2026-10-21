@@ -604,14 +604,14 @@ def test_build_runtime_servers_merges_user_and_global(member_user):
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="glob",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="https://g.test/mcp",
         status=MCPServer.Status.ACTIVE,
     )
     MCPServer.objects.create(
         name="mine",
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="https://u.test/mcp",
@@ -633,14 +633,14 @@ def test_build_runtime_servers_global_wins_on_name_collision(member_user):
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="dup",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="https://global.test/mcp",
         status=MCPServer.Status.ACTIVE,
     )
     MCPServer.objects.create(
         name="dup",
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="https://user.test/mcp",
@@ -659,7 +659,7 @@ def test_build_runtime_servers_strips_env_ref_on_user_rows(member_user):
 
     MCPServer.objects.create(
         name="mine",
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="https://u.test/mcp",
@@ -772,14 +772,14 @@ def test_on_demand_global_shadows_active_user_row(member_user):
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="dup",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://global",
         status=MCPServer.Status.ON_DEMAND,
     )
     MCPServer.objects.create(
         name="dup",
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="http://user",
@@ -797,7 +797,7 @@ def test_on_demand_user_server_resolves_only_for_owner(member_user, admin_user):
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="mine",
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="http://mine",
@@ -881,7 +881,11 @@ def test_shadow_warning_is_runtime_only(caplog, member_user):
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(name="dup", transport=MCPServer.Transport.HTTP, url="http://g")
     MCPServer.objects.create(
-        name="dup", scope=MCPServer.Scope.USER, user=member_user, transport=MCPServer.Transport.HTTP, url="http://u"
+        name="dup",
+        scope=MCPServer.Visibility.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://u",
     )
 
     with caplog.at_level("WARNING", logger="daiv.mcp_connectors"):

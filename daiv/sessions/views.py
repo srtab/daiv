@@ -37,10 +37,10 @@ from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
+from sessions.executor.lock import stale_cutoff
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
-from sessions.locks import stale_cutoff
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs

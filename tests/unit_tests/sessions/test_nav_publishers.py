@@ -17,7 +17,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 import pytest
-from sessions.locks import stale_cutoff
+from sessions.executor.lock import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 

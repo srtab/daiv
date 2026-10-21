@@ -51,10 +51,10 @@ def deduped_pool_rows(user_id: int | None = None, *, warn_shadowed: bool = False
     display paths (composer sheet, run/schedule pickers) run this on every page render,
     where the same warning would say nothing new once per navigation and drown the log it
     is meant to stand out in."""
-    scoped = Q(scope=MCPServer.Scope.GLOBAL)
+    scoped = Q(scope=MCPServer.Visibility.GLOBAL)
     if user_id is not None:
-        scoped |= Q(scope=MCPServer.Scope.USER, user_id=user_id)
-    # ``Scope.GLOBAL`` ("global") sorts before ``Scope.USER`` ("user"), so one ordered query
+        scoped |= Q(scope=MCPServer.Visibility.USER, user_id=user_id)
+    # ``Visibility.GLOBAL`` ("global") sorts before ``Visibility.USER`` ("user"), so one ordered query
     # yields the documented globals-then-user-rows order and lets the shadow check run in a
     # single forward pass — every global is seen before the first user row.
     rows = MCPServer.objects.exclude(status=MCPServer.Status.DISABLED).filter(scoped).order_by("scope", "name")
@@ -62,7 +62,7 @@ def deduped_pool_rows(user_id: int | None = None, *, warn_shadowed: bool = False
     global_names: set[str] = set()
     pool: list[MCPServer] = []
     for row in rows:
-        if row.scope == MCPServer.Scope.GLOBAL:
+        if row.scope == MCPServer.Visibility.GLOBAL:
             global_names.add(row.name)
         elif row.name in global_names:
             if warn_shadowed:
@@ -97,7 +97,7 @@ def build_runtime_servers(user_id: int | None = None, overrides: dict | None = N
             continue
         try:
             raw_headers = row.headers or []
-            if row.scope == MCPServer.Scope.USER:
+            if row.scope == MCPServer.Visibility.USER:
                 raw_headers = _drop_env_refs(raw_headers, server_name=row.name)
             headers = _resolve_header_entries(raw_headers, server_name=row.name)
             tool_filter = None
