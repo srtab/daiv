@@ -17,8 +17,6 @@ from typing import TYPE_CHECKING, Any
 from django.db import transaction
 
 from asgiref.sync import sync_to_async
-from github.GithubException import GithubException
-from gitlab.exceptions import GitlabError
 from sandbox_envs.selection import resolve_env_for_run
 from sessions.ids import compute_thread_id
 from sessions.models import SessionOrigin
@@ -26,7 +24,7 @@ from sessions.services import create_run
 
 from accounts.utils import resolve_user
 from codebase.base import GitPlatform, Scope
-from codebase.clients.base import Emoji
+from codebase.clients.base import PLATFORM_ERRORS, Emoji
 from core.site_settings import site_settings
 from webhooks.tasks import address_issue_label_task, address_issue_task, address_mr_comments_task
 
@@ -151,7 +149,7 @@ async def _fetch_source_branch(client: RepoClient, repo_id: str, merge_request_i
 async def _react(add_reaction: Callable[[], object], target: str) -> None:
     try:
         await sync_to_async(add_reaction)()
-    except GitlabError, GithubException, OSError:
+    except PLATFORM_ERRORS:
         logger.exception("Failed to add reaction to %s", target)
 
 

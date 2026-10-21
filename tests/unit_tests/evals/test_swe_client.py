@@ -5,7 +5,7 @@ import pytest
 from git import Repo
 
 from codebase.base import GitPlatform
-from codebase.clients.swe import SWERepoClient
+from evals.swe_client import SWERepoClient
 
 
 def _mock_cloned_repo(working_dir: str) -> Mock:
@@ -49,27 +49,21 @@ class TestSWERepoClient:
 
         assert repo.clone_url == "https://github.example.com/owner/repo.git"
 
-    def test_get_repository_requires_repo_host(self):
-        """Constructing without ``repo_host`` must work (``RepoClient.create_instance(
-        git_platform=GitPlatform.SWE)`` from GitMiddleware passes no kwargs) — but the
-        cloning path must fail fast rather than silently default to a host: a wrong-host
-        clone of a same-named repo would corrupt an entire eval with zero signal."""
-        client = SWERepoClient()
-
-        with pytest.raises(ValueError, match="repo_host"):
-            client.get_repository("psf/requests")
-
     def test_get_merge_request_by_branches_returns_none(self, swe_client):
         """SWE runs have no merge-request concept: report "no open MR" instead of raising."""
         assert swe_client.get_merge_request_by_branches("psf/requests", "feature-x") is None
+
+    def test_list_repository_members_not_supported(self, swe_client):
+        with pytest.raises(NotImplementedError):
+            swe_client.list_repository_members("owner/repo")
 
     def test_list_repositories_not_supported(self, swe_client):
         """Test that listing repositories raises NotImplementedError."""
         with pytest.raises(NotImplementedError, match="does not support listing repositories"):
             swe_client.list_repositories()
 
-    @patch("codebase.clients.swe.Repo.clone_from")
-    @patch("codebase.clients.swe.tempfile.TemporaryDirectory")
+    @patch("evals.swe_client.Repo.clone_from")
+    @patch("evals.swe_client.tempfile.TemporaryDirectory")
     def test_load_repo_success(self, mock_tempdir, mock_clone, swe_client):
         """Test successful repository loading."""
         mock_tmpdir = "/tmp/test-repo"  # NOQA
@@ -86,8 +80,8 @@ class TestSWERepoClient:
             mock_clone.assert_called_once_with("https://github.com/psf/requests.git", Path(mock_tmpdir) / "repo")
             mock_repo.git.checkout.assert_called_once_with("--detach", "abc123")
 
-    @patch("codebase.clients.swe.Repo.clone_from")
-    @patch("codebase.clients.swe.tempfile.TemporaryDirectory")
+    @patch("evals.swe_client.Repo.clone_from")
+    @patch("evals.swe_client.tempfile.TemporaryDirectory")
     def test_get_repository_file_success(self, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test successful file retrieval."""
         mock_repo = _mock_cloned_repo(str(tmp_path))
@@ -107,8 +101,8 @@ class TestSWERepoClient:
 
         assert result == "print('hello')"
 
-    @patch("codebase.clients.swe.Repo.clone_from")
-    @patch("codebase.clients.swe.tempfile.TemporaryDirectory")
+    @patch("evals.swe_client.Repo.clone_from")
+    @patch("evals.swe_client.tempfile.TemporaryDirectory")
     def test_get_repository_file_not_found(self, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test file retrieval when file doesn't exist."""
         mock_repo = _mock_cloned_repo(str(tmp_path))
@@ -124,9 +118,9 @@ class TestSWERepoClient:
 
         assert result is None
 
-    @patch("codebase.clients.swe.Repo.clone_from")
-    @patch("codebase.clients.swe.tempfile.TemporaryDirectory")
-    @patch("codebase.clients.swe.Path.read_text")
+    @patch("evals.swe_client.Repo.clone_from")
+    @patch("evals.swe_client.tempfile.TemporaryDirectory")
+    @patch("evals.swe_client.Path.read_text")
     def test_get_repository_file_binary(self, mock_read_text, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test file retrieval when file is binary."""
         mock_repo = _mock_cloned_repo(str(tmp_path))

@@ -1,8 +1,13 @@
 import base64
+from unittest.mock import MagicMock
 
+import pytest
+import requests
+from github import GithubException
+from gitlab.exceptions import GitlabError
 from pydantic import SecretStr
 
-from codebase.clients.base import GitAuthEnv
+from codebase.clients.base import GitAuthEnv, RepoClient, aget_open_merge_request
 
 
 def test_git_auth_env_as_env_builds_host_scoped_extraheader_config():
@@ -44,3 +49,34 @@ def test_git_auth_env_holds_header_as_secret():
         "oauth2:tok-123"
         in base64.b64decode(auth.as_env()["GIT_CONFIG_VALUE_0"].removeprefix("Authorization: Basic ")).decode()
     )
+
+
+def test_repo_client_declares_member_listing():
+    assert "list_repository_members" in RepoClient.__abstractmethods__
+
+
+async def test_aget_open_merge_request_returns_the_platform_answer():
+    mr = MagicMock()
+    client = MagicMock(get_merge_request_by_branches=MagicMock(return_value=mr))
+
+    assert await aget_open_merge_request(client, "a/b", "feature-x") is mr
+    client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [GitlabError("gitlab down"), GithubException(502), requests.ConnectionError("dns failure")],
+    ids=["gitlab", "github", "transport"],
+)
+async def test_aget_open_merge_request_reads_a_platform_failure_as_no_merge_request(error):
+    client = MagicMock(get_merge_request_by_branches=MagicMock(side_effect=error))
+
+    assert await aget_open_merge_request(client, "a/b", "feature-x") is None
+
+
+async def test_aget_open_merge_request_propagates_bugs():
+    """A bug read as "no MR" would have the publisher open a duplicate one."""
+    client = MagicMock(get_merge_request_by_branches=MagicMock(side_effect=KeyError("missing field")))
+
+    with pytest.raises(KeyError):
+        await aget_open_merge_request(client, "a/b", "feature-x")

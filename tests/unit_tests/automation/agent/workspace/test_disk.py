@@ -40,12 +40,12 @@ def test_its_git_runs_over_the_clone_without_a_credential(tmp_path):
     assert DiskWorkspace(ctx).git._runner == LocalGitRunner(ctx.gitrepo)
 
 
-async def test_authenticated_git_mints_a_credential_each_time_it_is_asked(tmp_path, mock_repo_client):
+async def test_authenticated_git_mints_a_credential_each_time_it_is_asked(tmp_path):
     """A publish can come long after the executor built the workspace at turn start, so the credential is minted when
     the publish asks for it, and never before."""
     ctx = _ctx(tmp_path)
     auth_env = GitAuthEnv.for_token("https://gitlab.com/owner/repo.git", "tok")
-    mint = mock_repo_client.get_git_auth_env
+    mint = ctx.repo.client.get_git_auth_env
     mint.return_value = auth_env
 
     workspace = DiskWorkspace(ctx)
@@ -69,7 +69,7 @@ async def test_a_disk_read_returns_the_file_whole_whatever_the_cap(tmp_path):
     assert (response.content, response.error) == (b"x" * 10, None)
 
 
-async def test_authenticated_git_mints_off_the_event_loop(tmp_path, mock_repo_client):
+async def test_authenticated_git_mints_off_the_event_loop(tmp_path):
     """The mint is a blocking platform call, so it must not run on the loop the agent shares."""
     mint_threads = []
 
@@ -77,16 +77,17 @@ async def test_authenticated_git_mints_off_the_event_loop(tmp_path, mock_repo_cl
         mint_threads.append(threading.get_ident())
         return GitAuthEnv.for_token("https://gitlab.com/owner/repo.git", "tok")
 
-    mock_repo_client.get_git_auth_env.side_effect = _mint
-    await DiskWorkspace(_ctx(tmp_path)).authenticated_git()
+    ctx = _ctx(tmp_path)
+    ctx.repo.client.get_git_auth_env.side_effect = _mint
+    await DiskWorkspace(ctx).authenticated_git()
 
     assert mint_threads
     assert threading.get_ident() not in mint_threads
 
 
-async def test_authenticated_git_leaves_the_credential_off_the_workspaces_own_git(tmp_path, mock_repo_client):
+async def test_authenticated_git_leaves_the_credential_off_the_workspaces_own_git(tmp_path):
     ctx = _ctx(tmp_path)
-    mock_repo_client.get_git_auth_env.return_value = GitAuthEnv.for_token("https://gitlab.com/owner/repo.git", "tok")
+    ctx.repo.client.get_git_auth_env.return_value = GitAuthEnv.for_token("https://gitlab.com/owner/repo.git", "tok")
 
     workspace = DiskWorkspace(ctx)
     await workspace.authenticated_git()
@@ -94,12 +95,13 @@ async def test_authenticated_git_leaves_the_credential_off_the_workspaces_own_gi
     assert workspace.git._runner == LocalGitRunner(ctx.gitrepo)
 
 
-async def test_a_failed_mint_is_raised(tmp_path, mock_repo_client):
+async def test_a_failed_mint_is_raised(tmp_path):
     """No clone-side credential exists to fall back on, unlike a sandbox's turn-start token."""
-    mock_repo_client.get_git_auth_env.side_effect = RuntimeError("mint failed")
+    ctx = _ctx(tmp_path)
+    ctx.repo.client.get_git_auth_env.side_effect = RuntimeError("mint failed")
 
     with pytest.raises(RuntimeError, match="mint failed"):
-        await DiskWorkspace(_ctx(tmp_path)).authenticated_git()
+        await DiskWorkspace(ctx).authenticated_git()
 
 
 async def test_a_file_in_the_scratch_dir_is_downloaded_through_the_backend(tmp_path):

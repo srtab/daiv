@@ -610,14 +610,6 @@ class TestAuthFieldFiltering:
         assert "auth_gitlab_url" not in fields
         assert "auth_gitlab_server_url" not in fields
 
-    def test_swe_hides_all_auth_fields(self, db):
-        fields = self._get_form_fields("SWE")
-        assert "auth_login_enabled" not in fields
-        assert "auth_client_id" not in fields
-        assert "auth_client_secret" not in fields
-        assert "auth_gitlab_url" not in fields
-        assert "auth_gitlab_server_url" not in fields
-
 
 class TestAuthCredentialValidation:
     def _make_form(self, data, *, instance=None, cleared_secrets=None, env_locked_fields=None):

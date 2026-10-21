@@ -519,33 +519,24 @@ class TestGitMiddleware:
     async def test_alookup_open_mr_returns_platform_mr(self):
         runtime = _make_runtime()
         existing_mr = MagicMock(source_branch="feature-x")
-        client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(return_value=existing_mr)
+        runtime.context.repo.client.get_merge_request_by_branches = MagicMock(return_value=existing_mr)
 
-        with (
-            patch.object(runtime.context.repo, "current_ref", "feature-x"),
-            patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
-        ):
+        with patch.object(runtime.context.repo, "current_ref", "feature-x"):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
         assert mr is existing_mr
-        client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x")
+        runtime.context.repo.client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x")
 
     async def test_alookup_open_mr_returns_nondefault_target_mr(self):
         """The lookup no longer filters on target, so an MR targeting a release branch is found."""
         runtime = _make_runtime()
         existing_mr = MagicMock(source_branch="feature-x", target_branch="release/x")
-        client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(return_value=existing_mr)
+        runtime.context.repo.client.get_merge_request_by_branches = MagicMock(return_value=existing_mr)
 
-        with (
-            patch.object(runtime.context.repo, "current_ref", "feature-x"),
-            patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
-        ):
+        with patch.object(runtime.context.repo, "current_ref", "feature-x"):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
         assert mr.target_branch == "release/x"
-        client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x")
 
     async def test_alookup_open_mr_skips_detached_head(self):
         """Commit-pinned runs (SWE-bench evals check out a raw SHA) have no branch, so
@@ -553,90 +544,31 @@ class TestGitMiddleware:
         runtime = _make_runtime()
         runtime.context.repo.head_detached = True
 
-        with (
-            patch.object(runtime.context.repo, "current_ref", "80e486c6dce6d10b13ef1705a8e9255bbc4a521b"),
-            patch("automation.agent.middlewares.git.RepoClient.create_instance") as create,
-        ):
+        with patch.object(runtime.context.repo, "current_ref", "80e486c6dce6d10b13ef1705a8e9255bbc4a521b"):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
         assert mr is None
-        create.assert_not_called()
-
-    async def test_alookup_open_mr_uses_run_platform_client(self):
-        """The lookup must query the run's platform, not the settings default — a run
-        whose repo lives elsewhere would otherwise 404 against the configured platform
-        or, worse, match a same-named repo's MR."""
-        runtime = _make_runtime()
-        client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(return_value=None)
-
-        with (
-            patch.object(runtime.context.repo, "current_ref", "feature-x"),
-            patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client) as create,
-        ):
-            await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
-
-        create.assert_called_once_with(git_platform=runtime.context.git_platform)
+        runtime.context.repo.client.get_merge_request_by_branches.assert_not_called()
 
     async def test_alookup_open_mr_skips_default_branch(self):
         runtime = _make_runtime()
 
-        with (
-            patch.object(runtime.context.repo, "current_ref", "main"),
-            patch("automation.agent.middlewares.git.RepoClient.create_instance") as create,
-        ):
+        with patch.object(runtime.context.repo, "current_ref", "main"):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
         assert mr is None
-        create.assert_not_called()
+        runtime.context.repo.client.get_merge_request_by_branches.assert_not_called()
 
-    async def test_alookup_open_mr_swallows_platform_errors(self):
+    async def test_alookup_open_mr_soft_fails_on_platform_errors(self):
         from gitlab.exceptions import GitlabError
 
         runtime = _make_runtime()
-        client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(side_effect=GitlabError("gitlab down"))
+        runtime.context.repo.client.get_merge_request_by_branches = MagicMock(side_effect=GitlabError("gitlab down"))
 
-        with (
-            patch.object(runtime.context.repo, "current_ref", "feature-x"),
-            patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
-        ):
+        with patch.object(runtime.context.repo, "current_ref", "feature-x"):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
         assert mr is None
-
-    async def test_alookup_open_mr_swallows_transport_errors(self):
-        """The platform SDKs (python-gitlab, PyGithub) are requests-based: a network blip
-        surfaces as a requests exception, not a Gitlab/Github API error. This lookup is
-        best-effort — a transient outage must degrade to "no MR", not crash the run."""
-        import requests
-
-        runtime = _make_runtime()
-        client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(side_effect=requests.ConnectionError("dns failure"))
-
-        with (
-            patch.object(runtime.context.repo, "current_ref", "feature-x"),
-            patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
-        ):
-            mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
-
-        assert mr is None
-
-    async def test_alookup_open_mr_propagates_unexpected_errors(self):
-        """Bugs (KeyError/AttributeError) must NOT be silently caught — the
-        publisher would then create a duplicate MR thinking none existed.
-        """
-        runtime = _make_runtime()
-        client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(side_effect=KeyError("missing field"))
-
-        with (
-            patch.object(runtime.context.repo, "current_ref", "feature-x"),
-            patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
-            pytest.raises(KeyError),
-        ):
-            await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
     async def test_aafter_agent_returns_protected_branch_fallback_source(self):
         """The publisher reports the original (protected) source branch on the returned
@@ -813,17 +745,17 @@ class TestGitMiddleware:
                 repository=Mock(slug="a/b"),
                 config=Mock(default_branch="main"),
                 git_platform=Mock(value="gitlab"),
-                repo=SimpleNamespace(current_ref="feature-x", head_detached=False),
+                repo=SimpleNamespace(
+                    current_ref="feature-x",
+                    head_detached=False,
+                    client=MagicMock(get_merge_request_by_branches=MagicMock(return_value=None)),
+                ),
             )
         )
         request = MagicMock(runtime=runtime, state={"merge_request": None}, system_prompt="")
         request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
-        platform = MagicMock(get_merge_request_by_branches=MagicMock(return_value=None))
 
-        with (
-            patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=platform),
-            patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls,
-        ):
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             publisher_cls.return_value.publish = AsyncMock(
                 return_value=PublishOutcome(merge_request=None, published=False)
             )
@@ -833,7 +765,7 @@ class TestGitMiddleware:
 
         workspace.git.get_changed_files.assert_awaited_once_with()
         workspace.git.get_diff.assert_awaited_once_with()
-        platform.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x")
+        runtime.context.repo.client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x")
         assert publisher_cls.call_args.args == (runtime.context, workspace)
         assert publisher_cls.return_value.publish.await_args.kwargs["merge_request"] is None
 

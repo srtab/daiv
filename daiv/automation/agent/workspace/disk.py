@@ -8,7 +8,6 @@ from asgiref.sync import sync_to_async
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS, build_disk_workspace_backend
 from automation.agent.workspace.git_manager import GitManager
 from automation.agent.workspace.git_runners import LocalGitRunner
-from codebase.clients import RepoClient
 
 if TYPE_CHECKING:
     from deepagents.backends.protocol import FileDownloadResponse
@@ -40,7 +39,7 @@ class DiskWorkspace:
     async def authenticated_git(self) -> GitManager:
         """A manager over the clone that overlays a credential env minted now: the clone's ``.git/config`` holds
         none."""
-        auth_env = await sync_to_async(lambda: RepoClient.create_instance().get_git_auth_env(self._ctx.repository))()
+        auth_env = await sync_to_async(self._ctx.repo.client.get_git_auth_env)(self._ctx.repository)
         return GitManager(LocalGitRunner(self._ctx.gitrepo, auth_env=auth_env))
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:

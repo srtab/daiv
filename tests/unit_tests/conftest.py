@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import DEFAULT, AsyncMock, Mock, patch
 
 from django.core.cache import cache
 from django.test import Client
@@ -531,7 +531,8 @@ def mock_repo_client():
     Global fixture that automatically mocks RepoClient.create_instance for all tests.
 
     This fixture returns a comprehensive mock that implements all the abstract methods
-    of RepoClient to prevent AttributeError during tests.
+    of RepoClient to prevent AttributeError during tests. The factory keeps the real,
+    argument-less signature, so a caller that tries to pick a platform fails here too.
     """
     with patch.object(RepoClient, "create_instance") as mock_create_instance:
         # Create a mock that implements the RepoClient interface
@@ -598,6 +599,8 @@ def mock_repo_client():
 
         # Set up the create_instance mock to return our comprehensive mock
         mock_create_instance.return_value = mock_client
+
+        mock_create_instance.side_effect = lambda: DEFAULT
 
         yield mock_client
 

@@ -108,7 +108,7 @@ eval-prompts:
 	done
 
 swebench:
-	uv run evals/swebench.py --dataset-path "princeton-nlp/SWE-bench_Verified" --dataset-split "test" --output-path swebench-predictions.json --num-samples 10
+	uv run python -m evals.swebench --dataset-path "princeton-nlp/SWE-bench_Verified" --dataset-split "test" --output-path swebench-predictions.json --num-samples 10
 
 swebench-evaluate: swebench-clean
 	mkdir -p /tmp/swebench
@@ -124,7 +124,7 @@ swebench-clean:
 	rm -rf /tmp/swebench
 
 swerebench:
-	uv run evals/swebench.py --dataset-path "nebius/SWE-rebench-leaderboard" --dataset-split "2026_03" --output-path swerebench-predictions.json --num-samples 10
+	uv run python -m evals.swebench --dataset-path "nebius/SWE-rebench-leaderboard" --dataset-split "2026_03" --output-path swerebench-predictions.json --num-samples 10
 
 swerebench-evaluate: swerebench-clean
 	mkdir -p /tmp/swerebench

@@ -161,6 +161,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Breaking:** `CODEBASE_CLIENT=swe` is no longer accepted; only `gitlab` and `github` are. The SWE-bench client now lives in `evals/` and the eval passes it to each run itself (run the eval with `python -m evals.swebench`).
 - The unused `GET /api/codebase/repositories/search` endpoint, along with the `repoSearch` Alpine component it fed. Both were superseded by the HTMX repository picker and had no remaining callers.
 - **Breaking:** Removed the `mcp-proxy` container, its API configuration endpoint, and the `MCP_PROXY_HOST`/`MCP_PROXY_ADDR`/`MCP_PROXY_AUTH_TOKEN`/`MCP_CONFIG_API_KEY` settings. MCP servers are managed as database rows from the dashboard; existing `docker-compose.yml` and stack files must be updated.
 - Removed the `sandbox:` block from `.daiv.yml` — sandbox runtime is configured exclusively through Sandbox Environments in the dashboard.

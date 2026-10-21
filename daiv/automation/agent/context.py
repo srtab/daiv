@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from time import monotonic
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 from asgiref.sync import sync_to_async
 from git import Repo  # noqa: TC002
@@ -53,7 +53,9 @@ class RepoHandle:
     """
 
     repo_id: str
-    git_platform: GitPlatform
+    client: RepoClient = field(compare=False, repr=False)
+    """The run's platform client, built or handed in once by :func:`set_runtime_ctx`: the run's platform calls go
+    through it, never through ``RepoClient.create_instance``. Thread-safety is as ``create_instance`` documents."""
     repository: Repository
     gitrepo: Repo
     config: RepositoryConfig
@@ -67,6 +69,10 @@ class RepoHandle:
     """Whether the clone's HEAD named no branch (``ref`` was a tag or a commit)."""
     clone_seconds: float
     """How long the worker took to clone the repository; both attempts count when the fallback ran."""
+
+    @property
+    def git_platform(self) -> GitPlatform:
+        return self.client.git_platform
 
 
 @dataclass(frozen=True)
@@ -194,7 +200,7 @@ async def set_runtime_ctx(
     acting_user_id: int | None = None,
     references: Sequence[ExternalRef] | None = None,
     fallback_ref_on_missing: bool = False,
-    **kwargs: Any,
+    repo_client: RepoClient | None = None,
 ) -> AsyncGenerator[RuntimeCtx]:
     """Set the runtime context and load repository files to a temporary directory.
 
@@ -211,14 +217,17 @@ async def set_runtime_ctx(
         fallback_ref_on_missing: When True, a clone that fails because ``ref`` no longer exists on
             the remote (a merged-and-deleted branch) retries on the repository default branch
             instead of raising. ``ctx.repo.ref`` then reflects the branch actually used.
-        **kwargs: Additional keyword arguments to pass to the repository client.
+        repo_client: The run's platform client (``ctx.repo.client``); the configured platform's when omitted.
 
     Yields:
         RuntimeCtx: The runtime context
     """
-    repo_client = RepoClient.create_instance(**kwargs)
+    if repo_client is None:
+        repo_client = RepoClient.create_instance()
     repository = repo_client.get_repository(repo_id)
-    config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository, offline=offline)
+    config = RepositoryConfig.get_config(
+        repo_id=repo_id, repository=repository, offline=offline, repo_client=repo_client
+    )
 
     if ref is None:
         ref = cast("str", config.default_branch)
@@ -237,7 +246,7 @@ async def set_runtime_ctx(
         ) as (repo, effective_ref):
             handle = RepoHandle(
                 repo_id=repo_id,
-                git_platform=repo_client.git_platform,
+                client=repo_client,
                 repository=repository,
                 gitrepo=repo,
                 config=config,
