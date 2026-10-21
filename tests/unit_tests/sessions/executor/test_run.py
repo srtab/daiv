@@ -556,14 +556,15 @@ async def test_an_exact_model_chain_replaces_model_resolution(thinking_level):
 
 
 async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
+    repo_client = MagicMock()
     spec = make_spec(
-        context_options={"offline": True, "repo_host": "github.com"}, agent_options={"capture_patch": True}
+        context_options={"offline": True, "repo_client": repo_client}, agent_options={"capture_patch": True}
     )
 
     with agent_stack(_agent()) as stack:
         await execute_run(spec)
 
-    assert (stack.context_kwargs["offline"], stack.context_kwargs["repo_host"]) == (True, "github.com")
+    assert (stack.context_kwargs["offline"], stack.context_kwargs["repo_client"]) == (True, repo_client)
     stack.create_agent.assert_awaited_once_with(
         settings=stack.resolve.return_value,
         ctx=stack.ctx,

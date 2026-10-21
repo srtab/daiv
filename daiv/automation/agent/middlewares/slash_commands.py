@@ -69,6 +69,7 @@ class SlashCommandMiddleware(AgentMiddleware):
         try:
             result = await command.execute_for_agent(
                 args=" ".join(slash_command.args),
+                repo_client=context.repo.client,
                 issue_iid=context.issue.iid if context.issue else None,
                 merge_request_id=context.merge_request.merge_request_id if context.merge_request else None,
                 available_skills=list_global_skills(),

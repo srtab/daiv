@@ -567,14 +567,11 @@ class RepoClient(abc.ABC):
                 url=settings.GITLAB_URL and str(settings.GITLAB_URL) or None,
             )
 
-        if settings.CLIENT == GitPlatform.GITHUB:
-            assert settings.GITHUB_PRIVATE_KEY is not None, "GitHub private key is not set"
-            assert settings.GITHUB_APP_ID is not None, "GitHub app ID is not set"
-            assert settings.GITHUB_INSTALLATION_ID is not None, "GitHub installation ID is not set"
+        assert settings.GITHUB_PRIVATE_KEY is not None, "GitHub private key is not set"
+        assert settings.GITHUB_APP_ID is not None, "GitHub app ID is not set"
+        assert settings.GITHUB_INSTALLATION_ID is not None, "GitHub installation ID is not set"
 
-            return GitHubClient(integration=get_github_integration(), installation_id=settings.GITHUB_INSTALLATION_ID)
-
-        raise ValueError("Invalid repository client configuration")
+        return GitHubClient(integration=get_github_integration(), installation_id=settings.GITHUB_INSTALLATION_ID)
 
 
 async def aget_open_merge_request(client: RepoClient, repo_id: str, source_branch: str) -> MergeRequest | None:

@@ -54,8 +54,8 @@ class RepoHandle:
 
     repo_id: str
     client: RepoClient = field(compare=False, repr=False)
-    """The run's platform client, built or handed in once by :func:`set_runtime_ctx`: the run's platform calls go
-    through it, never through ``RepoClient.create_instance``. Thread-safety is as ``create_instance`` documents."""
+    """The run's platform client, built or handed in once by :func:`set_runtime_ctx`: the agent's client calls go
+    through it rather than through ``RepoClient.create_instance``. Thread-safety is as ``create_instance`` documents."""
     repository: Repository
     gitrepo: Repo
     config: RepositoryConfig
@@ -69,10 +69,6 @@ class RepoHandle:
     """Whether the clone's HEAD named no branch (``ref`` was a tag or a commit)."""
     clone_seconds: float
     """How long the worker took to clone the repository; both attempts count when the fallback ran."""
-
-    @property
-    def git_platform(self) -> GitPlatform:
-        return self.client.git_platform
 
 
 @dataclass(frozen=True)
@@ -132,7 +128,7 @@ class RuntimeCtx:
 
     @property
     def git_platform(self) -> GitPlatform:
-        return self.repo.git_platform
+        return self.repo.client.git_platform
 
     @property
     def config(self) -> RepositoryConfig:

@@ -266,8 +266,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
         Short-circuits on detached HEAD: commit-pinned runs (SWE-bench evals check out a
         raw SHA) have no branch, so no MR can exist and querying the platform with a SHA
-        would be meaningless. Soft-fails on platform/transport errors so the agent can still
-        run — the publisher will create a fresh MR if needed. Programming bugs propagate.
+        would be meaningless.
         """
         if context.repo.head_detached:
             logger.debug("Skipping MR lookup for %s: detached HEAD (commit-pinned run)", context.repository.slug)

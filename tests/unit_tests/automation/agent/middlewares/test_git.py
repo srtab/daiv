@@ -519,7 +519,7 @@ class TestGitMiddleware:
     async def test_alookup_open_mr_returns_platform_mr(self):
         runtime = _make_runtime()
         existing_mr = MagicMock(source_branch="feature-x")
-        runtime.context.repo.client.get_merge_request_by_branches = MagicMock(return_value=existing_mr)
+        runtime.context.repo.client.get_merge_request_by_branches.return_value = existing_mr
 
         with patch.object(runtime.context.repo, "current_ref", "feature-x"):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
@@ -531,7 +531,7 @@ class TestGitMiddleware:
         """The lookup no longer filters on target, so an MR targeting a release branch is found."""
         runtime = _make_runtime()
         existing_mr = MagicMock(source_branch="feature-x", target_branch="release/x")
-        runtime.context.repo.client.get_merge_request_by_branches = MagicMock(return_value=existing_mr)
+        runtime.context.repo.client.get_merge_request_by_branches.return_value = existing_mr
 
         with patch.object(runtime.context.repo, "current_ref", "feature-x"):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
@@ -563,7 +563,7 @@ class TestGitMiddleware:
         from gitlab.exceptions import GitlabError
 
         runtime = _make_runtime()
-        runtime.context.repo.client.get_merge_request_by_branches = MagicMock(side_effect=GitlabError("gitlab down"))
+        runtime.context.repo.client.get_merge_request_by_branches.side_effect = GitlabError("gitlab down")
 
         with patch.object(runtime.context.repo, "current_ref", "feature-x"):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
