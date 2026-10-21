@@ -255,12 +255,6 @@ The `Run` model denormalizes key fields (status, timestamps, result summary, err
 
 ______________________________________________________________________
 
-## Legacy URLs
-
-Old bookmarks to `/dashboard/activity/<id>/` and `/dashboard/chat/<thread_id>/` redirect permanently to the corresponding Sessions URLs — no broken links.
-
-______________________________________________________________________
-
 ## Related pages
 
 - **Sandbox Environments**
