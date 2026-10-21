@@ -150,7 +150,7 @@ async def test_a_network_off_sandbox_session_reaches_the_git_host_only_for_a_pus
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec()) as ctx:
             client = ctx.sandbox_client
             session = SandboxSession(client, ctx.sandbox, credential_source=ctx.credential_source)
-            middleware = SandboxMiddleware(agent_root="/workspace/repo", workspace=SandboxWorkspace(session))
+            middleware = SandboxMiddleware(workspace=SandboxWorkspace(session))
             await acquire_sandbox(session, ctx, {})
             await middleware.abefore_agent({}, MagicMock(context=ctx))
             await session.release(resumable=True)

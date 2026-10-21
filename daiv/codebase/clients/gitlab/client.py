@@ -582,7 +582,6 @@ class GitLabClient(RepoClient):
             title=issue.title,
             description=issue.description,
             state=issue.state,
-            notes=self._get_issue_notes(repo_id, issue_id),
             labels=issue.labels,
             assignee=User(
                 id=issue.assignee.get("id"), username=issue.assignee.get("username"), name=issue.assignee.get("name")
@@ -632,7 +631,7 @@ class GitLabClient(RepoClient):
         return Note.model_validate(issue.notes.get(note_id).attributes)
 
     def create_issue_comment(
-        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """
         Comment on an issue.
@@ -650,9 +649,6 @@ class GitLabClient(RepoClient):
         if reply_to_id:
             discussion = issue.discussions.get(reply_to_id, lazy=True)
             return discussion.notes.create({"body": body}).id
-        elif as_thread:
-            discussion = issue.discussions.create({"body": body})
-            return discussion.attributes["notes"][0]["id"]
         return issue.notes.create({"body": body}).id
 
     def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
@@ -884,13 +880,7 @@ class GitLabClient(RepoClient):
         return self._serialize_merge_request(repo_id, merge_request)
 
     def create_merge_request_comment(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        reply_to_id: str | None = None,
-        as_thread: bool = False,
-        mark_as_resolved: bool = False,
+        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """
         Comment on a merge request.
@@ -902,23 +892,10 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        to_return = None
-
         if reply_to_id:
             discussion = merge_request.discussions.get(reply_to_id, lazy=True)
-            to_return = discussion.notes.create({"body": body}).id
-
-            if mark_as_resolved:
-                self.mark_merge_request_comment_as_resolved(repo_id, merge_request_id, reply_to_id)
-
-        elif as_thread:
-            discussion = merge_request.discussions.create({"body": body})
-            note_id = discussion.attributes["notes"][0]["id"]
-            to_return = note_id
-        else:
-            to_return = merge_request.notes.create({"body": body}).id
-
-        return to_return
+            return discussion.notes.create({"body": body}).id
+        return merge_request.notes.create({"body": body}).id
 
     def trigger_merge_request_pipeline(
         self, repo_id: str, merge_request_id: int, expected_sha: str | None = None
@@ -1152,14 +1129,6 @@ class GitLabClient(RepoClient):
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         _create_award_emoji(merge_request.notes.get(note_id, lazy=True), emoji)
 
-    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        """
-        Mark a review as resolved.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        merge_request.discussions.update(discussion_id, {"resolved": True})
-
     def create_merge_request_inline_discussion(
         self, repo_id: str, merge_request_id: int, body: str, position: dict[str, Any]
     ) -> str:
@@ -1197,25 +1166,6 @@ class GitLabClient(RepoClient):
         if user := self.client.user:
             return User(id=user.id, username=user.username, name=user.name)
         raise ValueError("Couldn't get current user profile")
-
-    def _get_issue_notes(self, repo_id: str, issue_id: int) -> list[Note]:
-        """
-        Get the notes of an issue.
-
-        Args:
-            repo_id: The repository ID.
-            issue_id: The issue ID.
-
-        Returns:
-            The list of issue notes.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        issue = project.issues.get(issue_id, lazy=True)
-        return [
-            Note.model_validate(note.attributes)
-            for note in issue.notes.list(get_all=True)
-            if not note.system and not note.resolvable
-        ]
 
     def _serialize_merge_request(
         self, repo_id: str, merge_request: ProjectMergeRequest, *, merged: bool = False

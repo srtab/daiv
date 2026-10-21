@@ -15,7 +15,6 @@ from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE
 
 from automation.agent.base import get_model
-from automation.agent.constants import REPO_PATH
 from automation.agent.middlewares.deferred_tools import (
     deferred_tools_middleware,
     direct_mcp_tools,
@@ -154,7 +153,7 @@ def _build_general_purpose_middleware(
         middleware.append(WebFetchMiddleware())
 
     if bash_tool_enabled:
-        middleware.append(SandboxMiddleware(agent_root=REPO_PATH, workspace=workspace))
+        middleware.append(SandboxMiddleware(workspace=workspace))
 
     deferred_tools = deferred_tools_middleware(SUBAGENT_ALWAYS_LOADED_TOOLS, mcp_tools)
     middleware.extend([*deferred_tools, *inline_tool_definitions_middleware(deferred_tools)])

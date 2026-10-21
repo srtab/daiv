@@ -584,7 +584,6 @@ def mock_repo_client():
         mock_client.get_merge_request_note.return_value = Mock()
         mock_client.create_merge_request_comment.return_value = None
         mock_client.create_merge_request_note_emoji.return_value = None
-        mock_client.mark_merge_request_comment_as_resolved.return_value = None
         mock_client.get_merge_request_commits.return_value = []
         mock_client.get_bot_commit_email.return_value = "daiv@users.noreply.gitlab.com"
 

@@ -55,13 +55,6 @@ class Repository(BaseModel):
     topics: list[str] = Field(default_factory=list)
 
 
-class RepositoryFile(BaseModel):
-    repo_id: str
-    file_path: str
-    ref: str | None = None
-    content: str | None = None
-
-
 class Job(BaseModel):
     id: int
     name: str
@@ -124,18 +117,6 @@ class MergeRequest(BaseModel):
     treat it as a source of truth off those paths."""
 
 
-class MergeRequestDiff(BaseModel):
-    repo_id: str
-    merge_request_id: int
-    ref: str
-    old_path: str
-    new_path: str
-    diff: bytes
-    new_file: bool = False
-    renamed_file: bool = False
-    deleted_file: bool = False
-
-
 class User(BaseModel):
     id: int
     name: str | None = None
@@ -164,44 +145,6 @@ class NoteableType(StrEnum):
     MERGE_REQUEST = "MergeRequest"
 
 
-class NoteDiffPositionType(StrEnum):
-    OLD = "old"
-    NEW = "new"
-    EXPANDED = "expanded"
-
-
-class NoteDiffPosition(BaseModel):
-    type: NoteDiffPositionType | None
-    old_line: int | None
-    new_line: int | None
-
-
-class NotePositionLineRange(BaseModel):
-    start: NoteDiffPosition
-    end: NoteDiffPosition
-
-
-class NotePositionType(StrEnum):
-    TEXT = "text"
-    FILE = "file"
-
-
-class NoteLineInfo(BaseModel):
-    side: Literal["source", "target"]
-    line_no: int
-
-
-class NotePosition(BaseModel):
-    head_sha: str
-    old_path: str
-    new_path: str
-    position_type: NotePositionType
-    old_line: int | None = None
-    new_line: int | None = None
-    line_range: NotePositionLineRange | None = None
-    line_info: NoteLineInfo | None = None
-
-
 class NoteType(StrEnum):
     DIFF_NOTE = "DiffNote"
     DISCUSSION_NOTE = "DiscussionNote"
@@ -216,13 +159,7 @@ class Note(BaseModel):
     resolvable: bool
     resolved: bool | None = None
     type: NoteType | None = None
-    position: NotePosition | None = None
     hunk: str | None = None
-
-
-class IssueType(StrEnum):
-    ISSUE = "issue"
-    TASK = "task"
 
 
 class Issue(BaseModel):
@@ -233,6 +170,4 @@ class Issue(BaseModel):
     state: str | None = None
     assignee: User | None = None
     author: User
-    issue_type: IssueType = IssueType.ISSUE
-    notes: list[Note] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)

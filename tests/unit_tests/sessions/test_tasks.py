@@ -34,64 +34,62 @@ def _run_for_titling(
     )
 
 
+def _chat_session(title: str = "Heuristic placeholder") -> Session:
+    return Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo", title=title
+    )
+
+
 @pytest.mark.django_db
-def test_generate_title_task_skips_a_missing_entity_without_calling_the_model():
+def test_generate_title_task_skips_a_missing_session_without_calling_the_model():
     with patch("sessions.titling.generate_title") as generate:
-        generate_title_task.func(entity_type="run", pk=str(uuid.uuid4()), prompt="any", repo_id="x/y")
+        generate_title_task.func(pk=str(uuid.uuid4()), prompt="any", repo_id="x/y")
 
     generate.assert_not_called()
 
 
 @pytest.mark.django_db
-def test_generate_title_task_overwrites_the_run_title_with_the_generated_one():
-    run = _run_for_titling(title="Heuristic placeholder")
+def test_generate_title_task_overwrites_the_session_title_with_the_generated_one():
+    session = _chat_session()
 
     with patch("sessions.titling.generate_title", return_value="LLM generated") as generate:
-        generate_title_task.func(
-            entity_type="run", pk=str(run.pk), prompt="add login", repo_id="group/repo", ref="feat/x"
-        )
+        generate_title_task.func(pk=session.thread_id, prompt="add login", repo_id="group/repo", ref="feat/x")
 
-    run.refresh_from_db()
-    assert run.title == "LLM generated"
+    session.refresh_from_db()
+    assert session.title == "LLM generated"
     generate.assert_called_once_with(
         "add login",
         repo_id="group/repo",
         ref="feat/x",
-        run_metadata={"entity_type": "run", "entity_pk": str(run.pk), "repo_id": "group/repo", "ref": "feat/x"},
+        run_metadata={
+            "entity_type": "session",
+            "entity_pk": session.thread_id,
+            "repo_id": "group/repo",
+            "ref": "feat/x",
+        },
     )
 
 
 @pytest.mark.django_db
-def test_generate_title_task_writes_a_session_title():
-    session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo")
-
-    with patch("sessions.titling.generate_title", return_value="Session title"):
-        generate_title_task.func(entity_type="session", pk=session.thread_id, prompt="do a thing", repo_id="group/repo")
-
-    session.refresh_from_db()
-    assert session.title == "Session title"
-
-
-@pytest.mark.django_db
 def test_generate_title_task_keeps_the_title_when_no_model_is_configured():
-    run = _run_for_titling(title="Heuristic placeholder")
+    session = _chat_session()
 
     with patch("sessions.titling.generate_title", side_effect=TitlerNotConfiguredError("no key")):
-        generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="any", repo_id="group/repo")
+        generate_title_task.func(pk=session.thread_id, prompt="any", repo_id="group/repo")
 
-    run.refresh_from_db()
-    assert run.title == "Heuristic placeholder"
+    session.refresh_from_db()
+    assert session.title == "Heuristic placeholder"
 
 
 @pytest.mark.django_db
 def test_generate_title_task_lets_a_failed_model_call_fail_the_task():
-    run = _run_for_titling()
+    session = _chat_session()
 
     with (
         patch("sessions.titling.generate_title", side_effect=RuntimeError("provider down")),
         pytest.raises(RuntimeError, match="provider down"),
     ):
-        generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="any", repo_id="group/repo")
+        generate_title_task.func(pk=session.thread_id, prompt="any", repo_id="group/repo")
 
 
 @pytest.mark.django_db
@@ -142,7 +140,7 @@ def test_generate_batch_title_task_keeps_titles_when_no_model_is_configured():
 @pytest.mark.django_db
 def test_the_enqueued_title_row_is_what_the_interactive_worker_claims(database_task_backend):
     """DAIV's own backend overrides ``enqueue``, and the row is what a worker selects on."""
-    result = generate_title_task.enqueue(entity_type="session", pk=str(uuid.uuid4()), prompt="add login", repo_id="o/r")
+    result = generate_title_task.enqueue(pk=str(uuid.uuid4()), prompt="add login", repo_id="o/r")
 
     row = DBTaskResult.objects.get(id=result.id)
     assert row.queue_name == TASK_QUEUE_INTERACTIVE

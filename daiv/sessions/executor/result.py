@@ -1,18 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from automation.agent.git_state import checkpointed_merge_request
 
 if TYPE_CHECKING:
-    from langchain.agents import CompiledAgent
-    from langchain_core.runnables import RunnableConfig
-
-
-# Distinguishes "caller did not supply a snapshot" (fetch one) from "caller supplied
-# ``None``" (state read failed upstream — produce a snapshot-less result without
-# retrying the fetch that already failed).
-NO_SNAPSHOT: Final[Any] = object()
+    from langgraph.types import StateSnapshot
 
 
 class AgentResult(TypedDict):
@@ -65,26 +58,18 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
     )
 
 
-async def build_agent_result(
-    agent: CompiledAgent,
-    config: RunnableConfig,
+def build_agent_result(
     *,
     response: str,
+    snapshot: StateSnapshot | None,
     usage: dict[str, Any] | None = None,
-    snapshot: Any = NO_SNAPSHOT,
     question: dict[str, Any] | None = None,
 ) -> AgentResult:
     """Build a standardized :class:`AgentResult` from the agent's persisted state.
 
-    ``code_changes`` is a PrivateStateAttr, so it's omitted from ainvoke output.
-    We read it from the persisted checkpoint instead. Callers that have already
-    read the state can pass a pre-fetched ``snapshot`` to avoid a redundant Redis
-    round-trip; passing ``None`` explicitly signals that the read already failed
-    (so we don't silently retry it here and risk drifting from whatever the
-    caller decided based on the same failure).
+    ``code_changes`` is a PrivateStateAttr, so it's omitted from ainvoke output and read from the checkpoint
+    ``snapshot`` instead; ``None`` means that read failed, which yields a result without code changes or MR.
     """
-    if snapshot is NO_SNAPSHOT:
-        snapshot = await agent.aget_state(config=config)
     if snapshot is None:
         return AgentResult(
             response=response,
