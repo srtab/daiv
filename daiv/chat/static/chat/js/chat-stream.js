@@ -1405,7 +1405,7 @@
       if (!this.thread) {
         const threadId = uuid();
         this.thread = { thread_id: threadId, repo_id: this.draftRepoId, ref: this.draftRef };
-        history.replaceState(null, "", `/dashboard/chat/${threadId}/`);
+        history.replaceState(null, "", `/dashboard/sessions/${threadId}/`);
       }
 
       this.turns.push({

@@ -130,7 +130,7 @@ class MCPServerForm(forms.ModelForm):
             # Name is immutable after creation.
             self.fields["name"].widget.attrs["readonly"] = True
         else:
-            if scope not in (MCPServer.Scope.USER, MCPServer.Scope.GLOBAL):
+            if scope not in (MCPServer.Visibility.USER, MCPServer.Visibility.GLOBAL):
                 raise ValueError("MCPServerForm requires an explicit scope for creates.")
             self.scope = scope
 
@@ -155,7 +155,10 @@ class MCPServerForm(forms.ModelForm):
         # at ``save()``. Re-check the collision here on create so it surfaces as a
         # friendly field error instead.
         if self.instance.pk is None and name:
-            if self.scope == MCPServer.Scope.USER and MCPServer.objects.global_servers().filter(name=name).exists():
+            if (
+                self.scope == MCPServer.Visibility.USER
+                and MCPServer.objects.global_servers().filter(name=name).exists()
+            ):
                 # A user-scoped create must not reuse a global server's name (global
                 # wins at runtime; block it up front to avoid a silently-shadowed row).
                 self.add_error(
@@ -181,15 +184,15 @@ class MCPServerForm(forms.ModelForm):
         """Whether ``name`` already exists within the create's target scope — mirrors
         the DB's conditional UniqueConstraints (global: name; user: user+name), which
         ModelForm validation skips because ``scope``/``user`` aren't form fields."""
-        if self.scope == MCPServer.Scope.GLOBAL:
+        if self.scope == MCPServer.Visibility.GLOBAL:
             return MCPServer.objects.global_servers().filter(name=name).exists()
-        return MCPServer.objects.filter(scope=MCPServer.Scope.USER, user=self.user, name=name).exists()
+        return MCPServer.objects.filter(scope=MCPServer.Visibility.USER, user=self.user, name=name).exists()
 
     def save(self, commit: bool = True) -> MCPServer:
         self.instance.tool_filter_items = self.cleaned_data.get("tool_filter_items", [])
         if self.instance.pk is None:
             self.instance.scope = self.scope
-        if self.scope == MCPServer.Scope.USER and self.user is not None:
+        if self.scope == MCPServer.Visibility.USER and self.user is not None:
             self.instance.user = self.user
         return super().save(commit=commit)
 

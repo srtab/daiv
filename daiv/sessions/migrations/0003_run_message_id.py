@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0002_backfill_from_activity_and_chat")]
+    dependencies = [("agent_sessions", "0001_initial")]
 
     operations = [
         migrations.AddField(

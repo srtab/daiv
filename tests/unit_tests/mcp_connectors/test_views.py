@@ -8,13 +8,17 @@ from mcp_connectors.models import MCPServer
 
 def _global(name="g1"):
     return MCPServer.objects.create(
-        name=name, scope=MCPServer.Scope.GLOBAL, transport=MCPServer.Transport.HTTP, url="https://g.test/mcp"
+        name=name, scope=MCPServer.Visibility.GLOBAL, transport=MCPServer.Transport.HTTP, url="https://g.test/mcp"
     )
 
 
 def _user_server(user, name="u1"):
     return MCPServer.objects.create(
-        name=name, scope=MCPServer.Scope.USER, user=user, transport=MCPServer.Transport.HTTP, url="https://u.test/mcp"
+        name=name,
+        scope=MCPServer.Visibility.USER,
+        user=user,
+        transport=MCPServer.Transport.HTTP,
+        url="https://u.test/mcp",
     )
 
 
@@ -79,7 +83,7 @@ def test_member_can_create_personal_server(member_client, member_user):
     )
     assert resp.status_code == 302
     obj = MCPServer.objects.get(name="mine")
-    assert obj.scope == MCPServer.Scope.USER and obj.user_id == member_user.id
+    assert obj.scope == MCPServer.Visibility.USER and obj.user_id == member_user.id
 
 
 @pytest.mark.django_db
@@ -956,14 +960,14 @@ def test_list_shadow_badge_ignores_disabled_globals(member_client, member_user):
     for name, gstatus in (("act", MCPServer.Status.ACTIVE), ("dis", MCPServer.Status.DISABLED)):
         MCPServer.objects.create(
             name=name,
-            scope=MCPServer.Scope.GLOBAL,
+            scope=MCPServer.Visibility.GLOBAL,
             transport=MCPServer.Transport.HTTP,
             url=f"http://g-{name}",
             status=gstatus,
         )
         MCPServer.objects.create(
             name=name,
-            scope=MCPServer.Scope.USER,
+            scope=MCPServer.Visibility.USER,
             user=member_user,
             transport=MCPServer.Transport.HTTP,
             url=f"http://u-{name}",
@@ -1037,7 +1041,7 @@ def test_test_endpoint_member_cannot_borrow_global_secret(member_client, member_
     requesting user — a global row named 'shared' is invisible to a member."""
     MCPServer.objects.create(
         name="shared",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://shared.test/mcp",
         headers=[{"name": "Authorization", "mode": "literal", "value": "global-secret"}],
@@ -1080,7 +1084,7 @@ def test_test_endpoint_member_can_borrow_own_user_server_secret(member_client, m
     """A member can borrow their own user-scoped server's stored secret by name."""
     MCPServer.objects.create(
         name="mine",
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="http://mine.test/mcp",
@@ -1136,7 +1140,7 @@ def test_test_endpoint_admin_borrows_global_secret(admin_client, monkeypatch):
     """An admin borrows a global server's stored secret by name — the common case."""
     MCPServer.objects.create(
         name="shared",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://shared.test/mcp",
         headers=[{"name": "Authorization", "mode": "literal", "value": "global-secret"}],
@@ -1160,14 +1164,14 @@ def test_test_endpoint_admin_global_wins_ambiguity(admin_client, member_user, mo
     …`` ordering in ``_resolve_borrowable`` against a "simplify to one filter" regression."""
     MCPServer.objects.create(
         name="dup",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://global.test/mcp",
         headers=[{"name": "Authorization", "mode": "literal", "value": "global-secret"}],
     )
     MCPServer.objects.create(
         name="dup",
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="http://user.test/mcp",
@@ -1194,7 +1198,7 @@ def test_test_endpoint_admin_cannot_borrow_other_members_secret(admin_client, me
     per-user isolation the runtime enforces (an admin's own run never loads member rows)."""
     MCPServer.objects.create(
         name="theirs",
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="http://theirs.test/mcp",
@@ -1220,7 +1224,7 @@ def test_test_endpoint_undecryptable_borrow_returns_400(member_client, member_us
     misattribute the failure to the remote server)."""
     s = MCPServer.objects.create(
         name="mine",
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="http://mine.test/mcp",
@@ -1317,7 +1321,7 @@ def test_global_create_makes_global_row_and_redirects_to_global_list(admin_clien
     assert resp.status_code == 302
     assert resp.url == reverse("mcp_connectors:global_list")
     obj = MCPServer.objects.get(name="gnew")
-    assert obj.scope == MCPServer.Scope.GLOBAL and obj.user_id is None
+    assert obj.scope == MCPServer.Visibility.GLOBAL and obj.user_id is None
 
 
 @pytest.mark.django_db
@@ -1326,7 +1330,7 @@ def test_personal_create_is_user_scoped_even_for_admin(admin_client, admin_user)
     assert resp.status_code == 302
     assert resp.url == reverse("mcp_connectors:list")
     obj = MCPServer.objects.get(name="padmin")
-    assert obj.scope == MCPServer.Scope.USER and obj.user_id == admin_user.id
+    assert obj.scope == MCPServer.Visibility.USER and obj.user_id == admin_user.id
 
 
 @pytest.mark.django_db
@@ -1335,7 +1339,7 @@ def test_personal_create_ignores_smuggled_scope_param(member_client, member_user
     resp = member_client.post(reverse("mcp_connectors:create"), data=data)
     assert resp.status_code == 302
     obj = MCPServer.objects.get(name="smuggle")
-    assert obj.scope == MCPServer.Scope.USER and obj.user_id == member_user.id
+    assert obj.scope == MCPServer.Visibility.USER and obj.user_id == member_user.id
 
 
 @pytest.mark.django_db
@@ -1573,7 +1577,7 @@ def test_edit_refresh_is_icon_button_with_metadata(admin_client):
 def test_set_status_view_updates_status(client, admin_user):
     s = MCPServer.objects.create(
         name="s",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://x",
         status=MCPServer.Status.ACTIVE,
@@ -1589,7 +1593,7 @@ def test_set_status_view_updates_status(client, admin_user):
 def test_set_status_view_rejects_unknown_status(client, admin_user):
     s = MCPServer.objects.create(
         name="s2",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://x",
         status=MCPServer.Status.ACTIVE,

@@ -2,7 +2,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.models import SandboxEnvironment, Visibility
 from sandbox_envs.services import (
     alist_visible_environments,
     build_env_trigger,
@@ -41,7 +41,7 @@ async def test_resolve_raises_lookup_error_for_malformed_uuid():
 async def test_resolve_returns_override_with_decrypted_env_vars():
     user = await User.objects.acreate_user(username="alice", email="alice@example.com", password="x")  # noqa: S106
     env = await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="python:3.12",
@@ -61,16 +61,16 @@ async def test_resolve_returns_override_with_decrypted_env_vars():
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_get_global_default_returns_none_when_no_row():
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     assert await get_global_default() is None
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_get_global_default_returns_row_values():
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     await SandboxEnvironment.objects.acreate(
-        scope=Scope.GLOBAL,
+        scope=Visibility.GLOBAL,
         name="Default",
         base_image="python:3.12",
         memory_bytes=2_000_000_000,
@@ -86,9 +86,9 @@ async def test_get_global_default_returns_row_values():
 
 @pytest.mark.django_db(transaction=True)
 def test_humanise_global_default_with_full_row():
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
     SandboxEnvironment.objects.create(
-        scope=Scope.GLOBAL,
+        scope=Visibility.GLOBAL,
         name="Default",
         base_image="python:3.14",
         memory_bytes=2 * 2**30,
@@ -103,7 +103,7 @@ def test_humanise_global_default_with_full_row():
 
 @pytest.mark.django_db(transaction=True)
 def test_humanise_global_default_empty_returns_none_marks():
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
     from sandbox_envs.services import humanise_global_default
 
     summary = humanise_global_default()
@@ -112,9 +112,9 @@ def test_humanise_global_default_empty_returns_none_marks():
 
 @pytest.mark.django_db(transaction=True)
 def test_humanise_global_default_memory_in_mib_when_not_whole_gib():
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
     SandboxEnvironment.objects.create(
-        scope=Scope.GLOBAL, name="Default", base_image="python:3.14", memory_bytes=768 * 2**20, is_default=True
+        scope=Visibility.GLOBAL, name="Default", base_image="python:3.14", memory_bytes=768 * 2**20, is_default=True
     )
     from sandbox_envs.services import humanise_global_default
 
@@ -128,9 +128,9 @@ def test_get_global_default_returns_row_values_without_overlay():
     from asgiref.sync import async_to_sync
     from sandbox_envs.services import get_global_default
 
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
     SandboxEnvironment.objects.create(
-        scope=Scope.GLOBAL,
+        scope=Visibility.GLOBAL,
         name="Default",
         base_image="python:3.14",
         cpus=2.0,
@@ -173,8 +173,8 @@ def test_site_settings_has_no_sandbox_resource_fields():
 
 @pytest.fixture
 def global_env(db):
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-    return SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="alpine")
+    SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
+    return SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="g", base_image="alpine")
 
 
 def test_build_env_trigger_created_shape(global_env):
@@ -205,7 +205,7 @@ async def test_row_to_override_builds_egress():
     from sandbox_envs.services import row_to_override
 
     env = await SandboxEnvironment.objects.acreate(
-        scope=Scope.GLOBAL,
+        scope=Visibility.GLOBAL,
         name="eg",
         base_image="python:3.12",
         egress_policy={
@@ -231,7 +231,7 @@ async def test_row_to_override_fails_closed_to_none_when_malformed():
     # network_mode=none). The old deny-all-with-plumbing state no longer exists and would be rejected
     # by the sandbox (422 "permits nothing").
     env = await SandboxEnvironment.objects.acreate(
-        scope=Scope.GLOBAL,
+        scope=Visibility.GLOBAL,
         name="bad",
         base_image="python:3.12",
         egress_policy={"default": "deny", "rules": [{"host": "x", "inject": "missing"}]},
@@ -249,7 +249,7 @@ async def test_row_to_override_fails_closed_to_none_on_decryption_error(mocker):
     from core.encryption import DecryptionError
 
     env = await SandboxEnvironment.objects.acreate(
-        scope=Scope.GLOBAL,
+        scope=Visibility.GLOBAL,
         name="rotated",
         base_image="python:3.12",
         egress_policy={"default": "deny", "rules": [{"host": "*.github.com", "inject": "gh"}]},
@@ -305,7 +305,7 @@ async def test_row_to_override_drops_env_vars_on_decryption_error(mocker):
     from core.encryption import DecryptionError
 
     env = await SandboxEnvironment.objects.acreate(
-        scope=Scope.GLOBAL,
+        scope=Visibility.GLOBAL,
         name="rotated-vars",
         base_image="python:3.12",
         env_vars=[{"name": "API_KEY", "value": "s3cr3t", "is_secret": True}],
@@ -323,10 +323,10 @@ async def test_row_to_override_drops_env_vars_on_decryption_error(mocker):
 async def test_alist_visible_environments_paginates_by_scope_name_id():
     """``after`` resumes after the cursor row in (scope, name, id) order; every visible
     env is returned once with no gaps or repeats."""
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="ve", email="ve@e.com", password="x")  # noqa: S106
     for name in ("alpha", "bravo", "charlie", "delta", "echo"):
-        await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=user, name=name, base_image="x")
+        await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=user, name=name, base_image="x")
 
     collected: list[str] = []
     after = None
@@ -343,11 +343,11 @@ async def test_alist_visible_environments_paginates_by_scope_name_id():
 
 @pytest.mark.django_db(transaction=True)
 async def test_alist_visible_environments_excludes_other_users():
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="ve2", email="ve2@e.com", password="x")  # noqa: S106
     other = await User.objects.acreate_user(username="ve3", email="ve3@e.com", password="x")  # noqa: S106
-    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=user, name="mine", base_image="x")
-    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=other, name="theirs", base_image="x")
+    await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=user, name="mine", base_image="x")
+    await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=other, name="theirs", base_image="x")
 
     rows = await alist_visible_environments(user)
     names = {e.name for e in rows}
@@ -359,13 +359,17 @@ async def test_alist_visible_environments_excludes_other_users():
 class TestBuildSandboxSpec:
     @pytest.fixture(autouse=True)
     def _clear_global(self):
-        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+        SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
 
     async def test_it_merges_the_selected_env_over_the_global_default(self):
         await SandboxEnvironment.objects.acreate(
-            scope=Scope.GLOBAL, name="Default", base_image="python:3.12", memory_bytes=2_000_000_000, is_default=True
+            scope=Visibility.GLOBAL,
+            name="Default",
+            base_image="python:3.12",
+            memory_bytes=2_000_000_000,
+            is_default=True,
         )
-        env = await SandboxEnvironment.objects.acreate(scope=Scope.GLOBAL, name="dev", base_image="alpine:latest")
+        env = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="dev", base_image="alpine:latest")
 
         spec = await build_sandbox_spec(str(env.id))
 
@@ -373,10 +377,10 @@ class TestBuildSandboxSpec:
 
     async def test_no_env_is_the_global_default_alone_even_when_an_env_binds_a_repo(self):
         await SandboxEnvironment.objects.acreate(
-            scope=Scope.GLOBAL, name="Default", base_image="python:3.12", is_default=True
+            scope=Visibility.GLOBAL, name="Default", base_image="python:3.12", is_default=True
         )
         await SandboxEnvironment.objects.acreate(
-            scope=Scope.GLOBAL, name="django-env", base_image="python:3.14", repo_ids=["acme/foo"]
+            scope=Visibility.GLOBAL, name="django-env", base_image="python:3.14", repo_ids=["acme/foo"]
         )
 
         spec = await build_sandbox_spec(None)

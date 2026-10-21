@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from django.urls import reverse
 
 import pytest
-from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.models import SandboxEnvironment, Visibility
 
 from accounts.models import Role, User
 from tests.unit_tests.test_picker_popovers import CONTAINER as POPOVER_CONTAINER
@@ -12,20 +12,20 @@ from tests.unit_tests.test_picker_popovers import CONTAINER as POPOVER_CONTAINER
 
 @pytest.fixture
 def user(db) -> User:
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
     return User.objects.create_user(username="u", email="u@e.com", password="x")  # noqa: S106
 
 
 @pytest.fixture
 def admin(db) -> User:
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
     return User.objects.create_user(username="a", email="a@e.com", password="x", role=Role.ADMIN)  # noqa: S106
 
 
 @pytest.mark.django_db
 def test_list_shows_user_envs_and_globals(client, user):
-    SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="x")
-    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="g", is_default=True)
+    SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="x")
+    SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="Default", base_image="g", is_default=True)
     client.force_login(user)
     resp = client.get(reverse("sandbox_envs:list"))
     assert resp.status_code == 200
@@ -35,7 +35,7 @@ def test_list_shows_user_envs_and_globals(client, user):
 
 @pytest.mark.django_db
 def test_non_admin_cannot_edit_global(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="g", is_default=True)
+    env = SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="Default", base_image="g", is_default=True)
     client.force_login(user)
     resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
     assert resp.status_code == 403
@@ -43,7 +43,7 @@ def test_non_admin_cannot_edit_global(client, user):
 
 @pytest.mark.django_db
 def test_admin_can_edit_global(client, admin):
-    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="g", is_default=True)
+    env = SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="Default", base_image="g", is_default=True)
     client.force_login(admin)
     resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
@@ -52,7 +52,7 @@ def test_admin_can_edit_global(client, admin):
 @pytest.mark.django_db
 def test_user_cannot_see_other_users_envs(client, user, db):
     other = User.objects.create_user(username="other", email="o@e.com", password="x")  # noqa: S106
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=other, name="dev", base_image="x")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=other, name="dev", base_image="x")
     client.force_login(user)
     resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
     assert resp.status_code == 404
@@ -60,7 +60,7 @@ def test_user_cannot_see_other_users_envs(client, user, db):
 
 @pytest.mark.django_db
 def test_delete_global_default_blocked_renders_inline_error(client, admin):
-    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="g", is_default=True)
+    env = SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="Default", base_image="g", is_default=True)
     client.force_login(admin)
     resp = client.post(reverse("sandbox_envs:delete", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
@@ -73,8 +73,8 @@ def test_delete_global_default_blocked_renders_inline_error(client, admin):
 
 @pytest.mark.django_db
 def test_set_default_htmx_returns_global_envs_fragment(client, admin):
-    old = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Old", base_image="g", is_default=True)
-    new = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="New", base_image="g")
+    old = SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="Old", base_image="g", is_default=True)
+    new = SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="New", base_image="g")
     client.force_login(admin)
 
     resp = client.post(reverse("sandbox_envs:set_default", args=[new.id]), HTTP_HX_REQUEST="true")
@@ -92,7 +92,7 @@ def test_set_default_htmx_returns_global_envs_fragment(client, admin):
 
 @pytest.mark.django_db
 def test_set_default_rejects_non_admin(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="x")
+    env = SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="g", base_image="x")
     client.force_login(user)
 
     resp = client.post(reverse("sandbox_envs:set_default", args=[env.id]))
@@ -104,7 +104,7 @@ def test_set_default_rejects_non_admin(client, user):
 
 @pytest.mark.django_db
 def test_set_default_rejects_user_scope_env(client, admin):
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=admin, name="dev", base_image="x")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=admin, name="dev", base_image="x")
     client.force_login(admin)
 
     resp = client.post(reverse("sandbox_envs:set_default", args=[env.id]))
@@ -115,7 +115,7 @@ def test_set_default_rejects_user_scope_env(client, admin):
 @pytest.mark.django_db
 def test_user_cannot_delete_other_users_env(client, user):
     other = User.objects.create_user(username="other", email="o@e.com", password="x")  # noqa: S106
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=other, name="dev", base_image="x")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=other, name="dev", base_image="x")
     client.force_login(user)
 
     resp = client.post(reverse("sandbox_envs:delete", args=[env.id]))
@@ -126,8 +126,8 @@ def test_user_cannot_delete_other_users_env(client, user):
 
 @pytest.mark.django_db
 def test_set_default_non_htmx_redirects(client, admin):
-    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Old", base_image="g", is_default=True)
-    new = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="New", base_image="g")
+    SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="Old", base_image="g", is_default=True)
+    new = SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="New", base_image="g")
     client.force_login(admin)
 
     resp = client.post(reverse("sandbox_envs:set_default", args=[new.id]))
@@ -158,7 +158,7 @@ def test_create_htmx_post_success_fires_env_created(client, user):
         data={
             "name": "drawer-env",
             "description": "",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "base_image": "alpine:latest",
             "network_choice": "off",
             "memory_value": "",
@@ -175,7 +175,7 @@ def test_create_htmx_post_success_fires_env_created(client, user):
     assert payload == {
         "id": str(env.id),
         "name": "drawer-env",
-        "scope": Scope.USER,
+        "scope": Visibility.USER,
         "scope_display": env.get_scope_display(),
         "is_default": env.is_default,
         "summary": env.summary,
@@ -200,12 +200,12 @@ def test_create_htmx_post_invalid_returns_form_body_with_errors(client, user):
     assert "HX-Trigger" not in resp.headers
     assert resp.context["form"].errors
     assert b"text-red-400" in resp.content
-    assert not SandboxEnvironment.objects.filter(scope=Scope.USER, user=user).exists()
+    assert not SandboxEnvironment.objects.filter(scope=Visibility.USER, user=user).exists()
 
 
 @pytest.mark.django_db
 def test_edit_htmx_fragment_shows_delete_button(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="x")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="x")
     client.force_login(user)
     resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
@@ -224,7 +224,7 @@ def test_create_htmx_fragment_does_not_show_delete_button(client, user):
 @pytest.mark.django_db
 def test_edit_template_does_not_leak_secret_values(client, user):
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine:latest",
@@ -247,7 +247,7 @@ def test_create_context_includes_global_default_summary(client, user):
 
 @pytest.mark.django_db
 def test_edit_htmx_get_returns_form_body_fragment(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine")
     client.force_login(user)
     resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
@@ -258,14 +258,14 @@ def test_edit_htmx_get_returns_form_body_fragment(client, user):
 
 @pytest.mark.django_db
 def test_edit_htmx_post_success_fires_env_updated(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine")
     client.force_login(user)
     resp = client.post(
         reverse("sandbox_envs:edit", args=[env.id]),
         data={
             "name": "dev-renamed",
             "description": "",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "base_image": "alpine:latest",
             "memory_value": "",
             "memory_unit": "MiB",
@@ -280,7 +280,7 @@ def test_edit_htmx_post_success_fires_env_updated(client, user):
     assert trigger["env-updated"] == {
         "id": str(env.id),
         "name": "dev-renamed",
-        "scope": Scope.USER,
+        "scope": Visibility.USER,
         "scope_display": env.get_scope_display(),
         "is_default": env.is_default,
         "summary": env.summary,
@@ -289,7 +289,7 @@ def test_edit_htmx_post_success_fires_env_updated(client, user):
 
 @pytest.mark.django_db
 def test_edit_htmx_post_invalid_returns_form_body_with_errors(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine")
     client.force_login(user)
     resp = client.post(
         reverse("sandbox_envs:edit", args=[env.id]),
@@ -309,13 +309,15 @@ def test_edit_htmx_post_invalid_returns_form_body_with_errors(client, user):
     [('["acme/foo"]', "already claimed by environment 'a'"), ('["acme/bar", "acme/bar"]', "Duplicate repo id")],
 )
 def test_create_post_rejected_repo_ids_render_as_field_error(client, user, repo_ids_json, message):
-    SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="a", base_image="alpine", repo_ids=["acme/foo"])
+    SandboxEnvironment.objects.create(
+        scope=Visibility.USER, user=user, name="a", base_image="alpine", repo_ids=["acme/foo"]
+    )
     client.force_login(user)
     resp = client.post(
         reverse("sandbox_envs:create"),
         data={
             "name": "b",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "base_image": "alpine",
             "network_choice": "off",
             "memory_unit": "MiB",
@@ -332,9 +334,9 @@ def test_create_post_rejected_repo_ids_render_as_field_error(client, user, repo_
 
 @pytest.mark.django_db
 def test_edit_global_default_sets_is_default_form_true(client, admin):
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
     env = SandboxEnvironment.objects.create(
-        scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+        scope=Visibility.GLOBAL, name="Default", base_image="python:3.14", is_default=True
     )
     client.force_login(admin)
     resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
@@ -345,7 +347,7 @@ def test_edit_global_default_sets_is_default_form_true(client, admin):
 @pytest.mark.django_db
 def test_edit_global_default_post_preserves_is_default(client, admin):
     env = SandboxEnvironment.objects.create(
-        scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+        scope=Visibility.GLOBAL, name="Default", base_image="python:3.14", is_default=True
     )
     client.force_login(admin)
     resp = client.post(
@@ -353,7 +355,7 @@ def test_edit_global_default_post_preserves_is_default(client, admin):
         data={
             "name": "Default",
             "description": "edited",
-            "scope": Scope.GLOBAL,
+            "scope": Visibility.GLOBAL,
             "base_image": "python:3.14",
             "memory_value": "",
             "memory_unit": "MiB",
@@ -372,9 +374,11 @@ def test_edit_global_default_post_preserves_is_default(client, admin):
 def test_edit_post_cannot_promote_via_is_default_field(client, admin):
     """Promotion is owned by ``EnvSetDefaultView``; submitting ``is_default=true``
     in an edit POST must be ignored."""
-    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Current", base_image="python:3.14", is_default=True)
+    SandboxEnvironment.objects.create(
+        scope=Visibility.GLOBAL, name="Current", base_image="python:3.14", is_default=True
+    )
     candidate = SandboxEnvironment.objects.create(
-        scope=Scope.GLOBAL, name="Candidate", base_image="python:3.14", is_default=False
+        scope=Visibility.GLOBAL, name="Candidate", base_image="python:3.14", is_default=False
     )
     client.force_login(admin)
     resp = client.post(
@@ -382,7 +386,7 @@ def test_edit_post_cannot_promote_via_is_default_field(client, admin):
         data={
             "name": "Candidate",
             "description": "",
-            "scope": Scope.GLOBAL,
+            "scope": Visibility.GLOBAL,
             "base_image": "python:3.14",
             "memory_value": "",
             "memory_unit": "MiB",
@@ -399,7 +403,7 @@ def test_edit_post_cannot_promote_via_is_default_field(client, admin):
 
 @pytest.mark.django_db
 def test_edit_non_default_user_env_sets_is_default_form_false(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine")
     client.force_login(user)
     resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
@@ -423,7 +427,7 @@ def test_invalid_create_post_preserves_submitted_env_vars(client, user):
         data={
             "name": "",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "network_choice": "off",
             "memory_value": "",
             "memory_unit": "MiB",
@@ -445,7 +449,7 @@ def test_create_get_non_htmx_redirects_with_open_param(client, user):
 
 @pytest.mark.django_db
 def test_edit_get_non_htmx_redirects_with_open_param(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine")
     client.force_login(user)
     resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
     assert resp.status_code == 302
@@ -454,7 +458,7 @@ def test_edit_get_non_htmx_redirects_with_open_param(client, user):
 
 @pytest.mark.django_db
 def test_delete_get_non_htmx_redirects_with_open_param(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine")
     client.force_login(user)
     resp = client.get(reverse("sandbox_envs:delete", args=[env.id]))
     assert resp.status_code == 302
@@ -463,7 +467,7 @@ def test_delete_get_non_htmx_redirects_with_open_param(client, user):
 
 @pytest.mark.django_db
 def test_delete_htmx_get_returns_delete_body_fragment(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine")
     client.force_login(user)
     resp = client.get(reverse("sandbox_envs:delete", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
@@ -474,7 +478,7 @@ def test_delete_htmx_get_returns_delete_body_fragment(client, user):
 
 @pytest.mark.django_db
 def test_delete_htmx_post_success_fires_env_deleted(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine")
     env_id = env.id
     env_name = env.name
     env_summary = env.summary
@@ -486,7 +490,7 @@ def test_delete_htmx_post_success_fires_env_deleted(client, user):
         "env-deleted": {
             "id": str(env_id),
             "name": env_name,
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "scope_display": "User",
             "is_default": False,
             "summary": env_summary,
@@ -502,7 +506,7 @@ def test_edit_renders_existing_env_vars_with_escaped_quotes(client, user):
     form (``&quot;``) is what the browser decodes back to ``"`` *inside* the
     attribute value, leaving Alpine to parse the JSON correctly."""
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine",
@@ -521,7 +525,7 @@ def test_edit_renders_existing_env_vars_with_escaped_quotes(client, user):
 
 @pytest.mark.django_db
 def test_invalid_edit_post_preserves_submitted_env_vars(client, user):
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine")
     client.force_login(user)
     submitted_json = '[{"name": "ABC", "value": "v", "is_secret": false}]'
     resp = client.post(
@@ -529,7 +533,7 @@ def test_invalid_edit_post_preserves_submitted_env_vars(client, user):
         data={
             "name": "",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "network_choice": "off",
             "memory_value": "",
             "memory_unit": "MiB",
@@ -548,7 +552,7 @@ def test_edit_form_get_does_not_leak_egress_secret(client):
     user = User.objects.create_user(username="leak", email="leak@e.com", password="x")  # noqa: S106
     client.force_login(user)
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine:latest",

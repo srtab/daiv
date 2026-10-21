@@ -9,14 +9,18 @@ from mcp_connectors.models import MCPServer
 
 def _user_server(user, name="u1"):
     return MCPServer.objects.create(
-        name=name, scope=MCPServer.Scope.USER, user=user, transport=MCPServer.Transport.HTTP, url="https://u.test/mcp"
+        name=name,
+        scope=MCPServer.Visibility.USER,
+        user=user,
+        transport=MCPServer.Transport.HTTP,
+        url="https://u.test/mcp",
     )
 
 
 def _filterset(data, user):
     request = RequestFactory().get("/dashboard/mcp-servers/", data)
     request.user = user
-    return MCPServerFilter(data, queryset=MCPServer.objects.filter(scope=MCPServer.Scope.USER), request=request)
+    return MCPServerFilter(data, queryset=MCPServer.objects.filter(scope=MCPServer.Visibility.USER), request=request)
 
 
 @pytest.mark.django_db

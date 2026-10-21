@@ -1,6 +1,9 @@
+from datetime import timedelta
+
 from django.utils import timezone
 
 import pytest
+from sessions.executor.lock import stale_cutoff
 from sessions.models import Session, WatchState
 from sessions.pipeline_watch.reconciler import WATCH_MAX_AGE, WATCH_STALE_AFTER, WatchReconciler
 
@@ -101,16 +104,30 @@ async def test_an_expired_watch_is_logged_per_session(caplog):
     assert any(r.levelname == "WARNING" for r in caplog.records)
 
 
+@pytest.mark.parametrize(
+    ("claimed_at", "heartbeat_at", "expected"),
+    [
+        pytest.param(timedelta(minutes=1), timedelta(minutes=1), WatchState.WATCHING, id="dead-fix-run"),
+        pytest.param(timedelta(minutes=1), -timedelta(minutes=1), WatchState.FIXING, id="still-heartbeating"),
+        pytest.param(-timedelta(minutes=1), timedelta(minutes=1), WatchState.FIXING, id="claimed-not-yet-started"),
+    ],
+)
 @pytest.mark.django_db(transaction=True)
-async def test_a_stuck_fixing_watch_is_recovered():
+async def test_a_fixing_watch_is_recovered_only_once_its_claim_and_heartbeat_are_both_stale(
+    claimed_at, heartbeat_at, expected
+):
+    cutoff = stale_cutoff()
     await amake_watched_session(
-        thread_id="stuck", watch_state=WatchState.FIXING, watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2
+        thread_id="stuck",
+        watch_state=WatchState.FIXING,
+        watch_armed_at=cutoff - claimed_at,
+        last_active_at=cutoff - heartbeat_at,
     )
+
     await _reconciler().areconcile()
 
     session = await Session.objects.aget(thread_id="stuck")
-    # The fix run died; go back to watching so the next pipeline (or sweep) is judged.
-    assert session.watch_state == WatchState.WATCHING
+    assert session.watch_state == expected
 
 
 @pytest.mark.django_db(transaction=True)

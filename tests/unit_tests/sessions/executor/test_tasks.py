@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sessions.executor.lock import SessionLock
 from sessions.executor.tasks import run_job_task
-from sessions.locks import SessionLock
 from sessions.models import Session, SessionOrigin
 
 from tests.unit_tests.conftest import stub_sandbox_spec

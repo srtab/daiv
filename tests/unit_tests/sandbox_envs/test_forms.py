@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 
 import pytest
 from sandbox_envs.forms import SandboxEnvironmentForm
-from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.models import SandboxEnvironment, Visibility
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def make_form_data():
         base = {
             "name": "dev",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "network_choice": "off",
             "memory_mode": "default",
             "cpu_mode": "default",
@@ -52,7 +52,7 @@ User = get_user_model()
 def user(db):
     from accounts.models import User as AccountsUser
 
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
     return AccountsUser.objects.create_user(username="u", email="u@e.com", password="x")  # noqa: S106
 
 
@@ -62,7 +62,7 @@ def test_user_form_rejects_global_scope_for_non_admin():
 
     user = User.objects.create_user(username="u", email="u@e.com", password="x")  # noqa: S106
     form = SandboxEnvironmentForm(
-        data={"name": "dev", "base_image": "alpine", "scope": Scope.GLOBAL}, user=user, is_admin=False
+        data={"name": "dev", "base_image": "alpine", "scope": Visibility.GLOBAL}, user=user, is_admin=False
     )
     assert not form.is_valid()
     assert "scope" in form.errors
@@ -77,7 +77,7 @@ def test_form_validates_env_vars_shape():
         data={
             "name": "dev",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "env_vars_json": '[{"name": "bad name", "value": "v", "is_secret": false}]',
         },
         user=user,
@@ -93,7 +93,7 @@ def test_form_preserves_unchanged_secret_on_edit(db):
 
     user = User.objects.create_user(username="u", email="u@e.com", password="x")  # noqa: S106
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine:latest",
@@ -104,7 +104,7 @@ def test_form_preserves_unchanged_secret_on_edit(db):
         data={
             "name": "dev",
             "base_image": "alpine:latest",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "env_vars_json": '[{"name": "TOKEN", "value": "", "is_secret": true}]',
         },
         user=user,
@@ -123,7 +123,7 @@ def test_form_refuses_when_existing_secrets_cannot_be_decrypted(db):
 
     user = User.objects.create_user(username="u", email="u@e.com", password="x")  # noqa: S106
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine:latest",
@@ -138,7 +138,7 @@ def test_form_refuses_when_existing_secrets_cannot_be_decrypted(db):
         data={
             "name": "dev",
             "base_image": "alpine:latest",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "env_vars_json": '[{"name": "TOKEN", "value": "", "is_secret": true}]',
         },
         user=user,
@@ -159,7 +159,7 @@ def test_form_memory_value_and_unit_set_memory_bytes():
         data={
             "name": "dev",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "memory_value": "1",
             "memory_unit": "GiB",
             "network_choice": "off",
@@ -182,7 +182,7 @@ def test_form_empty_memory_value_maps_to_none():
         data={
             "name": "dev",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "memory_value": "",
             "memory_unit": "MiB",
             "network_choice": "off",
@@ -220,7 +220,7 @@ def test_form_network_choice_maps_to_egress_policy(choice, has_policy):
         data={
             "name": "dev",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "memory_value": "",
             "memory_unit": "MiB",
             "network_choice": choice,
@@ -245,7 +245,7 @@ def test_form_prefills_memory_and_network_from_instance():
     user = User.objects.create_user(username="p1", email="p1@e.com", password="x")  # noqa: S106
     # An env with an egress_policy set ⇒ network is "on"
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine",
@@ -265,7 +265,7 @@ def test_form_prefill_memory_in_mib_when_not_whole_gib():
     user = User.objects.create_user(username="p2", email="p2@e.com", password="x")  # noqa: S106
     # No egress_policy ⇒ network is "off"
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="dev", base_image="alpine", memory_bytes=512 * 2**20
+        scope=Visibility.USER, user=user, name="dev", base_image="alpine", memory_bytes=512 * 2**20
     )
     form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
     assert form.initial["memory_value"] == 512
@@ -282,7 +282,7 @@ def test_form_rejects_custom_memory_mode_without_value():
         data={
             "name": "dev",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "memory_mode": "custom",
             "memory_value": "",
             "memory_unit": "MiB",
@@ -306,7 +306,7 @@ def test_form_rejects_custom_cpu_mode_without_value():
         data={
             "name": "dev",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "memory_mode": "default",
             "memory_value": "",
             "memory_unit": "MiB",
@@ -371,7 +371,7 @@ class TestRepoIdsField:
     def test_repo_ids_uniqueness_violation_surfaced_as_form_error(self):
         user = User.objects.create(username="u", email="u@x.test")
         SandboxEnvironment.objects.create(
-            scope=Scope.USER, user=user, name="a", base_image="python:3.14", repo_ids=["acme/foo"]
+            scope=Visibility.USER, user=user, name="a", base_image="python:3.14", repo_ids=["acme/foo"]
         )
         form = SandboxEnvironmentForm(
             data=self._post_data(name="b", repo_ids_json='["acme/foo"]'), user=user, is_admin=False
@@ -385,13 +385,13 @@ class TestRepoIdsField:
 
     def test_model_clean_repo_ids_error_lands_on_json_field(self):
         user = User.objects.create(username="u", email="u@x.test")
-        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-        SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="alpine", repo_ids=["acme/foo"])
+        SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
+        SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="g", base_image="alpine", repo_ids=["acme/foo"])
         env = SandboxEnvironment.objects.create(
-            scope=Scope.USER, user=user, name="mine", base_image="alpine", repo_ids=["acme/foo"]
+            scope=Visibility.USER, user=user, name="mine", base_image="alpine", repo_ids=["acme/foo"]
         )
         form = SandboxEnvironmentForm(
-            data=self._post_data(name="mine", scope=Scope.GLOBAL, repo_ids_json='["acme/foo"]'),
+            data=self._post_data(name="mine", scope=Visibility.GLOBAL, repo_ids_json='["acme/foo"]'),
             instance=env,
             user=user,
             is_admin=True,
@@ -415,7 +415,7 @@ def test_form_repo_ids_json_initial_is_empty_list_for_unsaved_instance(user):
 @pytest.mark.django_db
 def test_form_env_vars_json_initial_masks_secret_values(user):
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine",
@@ -435,7 +435,7 @@ def test_form_env_vars_json_initial_masks_secret_values(user):
 @pytest.mark.django_db
 def test_form_repo_ids_json_initial_reflects_instance(user):
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="dev", base_image="alpine", repo_ids=["o/a", "o/b"]
+        scope=Visibility.USER, user=user, name="dev", base_image="alpine", repo_ids=["o/a", "o/b"]
     )
     form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
     assert json.loads(form.fields["repo_ids_json"].initial) == ["o/a", "o/b"]
@@ -473,7 +473,7 @@ def test_form_builds_egress_policy_and_secrets_from_hosts():
         data={
             "name": "dev",
             "base_image": "alpine:latest",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "network_choice": "on",
             "egress_json": egress,
         },
@@ -499,7 +499,7 @@ def test_form_writes_no_policy_when_no_hosts():
 
     user = User.objects.create_user(username="ue2", email="ue2@e.com", password="x")  # noqa: S106
     form = SandboxEnvironmentForm(
-        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": ""},
+        data={"name": "dev", "base_image": "alpine:latest", "scope": Visibility.USER, "egress_json": ""},
         user=user,
         is_admin=False,
     )
@@ -538,7 +538,7 @@ def test_form_synthesises_secret_name_for_new_credentialed_host():
         data={
             "name": "dev",
             "base_image": "alpine:latest",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "network_choice": "on",
             "egress_json": egress,
         },
@@ -566,7 +566,7 @@ def test_form_rejects_invalid_credential_header():
         data={
             "name": "d",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "egress_json": json.dumps({
                 "default": "deny",
                 "intercept": "all",
@@ -598,7 +598,7 @@ def test_form_rejects_bad_egress_enums_and_blank_host():
         data={
             "name": "d",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "egress_json": json.dumps({"default": "nope", "intercept": "all", "hosts": []}),
         },
         user=user,
@@ -611,7 +611,7 @@ def test_form_rejects_bad_egress_enums_and_blank_host():
         data={
             "name": "d",
             "base_image": "alpine",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "egress_json": json.dumps({
                 "default": "deny",
                 "intercept": "all",
@@ -631,7 +631,7 @@ def test_egress_initial_masks_secret_values():
 
     user = User.objects.create_user(username="ue4", email="ue4@e.com", password="x")  # noqa: S106
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine:latest",
@@ -660,7 +660,7 @@ def test_egress_preserves_unchanged_secret_on_edit(masked_value):
 
     user = User.objects.create_user(username="ue5", email="ue5@e.com", password="x")  # noqa: S106
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine:latest",
@@ -690,7 +690,7 @@ def test_egress_preserves_unchanged_secret_on_edit(masked_value):
         data={
             "name": "dev",
             "base_image": "alpine:latest",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "network_choice": "on",
             "egress_json": submitted,
         },
@@ -708,7 +708,7 @@ def test_egress_changed_secret_overwrites_on_edit():
 
     user = User.objects.create_user(username="ue6", email="ue6@e.com", password="x")  # noqa: S106
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine:latest",
@@ -738,7 +738,7 @@ def test_egress_changed_secret_overwrites_on_edit():
         data={
             "name": "dev",
             "base_image": "alpine:latest",
-            "scope": Scope.USER,
+            "scope": Visibility.USER,
             "network_choice": "on",
             "egress_json": submitted,
         },
@@ -756,7 +756,7 @@ def test_egress_initial_returns_empty_credentials_on_decryption_error(user, mock
     ``egress_secrets`` getter raises ``DecryptionError``, the editor must still
     render the policy (host/methods) but with empty credentials, never raising."""
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine",
@@ -792,7 +792,7 @@ def test_egress_refuses_when_existing_secrets_cannot_be_decrypted(user, mocker):
     masked edit over unreadable ciphertext must refuse to persist rather than
     silently overwrite the still-valid secret with the mask."""
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine:latest",
@@ -827,7 +827,7 @@ def test_egress_refuses_when_existing_secrets_cannot_be_decrypted(user, mocker):
     })
     form = SandboxEnvironmentForm(
         instance=env,
-        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": submitted},
+        data={"name": "dev", "base_image": "alpine:latest", "scope": Visibility.USER, "egress_json": submitted},
         user=user,
         is_admin=False,
     )
@@ -846,7 +846,7 @@ def test_egress_refuses_when_existing_secrets_cannot_be_decrypted(user, mocker):
 @pytest.mark.django_db
 def test_form_env_vars_json_initial_returns_empty_on_decryption_error(user, mocker, caplog):
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine",

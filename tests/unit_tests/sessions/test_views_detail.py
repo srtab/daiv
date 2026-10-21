@@ -8,8 +8,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
-from sessions.locks import STALE_RUN_MINUTES
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
 from tests.unit_tests.sessions.conftest import create_archive, make_artifact
@@ -133,14 +133,14 @@ def test_detail_seeds_the_tools_sheet_with_the_effective_selection(member_client
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="a",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://a",
         status=MCPServer.Status.ACTIVE,
     )
     MCPServer.objects.create(
         name="b",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://b",
         status=MCPServer.Status.ON_DEMAND,

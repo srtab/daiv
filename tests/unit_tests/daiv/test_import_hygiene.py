@@ -92,10 +92,7 @@ def test_import_contracts_cover_every_top_level_package():
     core_forbidden = set(config["importlinter:contract:core"]["forbidden_modules"].split())
     packages = {path.name for path in SOURCE_ROOT.iterdir() if (path / "__init__.py").is_file()}
 
-    assert root_packages == packages - {"activity"}, (
-        "`.importlinter` root_packages must list every top-level package under daiv/; "
-        "`activity` is left out because it only holds migration history."
-    )
+    assert root_packages == packages, "`.importlinter` root_packages must list every top-level package under daiv/"
     assert core_forbidden == root_packages - {"core", "daiv"}
 
 

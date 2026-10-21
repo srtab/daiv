@@ -132,8 +132,8 @@ def mcp_picker_context(form) -> dict:
     pool = getattr(form, "mcp_pool", []) if has_field else []
     selected = list(form["mcp_servers"].value() or []) if has_field else []
     return {
-        "mcp_pool_global": [e for e in pool if e.scope == MCPServer.Scope.GLOBAL],
-        "mcp_pool_user": [e for e in pool if e.scope == MCPServer.Scope.USER],
+        "mcp_pool_global": [e for e in pool if e.scope == MCPServer.Visibility.GLOBAL],
+        "mcp_pool_user": [e for e in pool if e.scope == MCPServer.Visibility.USER],
         # Autoescaping turns the quotes into `&quot;` inside the attribute, which the
         # browser hands back as valid JSON.
         "mcp_selected_json": json.dumps(selected),

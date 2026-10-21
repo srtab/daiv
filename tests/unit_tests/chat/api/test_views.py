@@ -174,15 +174,15 @@ async def test_first_message_auto_resolves_user_env_onto_thread(
 ):
     """When the first chat message omits the env header (Auto), the view resolves the env
     for the calling user + repo and stamps it on the freshly-created thread."""
-    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.models import SandboxEnvironment, Visibility
 
     _, raw, user = authed
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     await SandboxEnvironment.objects.acreate(
-        scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+        scope=Visibility.GLOBAL, name="Default", base_image="python:3.14", is_default=True
     )
     user_env = await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER, user=user, name="mine", base_image="python:3.14", repo_ids=["a/b"]
+        scope=Visibility.USER, user=user, name="mine", base_image="python:3.14", repo_ids=["a/b"]
     )
 
     with (
@@ -219,12 +219,12 @@ async def test_existing_thread_keeps_original_env_even_when_resolution_would_pic
 ):
     """``get_or_create_for_user`` only applies ``sandbox_environment`` on create. A second
     request whose Auto-resolution would pick a different env must NOT overwrite the thread."""
-    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.models import SandboxEnvironment, Visibility
 
     _, raw, user = authed
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     original = await SandboxEnvironment.objects.acreate(
-        scope=Scope.GLOBAL, name="Original", base_image="python:3.14", is_default=True
+        scope=Visibility.GLOBAL, name="Original", base_image="python:3.14", is_default=True
     )
     # Pre-create the thread with the original env, simulating a prior first-message run.
     await Session.objects.acreate(
@@ -238,7 +238,7 @@ async def test_existing_thread_keeps_original_env_even_when_resolution_would_pic
     # Now add a USER env that would win at Auto resolution; the existing thread must
     # ignore it because get_or_create_for_user only applies on create.
     await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER, user=user, name="newer", base_image="python:3.14", repo_ids=["a/b"]
+        scope=Visibility.USER, user=user, name="newer", base_image="python:3.14", repo_ids=["a/b"]
     )
 
     with (
@@ -275,12 +275,12 @@ async def test_auto_resolved_env_passed_to_streamer_on_first_turn(
 ):
     """First-turn Auto with a successful resolution → ``auto_resolved_env`` carries the
     {id, name, scope} of the resolved env so the streamer can swap the locked pill."""
-    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.models import SandboxEnvironment, Visibility
 
     _, raw, user = authed
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user_env = await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER, user=user, name="mine", base_image="python:3.14", repo_ids=["a/b"]
+        scope=Visibility.USER, user=user, name="mine", base_image="python:3.14", repo_ids=["a/b"]
     )
 
     response = await client.post(
@@ -305,12 +305,12 @@ async def test_existing_thread_auto_submit_does_not_emit_resolved_env(
     """Existing-thread Auto submit must NOT emit ``auto_resolved_env``: the freshly
     resolved env is discarded in favour of the thread's stored env, and emitting would
     mis-stamp the locked pill with a different env from the one actually running."""
-    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.models import SandboxEnvironment, Visibility
 
     _, raw, user = authed
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     original = await SandboxEnvironment.objects.acreate(
-        scope=Scope.GLOBAL, name="Original", base_image="python:3.14", is_default=True
+        scope=Visibility.GLOBAL, name="Original", base_image="python:3.14", is_default=True
     )
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT,
@@ -338,12 +338,12 @@ async def test_explicit_env_header_does_not_emit_resolved_env(
 ):
     """Explicit ``X-Sandbox-Env`` pick → no auto-resolution happened, so no emit. The
     locked pill already shows the picked env name client-side."""
-    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.models import SandboxEnvironment, Visibility
 
     _, raw, user = authed
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     picked = await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER, user=user, name="picked", base_image="python:3.14"
+        scope=Visibility.USER, user=user, name="picked", base_image="python:3.14"
     )
 
     response = await client.post(
@@ -628,7 +628,7 @@ async def ondemand_global_mcp():
     await MCPServer.objects.all().adelete()
     return await MCPServer.objects.acreate(
         name="b",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         status=MCPServer.Status.ON_DEMAND,
         transport=MCPServer.Transport.HTTP,
         url="http://mcp-b.internal/mcp",
@@ -743,7 +743,7 @@ async def test_chat_mcp_selection_is_pool_relative_across_status_flip(
     await MCPServer.objects.all().adelete()
     server = await MCPServer.objects.acreate(
         name="b",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         status=MCPServer.Status.ACTIVE,
         transport=MCPServer.Transport.HTTP,
         url="http://mcp-b.internal/mcp",

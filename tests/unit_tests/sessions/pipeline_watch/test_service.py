@@ -8,8 +8,7 @@ from django.utils import timezone
 import pytest
 from notifications.choices import EventType
 from notifications.models import Notification
-from sandbox_envs.models import SandboxEnvironment
-from sandbox_envs.models import Scope as SandboxScope
+from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.ids import compute_thread_id
 from sessions.models import Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
@@ -585,7 +584,7 @@ async def test_arming_gives_the_mr_thread_the_run_owner_and_environment(watch, d
 
     owner = await django_user_model.objects.acreate(username="runner", email="runner@example.com")
     env = await SandboxEnvironment.objects.acreate(
-        scope=SandboxScope.USER, user=owner, name="mine", base_image="python:3.14"
+        scope=Visibility.USER, user=owner, name="mine", base_image="python:3.14"
     )
     mr_thread = mr_thread_id(91)
 
@@ -605,7 +604,7 @@ async def test_arming_adopts_an_ownerless_thread(watch, django_user_model):
 
     owner = await django_user_model.objects.acreate(username="runner2", email="runner2@example.com")
     env = await SandboxEnvironment.objects.acreate(
-        scope=SandboxScope.USER, user=owner, name="mine", base_image="python:3.14"
+        scope=Visibility.USER, user=owner, name="mine", base_image="python:3.14"
     )
     mr_thread = mr_thread_id(92)
     await amake_watched_session(thread_id=mr_thread, merge_request_iid=92, user=None)
@@ -627,7 +626,7 @@ async def test_arming_never_reassigns_an_owned_thread(watch, django_user_model):
     human = await django_user_model.objects.acreate(username="human2", email="human2@example.com")
     robot = await django_user_model.objects.acreate(username="robot", email="robot@example.com")
     private = await SandboxEnvironment.objects.acreate(
-        scope=SandboxScope.USER, user=robot, name="mine", base_image="python:3.14"
+        scope=Visibility.USER, user=robot, name="mine", base_image="python:3.14"
     )
     mr_thread = mr_thread_id(93)
     await amake_watched_session(thread_id=mr_thread, merge_request_iid=93, user=human)
@@ -647,7 +646,7 @@ async def test_arming_never_reassigns_an_owned_thread(watch, django_user_model):
 @pytest.mark.django_db(transaction=True)
 async def test_an_environment_deleted_during_the_run_still_arms_the_watch(watch):
     """The run holds the id from its start; writing a deleted one would fail the arm and leave the MR unwatched."""
-    env = await SandboxEnvironment.objects.acreate(scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14")
+    env = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="ci", base_image="python:3.14")
     env_id = str(env.id)
     await env.adelete()
 
@@ -663,8 +662,8 @@ async def test_an_environment_deleted_during_the_run_still_arms_the_watch(watch)
 @pytest.mark.django_db(transaction=True)
 async def test_arming_never_replaces_a_threads_environment(watch):
     """A session keeps the environment of its first run, like its owner."""
-    first = await SandboxEnvironment.objects.acreate(scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14")
-    other = await SandboxEnvironment.objects.acreate(scope=SandboxScope.GLOBAL, name="ci-2", base_image="python:3.13")
+    first = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="ci", base_image="python:3.14")
+    other = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="ci-2", base_image="python:3.13")
     mr_thread = mr_thread_id(96)
     await amake_watched_session(thread_id=mr_thread, merge_request_iid=96, sandbox_environment=first)
 

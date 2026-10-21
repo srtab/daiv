@@ -72,7 +72,6 @@ def get_or_create_session(
     agent_thinking_level: str = "",
     sandbox_environment_id: str | None = None,
     scheduled_job=None,
-    issue_iid: int | None = None,
     merge_request_iid: int | None = None,
     mcp_overrides: dict | None = None,
 ) -> Session:
@@ -94,7 +93,6 @@ def get_or_create_session(
             "agent_thinking_level": agent_thinking_level,
             "sandbox_environment_id": sandbox_environment_id,
             "scheduled_job": scheduled_job,
-            "issue_iid": issue_iid,
             "merge_request_iid": merge_request_iid,
             "mcp_overrides": mcp_overrides or {},
         },
@@ -186,9 +184,7 @@ def create_run(
     prompt: str = "",
     agent_model: str = "",
     agent_thinking_level: str = "",
-    issue_iid: int | None = None,
     merge_request_iid: int | None = None,
-    mention_comment_id: str = "",
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
@@ -213,7 +209,6 @@ def create_run(
         agent_thinking_level=agent_thinking_level,
         sandbox_environment_id=sandbox_environment_id,
         scheduled_job=scheduled_job,
-        issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
         mcp_overrides=mcp_overrides,
     )
@@ -234,7 +229,6 @@ def create_run(
         title=title[: Run._meta.get_field("title").max_length],
         sandbox_environment_id=sandbox_environment_id,
         merge_request_iid=merge_request_iid,
-        mention_comment_id=mention_comment_id,
     )
 
 

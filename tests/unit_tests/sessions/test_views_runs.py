@@ -187,7 +187,7 @@ def test_run_form_submit_passes_mcp_overrides(member_client, member_user):
 
     MCPServer.objects.create(
         name="b",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         status=MCPServer.Status.ON_DEMAND,
         transport=MCPServer.Transport.HTTP,
         url="http://b.test/mcp",
@@ -218,7 +218,7 @@ def test_retry_prefills_selection_from_source_session(member_client, member_user
 
     MCPServer.objects.create(
         name="b",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         status=MCPServer.Status.ON_DEMAND,
         transport=MCPServer.Transport.HTTP,
         url="http://b.test/mcp",

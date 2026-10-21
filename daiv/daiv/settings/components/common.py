@@ -13,7 +13,6 @@ SITE_ID = 1
 
 LOCAL_APPS = [
     "accounts",
-    "activity",
     "automation",
     "chat",
     "codebase",
