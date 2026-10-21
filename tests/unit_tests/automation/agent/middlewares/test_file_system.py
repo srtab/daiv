@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from deepagents.backends.composite import CompositeBackend
 from deepagents.graph import _apply_custom_middleware
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
 from deepagents.middleware.filesystem import FilesystemPermission, _check_fs_permission
@@ -18,8 +20,12 @@ from automation.agent.middlewares.file_system import (
     READ_ONLY_PERMISSIONS,
     WRITE_SUCCESS_PREFIX,
     DAIVFilesystemMiddleware,
+    _file_write_confirmation,
+    large_tool_results_prefix,
+    write_tool_result_to_file,
 )
 from automation.agent.workspace.backends import DAIVFilesystemBackend, build_disk_workspace_backend
+from tests.unit_tests.conftest import unacquired_backend
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -361,3 +367,117 @@ def test_grep_description_states_the_default_output_mode():
 
     assert "files_with_matches" in desc, "description must name the default output mode"
     assert 'output_mode="content"' in desc
+
+
+def _recording_backend(*, error: str | None = None):
+    """Filesystem backend stub whose ``awrite`` records calls and returns a WriteResult-like obj."""
+    backend = Mock()
+    backend.awrite = AsyncMock(return_value=Mock(error=error))
+    return backend
+
+
+@pytest.mark.parametrize(
+    ("artifacts_root", "expected"),
+    [("/workspace", "/workspace/large_tool_results"), (None, "/large_tool_results")],
+    ids=["composite", "bare"],
+)
+def test_large_tool_results_prefix_is_where_upstream_evicts(artifacts_root, expected):
+    """A bare backend carries no artifacts_root the middleware would honour, so it falls back to "/"."""
+    if artifacts_root is None:
+        backend = unacquired_backend()
+    else:
+        backend = CompositeBackend(default=unacquired_backend(), routes={}, artifacts_root=artifacts_root)
+
+    assert large_tool_results_prefix(backend) == expected
+    assert UpstreamFilesystemMiddleware(backend=backend)._large_tool_results_prefix == expected
+
+
+def test_file_write_confirmation_shape():
+    output = "line1\nline2\nline3"
+    msg = _file_write_confirmation("/workspace/large_tool_results/x", 17, 3, output)
+    assert "/workspace/large_tool_results/x" in msg
+    assert "17 bytes" in msg
+    assert "3 lines" in msg
+    assert "line1" in msg  # head preview included
+
+
+def test_file_write_confirmation_caps_preview_to_25_lines():
+    output = "\n".join(f"line{i}" for i in range(100))
+    msg = _file_write_confirmation("/workspace/large_tool_results/x", 999, 100, output)
+    assert "line24" in msg  # 25th line (0-indexed) is shown
+    assert "line25" not in msg  # 26th line is not
+
+
+def test_file_write_confirmation_caps_preview_chars():
+    output = "x" * 5000  # single very long line
+    msg = _file_write_confirmation("/workspace/large_tool_results/x", 5000, 1, output)
+    assert "(preview truncated)" in msg
+    assert len(msg) < 5000
+
+
+async def test_write_tool_result_to_file_writes_via_backend_and_confirms():
+    backend = _recording_backend()
+
+    result = await write_tool_result_to_file(
+        "a\nb\nc",
+        runtime=SimpleNamespace(tool_call_id="call_1"),
+        backend=backend,
+        prefix="/workspace/large_tool_results",
+        tool_name="gitlab",
+    )
+
+    path, content = backend.awrite.call_args.args
+    # path is keyed by tool_call_id, exactly like the middleware's auto-eviction
+    assert path == "/workspace/large_tool_results/call_1"
+    assert content == "a\nb\nc"  # full content, untruncated
+    assert result.startswith("Wrote ")
+    assert "3 lines" in result
+
+
+async def test_write_tool_result_to_file_returns_error_on_backend_failure():
+    result = await write_tool_result_to_file(
+        "x",
+        runtime=SimpleNamespace(tool_call_id="call_1"),
+        backend=_recording_backend(error="disk full"),
+        prefix="/workspace/large_tool_results",
+        tool_name="gitlab",
+    )
+
+    assert result.startswith("error:")
+    assert "disk full" in result
+
+
+async def test_write_tool_result_to_file_returns_error_when_backend_raises():
+    """A raised exception from ``awrite`` must be caught and returned as an ``error:`` string,
+    not propagated out of the tool (the agent's only channel is the returned string)."""
+    backend = _recording_backend()
+    backend.awrite = AsyncMock(side_effect=RuntimeError("boom"))
+
+    result = await write_tool_result_to_file(
+        "x",
+        runtime=SimpleNamespace(tool_call_id="call_1"),
+        backend=backend,
+        prefix="/workspace/large_tool_results",
+        tool_name="gitlab",
+    )
+
+    assert result.startswith("error:")
+    assert "boom" in result
+
+
+async def test_write_tool_result_to_file_fails_loudly_when_tool_call_id_missing():
+    """Without a tool_call_id the path key would collapse onto a shared filename, silently
+    overwriting a prior dump — so the write must be refused with an ``error:`` string instead."""
+    backend = _recording_backend()
+
+    result = await write_tool_result_to_file(
+        "x",
+        runtime=SimpleNamespace(tool_call_id=None),
+        backend=backend,
+        prefix="/workspace/large_tool_results",
+        tool_name="gitlab",
+    )
+
+    assert result.startswith("error:")
+    assert "tool_call_id" in result
+    backend.awrite.assert_not_called()

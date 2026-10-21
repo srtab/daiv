@@ -1,0 +1,211 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import shlex
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
+
+from automation.agent.middlewares.file_system import write_tool_result_to_file
+from automation.agent.utils import repo_relative_text
+from codebase.clients.utils import clean_job_logs
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from deepagents.backends.protocol import BackendProtocol
+    from langchain.tools import ToolRuntime
+
+    from automation.agent.context import RuntimeCtx
+
+
+logger = logging.getLogger("daiv.tools")
+
+
+DEFAULT_CLI_TIMEOUT = 30
+
+type AllowCommands = dict[str, set[str] | Literal["*"]]
+
+
+@dataclass(frozen=True)
+class PlatformCli:
+    """One platform's CLI as :func:`run_platform_cli` sees it: how its errors read and what its policy allows."""
+
+    display_name: str
+    tool_name: str
+    executable: str
+    usage: str
+    example: str
+    allow_commands: AllowCommands
+    has_disallowed_flags: Callable[[list[str]], bool]
+    disallowed_flags_error: str
+
+
+@dataclass(frozen=True)
+class CliInvocation:
+    """How to run one checked subcommand: the arguments after the executable and the platform's environment."""
+
+    args: list[str]
+    env: dict[str, str]
+    clean_logs: bool = False
+
+
+_PUBLISHED_TEXT_FLAGS = frozenset({
+    "--body",
+    "--title",
+    "--description",
+    "--notes",
+    "--note",
+    "--message",
+    "--content",
+    "-b",
+    "-t",
+    "-n",
+})
+
+
+def _repo_relative_flag_values(args: list[str]) -> list[str]:
+    """``args`` with the values of the flags that carry published text made repo-relative.
+
+    Handles ``--flag value`` and ``--flag=value``. Every other argument, file and position flags included,
+    is passed through unchanged.
+    """
+    rewritten: list[str] = []
+    value_follows = False
+    for arg in args:
+        if value_follows:
+            rewritten.append(repo_relative_text(arg))
+            value_follows = False
+            continue
+        flag, sep, value = arg.partition("=")
+        if sep and flag in _PUBLISHED_TEXT_FLAGS:
+            rewritten.append(f"{flag}={repo_relative_text(value)}")
+        else:
+            rewritten.append(arg)
+            value_follows = arg in _PUBLISHED_TEXT_FLAGS
+    return rewritten
+
+
+def _is_allowed_cli_command(resource: str, action: str, allow_commands: AllowCommands) -> tuple[bool, str]:
+    allowed_actions = allow_commands.get(resource)
+    if allowed_actions is None:
+        logger.warning("[git-platform] The subcommand '%s' is not allowed by policy.", resource)
+        return False, f"error: The subcommand '{resource}' is not allowed by policy."
+
+    if allowed_actions == "*":
+        return True, ""
+
+    if action in allowed_actions:
+        return True, ""
+
+    logger.warning("[git-platform] The action '%s' for subcommand '%s' is not allowed by policy.", action, resource)
+    return False, f"error: The action '{action}' for subcommand '{resource}' is not allowed by policy."
+
+
+def _cli_failure_message(platform: str, returncode: int, stdout: bytes, stderr: bytes) -> str:
+    """Report a failed CLI call with its stdout too: some commands exit non-zero with the answer on stdout
+    (``gh pr checks`` exits 1 when a check failed and prints the checks table)."""
+    message = f"error: {platform} command failed (exit code {returncode}). Details: {stderr.decode('utf-8').strip()}"
+    if output := stdout.decode("utf-8").strip():
+        message += f"\nOutput:\n{output}"
+    return message
+
+
+async def run_platform_cli(
+    cli: PlatformCli,
+    subcommand: str,
+    runtime: ToolRuntime[RuntimeCtx],
+    prepare: Callable[[list[str]], Awaitable[CliInvocation | str]],
+    *,
+    to_file: bool,
+    backend: BackendProtocol,
+    large_tool_results_prefix: str,
+) -> str:
+    """Run one subcommand of ``cli`` for a tool call and return what the model reads back.
+
+    The subcommand is parsed and checked against ``cli``'s policy, then ``prepare`` turns the checked arguments into
+    a :class:`CliInvocation`, or answers the call itself when the CLI is not the way to serve it. The CLI runs as a
+    subprocess without shell expansion. With ``to_file`` the full result is written to the large-tool-results dir
+    through ``backend`` and a compact confirmation comes back; otherwise the output comes back inline, and the
+    filesystem middleware evicts it to that same dir when it is too large.
+    """
+    if not subcommand or not subcommand.strip():
+        return f"error: Subcommand cannot be empty. Format: '{cli.usage}'"
+
+    try:
+        args = _repo_relative_flag_values(shlex.split(subcommand.strip()))
+    except ValueError as e:
+        return f"error: Failed to parse subcommand: {e}. Check for unmatched quotes."
+
+    incomplete = f"error: Incomplete subcommand. Expected format: '{cli.usage}'. Got: '{subcommand}'"
+    if len(args) < 2:
+        return incomplete
+
+    resource, action = args[0:2]
+
+    if resource == cli.executable:
+        return (
+            f"error: Do not include '{cli.executable}' command prefix. "
+            f"Start directly with the object. Example: '{cli.example}'"
+        )
+
+    if not action:
+        return incomplete
+
+    is_allowed, policy_message = _is_allowed_cli_command(resource, action, cli.allow_commands)
+    if not is_allowed:
+        return policy_message
+
+    if cli.has_disallowed_flags(args[2:]):
+        return cli.disallowed_flags_error
+
+    invocation = await prepare(args)
+    if isinstance(invocation, str):
+        return invocation
+
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/tmp"),  # noqa: S108
+        **invocation.env,
+    }
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            cli.executable, *invocation.args, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=DEFAULT_CLI_TIMEOUT)
+    except TimeoutError:
+        try:
+            process.kill()
+            await process.wait()
+        except Exception as e:
+            logger.warning("[%s] Failed to kill %s process: %s", cli.tool_name, cli.display_name, e)
+        return (
+            f"error: {cli.display_name} command timed out after {DEFAULT_CLI_TIMEOUT} seconds. "
+            "The operation may be too complex or the API is slow."
+        )
+    except Exception as e:
+        logger.exception("[%s] Failed to execute %s command.", cli.tool_name, cli.display_name)
+        return f"error: Failed to execute {cli.display_name} command. Details: {e}"
+
+    if process.returncode != 0:
+        return _cli_failure_message(cli.display_name, process.returncode, stdout, stderr)
+
+    output = stdout.decode("utf-8").strip()
+    if not output:
+        # Failures returned above, so "no file was written" means a genuinely empty result, not a failed command.
+        empty = "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
+        if to_file:
+            empty += "\n(note: no file was written — the command produced no output.)"
+        return empty
+
+    if invocation.clean_logs:
+        output = clean_job_logs(output, runtime.context.git_platform)
+
+    if to_file:
+        return await write_tool_result_to_file(
+            output, runtime=runtime, backend=backend, prefix=large_tool_results_prefix, tool_name=cli.tool_name
+        )
+    return output
