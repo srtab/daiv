@@ -15,6 +15,7 @@ from django.test import Client
 
 import httpx
 import pytest
+from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.protocol import BackendProtocol
 from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import SecretStr
@@ -102,6 +103,13 @@ def sandbox_backend_on(client, session_id: str = "sess-1") -> SandboxFileBackend
 def unacquired_backend(client=None) -> SandboxFileBackend:
     """A ``SandboxFileBackend`` whose session nothing has acquired, as a slash-command turn leaves it."""
     return SandboxFileBackend(SandboxSession(client or FakeSandboxClient(), sandbox_spec()))
+
+
+def recording_backend(*, error: str | None = None) -> CompositeBackend:
+    """A backend rooted at ``/workspace`` whose ``awrite`` records its calls and reports ``error``, writing nothing."""
+    backend = CompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
+    backend.awrite = AsyncMock(return_value=Mock(error=error))
+    return backend
 
 
 @dataclass
