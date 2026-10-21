@@ -22,6 +22,15 @@ class DelegationError(ValueError):
 
 
 @dataclass(frozen=True)
+class Checkout:
+    """The delegating run's clone: ``ref`` is the branch it checked out, ``default_branch`` its repository's."""
+
+    repo_id: str
+    ref: str
+    default_branch: str
+
+
+@dataclass(frozen=True)
 class DelegatedTarget:
     """One sub-job: ``ref`` blank for the repository's default branch."""
 
@@ -47,7 +56,8 @@ class FailedLeg:
 
 @dataclass(frozen=True)
 class DelegationResult:
-    """``batch_id`` is ``None`` when no target got as far as a batch."""
+    """``batch_id`` is ``None`` when every target was refused before a batch was made; a batch whose legs all failed
+    to start still has one, so ``started`` is what says whether anything runs."""
 
     batch_id: str | None
     started: list[StartedLeg] = field(default_factory=list)
@@ -55,8 +65,11 @@ class DelegationResult:
 
 
 class JobDelegator(Protocol):
-    async def adelegate(self, *, thread_id: str, goal: str, targets: Sequence[DelegatedTarget]) -> DelegationResult:
-        """Start one independent job per target for the session ``thread_id`` and return without waiting.
+    async def adelegate(
+        self, *, thread_id: str, checkout: Checkout, goal: str, targets: Sequence[DelegatedTarget]
+    ) -> DelegationResult:
+        """Start one independent job per target for the session ``thread_id``, whose run has ``checkout``, and return
+        without waiting.
 
         Once every started leg has finished, the session is resumed with a run whose prompt summarises them.
         A target that cannot start lands in ``failed`` while the others go ahead; raise :class:`DelegationError`

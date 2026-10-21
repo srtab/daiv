@@ -299,7 +299,7 @@ async def test_submit_job_forwards_references(_default_mcp_user):
         patch("mcp_api.server._allow_job_submission", return_value=True),
         patch(
             "mcp_api.server.asubmit_batch_runs",
-            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run])),
+            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])),
         ) as submit,
     ):
         result = await submit_job(
@@ -325,7 +325,7 @@ async def test_submit_job_gives_a_repository_its_own_prompt(_default_mcp_user):
         patch("mcp_api.server._allow_job_submission", return_value=True),
         patch(
             "mcp_api.server.asubmit_batch_runs",
-            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run])),
+            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])),
         ) as submit,
     ):
         await submit_job(repos=[{"repo_id": "a/b", "ref": None, "prompt": "only for a/b"}], prompt="batch")

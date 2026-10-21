@@ -76,6 +76,7 @@ def test_session_origin_includes_chat():
         "mr_webhook",
         "pipeline_webhook",
         "delegated_job",
+        "delegation_resume",
     }
 
 
@@ -187,6 +188,7 @@ def test_active_constraint_literals_match_enums():
         SessionOrigin.API_JOB,
         SessionOrigin.MCP_JOB,
         SessionOrigin.DELEGATED_JOB,
+        SessionOrigin.DELEGATION_RESUME,
     }
 
 

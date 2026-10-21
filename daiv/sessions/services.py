@@ -48,9 +48,18 @@ class BatchSubmitFailure:
 
 @dataclass(frozen=True)
 class BatchSubmitResult:
+    """``outcomes`` holds one entry per submitted target, in order: its ``Run``, or why it could not start."""
+
     batch_id: uuid.UUID
-    runs: list[Run] = field(default_factory=list)
-    failed: list[BatchSubmitFailure] = field(default_factory=list)
+    outcomes: list[Run | BatchSubmitFailure] = field(default_factory=list)
+
+    @property
+    def runs(self) -> list[Run]:
+        return [outcome for outcome in self.outcomes if not isinstance(outcome, BatchSubmitFailure)]
+
+    @property
+    def failed(self) -> list[BatchSubmitFailure]:
+        return [outcome for outcome in self.outcomes if isinstance(outcome, BatchSubmitFailure)]
 
 
 def _validate(repos: list[RepoTarget]) -> None:
@@ -274,7 +283,7 @@ async def asubmit_batch_runs(
     ``parent`` is the coordinator session a delegated batch's new sessions hang under.
 
     Best-effort: a per-repo failure (run creation, refs merge, enqueue or link) lands in
-    ``result.failed`` while siblings continue.
+    ``result.failed`` while siblings continue. Every row is created before any task is queued.
     """
     _validate(repos)
     if user is not None:
@@ -299,7 +308,7 @@ async def asubmit_batch_runs(
     if trigger_type == SessionOrigin.SCHEDULE and scheduled_job is not None:
         schedule_run_base = await Run.objects.filter(session__scheduled_job=scheduled_job).acount()
 
-    async def _submit_one(idx: int, target: RepoTarget) -> Run | BatchSubmitFailure:
+    async def _create_one(idx: int, target: RepoTarget) -> Run | BatchSubmitFailure:
         effective_thread_id = thread_id or str(uuid.uuid4())
 
         run_title = ""
@@ -358,30 +367,36 @@ async def asubmit_batch_runs(
                     run, prefix="refs_merge_failed", err=err, log_context="submit_batch_runs"
                 )
                 return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
-
-        if run.status == RunStatus.QUEUED:
-            return run
-
-        if await aenqueue_run(run, log_context="submit_batch_runs") is not None:
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
         return run
 
-    # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
-    # whole batch; _submit_one already catches Exception itself.
-    outcomes = await asyncio.gather(*[_submit_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
+    async def _start_one(
+        target: RepoTarget, created: Run | BatchSubmitFailure | BaseException
+    ) -> Run | BatchSubmitFailure | BaseException:
+        if isinstance(created, BatchSubmitFailure | BaseException) or created.status == RunStatus.QUEUED:
+            return created
+        if await aenqueue_run(created, log_context="submit_batch_runs") is not None:
+            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=created.error_message)
+        return created
 
-    runs: list[Run] = []
-    failed: list[BatchSubmitFailure] = []
-    for target, outcome in zip(repos, outcomes, strict=True):
+    # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
+    # whole batch; _create_one and _start_one already catch Exception themselves.
+    created = await asyncio.gather(*[_create_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
+    # A delegated leg that finishes at once must find all its siblings' rows (sessions.delegation.resume_coordinator).
+    started = await asyncio.gather(
+        *[_start_one(t, c) for t, c in zip(repos, created, strict=True)], return_exceptions=True
+    )
+
+    outcomes: list[Run | BatchSubmitFailure] = []
+    for target, outcome in zip(repos, started, strict=True):
         if isinstance(outcome, BaseException):
             logger.error("submit_batch_runs: unexpected exception for repo_id=%s", target.repo_id, exc_info=outcome)
-            failed.append(
+            outcomes.append(
                 BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(outcome).__name__}: {outcome}")
             )
-        elif isinstance(outcome, BatchSubmitFailure):
-            failed.append(outcome)
         else:
-            runs.append(outcome)
+            outcomes.append(outcome)
+    result = BatchSubmitResult(batch_id=batch_id, outcomes=outcomes)
+    runs = result.runs
 
     if runs and trigger_type in SessionOrigin.prompt_driven() and prompt:
         try:
@@ -395,7 +410,7 @@ async def asubmit_batch_runs(
                 len(runs),
             )
 
-    return BatchSubmitResult(batch_id=batch_id, runs=runs, failed=failed)
+    return result
 
 
 def submit_batch_runs(**kwargs) -> BatchSubmitResult:

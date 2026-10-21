@@ -7,6 +7,7 @@ from django.test import Client
 import pytest
 from asgiref.sync import async_to_sync
 from sandbox_envs.models import SandboxEnvironment, Scope
+from sessions.services import BatchSubmitResult
 
 from accounts.models import APIKey, User
 
@@ -25,7 +26,7 @@ def test_jobs_endpoint_accepts_environment_name(auth_pair):
     env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine:latest")
     fake_run = type("R", (), {"id": uuid.uuid4(), "session_id": str(uuid.uuid4()), "status": "READY"})()
     with patch("jobs.api.views.asubmit_batch_runs", AsyncMock()) as submit:
-        submit.return_value = type("BR", (), {"batch_id": uuid.uuid4(), "runs": [fake_run], "failed": []})()
+        submit.return_value = BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[fake_run])
         c = Client()
         resp = c.post(
             "/api/jobs",

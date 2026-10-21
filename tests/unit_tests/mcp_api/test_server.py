@@ -207,7 +207,7 @@ def _capture_asubmit_batch_runs(captured: dict):
 
     async def _fake(**kwargs):
         captured.update(kwargs)
-        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[FakeRun(task_result_id=None)], failed=[])
+        return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[FakeRun(task_result_id=None)])
 
     return patch("mcp_api.server.asubmit_batch_runs", side_effect=_fake)
 

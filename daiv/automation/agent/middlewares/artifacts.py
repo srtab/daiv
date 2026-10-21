@@ -20,6 +20,7 @@ from langchain_core.tools import BaseTool, tool
 from automation.agent.artifacts import FETCH_ARTIFACT_TOOL_NAME, PUBLISH_ARTIFACT_TOOL_NAME, ArtifactError
 from automation.agent.constants import TMP_PATH, WORKSPACE_PATH
 from automation.agent.context import RuntimeCtx  # noqa: TC001
+from automation.agent.utils import runtime_thread_id
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, _fs_transport_failure_text, is_workspace_path
 
 if TYPE_CHECKING:
@@ -126,10 +127,6 @@ def _fetch_path_error(path: str) -> str | None:
     return f"'{path}' must be an absolute path under {TMP_PATH} (no '..' segments)."
 
 
-def _thread_id(runtime: ToolRuntime[RuntimeCtx]) -> str | None:
-    return (runtime.config.get("configurable") or {}).get("thread_id")
-
-
 class ArtifactsMiddleware(AgentMiddleware):
     """Adds ``publish_artifact``, which copies a file out of the run's workspace into ``store``, and
     ``fetch_artifact``, which copies a stored artifact back into the workspace."""
@@ -187,7 +184,7 @@ class ArtifactsMiddleware(AgentMiddleware):
         if path_error := _workspace_path_error(path):
             return f"Error publishing artifact: {path_error}"
 
-        thread_id = _thread_id(runtime)
+        thread_id = runtime_thread_id(runtime)
         if not thread_id or not await self._store.aaccepts(thread_id):
             logger.warning("publish_artifact: no active run for thread_id=%s", thread_id)
             return _NO_RUN_ERROR
@@ -216,7 +213,7 @@ class ArtifactsMiddleware(AgentMiddleware):
         if path and (path_error := _fetch_path_error(path)):
             return f"Error fetching artifact '{artifact_id}': {path_error}"
 
-        thread_id = _thread_id(runtime)
+        thread_id = runtime_thread_id(runtime)
         if not thread_id or not await self._store.aaccepts(thread_id):
             logger.warning("fetch_artifact: no active run for thread_id=%s", thread_id)
             return _NO_RUN_FETCH_ERROR

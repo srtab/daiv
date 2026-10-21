@@ -95,6 +95,9 @@ msgstr "Webhook de MR/PR"
 msgid "Delegated Run"
 msgstr "Execução delegada"
 
+msgid "Delegation Resume"
+msgstr "Retoma da delegação"
+
 msgid "None"
 msgstr "Nenhuma"
 

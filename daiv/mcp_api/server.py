@@ -22,7 +22,7 @@ from sandbox_envs.services import alist_visible_environments
 from sessions.admission import AdmissionError, aadmit, aassert_repo_access, aresolve_environment, check_agent_override
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, asubmit_batch_runs
+from sessions.services import MAX_REPOS_PER_BATCH, BatchSubmitFailure, RepoTarget, alist_user_runs, asubmit_batch_runs
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 from codebase.authorization import asearch_viewable_repositories
@@ -103,13 +103,18 @@ POLL_INTERVAL = 2.0
 MAX_POLL_DURATION = 600.0  # 10 minutes
 
 
-class RepoSubmitSpec(BaseModel):
+class RepoSpec(BaseModel):
     repo_id: str = Field(description='Repository identifier. "owner/repo" for GitHub or full project path for GitLab.')
     ref: str | None = Field(
         default=None, description="Branch name to start from. None / empty string = default branch."
     )
+
+
+class RepoSubmitSpec(RepoSpec):
     prompt: str | None = Field(
-        default=None, description="Instruction for this repository only; replaces the batch prompt for it."
+        default=None,
+        pattern=r"\S",
+        description="Instruction for this repository only; replaces the batch prompt for it. Must not be blank.",
     )
 
 
@@ -280,24 +285,19 @@ async def submit_job(
     except AdmissionError as err:
         return json.dumps({"error": str(err)})
 
-    # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
-    # non-failed one with the next run in result.runs (same order as input).
-    failed_keys = {(f.repo_id, f.ref) for f in result.failed}
-    runs_iter = iter(result.runs)
-    jobs: list[dict] = []
-    job_ids: list[str] = []
-    for spec in specs:
-        if (spec.repo_id, spec.ref or "") in failed_keys:
-            continue
-        run = next(runs_iter)
-        jobs.append({
-            "job_id": str(run.id),
+    # Walk the specs, not the runs, to echo the client-sent ref value (None vs "").
+    jobs = [
+        {
+            "job_id": str(outcome.id),
             "repo_id": spec.repo_id,
             "ref": spec.ref,
-            "thread_id": str(run.session_id) if run.session_id else None,
-            "status": str(run.status),
-        })
-        job_ids.append(str(run.id))
+            "thread_id": str(outcome.session_id) if outcome.session_id else None,
+            "status": str(outcome.status),
+        }
+        for spec, outcome in zip(specs, result.outcomes, strict=True)
+        if not isinstance(outcome, BatchSubmitFailure)
+    ]
+    job_ids = [str(run.id) for run in result.runs]
 
     failed_out = [{"repo_id": f.repo_id, "ref": f.ref, "error": f.error} for f in result.failed]
 
@@ -807,8 +807,7 @@ async def schedule_job(
         ),
     ],
     repos: Annotated[
-        list[RepoSubmitSpec],
-        Field(min_length=1, max_length=20, description="1-20 repositories the schedule runs against."),
+        list[RepoSpec], Field(min_length=1, max_length=20, description="1-20 repositories the schedule runs against.")
     ],
     frequency: Annotated[Frequency, Field(description="hourly | daily | weekdays | weekly (Mondays) | custom | once.")],
     time: Annotated[
@@ -858,7 +857,7 @@ async def schedule_job(
     if auth_error is not None:
         return auth_error
 
-    specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
+    specs = [spec if isinstance(spec, RepoSpec) else RepoSpec(**spec) for spec in repos]
     repo_dicts = [{"repo_id": s.repo_id, "ref": s.ref or ""} for s in specs]
 
     try:

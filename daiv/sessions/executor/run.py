@@ -19,7 +19,7 @@ from automation.agent.session_links import SessionLinks
 from core.utils import build_absolute_url
 from sessions.archive import aarchive_thread, arestore_thread
 from sessions.artifacts import RunArtifactStore, bind_active_run
-from sessions.delegation import SessionJobDelegator
+from sessions.delegation import adelegator_for
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
@@ -289,6 +289,11 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
             session_links = _session_links(spec, settings)
             if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
+            delegator = (
+                await adelegator_for(spec.thread_id)
+                if spec.thread_id is not None and settings.features.orchestration
+                else None
+            )
             agent = await create_daiv_agent(
                 settings=settings,
                 ctx=ctx,
@@ -298,7 +303,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 artifact_store=RunArtifactStore(),
                 mcp_servers=await sync_to_async(build_runtime_servers)(spec.acting_user_id, spec.mcp_overrides),
                 session_links=session_links,
-                delegator=SessionJobDelegator() if spec.thread_id is not None else None,
+                delegator=delegator,
                 **spec.agent_options,
             )
             config = build_langsmith_config(

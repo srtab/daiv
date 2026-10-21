@@ -15,7 +15,6 @@ from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
-from sessions.delegation import SessionJobDelegator
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
 from sessions.executor.run import RunStoppedError, execute_run, stream_run
 from sessions.executor.spec import RunHooks
@@ -595,12 +594,27 @@ async def test_a_run_without_a_session_to_link_hands_the_agent_no_links(spec_ove
     assert stack.create_agent.await_args.kwargs["session_links"] is None
 
 
-@pytest.mark.parametrize(("spec_overrides", "delegates"), [({}, True), ({"thread_id": None}, False)])
-async def test_only_a_run_with_a_session_can_delegate(spec_overrides, delegates):
-    with agent_stack(_agent()) as stack:
-        await execute_run(make_spec(**spec_overrides))
+@pytest.mark.parametrize(
+    ("spec_overrides", "orchestration", "delegates"),
+    [({}, True, True), ({"thread_id": None}, True, False), ({}, False, False)],
+    ids=["session-run", "one-shot-run", "repo-off"],
+)
+async def test_a_session_run_on_a_repo_with_orchestration_gets_its_sessions_delegator(
+    spec_overrides, orchestration, delegates
+):
+    spec = make_spec(**spec_overrides)
+    settings = agent_settings(
+        repo=RepositoryConfig(orchestration={"enabled": orchestration}),
+        run=RunOverrides(model_names=("claude-4-7-opus",)),
+    )
 
-    assert isinstance(stack.create_agent.await_args.kwargs["delegator"], SessionJobDelegator) is delegates
+    with agent_stack(_agent(), resolve=MagicMock(return_value=settings)) as stack:
+        await execute_run(spec)
+
+    delegator = stack.create_agent.await_args.kwargs["delegator"]
+    assert (delegator is stack.delegator_for.return_value) is delegates
+    if delegates:
+        stack.delegator_for.assert_awaited_once_with(spec.thread_id)
 
 
 async def test_the_agent_gets_the_sessions_links_unbuilt():

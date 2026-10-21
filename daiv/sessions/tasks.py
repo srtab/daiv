@@ -37,6 +37,22 @@ def sync_stuck_runs_cron_task():
     call_command("sync_stuck_runs")
 
 
+@cron("*/5 * * * *")
+@task
+@locked_task(key="resume-stalled-batches")
+def resume_stalled_batches_cron_task():
+    """Resume the coordinators whose delegated batch finished without a continuation reaching the task queue.
+
+    The normal path is the ``run_finished`` signal (``sessions.delegation.resume_coordinator``); this is its
+    backstop. Non-blocking lock, so a sweep that overruns the interval is never double-dispatched.
+    """
+    from sessions.delegation import resume_stalled_batches
+
+    queued = resume_stalled_batches()
+    if queued:
+        logger.info("resume_stalled_batches: queued %d continuation(s)", queued)
+
+
 @task(queue_name=TASK_QUEUE_INTERACTIVE)
 async def evaluate_pipeline_watch_task(repo_id: str, ref: str, pipeline_id: int | None = None) -> None:
     """Judge CI for a watched branch and take the one action it implies.

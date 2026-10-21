@@ -48,6 +48,7 @@ class Migration(migrations.Migration):
                     ("mr_webhook", "MR/PR Webhook"),
                     ("pipeline_webhook", "Pipeline Webhook"),
                     ("delegated_job", "Delegated Run"),
+                    ("delegation_resume", "Delegation Resume"),
                 ],
                 max_length=20,
                 verbose_name="trigger type",
@@ -67,6 +68,7 @@ class Migration(migrations.Migration):
                     ("mr_webhook", "MR/PR Webhook"),
                     ("pipeline_webhook", "Pipeline Webhook"),
                     ("delegated_job", "Delegated Run"),
+                    ("delegation_resume", "Delegation Resume"),
                 ],
                 max_length=20,
                 verbose_name="origin",
@@ -76,7 +78,8 @@ class Migration(migrations.Migration):
             model_name="run",
             constraint=models.UniqueConstraint(
                 condition=models.Q(
-                    ("status__in", ["READY", "RUNNING"]), ("trigger_type__in", ["api_job", "mcp_job", "delegated_job"])
+                    ("status__in", ["READY", "RUNNING"]),
+                    ("trigger_type__in", ["api_job", "mcp_job", "delegated_job", "delegation_resume"]),
                 ),
                 fields=("session",),
                 name="run_one_active_per_session",
@@ -85,7 +88,9 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="run",
             constraint=models.UniqueConstraint(
-                condition=models.Q(("continuation_of_batch_id__isnull", False)),
+                condition=models.Q(
+                    ("continuation_of_batch_id__isnull", False), models.Q(("status", "FAILED"), _negated=True)
+                ),
                 fields=("continuation_of_batch_id",),
                 name="run_one_continuation_per_batch",
             ),
@@ -105,6 +110,7 @@ class Migration(migrations.Migration):
                         "mr_webhook",
                         "pipeline_webhook",
                         "delegated_job",
+                        "delegation_resume",
                     ],
                 )),
                 name="run_trigger_type_valid",
@@ -125,6 +131,7 @@ class Migration(migrations.Migration):
                         "mr_webhook",
                         "pipeline_webhook",
                         "delegated_job",
+                        "delegation_resume",
                     ],
                 )),
                 name="session_origin_valid",

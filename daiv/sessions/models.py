@@ -61,6 +61,7 @@ class SessionOrigin(models.TextChoices):
     MR_WEBHOOK = "mr_webhook", _("MR/PR Webhook")
     PIPELINE_WEBHOOK = "pipeline_webhook", _("Pipeline Webhook")
     DELEGATED_JOB = "delegated_job", _("Delegated Run")
+    DELEGATION_RESUME = "delegation_resume", _("Delegation Resume")
 
     @classmethod
     def webhooks(cls) -> frozenset[str]:
@@ -69,8 +70,9 @@ class SessionOrigin(models.TextChoices):
 
     @classmethod
     def prompt_driven(cls) -> frozenset[str]:
-        """Job triggers created from an explicit prompt (API / MCP / UI batch submits, and an agent's delegation)."""
-        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB})
+        """Job triggers created from an explicit prompt (API / MCP / UI batch submits, an agent's delegation and the
+        coordinator's resume once the delegated batch finished)."""
+        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB, cls.DELEGATION_RESUME})
 
     @classmethod
     def classified(cls) -> frozenset[str]:
@@ -356,25 +358,27 @@ class Run(models.Model):
             models.Index(fields=["user", "-created_at"], name="run_user_created_idx"),
         ]
         constraints = [
-            # At most one active (READY or RUNNING) API/MCP/delegated run per session. QUEUED is
+            # At most one active (READY or RUNNING) API/MCP/delegation run per session. QUEUED is
             # intentionally outside the constraint so FIFO siblings can stack; webhook
             # triggers share deterministic sessions and are intentionally excluded.
             # Exact port of activity_one_active_per_thread. The status/trigger_type
             # literals here must equal {RunStatus.READY, RunStatus.RUNNING} and
-            # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB, SessionOrigin.DELEGATED_JOB} — Django
-            # serializes constraints with literals, so a drift is caught by
+            # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB, SessionOrigin.DELEGATED_JOB,
+            # SessionOrigin.DELEGATION_RESUME} — Django serializes constraints with literals, so a drift is caught by
             # ``test_active_constraint_literals_match_enums``.
             models.UniqueConstraint(
                 fields=["session"],
                 condition=models.Q(
-                    status__in=["READY", "RUNNING"], trigger_type__in=["api_job", "mcp_job", "delegated_job"]
+                    status__in=["READY", "RUNNING"],
+                    trigger_type__in=["api_job", "mcp_job", "delegated_job", "delegation_resume"],
                 ),
                 name="run_one_active_per_session",
             ),
-            # The insert of a batch's continuation is the election when several legs finish at once.
+            # The insert of a batch's continuation is the election when several legs finish at once; a FAILED one
+            # leaves room for ``sessions.delegation.resume_stalled_batches`` to retry one that never reached the queue.
             models.UniqueConstraint(
                 fields=["continuation_of_batch_id"],
-                condition=models.Q(continuation_of_batch_id__isnull=False),
+                condition=models.Q(continuation_of_batch_id__isnull=False) & ~models.Q(status="FAILED"),
                 name="run_one_continuation_per_batch",
             ),
             # DB-level enum enforcement (``choices=`` alone is not enforced, and

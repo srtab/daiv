@@ -12,7 +12,7 @@ Use it to:
 
 When orchestration is on, the agent gets a `delegate_jobs` tool. It takes a one-line `goal` and up to 10 targets, each a repository, an optional branch and a **prompt written for that repository**. DAIV starts one independent job per target (a *leg*), and the coordinator ends its turn.
 
-Each leg is an ordinary agent job on its own repository: it uses that repository's `.daiv.yml`, skills and sandbox environment, and opens its own merge request when it changes code. When the last leg finishes, DAIV queues a new run on the coordinator's session whose prompt lists every leg's outcome, merge request and reply. The coordinator picks up from there: it checks the results, reports them where the request came from (a comment on the ticket, for example), or delegates another batch.
+Each leg is an ordinary agent job on its own repository: it uses that repository's `.daiv.yml`, skills and sandbox environment, and opens its own merge request when it changes code. When the last leg finishes, DAIV queues a new run on the coordinator's session — a *Delegation Resume* run — whose prompt lists every leg's outcome, merge request and reply. The coordinator picks up from there: it checks the results, reports them where the request came from (a comment on the ticket, for example), or delegates another batch. The resumed run can stop to ask a question like any other job.
 
 ```mermaid
 sequenceDiagram
@@ -62,13 +62,13 @@ The `goal` only titles the batch; it is never sent to a leg.
 | Rule | Why |
 |------|-----|
 | At most **10 targets** per call | Split larger fan-outs across calls. |
-| **One level deep** | A leg cannot delegate further, so a leg's run is its whole answer. |
+| **One level deep** | A leg gets no `delegate_jobs` tool, even on a repository with orchestration on, so a leg's run is its whole answer. |
 | Not the coordinator's own checkout | Parallel work inside one repository belongs to [subagents](subagents.md). A different branch of the same repository is allowed. |
 | Each checkout once per call | A blank `ref` and the default branch's name are the same checkout; combine their work into one prompt. |
-| Legs run as the coordinator session's user | Targets that user cannot write to come back as failures; the rest still start. A session with no DAIV user behind it (e.g. a webhook from an account not linked to DAIV) cannot delegate. |
+| Legs run as the user who triggered the coordinator's run | Targets that user cannot write to come back as failures; the rest still start. A run with no DAIV user behind it (e.g. a mention from an account not linked to DAIV) cannot delegate. The resumed run runs as the same user, and fails instead of starting if that user can no longer write to the coordination repository. |
 | Legs cannot ask questions | Nobody is watching a leg, so it decides or reports instead of stopping for input. |
 
-If no target starts, the tool says so and no resume comes: the coordinator deals with the failures in the same turn.
+If no target starts, the tool says so and no resume comes: the coordinator deals with the failures in the same turn. If the resumed run cannot be queued when the last leg finishes, DAIV retries it within a few minutes.
 
 ## Ticket-triage recipe
 

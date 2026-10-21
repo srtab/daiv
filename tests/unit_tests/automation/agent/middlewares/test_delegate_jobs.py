@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -7,6 +8,7 @@ from pydantic import ValidationError
 
 from automation.agent.delegation import (
     DELEGATE_JOBS_TOOL_NAME,
+    Checkout,
     DelegatedTarget,
     DelegationError,
     DelegationResult,
@@ -20,12 +22,13 @@ from automation.agent.middlewares.delegate_jobs import (
 )
 
 THREAD_ID = "thread-1"
+REPO = SimpleNamespace(repo_id="acme/coord", ref="feature", config=SimpleNamespace(default_branch="main"))
 
 
 def _runtime(thread_id: str | None = THREAD_ID) -> ToolRuntime:
     return ToolRuntime(
         state={},
-        context=Mock(),
+        context=SimpleNamespace(repo=REPO),
         config={"configurable": {"thread_id": thread_id} if thread_id else {}},
         stream_writer=Mock(),
         tool_call_id="c1",
@@ -58,7 +61,7 @@ def test_every_target_needs_a_prompt():
         _tool(_delegator()).args_schema.model_validate({"goal": "g", "targets": [{"repo_id": "acme/api"}]})
 
 
-async def test_the_targets_reach_the_delegator_trimmed_with_a_blank_ref_for_the_default_branch():
+async def test_the_targets_reach_the_delegator_trimmed_with_the_runs_own_checkout():
     delegator = _delegator(DelegationResult(batch_id="b1", started=[StartedLeg("acme/api", "", "t2", "https://x/t2")]))
 
     await _call(
@@ -72,6 +75,7 @@ async def test_the_targets_reach_the_delegator_trimmed_with_a_blank_ref_for_the_
 
     delegator.adelegate.assert_awaited_once_with(
         thread_id=THREAD_ID,
+        checkout=Checkout(repo_id="acme/coord", ref="feature", default_branch="main"),
         goal="Bump auth",
         targets=[
             DelegatedTarget(repo_id="acme/api", ref="", prompt="Bump it."),

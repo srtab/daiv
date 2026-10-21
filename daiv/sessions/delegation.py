@@ -1,70 +1,101 @@
 """Delegated jobs: a coordinator run fans tailored sub-jobs (legs) out to other repositories with ``delegate_jobs``,
 ends its turn, and is resumed once every leg has finished.
 
-:class:`SessionJobDelegator` is the agent's ``automation.agent.delegation.JobDelegator`` for executor runs. It submits
-the legs as one batch of ``SessionOrigin.DELEGATED_JOB`` runs, each in a new session whose ``parent`` is the
-coordinator's. Delegation is one level deep: a session with a parent cannot delegate, so a leg's first run is its
-whole answer and the batch is done when every leg's run is.
+:class:`SessionJobDelegator` is the agent's ``automation.agent.delegation.JobDelegator`` for executor runs, and
+:func:`adelegator_for` hands one only to a session that may delegate. It submits the legs as one batch of
+``SessionOrigin.DELEGATED_JOB`` runs as the user who triggered the delegating run, each in a new session whose
+``parent`` is the coordinator's. Delegation is one level deep: a session with a parent gets no delegator, so a leg's
+first run is its whole answer and the batch is done when every leg's run is.
 
-:func:`resume_coordinator` runs on every leg's ``run_finished``. Once the whole batch is terminal it queues one run on
-the coordinator's session (``continuation_of_batch_id``) whose prompt summarises every leg, and releases it like any
-QUEUED run: a coordinator run still in flight keeps it QUEUED until that run finishes, and the orphan sweep recovers
-one whose release was lost. When several legs finish at once, ``run_one_continuation_per_batch`` lets one insert win.
+:func:`resume_coordinator` runs on every leg's ``run_finished``. Once the whole batch is terminal it queues one
+``SessionOrigin.DELEGATION_RESUME`` run on the coordinator's session (``continuation_of_batch_id``), as the legs'
+user, whose prompt summarises every leg, and releases it like any QUEUED run: a coordinator run still in flight keeps
+it QUEUED until that run finishes. When several legs finish at once, ``run_one_continuation_per_batch`` lets one insert
+win. A user who has lost WRITE access to the coordinator's repository meanwhile gets the continuation FAILED instead.
 A batch none of whose legs reached the task queue resumes nothing: the tool already told the agent nothing started.
+
+:func:`resume_stalled_batches` is the periodic backstop: it resumes a finished batch the signal path left without a
+continuation, retries one whose continuation never reached the task queue (up to ``MAX_CONTINUATION_ATTEMPTS``
+continuations per batch), and releases a continuation left QUEUED.
 """
 
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.db import IntegrityError, transaction
+from django.db.models import Count, Q
 from django.urls import reverse
+from django.utils import timezone
 
 from asgiref.sync import sync_to_async
+from sandbox_envs.selection import aresolve_repo_envs
 
 from automation.agent.delegation import MAX_DELEGATED_TARGETS, DelegationError, DelegationResult, FailedLeg, StartedLeg
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE
-from codebase.conf import settings as codebase_settings
-from codebase.models import RepositoryCatalog
+from codebase.repo_config import RepositoryConfig
 from core.utils import build_absolute_url
-from sessions.admission import AdmissionError, RepoAccessError, aadmit, aassert_repo_access
+from sessions.admission import (
+    AdmissionError,
+    RepoAccessError,
+    aassert_repo_access,
+    assert_repo_access,
+    check_agent_override,
+)
+from sessions.artifacts import aresolve_active_run
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.queue import dispatch_next_queued
+from sessions.queue import ENQUEUE_FAILED_PREFIX, dispatch_next_queued
 from sessions.services import RepoTarget, asubmit_batch_runs, create_run
 
 if TYPE_CHECKING:
     import uuid
     from collections.abc import Sequence
 
-    from automation.agent.delegation import DelegatedTarget
+    from accounts.models import User
+    from automation.agent.delegation import Checkout, DelegatedTarget
 
 logger = logging.getLogger("daiv.sessions")
 
 LEG_REPLY_MAX_CHARS = 1000
+MAX_CONTINUATION_ATTEMPTS = 3
+STALLED_BATCH_WINDOW = timedelta(days=1)
+ACCESS_DENIED_PREFIX = "access_denied"
 
 _OUTCOMES = {
     RunStatus.SUCCESSFUL: "succeeded",
     RunStatus.FAILED: "failed",
     RunStatus.WAITING_INPUT: "stopped to ask a question",
 }
+_NEVER_QUEUED = Q(status=RunStatus.FAILED, error_message__startswith=ENQUEUE_FAILED_PREFIX)
+
+
+async def adelegator_for(thread_id: str) -> SessionJobDelegator | None:
+    """The delegator for a run on ``thread_id``; ``None`` for a delegated session, which cannot delegate further."""
+    if await Session.objects.filter(pk=thread_id, parent__isnull=False).aexists():
+        return None
+    return SessionJobDelegator()
 
 
 class SessionJobDelegator:
-    """Submits ``delegate_jobs`` legs as the coordinator session's user."""
+    """Submits ``delegate_jobs`` legs as the user who triggered the delegating run."""
 
-    async def adelegate(self, *, thread_id: str, goal: str, targets: Sequence[DelegatedTarget]) -> DelegationResult:
-        session = await Session.objects.select_related("user").filter(pk=thread_id).afirst()
-        if session is None:
+    async def adelegate(
+        self, *, thread_id: str, checkout: Checkout, goal: str, targets: Sequence[DelegatedTarget]
+    ) -> DelegationResult:
+        run = await _aactive_run(thread_id)
+        if run is None:
             raise DelegationError("This run has no session to resume, so it cannot delegate.")
-        if session.parent_id is not None:
+        if run.session.parent_id is not None:
             raise DelegationError(
                 "This session was itself delegated, and delegated sessions cannot delegate further: do the work here "
                 "or report what else is needed in your final response."
             )
-        if session.user is None:
+        if run.user is None:
             raise DelegationError(
-                "Sub-jobs run as the DAIV user behind this session, and it has none, so it cannot delegate."
+                "Sub-jobs run as the DAIV user who triggered this run, and it has none, so it cannot delegate."
             )
         if not goal:
             raise DelegationError("`goal` must name the overall objective.")
@@ -74,9 +105,9 @@ class SessionJobDelegator:
             raise DelegationError(f"At most {MAX_DELEGATED_TARGETS} targets per call; split the work across calls.")
         if any(not target.repo_id or not target.prompt for target in targets):
             raise DelegationError("Every target needs a `repo_id` and a prompt of its own.")
-        await _acheck_checkouts(session, targets)
+        await _acheck_checkouts(checkout, targets)
 
-        user = session.user
+        user = run.user
         denied: set[str] = set()
         try:
             await aassert_repo_access(user, [target.repo_id for target in targets])
@@ -88,62 +119,80 @@ class SessionJobDelegator:
             return DelegationResult(batch_id=None, failed=failed)
 
         try:
-            admission = await aadmit(
+            agent_model, agent_thinking_level = check_agent_override(None, None)
+            repos = await aresolve_repo_envs(
                 user=user,
                 repos=[RepoTarget(repo_id=t.repo_id, ref=t.ref, prompt=t.prompt) for t in allowed],
-                agent_model=None,
-                agent_thinking_level=None,
-                environment=None,
+                explicit_env_id=None,
             )
             result = await asubmit_batch_runs(
                 user=user,
                 prompt=goal,
-                repos=admission.targets,
-                agent_model=admission.agent_model,
-                agent_thinking_level=admission.agent_thinking_level,
+                repos=repos,
+                agent_model=agent_model,
+                agent_thinking_level=agent_thinking_level,
                 trigger_type=SessionOrigin.DELEGATED_JOB,
-                parent=session,
+                parent=run.session,
             )
         except AdmissionError as err:
             raise DelegationError(str(err)) from err
 
-        session_urls = await sync_to_async(lambda: [_session_url(run.session_id) for run in result.runs])()
+        session_urls = await sync_to_async(lambda: [_session_url(leg.session_id) for leg in result.runs])()
         return DelegationResult(
             batch_id=str(result.batch_id),
             started=[
-                StartedLeg(repo_id=run.repo_id, ref=run.ref, thread_id=str(run.session_id), session_url=url)
-                for run, url in zip(result.runs, session_urls, strict=True)
+                StartedLeg(repo_id=leg.repo_id, ref=leg.ref, thread_id=str(leg.session_id), session_url=url)
+                for leg, url in zip(result.runs, session_urls, strict=True)
             ],
             failed=[*failed, *(FailedLeg(f.repo_id, f.ref, f.error) for f in result.failed)],
         )
 
 
-async def _acheck_checkouts(session: Session, targets: Sequence[DelegatedTarget]) -> None:
-    """Refuse a target on the coordinator's own checkout or a checkout listed twice; a blank ref and the default
-    branch's name are the same checkout."""
-    slugs = {session.repo_id, *(t.repo_id for t in targets)}
-    default_branches = {
-        slug: branch
-        async for slug, branch in RepositoryCatalog.objects.filter(
-            provider=codebase_settings.CLIENT.value, slug__in=slugs
-        ).values_list("slug", "default_branch")
-    }
+async def _aactive_run(thread_id: str) -> Run | None:
+    if (run := await aresolve_active_run(thread_id)) is None:
+        return None
+    return await Run.objects.select_related("session", "user").aget(pk=run.pk)
+
+
+async def _acheck_checkouts(own: Checkout, targets: Sequence[DelegatedTarget]) -> None:
+    """Refuse a target on the delegating run's own checkout or a checkout listed twice. A blank ref is the
+    repository's default branch, and slugs compare case-insensitively, as the platforms resolve them."""
+    own_slug = own.repo_id.casefold()
+    refs: defaultdict[str, set[str]] = defaultdict(set)
+    for target in targets:
+        refs[target.repo_id.casefold()].add(target.ref)
+    default_branches = {own_slug: own.default_branch}
+    for target in targets:
+        slug = target.repo_id.casefold()
+        if slug not in default_branches and "" in refs[slug] and len(refs[slug]) > 1:
+            default_branches[slug] = await _adefault_branch(target.repo_id)
 
     def checkout(repo_id: str, ref: str) -> tuple[str, str]:
-        return repo_id, ref or default_branches.get(repo_id, "")
+        slug = repo_id.casefold()
+        return slug, ref or default_branches.get(slug, "")
 
-    own = checkout(session.repo_id, session.ref)
+    own_checkout = checkout(own.repo_id, own.ref)
     seen: set[tuple[str, str]] = set()
     for target in targets:
         key = checkout(target.repo_id, target.ref)
         where = f"{target.repo_id} on {target.ref or 'its default branch'}"
-        if key == own:
+        if key == own_checkout:
             raise DelegationError(
                 f"{where} is this session's own checkout; use the `task` tool (subagents) for parallel work here."
             )
         if key in seen:
             raise DelegationError(f"{where} is listed twice; combine its work into one prompt.")
         seen.add(key)
+
+
+async def _adefault_branch(repo_id: str) -> str:
+    """The branch a blank ref clones on ``repo_id``, or ``""`` when it cannot be read; that leg then fails alone."""
+    try:
+        config = await sync_to_async(RepositoryConfig.get_config)(repo_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("delegate_jobs: could not read the default branch of %s", repo_id, exc_info=True)
+        return ""
+    return config.default_branch or ""
 
 
 def _session_url(thread_id: str) -> str:
@@ -155,37 +204,107 @@ def resume_coordinator(run: Run) -> None:
     when nothing is queued."""
     if run.trigger_type != SessionOrigin.DELEGATED_JOB or run.batch_id is None:
         return
-    legs = list(Run.objects.by_batch(run.batch_id).select_related("session__parent__user").order_by("created_at", "id"))
+    _resume_batch(run.batch_id)
+
+
+def _resume_batch(batch_id: uuid.UUID) -> bool:
+    """Queue ``batch_id``'s continuation if the batch has finished and needs one; returns whether it did."""
+    legs = list(Run.objects.by_batch(batch_id).select_related("user", "session__parent").order_by("created_at", "id"))
     if any(leg.status not in RunStatus.terminal() for leg in legs) or not any(leg.task_result_id for leg in legs):
-        return
+        return False
     coordinator = legs[0].session.parent
     if coordinator is None:
-        logger.info("resume_coordinator: batch %s has no coordinator session left to resume", run.batch_id)
-        return
-    if Run.objects.filter(continuation_of_batch_id=run.batch_id).exists():
-        return
+        logger.info("resume_coordinator: batch %s has no coordinator session left to resume", batch_id)
+        return False
+    continuations = Run.objects.filter(continuation_of_batch_id=batch_id)
+    if continuations.exclude(_NEVER_QUEUED).exists() or continuations.count() >= MAX_CONTINUATION_ATTEMPTS:
+        return False
 
+    user = legs[0].user
+    denial = _access_denial(user, coordinator.repo_id)
     try:
         with transaction.atomic():
-            create_run(
-                trigger_type=SessionOrigin.DELEGATED_JOB,
+            continuation = create_run(
+                trigger_type=SessionOrigin.DELEGATION_RESUME,
                 task_result_id=None,
                 status=RunStatus.QUEUED,
                 thread_id=coordinator.pk,
                 repo_id=coordinator.repo_id,
                 ref=coordinator.ref,
-                user=coordinator.user,
-                prompt=render_batch_summary(run.batch_id, legs),
+                user=user,
+                prompt=render_batch_summary(batch_id, legs),
                 agent_model=coordinator.agent_model,
                 agent_thinking_level=coordinator.agent_thinking_level,
                 sandbox_environment_id=str(coordinator.sandbox_environment_id)
                 if coordinator.sandbox_environment_id
                 else None,
-                continuation_of_batch_id=run.batch_id,
+                continuation_of_batch_id=batch_id,
             )
+            if denial is not None:
+                now = timezone.now()
+                Run.objects.finish(
+                    continuation,
+                    RunStatus.FAILED,
+                    never_started=True,
+                    error_message=denial,
+                    finished_at=now,
+                    started_at=now,
+                )
     except IntegrityError:
-        return
+        return False
+    if denial is not None:
+        logger.warning("resume_coordinator: batch %s cannot resume %s: %s", batch_id, coordinator.pk, denial)
+        return False
     dispatch_next_queued(coordinator.pk)
+    return True
+
+
+def _access_denial(user: User | None, repo_id: str) -> str | None:
+    """Why the continuation may not run as ``user`` on ``repo_id``, or ``None`` when it may."""
+    if user is None:
+        return f"{ACCESS_DENIED_PREFIX}: the user who delegated these sub-jobs no longer exists."
+    try:
+        assert_repo_access(user, [repo_id])
+    except RepoAccessError as err:
+        return f"{ACCESS_DENIED_PREFIX}: {err}"
+    return None
+
+
+def resume_stalled_batches() -> int:
+    """Resume the coordinators the ``run_finished`` path left waiting; returns how many continuations it queued."""
+    finished_recently = Run.objects.filter(
+        trigger_type=SessionOrigin.DELEGATED_JOB, finished_at__gte=timezone.now() - STALLED_BATCH_WINDOW
+    ).values("batch_id")
+    resumed = Run.objects.filter(continuation_of_batch_id__isnull=False).exclude(_NEVER_QUEUED)
+    batch_ids = (
+        Run.objects
+        .filter(trigger_type=SessionOrigin.DELEGATED_JOB, batch_id__in=finished_recently)
+        .exclude(batch_id__in=resumed.values("continuation_of_batch_id"))
+        .values("batch_id")
+        .annotate(unfinished=Count("id", filter=~Q(status__in=RunStatus.terminal())))
+        .filter(unfinished=0)
+        .values_list("batch_id", flat=True)
+    )
+    queued = 0
+    for batch_id in batch_ids:
+        try:
+            if _resume_batch(batch_id):
+                queued += 1
+        except Exception:
+            logger.exception("resume_stalled_batches: failed to resume batch %s", batch_id)
+
+    waiting = (
+        Run.objects
+        .filter(status=RunStatus.QUEUED, continuation_of_batch_id__isnull=False)
+        .values_list("session_id", flat=True)
+        .distinct()
+    )
+    for session_id in waiting:
+        try:
+            dispatch_next_queued(session_id)
+        except Exception:
+            logger.exception("resume_stalled_batches: failed to release session %s", session_id)
+    return queued
 
 
 def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:

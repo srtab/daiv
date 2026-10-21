@@ -14,7 +14,9 @@ class RepoSubmitItem(Schema):
     repo_id: str = Field(min_length=1)
     ref: str | None = None
     prompt: str | None = Field(
-        default=None, description="Instruction for this repository only; replaces the batch prompt for it."
+        default=None,
+        pattern=r"\S",
+        description="Instruction for this repository only; replaces the batch prompt for it. Must not be blank.",
     )
 
 

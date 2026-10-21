@@ -32,6 +32,20 @@ async def test_schedule_job_creates_daily_schedule():
     assert await ScheduledJob.objects.filter(user=user, name="Nightly").aexists()
 
 
+async def test_schedule_job_offers_no_per_repository_prompt():
+    from mcp_api.server import mcp
+
+    tools = {tool.name: tool for tool in await mcp.list_tools()}
+
+    def repo_fields(tool_name: str) -> set[str]:
+        schema = tools[tool_name].input_schema
+        definition = schema["properties"]["repos"]["items"]["$ref"].removeprefix("#/$defs/")
+        return set(schema["$defs"][definition]["properties"])
+
+    assert "prompt" in repo_fields("submit_job")
+    assert "prompt" not in repo_fields("schedule_job")
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_accepts_and_persists_intent():
     from mcp_api.server import schedule_job

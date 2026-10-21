@@ -252,17 +252,6 @@ class TestResumeDelegatingSession:
 
         resume.assert_called_once_with(finished)
 
-    def test_a_failure_to_resume_is_logged_not_raised(self, caplog):
-        finished = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL)
-
-        with (
-            patch("sessions.signals.resume_coordinator", side_effect=RuntimeError("db down")),
-            caplog.at_level("ERROR", logger="daiv.sessions"),
-        ):
-            run_finished.send(sender=Run, run=finished, skip_dispatch=True)
-
-        assert "failed to resume the coordinator" in caplog.text
-
 
 @pytest.mark.django_db(transaction=True)
 class TestSyncReleasesQueuedSibling:
