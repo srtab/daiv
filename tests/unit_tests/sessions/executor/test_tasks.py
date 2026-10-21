@@ -149,9 +149,9 @@ async def test_run_job_task_forwards_overrides():
 
 @pytest.mark.django_db(transaction=True)
 async def test_run_job_task_persists_resolved_model():
-    """The resolved model/thinking are written back onto the Run + Session so the
-    session detail view reflects what the run actually executed with, not the empty
-    "no override" placeholder. This is the case where the schedule pinned no model.
+    """The resolved model/thinking are written back onto the Run so the session detail view reflects what the run
+    executed with, not the empty "no override" placeholder; the Session keeps its empty pin, which chat reuses.
+    This is the case where the schedule pinned no model.
     """
     from sessions.models import Run, RunStatus, Session, SessionOrigin
 
@@ -192,8 +192,7 @@ async def test_run_job_task_persists_resolved_model():
 
     await session.arefresh_from_db()
     await run.arefresh_from_db()
-    assert session.agent_model == "openrouter:z-ai/glm-5.2"
-    assert session.agent_thinking_level == "xhigh"
+    assert (session.agent_model, session.agent_thinking_level) == ("", "")
     assert run.agent_model == "openrouter:z-ai/glm-5.2"
     assert run.agent_thinking_level == "xhigh"
 

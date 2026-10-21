@@ -3,7 +3,8 @@ import uuid
 from django.db import IntegrityError
 
 import pytest
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.executor.result import parse_agent_result
+from sessions.models import Run, RunStatus, Session, SessionOrigin, agent_result_field_updates
 
 from automation.agent.workspace.session import SandboxAcquisition
 
@@ -398,3 +399,9 @@ def test_artifact_visible_to_follows_session_visibility(admin_user, member_user,
 
     assert set(RunArtifact.objects.visible_to(member_user)) == {mine, on_my_session_by_other}
     assert set(RunArtifact.objects.visible_to(admin_user)) == {mine, on_my_session_by_other, theirs}
+
+
+@pytest.mark.parametrize(("code_changes", "expected"), [(True, {"code_changes": True}), (False, {})])
+def test_agent_result_field_updates_maps_code_changes_only_when_set(code_changes, expected):
+    """False is left out so a later empty result never clears a flag an earlier sync recorded."""
+    assert agent_result_field_updates(parse_agent_result({"code_changes": code_changes})) == expected

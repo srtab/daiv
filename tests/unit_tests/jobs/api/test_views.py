@@ -2,7 +2,7 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from django_tasks_db.models import DBTaskResult
 from ninja.testing import TestAsyncClient
 from sessions.executor.tasks import run_job_task
@@ -13,7 +13,7 @@ from core.models import Provider, ProviderType
 from core.site_settings import site_settings
 from daiv.api import api
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
-from tests.unit_tests.sessions.conftest import FakeRun, fake_acreate_run, make_artifact
+from tests.unit_tests.sessions.conftest import FakeRun, fake_acreate_run, make_artifact, make_task_result
 
 
 @pytest.fixture
@@ -345,6 +345,19 @@ async def test_get_job_status_successful(authenticated_client: TestAsyncClient):
     assert data["status"] == "SUCCESSFUL"
     assert data["result"] == "Here are the files..."
     assert data["error"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_returns_the_full_response_past_the_summary_cap(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    response_text = "x" * 2500
+    run = await _create_run_row(user, status="SUCCESSFUL", result_summary=response_text[:2000])
+    run.task_result = await sync_to_async(make_task_result)(return_value={"response": response_text})
+    await run.asave(update_fields=["task_result"])
+
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.json()["result"] == response_text
 
 
 @pytest.mark.django_db(transaction=True)

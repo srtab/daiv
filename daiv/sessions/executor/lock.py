@@ -8,10 +8,12 @@ from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
-from sessions.models import Session
+from sessions.models import RunStatus, Session
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Iterable
+
+    from sessions.models import Run
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -27,6 +29,15 @@ def stale_cutoff(now: datetime | None = None) -> datetime:
     Pass ``now`` to reuse a caller's already-captured timestamp.
     """
     return (now or timezone.now()) - timedelta(minutes=STALE_RUN_MINUTES)
+
+
+def session_in_flight(session: Session, runs: Iterable[Run]) -> bool:
+    """Whether ``session`` has a live run: a non-terminal one, and a heartbeat fresher than :func:`stale_cutoff`.
+
+    A live holder (chat stream, ``run_job_task``, webhook run) bumps ``last_active_at`` every ~60s, so a holder
+    stranded past the window (crashed worker, orphaned queue entry) is dead, whatever its runs' status says.
+    """
+    return any(run.status not in RunStatus.terminal() for run in runs) and session.last_active_at >= stale_cutoff()
 
 
 class SessionLock:

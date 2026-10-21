@@ -44,7 +44,7 @@
     </div>
 
     <div class="flex shrink-0 items-center gap-3">
-        {% if session.agent_model %}<span class="meta-pill hidden lg:inline-flex">{{ session.agent_model }}</span>{% endif %}
+        {% if latest.agent_model %}<span class="meta-pill hidden lg:inline-flex">{{ latest.agent_model }}</span>{% endif %}
         {% if latest.duration %}<span class="session-num hidden md:inline">{{ latest.duration|duration }}</span>{% endif %}
         {% session_cost session as cost %}
         {% if cost %}<span class="session-num hidden lg:inline">{{ cost }}</span>{% endif %}

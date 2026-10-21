@@ -59,7 +59,7 @@ async def address_issue_task(
     mention_note_id: int | None = None,
     ref: str | None = None,
     sandbox_environment_id: str | None = None,
-) -> AgentResult | None:
+) -> AgentResult:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
 

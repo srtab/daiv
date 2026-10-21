@@ -107,7 +107,7 @@ class IssueAddressorManager(BaseManager):
         ref: str | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
-    ) -> AgentResult | None:
+    ) -> AgentResult:
         """
         Address the issue.
 
@@ -123,7 +123,7 @@ class IssueAddressorManager(BaseManager):
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
 
         Returns:
-            An :class:`AgentResult`, or ``None`` when no model is configured (after saying so on the issue).
+            An :class:`AgentResult`. A missing model raises ``AgentConfigurationError`` after saying so on the issue.
         """
         manager = cls(
             repo_id=repo_id,
@@ -135,8 +135,6 @@ class IssueAddressorManager(BaseManager):
 
         try:
             return await manager._address_issue(ref=ref, sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max)
-        except AgentConfigurationError:
-            return None
         except Exception:
             manager._add_unable_to_address_issue_note()
             raise
