@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING
 
 from django.core.cache import cache
@@ -8,8 +9,16 @@ from django.utils import timezone
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
-from automation.agent.middlewares.git_platform.cli import AllowCommands, CliInvocation, PlatformCli, run_platform_cli
+from automation.agent.middlewares.git_platform.cli import (
+    AllowCommands,
+    CliInvocation,
+    PlatformCli,
+    check_subcommand,
+    run_cli,
+)
+from codebase.base import GitPlatform
 from codebase.clients.github.utils import get_github_integration
+from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
 
 if TYPE_CHECKING:
@@ -117,41 +126,26 @@ def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str,
     return token, None
 
 
-async def _run_github_subcommand(
-    subcommand: str,
-    runtime: ToolRuntime[RuntimeCtx],
-    to_file: bool,
-    *,
-    backend: BackendProtocol,
-    large_tool_results_prefix: str,
+async def run_github_subcommand(
+    subcommand: str, runtime: ToolRuntime[RuntimeCtx], to_file: bool, *, backend: BackendProtocol
 ) -> str | Command:
     """Run a `gh` CLI subcommand on behalf of the ``gh`` tool, scoped to the run's repository.
 
     Returns a ``Command`` when a refreshed CLI token must be written back to state.
     """
-    state_update: dict[str, str | float] | None = None
+    args = check_subcommand(GITHUB_CLI, subcommand)
+    if isinstance(args, str):
+        return args
 
-    async def prepare(args: list[str]) -> CliInvocation:
-        nonlocal state_update
-        token, state_update = _get_cached_github_cli_token(runtime)
-        resource, action = args[0:2]
-        # ``api`` is off the allowlist because it escapes --repo scoping; allowing it needs its own access control.
-        repo_flag = [] if resource == "api" else ["--repo", runtime.context.repository.slug]
-        return CliInvocation(
-            args=[*args, *repo_flag],
-            env={"GIT_TERMINAL_PROMPT": "0", "NO_COLOR": "1", "GH_TOKEN": token, "GH_PAGER": "cat"},
-            clean_logs=resource == "run" and action == "view" and "--log" in args,
-        )
-
-    output = await run_platform_cli(
-        GITHUB_CLI,
-        subcommand,
-        runtime,
-        prepare,
-        to_file=to_file,
-        backend=backend,
-        large_tool_results_prefix=large_tool_results_prefix,
+    token, state_update = _get_cached_github_cli_token(runtime)
+    resource, action = args[0:2]
+    is_run_log = resource == "run" and action == "view" and "--log" in args
+    invocation = CliInvocation(
+        args=[*args, "--repo", runtime.context.repository.slug],
+        env={"GIT_TERMINAL_PROMPT": "0", "NO_COLOR": "1", "GH_TOKEN": token, "GH_PAGER": "cat"},
+        postprocess=partial(clean_job_logs, git_platform=GitPlatform.GITHUB) if is_run_log else None,
     )
+    output = await run_cli(GITHUB_CLI, invocation, runtime, to_file=to_file, backend=backend)
     if state_update:
         tool_message = ToolMessage(content=output, tool_call_id=runtime.tool_call_id)
         return Command(update={**state_update, "messages": [tool_message]})

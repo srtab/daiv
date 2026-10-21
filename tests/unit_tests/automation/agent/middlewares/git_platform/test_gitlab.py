@@ -1,27 +1,19 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from automation.agent.middlewares.git_platform.gitlab import _run_gitlab_subcommand
-from tests.unit_tests.automation.agent.middlewares.git_platform.conftest import (
-    LARGE_TOOL_RESULTS_PREFIX,
-    gitlab_runtime,
-    mock_backend,
-)
+from automation.agent.middlewares.git_platform.gitlab import run_gitlab_subcommand
+from tests.unit_tests.automation.agent.middlewares.git_platform.conftest import cli_process, gitlab_runtime
+from tests.unit_tests.conftest import recording_backend
+
+pytestmark = pytest.mark.usefixtures("gitlab_settings")
 
 
 async def _run_gl(subcommand, runtime, *, output_mode="simplified", to_file=False, backend=None):
-    """Invoke the gitlab tool implementation with a default mock backend + results prefix."""
-    return await _run_gitlab_subcommand(
-        subcommand,
-        runtime,
-        output_mode,
-        to_file,
-        backend=backend if backend is not None else mock_backend(),
-        large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+    return await run_gitlab_subcommand(
+        subcommand, runtime, output_mode, to_file, backend=backend if backend is not None else recording_backend()
     )
 
 
@@ -80,19 +72,7 @@ class TestGitLabToolInlineDiscussionFallback:
         """Without --position the CLI subprocess must still be invoked."""
         runtime = gitlab_runtime()
 
-        mock_settings = Mock()
-        mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
-        mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
-
-        with (
-            patch("automation.agent.middlewares.git_platform.cli.asyncio.create_subprocess_exec") as create_proc,
-            patch("automation.agent.middlewares.git_platform.gitlab.settings", mock_settings),
-        ):
-            proc = Mock()
-            proc.communicate = AsyncMock(return_value=(b"cli-output\n", b""))
-            proc.returncode = 0
-            create_proc.return_value = proc
-
+        with cli_process(stdout=b"cli-output\n") as create_proc:
             result = await _run_gl('project-merge-request-discussion create --mr-iid 10 --body "hi"', runtime)
 
         assert result == "cli-output"
@@ -173,23 +153,11 @@ class TestGitLabToolInlineDiscussionFallback:
 
 async def test_gitlab_output_to_file_forces_json_writes_and_confirms():
     runtime = gitlab_runtime()
-    backend = mock_backend()
-
-    mock_settings = Mock()
-    mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
-    mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
+    backend = recording_backend()
 
     payload = b'[{"iid": 1}, {"iid": 2}]\n'
 
-    with (
-        patch("automation.agent.middlewares.git_platform.cli.asyncio.create_subprocess_exec") as create_proc,
-        patch("automation.agent.middlewares.git_platform.gitlab.settings", mock_settings),
-    ):
-        proc = Mock()
-        proc.communicate = AsyncMock(return_value=(payload, b""))
-        proc.returncode = 0
-        create_proc.return_value = proc
-
+    with cli_process(stdout=payload) as create_proc:
         result = await _run_gl(
             "project-merge-request list --state opened", runtime, output_mode="detailed", to_file=True, backend=backend
         )
@@ -208,18 +176,8 @@ async def test_gitlab_output_to_file_forces_json_writes_and_confirms():
 
 async def test_gitlab_output_to_file_does_not_force_json_for_job_trace():
     runtime = gitlab_runtime()
-    backend = mock_backend()
-    mock_settings = Mock()
-    mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
-    mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
-    with (
-        patch("automation.agent.middlewares.git_platform.cli.asyncio.create_subprocess_exec") as create_proc,
-        patch("automation.agent.middlewares.git_platform.gitlab.settings", mock_settings),
-    ):
-        proc = Mock()
-        proc.communicate = AsyncMock(return_value=(b"log line 1\nlog line 2\n", b""))
-        proc.returncode = 0
-        create_proc.return_value = proc
+    backend = recording_backend()
+    with cli_process(stdout=b"log line 1\nlog line 2\n") as create_proc:
         result = await _run_gl("project-job trace --id 55", runtime, to_file=True, backend=backend)
     argv = list(create_proc.call_args.args)
     assert "--output" not in argv  # traces are raw log text; JSON would be degenerate
@@ -231,21 +189,9 @@ async def test_gitlab_empty_output_to_file_notes_no_file_written():
     """When the gitlab CLI returns empty stdout and output_to_file is true, the result must
     contain both the 'empty result' sentinel and a note that no file was written."""
     runtime = gitlab_runtime()
-    backend = mock_backend()
+    backend = recording_backend()
 
-    mock_settings = Mock()
-    mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
-    mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
-
-    with (
-        patch("automation.agent.middlewares.git_platform.cli.asyncio.create_subprocess_exec") as create_proc,
-        patch("automation.agent.middlewares.git_platform.gitlab.settings", mock_settings),
-    ):
-        proc = Mock()
-        proc.communicate = AsyncMock(return_value=(b"", b""))
-        proc.returncode = 0
-        create_proc.return_value = proc
-
+    with cli_process(stdout=b""):
         result = await _run_gl("project-issue list --state opened", runtime, to_file=True, backend=backend)
 
     assert "empty result" in result
@@ -256,17 +202,7 @@ async def test_gitlab_empty_output_to_file_notes_no_file_written():
 class TestPublishedTextIsRepoRelative:
     async def test_a_gitlab_note_body_is_repo_relative(self):
         runtime = gitlab_runtime()
-        mock_settings = Mock()
-        mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
-        mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
-        with (
-            patch("automation.agent.middlewares.git_platform.cli.asyncio.create_subprocess_exec") as create_proc,
-            patch("automation.agent.middlewares.git_platform.gitlab.settings", mock_settings),
-        ):
-            proc = Mock()
-            proc.communicate = AsyncMock(return_value=(b"ok\n", b""))
-            proc.returncode = 0
-            create_proc.return_value = proc
+        with cli_process(stdout=b"ok\n") as create_proc:
             await _run_gl('project-issue-note create --issue-iid 42 --body "See /workspace/repo/daiv/x.py:3"', runtime)
 
         argv = list(create_proc.call_args.args)
@@ -289,19 +225,7 @@ class TestPublishedTextIsRepoRelative:
 
 async def test_gitlab_failure_keeps_the_command_output():
     runtime = gitlab_runtime()
-    mock_settings = Mock()
-    mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
-    mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
-
-    with (
-        patch("automation.agent.middlewares.git_platform.cli.asyncio.create_subprocess_exec") as create_proc,
-        patch("automation.agent.middlewares.git_platform.gitlab.settings", mock_settings),
-    ):
-        proc = Mock()
-        proc.communicate = AsyncMock(return_value=(b"partial output\n", b"404 Not Found\n"))
-        proc.returncode = 1
-        create_proc.return_value = proc
-
+    with cli_process(stdout=b"partial output\n", stderr=b"404 Not Found\n", returncode=1):
         result = await _run_gl("project-merge-request get --iid 9", runtime)
 
     assert result.startswith("error: GitLab command failed (exit code 1). Details: 404 Not Found")

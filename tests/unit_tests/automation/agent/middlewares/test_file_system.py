@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 from deepagents.backends.composite import CompositeBackend
@@ -25,7 +25,7 @@ from automation.agent.middlewares.file_system import (
     write_tool_result_to_file,
 )
 from automation.agent.workspace.backends import DAIVFilesystemBackend, build_disk_workspace_backend
-from tests.unit_tests.conftest import unacquired_backend
+from tests.unit_tests.conftest import recording_backend, unacquired_backend
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -369,13 +369,6 @@ def test_grep_description_states_the_default_output_mode():
     assert 'output_mode="content"' in desc
 
 
-def _recording_backend(*, error: str | None = None):
-    """Filesystem backend stub whose ``awrite`` records calls and returns a WriteResult-like obj."""
-    backend = Mock()
-    backend.awrite = AsyncMock(return_value=Mock(error=error))
-    return backend
-
-
 @pytest.mark.parametrize(
     ("artifacts_root", "expected"),
     [("/workspace", "/workspace/large_tool_results"), (None, "/large_tool_results")],
@@ -416,14 +409,10 @@ def test_file_write_confirmation_caps_preview_chars():
 
 
 async def test_write_tool_result_to_file_writes_via_backend_and_confirms():
-    backend = _recording_backend()
+    backend = recording_backend()
 
     result = await write_tool_result_to_file(
-        "a\nb\nc",
-        runtime=SimpleNamespace(tool_call_id="call_1"),
-        backend=backend,
-        prefix="/workspace/large_tool_results",
-        tool_name="gitlab",
+        "a\nb\nc", runtime=SimpleNamespace(tool_call_id="call_1"), backend=backend, tool_name="gitlab"
     )
 
     path, content = backend.awrite.call_args.args
@@ -438,8 +427,7 @@ async def test_write_tool_result_to_file_returns_error_on_backend_failure():
     result = await write_tool_result_to_file(
         "x",
         runtime=SimpleNamespace(tool_call_id="call_1"),
-        backend=_recording_backend(error="disk full"),
-        prefix="/workspace/large_tool_results",
+        backend=recording_backend(error="disk full"),
         tool_name="gitlab",
     )
 
@@ -450,15 +438,11 @@ async def test_write_tool_result_to_file_returns_error_on_backend_failure():
 async def test_write_tool_result_to_file_returns_error_when_backend_raises():
     """A raised exception from ``awrite`` must be caught and returned as an ``error:`` string,
     not propagated out of the tool (the agent's only channel is the returned string)."""
-    backend = _recording_backend()
+    backend = recording_backend()
     backend.awrite = AsyncMock(side_effect=RuntimeError("boom"))
 
     result = await write_tool_result_to_file(
-        "x",
-        runtime=SimpleNamespace(tool_call_id="call_1"),
-        backend=backend,
-        prefix="/workspace/large_tool_results",
-        tool_name="gitlab",
+        "x", runtime=SimpleNamespace(tool_call_id="call_1"), backend=backend, tool_name="gitlab"
     )
 
     assert result.startswith("error:")
@@ -468,14 +452,10 @@ async def test_write_tool_result_to_file_returns_error_when_backend_raises():
 async def test_write_tool_result_to_file_fails_loudly_when_tool_call_id_missing():
     """Without a tool_call_id the path key would collapse onto a shared filename, silently
     overwriting a prior dump — so the write must be refused with an ``error:`` string instead."""
-    backend = _recording_backend()
+    backend = recording_backend()
 
     result = await write_tool_result_to_file(
-        "x",
-        runtime=SimpleNamespace(tool_call_id=None),
-        backend=backend,
-        prefix="/workspace/large_tool_results",
-        tool_name="gitlab",
+        "x", runtime=SimpleNamespace(tool_call_id=None), backend=backend, tool_name="gitlab"
     )
 
     assert result.startswith("error:")

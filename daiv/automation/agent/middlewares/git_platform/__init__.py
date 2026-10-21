@@ -9,9 +9,8 @@ from langchain.tools import ToolRuntime, tool
 from langgraph.types import Command  # noqa: TC002
 
 from automation.agent.context import RuntimeCtx  # noqa: TC001
-from automation.agent.middlewares.file_system import large_tool_results_prefix
-from automation.agent.middlewares.git_platform.github import GITHUB_TOOL_NAME, _run_github_subcommand
-from automation.agent.middlewares.git_platform.gitlab import GITLAB_TOOL_NAME, _run_gitlab_subcommand
+from automation.agent.middlewares.git_platform.github import GITHUB_TOOL_NAME, run_github_subcommand
+from automation.agent.middlewares.git_platform.gitlab import GITLAB_TOOL_NAME, run_gitlab_subcommand
 from automation.agent.middlewares.git_platform.prompts import (
     GIT_PLATFORM_SYSTEM_PROMPT,
     GITHUB_TOOL_DESCRIPTION,
@@ -66,7 +65,6 @@ class GitPlatformMiddleware(AgentMiddleware):
         super().__init__()
 
         self._backend = backend
-        self._large_tool_results_prefix = large_tool_results_prefix(backend)
 
         self.tools = []
 
@@ -76,9 +74,8 @@ class GitPlatformMiddleware(AgentMiddleware):
             self.tools.append(self._build_github_tool())
 
     def _build_gitlab_tool(self) -> BaseTool:
-        """Build the ``gitlab`` tool as a closure over the bound backend + results prefix."""
+        """Build the ``gitlab`` tool as a closure over the bound backend."""
         backend = self._backend
-        large_tool_results_prefix = self._large_tool_results_prefix
 
         @tool(GITLAB_TOOL_NAME, description=GITLAB_TOOL_DESCRIPTION)
         async def gitlab(
@@ -107,21 +104,13 @@ class GitPlatformMiddleware(AgentMiddleware):
                 "you intend to post-process the result with bash. Default: false.",
             ] = False,
         ) -> str:
-            return await _run_gitlab_subcommand(
-                subcommand,
-                runtime,
-                output_mode,
-                output_to_file,
-                backend=backend,
-                large_tool_results_prefix=large_tool_results_prefix,
-            )
+            return await run_gitlab_subcommand(subcommand, runtime, output_mode, output_to_file, backend=backend)
 
         return gitlab
 
     def _build_github_tool(self) -> BaseTool:
-        """Build the ``gh`` tool as a closure over the bound backend + results prefix."""
+        """Build the ``gh`` tool as a closure over the bound backend."""
         backend = self._backend
-        large_tool_results_prefix = self._large_tool_results_prefix
 
         @tool(GITHUB_TOOL_NAME, description=GITHUB_TOOL_DESCRIPTION)
         async def github(
@@ -144,13 +133,7 @@ class GitPlatformMiddleware(AgentMiddleware):
                 "when you intend to post-process the result with bash. Default: false.",
             ] = False,
         ) -> str | Command:
-            return await _run_github_subcommand(
-                subcommand,
-                runtime,
-                output_to_file,
-                backend=backend,
-                large_tool_results_prefix=large_tool_results_prefix,
-            )
+            return await run_github_subcommand(subcommand, runtime, output_to_file, backend=backend)
 
         return github
 

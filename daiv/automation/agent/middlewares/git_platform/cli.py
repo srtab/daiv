@@ -9,10 +9,9 @@ from typing import TYPE_CHECKING, Literal
 
 from automation.agent.middlewares.file_system import write_tool_result_to_file
 from automation.agent.utils import repo_relative_text
-from codebase.clients.utils import clean_job_logs
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Callable
 
     from deepagents.backends.protocol import BackendProtocol
     from langchain.tools import ToolRuntime
@@ -30,7 +29,8 @@ type AllowCommands = dict[str, set[str] | Literal["*"]]
 
 @dataclass(frozen=True)
 class PlatformCli:
-    """One platform's CLI as :func:`run_platform_cli` sees it: how its errors read and what its policy allows."""
+    """One platform's CLI as :func:`check_subcommand` and :func:`run_cli` see it: how its errors read and what its
+    policy allows."""
 
     display_name: str
     tool_name: str
@@ -44,11 +44,12 @@ class PlatformCli:
 
 @dataclass(frozen=True)
 class CliInvocation:
-    """How to run one checked subcommand: the arguments after the executable and the platform's environment."""
+    """How to run one checked subcommand: the arguments after the executable, the platform's environment, and what
+    to do to a successful output before the model reads it."""
 
     args: list[str]
     env: dict[str, str]
-    clean_logs: bool = False
+    postprocess: Callable[[str], str] | None = None
 
 
 _PUBLISHED_TEXT_FLAGS = frozenset({
@@ -112,24 +113,8 @@ def _cli_failure_message(platform: str, returncode: int, stdout: bytes, stderr: 
     return message
 
 
-async def run_platform_cli(
-    cli: PlatformCli,
-    subcommand: str,
-    runtime: ToolRuntime[RuntimeCtx],
-    prepare: Callable[[list[str]], Awaitable[CliInvocation | str]],
-    *,
-    to_file: bool,
-    backend: BackendProtocol,
-    large_tool_results_prefix: str,
-) -> str:
-    """Run one subcommand of ``cli`` for a tool call and return what the model reads back.
-
-    The subcommand is parsed and checked against ``cli``'s policy, then ``prepare`` turns the checked arguments into
-    a :class:`CliInvocation`, or answers the call itself when the CLI is not the way to serve it. The CLI runs as a
-    subprocess without shell expansion. With ``to_file`` the full result is written to the large-tool-results dir
-    through ``backend`` and a compact confirmation comes back; otherwise the output comes back inline, and the
-    filesystem middleware evicts it to that same dir when it is too large.
-    """
+def check_subcommand(cli: PlatformCli, subcommand: str) -> list[str] | str:
+    """Parse ``subcommand`` and check it against ``cli``'s policy: the arguments, or an ``error: ...`` to return."""
     if not subcommand or not subcommand.strip():
         return f"error: Subcommand cannot be empty. Format: '{cli.usage}'"
 
@@ -160,10 +145,23 @@ async def run_platform_cli(
     if cli.has_disallowed_flags(args[2:]):
         return cli.disallowed_flags_error
 
-    invocation = await prepare(args)
-    if isinstance(invocation, str):
-        return invocation
+    return args
 
+
+async def run_cli(
+    cli: PlatformCli,
+    invocation: CliInvocation,
+    runtime: ToolRuntime[RuntimeCtx],
+    *,
+    to_file: bool,
+    backend: BackendProtocol,
+) -> str:
+    """Run ``invocation`` as a subprocess, without shell expansion, and return what the model reads back.
+
+    With ``to_file`` the full result is written to the large-tool-results dir through ``backend`` and a compact
+    confirmation comes back; otherwise the output comes back inline, and the filesystem middleware evicts it to that
+    same dir when it is too large.
+    """
     env = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/tmp"),  # noqa: S108
@@ -201,11 +199,9 @@ async def run_platform_cli(
             empty += "\n(note: no file was written — the command produced no output.)"
         return empty
 
-    if invocation.clean_logs:
-        output = clean_job_logs(output, runtime.context.git_platform)
+    if invocation.postprocess:
+        output = invocation.postprocess(output)
 
     if to_file:
-        return await write_tool_result_to_file(
-            output, runtime=runtime, backend=backend, prefix=large_tool_results_prefix, tool_name=cli.tool_name
-        )
+        return await write_tool_result_to_file(output, runtime=runtime, backend=backend, tool_name=cli.tool_name)
     return output

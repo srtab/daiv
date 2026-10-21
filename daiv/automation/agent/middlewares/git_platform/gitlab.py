@@ -3,9 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Literal
 
-from automation.agent.middlewares.git_platform.cli import AllowCommands, CliInvocation, PlatformCli, run_platform_cli
+from automation.agent.middlewares.git_platform.cli import (
+    AllowCommands,
+    CliInvocation,
+    PlatformCli,
+    check_subcommand,
+    run_cli,
+)
+from codebase.base import GitPlatform
+from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
 from daiv import USER_AGENT
 
@@ -188,51 +197,43 @@ async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime
         return f"error: Failed to create inline discussion. Details: {e}"
 
 
-async def _run_gitlab_subcommand(
+async def run_gitlab_subcommand(
     subcommand: str,
     runtime: ToolRuntime[RuntimeCtx],
     output_mode: Literal["detailed", "simplified"],
     to_file: bool,
     *,
     backend: BackendProtocol,
-    large_tool_results_prefix: str,
 ) -> str:
     """Run a `python-gitlab` CLI subcommand on behalf of the ``gitlab`` tool, scoped to the run's project."""
+    args = check_subcommand(GITLAB_CLI, subcommand)
+    if isinstance(args, str):
+        return args
 
-    async def prepare(args: list[str]) -> CliInvocation | str:
-        resource, action, rest = args[0], args[1], args[2:]
-        has_position = any(arg == "--position" or arg.startswith("--position=") for arg in rest)
-        if resource == "project-merge-request-discussion" and action == "create" and has_position:
-            return await _create_gitlab_inline_discussion(rest, runtime)
+    resource, action, rest = args[0], args[1], args[2:]
+    has_position = any(arg == "--position" or arg.startswith("--position=") for arg in rest)
+    if resource == "project-merge-request-discussion" and action == "create" and has_position:
+        return await _create_gitlab_inline_discussion(rest, runtime)
 
-        is_job_trace = resource == "project-job" and action == "trace"
-        # output_mode only shapes inline text; a file dump is for jq, so JSON, except a trace, which is raw log text.
-        if to_file and not is_job_trace:
-            output_flags = ["--output", "json"]
-        elif output_mode == "detailed":
-            output_flags = ["--verbose"]
-        else:
-            output_flags = []
+    is_job_trace = resource == "project-job" and action == "trace"
+    # output_mode only shapes inline text; a file dump is for jq, so JSON, except a trace, which is raw log text.
+    if to_file and not is_job_trace:
+        output_flags = ["--output", "json"]
+    elif output_mode == "detailed":
+        output_flags = ["--verbose"]
+    else:
+        output_flags = []
 
-        project_flag = "--id" if resource == "project" else "--project-id"
-        return CliInvocation(
-            args=[*output_flags, *args, project_flag, runtime.context.repository.slug],
-            env={
-                "GITLAB_TIMEOUT": str(GITLAB_REQUESTS_TIMEOUT),
-                "GITLAB_PRIVATE_TOKEN": settings.GITLAB_AUTH_TOKEN.get_secret_value(),
-                "GITLAB_URL": settings.GITLAB_URL.encoded_string(),
-                "GITLAB_PER_PAGE": GITLAB_PER_PAGE,
-                "GITLAB_USER_AGENT": USER_AGENT,
-            },
-            clean_logs=is_job_trace,
-        )
-
-    return await run_platform_cli(
-        GITLAB_CLI,
-        subcommand,
-        runtime,
-        prepare,
-        to_file=to_file,
-        backend=backend,
-        large_tool_results_prefix=large_tool_results_prefix,
+    project_flag = "--id" if resource == "project" else "--project-id"
+    invocation = CliInvocation(
+        args=[*output_flags, *args, project_flag, runtime.context.repository.slug],
+        env={
+            "GITLAB_TIMEOUT": str(GITLAB_REQUESTS_TIMEOUT),
+            "GITLAB_PRIVATE_TOKEN": settings.GITLAB_AUTH_TOKEN.get_secret_value(),
+            "GITLAB_URL": settings.GITLAB_URL.encoded_string(),
+            "GITLAB_PER_PAGE": GITLAB_PER_PAGE,
+            "GITLAB_USER_AGENT": USER_AGENT,
+        },
+        postprocess=partial(clean_job_logs, git_platform=GitPlatform.GITLAB) if is_job_trace else None,
     )
+    return await run_cli(GITLAB_CLI, invocation, runtime, to_file=to_file, backend=backend)

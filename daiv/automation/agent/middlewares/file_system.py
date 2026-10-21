@@ -236,9 +236,9 @@ def _file_write_confirmation(path: str, byte_count: int, line_count: int, output
 
 
 async def write_tool_result_to_file(
-    output: str, *, runtime: ToolRuntime[RuntimeCtx], backend: BackendProtocol, prefix: str, tool_name: str
+    output: str, *, runtime: ToolRuntime[RuntimeCtx], backend: BackendProtocol, tool_name: str
 ) -> str:
-    """Write a tool's full result under ``prefix`` (a :func:`large_tool_results_prefix`), keyed by ``tool_call_id``.
+    """Write a tool's full result under ``backend``'s :func:`large_tool_results_prefix`, keyed by ``tool_call_id``.
 
     Writes through the backend the agent's ``read_file``/``grep`` use, so the file is addressable at once.
     Returns a compact confirmation, or an ``error: ...`` string when the write fails.
@@ -247,7 +247,7 @@ async def write_tool_result_to_file(
         # A shared fallback filename would silently overwrite an earlier dump.
         logger.error("[%s] Cannot write result to file: missing tool_call_id", tool_name)
         return "error: Failed to write result to file — missing tool_call_id."
-    path = f"{prefix}/{sanitize_tool_call_id(runtime.tool_call_id)}"
+    path = f"{large_tool_results_prefix(backend)}/{sanitize_tool_call_id(runtime.tool_call_id)}"
     try:
         result = await backend.awrite(path, output)
     except Exception as exc:
