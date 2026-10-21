@@ -210,6 +210,7 @@ async def amake_watched_session(
     watch_pipeline_id: int | None = None,
     user: User | None = None,
     sandbox_environment=None,
+    last_active_at=None,
 ) -> Session:
     """A session with the watch armed — the starting row for every watch test."""
     return await Session.objects.acreate(
@@ -224,6 +225,7 @@ async def amake_watched_session(
         watch_pipeline_id=watch_pipeline_id,
         user=user,
         sandbox_environment=sandbox_environment,
+        last_active_at=last_active_at or timezone.now(),
     )
 
 
