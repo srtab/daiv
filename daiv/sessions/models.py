@@ -144,6 +144,7 @@ class Session(models.Model):
         null=True,
         blank=True,
         related_name="delegated_sessions",
+        db_index=False,
         verbose_name=_("delegated by"),
         help_text=_("The session whose agent delegated this one with delegate_jobs."),
     )
@@ -175,6 +176,7 @@ class Session(models.Model):
                 name="session_watch_sweep_idx",
                 condition=models.Q(watch_state__in=sorted(WatchState.open())),
             ),
+            models.Index(fields=["parent"], name="session_parent_idx", condition=models.Q(parent__isnull=False)),
         ]
         constraints = [
             models.CheckConstraint(
@@ -288,7 +290,6 @@ class Run(models.Model):
         _("continues delegated batch"),
         null=True,
         blank=True,
-        db_index=True,
         help_text=_("The delegated batch whose finish queued this run on the coordinator's session."),
     )
     waits_for = models.ForeignKey(
@@ -297,6 +298,7 @@ class Run(models.Model):
         null=True,
         blank=True,
         related_name="waiting_runs",
+        db_index=False,
         verbose_name=_("waits for"),
         help_text=_("While this run is QUEUED, it starts only once that run has finished."),
     )
@@ -354,6 +356,13 @@ class Run(models.Model):
             models.Index(fields=["trigger_type", "-created_at"], name="run_trigger_created_idx"),
             models.Index(fields=["status", "-created_at"], name="run_status_created_idx"),
             models.Index(fields=["user", "-created_at"], name="run_user_created_idx"),
+            # Partial: almost every run leaves these NULL.
+            models.Index(
+                fields=["continuation_of_batch_id"],
+                name="run_continuation_batch_idx",
+                condition=models.Q(continuation_of_batch_id__isnull=False),
+            ),
+            models.Index(fields=["waits_for"], name="run_waits_for_idx", condition=models.Q(waits_for__isnull=False)),
         ]
         constraints = [
             # At most one active (READY or RUNNING) API/MCP/delegation run per session. QUEUED is

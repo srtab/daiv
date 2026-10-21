@@ -511,7 +511,7 @@ class TestResumeCoordinator:
         mock_task.aenqueue.assert_not_called()
         assert Run.objects.get(continuation_of_batch_id=batch_id).status == RunStatus.QUEUED
 
-    def test_the_continuation_waits_for_a_chat_turn_in_flight_and_starts_once_it_ends(
+    def test_the_continuation_waits_for_a_chat_turn_in_flight_and_starts_once_it_ends_on_its_branch(
         self, admin_user, create_db_task_result
     ):
         coordinator = _coordinator(admin_user)
@@ -529,10 +529,12 @@ class TestResumeCoordinator:
             assert (continuation.status, continuation.waits_for_id) == (RunStatus.QUEUED, chat.pk)
             mock_task.aenqueue.assert_not_called()
 
+            Session.objects.filter(pk=coordinator.pk).update(ref="daiv/chat-work")
             Run.objects.finish(chat, RunStatus.SUCCESSFUL, finished_at=timezone.now())
 
         continuation.refresh_from_db()
         assert (continuation.status, continuation.task_result_id) == (RunStatus.READY, task.id)
+        assert mock_task.aenqueue.call_args.kwargs["ref"] == "daiv/chat-work"
 
     @pytest.mark.parametrize("legs_user", ["lost-access", "deleted"])
     def test_a_user_who_can_no_longer_write_to_the_coordinator_gets_it_failed_not_run(

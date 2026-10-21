@@ -12,9 +12,9 @@ on its session, so failing legs cannot loop it forever.
 A leg always publishes to a new branch and merge request of its own (``run_job_task``'s ``fork_branch``), so any
 number of legs may share a base, the coordinator's own included. A leg that names the coordinator's own branch
 ``waits_for`` the delegating run: it stays QUEUED until that run has finished, and so has published what it changed
-this turn, and the queue starts it then (``sessions.queue.release_runs_waiting_for``). Before that,
-:func:`restack_waiting_legs` moves it to the branch the coordinator's session works on by then, which differs when
-the coordinator published to a new branch, as a run on the default branch always does.
+this turn, and the queue starts it then (``sessions.queue.release_runs_waiting_for``), from the branch the
+coordinator's session works on by then, which differs when the coordinator published to a new branch, as a run on
+the default branch always does.
 
 :func:`resume_coordinator` runs on every leg's ``run_finished``. Once the whole batch is terminal it queues one
 ``SessionOrigin.DELEGATION_RESUME`` run on the coordinator's session (``continuation_of_batch_id``), as the legs'
@@ -27,8 +27,8 @@ already told the agent nothing started.
 
 :func:`resume_stalled_batches` is the periodic backstop: it resumes a finished batch the signal path left without a
 continuation, retries one whose continuation never ran (it never reached the task queue, or gave up waiting for the
-session's slot; up to ``MAX_CONTINUATION_ATTEMPTS`` continuations per batch), and releases the QUEUED runs left
-behind a run that has finished and a continuation left QUEUED on a coordinator with no active run.
+session's slot; up to ``MAX_CONTINUATION_ATTEMPTS`` continuations per batch), and releases the legs and
+continuations left QUEUED on a session with no active run once they are not waiting.
 """
 
 from __future__ import annotations
@@ -43,6 +43,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
+from django_tasks.utils import get_module_path
 from sandbox_envs.selection import aresolve_repo_envs
 
 from automation.agent.delegation import MAX_DELEGATED_TARGETS, DelegationError, DelegationResult, FailedLeg, StartedLeg
@@ -58,13 +59,7 @@ from sessions.admission import (
 from sessions.artifacts import aresolve_active_run
 from sessions.executor.lock import SessionLockTimeoutError
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.queue import (
-    ENQUEUE_FAILED_PREFIX,
-    LINK_FAILED_PREFIX,
-    dispatch_next_queued,
-    release_orphan_queued_runs,
-    release_runs_waiting_for,
-)
+from sessions.queue import ENQUEUE_FAILED_PREFIX, LINK_FAILED_PREFIX, dispatch_next_queued, release_orphan_queued_runs
 from sessions.services import RepoTarget, asubmit_batch_runs, create_run, pinned_agent_override
 
 if TYPE_CHECKING:
@@ -94,7 +89,7 @@ _UNTRACKED_LEG = (
     "reach you."
 )
 # A run_job_task that gave up waiting for the session's slot stores its exception's class path as the run's error.
-_LOCK_TIMED_OUT = f"{SessionLockTimeoutError.__module__}.{SessionLockTimeoutError.__qualname__}"
+_LOCK_TIMED_OUT = get_module_path(SessionLockTimeoutError)
 _NEVER_RAN = Q(status=RunStatus.FAILED) & (
     Q(error_message__startswith=ENQUEUE_FAILED_PREFIX) | Q(error_message__startswith=_LOCK_TIMED_OUT)
 )
@@ -147,7 +142,7 @@ class SessionJobDelegator:
             return DelegationResult(batch_id=None, failed=failed)
 
         try:
-            agent_model, agent_thinking_level = check_agent_override(None, None)
+            check_agent_override(None, None)
             repos = await aresolve_repo_envs(
                 user=user,
                 repos=[
@@ -166,8 +161,6 @@ class SessionJobDelegator:
                 user=user,
                 prompt=goal,
                 repos=repos,
-                agent_model=agent_model,
-                agent_thinking_level=agent_thinking_level,
                 trigger_type=SessionOrigin.DELEGATED_JOB,
                 muted=run.effective_muted,
                 parent=run.session,
@@ -230,19 +223,6 @@ def _failed_leg(failure: BatchSubmitFailure) -> FailedLeg:
     return FailedLeg(failure.repo_id, failure.ref, _UNSTARTED_LEG)
 
 
-def restack_waiting_legs(run: Run) -> None:
-    """Base the QUEUED legs that waited for ``run`` on the branch its session works on now, before they start."""
-    branch = Session.objects.filter(pk=run.session_id).values_list("ref", flat=True).first()
-    if not branch:
-        return
-    legs = Run.objects.filter(waits_for=run, status=RunStatus.QUEUED, trigger_type=SessionOrigin.DELEGATED_JOB).exclude(
-        ref=branch
-    )
-    with transaction.atomic():
-        Session.objects.filter(pk__in=legs.values("session_id")).update(ref=branch)
-        legs.update(ref=branch)
-
-
 def _session_url(thread_id: str) -> str:
     return build_absolute_url(reverse("session_detail", kwargs={"thread_id": thread_id}))
 
@@ -257,10 +237,11 @@ def resume_coordinator(run: Run) -> None:
 
 def _resume_batch(batch_id: uuid.UUID) -> bool:
     """Queue ``batch_id``'s continuation if the batch has finished and needs one; returns whether it did."""
-    legs = list(Run.objects.by_batch(batch_id).select_related("user", "session__parent").order_by("created_at", "id"))
-    if any(leg.status not in RunStatus.terminal() for leg in legs) or not any(
-        leg.task_result_id or leg.waits_for_id for leg in legs
-    ):
+    batch = Run.objects.by_batch(batch_id)
+    if batch.exclude(status__in=RunStatus.terminal()).exists():
+        return False
+    legs = list(batch.select_related("user", "session__parent").order_by("created_at", "id"))
+    if not any(leg.task_result_id or leg.waits_for_id for leg in legs):
         return False
     coordinator = legs[0].session.parent
     if coordinator is None:
@@ -360,24 +341,15 @@ def resume_stalled_batches() -> int:
         except Exception:
             logger.exception("resume_stalled_batches: failed to resume batch %s", batch_id)
 
-    _release_runs_left_waiting()
-    waiting = Run.objects.filter(status=RunStatus.QUEUED, continuation_of_batch_id__isnull=False)
-    try:
-        release_orphan_queued_runs(session_ids=waiting.values("session_id"))
-    except Exception:
-        logger.exception("resume_stalled_batches: failed to release the queued continuations")
-    return queued
-
-
-def _release_runs_left_waiting() -> None:
-    """Restack and release the QUEUED runs whose ``waits_for`` run finished without its ``run_ended`` releasing them."""
-    waited_for = Run.objects.filter(status=RunStatus.QUEUED, waits_for__isnull=False).values("waits_for")
-    for waited in Run.objects.filter(pk__in=waited_for, status__in=RunStatus.terminal()):
+    waiting = Run.objects.filter(
+        Q(waits_for__isnull=False) | Q(continuation_of_batch_id__isnull=False), status=RunStatus.QUEUED
+    )
+    if waiting.exists():
         try:
-            restack_waiting_legs(waited)
-            release_runs_waiting_for(waited)
+            release_orphan_queued_runs(session_ids=waiting.values("session_id"))
         except Exception:
-            logger.exception("resume_stalled_batches: failed to release the runs waiting for run %s", waited.pk)
+            logger.exception("resume_stalled_batches: failed to release the queued legs and continuations")
+    return queued
 
 
 def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:

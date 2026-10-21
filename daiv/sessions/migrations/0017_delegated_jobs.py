@@ -16,7 +16,6 @@ class Migration(migrations.Migration):
             name="continuation_of_batch_id",
             field=models.UUIDField(
                 blank=True,
-                db_index=True,
                 help_text="The delegated batch whose finish queued this run on the coordinator's session.",
                 null=True,
                 verbose_name="continues delegated batch",
@@ -27,6 +26,7 @@ class Migration(migrations.Migration):
             name="waits_for",
             field=models.ForeignKey(
                 blank=True,
+                db_index=False,
                 help_text="While this run is QUEUED, it starts only once that run has finished.",
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
@@ -40,6 +40,7 @@ class Migration(migrations.Migration):
             name="parent",
             field=models.ForeignKey(
                 blank=True,
+                db_index=False,
                 help_text="The session whose agent delegated this one with delegate_jobs.",
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
@@ -86,6 +87,26 @@ class Migration(migrations.Migration):
                 ],
                 max_length=20,
                 verbose_name="origin",
+            ),
+        ),
+        migrations.AddIndex(
+            model_name="run",
+            index=models.Index(
+                condition=models.Q(("continuation_of_batch_id__isnull", False)),
+                fields=["continuation_of_batch_id"],
+                name="run_continuation_batch_idx",
+            ),
+        ),
+        migrations.AddIndex(
+            model_name="run",
+            index=models.Index(
+                condition=models.Q(("waits_for__isnull", False)), fields=["waits_for"], name="run_waits_for_idx"
+            ),
+        ),
+        migrations.AddIndex(
+            model_name="session",
+            index=models.Index(
+                condition=models.Q(("parent__isnull", False)), fields=["parent"], name="session_parent_idx"
             ),
         ),
         migrations.AddConstraint(

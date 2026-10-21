@@ -6,7 +6,7 @@ from django.db import transaction
 import pytest
 from asgiref.sync import sync_to_async
 from sandbox_envs.models import SandboxEnvironment, Visibility
-from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.queue import (
     LINK_FAILED_PREFIX,
     MAX_CONSECUTIVE_DISPATCH_FAILURES,
@@ -290,6 +290,26 @@ class TestRunsThatWaitForAnother:
 
         queued.refresh_from_db()
         assert (queued.status, queued.task_result_id) == (RunStatus.READY, task.id)
+
+    @pytest.mark.parametrize("release", ["dispatch", "orphan-sweep"])
+    def test_it_starts_from_the_branch_the_awaited_run_left_its_session_on(
+        self, waiting, create_db_task_result, release
+    ):
+        awaited, queued = waiting
+        Run.objects.filter(pk=awaited.pk).update(status=RunStatus.SUCCESSFUL)
+        Session.objects.filter(pk=awaited.session_id).update(ref="daiv/published")
+        task = create_db_task_result(status="READY")
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
+            if release == "dispatch":
+                release_runs_waiting_for(awaited)
+            else:
+                release_orphan_queued_runs()
+
+        queued.refresh_from_db()
+        assert (queued.ref, Session.objects.get(pk=queued.session_id).ref) == ("daiv/published", "daiv/published")
+        assert mock_task.aenqueue.call_args.kwargs["ref"] == "daiv/published"
 
 
 @pytest.mark.django_db(transaction=True)

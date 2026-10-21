@@ -264,18 +264,6 @@ class TestReleaseWaitingRuns:
 
         release.assert_called_once_with(finished)
 
-    def test_a_run_nothing_waits_for_does_no_release_work(self):
-        finished = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=SessionOrigin.CHAT)
-
-        with (
-            patch("sessions.signals.restack_waiting_legs") as restack,
-            patch("sessions.signals.release_runs_waiting_for") as release,
-        ):
-            run_ended.send(sender=Run, run=finished)
-
-        restack.assert_not_called()
-        release.assert_not_called()
-
 
 @pytest.mark.django_db(transaction=True)
 class TestSyncReleasesQueuedSibling:

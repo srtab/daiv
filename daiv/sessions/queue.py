@@ -8,7 +8,9 @@ among them: their callbacks enqueue their own tasks. A failed enqueue or link ma
 behind a row that will never finish.
 
 A QUEUED run whose ``waits_for`` run has not finished stays QUEUED, and so does every later run of its session: no
-release path starts it early, and :func:`release_runs_waiting_for` starts it once that run ends.
+release path starts it early, and :func:`release_runs_waiting_for` starts it once that run ends. Whichever path
+releases it, it starts from the branch the waited-for run's session is on by then, which that run may have moved
+by publishing to a new branch.
 """
 
 from __future__ import annotations
@@ -137,17 +139,27 @@ async def amark_failed_and_advance(
 
 
 def _claim_queued(run: Run) -> bool:
-    """Move ``run`` from QUEUED to READY unless another dispatcher took it first.
+    """Move ``run`` from QUEUED to READY unless another dispatcher took it first, rebased on the branch its
+    ``waits_for`` run left that run's session on.
 
     Raises ``IntegrityError`` when a peer already holds the session's active slot (``run_one_active_per_session``),
     from a savepoint of its own, so a caller inside a transaction can catch it and carry on.
     """
     with transaction.atomic():
-        claimed = Run.objects.filter(pk=run.pk, status=RunStatus.QUEUED).update(status=RunStatus.READY) == 1
-    if not claimed:
-        return False
+        if Run.objects.filter(pk=run.pk, status=RunStatus.QUEUED).update(status=RunStatus.READY) != 1:
+            return False
+        if run.waits_for_id is not None:
+            _rebase_on_waited_branch(run)
     run.refresh_from_db()
     return True
+
+
+def _rebase_on_waited_branch(run: Run) -> None:
+    branch = Run.objects.filter(pk=run.waits_for_id).values_list("session__ref", flat=True).first()
+    if not branch:
+        return
+    Run.objects.filter(pk=run.pk).exclude(ref=branch).update(ref=branch)
+    Session.objects.filter(pk=run.session_id).exclude(ref=branch).update(ref=branch)
 
 
 def _enqueue_claimed(run: Run, *, log_context: str) -> bool:

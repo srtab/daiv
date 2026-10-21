@@ -11,6 +11,7 @@ from django.db.models import Q
 
 from asgiref.sync import async_to_sync, sync_to_async
 
+from automation.agent import validators
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
 from sessions.admission import aassert_repo_access
 from sessions.models import Run, RunStatus, Session, SessionOrigin
@@ -200,8 +201,6 @@ async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
 def pinned_agent_override(session: Session) -> tuple[str, str]:
     """The model and thinking level ``session`` pins, for a follow-up run on it; empty when it pins none or its model
     can no longer be used, so the run takes the default."""
-    from automation.agent import validators
-
     try:
         return validators.validate_agent_override(session.agent_model, session.agent_thinking_level)
     except validators.AgentOverrideError as err:
