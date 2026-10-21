@@ -75,8 +75,6 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             return []
 
         platform = codebase_settings.CLIENT
-        if platform not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
-            return []
         if provider and provider != platform.value:
             return []
 

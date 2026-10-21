@@ -10,6 +10,7 @@ class GitPlatform(StrEnum):
     GITLAB = "gitlab"
     GITHUB = "github"
     SWE = "swe"
+    """SWE-bench evals (``evals/swe_client.py``): public repositories, no platform API. Never ``CODEBASE_CLIENT``."""
 
 
 class Scope(StrEnum):

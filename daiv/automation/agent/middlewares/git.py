@@ -4,11 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Annotated, Any, NotRequired, cast
 
 import httpx
-import requests
-from asgiref.sync import sync_to_async
 from git import GitCommandError
-from github import GithubException
-from gitlab.exceptions import GitlabError
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import PrivateStateAttr
@@ -21,20 +17,7 @@ from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConfl
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, Scope
-from codebase.clients import RepoClient
-
-# Platform / transport errors that warrant a soft "no MR" fallback. The platform
-# SDKs (python-gitlab, PyGithub) are requests-based, so raw network failures
-# surface as requests exceptions, not Gitlab/Github API errors; httpx covers
-# httpx-transported callees (e.g. repo-config fetches). Bugs (KeyError,
-# AttributeError, etc.) propagate so the run fails loudly rather than producing
-# a duplicate MR downstream.
-_MR_LOOKUP_PLATFORM_ERRORS: tuple[type[BaseException], ...] = (
-    GitlabError,
-    GithubException,
-    httpx.HTTPError,
-    requests.RequestException,
-)
+from codebase.clients.base import aget_open_merge_request
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -283,10 +266,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
         Short-circuits on detached HEAD: commit-pinned runs (SWE-bench evals check out a
         raw SHA) have no branch, so no MR can exist and querying the platform with a SHA
-        would be meaningless. Queries the run's platform — not the settings default, which
-        for a repo living elsewhere would 404 or, worse, match a same-named repo's MR.
-        Soft-fails on platform/transport errors so the agent can still run — the publisher
-        will create a fresh MR if needed. Programming bugs propagate.
+        would be meaningless.
         """
         if context.repo.head_detached:
             logger.debug("Skipping MR lookup for %s: detached HEAD (commit-pinned run)", context.repository.slug)
@@ -294,14 +274,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         current_branch = context.repo.current_ref
         if not current_branch or current_branch == context.config.default_branch:
             return None
-        try:
-            client = RepoClient.create_instance(git_platform=context.git_platform)
-            return await sync_to_async(client.get_merge_request_by_branches)(context.repository.slug, current_branch)
-        except _MR_LOOKUP_PLATFORM_ERRORS:
-            logger.exception(
-                "Failed to look up open merge request for %s on %s", context.repository.slug, current_branch
-            )
-            return None
+        return await aget_open_merge_request(context.repo.client, context.repository.slug, current_branch)
 
     def _effective_mr(self, state: GitState, context: RuntimeCtx, *, current_ref: str) -> MergeRequest | None:
         """Resolve the run's MR from the one decision, with the context this middleware holds.

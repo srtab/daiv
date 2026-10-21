@@ -1,6 +1,9 @@
 import re
+import threading
+from typing import Any
 
 from github import Auth, Consts, GithubIntegration
+from github.Requester import HTTPRequestsConnectionClass, HTTPSRequestsConnectionClass, Requester
 
 from codebase.conf import settings
 from daiv import USER_AGENT
@@ -27,10 +30,54 @@ def strip_iso_timestamps(text: str) -> str:
     return _TS_PREFIX.sub("", text)
 
 
+def _per_thread(name: str) -> property:
+    return property(lambda self: getattr(self._pending, name), lambda self, value: setattr(self._pending, name, value))
+
+
+class _PerThreadPendingRequest:
+    """PyGithub's connections hold a request on the connection between ``request()`` and ``getresponse()``, and every
+    thread using the client shares that connection; held per thread, concurrent calls no longer send each other's
+    request, while the connection's one ``requests.Session`` still pools sockets across threads."""
+
+    verb = _per_thread("verb")
+    url = _per_thread("url")
+    input = _per_thread("input")
+    headers = _per_thread("headers")
+    stream = _per_thread("stream")
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._pending = threading.local()
+        super().__init__(*args, **kwargs)
+
+
+class PerThreadHTTPConnection(_PerThreadPendingRequest, HTTPRequestsConnectionClass):
+    pass
+
+
+class PerThreadHTTPSConnection(_PerThreadPendingRequest, HTTPSRequestsConnectionClass):
+    pass
+
+
+def use_per_thread_connections() -> None:
+    """Have every PyGithub ``Requester`` built from now on connect through the per-thread classes.
+
+    Sets the class attributes ``Requester.injectConnectionClasses`` sets, without its switch to a new connection for
+    every request.
+    """
+    for name, connection_class in (
+        ("_Requester__httpConnectionClass", PerThreadHTTPConnection),
+        ("_Requester__httpsConnectionClass", PerThreadHTTPSConnection),
+    ):
+        if not hasattr(Requester, name):
+            raise RuntimeError(f"PyGithub's Requester no longer has {name}: re-check how it holds a request")
+        setattr(Requester, name, connection_class)
+
+
 def get_github_integration() -> GithubIntegration:
     """
     Get the GitHub integration for the current installation.
     """
+    use_per_thread_connections()
     base_url = Consts.DEFAULT_BASE_URL
     if settings.GITHUB_URL:
         base_url = str(settings.GITHUB_URL)

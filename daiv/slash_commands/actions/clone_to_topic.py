@@ -1,11 +1,14 @@
 from contextlib import suppress
+from typing import TYPE_CHECKING
 
 from django.template.loader import render_to_string
 
 from codebase.base import Scope
-from codebase.clients import RepoClient
 from slash_commands.base import SlashCommand
 from slash_commands.decorator import slash_command
+
+if TYPE_CHECKING:
+    from codebase.clients import RepoClient
 
 
 @slash_command(command="clone-to-topics", scopes=[Scope.ISSUE])
@@ -16,7 +19,9 @@ class CloneToTopicsSlashCommand(SlashCommand):
 
     description: str = "Clone this issue to all repositories matching the specified topics."
 
-    async def execute_for_agent(self, *, args: str, issue_iid: int | None = None, **kwargs) -> str:
+    async def execute_for_agent(
+        self, *, args: str, repo_client: RepoClient, issue_iid: int | None = None, **kwargs
+    ) -> str:
         """
         Execute clone-to-topic command for agent middleware.
 
@@ -33,19 +38,18 @@ class CloneToTopicsSlashCommand(SlashCommand):
         if not topics:
             return f"Invalid arguments for /{self.command}. Please provide comma-separated topics."
 
-        client = RepoClient.create_instance()
-        target_repos = [repo for repo in client.list_repositories(topics=topics) if repo.slug != self.repo_id]
+        target_repos = [repo for repo in repo_client.list_repositories(topics=topics) if repo.slug != self.repo_id]
 
         if not target_repos:
             topics_str = ", ".join([f"`{topic}`" for topic in topics])
             return f"No repositories matching the specified topics {topics_str} found."
 
-        issue = client.get_issue(self.repo_id, issue_iid)
+        issue = repo_client.get_issue(self.repo_id, issue_iid)
         cloned_issues = []
 
         for target_repo in target_repos:
             with suppress(Exception):
-                cloned_issue_iid = client.create_issue(
+                cloned_issue_iid = repo_client.create_issue(
                     repo_id=target_repo.slug, title=issue.title, description=issue.description, labels=issue.labels
                 )
 

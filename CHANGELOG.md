@@ -109,6 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed concurrent GitHub API calls able to send each other's request: the GitHub client is shared by the whole process, and PyGithub kept each request on the shared connection between building and sending it, so two calls at once, such as two webhooks, could both send the same request and one of them act on the other's response.
 - Fixed the Jobs API and MCP `get_job_status` cutting a job's `result` at 2,000 characters. It now returns the agent's whole last response.
 - Fixed a job, schedule or webhook run on the default model pinning its session to the model it resolved, so a chat turn on that session later failed with "the model pinned to this thread is no longer available" or a `409` for a model nobody chose. The resolved model is now recorded on the run only, and the session list shows the model the latest run used.
 - Fixed an issue run that could not start because no model is configured ending as an empty success: it now fails, like a merge request comment run, so it shows as failed and notifies.
@@ -166,6 +167,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Breaking:** `CODEBASE_CLIENT=swe` is no longer accepted; only `gitlab` and `github` are. The SWE-bench client now lives in `evals/` and the eval passes it to each run itself (run the eval with `python -m evals.swebench`).
 - The unused `GET /api/codebase/repositories/search` endpoint, along with the `repoSearch` Alpine component it fed. Both were superseded by the HTMX repository picker and had no remaining callers.
 - **Breaking:** Removed the `mcp-proxy` container, its API configuration endpoint, and the `MCP_PROXY_HOST`/`MCP_PROXY_ADDR`/`MCP_PROXY_AUTH_TOKEN`/`MCP_CONFIG_API_KEY` settings. MCP servers are managed as database rows from the dashboard; existing `docker-compose.yml` and stack files must be updated.
 - Removed the `sandbox:` block from `.daiv.yml` — sandbox runtime is configured exclusively through Sandbox Environments in the dashboard.

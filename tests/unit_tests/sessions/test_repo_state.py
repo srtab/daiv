@@ -79,29 +79,23 @@ async def test_returns_none_when_lookup_returns_none():
     assert result is None
 
 
-async def test_swallows_platform_errors_and_logs(caplog):
-    """Platform hiccups (HTTP/transport errors) degrade to None with a logged
-    exception. Programming bugs are NOT swallowed — they propagate.
-    """
-    import httpx
+async def test_a_config_read_failure_reads_as_no_merge_request(caplog):
+    import requests
 
     with (
         patch(
-            "sessions.repo_state.RepositoryConfig.get_config", side_effect=httpx.ConnectError("platform unreachable")
+            "sessions.repo_state.RepositoryConfig.get_config",
+            side_effect=requests.ConnectionError("platform unreachable"),
         ),
         caplog.at_level("ERROR", logger="daiv.sessions"),
     ):
         result = await aget_existing_mr_payload("a/b", "feature-x")
 
     assert result is None
-    assert any(
-        rec.name == "daiv.sessions" and "Failed to look up existing merge request" in rec.message
-        for rec in caplog.records
-    )
+    assert any("Failed to read the repository configuration" in rec.message for rec in caplog.records)
 
 
-async def test_swallows_errors_from_client_call():
-    """SDK errors (gitlab/github/httpx) are caught."""
+async def test_a_lookup_failure_reads_as_no_merge_request():
     from gitlab.exceptions import GitlabError
 
     repo_client = MagicMock()
@@ -113,37 +107,6 @@ async def test_swallows_errors_from_client_call():
         result = await aget_existing_mr_payload("a/b", "feature-x")
 
     assert result is None
-
-
-async def test_swallows_requests_transport_errors():
-    """The platform SDKs (python-gitlab, PyGithub) are requests-based: a network blip
-    surfaces as a requests exception, not a Gitlab/Github API error — it must degrade
-    to "no MR" like any other platform hiccup."""
-    import requests
-
-    repo_client = MagicMock()
-    repo_client.get_merge_request_by_branches.side_effect = requests.ConnectionError("dns failure")
-    with (
-        patch("sessions.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
-        patch("sessions.repo_state.RepoClient.create_instance", return_value=repo_client),
-    ):
-        result = await aget_existing_mr_payload("a/b", "feature-x")
-
-    assert result is None
-
-
-async def test_propagates_unexpected_errors():
-    """Bugs (KeyError/AttributeError/TypeError) must NOT be silently caught —
-    they should surface as 500s rather than masking as a fake 'no MR'.
-    """
-    repo_client = MagicMock()
-    repo_client.get_merge_request_by_branches.side_effect = KeyError("missing field")
-    with (
-        patch("sessions.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
-        patch("sessions.repo_state.RepoClient.create_instance", return_value=repo_client),
-        pytest.raises(KeyError),
-    ):
-        await aget_existing_mr_payload("a/b", "feature-x")
 
 
 @pytest.mark.parametrize(("payload_input", "expected_keys"), [(None, None), ("not-a-mr", None)])

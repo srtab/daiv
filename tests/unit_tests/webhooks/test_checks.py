@@ -31,11 +31,3 @@ def test_only_the_active_platform_needs_a_secret(monkeypatch, platform, other_se
     monkeypatch.setattr(webhooks_settings, other_secret_name, None)
 
     assert check_webhook_secret(None) == []
-
-
-def test_the_swe_client_needs_no_secret(monkeypatch):
-    monkeypatch.setattr(codebase_settings, "CLIENT", GitPlatform.SWE)
-    monkeypatch.setattr(webhooks_settings, "GITLAB_WEBHOOK_SECRET", None)
-    monkeypatch.setattr(webhooks_settings, "GITHUB_WEBHOOK_SECRET", None)
-
-    assert check_webhook_secret(None) == []

@@ -23,7 +23,6 @@ from langgraph.types import Command
 from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.utils import repo_relative_text
 from codebase.base import GitPlatform
-from codebase.clients import RepoClient
 from codebase.clients.github.utils import get_github_integration
 from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
@@ -612,9 +611,12 @@ async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime
         return "error: --position must be a JSON object (dict), not a scalar or list"
 
     try:
-        repo_client = RepoClient.create_instance()
         discussion_id = await asyncio.to_thread(
-            repo_client.create_merge_request_inline_discussion, runtime.context.repository.slug, mr_iid, body, position
+            runtime.context.repo.client.create_merge_request_inline_discussion,
+            runtime.context.repository.slug,
+            mr_iid,
+            body,
+            position,
         )
         return json.dumps({"id": discussion_id, "status": "created"})
     except Exception as e:

@@ -89,6 +89,33 @@ def _loading(repo: Repo):
     return _context_deps(repo_client)
 
 
+async def test_the_handle_carries_the_client_the_run_cloned_with():
+    repo_client = _repo_client()
+    repo_client.git_platform = GitPlatform.GITHUB
+
+    with _context_deps(repo_client):
+        async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)) as ctx:
+            assert ctx.repo.client is repo_client
+            assert ctx.git_platform == GitPlatform.GITHUB
+
+
+async def test_an_injected_client_replaces_the_configured_platform_for_the_whole_setup():
+    injected = _repo_client()
+
+    with (
+        patch("automation.agent.context.RepoClient") as factory,
+        patch("automation.agent.context.RepositoryConfig") as repo_config,
+    ):
+        repo_config.get_config.return_value = MagicMock(default_branch="main")
+        async with set_runtime_ctx(
+            "repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None), repo_client=injected
+        ) as ctx:
+            assert ctx.repo.client is injected
+
+    factory.create_instance.assert_not_called()
+    assert repo_config.get_config.call_args.kwargs["repo_client"] is injected
+
+
 async def test_the_handle_records_the_branch_the_clone_is_on(tmp_path):
     with _loading(_clone_on_main(tmp_path)):
         async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)) as ctx:
@@ -339,7 +366,7 @@ async def test_a_fallback_clone_is_timed_across_both_attempts():
 def _make_handle() -> RepoHandle:
     return RepoHandle(
         repo_id="acme/api",
-        git_platform=Mock(),
+        client=Mock(),
         repository=Mock(slug="acme/api"),
         gitrepo=Mock(),
         config=Mock(),
