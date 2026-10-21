@@ -131,13 +131,8 @@ async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     assert (outcome.agent_result["response"], outcome.agent_result["question"]) == ("done", None)
     assert outcome.snapshot is agent.aget_state.return_value
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
-    stack.build_result.assert_awaited_once_with(
-        agent,
-        stack.langsmith.return_value,
-        response="done",
-        usage={},
-        snapshot=agent.aget_state.return_value,
-        question=None,
+    stack.build_result.assert_called_once_with(
+        response="done", usage={}, snapshot=agent.aget_state.return_value, question=None
     )
     on_success.assert_awaited_once_with(outcome)
     on_failure.assert_not_awaited()
@@ -486,7 +481,7 @@ async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
             "sandbox_environment_id": None,
         }
     ]
-    assert stack.build_result.await_args.kwargs["snapshot"] is None
+    assert stack.build_result.call_args.kwargs["snapshot"] is None
     [record] = caplog.records
     assert (record.levelname, record.exc_info[1]) == ("ERROR", error)
     assert "ref sync and the CI watch" in record.getMessage()

@@ -101,48 +101,6 @@ class NoteableType(StrEnum):
     MERGE_REQUEST = "MergeRequest"
 
 
-class NoteDiffPosition(BaseModel):
-    """
-    Gitlab Note Diff Position
-    """
-
-    type: Literal["new", "old", "expanded"] | None
-    old_line: int | None
-    new_line: int | None
-
-
-class NotePositionLineRange(BaseModel):
-    """
-    Gitlab Note Position Line Range
-    """
-
-    start: NoteDiffPosition
-    end: NoteDiffPosition
-
-
-class NotePositionType(StrEnum):
-    """
-    Gitlab Note Position Type
-    """
-
-    TEXT = "text"
-    FILE = "file"
-
-
-class NotePosition(BaseModel):
-    """
-    Gitlab Note Position
-    """
-
-    head_sha: str
-    old_path: str
-    new_path: str
-    position_type: NotePositionType
-    old_line: int | None = None
-    new_line: int | None = None
-    line_range: NotePositionLineRange | None = None
-
-
 class NoteAction(StrEnum):
     """
     Gitlab Note Action
@@ -165,7 +123,6 @@ class Note(BaseModel):
     note: str
     system: bool
     type: Literal["DiffNote", "DiscussionNote", "Note"] | None = None
-    position: NotePosition | None = None
 
 
 class Project(BaseModel):

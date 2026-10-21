@@ -482,9 +482,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         except Exception:
             logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)
 
-    agent_result = await build_agent_result(
-        run.agent,
-        run.config,
+    agent_result = build_agent_result(
         response=response_text,
         usage=build_usage_summary(run.usage).to_dict(),
         snapshot=snapshot,

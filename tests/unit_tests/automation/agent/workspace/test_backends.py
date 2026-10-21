@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-import stat
-from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
-import pytest
+from deepagents.backends.composite import CompositeBackend
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
 from deepagents.middleware.filesystem import _check_fs_permission
 
 from automation.agent.workspace import backends as backends_module
 from automation.agent.workspace.backends import (
     WORKSPACE_FENCE_PERMISSIONS,
-    DAIVCompositeBackend,
     DAIVFilesystemBackend,
     RepoFilesystemBackend,
     SkillsCacheBackend,
@@ -208,12 +205,8 @@ class TestDiskBackendRegexGrep:
         assert disk._grep_error_detail(generic) == f"RuntimeError: boom at {tmp_path}"
 
 
-class TestDAIVCompositeBackend:
-    """Composite routing must preserve the prefix-stripping invariant for DAIV's two
-    extension methods (``unlink``/``stat_mode``) and the dispatch helper
-    (``resolve_backend_for``), so a routed op reaches the right underlying backend with
-    the route prefix stripped.
-    """
+class TestCompositeRouting:
+    """DAIV's regex ``agrep`` still applies when reached through a ``CompositeBackend`` route."""
 
     @staticmethod
     def _make_composite(tmp_path: Path):
@@ -236,42 +229,8 @@ class TestDAIVCompositeBackend:
         repo_root.mkdir()
         skills = DAIVFilesystemBackend(root_dir=skills_root, virtual_mode=True)
         repo = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        composite = DAIVCompositeBackend(default=repo, routes={"/skills/": skills})
+        composite = CompositeBackend(default=repo, routes={"/skills/": skills})
         return composite, skills, repo, skills_root, repo_root
-
-    async def test_unlink_strips_prefix_for_routed_path(self, tmp_path: Path):
-        composite, _skills, _repo, skills_root, _repo_root = self._make_composite(tmp_path)
-        (skills_root / "foo.md").write_text("x")
-
-        ok = await composite.unlink("/skills/foo.md")
-
-        assert ok is True
-        assert not (skills_root / "foo.md").exists()
-
-    async def test_unlink_passes_default_path_unchanged(self, tmp_path: Path):
-        composite, _skills, _repo, _skills_root, repo_root = self._make_composite(tmp_path)
-        target = repo_root / "bar.py"
-        target.write_text("x")
-
-        ok = await composite.unlink("/repo-mount/bar.py")
-
-        assert ok is True
-        assert not target.exists(), "default-route unlink must operate on the unstripped path"
-
-    async def test_stat_mode_routes_to_underlying_backend(self, tmp_path: Path):
-        composite, _skills, _repo, skills_root, repo_root = self._make_composite(tmp_path)
-        skills_target = skills_root / "exec.sh"
-        skills_target.write_text("#!/bin/sh\n")
-        skills_target.chmod(0o755)
-        repo_target = repo_root / "plain.py"
-        repo_target.write_text("x")
-        repo_target.chmod(0o644)
-
-        skills_mode = await composite.stat_mode("/skills/exec.sh")
-        repo_mode = await composite.stat_mode("/repo-mount/plain.py")
-
-        assert stat.S_IMODE(skills_mode) == 0o755, "skills-routed stat_mode reads real bits"
-        assert stat.S_IMODE(repo_mode) == 0o644, "default-routed stat_mode reads real bits"
 
     async def test_agrep_alternation_matches_via_composite(self, tmp_path: Path):
         """With regex grep, a `foo|bar` alternation returns real matches across routed backends —
@@ -290,24 +249,6 @@ class TestDAIVCompositeBackend:
         assert result.error is None
         texts = sorted({m["text"] for m in (result.matches or [])})
         assert texts == ["and bar there", "has foo here"]
-
-    async def test_resolve_backend_for_returns_route_target(self, tmp_path: Path):
-        composite, skills, repo, _skills_root, _repo_root = self._make_composite(tmp_path)
-
-        assert composite.resolve_backend_for("/skills/foo") is skills
-        assert composite.resolve_backend_for("/skills/") is skills
-        assert composite.resolve_backend_for("/repo-mount/bar") is repo
-        assert composite.resolve_backend_for("/random/baz") is repo, "unrouted falls through to default"
-
-    async def test_constructor_rejects_backend_missing_daiv_methods(self, tmp_path: Path):
-        good = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        plain_state = SimpleNamespace()  # missing unlink + stat_mode
-
-        with pytest.raises(TypeError, match="DAIVBackendProtocol"):
-            DAIVCompositeBackend(default=good, routes={"/x/": plain_state})  # type: ignore[arg-type]
-
-        with pytest.raises(TypeError, match="DAIVBackendProtocol"):
-            DAIVCompositeBackend(default=plain_state, routes={})  # type: ignore[arg-type]
 
 
 class TestWorkspaceFencePermissions:

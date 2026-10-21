@@ -101,7 +101,7 @@ def agent_stack(
     async def _persist_ref(**_kwargs):
         stack.events.append("ref synced")
 
-    async def _build_result(*_args, **kwargs):
+    def _build_result(**kwargs):
         stack.events.append("result built")
         return parse_agent_result(kwargs)
 
@@ -119,7 +119,7 @@ def agent_stack(
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent,
         patch("mcp_connectors.services.build_runtime_servers", return_value=[]) as build_servers,
         patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {}}) as langsmith,
-        patch("sessions.executor.result.build_agent_result", new=AsyncMock(side_effect=_build_result)) as build_result,
+        patch("sessions.executor.result.build_agent_result", side_effect=_build_result) as build_result,
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,

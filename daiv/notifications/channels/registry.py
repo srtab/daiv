@@ -27,10 +27,6 @@ def get_channel(channel_type: str) -> NotificationChannel:
         raise UnknownChannelError(channel_type) from exc
 
 
-def all_channels() -> list[type[NotificationChannel]]:
-    return list(_registry.values())
-
-
 def enabled_channels() -> list[type[NotificationChannel]]:
     return [cls for cls in _registry.values() if cls.is_enabled()]
 
@@ -38,8 +34,3 @@ def enabled_channels() -> list[type[NotificationChannel]]:
 def enabled_channel_types() -> list[ChannelType]:
     """The channel types every emitter delivers on — the one place that list is derived."""
     return [cls.channel_type for cls in enabled_channels()]
-
-
-def is_registered(channel_type: str) -> bool:
-    """Return True if the given channel_type is registered."""
-    return channel_type in _registry

@@ -8,7 +8,6 @@ from deepagents.backends.protocol import FILE_NOT_FOUND
 
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, _download_command, _download_response
 from core.sandbox.schemas import (
-    FsDeleteResponse,
     FsEditResponse,
     FsEntry,
     FsError,
@@ -168,7 +167,7 @@ async def test_agrep_no_match_with_regex_looking_pattern_does_not_hint_here(back
     """The literal-semantics hint deliberately does NOT live at this level: the composite
     treats a sub-backend GrepResult.error as a backend failure and would suppress real
     matches from sibling backends. A zero-match here stays a clean empty result; the hint
-    fires on the aggregate in DAIVCompositeBackend.agrep (tested in test_backends.py)."""
+    fires on the aggregate result."""
     client.fs_grep.return_value = FsGrepResponse(matches=[])
     result = await backend.agrep("get_catalog|list_relations", path="/workspace", glob=None)
     assert result.error is None
@@ -185,27 +184,6 @@ async def test_aedit_success_and_error_passthrough(backend, client):
     )
     bad = await backend.aedit("/workspace/repo/a.py", "nope", "x")
     assert bad.error is not None and "trailing newline" in bad.error
-
-
-async def test_unlink_removed_returns_true(backend, client):
-    client.fs_delete.return_value = FsDeleteResponse(removed=True)
-    assert await backend.unlink("/workspace/repo/a.py") is True
-    assert client.fs_delete.call_args.args[1].path == "/workspace/repo/a.py"
-    assert await backend.stat_mode("/workspace/repo/a.py") == 0o644
-
-
-async def test_unlink_already_absent_is_idempotent(backend, client):
-    """Deleting a path that was never there is success (ok=True) with removed=False — the protocol
-    contract is "the file is gone", and it is."""
-    client.fs_delete.return_value = FsDeleteResponse(removed=False)
-    assert await backend.unlink("/workspace/repo/gone.py") is True
-
-
-async def test_unlink_failure_logs_reason(backend, client, caplog):
-    client.fs_delete.return_value = FsDeleteResponse(error=_err(FsErrorCode.PERMISSION_DENIED, "permission denied"))
-    with caplog.at_level("WARNING"):
-        assert await backend.unlink("/workspace/repo/a.py") is False
-    assert "permission denied" in caplog.text
 
 
 async def test_als_propagates_error(backend, client):
@@ -526,15 +504,6 @@ async def test_edit_busy_409_degrades_to_retry_hint(backend, client):
     result = await backend.aedit("/workspace/repo/a.py", "old", "new")
     assert result.path is None
     assert result.error is not None and result.error.startswith("Error editing file") and "retry" in result.error
-
-
-async def test_unlink_transport_error_returns_false_and_logs(backend, client, caplog):
-    """``unlink`` has no error channel (bare bool), so a transport fault is a failed unlink — logged
-    so it is diagnosable rather than a silent False."""
-    client.fs_delete.side_effect = _http_status_error(409, "Session is busy")
-    with caplog.at_level("WARNING", logger="daiv.tools"):
-        assert await backend.unlink("/workspace/repo/a.py") is False
-    assert "transport failure" in caplog.text
 
 
 async def test_run_commands_forwards_to_client(backend, client):

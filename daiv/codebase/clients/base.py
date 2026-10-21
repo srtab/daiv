@@ -359,7 +359,7 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def create_issue_comment(
-        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         pass
 
@@ -420,13 +420,7 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def create_merge_request_comment(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        reply_to_id: str | None = None,
-        as_thread: bool = False,
-        mark_as_resolved: bool = False,
+        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         pass
 
@@ -505,10 +499,6 @@ class RepoClient(abc.ABC):
         `note_id` names a conversation comment; GitHub review (diff) comments are not addressable
         here, since DAIV receives none.
         """
-
-    @abc.abstractmethod
-    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        pass
 
     # Implemented only on GitLab for now.
     def create_merge_request_inline_discussion(

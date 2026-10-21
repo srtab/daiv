@@ -375,7 +375,6 @@ class GitHubClient(RepoClient):
             if issue.assignee
             else None,
             author=User(id=issue.user.id, username=issue.user.login, name=issue.user.name) if issue.user else None,
-            notes=[self._serialize_comment(comment, NoteableType.ISSUE) for comment in issue.get_comments()],
             labels=[label.name for label in issue.labels],
         )
 
@@ -412,7 +411,7 @@ class GitHubClient(RepoClient):
         return self._serialize_comment(issue.get_comment(note_id), NoteableType.ISSUE)
 
     def create_issue_comment(
-        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """
         Comment on an issue.
@@ -422,7 +421,6 @@ class GitHubClient(RepoClient):
             issue_id: The issue ID.
             body: The comment body.
             reply_to_id: The ID of the comment to reply to. This is not supported for GitHub.
-            as_thread: Whether to create a thread. This is not supported for GitHub.
 
         Returns:
             The comment ID.
@@ -608,13 +606,7 @@ class GitHubClient(RepoClient):
         return self._serialize_pull_request(repo_id, pr)
 
     def create_merge_request_comment(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        reply_to_id: str | None = None,
-        as_thread: bool = False,
-        mark_as_resolved: bool = False,
+        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """
         Comment on a merge request.
@@ -624,27 +616,14 @@ class GitHubClient(RepoClient):
             merge_request_id: The merge request ID.
             body: The comment body.
             reply_to_id: The ID of the comment to reply to.
-            as_thread: Whether to create a thread.
-            mark_as_resolved: Whether to mark the comment as resolved.
 
         Returns:
             The ID of the comment.
         """
         pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        to_return = None
-
         if reply_to_id:
-            to_return = pr.create_review_comment_reply(int(reply_to_id), body).id
-
-            if mark_as_resolved:
-                self.mark_merge_request_comment_as_resolved(repo_id, merge_request_id, reply_to_id)
-
-        elif as_thread:
-            # The only threadable comments are review comments.
-            raise NotImplementedError("Not implemented for GitHub")
-        else:
-            to_return = pr.create_issue_comment(body).id
-        return to_return
+            return pr.create_review_comment_reply(int(reply_to_id), body).id
+        return pr.create_issue_comment(body).id
 
     def _workflow_run_to_pipeline(self, run) -> Pipeline:
         return Pipeline(
@@ -791,17 +770,6 @@ class GitHubClient(RepoClient):
         """
         self.create_issue_emoji(repo_id, issue_id=merge_request_id, emoji=emoji, note_id=note_id)
 
-    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        """
-        Mark a review as resolved.
-        """
-        _, result = self.client.requester.graphql_named_mutation(
-            "resolveReviewThread", {"threadId": discussion_id}, "thread { id isResolved resolvedBy { login } }"
-        )
-
-        if result["thread"]["isResolved"]:
-            return
-
     # User
     @cached_property
     def current_user(self) -> User:
@@ -818,9 +786,8 @@ class GitHubClient(RepoClient):
         """
         Serialize an issue comment, which is also what a pull request conversation comment is.
 
-        Only issue comments arrive here — DAIV subscribes to no review-comment event — so no note
-        carries a diff position. The author's ``name`` is left out: nothing reads it, and PyGithub completes a
-        missing one with a ``/users`` request per comment.
+        Only issue comments arrive here — DAIV subscribes to no review-comment event. The author's ``name`` is
+        left out: nothing reads it, and PyGithub completes a missing one with a ``/users`` request per comment.
         """
         return Note(
             id=comment.id,
