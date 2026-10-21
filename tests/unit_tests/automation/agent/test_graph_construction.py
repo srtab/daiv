@@ -5,7 +5,7 @@ import inspect
 import re
 from contextlib import ExitStack
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -13,6 +13,7 @@ from automation.agent import graph as graph_module
 from automation.agent import subagents as subagents_module
 from automation.agent.agent_settings import RunOverrides
 from automation.agent.graph import create_daiv_agent
+from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
@@ -173,16 +174,27 @@ _SITE = {
 
 
 async def _construct(
-    *, site: dict | None = None, run: dict | None = None, slash_commands: bool = True, memory: bool = True
+    *,
+    site: dict | None = None,
+    run: dict | None = None,
+    slash_commands: bool = True,
+    memory: bool = True,
+    orchestration: bool = False,
+    delegator: object | None = None,
 ):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
-    ``site`` overrides site values, ``run`` is what the run asks for (``RunOverrides`` fields), and ``slash_commands``
-    and ``memory`` are the repo's switches. The builder gets them resolved, as the executor hands them over.
+    ``site`` overrides site values, ``run`` is what the run asks for (``RunOverrides`` fields), and ``slash_commands``,
+    ``memory`` and ``orchestration`` are the repo's switches. The builder gets them resolved, as the executor hands them
+    over, along with ``delegator``.
     """
     settings = agent_settings(
         site=site_snapshot(**(_SITE | (site or {}))),
-        repo=RepositoryConfig(slash_commands={"enabled": slash_commands}, memory={"enabled": memory}),
+        repo=RepositoryConfig(
+            slash_commands={"enabled": slash_commands},
+            memory={"enabled": memory},
+            orchestration={"enabled": orchestration},
+        ),
         run=RunOverrides(**(run or {})),
     )
     graph_patches = {
@@ -206,7 +218,9 @@ async def _construct(
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
         ctx = MagicMock()
         ctx.config.context_file_name = "AGENTS.md"
-        await create_daiv_agent(settings=settings, ctx=ctx, workspace=FakeWorkspace(), auto_commit_changes=False)
+        await create_daiv_agent(
+            settings=settings, ctx=ctx, workspace=FakeWorkspace(), auto_commit_changes=False, delegator=delegator
+        )
 
     deep_agent = mocks["create_deep_agent"]
     return SimpleNamespace(
@@ -309,3 +323,14 @@ async def test_the_git_middleware_gets_the_runs_settings():
     built = await _construct()
 
     assert built.git_middleware.call_args.kwargs["settings"] is built.settings
+
+
+@pytest.mark.parametrize(
+    ("orchestration", "delegator", "bound"),
+    [(True, Mock(), True), (False, Mock(), False), (True, None, False)],
+    ids=["repo-on-with-a-delegator", "repo-off", "no-delegator"],
+)
+async def test_delegate_jobs_needs_a_delegator_and_the_repos_switch(orchestration, delegator, bound):
+    built = await _construct(orchestration=orchestration, delegator=delegator)
+
+    assert any(isinstance(m, DelegateJobsMiddleware) for m in built.middleware) is bound

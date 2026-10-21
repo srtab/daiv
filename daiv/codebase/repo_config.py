@@ -75,6 +75,20 @@ class Memory(BaseModel):
     )
 
 
+class Orchestration(BaseModel):
+    """
+    Cross-repository delegation configuration.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Let the agent delegate tailored sub-jobs to other repositories with the delegate_jobs tool and resume "
+            "once they finish. Meant for a coordination repository."
+        ),
+    )
+
+
 class AgentModelConfig(BaseModel):
     """
     Model configuration for the DAIV agent.
@@ -192,6 +206,9 @@ class RepositoryConfig(BaseModel):
         default_factory=PipelineWatch, description="Configure CI babysitting for published merge requests."
     )
     memory: Memory = Field(default_factory=Memory, description="Configure learned repository memory features.")
+    orchestration: Orchestration = Field(
+        default_factory=Orchestration, description="Configure delegation of sub-jobs to other repositories."
+    )
     models: Models = Field(default_factory=Models, description="Configure model settings for agents.")
 
     def is_user_allowed(self, username: str) -> bool:

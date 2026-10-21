@@ -36,6 +36,7 @@ class RepoTarget:
     repo_id: str
     ref: str = ""
     sandbox_environment_id: str | None = None
+    prompt: str = ""
 
 
 @dataclass(frozen=True)
@@ -75,11 +76,14 @@ def get_or_create_session(
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
     mcp_overrides: dict | None = None,
+    parent: Session | None = None,
 ) -> Session:
     """Idempotent session bootstrap keyed on thread_id. First caller sets origin
     and context; later callers just bump last_active_at (a webhook session later
     continued via API keeps origin=issue_webhook). External refs never land here —
     :func:`_amerge_session_refs` writes them only after a run row exists.
+
+    ``parent`` is the coordinator session that delegated this one.
     """
     session, created = Session.objects.get_or_create(
         thread_id=thread_id,
@@ -97,6 +101,7 @@ def get_or_create_session(
             "issue_iid": issue_iid,
             "merge_request_iid": merge_request_iid,
             "mcp_overrides": mcp_overrides or {},
+            "parent": parent,
         },
     )
     if not created:
@@ -199,6 +204,8 @@ def create_run(
     sandbox_environment_id: str | None = None,
     status: str = RunStatus.READY,
     mcp_overrides: dict | None = None,
+    parent: Session | None = None,
+    continuation_of_batch_id: uuid.UUID | None = None,
 ) -> Run:
     """Create a Session (idempotent) then a Run linked to it."""
     session = get_or_create_session(
@@ -216,6 +223,7 @@ def create_run(
         issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
         mcp_overrides=mcp_overrides,
+        parent=parent,
     )
     return Run.objects.create(
         session=session,
@@ -235,6 +243,7 @@ def create_run(
         sandbox_environment_id=sandbox_environment_id,
         merge_request_iid=merge_request_iid,
         mention_comment_id=mention_comment_id,
+        continuation_of_batch_id=continuation_of_batch_id,
     )
 
 
@@ -255,11 +264,14 @@ async def asubmit_batch_runs(
     thread_id: str | None = None,
     mcp_overrides: dict | None = None,
     references: Sequence[RefIn] | None = None,
+    parent: Session | None = None,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Run`` rows.
 
     Each ``RepoTarget`` carries its own ``sandbox_environment_id`` (resolved upstream by
-    :func:`sandbox_envs.selection.aresolve_repo_envs` or its sync wrapper), so the batch can mix per-repo envs.
+    :func:`sandbox_envs.selection.aresolve_repo_envs` or its sync wrapper), so the batch can mix per-repo envs,
+    and may carry its own ``prompt``, which replaces ``prompt`` for that repository; ``prompt`` still titles the batch.
+    ``parent`` is the coordinator session a delegated batch's new sessions hang under.
 
     Best-effort: a per-repo failure (run creation, refs merge, enqueue or link) lands in
     ``result.failed`` while siblings continue.
@@ -298,7 +310,7 @@ async def asubmit_batch_runs(
             "trigger_type": trigger_type,
             "repo_id": target.repo_id,
             "ref": target.ref,
-            "prompt": prompt,
+            "prompt": target.prompt or prompt,
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
             "scheduled_job": scheduled_job,
@@ -310,6 +322,7 @@ async def asubmit_batch_runs(
             "title": run_title,
             "sandbox_environment_id": target.sandbox_environment_id,
             "mcp_overrides": mcp_overrides,
+            "parent": parent,
         }
 
         # Claim the session atomically by trying to create a READY row. The partial

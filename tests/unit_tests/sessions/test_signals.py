@@ -241,6 +241,30 @@ class TestDispatchNextInSession:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestResumeDelegatingSession:
+    def test_every_finished_run_reaches_resume_coordinator_even_when_dispatch_is_skipped(self):
+        finished = make_run(
+            session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=SessionOrigin.DELEGATED_JOB
+        )
+
+        with patch("sessions.signals.resume_coordinator") as resume:
+            run_finished.send(sender=Run, run=finished, skip_dispatch=True)
+
+        resume.assert_called_once_with(finished)
+
+    def test_a_failure_to_resume_is_logged_not_raised(self, caplog):
+        finished = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL)
+
+        with (
+            patch("sessions.signals.resume_coordinator", side_effect=RuntimeError("db down")),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
+        ):
+            run_finished.send(sender=Run, run=finished, skip_dispatch=True)
+
+        assert "failed to resume the coordinator" in caplog.text
+
+
+@pytest.mark.django_db(transaction=True)
 class TestSyncReleasesQueuedSibling:
     def test_terminal_dbtaskresult_releases_queued_sibling(self, create_db_task_result):
         """When sync_stuck_runs reconciles a stuck RUNNING Run whose

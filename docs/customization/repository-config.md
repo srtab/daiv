@@ -36,6 +36,9 @@ pipeline_watch:
   enabled: true
   max_attempts: 3
 
+orchestration:
+  enabled: false
+
 # Model overrides
 models:
   agent:
@@ -91,7 +94,7 @@ Patterns follow [fnmatch](https://docs.python.org/3/library/fnmatch.html) syntax
 
 ## Feature toggles
 
-All features are enabled by default. Disable any you don't need:
+All features except orchestration are enabled by default. Disable any you don't need:
 
 ```yaml
 issue_addressing:
@@ -111,6 +114,7 @@ slash_commands:
 | `slash_commands` | `enabled` | `true` | [Slash Commands & Skills](../features/slash-commands.md) |
 | `pipeline_watch` | `enabled` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — disable to stop DAIV watching CI on published MRs. |
 | `pipeline_watch` | `max_attempts` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — maximum fix attempts before giving up, clamped to the site-wide cap. |
+| `orchestration` | `enabled` | `false` | [Orchestration](../features/orchestration.md) — let the agent delegate sub-jobs to other repositories. Turn it on for a coordination repository. |
 
 ## Branch naming and commit conventions
 

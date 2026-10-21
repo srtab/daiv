@@ -108,6 +108,9 @@ class RepoSubmitSpec(BaseModel):
     ref: str | None = Field(
         default=None, description="Branch name to start from. None / empty string = default branch."
     )
+    prompt: str | None = Field(
+        default=None, description="Instruction for this repository only; replaces the batch prompt for it."
+    )
 
 
 @mcp.tool()
@@ -123,7 +126,8 @@ async def submit_job(
                 " to commit, push, create a branch, or open a merge/pull request; those steps run"
                 " automatically after the job, and DAIV generates the branch name, commit message,"
                 " and MR/PR title/description itself. Be specific: include file paths, function"
-                " names, or error messages. The same prompt runs independently against each repository."
+                " names, or error messages. The same prompt runs independently against each repository,"
+                " except one whose repos[].prompt replaces it."
             )
         ),
     ],
@@ -257,7 +261,7 @@ async def submit_job(
     try:
         admission = await aadmit(
             user=mcp_user,
-            repos=[RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs],
+            repos=[RepoTarget(repo_id=s.repo_id, ref=s.ref or "", prompt=s.prompt or "") for s in specs],
             agent_model=agent_model,
             agent_thinking_level=agent_thinking_level,
             environment=environment,

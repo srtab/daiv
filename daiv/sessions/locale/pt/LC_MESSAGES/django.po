@@ -92,6 +92,9 @@ msgstr "Webhook de issue"
 msgid "MR/PR Webhook"
 msgstr "Webhook de MR/PR"
 
+msgid "Delegated Run"
+msgstr "Execução delegada"
+
 msgid "None"
 msgstr "Nenhuma"
 
@@ -143,6 +146,12 @@ msgstr "IID da issue"
 msgid "merge request IID"
 msgstr "IID do merge request"
 
+msgid "delegated by"
+msgstr "delegada por"
+
+msgid "The session whose agent delegated this one with delegate_jobs."
+msgstr "A sessão cujo agente delegou esta com delegate_jobs."
+
 msgid "created at"
 msgstr "criado em"
 
@@ -169,6 +178,12 @@ msgstr "resultado da tarefa"
 
 msgid "batch ID"
 msgstr "ID do lote"
+
+msgid "continues delegated batch"
+msgstr "continua o lote delegado"
+
+msgid "The delegated batch whose finish queued this run on the coordinator's session."
+msgstr "O lote delegado cuja conclusão colocou esta execução na fila da sessão do coordenador."
 
 msgid "prompt"
 msgstr "prompt"

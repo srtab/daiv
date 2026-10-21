@@ -60,6 +60,7 @@ class SessionOrigin(models.TextChoices):
     ISSUE_WEBHOOK = "issue_webhook", _("Issue Webhook")
     MR_WEBHOOK = "mr_webhook", _("MR/PR Webhook")
     PIPELINE_WEBHOOK = "pipeline_webhook", _("Pipeline Webhook")
+    DELEGATED_JOB = "delegated_job", _("Delegated Run")
 
     @classmethod
     def webhooks(cls) -> frozenset[str]:
@@ -68,8 +69,8 @@ class SessionOrigin(models.TextChoices):
 
     @classmethod
     def prompt_driven(cls) -> frozenset[str]:
-        """Job triggers created from an explicit user prompt (API / MCP / UI batch submits)."""
-        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB})
+        """Job triggers created from an explicit prompt (API / MCP / UI batch submits, and an agent's delegation)."""
+        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB})
 
     @classmethod
     def classified(cls) -> frozenset[str]:
@@ -79,7 +80,7 @@ class SessionOrigin(models.TextChoices):
     @classmethod
     def unattended(cls) -> frozenset[str]:
         """Job triggers nobody is around to answer a question for."""
-        return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK})
+        return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK, cls.DELEGATED_JOB})
 
 
 class WatchState(models.TextChoices):
@@ -143,6 +144,15 @@ class Session(models.Model):
     watch_attempts = models.PositiveSmallIntegerField(_("watch attempts"), default=0)
     watch_pipeline_id = models.BigIntegerField(_("last watched pipeline"), null=True, blank=True)
     watch_armed_at = models.DateTimeField(_("watch armed at"), null=True, blank=True)
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delegated_sessions",
+        verbose_name=_("delegated by"),
+        help_text=_("The session whose agent delegated this one with delegate_jobs."),
+    )
 
     # Unified execution lock. NULL means "free slot"; any non-NULL value is the
     # holder id (AG-UI run_id for chat turns, str(Run.pk) for background runs).
@@ -283,6 +293,12 @@ class Run(models.Model):
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
     title = models.CharField(_("title"), max_length=120, blank=True, default="")
     batch_id = models.UUIDField(_("batch ID"), null=True, blank=True, db_index=True)
+    continuation_of_batch_id = models.UUIDField(
+        _("continues delegated batch"),
+        null=True,
+        blank=True,
+        help_text=_("The delegated batch whose finish queued this run on the coordinator's session."),
+    )
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     prompt = models.TextField(_("prompt"), blank=True, default="")
@@ -340,18 +356,26 @@ class Run(models.Model):
             models.Index(fields=["user", "-created_at"], name="run_user_created_idx"),
         ]
         constraints = [
-            # At most one active (READY or RUNNING) API/MCP run per session. QUEUED is
+            # At most one active (READY or RUNNING) API/MCP/delegated run per session. QUEUED is
             # intentionally outside the constraint so FIFO siblings can stack; webhook
             # triggers share deterministic sessions and are intentionally excluded.
             # Exact port of activity_one_active_per_thread. The status/trigger_type
             # literals here must equal {RunStatus.READY, RunStatus.RUNNING} and
-            # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB} — Django serializes
-            # constraints with literals, so a drift is caught by
+            # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB, SessionOrigin.DELEGATED_JOB} — Django
+            # serializes constraints with literals, so a drift is caught by
             # ``test_active_constraint_literals_match_enums``.
             models.UniqueConstraint(
                 fields=["session"],
-                condition=models.Q(status__in=["READY", "RUNNING"], trigger_type__in=["api_job", "mcp_job"]),
+                condition=models.Q(
+                    status__in=["READY", "RUNNING"], trigger_type__in=["api_job", "mcp_job", "delegated_job"]
+                ),
                 name="run_one_active_per_session",
+            ),
+            # The insert of a batch's continuation is the election when several legs finish at once.
+            models.UniqueConstraint(
+                fields=["continuation_of_batch_id"],
+                condition=models.Q(continuation_of_batch_id__isnull=False),
+                name="run_one_continuation_per_batch",
             ),
             # DB-level enum enforcement (``choices=`` alone is not enforced, and
             # ``.aupdate()``/raw writes bypass field validation).

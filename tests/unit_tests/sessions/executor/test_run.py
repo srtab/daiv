@@ -15,6 +15,7 @@ from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
+from sessions.delegation import SessionJobDelegator
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
 from sessions.executor.run import RunStoppedError, execute_run, stream_run
 from sessions.executor.spec import RunHooks
@@ -105,6 +106,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         artifact_store=ANY,
         mcp_servers=stack.build_servers.return_value,
         session_links=ANY,
+        delegator=ANY,
     )
     stack.langsmith.assert_called_once_with(
         stack.ctx,
@@ -573,6 +575,7 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
         artifact_store=ANY,
         mcp_servers=[],
         session_links=ANY,
+        delegator=ANY,
         capture_patch=True,
     )
 
@@ -590,6 +593,14 @@ async def test_a_run_without_a_session_to_link_hands_the_agent_no_links(spec_ove
         await execute_run(make_spec(**spec_overrides))
 
     assert stack.create_agent.await_args.kwargs["session_links"] is None
+
+
+@pytest.mark.parametrize(("spec_overrides", "delegates"), [({}, True), ({"thread_id": None}, False)])
+async def test_only_a_run_with_a_session_can_delegate(spec_overrides, delegates):
+    with agent_stack(_agent()) as stack:
+        await execute_run(make_spec(**spec_overrides))
+
+    assert isinstance(stack.create_agent.await_args.kwargs["delegator"], SessionJobDelegator) is delegates
 
 
 async def test_the_agent_gets_the_sessions_links_unbuilt():

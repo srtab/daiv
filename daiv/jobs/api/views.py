@@ -58,7 +58,9 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     try:
         admission = await aadmit(
             user=request.auth,
-            repos=[RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos],
+            repos=[
+                RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "", prompt=spec.prompt or "") for spec in payload.repos
+            ],
             agent_model=payload.agent_model,
             agent_thinking_level=payload.agent_thinking_level,
             environment=payload.environment,

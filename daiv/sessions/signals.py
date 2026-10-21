@@ -12,6 +12,7 @@ from django.dispatch import receiver
 from django_tasks.signals import task_finished, task_started
 
 from core import ui_events
+from sessions.delegation import resume_coordinator
 from sessions.models import Run, RunStatus, Session
 from sessions.queue import dispatch_next_queued
 from sessions.signal_defs import run_finished
@@ -120,6 +121,18 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
         return
     if session_id := getattr(run, "session_id", None):
         dispatch_next_queued(session_id)
+
+
+@receiver(run_finished, dispatch_uid="sessions.resume_delegating_session")
+def resume_delegating_session(sender: type, run: Any, **kwargs: Any) -> None:
+    """Resume the coordinator once its delegated batch has finished (:func:`sessions.delegation.resume_coordinator`).
+
+    Ignores ``skip_dispatch``: a leg the dispatcher failed still finishes its batch.
+    """
+    try:
+        resume_coordinator(run)
+    except Exception:
+        logger.exception("resume_delegating_session: failed to resume the coordinator of batch %s", run.batch_id)
 
 
 @receiver(post_delete, sender="agent_sessions.RunArtifact", dispatch_uid="sessions.delete_artifact_file")

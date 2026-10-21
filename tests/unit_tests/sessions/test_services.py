@@ -354,6 +354,36 @@ class TestAsubmitBatchRuns:
         assert len(result.runs) == 1
         assert result.runs[0].batch_id == result.batch_id
 
+    async def test_a_targets_own_prompt_replaces_the_batch_prompt_for_that_repository(self, member_user):
+        patcher, mock_task = _patch_run_job_task(side_effect=[await _make_db_task_result() for _ in range(2)])
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="batch",
+                repos=[RepoTarget(repo_id="a/b"), RepoTarget(repo_id="a/c", prompt="own")],
+                trigger_type=SessionOrigin.API_JOB,
+            )
+
+        assert sorted((run.repo_id, run.prompt) for run in result.runs) == [("a/b", "batch"), ("a/c", "own")]
+        assert sorted(call.kwargs["prompt"] for call in mock_task.aenqueue.call_args_list) == ["batch", "own"]
+
+    async def test_a_delegated_batch_opens_its_sessions_under_the_coordinators(self, member_user):
+        coordinator = await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="acme/coord"
+        )
+        patcher, mock_task = _patch_run_job_task()
+        mock_task.aenqueue.return_value = await _make_db_task_result()
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="goal",
+                repos=[RepoTarget(repo_id="a/b", prompt="do it")],
+                trigger_type=SessionOrigin.DELEGATED_JOB,
+                parent=coordinator,
+            )
+
+        assert await Session.objects.filter(pk=result.runs[0].session_id, parent=coordinator).aexists()
+
 
 # ---------------------------------------------------------------------------
 # Batch title task tests (ported from TestBatchTitleEnqueue)

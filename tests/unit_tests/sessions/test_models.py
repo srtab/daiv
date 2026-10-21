@@ -75,6 +75,7 @@ def test_session_origin_includes_chat():
         "issue_webhook",
         "mr_webhook",
         "pipeline_webhook",
+        "delegated_job",
     }
 
 
@@ -182,7 +183,11 @@ def test_active_constraint_literals_match_enums():
     constraint = next(c for c in Run._meta.constraints if c.name == "run_one_active_per_session")
     conditions = dict(constraint.condition.children)
     assert set(conditions["status__in"]) == {RunStatus.READY, RunStatus.RUNNING}
-    assert set(conditions["trigger_type__in"]) == {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB}
+    assert set(conditions["trigger_type__in"]) == {
+        SessionOrigin.API_JOB,
+        SessionOrigin.MCP_JOB,
+        SessionOrigin.DELEGATED_JOB,
+    }
 
 
 def test_sandbox_acquisition_column_fits_every_member():

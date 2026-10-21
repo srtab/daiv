@@ -21,6 +21,7 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
 11. Slash commands: repo only.
 12. Pipeline watch: enabled: site AND repo · attempts: min(repo, site). Outside ``AgentSettings``: ``WatchPolicy``
     resolves them when the watch arms, so a run never reads them.
+13. Orchestration (``delegate_jobs``): repo only, off unless ``.daiv.yml`` turns it on.
 
 A non-empty site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as
 an error; ``.daiv.yml`` levels are validated when the file loads.
@@ -71,6 +72,7 @@ class Features:
     suggest_context_file: bool
     session_link: bool
     slash_commands: bool
+    orchestration: bool
 
 
 @dataclass(frozen=True)
@@ -104,12 +106,13 @@ def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: R
 
 
 def resolve_features(*, site: SiteSnapshot, repo: RepositoryConfig) -> Features:
-    """Rows 8, 10 and 11: the run's feature switches."""
+    """Rows 8, 10, 11 and 13: the run's feature switches."""
     return Features(
         memory=repo.memory.enabled and site.memory_enabled,
         suggest_context_file=repo.suggest_context_file and site.suggest_context_file_enabled,
         session_link=repo.session_link and site.session_link_enabled,
         slash_commands=repo.slash_commands.enabled,
+        orchestration=repo.orchestration.enabled,
     )
 
 
