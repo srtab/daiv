@@ -21,15 +21,14 @@ from automation.agent.middlewares.delegate_jobs import (
     DelegateTarget,
 )
 
-THREAD_ID = "thread-1"
 REPO = SimpleNamespace(repo_id="acme/coord", ref="feature", config=SimpleNamespace(default_branch="main"))
 
 
-def _runtime(thread_id: str | None = THREAD_ID) -> ToolRuntime:
+def _runtime() -> ToolRuntime:
     return ToolRuntime(
         state={},
         context=SimpleNamespace(repo=REPO),
-        config={"configurable": {"thread_id": thread_id} if thread_id else {}},
+        config={"configurable": {"thread_id": "thread-1"}},
         stream_writer=Mock(),
         tool_call_id="c1",
         store=None,
@@ -47,9 +46,9 @@ def _tool(delegator: Mock):
     return tool
 
 
-async def _call(delegator: Mock, *, goal: str = "Bump auth", targets=None, runtime: ToolRuntime | None = None):
+async def _call(delegator: Mock, *, goal: str = "Bump auth", targets=None):
     targets = targets or [DelegateTarget(repo_id="acme/api", prompt="Bump auth to 3.2.1.")]
-    return json.loads(await _tool(delegator).coroutine(goal=goal, targets=targets, runtime=runtime or _runtime()))
+    return json.loads(await _tool(delegator).coroutine(goal=goal, targets=targets, runtime=_runtime()))
 
 
 def test_the_middleware_adds_the_delegate_jobs_tool():
@@ -74,7 +73,6 @@ async def test_the_targets_reach_the_delegator_trimmed_with_the_runs_own_checkou
     )
 
     delegator.adelegate.assert_awaited_once_with(
-        thread_id=THREAD_ID,
         checkout=Checkout(repo_id="acme/coord", ref="feature", default_branch="main"),
         goal="Bump auth",
         targets=[
@@ -119,15 +117,6 @@ async def test_an_unexpected_failure_is_logged_and_reported_as_ours(caplog):
 
     assert "failed on DAIV's side" in payload["error"]
     assert "delegate_jobs: unexpected failure" in caplog.text
-
-
-async def test_a_run_without_a_session_cannot_delegate():
-    delegator = _delegator()
-
-    payload = await _call(delegator, runtime=_runtime(thread_id=None))
-
-    assert "no session" in payload["error"]
-    delegator.adelegate.assert_not_awaited()
 
 
 async def test_it_appends_the_coordinator_workflow_to_the_system_prompt():

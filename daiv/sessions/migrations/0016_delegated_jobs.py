@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
             name="continuation_of_batch_id",
             field=models.UUIDField(
                 blank=True,
+                db_index=True,
                 help_text="The delegated batch whose finish queued this run on the coordinator's session.",
                 null=True,
                 verbose_name="continues delegated batch",

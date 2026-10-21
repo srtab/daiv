@@ -245,6 +245,19 @@ class TestReleaseOrphanQueuedRuns:
         oldest.refresh_from_db()
         assert (oldest.status, oldest.task_result_id) == (RunStatus.READY, fake_task.id)
 
+    def test_session_ids_narrow_the_sweep_to_those_sessions(self, create_db_task_result):
+        wanted = make_run(session_id=str(uuid.uuid4()), status=RunStatus.QUEUED)
+        other = make_run(session_id=str(uuid.uuid4()), status=RunStatus.QUEUED)
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=create_db_task_result().id))
+            result = release_orphan_queued_runs(session_ids=Run.objects.filter(pk=wanted.pk).values("session_id"))
+
+        assert result.released == 1
+        wanted.refresh_from_db()
+        other.refresh_from_db()
+        assert (wanted.status, other.status) == (RunStatus.READY, RunStatus.QUEUED)
+
     def test_a_failed_link_counts_as_errored(self):
         orphan = make_run(session_id=str(uuid.uuid4()), status=RunStatus.QUEUED)
 

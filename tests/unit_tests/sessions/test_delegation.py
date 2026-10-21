@@ -67,8 +67,8 @@ def _checkout(ref: str = "main") -> Checkout:
 
 async def _delegate(run: Run | None, targets, *, thread_id: str | None = None, checkout: Checkout | None = None):
     with bind_active_run(run.pk if run else None):
-        return await SessionJobDelegator().adelegate(
-            thread_id=thread_id or run.session_id, checkout=checkout or _checkout(), goal="g", targets=targets
+        return await SessionJobDelegator(thread_id or run.session_id).adelegate(
+            checkout=checkout or _checkout(), goal="g", targets=targets
         )
 
 
@@ -136,7 +136,6 @@ class TestSessionJobDelegator:
         ("setup", "targets", "message"),
         [
             ({"run_user": False}, [_target()], "has none"),
-            ({"delegated": True}, [_target()], "cannot delegate further"),
             ({}, [], "at least one target"),
             ({}, [_target(f"acme/r{i}") for i in range(MAX_DELEGATED_TARGETS + 1)], "At most"),
             ({}, [_target(prompt="")], "a prompt of its own"),
@@ -148,7 +147,6 @@ class TestSessionJobDelegator:
         ],
         ids=[
             "no-user-behind-the-run",
-            "delegated-session",
             "no-targets",
             "too-many-targets",
             "blank-prompt",
@@ -162,9 +160,6 @@ class TestSessionJobDelegator:
     async def test_a_refused_call_starts_nothing(self, admin_user, setup, targets, message):
         coordinator = await sync_to_async(_coordinator)(admin_user, ref="")
         run = await sync_to_async(_delegating_run)(coordinator, admin_user if setup.get("run_user", True) else None)
-        if setup.get("delegated"):
-            parent = await sync_to_async(_coordinator)(admin_user)
-            await Session.objects.filter(pk=coordinator.pk).aupdate(parent=parent)
 
         with (
             patch(
@@ -249,8 +244,9 @@ async def test_only_a_session_that_was_not_delegated_gets_a_delegator(admin_user
 @pytest.mark.django_db(transaction=True)
 class TestResumeCoordinator:
     def test_once_every_leg_finished_it_queues_one_summarised_run_on_the_coordinator_and_releases_it(
-        self, admin_user, member_user, create_db_task_result
+        self, admin_user, member_user, create_db_task_result, monkeypatch
     ):
+        monkeypatch.setattr("automation.agent.validators.validate_agent_override", lambda model, level: (model, level))
         coordinator = _coordinator(admin_user, agent_model="m", agent_thinking_level="high")
         batch_id = uuid.uuid4()
         done = _leg(

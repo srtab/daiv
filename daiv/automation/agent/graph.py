@@ -203,8 +203,8 @@ async def create_daiv_agent(
         ask_user_enabled: Whether the agent may stop to ask the user; off when nobody can answer during the run.
         session_links: What builds the run's session links, from the run executor, for the publish to put in the commit
             and the merge request; ``None`` publishes without them.
-        delegator: What starts ``delegate_jobs`` sub-jobs, from the run executor; the tool is bound only with one and
-            when the repository turns orchestration on.
+        delegator: What starts ``delegate_jobs`` sub-jobs, from the run executor when the repository turns
+            orchestration on; ``None`` binds no ``delegate_jobs`` tool.
 
     Returns:
         The DAIV agent.
@@ -292,11 +292,7 @@ async def create_daiv_agent(
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
-        *(
-            [DelegateJobsMiddleware(delegator=delegator)]
-            if delegator is not None and settings.features.orchestration
-            else []
-        ),
+        *([DelegateJobsMiddleware(delegator=delegator)] if delegator is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.

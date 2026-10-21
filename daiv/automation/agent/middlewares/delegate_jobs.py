@@ -25,7 +25,6 @@ from automation.agent.delegation import (
     DelegatedTarget,
     DelegationError,
 )
-from automation.agent.utils import runtime_thread_id
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -109,13 +108,9 @@ class DelegateJobsMiddleware(AgentMiddleware):
         return delegate_jobs_tool
 
     async def _adelegate(self, goal: str, targets: list[DelegateTarget], runtime: ToolRuntime[RuntimeCtx]) -> str:
-        thread_id = runtime_thread_id(runtime)
-        if not thread_id:
-            return json.dumps({"error": "This run has no session to resume, so it cannot delegate."})
         repo = runtime.context.repo
         try:
             result = await self._delegator.adelegate(
-                thread_id=thread_id,
                 checkout=Checkout(repo_id=repo.repo_id, ref=repo.ref, default_branch=repo.config.default_branch or ""),
                 goal=goal.strip(),
                 targets=[

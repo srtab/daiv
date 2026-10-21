@@ -65,11 +65,9 @@ class DelegationResult:
 
 
 class JobDelegator(Protocol):
-    async def adelegate(
-        self, *, thread_id: str, checkout: Checkout, goal: str, targets: Sequence[DelegatedTarget]
-    ) -> DelegationResult:
-        """Start one independent job per target for the session ``thread_id``, whose run has ``checkout``, and return
-        without waiting.
+    async def adelegate(self, *, checkout: Checkout, goal: str, targets: Sequence[DelegatedTarget]) -> DelegationResult:
+        """Start one independent job per target for the delegating run, which has ``checkout``, and return without
+        waiting.
 
         Once every started leg has finished, the session is resumed with a run whose prompt summarises them.
         A target that cannot start lands in ``failed`` while the others go ahead; raise :class:`DelegationError`

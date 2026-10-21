@@ -191,6 +191,23 @@ async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
     await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
 
 
+def pinned_agent_override(session: Session) -> tuple[str, str]:
+    """The model and thinking level ``session`` pins, for a follow-up run on it; empty when it pins none or its model
+    can no longer be used, so the run takes the default."""
+    from automation.agent import validators
+
+    try:
+        return validators.validate_agent_override(session.agent_model, session.agent_thinking_level)
+    except validators.AgentOverrideError as err:
+        logger.warning(
+            "thread_id=%s pins model %r, which cannot be used (%s); the follow-up run uses the default",
+            session.thread_id,
+            session.agent_model,
+            err,
+        )
+        return "", ""
+
+
 def create_run(
     *,
     trigger_type: str,
@@ -369,22 +386,18 @@ async def asubmit_batch_runs(
                 return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
         return run
 
-    async def _start_one(
-        target: RepoTarget, created: Run | BatchSubmitFailure | BaseException
-    ) -> Run | BatchSubmitFailure | BaseException:
+    async def _start_one(created: Run | BatchSubmitFailure | BaseException) -> Run | BatchSubmitFailure | BaseException:
         if isinstance(created, BatchSubmitFailure | BaseException) or created.status == RunStatus.QUEUED:
             return created
         if await aenqueue_run(created, log_context="submit_batch_runs") is not None:
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=created.error_message)
+            return BatchSubmitFailure(repo_id=created.repo_id, ref=created.ref, error=created.error_message)
         return created
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
     # whole batch; _create_one and _start_one already catch Exception themselves.
     created = await asyncio.gather(*[_create_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
     # A delegated leg that finishes at once must find all its siblings' rows (sessions.delegation.resume_coordinator).
-    started = await asyncio.gather(
-        *[_start_one(t, c) for t, c in zip(repos, created, strict=True)], return_exceptions=True
-    )
+    started = await asyncio.gather(*[_start_one(c) for c in created], return_exceptions=True)
 
     outcomes: list[Run | BatchSubmitFailure] = []
     for target, outcome in zip(repos, started, strict=True):

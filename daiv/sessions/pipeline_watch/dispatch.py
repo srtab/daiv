@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
@@ -10,35 +9,17 @@ from asgiref.sync import sync_to_async
 from sessions.models import RunStatus, SessionOrigin
 from sessions.pipeline_watch.store import WatchStore
 from sessions.queue import aenqueue_run
-from sessions.services import acreate_run
+from sessions.services import acreate_run, pinned_agent_override
 
 if TYPE_CHECKING:
     from sessions.models import Session
     from sessions.pipeline_watch.judgment import PipelineReport
-
-logger = logging.getLogger("daiv.sessions")
 
 FIX_RUN_PROMPT = (
     "CI failed on this merge request. Failed jobs: {names}. Pipeline: {url}\n\n"
     "Read the job logs to find the cause, then fix it. If the failure is not something a "
     "code change can fix, explain why instead of guessing."
 )
-
-
-def _session_agent(session: Session) -> tuple[str, str]:
-    """The thread's pinned model and thinking level; empty when it pins none or its model cannot be used."""
-    from automation.agent import validators
-
-    try:
-        return validators.validate_agent_override(session.agent_model, session.agent_thinking_level)
-    except validators.AgentOverrideError as err:
-        logger.warning(
-            "pipeline_watch: thread_id=%s pins model %r, which cannot be used (%s); the fix run uses the default",
-            session.thread_id,
-            session.agent_model,
-            err,
-        )
-        return "", ""
 
 
 class FixRunDispatcher:
@@ -61,7 +42,7 @@ class FixRunDispatcher:
 
         user = await sync_to_async(lambda: session.user)()
         sandbox_environment_id = str(session.sandbox_environment_id) if session.sandbox_environment_id else None
-        agent_model, agent_thinking_level = _session_agent(session)
+        agent_model, agent_thinking_level = pinned_agent_override(session)
 
         run = await acreate_run(
             trigger_type=SessionOrigin.PIPELINE_WEBHOOK,

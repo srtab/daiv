@@ -18,7 +18,6 @@ logger = logging.getLogger("daiv.agent")
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from langchain.tools import ToolRuntime
     from langchain_core.messages import BaseMessage
 
     from automation.agent.context import RuntimeCtx
@@ -55,11 +54,6 @@ def extract_text_content(content: str | list) -> str:
 
     # Fallback for unexpected types
     return str(content)
-
-
-def runtime_thread_id(runtime: ToolRuntime[RuntimeCtx]) -> str | None:
-    """The session a tool call runs in, from the run config's ``thread_id``; ``None`` outside one."""
-    return (runtime.config.get("configurable") or {}).get("thread_id")
 
 
 FINAL_ASSISTANT_TEXT_MAX_CHARS = 6000

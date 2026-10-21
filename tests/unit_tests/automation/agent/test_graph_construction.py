@@ -179,22 +179,17 @@ async def _construct(
     run: dict | None = None,
     slash_commands: bool = True,
     memory: bool = True,
-    orchestration: bool = False,
     delegator: object | None = None,
 ):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
-    ``site`` overrides site values, ``run`` is what the run asks for (``RunOverrides`` fields), and ``slash_commands``,
-    ``memory`` and ``orchestration`` are the repo's switches. The builder gets them resolved, as the executor hands them
-    over, along with ``delegator``.
+    ``site`` overrides site values, ``run`` is what the run asks for (``RunOverrides`` fields), and ``slash_commands``
+    and ``memory`` are the repo's switches. The builder gets them resolved, as the executor hands them over, along with
+    ``delegator``.
     """
     settings = agent_settings(
         site=site_snapshot(**(_SITE | (site or {}))),
-        repo=RepositoryConfig(
-            slash_commands={"enabled": slash_commands},
-            memory={"enabled": memory},
-            orchestration={"enabled": orchestration},
-        ),
+        repo=RepositoryConfig(slash_commands={"enabled": slash_commands}, memory={"enabled": memory}),
         run=RunOverrides(**(run or {})),
     )
     graph_patches = {
@@ -325,12 +320,8 @@ async def test_the_git_middleware_gets_the_runs_settings():
     assert built.git_middleware.call_args.kwargs["settings"] is built.settings
 
 
-@pytest.mark.parametrize(
-    ("orchestration", "delegator", "bound"),
-    [(True, Mock(), True), (False, Mock(), False), (True, None, False)],
-    ids=["repo-on-with-a-delegator", "repo-off", "no-delegator"],
-)
-async def test_delegate_jobs_needs_a_delegator_and_the_repos_switch(orchestration, delegator, bound):
-    built = await _construct(orchestration=orchestration, delegator=delegator)
+@pytest.mark.parametrize(("delegator", "bound"), [(Mock(), True), (None, False)], ids=["delegator", "no-delegator"])
+async def test_delegate_jobs_is_bound_only_with_a_delegator(delegator, bound):
+    built = await _construct(delegator=delegator)
 
     assert any(isinstance(m, DelegateJobsMiddleware) for m in built.middleware) is bound

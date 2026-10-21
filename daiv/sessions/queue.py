@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from django.db import IntegrityError
 from django.db.models import Q
@@ -21,6 +22,9 @@ from asgiref.sync import async_to_sync
 
 from sessions.executor.tasks import run_job_task
 from sessions.models import Run, RunStatus, SessionOrigin
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -182,8 +186,9 @@ class OrphanRelease:
     errored: int
 
 
-def release_orphan_queued_runs() -> OrphanRelease:
-    """Queue the oldest QUEUED run of every session that has no READY/RUNNING sibling.
+def release_orphan_queued_runs(session_ids: QuerySet | None = None) -> OrphanRelease:
+    """Queue the oldest QUEUED run of every session that has no READY/RUNNING sibling; ``session_ids`` narrows the
+    sweep to those sessions.
 
     Recovers the sessions :func:`dispatch_next_queued` gave up on after ``MAX_CONSECUTIVE_DISPATCH_FAILURES``,
     and the rare TOCTOU loss where the dispatcher missed a terminal transition or the row was created QUEUED but
@@ -192,12 +197,10 @@ def release_orphan_queued_runs() -> OrphanRelease:
     active_sessions = set(
         Run.objects.filter(status__in=[RunStatus.READY, RunStatus.RUNNING]).values_list("session_id", flat=True)
     )
-    orphans = (
-        Run.objects
-        .filter(status=RunStatus.QUEUED)
-        .filter(~Q(session_id__in=active_sessions))
-        .order_by("session_id", "created_at")
-    )
+    orphans = Run.objects.filter(status=RunStatus.QUEUED).filter(~Q(session_id__in=active_sessions))
+    if session_ids is not None:
+        orphans = orphans.filter(session_id__in=session_ids)
+    orphans = orphans.order_by("session_id", "created_at")
 
     seen_sessions: set[str] = set()
     released = skipped = errored = 0

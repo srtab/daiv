@@ -70,14 +70,13 @@ class SessionOrigin(models.TextChoices):
 
     @classmethod
     def prompt_driven(cls) -> frozenset[str]:
-        """Job triggers created from an explicit prompt (API / MCP / UI batch submits, an agent's delegation and the
-        coordinator's resume once the delegated batch finished)."""
-        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB, cls.DELEGATION_RESUME})
+        """Job triggers created from an explicit prompt (API / MCP / UI batch submits and an agent's delegation)."""
+        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB})
 
     @classmethod
     def classified(cls) -> frozenset[str]:
-        """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven)."""
-        return frozenset({cls.SCHEDULE}) | cls.webhooks() | cls.prompt_driven()
+        """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven + DELEGATION_RESUME)."""
+        return frozenset({cls.SCHEDULE, cls.DELEGATION_RESUME}) | cls.webhooks() | cls.prompt_driven()
 
     @classmethod
     def unattended(cls) -> frozenset[str]:
@@ -299,6 +298,7 @@ class Run(models.Model):
         _("continues delegated batch"),
         null=True,
         blank=True,
+        db_index=True,
         help_text=_("The delegated batch whose finish queued this run on the coordinator's session."),
     )
     repo_id = models.CharField(_("repository"), max_length=255)
