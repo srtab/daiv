@@ -8,8 +8,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
-from sessions.locks import STALE_RUN_MINUTES
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
 from tests.unit_tests.sessions.conftest import create_archive, make_artifact

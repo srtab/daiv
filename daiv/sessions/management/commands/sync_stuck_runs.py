@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
 from django.utils import timezone
 
-from sessions.locks import stale_cutoff
+from sessions.executor.lock import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 logger = logging.getLogger("daiv.sessions")
