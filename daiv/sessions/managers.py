@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from django.db import models, transaction
+from django.db import close_old_connections, models, transaction
 
 from core import ui_events
 from sessions.signal_defs import run_ended, run_finished
@@ -196,8 +196,12 @@ class RunManager(models.Manager["Run"]):
         return True
 
     def _announce_finished(self, run: Run, **flags: bool) -> None:
-        ui_events.publisher.runs_changed()
-        self._emit_run_finished(run, **flags)
+        try:
+            ui_events.publisher.runs_changed()
+            self._emit_run_finished(run, **flags)
+        finally:
+            # Runs in an executor thread no request lifecycle closes, so its pooled connection would be held forever.
+            close_old_connections()
 
     def _unfinished(self, run: Run, where: models.Q | None = None) -> models.QuerySet[Run]:
         from sessions.models import RunStatus

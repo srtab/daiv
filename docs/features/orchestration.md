@@ -15,7 +15,7 @@ When orchestration is on, the agent gets a `delegate_jobs` tool. It takes a one-
 
 Each leg is an ordinary agent job in a session of its own: a fresh clone, its own context and budget, and its repository's `.daiv.yml`, skills and sandbox environment. A leg always publishes to **a new branch and merge request of its own**, even when the branch it starts from already has an open merge request, so legs never push onto each other's work or onto yours.
 
-When the last leg finishes, DAIV queues a new run on the coordinator's session — a *Delegation Resume* run — whose prompt lists every leg's outcome, branch, merge request and reply. The coordinator picks up from there: it checks the results, reports them where the request came from (a comment on the ticket, for example), merges a leg's branch into its own, or delegates another batch. The resumed run can stop to ask a question like any other job.
+When the last leg finishes, DAIV queues a new run on the coordinator's session — a *Delegation Resume* run — whose prompt lists every leg's outcome, branch, merge request and reply. If the coordinator is still busy — its turn has not ended, or a chat turn or another run started on its session meanwhile — the resumed run waits for that run to finish. The coordinator picks up from there: it checks the results, reports them where the request came from (a comment on the ticket, for example), merges a leg's branch into its own, or delegates another batch. The resumed run can stop to ask a question like any other job, unless the coordinator's session was started by a schedule or a CI watch, where nobody is around to answer.
 
 ```mermaid
 sequenceDiagram
@@ -49,7 +49,7 @@ A repository needs no configuration to *receive* delegated work; a leg is a norm
 A target's `ref` is the branch the leg starts from and the branch its merge request targets:
 
 - **Omit it** for the repository's default branch: the leg's change stands on its own, in a merge request against the default branch.
-- **Give the coordinator's current branch** to build on its work: the leg's merge request targets that branch. Such a leg **starts once the coordinator's turn ends**, so it sees everything that turn publishes. When the coordinator is resumed it can merge the leg's branch into its own, or leave the leg's merge request for review.
+- **Give the coordinator's current branch** to build on its work, even when that is the default branch: such a leg **starts once the coordinator's turn ends**, from the branch that turn published to, so it sees everything the turn changed and its merge request targets that branch. When the coordinator is resumed it can merge the leg's branch into its own, or leave the leg's merge request for review.
 
 ## Choosing between `task` and `delegate_jobs`
 
@@ -84,11 +84,15 @@ The `goal` only titles the batch; it is never sent to a leg.
 | At most **10 targets** per call | Split larger fan-outs across calls. |
 | **One level deep** | A leg gets no `delegate_jobs` tool, even on a repository with orchestration on, so a leg's run is its whole answer. |
 | Every leg forks its own branch | Any number of legs may start from the same branch, the coordinator's own included; each opens its own merge request. |
-| A leg on the coordinator's branch waits for its turn to end | So it starts from what the coordinator published. A leg on the default branch starts at once: the coordinator never pushes onto the default branch. |
+| A leg given the coordinator's current branch waits for its turn to end | So it starts from what the coordinator published, which is a new branch when the coordinator started on the default branch. A leg that omits `ref` starts at once. |
 | Legs run as the user who triggered the coordinator's run | Targets that user cannot write to come back as failures; the rest still start. A run with no DAIV user behind it (e.g. a mention from an account not linked to DAIV) cannot delegate. The resumed run runs as the same user, and fails instead of starting if that user can no longer write to the coordinator's repository. |
 | Legs cannot ask questions | Nobody is watching a leg, so it decides or reports instead of stopping for input. |
+| Legs and the resumed run keep the coordinator's mute | A muted job or schedule stays quiet through its delegations. |
+| At most **3 resumes in a row** may delegate again | A coordinator resumed three times in a row by its own delegations, with no other run on its session in between, finishes in that turn instead of delegating again, so failing legs cannot loop it. |
 
-If no target starts, the tool says so and no resume comes: the coordinator deals with the failures in the same turn. If the resumed run cannot be queued when the last leg finishes, DAIV retries it within a few minutes.
+If no target starts, the tool says so and no resume comes: the coordinator deals with the failures in the same turn. If the resumed run cannot be queued when the last leg finishes, or gives up waiting for the coordinator's session, DAIV retries it within a few minutes, and it starts any leg left waiting after the coordinator's turn ended.
+
+The resumed run's summary never quotes DAIV's own error text, so the coordinator cannot post it on a public ticket: a leg that failed on DAIV's side links to its session instead.
 
 ## Recipes
 

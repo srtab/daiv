@@ -22,7 +22,7 @@ from automation.agent.middlewares.delegate_jobs import (
 )
 from automation.agent.references import RefIn
 
-REPO = SimpleNamespace(repo_id="acme/coord", ref="feature", config=SimpleNamespace(default_branch="main"))
+REPO = SimpleNamespace(repo_id="acme/coord", ref="feature")
 
 
 def _runtime() -> ToolRuntime:
@@ -74,7 +74,7 @@ async def test_the_targets_reach_the_delegator_trimmed_with_the_runs_own_checkou
     )
 
     delegator.adelegate.assert_awaited_once_with(
-        checkout=Checkout(repo_id="acme/coord", ref="feature", default_branch="main"),
+        checkout=Checkout(repo_id="acme/coord", ref="feature"),
         goal="Bump auth",
         targets=[
             DelegatedTarget(repo_id="acme/api", ref="", prompt="Bump it."),
@@ -111,7 +111,7 @@ async def test_it_returns_the_started_and_failed_legs():
                 "starts_after_this_turn": True,
             }
         ],
-        "failed": [{"repo_id": "acme/web", "ref": "", "error": "denied"}],
+        "failed": [{"repo_id": "acme/web", "ref": "", "error": "denied", "still_runs": False}],
     }
 
 
@@ -120,6 +120,17 @@ async def test_when_nothing_started_it_says_no_resume_will_come():
 
     assert payload["started"] == []
     assert "no resume will come" in payload["note"]
+
+
+async def test_when_only_an_untracked_leg_runs_it_says_not_to_redo_its_work():
+    result = DelegationResult(batch_id="b1", failed=[FailedLeg("acme/web", "", "lost track", still_runs=True)])
+
+    payload = await _call(_delegator(result))
+
+    assert payload["started"] == []
+    assert payload["failed"][0]["still_runs"] is True
+    assert payload["note"].startswith("No resume will come.")
+    assert "never redo its work" in payload["note"]
 
 
 async def test_a_refused_call_returns_the_reason():

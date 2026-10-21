@@ -130,6 +130,8 @@ def release_waiting_runs(sender: type, run: Any, **kwargs: Any) -> None:
 
     On ``run_ended`` rather than ``run_finished`` so a chat turn that delegated releases its waiting legs too.
     """
+    if not Run.objects.filter(waits_for=run, status=RunStatus.QUEUED).exists():
+        return
     restack_waiting_legs(run)
     release_runs_waiting_for(run)
 

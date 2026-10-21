@@ -17,14 +17,14 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 
 from sessions.executor.tasks import run_job_task
-from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -65,7 +65,7 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
             sandbox_environment_id=str(run.sandbox_environment_id) if run.sandbox_environment_id else None,
             run_id=str(run.pk),
             user_id=run.user_id,
-            ask_user_enabled=run.trigger_type not in SessionOrigin.unattended(),
+            ask_user_enabled=await _acan_ask_user(run),
             fork_branch=run.trigger_type == SessionOrigin.DELEGATED_JOB,
         )
     except Exception as err:  # noqa: BLE001
@@ -87,6 +87,15 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
         )
         return EnqueueFailure(task_enqueued=True)
     return None
+
+
+async def _acan_ask_user(run: Run) -> bool:
+    """Whether someone can answer a question ``run`` asks; a delegation's resume asks only where its session's origin
+    could, since it continues the run that delegated."""
+    trigger = run.trigger_type
+    if trigger == SessionOrigin.DELEGATION_RESUME:
+        trigger = await Session.objects.filter(pk=run.session_id).values_list("origin", flat=True).afirst()
+    return trigger not in SessionOrigin.unattended()
 
 
 async def amark_failed_and_advance(
@@ -130,9 +139,12 @@ async def amark_failed_and_advance(
 def _claim_queued(run: Run) -> bool:
     """Move ``run`` from QUEUED to READY unless another dispatcher took it first.
 
-    Raises ``IntegrityError`` when a peer already holds the session's active slot (``run_one_active_per_session``).
+    Raises ``IntegrityError`` when a peer already holds the session's active slot (``run_one_active_per_session``),
+    from a savepoint of its own, so a caller inside a transaction can catch it and carry on.
     """
-    if Run.objects.filter(pk=run.pk, status=RunStatus.QUEUED).update(status=RunStatus.READY) != 1:
+    with transaction.atomic():
+        claimed = Run.objects.filter(pk=run.pk, status=RunStatus.QUEUED).update(status=RunStatus.READY) == 1
+    if not claimed:
         return False
     run.refresh_from_db()
     return True

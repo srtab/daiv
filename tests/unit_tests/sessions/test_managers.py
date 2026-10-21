@@ -157,6 +157,19 @@ class TestAfinish:
         publish.assert_called_once()
         assert not run_finished_spy.called
 
+    async def test_the_worker_threads_connection_is_returned_even_when_a_receiver_raises(self):
+        run = await sync_to_async(_create_run)(trigger_type=SessionOrigin.CHAT)
+
+        with (
+            patch("core.ui_events.publisher.runs_changed"),
+            patch("sessions.managers.close_old_connections") as close,
+            patch.object(type(Run.objects), "_emit_run_finished", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError),
+        ):
+            await Run.objects.afinish(run, RunStatus.SUCCESSFUL)
+
+        close.assert_called_once_with()
+
     async def test_a_finished_row_is_never_overwritten(self, run_finished_spy):
         run = await sync_to_async(_create_run)()
         await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED)

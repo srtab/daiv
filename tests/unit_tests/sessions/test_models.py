@@ -157,10 +157,12 @@ def test_run_is_retryable_mirrors_activity_semantics():
     webhook = _mk_run(session, status=RunStatus.FAILED, trigger_type=SessionOrigin.MR_WEBHOOK)
     running = _mk_run(session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.UI_JOB)
     waiting = _mk_run(session, status=RunStatus.WAITING_INPUT, trigger_type=SessionOrigin.UI_JOB)
+    resume = _mk_run(session, status=RunStatus.FAILED, trigger_type=SessionOrigin.DELEGATION_RESUME)
     assert done.is_retryable is True
     assert webhook.is_retryable is False
     assert running.is_retryable is False
     assert waiting.is_retryable is False
+    assert resume.is_retryable is False
 
 
 def test_run_duration():

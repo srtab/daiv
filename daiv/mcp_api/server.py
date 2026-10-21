@@ -15,7 +15,7 @@ from django.utils.dateparse import parse_datetime
 
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
@@ -108,6 +108,11 @@ class RepoSpec(BaseModel):
     ref: str | None = Field(
         default=None, description="Branch name to start from. None / empty string = default branch."
     )
+
+
+class RepoScheduleSpec(RepoSpec):
+    # Refused, not ignored: a submit_job entry's per-repository `prompt` would otherwise vanish without a word.
+    model_config = ConfigDict(extra="forbid")
 
 
 class RepoSubmitSpec(RepoSpec):
@@ -807,7 +812,12 @@ async def schedule_job(
         ),
     ],
     repos: Annotated[
-        list[RepoSpec], Field(min_length=1, max_length=20, description="1-20 repositories the schedule runs against.")
+        list[RepoScheduleSpec],
+        Field(
+            min_length=1,
+            max_length=20,
+            description="1-20 repositories the schedule runs against, each with the same `prompt`.",
+        ),
     ],
     frequency: Annotated[Frequency, Field(description="hourly | daily | weekdays | weekly (Mondays) | custom | once.")],
     time: Annotated[
@@ -857,7 +867,7 @@ async def schedule_job(
     if auth_error is not None:
         return auth_error
 
-    specs = [spec if isinstance(spec, RepoSpec) else RepoSpec(**spec) for spec in repos]
+    specs = [spec if isinstance(spec, RepoScheduleSpec) else RepoScheduleSpec(**spec) for spec in repos]
     repo_dicts = [{"repo_id": s.repo_id, "ref": s.ref or ""} for s in specs]
 
     try:

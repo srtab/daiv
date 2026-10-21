@@ -1,6 +1,8 @@
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import transaction
+
 import pytest
 from asgiref.sync import sync_to_async
 from sandbox_envs.models import SandboxEnvironment, Visibility
@@ -233,6 +235,15 @@ class TestDispatchNextQueued:
         mock_task.aenqueue.assert_not_called()
         queued.refresh_from_db()
         assert queued.status == RunStatus.QUEUED
+
+    def test_backing_off_inside_a_transaction_leaves_it_usable(self):
+        session_id = str(uuid.uuid4())
+        make_run(session_id=session_id, status=RunStatus.RUNNING)
+        queued = make_run(session_id=session_id, status=RunStatus.QUEUED)
+
+        with transaction.atomic(), patch("sessions.queue.run_job_task"):
+            dispatch_next_queued(session_id)
+            assert Run.objects.get(pk=queued.pk).status == RunStatus.QUEUED
 
 
 @pytest.mark.django_db(transaction=True)

@@ -46,9 +46,12 @@ class RepoTarget:
 
 @dataclass(frozen=True)
 class BatchSubmitFailure:
+    """``task_enqueued``: the run's task reached the queue but could not be linked to its row, so it runs untracked."""
+
     repo_id: str
     ref: str
     error: str
+    task_enqueued: bool = False
 
 
 @dataclass(frozen=True)
@@ -394,8 +397,13 @@ async def asubmit_batch_runs(
     async def _start_one(created: Run | BatchSubmitFailure | BaseException) -> Run | BatchSubmitFailure | BaseException:
         if isinstance(created, BatchSubmitFailure | BaseException) or created.status == RunStatus.QUEUED:
             return created
-        if await aenqueue_run(created, log_context="submit_batch_runs") is not None:
-            return BatchSubmitFailure(repo_id=created.repo_id, ref=created.ref, error=created.error_message)
+        if (failure := await aenqueue_run(created, log_context="submit_batch_runs")) is not None:
+            return BatchSubmitFailure(
+                repo_id=created.repo_id,
+                ref=created.ref,
+                error=created.error_message,
+                task_enqueued=failure.task_enqueued,
+            )
         return created
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the

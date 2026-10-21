@@ -81,7 +81,8 @@ build on your work, and that leg starts once your turn ends. `references` link i
 merge request.
 
 Returns JSON: `{{"batch_id", "started": [{{repo_id, ref, thread_id, session_url, starts_after_this_turn}}], \
-"failed": [{{repo_id, ref, error}}]}}`."""
+"failed": [{{repo_id, ref, error, still_runs}}]}}`. A failed leg with `still_runs` started but cannot be followed: \
+it may still open a merge request, so never redo its work."""
 
 DELEGATE_JOBS_SYSTEM_PROMPT = f"""\
 ## Delegating sub-jobs (`{DELEGATE_JOBS_TOOL_NAME}`)
@@ -100,8 +101,9 @@ Delegate what the request calls for. For a problem you came across on the way, p
 it once the user agrees.
 
 A leg's `ref` decides where its merge request lands. Omit it for the default branch, for a change that stands on its \
-own. Give your current branch to build on your work: that leg starts once your turn ends, so it sees what this turn \
-publishes, and when you are resumed you can merge its branch into yours or leave its merge request for review.
+own. Give your current branch, even the default one, to build on your work: that leg starts once your turn ends, \
+from the branch this turn publishes to, and when you are resumed you can merge its branch into yours or leave its \
+merge request for review.
 
 1. Decide what each leg must do. Any routing rules for this setup live in AGENTS.md.
 2. Call `{DELEGATE_JOBS_TOOL_NAME}` once, with a prompt tailored to each leg. A leg sees only its prompt, so put \
@@ -109,11 +111,16 @@ everything it needs in it, and end it with: "{NO_CHANGE_CONVENTION}" Link the is
 `references`.
 3. If `started` is not empty, state your plan and end your turn. Do not poll or wait: you are resumed automatically, \
 with each leg's status, branch, merge request and reply, once they have all finished.
-4. If `started` is empty, nothing is running and no resume will come: deal with the failures in this turn.
+4. If `started` is empty, no resume will come: deal with the failures in this turn. Never redo the work of a \
+failed leg with `still_runs`; it runs anyway.
 5. When resumed, check the outcome and report it where the request came from. If follow-up work depends on a leg's \
 result, delegate another batch; you are resumed again."""
 
 _NOTHING_STARTED_NOTE = "No sub-job is running and no resume will come: deal with the failures in this turn."
+_UNTRACKED_NOTE = (
+    "No resume will come. A leg with `still_runs` runs anyway and may open a merge request: never redo its work. "
+    "Deal with the other failures in this turn."
+)
 _INTERNAL_FAILURE = (
     "Delegation failed on DAIV's side (not a problem with the request). Do not retry; report it in your final response."
 )
@@ -142,7 +149,7 @@ class DelegateJobsMiddleware(AgentMiddleware):
         repo = runtime.context.repo
         try:
             result = await self._delegator.adelegate(
-                checkout=Checkout(repo_id=repo.repo_id, ref=repo.ref, default_branch=repo.config.default_branch or ""),
+                checkout=Checkout(repo_id=repo.repo_id, ref=repo.ref),
                 goal=goal.strip(),
                 targets=[
                     DelegatedTarget(
@@ -158,7 +165,7 @@ class DelegateJobsMiddleware(AgentMiddleware):
             return json.dumps({"error": str(exc)})
         payload = asdict(result)
         if not result.started:
-            payload["note"] = _NOTHING_STARTED_NOTE
+            payload["note"] = _UNTRACKED_NOTE if any(leg.still_runs for leg in result.failed) else _NOTHING_STARTED_NOTE
         return json.dumps(payload, ensure_ascii=False)
 
     async def awrap_model_call(

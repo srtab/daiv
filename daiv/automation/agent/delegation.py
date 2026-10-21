@@ -25,11 +25,10 @@ class DelegationError(ValueError):
 
 @dataclass(frozen=True)
 class Checkout:
-    """The delegating run's clone: ``ref`` is the branch it checked out, ``default_branch`` its repository's."""
+    """The delegating run's clone: ``ref`` is the branch it checked out."""
 
     repo_id: str
     ref: str
-    default_branch: str
 
 
 @dataclass(frozen=True)
@@ -57,9 +56,12 @@ class StartedLeg:
 
 @dataclass(frozen=True)
 class FailedLeg:
+    """``still_runs``: the leg started but cannot be followed, so it may still publish while no resume reports it."""
+
     repo_id: str
     ref: str
     error: str
+    still_runs: bool = False
 
 
 @dataclass(frozen=True)
@@ -75,8 +77,8 @@ class DelegationResult:
 class JobDelegator(Protocol):
     async def adelegate(self, *, checkout: Checkout, goal: str, targets: Sequence[DelegatedTarget]) -> DelegationResult:
         """Start one independent job per target for the delegating run, which has ``checkout``, and return without
-        waiting. Each leg publishes to a new branch and merge request of its own, and one on ``checkout``'s own branch
-        starts once the delegating run has finished.
+        waiting. Each leg publishes to a new branch and merge request of its own, and one that names ``checkout``'s
+        own branch starts once the delegating run has finished, from the branch that run's session then works on.
 
         Once every started leg has finished, the session is resumed with a run whose prompt summarises them.
         A target that cannot start lands in ``failed`` while the others go ahead; raise :class:`DelegationError`
