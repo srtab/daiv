@@ -40,7 +40,7 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
             return_value=resolved_to("claude-4-7-opus", thinking_level="medium"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {"thread_id": "t-123"}}),
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("sessions.executor.result.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
     ):
@@ -90,7 +90,7 @@ async def test_run_job_task_builds_the_sandbox_spec_from_its_env_id():
         patch("automation.agent.agent_settings.resolve_agent_settings", return_value=resolved_to("m")),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
+        patch("sessions.executor.result.build_agent_result", AsyncMock(return_value="ok")),
         suppress(Exception),
     ):
         await run_job_task.func(repo_id="r/p", prompt="p", thread_id="t1", sandbox_environment_id="env-uuid")
@@ -126,7 +126,7 @@ async def test_run_job_task_forwards_overrides():
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch("automation.agent.agent_settings.resolve_agent_settings", side_effect=capture),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("sessions.executor.result.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
     ):
@@ -181,7 +181,7 @@ async def test_run_job_task_persists_resolved_model():
             return_value=resolved_to("openrouter:z-ai/glm-5.2", "fallback", thinking_level="xhigh"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("sessions.executor.result.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
     ):
@@ -287,7 +287,7 @@ def _job_scaffolding(agent, *, real_lock: bool = False, armed: list[dict] | None
             return_value=resolved_to("claude-4-7-opus", thinking_level="medium"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("sessions.executor.result.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run._record_measurements", new=AsyncMock()),
@@ -701,7 +701,7 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
             return_value=resolved_to("m", thinking_level="medium"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("sessions.executor.result.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),

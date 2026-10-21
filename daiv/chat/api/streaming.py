@@ -39,12 +39,12 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from ag_ui.core import RunAgentInput
+    from sessions.executor.result import AgentResult
     from sessions.executor.run import AgentRun
     from sessions.executor.spec import RunOutcome
 
     from automation.agent.context import RuntimeCtx
     from automation.agent.references import ExternalRef
-    from automation.agent.results import AgentResult
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
 
 logger = logging.getLogger("daiv.chat")

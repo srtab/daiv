@@ -3,9 +3,31 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sessions.titling import (
+    MAX_HEURISTIC_LENGTH,
+    GeneratedTitle,
+    TitlerNotConfiguredError,
+    _ref_is_informative,
+    generate_title,
+    heuristic_title,
+)
 
 from automation.agent import base
-from automation.titling.llm import GeneratedTitle, TitlerNotConfiguredError, _ref_is_informative, generate_title
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        ("", ""),
+        ("\n  \n", ""),
+        ("\n  Fix the login bug\nMore detail", "Fix the login bug"),
+        ("Can you add a dark mode toggle", "add a dark mode toggle"),
+        ("PLEASE  bump the redis pin", "bump the redis pin"),
+        ("x" * 200, "x" * MAX_HEURISTIC_LENGTH),
+    ],
+)
+def test_heuristic_title(prompt: str, expected: str):
+    assert heuristic_title(prompt) == expected
 
 
 @pytest.mark.parametrize(

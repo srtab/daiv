@@ -24,6 +24,7 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
+from sessions.executor.result import parse_agent_result
 from sessions.models import Run, Session
 
 from automation.agent.agent_settings import resolve_agent_settings
@@ -31,7 +32,6 @@ from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
-from automation.agent.results import parse_agent_result
 from automation.agent.usage_tracking import ResolvedWindow
 from automation.agent.utils import streamed_assistant_message
 from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter

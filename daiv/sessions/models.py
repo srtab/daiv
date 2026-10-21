@@ -13,13 +13,13 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.references import ExternalRef, refs_from_stored  # noqa: TC001
-from automation.agent.results import parse_agent_result
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
+from sessions.executor.result import parse_agent_result
 from sessions.managers import RunArtifactManager, RunManager, SessionManager
 
 if TYPE_CHECKING:
-    from automation.agent.results import AgentResult
+    from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.sessions")
 
