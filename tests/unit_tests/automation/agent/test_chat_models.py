@@ -11,13 +11,8 @@ from langchain_core.load import dumpd, load
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
-from automation.agent.chat_models import (
-    DETAILS_KEY,
-    FALLBACK_KEY,
-    FINISH_STAMPED_KEYS,
-    OPENROUTER_BASE_URL,
-    ChatOpenRouter,
-)
+from automation.agent.chat_models import DETAILS_KEY, FALLBACK_KEY, FINISH_STAMPED_KEYS, ChatOpenRouter
+from automation.agent.provider_clients import OPENROUTER_BASE_URL
 from tests.unit_tests.automation.agent.openai_stream import (
     MODEL,
     accumulate,

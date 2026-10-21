@@ -19,7 +19,6 @@ from django.db import DatabaseError, transaction
 from django.db.utils import Error as DjangoDBError
 
 import yaml
-from deepagents.middleware.skills import _parse_skill_metadata
 
 from skills.conf import settings
 from skills.constants import (
@@ -176,6 +175,8 @@ def _is_noise_part(part: str) -> bool:
 
 def _skill_metadata(skill_dir: Path) -> SkillMetadata | None:
     """The metadata the agent loads ``skill_dir`` with; ``None``, logged, when it can't load it."""
+    from deepagents.middleware.skills import _parse_skill_metadata
+
     skill_md = skill_dir / "SKILL.md"
     try:
         content = skill_md.read_text(encoding="utf-8")

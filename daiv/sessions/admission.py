@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 from asgiref.sync import sync_to_async
 from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
 
+from automation.agent import validators
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, assert_can_run
 
 if TYPE_CHECKING:
@@ -68,8 +69,6 @@ class Admission:
 
 def check_agent_override(agent_model: str | None, agent_thinking_level: str | None) -> tuple[str, str]:
     """Return the normalised ``(agent_model, agent_thinking_level)``, refusing a request no model can serve."""
-    from automation.agent import validators
-
     try:
         model, level = validators.validate_agent_override(agent_model, agent_thinking_level)
         validators.ensure_agent_model_available(model)

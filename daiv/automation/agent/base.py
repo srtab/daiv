@@ -3,22 +3,23 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from langchain.chat_models import init_chat_model
 
 from automation.agent.chat_models import ChatOpenRouter
-from automation.agent.model_catalog.exceptions import MissingApiKeyError
-from automation.agent.provider_clients import build_sdk_client_kwargs
+from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, ResolvedProvider, parse_model_spec
+from automation.agent.provider_clients import MissingApiKeyError, build_sdk_client_kwargs
 from core.constants import BOT_NAME
-from core.models import Provider, ProviderType
+from core.models import ProviderType
 from core.models import ThinkingLevelChoices as ThinkingLevel
 
 logger = logging.getLogger("daiv.automation")
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
+
+    from core.models import Provider
 
 
 CLAUDE_MAX_TOKENS = 16_384
@@ -201,20 +202,6 @@ def _apply_temperature_support(kw: dict, model_name: str) -> None:
         kw.pop("temperature", None)
 
 
-@dataclass(frozen=True)
-class ResolvedProvider:
-    """Result of resolving a ``slug:model_name`` string against the Provider table."""
-
-    row: Provider.Cached
-    model_name: str
-
-
-# langchain-anthropic and langchain-google-genai don't expose ``http_client`` /
-# ``http_async_client`` as model fields, so ``verify_ssl=False`` can't reach the
-# underlying SDK there. Both fall back to the warn-and-skip branch.
-_HTTPX_CLIENT_PROVIDER_TYPES = frozenset({ProviderType.OPENAI, ProviderType.OPENROUTER})
-
-
 _PENDING_ACLOSE_TASKS: set[asyncio.Task] = set()
 
 
@@ -253,7 +240,7 @@ def _close_insecure_http_clients(kw: dict) -> None:
 
 
 def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:
-    if row.provider_type not in _HTTPX_CLIENT_PROVIDER_TYPES:
+    if row.provider_type not in HTTPX_CLIENT_PROVIDER_TYPES:
         logger.warning(
             "Provider %r: verify_ssl=False ignored for provider_type %s (SDK has no"
             " http_client hook); mount the CA into the container.",
@@ -265,46 +252,6 @@ def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:
 
     kw["http_client"] = httpx.Client(verify=False)  # noqa: S501  # admin-opted-in via Provider.verify_ssl
     kw["http_async_client"] = httpx.AsyncClient(verify=False)  # noqa: S501
-
-
-_BARE_NAME_HEURISTICS = (
-    (("gpt-4", "gpt-5", "gpt-6", "o4"), ProviderType.OPENAI.value),
-    (("claude",), ProviderType.ANTHROPIC.value),
-    (("gemini",), ProviderType.GOOGLE_GENAI.value),
-)
-
-
-def parse_model_spec(model_spec: str) -> ResolvedProvider:
-    """
-    Parse ``slug:model_name`` against the current Provider rows.
-
-    Order:
-      1. Explicit ``slug:model`` where ``slug`` matches a Provider row.
-      2. Explicit ``google:model`` alias → ``google_genai`` row.
-      3. Bare ``model`` matched by prefix heuristic.
-
-    Raises ``ValueError`` on unknown prefix, empty model name, or missing row.
-    """
-    rows_by_slug = Provider.get_cached_by_slug()
-
-    if ":" in model_spec:
-        prefix, model_name = model_spec.split(":", 1)
-        if not model_name.strip():
-            raise ValueError(f"Empty model name in spec '{model_spec}'")
-        if prefix == "google" and "google_genai" in rows_by_slug:
-            return ResolvedProvider(row=rows_by_slug["google_genai"], model_name=model_name)
-        if prefix in rows_by_slug:
-            return ResolvedProvider(row=rows_by_slug[prefix], model_name=model_name)
-        raise ValueError(
-            f"Unknown provider prefix '{prefix}' in model spec '{model_spec}'. "
-            f"Valid prefixes: {', '.join(sorted(rows_by_slug)) or '(no providers configured)'}"
-        )
-
-    for prefixes, target_slug in _BARE_NAME_HEURISTICS:
-        if model_spec.startswith(prefixes) and target_slug in rows_by_slug:
-            return ResolvedProvider(row=rows_by_slug[target_slug], model_name=model_spec)
-
-    raise ValueError(f"Unknown/Unsupported provider for model {model_spec}")
 
 
 def get_model(*, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:

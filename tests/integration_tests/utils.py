@@ -11,8 +11,8 @@ import pytest
 from langchain.messages import AIMessage
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
-from automation.agent.base import _BARE_NAME_HEURISTICS
 from automation.agent.deferred.conf import settings as deferred_settings
+from automation.agent.model_spec import _BARE_NAME_HEURISTICS
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from core.constants import ModelName
 from core.site_settings import site_settings

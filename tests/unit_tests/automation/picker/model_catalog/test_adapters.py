@@ -13,13 +13,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import SecretStr
 
-from automation.agent.model_catalog.adapters import (
+from automation.agent.provider_clients import MissingApiKeyError
+from automation.picker.model_catalog.adapters import (
     AnthropicAdapter,
     GoogleGenAIAdapter,
     OpenAIAdapter,
     OpenRouterAdapter,
 )
-from automation.agent.model_catalog.exceptions import CatalogFetchError, MissingApiKeyError
+from automation.picker.model_catalog.exceptions import CatalogFetchError
 from core.models import Provider, ProviderType
 
 
@@ -74,7 +75,7 @@ class TestOpenAIAdapter:
         mock_client.models.list = MagicMock(return_value=_async_list_iter(items))
         mock_client.close = AsyncMock()
 
-        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client):
+        with patch("automation.picker.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client):
             result = await OpenAIAdapter().list_models(_row())
 
         assert result == ["gpt-4o", "gpt-5.4"]
@@ -84,7 +85,7 @@ class TestOpenAIAdapter:
         mock_client.models.list = MagicMock(return_value=_async_list_iter([]))
         mock_client.close = AsyncMock()
 
-        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client):
+        with patch("automation.picker.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client):
             assert await OpenAIAdapter().list_models(_row()) == []
 
     async def test_sdk_error_wrapped_as_catalog_fetch_error(self):
@@ -102,13 +103,13 @@ class TestOpenAIAdapter:
         mock_client.close = AsyncMock()
 
         with (
-            patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client),
+            patch("automation.picker.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client),
             pytest.raises(CatalogFetchError),
         ):
             await OpenAIAdapter().list_models(_row())
 
     async def test_missing_api_key_raises_before_sdk_call(self):
-        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI") as ctor:
+        with patch("automation.picker.model_catalog.adapters.openai.AsyncOpenAI") as ctor:
             with pytest.raises(MissingApiKeyError):  # noqa: SIM117
                 await OpenAIAdapter().list_models(_row(api_key=None))
             ctor.assert_not_called()
@@ -119,7 +120,7 @@ class TestOpenAIAdapter:
         mock_client.models.list = MagicMock(return_value=_async_list_iter(items))
         mock_client.close = AsyncMock()
 
-        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
+        with patch("automation.picker.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
             await OpenAIAdapter().list_models(_row(base_url="https://proxy.example/v1"))
             _, kwargs = ctor.call_args
             assert kwargs["base_url"] == "https://proxy.example/v1"
@@ -130,7 +131,7 @@ class TestOpenAIAdapter:
         mock_client.models.list = MagicMock(return_value=_async_list_iter(items))
         mock_client.close = AsyncMock()
 
-        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
+        with patch("automation.picker.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
             await OpenAIAdapter().list_models(_row(base_url=""))
             _, kwargs = ctor.call_args
             assert kwargs["base_url"] == "https://api.openai.com/v1"
@@ -142,7 +143,7 @@ class TestOpenAIAdapter:
         mock_client.models.list = MagicMock(return_value=_async_list_iter([]))
         mock_client.close = AsyncMock()
 
-        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
+        with patch("automation.picker.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
             await OpenAIAdapter().list_models(row)
             _, kwargs = ctor.call_args
             assert kwargs["default_headers"] == {"X-Tenant": "acme"}
@@ -154,7 +155,7 @@ class TestOpenAIAdapter:
         mock_client.models.list = MagicMock(return_value=_async_list_iter([]))
         mock_client.close = AsyncMock()
 
-        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
+        with patch("automation.picker.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
             await OpenAIAdapter().list_models(_row(verify_ssl=False))
             _, kwargs = ctor.call_args
             assert isinstance(kwargs["http_client"], httpx.AsyncClient)
@@ -175,7 +176,7 @@ class TestOpenAIAdapter:
         with (
             patch("httpx.AsyncClient", side_effect=_track_ctor),
             patch(
-                "automation.agent.model_catalog.adapters.openai.AsyncOpenAI",
+                "automation.picker.model_catalog.adapters.openai.AsyncOpenAI",
                 side_effect=TypeError("ctor blew up before binding client"),
             ),
             pytest.raises(TypeError),
@@ -197,7 +198,7 @@ class TestAnthropicAdapter:
         mock_client.models.list = MagicMock(return_value=_async_list_iter(items))
         mock_client.close = AsyncMock()
 
-        with patch("automation.agent.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client):
+        with patch("automation.picker.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client):
             result = await AnthropicAdapter().list_models(_row(slug="anthropic", provider_type=ProviderType.ANTHROPIC))
 
         assert result == ["claude-haiku-4.5", "claude-opus-4.6", "claude-sonnet-4.6"]
@@ -209,7 +210,7 @@ class TestAnthropicAdapter:
         mock_client.models.list = MagicMock(return_value=_async_list_iter(items))
         mock_client.close = AsyncMock()
 
-        with patch("automation.agent.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client):
+        with patch("automation.picker.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client):
             result = await AnthropicAdapter().list_models(_row(slug="anthropic", provider_type=ProviderType.ANTHROPIC))
 
         assert result == ["claude-experimental-embedding"]
@@ -225,13 +226,13 @@ class TestAnthropicAdapter:
         mock_client.close = AsyncMock()
 
         with (
-            patch("automation.agent.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client),
+            patch("automation.picker.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client),
             pytest.raises(CatalogFetchError),
         ):
             await AnthropicAdapter().list_models(_row(slug="anthropic", provider_type=ProviderType.ANTHROPIC))
 
     async def test_missing_api_key_raises(self):
-        with patch("automation.agent.model_catalog.adapters.anthropic.AsyncAnthropic") as ctor:
+        with patch("automation.picker.model_catalog.adapters.anthropic.AsyncAnthropic") as ctor:
             with pytest.raises(MissingApiKeyError):  # noqa: SIM117
                 await AnthropicAdapter().list_models(
                     _row(slug="anthropic", provider_type=ProviderType.ANTHROPIC, api_key=None)
@@ -244,7 +245,7 @@ class TestAnthropicAdapter:
         mock_client.close = AsyncMock()
 
         with patch(
-            "automation.agent.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client
+            "automation.picker.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client
         ) as ctor:
             await AnthropicAdapter().list_models(_row(slug="anthropic", provider_type=ProviderType.ANTHROPIC))
             _, kwargs = ctor.call_args
@@ -264,7 +265,7 @@ class TestGoogleGenAIAdapter:
         mock_aio.models.list = AsyncMock(return_value=_async_list_iter(items))
         mock_client = SimpleNamespace(aio=mock_aio)
 
-        with patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client):
+        with patch("automation.picker.model_catalog.adapters.google_genai.Client", return_value=mock_client):
             result = await GoogleGenAIAdapter().list_models(
                 _row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI)
             )
@@ -277,7 +278,7 @@ class TestGoogleGenAIAdapter:
         mock_aio.models.list = AsyncMock(return_value=_async_list_iter(items))
         mock_client = SimpleNamespace(aio=mock_aio)
 
-        with patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client):
+        with patch("automation.picker.model_catalog.adapters.google_genai.Client", return_value=mock_client):
             result = await GoogleGenAIAdapter().list_models(
                 _row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI)
             )
@@ -298,13 +299,13 @@ class TestGoogleGenAIAdapter:
         mock_client = SimpleNamespace(aio=mock_aio)
 
         with (
-            patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client),
+            patch("automation.picker.model_catalog.adapters.google_genai.Client", return_value=mock_client),
             pytest.raises(CatalogFetchError),
         ):
             await GoogleGenAIAdapter().list_models(_row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI))
 
     async def test_missing_api_key_raises(self):
-        with patch("automation.agent.model_catalog.adapters.google_genai.Client") as ctor:
+        with patch("automation.picker.model_catalog.adapters.google_genai.Client") as ctor:
             with pytest.raises(MissingApiKeyError):  # noqa: SIM117
                 await GoogleGenAIAdapter().list_models(
                     _row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI, api_key=None)
@@ -320,7 +321,7 @@ class TestGoogleGenAIAdapter:
         mock_aio.models.list = AsyncMock(return_value=_async_list_iter(items))
         mock_client = SimpleNamespace(aio=mock_aio)
 
-        with patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client):
+        with patch("automation.picker.model_catalog.adapters.google_genai.Client", return_value=mock_client):
             await GoogleGenAIAdapter().list_models(_row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI))
 
         aclose_mock.assert_awaited_once()
@@ -345,7 +346,7 @@ class TestGoogleGenAIAdapter:
 
         with (
             patch("httpx.AsyncClient", side_effect=_track_ctor),
-            patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client),
+            patch("automation.picker.model_catalog.adapters.google_genai.Client", return_value=mock_client),
         ):
             await GoogleGenAIAdapter().list_models(
                 _row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI, verify_ssl=False)
@@ -371,7 +372,7 @@ class TestOpenRouterAdapter:
         mock_client.models.list = MagicMock(return_value=_async_list_iter(items))
         mock_client.close = AsyncMock()
 
-        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client):
+        with patch("automation.picker.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client):
             result = await OpenRouterAdapter().list_models(
                 _row(slug="openrouter", provider_type=ProviderType.OPENROUTER)
             )
@@ -391,7 +392,7 @@ class TestOpenRouterAdapter:
         mock_client.models.list = MagicMock(return_value=_async_list_iter([]))
         mock_client.close = AsyncMock()
 
-        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
+        with patch("automation.picker.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
             await OpenRouterAdapter().list_models(_row(slug="openrouter", provider_type=ProviderType.OPENROUTER))
             _, kwargs = ctor.call_args
             assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
@@ -401,7 +402,7 @@ class TestOpenRouterAdapter:
         mock_client.models.list = MagicMock(return_value=_async_list_iter([]))
         mock_client.close = AsyncMock()
 
-        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
+        with patch("automation.picker.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
             await OpenRouterAdapter().list_models(
                 _row(
                     slug="openrouter",

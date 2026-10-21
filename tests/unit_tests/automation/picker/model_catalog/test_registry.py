@@ -2,8 +2,8 @@
 
 import pytest
 
-from automation.agent.model_catalog.exceptions import UnsupportedProviderTypeError
-from automation.agent.model_catalog.registry import get_adapter
+from automation.picker.model_catalog.exceptions import UnsupportedProviderTypeError
+from automation.picker.model_catalog.registry import get_adapter
 from core.models import ProviderType
 
 

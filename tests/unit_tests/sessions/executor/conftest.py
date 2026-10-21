@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import HumanMessage
 from sessions.executor.lock import NoLock
+from sessions.executor.result import parse_agent_result
 from sessions.executor.spec import RunSpec
 
 from automation.agent.agent_settings import RunOverrides
-from automation.agent.results import parse_agent_result
 from automation.agent.workspace.session import SessionSeed
 from codebase.base import Scope
 from core.site_settings import site_settings
@@ -120,7 +120,7 @@ def agent_stack(
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent,
         patch("mcp_connectors.services.build_runtime_servers", return_value=[]) as build_servers,
         patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {}}) as langsmith,
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(side_effect=_build_result)) as build_result,
+        patch("sessions.executor.result.build_agent_result", new=AsyncMock(side_effect=_build_result)) as build_result,
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,

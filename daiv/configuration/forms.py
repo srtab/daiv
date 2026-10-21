@@ -11,7 +11,7 @@ from django import forms
 from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
-from automation.agent.base import parse_model_spec
+from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, parse_model_spec
 from core.models import (
     THINKING_OFF,
     Provider,
@@ -833,12 +833,10 @@ class ProviderForm(forms.ModelForm):
         # langchain-anthropic / -google-genai don't expose ``http_client`` as a field, so
         # an admin who toggles verify_ssl=False on those types still gets full TLS
         # verification — warn so the silent override is visible at save time.
-        from automation.agent.base import _HTTPX_CLIENT_PROVIDER_TYPES
-
         if self["verify_ssl"].value():
             return None
         provider_type = self["provider_type"].value()
-        if not provider_type or ProviderType(provider_type) in _HTTPX_CLIENT_PROVIDER_TYPES:
+        if not provider_type or ProviderType(provider_type) in HTTPX_CLIENT_PROVIDER_TYPES:
             return None
         return _(
             "verify_ssl=False has no effect for this provider type — the SDK doesn't"

@@ -17,8 +17,8 @@ from webhooks.conf import settings
 
 if TYPE_CHECKING:
     from django_tasks import TaskContext
+    from sessions.executor.result import AgentResult
 
-    from automation.agent.results import AgentResult
     from codebase.base import MergeRequest
 
 logger = logging.getLogger("daiv.tasks")
@@ -36,7 +36,7 @@ if codebase_settings.CLIENT == GitPlatform.GITLAB:
 
 
 def _mr_comment_skip_result(response: str, merge_request: MergeRequest) -> AgentResult:
-    from automation.agent.results import AgentResult
+    from sessions.executor.result import AgentResult
 
     return AgentResult(
         response=response,

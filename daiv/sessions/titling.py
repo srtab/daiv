@@ -1,4 +1,5 @@
-"""LLM titles for sessions and runs; the title tasks in ``sessions.tasks`` generate them in the background."""
+"""Session and run titles: :func:`heuristic_title` at creation, then an LLM title that the title tasks in
+``sessions.tasks`` generate in the background."""
 
 from __future__ import annotations
 
@@ -7,8 +8,14 @@ from typing import cast
 
 from pydantic import BaseModel, Field
 
-from automation.titling.services import MAX_TITLE_LENGTH
 from core.site_settings import site_settings
+
+MAX_TITLE_LENGTH = 120
+MAX_HEURISTIC_LENGTH = 80
+
+_FILLER_PREFIXES = re.compile(
+    r"^(?:can you|could you|please|i need|i want|help me|i'd like|i would like)\s+", re.IGNORECASE
+)
 
 _SYSTEM_PROMPT = (
     "Generate a concise 3-6 word title for the following coding task.\n"
@@ -17,6 +24,14 @@ _SYSTEM_PROMPT = (
 
 _GENERIC_REFS = frozenset({"main", "master", "dev", "develop", "trunk", "staging", "production", "prod"})
 _SHA_LIKE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+
+def heuristic_title(prompt: str) -> str:
+    """Best-effort title from ``prompt`` without calling an LLM: first non-empty
+    line, leading filler prefix stripped, truncated to ``MAX_HEURISTIC_LENGTH``.
+    """
+    first_line = next((stripped for line in prompt.splitlines() if (stripped := line.strip())), "")
+    return _FILLER_PREFIXES.sub("", first_line).strip()[:MAX_HEURISTIC_LENGTH]
 
 
 class TitlerNotConfiguredError(RuntimeError):
