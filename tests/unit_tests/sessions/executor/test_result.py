@@ -2,8 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
-from automation.agent.results import AgentResult, build_agent_result, parse_agent_result
+from sessions.executor.result import AgentResult, build_agent_result, parse_agent_result
 
 
 class TestParseAgentResult:

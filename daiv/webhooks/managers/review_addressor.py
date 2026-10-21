@@ -30,9 +30,8 @@ from .base import BaseManager
 
 if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
+    from sessions.executor.result import AgentResult
     from sessions.executor.spec import RunOutcome
-
-    from automation.agent.results import AgentResult
 
 logger = logging.getLogger("daiv.agents")
 

@@ -6,7 +6,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from automation.agent.provider_clients import build_sdk_client_kwargs
+from automation.agent.provider_clients import MissingApiKeyError, build_sdk_client_kwargs
 from core.models import Provider, ProviderType
 
 
@@ -71,7 +71,5 @@ def test_http_client_returned_when_verify_ssl_false():
 
 
 def test_missing_api_key_raises():
-    from automation.agent.model_catalog.exceptions import MissingApiKeyError
-
     with pytest.raises(MissingApiKeyError):
         build_sdk_client_kwargs(_cached(api_key=None))

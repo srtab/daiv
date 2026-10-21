@@ -11,7 +11,7 @@ from sessions.models import Session
 if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
 
-    from automation.agent.results import AgentResult
+    from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.sessions")
 

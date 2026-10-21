@@ -6,8 +6,8 @@ from django_tasks.base import DEFAULT_TASK_PRIORITY
 from django_tasks_db.models import DBTaskResult
 from sessions.models import Run, Session, SessionOrigin
 from sessions.tasks import generate_batch_title_task, generate_title_task, sync_stuck_runs_cron_task
+from sessions.titling import TitlerNotConfiguredError
 
-from automation.titling.llm import TitlerNotConfiguredError
 from core.constants import TASK_QUEUE_INTERACTIVE
 
 
@@ -36,7 +36,7 @@ def _run_for_titling(
 
 @pytest.mark.django_db
 def test_generate_title_task_skips_a_missing_entity_without_calling_the_model():
-    with patch("automation.titling.llm.generate_title") as generate:
+    with patch("sessions.titling.generate_title") as generate:
         generate_title_task.func(entity_type="run", pk=str(uuid.uuid4()), prompt="any", repo_id="x/y")
 
     generate.assert_not_called()
@@ -46,7 +46,7 @@ def test_generate_title_task_skips_a_missing_entity_without_calling_the_model():
 def test_generate_title_task_overwrites_the_run_title_with_the_generated_one():
     run = _run_for_titling(title="Heuristic placeholder")
 
-    with patch("automation.titling.llm.generate_title", return_value="LLM generated") as generate:
+    with patch("sessions.titling.generate_title", return_value="LLM generated") as generate:
         generate_title_task.func(
             entity_type="run", pk=str(run.pk), prompt="add login", repo_id="group/repo", ref="feat/x"
         )
@@ -65,7 +65,7 @@ def test_generate_title_task_overwrites_the_run_title_with_the_generated_one():
 def test_generate_title_task_writes_a_session_title():
     session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo")
 
-    with patch("automation.titling.llm.generate_title", return_value="Session title"):
+    with patch("sessions.titling.generate_title", return_value="Session title"):
         generate_title_task.func(entity_type="session", pk=session.thread_id, prompt="do a thing", repo_id="group/repo")
 
     session.refresh_from_db()
@@ -76,7 +76,7 @@ def test_generate_title_task_writes_a_session_title():
 def test_generate_title_task_keeps_the_title_when_no_model_is_configured():
     run = _run_for_titling(title="Heuristic placeholder")
 
-    with patch("automation.titling.llm.generate_title", side_effect=TitlerNotConfiguredError("no key")):
+    with patch("sessions.titling.generate_title", side_effect=TitlerNotConfiguredError("no key")):
         generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="any", repo_id="group/repo")
 
     run.refresh_from_db()
@@ -88,7 +88,7 @@ def test_generate_title_task_lets_a_failed_model_call_fail_the_task():
     run = _run_for_titling()
 
     with (
-        patch("automation.titling.llm.generate_title", side_effect=RuntimeError("provider down")),
+        patch("sessions.titling.generate_title", side_effect=RuntimeError("provider down")),
         pytest.raises(RuntimeError, match="provider down"),
     ):
         generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="any", repo_id="group/repo")
@@ -101,7 +101,7 @@ def test_generate_batch_title_task_titles_only_the_untitled_runs_of_the_batch():
     prefilled = _run_for_titling(batch_id=batch_id, title="job · run #1", repo_id="o/sched")
     outsider = _run_for_titling(repo_id="o/other")
 
-    with patch("automation.titling.llm.generate_title", return_value="Add login feature") as generate:
+    with patch("sessions.titling.generate_title", return_value="Add login feature") as generate:
         generate_batch_title_task.func(batch_id=str(batch_id), prompt="add login")
 
     generate.assert_called_once_with("add login", run_metadata={"entity_type": "run_batch", "batch_id": str(batch_id)})
@@ -120,7 +120,7 @@ def test_generate_batch_title_task_backfills_only_untitled_sessions():
     untitled = _run_for_titling(batch_id=batch_id)
     pinned = _run_for_titling(batch_id=batch_id, session_title="Session pinned")
 
-    with patch("automation.titling.llm.generate_title", return_value="Batch title"):
+    with patch("sessions.titling.generate_title", return_value="Batch title"):
         generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
 
     assert Session.objects.get(pk=untitled.session_id).title == "Batch title"
@@ -132,7 +132,7 @@ def test_generate_batch_title_task_keeps_titles_when_no_model_is_configured():
     batch_id = uuid.uuid4()
     run = _run_for_titling(batch_id=batch_id)
 
-    with patch("automation.titling.llm.generate_title", side_effect=TitlerNotConfiguredError("no key")):
+    with patch("sessions.titling.generate_title", side_effect=TitlerNotConfiguredError("no key")):
         generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
 
     run.refresh_from_db()

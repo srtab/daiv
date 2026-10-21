@@ -7,7 +7,7 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from automation.agent.model_catalog.cache_keys import MODEL_CATALOG_CACHE_KEY_FMT
+from automation.picker.model_catalog.cache_keys import MODEL_CATALOG_CACHE_KEY_FMT
 from core.models import Provider
 
 

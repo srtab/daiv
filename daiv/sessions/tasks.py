@@ -72,8 +72,8 @@ def generate_title_task(
     title set synchronously remains (heuristic for chat sessions, possibly empty
     for prompt-driven runs).
     """
-    from automation.titling.llm import TitlerNotConfiguredError, generate_title
     from sessions.models import Run, Session
+    from sessions.titling import TitlerNotConfiguredError, generate_title
 
     model_cls = Session if entity_type == "session" else Run
     try:
@@ -110,8 +110,8 @@ def generate_batch_title_task(batch_id: str, prompt: str) -> None:
     titles (e.g. scheduled-run templates) are preserved. The same title is stamped on each
     affected run's Session when the session title is still empty.
     """
-    from automation.titling.llm import TitlerNotConfiguredError, generate_title
     from sessions.models import Run, Session
+    from sessions.titling import TitlerNotConfiguredError, generate_title
 
     try:
         title = generate_title(prompt, run_metadata={"entity_type": "run_batch", "batch_id": batch_id})

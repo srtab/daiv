@@ -448,9 +448,9 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     """``response_text`` is ``None`` for a stream, which has no invoke result: the checkpoint's last message
     stands in."""
     from automation.agent.questions import pending_question
-    from automation.agent.results import build_agent_result
     from automation.agent.usage_tracking import build_usage_summary
     from automation.agent.utils import extract_text_content
+    from sessions.executor.result import build_agent_result
 
     snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}

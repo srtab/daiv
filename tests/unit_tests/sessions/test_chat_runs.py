@@ -2,9 +2,9 @@ import uuid
 from decimal import Decimal
 
 import pytest
+from sessions.executor.result import parse_agent_result
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
-from automation.agent.results import parse_agent_result
 from chat.api.streaming import finalize_chat_run, start_chat_run
 
 # ``transaction=True``: these are async DB tests. Async writes commit and escape the

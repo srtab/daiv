@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
+from automation.agent import validators
 from sessions.models import RunStatus, SessionOrigin
 from sessions.pipeline_watch.store import WatchStore
 from sessions.queue import aenqueue_run
@@ -27,8 +28,6 @@ FIX_RUN_PROMPT = (
 
 def _session_agent(session: Session) -> tuple[str, str]:
     """The thread's pinned model and thinking level; empty when it pins none or its model cannot be used."""
-    from automation.agent import validators
-
     try:
         return validators.validate_agent_override(session.agent_model, session.agent_thinking_level)
     except validators.AgentOverrideError as err:

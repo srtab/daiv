@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from automation.agent.base import parse_model_spec
+from automation.agent.model_spec import parse_model_spec
 from core.models import ThinkingLevelChoices
 from core.site_settings import site_settings
 
