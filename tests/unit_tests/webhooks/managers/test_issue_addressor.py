@@ -6,8 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from sessions.executor.lock import SessionLockTimeoutError
-from sessions.locks import SessionLock
+from sessions.executor.lock import SessionLock, SessionLockTimeoutError
 from sessions.models import Run, Session, SessionOrigin
 from webhooks.managers.issue_addressor import (
     ADDRESS_ISSUE_PROMPT,

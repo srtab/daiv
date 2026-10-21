@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0015_move_runenvelope_to_notifications")]
+    dependencies = [("agent_sessions", "0016_remove_session_issue_iid_run_mention_comment_id")]
 
     operations = [
         migrations.RemoveConstraint(model_name="run", name="run_one_active_per_session"),

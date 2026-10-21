@@ -2,7 +2,7 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.services import BatchSubmitResult
 
 
@@ -10,10 +10,10 @@ from sessions.services import BatchSubmitResult
 async def test_list_environments_returns_user_and_global():
     from accounts.models import User
 
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
-    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=user, name="dev", base_image="x")
-    await SandboxEnvironment.objects.acreate(scope=Scope.GLOBAL, name="GlobalExtra", base_image="g")
+    await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=user, name="dev", base_image="x")
+    await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="GlobalExtra", base_image="g")
 
     from mcp_api.server import list_environments
 
@@ -30,10 +30,10 @@ async def test_list_environments_cursor_paginates_without_overlap():
     """Walking pages via next_cursor covers every visible env once, ordered by (scope, name)."""
     from accounts.models import User
 
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
     for name in ("alpha", "bravo", "charlie", "delta", "echo"):
-        await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=user, name=name, base_image="x")
+        await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=user, name=name, base_image="x")
 
     from mcp_api.server import list_environments
 
@@ -108,9 +108,11 @@ async def test_list_environments_db_error_returns_friendly_error():
 async def test_submit_job_resolves_environment_name():
     from accounts.models import User
 
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
-    env = await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=user, name="dev", base_image="alpine:latest")
+    env = await SandboxEnvironment.objects.acreate(
+        scope=Visibility.USER, user=user, name="dev", base_image="alpine:latest"
+    )
     from mcp_api.server import submit_job
 
     fake_run = type("R", (), {"id": "00000000-0000-0000-0000-000000000001", "session_id": None, "status": "READY"})()
@@ -128,7 +130,7 @@ async def test_submit_job_resolves_environment_name():
 async def test_submit_job_unknown_environment_returns_error():
     from accounts.models import User
 
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
     from mcp_api.server import submit_job
 
@@ -149,10 +151,10 @@ async def test_submit_job_unknown_environment_returns_error():
 async def test_get_environment_masks_secrets():
     from accounts.models import User
 
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
     await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="dev",
         base_image="alpine:latest",
@@ -177,17 +179,17 @@ async def test_get_environment_network_enabled_derived_from_egress_policy():
     ``network_enabled`` column is gone). Assert both branches so an inverted condition is caught."""
     from accounts.models import User
 
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
     await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER,
+        scope=Visibility.USER,
         user=user,
         name="net",
         base_image="alpine:latest",
         egress_policy={"default": "deny", "intercept": "all", "rules": []},
     )
     await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER, user=user, name="nonet", base_image="alpine:latest", egress_policy=None
+        scope=Visibility.USER, user=user, name="nonet", base_image="alpine:latest", egress_policy=None
     )
     from mcp_api.server import get_environment
 
@@ -202,7 +204,7 @@ async def test_get_environment_network_enabled_derived_from_egress_policy():
 async def test_get_environment_unknown_returns_none():
     from accounts.models import User
 
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
     from mcp_api.server import get_environment
 
@@ -242,11 +244,11 @@ async def test_list_environments_excludes_other_users_envs():
     """list_environments must not leak other users' USER envs."""
     from accounts.models import User
 
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
     other = await User.objects.acreate_user(username="o", email="o@e.com", password="x")  # noqa: S106
-    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=user, name="mine", base_image="x")
-    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=other, name="theirs", base_image="x")
+    await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=user, name="mine", base_image="x")
+    await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=other, name="theirs", base_image="x")
 
     from mcp_api.server import list_environments
 
@@ -262,10 +264,10 @@ async def test_get_environment_does_not_leak_other_users_env():
     """get_environment must return None when the named env belongs to another user."""
     from accounts.models import User
 
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
     other = await User.objects.acreate_user(username="o", email="o@e.com", password="x")  # noqa: S106
-    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=other, name="theirs", base_image="x")
+    await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=other, name="theirs", base_image="x")
 
     from mcp_api.server import get_environment
 
@@ -279,10 +281,10 @@ async def test_submit_job_cannot_resolve_other_users_env():
     """submit_job's resolve_env_for_user must refuse another user's env name."""
     from accounts.models import User
 
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
     other = await User.objects.acreate_user(username="o", email="o@e.com", password="x")  # noqa: S106
-    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=other, name="theirs", base_image="x")
+    await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=other, name="theirs", base_image="x")
     from mcp_api.server import submit_job
 
     with (

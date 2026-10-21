@@ -73,28 +73,28 @@ def test_build_selection_pool_marks_defaults_and_excludes_disabled(member_user):
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="g-active",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://g1",
         status=MCPServer.Status.ACTIVE,
     )
     MCPServer.objects.create(
         name="g-ond",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://g2",
         status=MCPServer.Status.ON_DEMAND,
     )
     MCPServer.objects.create(
         name="g-off",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://g3",
         status=MCPServer.Status.DISABLED,
     )
     MCPServer.objects.create(
         name="u1",
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="http://u1",
@@ -115,14 +115,14 @@ def test_build_selection_pool_global_shadows_same_named_user_row(member_user):
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="dup",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://g",
         status=MCPServer.Status.ON_DEMAND,
     )
     MCPServer.objects.create(
         name="dup",
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="http://u",

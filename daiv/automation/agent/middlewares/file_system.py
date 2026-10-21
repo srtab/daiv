@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import wcmatch.glob as wcglob
 from deepagents.middleware import filesystem as _upstream_fs_module
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
@@ -128,6 +129,12 @@ def _no_regex_literal_hint(pattern: str) -> str | None:  # noqa: ARG001
 _REGEX_HINT_PATCH_APPLIED = callable(getattr(_upstream_fs_module, "regex_literal_hint", None))
 if _REGEX_HINT_PATCH_APPLIED:
     _upstream_fs_module.regex_literal_hint = _no_regex_literal_hint  # ty: ignore[invalid-assignment]
+
+# Upstream's permission matchers glob without DOTGLOB, so ``deny write /**`` would let ``.git`` and ``.github`` through.
+# They read this global at call time; a rename must fail here, not reopen every dot path.
+if not isinstance(getattr(_upstream_fs_module, "_FS_WCMATCH_FLAGS", None), int):
+    raise ImportError("deepagents.middleware.filesystem no longer defines _FS_WCMATCH_FLAGS")
+_upstream_fs_module._FS_WCMATCH_FLAGS |= wcglob.DOTGLOB  # ty: ignore[invalid-assignment]
 
 # Upstream's zero-match body.
 _NO_MATCHES_PREFIX = "No matches found"

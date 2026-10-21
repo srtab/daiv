@@ -126,9 +126,14 @@ class WatchStore:
         )[:limit]
 
     async def arecover_stale_fixing(self, *, cutoff: datetime, now: datetime) -> int:
-        return await Session.objects.filter(watch_state=WatchState.FIXING, watch_armed_at__lt=cutoff).aupdate(
-            watch_state=WatchState.WATCHING, watch_armed_at=now
-        )
+        """Hand a dead fix run's watch back to watching.
+
+        Dead means both the claim and the session's heartbeat (``last_active_at``) predate ``cutoff``. The claim's
+        age alone is not enough: a live fix run can wait for the session slot, then run, past the window.
+        """
+        return await Session.objects.filter(
+            watch_state=WatchState.FIXING, watch_armed_at__lt=cutoff, last_active_at__lt=cutoff
+        ).aupdate(watch_state=WatchState.WATCHING, watch_armed_at=now)
 
     def stale_watching(self, cutoff: datetime, limit: int) -> QuerySet:
         return Session.objects.filter(watch_state=WatchState.WATCHING, watch_armed_at__lt=cutoff).values_list(

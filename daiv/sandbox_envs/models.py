@@ -27,7 +27,7 @@ EGRESS_SECRETS_MAX_ENCRYPTED_SIZE = 32 * 1024  # 32 KiB
 _UNSET = object()
 
 
-class Scope(models.TextChoices):
+class Visibility(models.TextChoices):
     USER = "user", _("User")
     GLOBAL = "global", _("Global")
 
@@ -47,19 +47,19 @@ class SandboxEnvironmentQuerySet(models.QuerySet):
     so they're chainable and easy to compose with ``filter`` / ``annotate``."""
 
     def global_envs(self):
-        return self.filter(scope=Scope.GLOBAL).order_by("name")
+        return self.filter(scope=Visibility.GLOBAL).order_by("name")
 
     def user_envs(self, user):
-        return self.filter(scope=Scope.USER, user=user).order_by("name")
+        return self.filter(scope=Visibility.USER, user=user).order_by("name")
 
     def global_default(self):
-        return self.filter(scope=Scope.GLOBAL, is_default=True).first()
+        return self.filter(scope=Visibility.GLOBAL, is_default=True).first()
 
     async def aglobal_default(self):
-        return await self.filter(scope=Scope.GLOBAL, is_default=True).afirst()
+        return await self.filter(scope=Visibility.GLOBAL, is_default=True).afirst()
 
     def visible_to(self, user):
-        return self.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL)).order_by("scope", "name")
+        return self.filter(Q(scope=Visibility.USER, user=user) | Q(scope=Visibility.GLOBAL)).order_by("scope", "name")
 
     def scoped_get(self, user, pk):
         """Return the env at ``pk`` if ``user`` may operate on it.
@@ -69,7 +69,7 @@ class SandboxEnvironmentQuerySet(models.QuerySet):
         - missing pk → ``Http404``
         """
         env = get_object_or_404(self, pk=pk)
-        if env.scope == Scope.GLOBAL:
+        if env.scope == Visibility.GLOBAL:
             if not user.is_admin:
                 raise PermissionDenied("Admin required for global environments")
             return env
@@ -85,7 +85,7 @@ class SandboxEnvironment(TimeStampedModel):
     env is selected."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    scope = models.CharField(max_length=10, choices=Scope.choices, default=Scope.USER)
+    scope = models.CharField(max_length=10, choices=Visibility.choices, default=Visibility.USER)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="sandbox_environments", null=True, blank=True
     )
@@ -207,7 +207,7 @@ class SandboxEnvironment(TimeStampedModel):
         (the ``env_default_only_on_global`` CheckConstraint enforces it) but
         defends unsaved/in-memory instances against the disallowed combo.
         """
-        return self.scope == Scope.GLOBAL and bool(self.is_default)
+        return self.scope == Visibility.GLOBAL and bool(self.is_default)
 
     def can_delete(self) -> tuple[bool, str | None]:
         """Row-level invariant gate for delete. ``promote_as_default`` must run
@@ -291,7 +291,7 @@ class SandboxEnvironment(TimeStampedModel):
         if not cleaned:
             return
         qs = SandboxEnvironment.objects.filter(scope=self.scope)
-        if self.scope == Scope.USER:
+        if self.scope == Visibility.USER:
             qs = qs.filter(user=self.user)
         if self.pk is not None:
             qs = qs.exclude(pk=self.pk)
@@ -367,9 +367,9 @@ class SandboxEnvironment(TimeStampedModel):
                 fresh = SandboxEnvironment.objects.select_for_update().get(pk=self.pk)
             except SandboxEnvironment.DoesNotExist as err:
                 raise ValidationError(_("Sandbox environment no longer exists.")) from err
-            if fresh.scope != Scope.GLOBAL:
+            if fresh.scope != Visibility.GLOBAL:
                 raise ValidationError(_("Only GLOBAL environments can be marked as default."))
-            SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).exclude(pk=fresh.pk).update(
+            SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL, is_default=True).exclude(pk=fresh.pk).update(
                 is_default=False
             )
             fresh.is_default = True

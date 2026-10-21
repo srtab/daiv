@@ -3,8 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from asgiref.sync import sync_to_async
-from sandbox_envs.models import SandboxEnvironment
-from sandbox_envs.models import Scope as SandboxScope
+from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.models import Run, RunStatus, SessionOrigin
 from sessions.queue import (
     LINK_FAILED_PREFIX,
@@ -36,7 +35,7 @@ class TestAenqueueRun:
     async def test_the_task_kwargs_come_from_the_row(
         self, create_db_task_result, member_user, trigger_type, ask_user_enabled
     ):
-        env = await SandboxEnvironment.objects.acreate(scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14")
+        env = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="ci", base_image="python:3.14")
         run = await sync_to_async(make_run)(
             session_id=str(uuid.uuid4()),
             status=RunStatus.READY,

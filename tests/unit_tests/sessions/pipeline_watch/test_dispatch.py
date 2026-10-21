@@ -11,8 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 from asgiref.sync import sync_to_async
-from sandbox_envs.models import SandboxEnvironment
-from sandbox_envs.models import Scope as SandboxScope
+from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.ids import compute_thread_id
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
@@ -121,13 +120,13 @@ async def test_the_fix_run_keeps_the_sessions_environment_after_the_repo_binding
     calls, holder = stub_enqueue
     holder["result"] = await sync_to_async(create_db_task_result)()
     original = await SandboxEnvironment.objects.acreate(
-        scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14", repo_ids=["group/repo"]
+        scope=Visibility.GLOBAL, name="ci", base_image="python:3.14", repo_ids=["group/repo"]
     )
     session = await _make_watched_session(sandbox_environment=original)
     original.repo_ids = []
     await original.asave(update_fields=["repo_ids"])
     await SandboxEnvironment.objects.acreate(
-        scope=SandboxScope.GLOBAL, name="ci-next", base_image="python:3.14-slim", repo_ids=["group/repo"]
+        scope=Visibility.GLOBAL, name="ci-next", base_image="python:3.14-slim", repo_ids=["group/repo"]
     )
 
     await FixRunDispatcher().adispatch(
@@ -149,9 +148,7 @@ async def test_a_fix_run_runs_in_the_environment_of_the_run_that_published_the_m
 
     calls, holder = stub_enqueue
     holder["result"] = await sync_to_async(create_db_task_result)()
-    picked = await SandboxEnvironment.objects.acreate(
-        scope=SandboxScope.GLOBAL, name="picked", base_image="python:3.14"
-    )
+    picked = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="picked", base_image="python:3.14")
 
     await PipelineWatch("group/repo").aarm_after_run(
         run_id=None,
@@ -176,7 +173,7 @@ async def test_a_session_without_an_environment_runs_its_fix_on_the_global_defau
     holder["result"] = await sync_to_async(create_db_task_result)()
     session = await _make_watched_session()
     await SandboxEnvironment.objects.acreate(
-        scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14", repo_ids=["group/repo"]
+        scope=Visibility.GLOBAL, name="ci", base_image="python:3.14", repo_ids=["group/repo"]
     )
 
     await FixRunDispatcher().adispatch(

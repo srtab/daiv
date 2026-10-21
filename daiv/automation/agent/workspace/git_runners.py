@@ -69,16 +69,47 @@ class GitRunner(Protocol):
         ...
 
 
+_NO_COMMAND_HOOKS = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null")
+_NO_DIFF_DRIVERS = ("--no-ext-diff", "--no-textconv")
+_INHERITED_ENV = (
+    "PATH",
+    "HOME",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "all_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
+    "GIT_SSL_CAINFO",
+    "GIT_SSL_CAPATH",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+)
+
+
+def _git_argv(working_dir: str | os.PathLike[str], args: tuple[str, ...]) -> list[str | os.PathLike[str]]:
+    if args[:1] == ("diff",):
+        args = ("diff", *_NO_DIFF_DRIVERS, *args[1:])
+    return ["git", *_NO_COMMAND_HOOKS, "-C", working_dir, *args]
+
+
+def _git_env(auth_env: GitAuthEnv | None) -> dict[str, str]:
+    inherited = {name: os.environ[name] for name in _INHERITED_ENV if name in os.environ}
+    return {**inherited, **GIT_NO_PROMPT_ENV, **(auth_env.as_env() if auth_env else {})}
+
+
 def _run_git(working_dir: str | os.PathLike[str], args: tuple[str, ...], auth_env: GitAuthEnv | None) -> GitResult:
     try:
         proc = subprocess.run(  # noqa: S603
-            ["git", "-C", working_dir, *args],  # noqa: S607
+            _git_argv(working_dir, args),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             errors="replace",
             check=False,
-            env={**os.environ, **GIT_NO_PROMPT_ENV, **(auth_env.as_env() if auth_env else {})},
+            env=_git_env(auth_env),
         )
     except (OSError, ValueError) as exc:
         spawn_error = type(exc).__name__
@@ -92,7 +123,12 @@ def _run_git(working_dir: str | os.PathLike[str], args: tuple[str, ...], auth_en
 class LocalGitRunner:
     """Runs git as a subprocess over the worker's clone: a disk-backed run's repository.
 
-    ``auth_env`` (``RepoClient.get_git_auth_env``) is overlaid on every subprocess's environment so network git
+    The agent can write the clone, though not its ``.git``. Behind that refusal, git runs with fsmonitor, hooks and
+    external diff and textconv drivers switched off (a planted config has other ways to name a command, such as
+    ``filter.*.clean``), and with only the variables of the worker's environment that git needs: the rest holds
+    DAIV's secrets.
+
+    ``auth_env`` (``RepoClient.get_git_auth_env``) is added to every subprocess's environment so network git
     (push/fetch/ls-remote) can authenticate — the clone's ``.git/config`` deliberately holds no credential. Git's
     credential prompts are disabled with or without it, so an unauthenticated or rejected remote fails fast with
     ``could not read Username`` instead of hanging an unattended publish. ``output`` interleaves stderr with stdout,

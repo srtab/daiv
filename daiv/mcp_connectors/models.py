@@ -35,17 +35,17 @@ class MCPServerQuerySet(models.QuerySet):
 
     def global_servers(self):
         # Scope alone is authoritative — a global server may have any ``Source``.
-        return self.filter(scope=MCPServer.Scope.GLOBAL)
+        return self.filter(scope=MCPServer.Visibility.GLOBAL)
 
     def user_servers(self, user):
-        return self.filter(scope=MCPServer.Scope.USER, user=user).order_by("name")
+        return self.filter(scope=MCPServer.Visibility.USER, user=user).order_by("name")
 
     def scoped_get(self, user, pk):
         """Fetch ``pk`` for an EDIT. GLOBAL → admin only (``PermissionDenied``);
         USER → owner only (``Http404`` otherwise). Admins may NOT edit another
         user's personal server — only manage it (see ``manageable_get``)."""
         server = get_object_or_404(self, pk=pk)
-        if server.scope == MCPServer.Scope.GLOBAL:
+        if server.scope == MCPServer.Visibility.GLOBAL:
             if not user.is_admin:
                 raise PermissionDenied("Admin required for global MCP servers")
             return server
@@ -57,7 +57,7 @@ class MCPServerQuerySet(models.QuerySet):
         """Fetch ``pk`` for a MANAGE action (enable/disable, delete, refresh).
         GLOBAL → admin only; USER → owner or admin."""
         server = get_object_or_404(self, pk=pk)
-        if server.scope == MCPServer.Scope.GLOBAL:
+        if server.scope == MCPServer.Visibility.GLOBAL:
             if not user.is_admin:
                 raise PermissionDenied("Admin required for global MCP servers")
             return server
@@ -92,7 +92,7 @@ class MCPServer(TimeStampedModel):
         LITERAL = "literal", "literal"
         ENV_REF = "env_ref", "env_ref"
 
-    class Scope(models.TextChoices):
+    class Visibility(models.TextChoices):
         GLOBAL = "global", _("Global")
         USER = "user", _("User")
 
@@ -101,7 +101,7 @@ class MCPServer(TimeStampedModel):
     name = models.SlugField(_("name"), max_length=80, validators=[RegexValidator(regex=MCP_NAME_RE)])
     description = models.CharField(_("description"), max_length=1024, blank=True, default="")
     source = models.CharField(_("source"), max_length=10, choices=Source.choices, default=Source.CUSTOM)
-    scope = models.CharField(_("scope"), max_length=10, choices=Scope.choices, default=Scope.GLOBAL)
+    scope = models.CharField(_("scope"), max_length=10, choices=Visibility.choices, default=Visibility.GLOBAL)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True, related_name="owned_mcp_servers"
     )
@@ -192,7 +192,7 @@ class MCPServer(TimeStampedModel):
 
     @property
     def is_user_scoped(self) -> bool:
-        return self.scope == self.Scope.USER
+        return self.scope == self.Visibility.USER
 
     @property
     def is_loadable(self) -> bool:
