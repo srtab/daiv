@@ -37,7 +37,7 @@ from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
-from sessions.executor.lock import stale_cutoff
+from sessions.executor.lock import session_in_flight
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
@@ -166,6 +166,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
                         "merge_request_iid",
                         "merge_request_web_url",
                         "cost_usd",
+                        "agent_model",
                         "created_at",
                     ).order_by("-created_at", "-id"),
                 )
@@ -330,14 +331,9 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
 
         runs = list(session.runs.order_by("created_at"))
         non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]
-        # A live holder — a chat stream, ``run_job_task``, or a webhook run — bumps
-        # the session heartbeat (``last_active_at``) every ~60s, so the session is
-        # only really in flight while that heartbeat is fresh. A holder stranded
-        # past ``STALE_RUN_MINUTES`` (crashed worker, orphaned queue entry) is dead:
-        # falling through to "not in flight" surfaces the expired banner instead of
-        # pinning the view on a permanent "working" state. This reuses the
-        # staleness signal ``SessionLock`` / ``sync_stuck_runs`` use to decide a holder is dead.
-        is_in_flight = bool(non_terminal) and session.last_active_at >= stale_cutoff()
+        # A dead holder falls through to "not in flight", so the expired banner shows instead of a permanent
+        # "working" state.
+        is_in_flight = session_in_flight(session, runs)
 
         # A freshly submitted run has not checkpointed yet, so "no checkpoint or archive" only means
         # the session is really over once nothing is (freshly) in flight; while in flight the

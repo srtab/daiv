@@ -72,6 +72,17 @@ async def test_finalize_chat_run_records_the_merge_request(django_user_model):
     assert (run.merge_request_iid, run.merge_request_web_url) == (7, "https://git.example/mr/7")
 
 
+async def test_finalize_chat_run_records_code_changes(django_user_model):
+    user = await _mk_user(django_user_model)
+    session = await _mk_chat_session(user)
+    run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hi", repo_id="g/r", ref="main")
+    await finalize_chat_run(
+        run, success=True, usage=None, response_text="done", agent_result=parse_agent_result({"code_changes": True})
+    )
+    await run.arefresh_from_db()
+    assert run.code_changes is True
+
+
 async def test_finalize_chat_run_failure(django_user_model):
     user = await _mk_user(django_user_model)
     session = await _mk_chat_session(user)

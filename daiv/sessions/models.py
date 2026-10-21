@@ -240,6 +240,7 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
     Shared by the same two paths as :func:`usage_field_updates`, for the same reason.
     """
     updates = {
+        "code_changes": result["code_changes"],
         "merge_request_iid": result["merge_request_id"],
         "merge_request_web_url": result["merge_request_web_url"],
     }
@@ -425,9 +426,6 @@ class Run(models.Model):
             if parsed["response"] and not self.result_summary:
                 self.result_summary = parsed["response"][:2000]
                 changed.append("result_summary")
-            if parsed["code_changes"] and not self.code_changes:
-                self.code_changes = True
-                changed.append("code_changes")
             for field, value in agent_result_field_updates(parsed).items():
                 if not getattr(self, field):
                     setattr(self, field, value)

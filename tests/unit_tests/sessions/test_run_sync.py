@@ -78,6 +78,14 @@ def test_usage_not_resynced_when_input_tokens_already_set(create_db_task_result)
     assert run.input_tokens == 7  # the `input_tokens is None` guard prevents overwrite
 
 
+def test_code_changes_synced_from_the_task_result(create_db_task_result):
+    tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "x", "code_changes": True})
+    run = _run(tr)
+    assert "code_changes" in run.sync_from_task_result()
+    assert run.code_changes is True
+    assert run.sync_from_task_result() == []
+
+
 def test_no_usage_leaves_token_fields_null(create_db_task_result):
     tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "x"})
     run = _run(tr)
