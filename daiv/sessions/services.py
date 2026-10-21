@@ -33,10 +33,15 @@ logger = logging.getLogger("daiv.sessions")
 
 @dataclass(frozen=True)
 class RepoTarget:
+    """``references`` add to the batch's for this repository; ``waits_for_run_id`` holds its run QUEUED until that
+    run has finished."""
+
     repo_id: str
     ref: str = ""
     sandbox_environment_id: str | None = None
     prompt: str = ""
+    references: tuple[RefIn, ...] = ()
+    waits_for_run_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -228,6 +233,7 @@ def create_run(
     mcp_overrides: dict | None = None,
     parent: Session | None = None,
     continuation_of_batch_id: uuid.UUID | None = None,
+    waits_for_id: uuid.UUID | None = None,
 ) -> Run:
     """Create a Session (idempotent) then a Run linked to it."""
     session = get_or_create_session(
@@ -264,6 +270,7 @@ def create_run(
         sandbox_environment_id=sandbox_environment_id,
         merge_request_iid=merge_request_iid,
         continuation_of_batch_id=continuation_of_batch_id,
+        waits_for_id=waits_for_id,
     )
 
 
@@ -291,6 +298,8 @@ async def asubmit_batch_runs(
     Each ``RepoTarget`` carries its own ``sandbox_environment_id`` (resolved upstream by
     :func:`sandbox_envs.selection.aresolve_repo_envs` or its sync wrapper), so the batch can mix per-repo envs,
     and may carry its own ``prompt``, which replaces ``prompt`` for that repository; ``prompt`` still titles the batch.
+    A target's ``references`` add to ``references`` for its run, and one with ``waits_for_run_id`` is created QUEUED
+    and left for the queue to start once that run finishes.
     ``parent`` is the coordinator session a delegated batch's new sessions hang under.
 
     Best-effort: a per-repo failure (run creation, refs merge, enqueue or link) lands in
@@ -311,7 +320,7 @@ async def asubmit_batch_runs(
         if len(repos) != 1:
             raise ValueError("thread_id continuation requires exactly one repo")
     stored_refs = [ref.to_stored() for ref in references or []]
-    if len(stored_refs) > MAX_REFS_PER_SUBMISSION:
+    if any(len(stored_refs) + len(target.references) > MAX_REFS_PER_SUBMISSION for target in repos):
         raise ValueError(f"references exceeds the maximum of {MAX_REFS_PER_SUBMISSION}")
     batch_id = uuid.uuid4()
 
@@ -343,14 +352,16 @@ async def asubmit_batch_runs(
             "sandbox_environment_id": target.sandbox_environment_id,
             "mcp_overrides": mcp_overrides,
             "parent": parent,
+            "waits_for_id": target.waits_for_run_id,
         }
+        initial_status = RunStatus.QUEUED if target.waits_for_run_id is not None else RunStatus.READY
 
         # Claim the session atomically by trying to create a READY row. The partial
         # unique constraint ``run_one_active_per_session`` raises IntegrityError
         # when a sibling (READY/RUNNING) is already active on this session — in that
         # case we fall back to QUEUED, no task enqueue.
         try:
-            run = await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.READY)
+            run = await acreate_run(**common_kwargs, task_result_id=None, status=initial_status)
         except IntegrityError:
             try:
                 run = await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.QUEUED)
@@ -367,9 +378,9 @@ async def asubmit_batch_runs(
                 repo_id=target.repo_id, ref=target.ref, error=f"RunCreationFailed: {type(err).__name__}: {err}"
             )
 
-        if stored_refs:
+        if target_refs := [*stored_refs, *(ref.to_stored() for ref in target.references)]:
             try:
-                await _amerge_session_refs(run.session, stored_refs)
+                await _amerge_session_refs(run.session, target_refs)
             except Exception as err:  # noqa: BLE001
                 # A READY row left behind would hold the one-active-per-session claim forever
                 # (never enqueued → run_finished never fires → siblings stay QUEUED).

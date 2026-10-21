@@ -185,6 +185,12 @@ msgstr "continua o lote delegado"
 msgid "The delegated batch whose finish queued this run on the coordinator's session."
 msgstr "O lote delegado cuja conclusão colocou esta execução na fila da sessão do coordenador."
 
+msgid "waits for"
+msgstr "aguarda por"
+
+msgid "While this run is QUEUED, it starts only once that run has finished."
+msgstr "Enquanto esta execução estiver em fila, só começa quando essa execução terminar."
+
 msgid "prompt"
 msgstr "prompt"
 

@@ -1,5 +1,5 @@
-"""The ``delegate_jobs`` tool: fan tailored sub-jobs out to other repositories and end the turn; the run executor's
-``JobDelegator`` starts them and resumes the session once they have all finished.
+"""The ``delegate_jobs`` tool: fan tailored sub-jobs out, to other repositories or to new sessions on this one, and end
+the turn; the run executor's ``JobDelegator`` starts them and resumes the session once they have all finished.
 
 Bound only on repositories that opt in with ``orchestration.enabled`` in ``.daiv.yml``, so its system prompt carries
 the coordinator workflow that would otherwise need a skill on every repository.
@@ -25,6 +25,7 @@ from automation.agent.delegation import (
     DelegatedTarget,
     DelegationError,
 )
+from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -35,52 +36,82 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.tools")
 
-NO_CHANGE_CONVENTION = "If this repository is unaffected, reply saying so and make no changes."
+NO_CHANGE_CONVENTION = "If there is nothing to change, reply saying so and make no changes."
 
 
 class DelegateTarget(BaseModel):
-    repo_id: str = Field(min_length=1, description="The target repository's identifier.")
-    ref: str | None = Field(default=None, description="Branch to start from; omit for the default branch.")
+    repo_id: str = Field(
+        min_length=1, description="The repository the leg works on; this repository's own for a sub-session here."
+    )
+    ref: str | None = Field(
+        default=None,
+        description=(
+            "Branch the leg starts from and its merge request targets; omit for the default branch, or give your "
+            "current branch to build on your work."
+        ),
+    )
     prompt: str = Field(
         min_length=1,
         description=(
-            "Self-contained instruction for this repository. The leg sees only this text, not your conversation, "
-            f"the request or your tool results, so include everything it needs. End with: '{NO_CHANGE_CONVENTION}'"
+            "Self-contained instruction for this leg. It sees only this text, not your conversation, the request or "
+            f"your tool results, so include everything it needs. End with: '{NO_CHANGE_CONVENTION}'"
+        ),
+    )
+    references: list[RefIn] = Field(
+        default_factory=list,
+        max_length=MAX_REFS_PER_SUBMISSION,
+        description=(
+            "Issues or tickets to link into the leg's merge request, e.g. the Sentry issue it fixes; relation "
+            "`closes` resolves it on merge where the provider supports it."
         ),
     )
 
 
 DELEGATE_JOBS_DESCRIPTION = f"""\
-Delegate tailored sub-jobs to other repositories and return without waiting.
+Delegate tailored sub-jobs, on this repository or on others, and return without waiting.
 
-Each target runs as an independent job on its repository (its own session and merge request) and sees only its \
-`prompt`. Once every started leg has finished, you are resumed with a summary of all of them.
+Each target runs as an independent job in a session of its own, sees only its `prompt`, and publishes to a new \
+branch and merge request of its own. Once every started leg has finished, you are resumed with a summary of all of \
+them.
 
 - `goal`: one line naming the overall objective; it titles the batch and is never sent to a leg.
-- `targets`: 1-{MAX_DELEGATED_TARGETS} entries of `{{repo_id, ref?, prompt}}`; omit `ref` for the default branch.
+- `targets`: 1-{MAX_DELEGATED_TARGETS} entries of `{{repo_id, ref?, prompt, references?}}`. `ref` is the branch \
+the leg starts from and its merge request targets: omit it for the default branch, or give your current branch to \
+build on your work, and that leg starts once your turn ends. `references` link issues or tickets into the leg's \
+merge request.
 
-Returns JSON: `{{"batch_id", "started": [{{repo_id, ref, thread_id, session_url}}], \
+Returns JSON: `{{"batch_id", "started": [{{repo_id, ref, thread_id, session_url, starts_after_this_turn}}], \
 "failed": [{{repo_id, ref, error}}]}}`."""
 
 DELEGATE_JOBS_SYSTEM_PROMPT = f"""\
-## Delegating to other repositories (`{DELEGATE_JOBS_TOOL_NAME}`)
+## Delegating sub-jobs (`{DELEGATE_JOBS_TOOL_NAME}`)
 
-This repository coordinates work across other repositories. When a request needs work in other repositories, \
-delegate it with `{DELEGATE_JOBS_TOOL_NAME}` instead of doing it here: each target runs as an independent job with \
-its own repository's configuration and opens its own merge request.
+`{DELEGATE_JOBS_TOOL_NAME}` starts independent jobs (legs), on this repository or on others, and resumes you once \
+they have all finished. Each leg runs in a session of its own, with a fresh clone, its own context and budget and \
+its repository's configuration, and publishes to a new branch and merge request of its own.
 
-1. Decide which repositories the request affects and what each must do. This setup's routing rules live in this \
-repository's AGENTS.md.
-2. Call `{DELEGATE_JOBS_TOOL_NAME}` once, with one target per repository and a prompt tailored to it. A leg sees only \
-its prompt, so put everything it needs in it, and end it with: "{NO_CHANGE_CONVENTION}"
+Pick the tool by the size and the destination of the work:
+- `task` (subagents): focused or parallel work that fits in this turn and this workspace.
+- `{DELEGATE_JOBS_TOOL_NAME}` on this repository: work too big for this turn, or a separate change that deserves a \
+merge request of its own, such as one fix per finding of a triage.
+- `{DELEGATE_JOBS_TOOL_NAME}` on other repositories: work that belongs there.
+
+Delegate what the request calls for. For a problem you came across on the way, propose the fix first and delegate \
+it once the user agrees.
+
+A leg's `ref` decides where its merge request lands. Omit it for the default branch, for a change that stands on its \
+own. Give your current branch to build on your work: that leg starts once your turn ends, so it sees what this turn \
+publishes, and when you are resumed you can merge its branch into yours or leave its merge request for review.
+
+1. Decide what each leg must do. Any routing rules for this setup live in AGENTS.md.
+2. Call `{DELEGATE_JOBS_TOOL_NAME}` once, with a prompt tailored to each leg. A leg sees only its prompt, so put \
+everything it needs in it, and end it with: "{NO_CHANGE_CONVENTION}" Link the issue or ticket a leg works on with its \
+`references`.
 3. If `started` is not empty, state your plan and end your turn. Do not poll or wait: you are resumed automatically, \
-with each leg's status, merge request and reply, once they have all finished.
+with each leg's status, branch, merge request and reply, once they have all finished.
 4. If `started` is empty, nothing is running and no resume will come: deal with the failures in this turn.
-5. When resumed, check the outcome and report it where the request came from (e.g. a comment on the ticket or issue). \
-If follow-up work depends on a leg's result, delegate another batch; you are resumed again.
-
-For parallel work inside this repository, use the `task` tool (subagents); `{DELEGATE_JOBS_TOOL_NAME}` refuses this \
-repository's own checkout."""
+5. When resumed, check the outcome and report it where the request came from. If follow-up work depends on a leg's \
+result, delegate another batch; you are resumed again."""
 
 _NOTHING_STARTED_NOTE = "No sub-job is running and no resume will come: deal with the failures in this turn."
 _INTERNAL_FAILURE = (
@@ -114,7 +145,12 @@ class DelegateJobsMiddleware(AgentMiddleware):
                 checkout=Checkout(repo_id=repo.repo_id, ref=repo.ref, default_branch=repo.config.default_branch or ""),
                 goal=goal.strip(),
                 targets=[
-                    DelegatedTarget(repo_id=t.repo_id.strip(), ref=(t.ref or "").strip(), prompt=t.prompt.strip())
+                    DelegatedTarget(
+                        repo_id=t.repo_id.strip(),
+                        ref=(t.ref or "").strip(),
+                        prompt=t.prompt.strip(),
+                        references=tuple(t.references),
+                    )
                     for t in targets
                 ],
             )

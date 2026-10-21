@@ -418,6 +418,48 @@ class TestAsubmitBatchRuns:
 
         assert await Session.objects.filter(pk=result.runs[0].session_id, parent=coordinator).aexists()
 
+    async def test_a_targets_references_add_to_the_batchs_for_its_run_only(self, member_user):
+        patcher, mock_task = _patch_run_job_task(side_effect=[await _make_db_task_result() for _ in range(2)])
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[
+                    RepoTarget(repo_id="a/b", references=(RefIn(key="DAIV-1V", provider="sentry"),)),
+                    RepoTarget(repo_id="a/c"),
+                ],
+                trigger_type=SessionOrigin.API_JOB,
+                references=[RefIn(key="PROJ-1", provider="jira")],
+            )
+
+        keys = {}
+        for run in result.runs:
+            session = await Session.objects.aget(pk=run.session_id)
+            keys[run.repo_id] = sorted(ref.key for ref in session.external_references())
+        assert keys == {"a/b": ["DAIV-1V", "PROJ-1"], "a/c": ["PROJ-1"]}
+
+    async def test_a_waiting_target_is_created_queued_and_left_for_the_queue(self, member_user):
+        awaited = await Run.objects.acreate(
+            session=await Session.objects.acreate(
+                thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="acme/coord"
+            ),
+            trigger_type=SessionOrigin.API_JOB,
+            repo_id="acme/coord",
+            status=RunStatus.RUNNING,
+        )
+        patcher, mock_task = _patch_run_job_task()
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[RepoTarget(repo_id="acme/coord", ref="feat/x", waits_for_run_id=awaited.pk)],
+                trigger_type=SessionOrigin.DELEGATED_JOB,
+            )
+
+        mock_task.aenqueue.assert_not_called()
+        [run] = result.runs
+        assert (run.status, run.waits_for_id) == (RunStatus.QUEUED, awaited.pk)
+
 
 # ---------------------------------------------------------------------------
 # Batch title task tests (ported from TestBatchTitleEnqueue)

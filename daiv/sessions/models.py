@@ -295,6 +295,15 @@ class Run(models.Model):
         db_index=True,
         help_text=_("The delegated batch whose finish queued this run on the coordinator's session."),
     )
+    waits_for = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="waiting_runs",
+        verbose_name=_("waits for"),
+        help_text=_("While this run is QUEUED, it starts only once that run has finished."),
+    )
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     prompt = models.TextField(_("prompt"), blank=True, default="")

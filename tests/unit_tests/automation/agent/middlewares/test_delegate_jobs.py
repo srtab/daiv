@@ -20,6 +20,7 @@ from automation.agent.middlewares.delegate_jobs import (
     DelegateJobsMiddleware,
     DelegateTarget,
 )
+from automation.agent.references import RefIn
 
 REPO = SimpleNamespace(repo_id="acme/coord", ref="feature", config=SimpleNamespace(default_branch="main"))
 
@@ -82,17 +83,33 @@ async def test_the_targets_reach_the_delegator_trimmed_with_the_runs_own_checkou
     )
 
 
+async def test_a_targets_references_reach_the_delegator():
+    delegator = _delegator(DelegationResult(batch_id="b1", started=[StartedLeg("acme/api", "", "t2", "https://x/t2")]))
+    sentry = RefIn(key="DAIV-1V", provider="sentry", url="https://sentry.example/issues/1", relation="closes")
+
+    await _call(delegator, targets=[DelegateTarget(repo_id="acme/api", prompt="Fix it.", references=[sentry])])
+
+    [target] = delegator.adelegate.await_args.kwargs["targets"]
+    assert target.references == (sentry,)
+
+
 async def test_it_returns_the_started_and_failed_legs():
     result = DelegationResult(
         batch_id="b1",
-        started=[StartedLeg("acme/api", "", "t2", "https://daiv.example/sessions/t2/")],
+        started=[StartedLeg("acme/api", "", "t2", "https://daiv.example/sessions/t2/", starts_after_this_turn=True)],
         failed=[FailedLeg("acme/web", "", "denied")],
     )
 
     assert await _call(_delegator(result)) == {
         "batch_id": "b1",
         "started": [
-            {"repo_id": "acme/api", "ref": "", "thread_id": "t2", "session_url": "https://daiv.example/sessions/t2/"}
+            {
+                "repo_id": "acme/api",
+                "ref": "",
+                "thread_id": "t2",
+                "session_url": "https://daiv.example/sessions/t2/",
+                "starts_after_this_turn": True,
+            }
         ],
         "failed": [{"repo_id": "acme/web", "ref": "", "error": "denied"}],
     }

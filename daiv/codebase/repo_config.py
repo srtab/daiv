@@ -77,14 +77,14 @@ class Memory(BaseModel):
 
 class Orchestration(BaseModel):
     """
-    Cross-repository delegation configuration.
+    Delegation configuration.
     """
 
     enabled: bool = Field(
         default=False,
         description=(
-            "Let the agent delegate tailored sub-jobs to other repositories with the delegate_jobs tool and resume "
-            "once they finish. Meant for a coordination repository."
+            "Let the agent delegate tailored sub-jobs, to other repositories or to new sessions on this one, with the "
+            "delegate_jobs tool and resume once they finish."
         ),
     )
 
@@ -207,7 +207,8 @@ class RepositoryConfig(BaseModel):
     )
     memory: Memory = Field(default_factory=Memory, description="Configure learned repository memory features.")
     orchestration: Orchestration = Field(
-        default_factory=Orchestration, description="Configure delegation of sub-jobs to other repositories."
+        default_factory=Orchestration,
+        description="Configure delegation of sub-jobs to other repositories or to this one.",
     )
     models: Models = Field(default_factory=Models, description="Configure model settings for agents.")
 

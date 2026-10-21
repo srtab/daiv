@@ -12,10 +12,10 @@ from django.dispatch import receiver
 from django_tasks.signals import task_finished, task_started
 
 from core import ui_events
-from sessions.delegation import resume_coordinator
+from sessions.delegation import restack_waiting_legs, resume_coordinator
 from sessions.models import Run, RunStatus, Session
-from sessions.queue import dispatch_next_queued
-from sessions.signal_defs import run_finished
+from sessions.queue import dispatch_next_queued, release_runs_waiting_for
+from sessions.signal_defs import run_ended, run_finished
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -121,6 +121,17 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
         return
     if session_id := getattr(run, "session_id", None):
         dispatch_next_queued(session_id)
+
+
+@receiver(run_ended, dispatch_uid="sessions.release_waiting_runs")
+def release_waiting_runs(sender: type, run: Any, **kwargs: Any) -> None:
+    """Start the QUEUED runs that waited for ``run`` (:func:`sessions.queue.release_runs_waiting_for`), once its
+    delegated legs are based on the branch it left its session on (:func:`sessions.delegation.restack_waiting_legs`).
+
+    On ``run_ended`` rather than ``run_finished`` so a chat turn that delegated releases its waiting legs too.
+    """
+    restack_waiting_legs(run)
+    release_runs_waiting_for(run)
 
 
 @receiver(run_finished, dispatch_uid="sessions.resume_delegating_session")

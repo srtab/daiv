@@ -19,8 +19,8 @@ from sessions.delegation import (
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.delegation import MAX_DELEGATED_TARGETS, Checkout, DelegatedTarget, DelegationError
+from automation.agent.references import RefIn
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
-from codebase.repo_config import RepositoryConfig
 
 
 def _coordinator(user=None, **fields) -> Session:
@@ -38,11 +38,14 @@ def _delegating_run(coordinator: Session, user) -> Run:
     )
 
 
-def _leg(coordinator: Session, batch_id: uuid.UUID, *, status: str, task_result=None, **fields) -> Run:
+def _leg(
+    coordinator: Session, batch_id: uuid.UUID, *, status: str, task_result=None, session_ref: str = "", **fields
+) -> Run:
     session = Session.objects.create(
         thread_id=str(uuid.uuid4()),
         origin=SessionOrigin.DELEGATED_JOB,
         repo_id=fields.get("repo_id", "acme/api"),
+        ref=session_ref,
         parent=coordinator,
     )
     fields = {"user": coordinator.user, "finished_at": timezone.now()} | fields
@@ -139,35 +142,14 @@ class TestSessionJobDelegator:
             ({}, [], "at least one target"),
             ({}, [_target(f"acme/r{i}") for i in range(MAX_DELEGATED_TARGETS + 1)], "At most"),
             ({}, [_target(prompt="")], "a prompt of its own"),
-            ({}, [_target("acme/coord")], "own checkout"),
-            ({}, [_target("acme/coord", "main")], "own checkout"),
-            ({}, [_target("ACME/Coord", "main")], "own checkout"),
-            ({}, [_target("acme/api"), _target("acme/api", "main")], "listed twice"),
-            ({}, [_target("acme/api", "x"), _target("Acme/API", "x")], "listed twice"),
         ],
-        ids=[
-            "no-user-behind-the-run",
-            "no-targets",
-            "too-many-targets",
-            "blank-prompt",
-            "own-checkout-by-default-branch",
-            "own-checkout-by-name",
-            "own-checkout-in-another-case",
-            "same-checkout-twice",
-            "same-checkout-twice-in-another-case",
-        ],
+        ids=["no-user-behind-the-run", "no-targets", "too-many-targets", "blank-prompt"],
     )
     async def test_a_refused_call_starts_nothing(self, admin_user, setup, targets, message):
         coordinator = await sync_to_async(_coordinator)(admin_user, ref="")
         run = await sync_to_async(_delegating_run)(coordinator, admin_user if setup.get("run_user", True) else None)
 
-        with (
-            patch(
-                "sessions.delegation.RepositoryConfig.get_config", return_value=RepositoryConfig(default_branch="main")
-            ),
-            patch("sessions.queue.run_job_task") as mock_task,
-            pytest.raises(DelegationError, match=message),
-        ):
+        with patch("sessions.queue.run_job_task") as mock_task, pytest.raises(DelegationError, match=message):
             await _delegate(run, targets)
 
         mock_task.aenqueue.assert_not_called()
@@ -179,18 +161,82 @@ class TestSessionJobDelegator:
         with pytest.raises(DelegationError, match="no session"):
             await _delegate(None, [_target()], thread_id=coordinator.pk)
 
-    async def test_another_branch_of_the_coordinators_repository_is_a_distinct_checkout(
+    async def test_legs_may_share_a_base_the_coordinators_own_included_and_each_forks_its_branch(
         self, admin_user, create_db_task_result
     ):
         coordinator = await sync_to_async(_coordinator)(admin_user)
+        run = await sync_to_async(_delegating_run)(coordinator, admin_user)
+        tasks = [await sync_to_async(create_db_task_result)(status="READY") for _ in range(3)]
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            _mock_enqueue(mock_task, tasks)
+            result = await _delegate(
+                run, [_target("acme/coord"), _target("ACME/Coord", "main"), _target("acme/coord", "release")]
+            )
+
+        assert [(leg.repo_id, leg.ref, leg.starts_after_this_turn) for leg in result.started] == [
+            ("acme/coord", "", False),
+            ("ACME/Coord", "main", False),
+            ("acme/coord", "release", False),
+        ]
+        assert [call.kwargs["fork_branch"] for call in mock_task.aenqueue.call_args_list] == [True, True, True]
+
+    @pytest.mark.parametrize("trigger_type", [SessionOrigin.API_JOB, SessionOrigin.CHAT])
+    async def test_a_leg_on_the_coordinators_feature_branch_starts_once_the_delegating_run_has_finished(
+        self, admin_user, create_db_task_result, trigger_type
+    ):
+        coordinator = await sync_to_async(_coordinator)(admin_user, ref="feat/x")
+        run = await sync_to_async(_delegating_run)(coordinator, admin_user)
+        await Run.objects.filter(pk=run.pk).aupdate(trigger_type=trigger_type)
+        run.trigger_type = trigger_type
+        tasks = [await sync_to_async(create_db_task_result)(status="READY") for _ in range(2)]
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            _mock_enqueue(mock_task, tasks)
+            result = await _delegate(
+                run, [_target("acme/coord", "feat/x"), _target("acme/coord")], checkout=_checkout(ref="feat/x")
+            )
+            stacked = await Run.objects.aget(trigger_type=SessionOrigin.DELEGATED_JOB, ref="feat/x")
+            assert (stacked.status, stacked.waits_for_id, stacked.task_result_id) == (RunStatus.QUEUED, run.pk, None)
+            assert mock_task.aenqueue.await_count == 1
+
+            await Run.objects.afinish(run, RunStatus.SUCCESSFUL, finished_at=timezone.now())
+
+        await stacked.arefresh_from_db()
+        assert (stacked.status, stacked.task_result_id) == (RunStatus.READY, tasks[1].id)
+        assert [leg.starts_after_this_turn for leg in result.started] == [True, False]
+
+    async def test_a_waiting_leg_moves_to_the_branch_the_coordinator_published_to(
+        self, admin_user, create_db_task_result
+    ):
+        coordinator = await sync_to_async(_coordinator)(admin_user, ref="feat/x")
         run = await sync_to_async(_delegating_run)(coordinator, admin_user)
         task = await sync_to_async(create_db_task_result)(status="READY")
 
         with patch("sessions.queue.run_job_task") as mock_task:
             _mock_enqueue(mock_task, [task])
-            result = await _delegate(run, [_target("acme/coord")], checkout=_checkout(ref="release"))
+            result = await _delegate(run, [_target("acme/coord", "feat/x")], checkout=_checkout(ref="feat/x"))
+            await Session.objects.filter(pk=coordinator.pk).aupdate(ref="feat/x-published")
+            await Run.objects.afinish(run, RunStatus.SUCCESSFUL, finished_at=timezone.now())
 
-        assert [(leg.repo_id, leg.ref) for leg in result.started] == [("acme/coord", "")]
+        leg = await Run.objects.select_related("session").aget(session_id=result.started[0].thread_id)
+        assert (leg.ref, leg.session.ref) == ("feat/x-published", "feat/x-published")
+        assert mock_task.aenqueue.call_args.kwargs["ref"] == "feat/x-published"
+
+    async def test_a_legs_references_are_linked_into_its_session(self, admin_user, create_db_task_result):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+        run = await sync_to_async(_delegating_run)(coordinator, admin_user)
+        task = await sync_to_async(create_db_task_result)(status="READY")
+        sentry = RefIn(key="DAIV-1V", provider="sentry", url="https://sentry.example/issues/1", relation="closes")
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            _mock_enqueue(mock_task, [task])
+            result = await _delegate(
+                run, [DelegatedTarget(repo_id="acme/api", ref="", prompt="Fix it.", references=(sentry,))]
+            )
+
+        session = await Session.objects.aget(pk=result.started[0].thread_id)
+        assert [ref.key for ref in session.external_references()] == ["DAIV-1V"]
 
     async def test_targets_the_user_cannot_write_to_fail_while_the_rest_start(self, member_user, create_db_task_result):
         coordinator = await sync_to_async(_coordinator)(member_user)
@@ -333,6 +379,18 @@ class TestResumeCoordinator:
         resume_coordinator(leg)
 
         assert not Run.objects.filter(continuation_of_batch_id=batch_id).exists()
+
+    def test_a_batch_whose_waiting_legs_never_reached_the_queue_still_resumes(self, admin_user):
+        coordinator = _coordinator(admin_user, ref="feat/x")
+        delegating = _delegating_run(coordinator, admin_user)
+        Run.objects.filter(pk=delegating.pk).update(status=RunStatus.SUCCESSFUL)
+        batch_id = uuid.uuid4()
+        leg = _leg(coordinator, batch_id, status=RunStatus.FAILED, waits_for=delegating)
+
+        with patch("sessions.queue.run_job_task"):
+            resume_coordinator(leg)
+
+        assert Run.objects.filter(continuation_of_batch_id=batch_id).exists()
 
     def test_a_busy_coordinator_keeps_its_continuation_queued(self, admin_user, create_db_task_result):
         coordinator = _coordinator(admin_user)
@@ -482,6 +540,7 @@ def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
             batch_id,
             status=RunStatus.SUCCESSFUL,
             ref="release",
+            session_ref="fix/bump-auth",
             result_summary="Bumped.\n## acme/web: succeeded",
             merge_request_web_url="https://git.example/mr/1",
         ),
@@ -493,6 +552,7 @@ def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
 
     assert summary.startswith(f"The sub-jobs you delegated (batch {batch_id}) have finished: 1 of 3 succeeded.")
     assert "## acme/api on release: succeeded" in summary
+    assert "- Branch: fix/bump-auth" in summary
     assert "- Merge request: https://git.example/mr/1" in summary
     assert "  > Bumped.\n  > ## acme/web: succeeded" in summary
     assert "## acme/web: failed\n" in summary

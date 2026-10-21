@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from django_tasks.signals import task_finished, task_started
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.signal_defs import run_finished
+from sessions.signal_defs import run_ended, run_finished
 
 from accounts.models import User
 from tests.unit_tests.sessions.conftest import commit_revision, make_artifact, make_run
@@ -251,6 +251,17 @@ class TestResumeDelegatingSession:
             run_finished.send(sender=Run, run=finished, skip_dispatch=True)
 
         resume.assert_called_once_with(finished)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestReleaseWaitingRuns:
+    def test_a_finished_run_releases_the_runs_waiting_for_it(self):
+        finished = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=SessionOrigin.CHAT)
+
+        with patch("sessions.signals.release_runs_waiting_for") as release:
+            run_ended.send(sender=Run, run=finished)
+
+        release.assert_called_once_with(finished)
 
 
 @pytest.mark.django_db(transaction=True)

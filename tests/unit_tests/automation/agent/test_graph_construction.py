@@ -180,12 +180,13 @@ async def _construct(
     slash_commands: bool = True,
     memory: bool = True,
     delegator: object | None = None,
+    fork_branch: bool = False,
 ):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
     ``site`` overrides site values, ``run`` is what the run asks for (``RunOverrides`` fields), and ``slash_commands``
     and ``memory`` are the repo's switches. The builder gets them resolved, as the executor hands them over, along with
-    ``delegator``.
+    ``delegator`` and ``fork_branch``.
     """
     settings = agent_settings(
         site=site_snapshot(**(_SITE | (site or {}))),
@@ -214,7 +215,12 @@ async def _construct(
         ctx = MagicMock()
         ctx.config.context_file_name = "AGENTS.md"
         await create_daiv_agent(
-            settings=settings, ctx=ctx, workspace=FakeWorkspace(), auto_commit_changes=False, delegator=delegator
+            settings=settings,
+            ctx=ctx,
+            workspace=FakeWorkspace(),
+            auto_commit_changes=False,
+            delegator=delegator,
+            fork_branch=fork_branch,
         )
 
     deep_agent = mocks["create_deep_agent"]
@@ -318,6 +324,13 @@ async def test_the_git_middleware_gets_the_runs_settings():
     built = await _construct()
 
     assert built.git_middleware.call_args.kwargs["settings"] is built.settings
+
+
+@pytest.mark.parametrize("fork_branch", [True, False])
+async def test_the_git_middleware_gets_the_runs_fork_branch_flag(fork_branch):
+    built = await _construct(fork_branch=fork_branch)
+
+    assert built.git_middleware.call_args.kwargs["fork_branch"] is fork_branch
 
 
 @pytest.mark.parametrize(("delegator", "bound"), [(Mock(), True), (None, False)], ids=["delegator", "no-delegator"])

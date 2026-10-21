@@ -7,7 +7,7 @@ from django.test import TestCase
 import pytest
 from asgiref.sync import sync_to_async
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.signal_defs import run_finished
+from sessions.signal_defs import run_ended, run_finished
 
 
 def _create_run(*, status: str = RunStatus.RUNNING, trigger_type: str = SessionOrigin.PIPELINE_WEBHOOK) -> Run:
@@ -57,6 +57,18 @@ class TestFinish:
 
         badge.assert_called_once()
         assert not run_finished_spy.called
+
+    @pytest.mark.parametrize("trigger_type", [SessionOrigin.CHAT, SessionOrigin.API_JOB])
+    def test_every_finished_run_emits_run_ended_chat_included(self, trigger_type):
+        run = _create_run(trigger_type=trigger_type)
+        spy = MagicMock()
+        run_ended.connect(spy, dispatch_uid="tests-run-ended-spy")
+        try:
+            Run.objects.finish(run, RunStatus.SUCCESSFUL)
+        finally:
+            run_ended.disconnect(dispatch_uid="tests-run-ended-spy")
+
+        assert spy.call_args.kwargs["run"] is run
 
     def test_a_finished_row_is_never_overwritten(self, run_finished_spy, badge):
         run = _create_run()

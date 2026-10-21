@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from django.db import models, transaction
 
 from core import ui_events
-from sessions.signal_defs import run_finished
+from sessions.signal_defs import run_ended, run_finished
 
 if TYPE_CHECKING:
     from accounts.models import User
@@ -145,9 +145,9 @@ class RunManager(models.Manager["Run"]):
 
         The write is one guarded ``UPDATE``: it lands only while the row is not terminal yet and matches ``where``,
         so a finish never overwrites one that got there first. Returns whether this call finished the run. When it
-        did, ``run`` takes the written values, the nav badge is refreshed once the write commits, and
-        ``run_finished`` goes out unless ``run`` is a chat run, which the classification, memory and dispatch receivers
-        must not see.
+        did, ``run`` takes the written values, the nav badge is refreshed once the write commits, ``run_ended`` goes
+        out, and ``run_finished`` follows unless ``run`` is a chat run, which the classification, memory and dispatch
+        receivers must not see.
         """
         _require_terminal(status)
         if not self._unfinished(run, where).update(status=status, **fields):
@@ -215,6 +215,7 @@ class RunManager(models.Manager["Run"]):
     def _emit_run_finished(run: Run, **flags: bool) -> None:
         from sessions.models import SessionOrigin
 
+        run_ended.send_robust(sender=type(run), run=run)
         if run.trigger_type == SessionOrigin.CHAT:
             return
         run_finished.send_robust(sender=type(run), run=run, **flags)

@@ -6,6 +6,9 @@ from the row, so each ``Run`` column reaches the agent the same way whichever pa
 among them: their callbacks enqueue their own tasks. A failed enqueue or link marks the row FAILED and emits
 ``run_finished`` (:func:`amark_failed_and_advance`), so the session's QUEUED siblings advance instead of waiting
 behind a row that will never finish.
+
+A QUEUED run whose ``waits_for`` run has not finished stays QUEUED, and so does every later run of its session: no
+release path starts it early, and :func:`release_runs_waiting_for` starts it once that run ends.
 """
 
 from __future__ import annotations
@@ -63,6 +66,7 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
             run_id=str(run.pk),
             user_id=run.user_id,
             ask_user_enabled=run.trigger_type not in SessionOrigin.unattended(),
+            fork_branch=run.trigger_type == SessionOrigin.DELEGATED_JOB,
         )
     except Exception as err:  # noqa: BLE001
         logger.exception("%s: enqueue failed for run=%s repo_id=%s", log_context, run.pk, run.repo_id)
@@ -139,6 +143,21 @@ def _enqueue_claimed(run: Run, *, log_context: str) -> bool:
     return async_to_sync(aenqueue_run)(run, log_context=log_context, skip_dispatch=True) is None
 
 
+def _still_waiting(run: Run) -> bool:
+    """Whether ``run`` waits for a run that has not finished yet."""
+    return (
+        run.waits_for_id is not None
+        and Run.objects.filter(pk=run.waits_for_id).exclude(status__in=RunStatus.terminal()).exists()
+    )
+
+
+def release_runs_waiting_for(run: Run) -> None:
+    """Release the sessions whose oldest QUEUED run waited for ``run``, now that it has finished."""
+    waiting = Run.objects.filter(waits_for=run, status=RunStatus.QUEUED).values_list("session_id", flat=True)
+    for session_id in set(waiting):
+        dispatch_next_queued(session_id)
+
+
 def dispatch_next_queued(session_id: str) -> None:
     """Release the session's QUEUED runs, oldest first, until one is on the queue.
 
@@ -153,7 +172,7 @@ def dispatch_next_queued(session_id: str) -> None:
     consecutive_failures = 0
     while True:
         next_q = Run.objects.filter(session_id=session_id, status=RunStatus.QUEUED).order_by("created_at").first()
-        if next_q is None:
+        if next_q is None or _still_waiting(next_q):
             return
 
         try:
@@ -209,6 +228,9 @@ def release_orphan_queued_runs(session_ids: QuerySet | None = None) -> OrphanRel
             skipped += 1
             continue
         seen_sessions.add(run.session_id)
+        if _still_waiting(run):
+            skipped += 1
+            continue
         try:
             claimed = _claim_queued(run)
         except IntegrityError:

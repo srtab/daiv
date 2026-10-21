@@ -1,5 +1,5 @@
-"""Delegated jobs: a coordinator run fans tailored sub-jobs (legs) out to other repositories with ``delegate_jobs``,
-ends its turn, and is resumed once every leg has finished.
+"""Delegated jobs: a coordinator run fans tailored sub-jobs (legs) out with ``delegate_jobs``, to other repositories or
+to new sessions on its own, ends its turn, and is resumed once every leg has finished.
 
 :class:`SessionJobDelegator` is the agent's ``automation.agent.delegation.JobDelegator`` for executor runs, and
 :func:`adelegator_for` hands one only to a session that may delegate. It submits the legs as one batch of
@@ -7,12 +7,20 @@ ends its turn, and is resumed once every leg has finished.
 ``parent`` is the coordinator's. Delegation is one level deep: a session with a parent gets no delegator, so a leg's
 first run is its whole answer and the batch is done when every leg's run is.
 
+A leg always publishes to a new branch and merge request of its own (``run_job_task``'s ``fork_branch``), so any
+number of legs may share a base, the coordinator's own included. A leg based on the coordinator's own branch, when
+that is not the default branch, ``waits_for`` the delegating run: it stays QUEUED until that run has finished, and so
+has pushed what it changed this turn, and the queue starts it then (``sessions.queue.release_runs_waiting_for``).
+Before that, :func:`restack_waiting_legs` moves it to the branch the coordinator's session works on by then, which
+differs when the coordinator started on a branch with no merge request and published to a new one.
+
 :func:`resume_coordinator` runs on every leg's ``run_finished``. Once the whole batch is terminal it queues one
 ``SessionOrigin.DELEGATION_RESUME`` run on the coordinator's session (``continuation_of_batch_id``), as the legs'
 user, whose prompt summarises every leg, and releases it like any QUEUED run, so it waits its turn behind a
 coordinator run still in flight. When several legs finish at once, ``run_one_continuation_per_batch`` lets one insert
 win. A user who has lost WRITE access to the coordinator's repository meanwhile gets the continuation FAILED instead.
-A batch none of whose legs reached the task queue resumes nothing: the tool already told the agent nothing started.
+A batch none of whose legs reached the task queue or waited for the coordinator resumes nothing: the tool already
+told the agent nothing started.
 
 :func:`resume_stalled_batches` is the periodic backstop: it resumes a finished batch the signal path left without a
 continuation, retries one whose continuation never reached the task queue (up to ``MAX_CONTINUATION_ATTEMPTS``
@@ -22,7 +30,6 @@ continuations per batch), and releases a continuation left QUEUED on a coordinat
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -36,7 +43,6 @@ from sandbox_envs.selection import aresolve_repo_envs
 
 from automation.agent.delegation import MAX_DELEGATED_TARGETS, DelegationError, DelegationResult, FailedLeg, StartedLeg
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE
-from codebase.repo_config import RepositoryConfig
 from core.utils import build_absolute_url
 from sessions.admission import (
     AdmissionError,
@@ -101,7 +107,6 @@ class SessionJobDelegator:
             raise DelegationError(f"At most {MAX_DELEGATED_TARGETS} targets per call; split the work across calls.")
         if any(not target.repo_id or not target.prompt for target in targets):
             raise DelegationError("Every target needs a `repo_id` and a prompt of its own.")
-        await _acheck_checkouts(checkout, targets)
 
         user = run.user
         denied: set[str] = set()
@@ -118,7 +123,16 @@ class SessionJobDelegator:
             agent_model, agent_thinking_level = check_agent_override(None, None)
             repos = await aresolve_repo_envs(
                 user=user,
-                repos=[RepoTarget(repo_id=t.repo_id, ref=t.ref, prompt=t.prompt) for t in allowed],
+                repos=[
+                    RepoTarget(
+                        repo_id=t.repo_id,
+                        ref=t.ref,
+                        prompt=t.prompt,
+                        references=t.references,
+                        waits_for_run_id=run.pk if _on_own_branch(checkout, t) else None,
+                    )
+                    for t in allowed
+                ],
                 explicit_env_id=None,
             )
             result = await asubmit_batch_runs(
@@ -135,7 +149,13 @@ class SessionJobDelegator:
 
         started = await sync_to_async(
             lambda: [
-                StartedLeg(leg.repo_id, leg.ref, str(leg.session_id), _session_url(leg.session_id))
+                StartedLeg(
+                    leg.repo_id,
+                    leg.ref,
+                    str(leg.session_id),
+                    _session_url(leg.session_id),
+                    starts_after_this_turn=leg.waits_for_id is not None,
+                )
                 for leg in result.runs
             ]
         )()
@@ -152,45 +172,28 @@ async def _aactive_run(thread_id: str) -> Run | None:
     return await Run.objects.select_related("session", "user").aget(pk=run.pk)
 
 
-async def _acheck_checkouts(own: Checkout, targets: Sequence[DelegatedTarget]) -> None:
-    """Refuse a target on the delegating run's own checkout or a checkout listed twice. A blank ref is the
-    repository's default branch, and slugs compare case-insensitively, as the platforms resolve them."""
-    own_slug = own.repo_id.casefold()
-    refs: defaultdict[str, set[str]] = defaultdict(set)
-    for target in targets:
-        refs[target.repo_id.casefold()].add(target.ref)
-    default_branches = {own_slug: own.default_branch}
-    for target in targets:
-        slug = target.repo_id.casefold()
-        if slug not in default_branches and "" in refs[slug] and len(refs[slug]) > 1:
-            default_branches[slug] = await _adefault_branch(target.repo_id)
-
-    def checkout(repo_id: str, ref: str) -> tuple[str, str]:
-        slug = repo_id.casefold()
-        return slug, ref or default_branches.get(slug, "")
-
-    own_checkout = checkout(own.repo_id, own.ref)
-    seen: set[tuple[str, str]] = set()
-    for target in targets:
-        key = checkout(target.repo_id, target.ref)
-        where = f"{target.repo_id} on {target.ref or 'its default branch'}"
-        if key == own_checkout:
-            raise DelegationError(
-                f"{where} is this session's own checkout; use the `task` tool (subagents) for parallel work here."
-            )
-        if key in seen:
-            raise DelegationError(f"{where} is listed twice; combine its work into one prompt.")
-        seen.add(key)
+def _on_own_branch(own: Checkout, target: DelegatedTarget) -> bool:
+    """Whether ``target`` branches from the delegating run's own branch, which that run pushes to when it finishes. A
+    run on the default branch never pushes onto it, so a leg based there need not wait."""
+    return (
+        target.repo_id.casefold() == own.repo_id.casefold()
+        and bool(target.ref)
+        and target.ref == own.ref
+        and own.ref != own.default_branch
+    )
 
 
-async def _adefault_branch(repo_id: str) -> str:
-    """The branch a blank ref clones on ``repo_id``, or ``""`` when it cannot be read; that leg then fails alone."""
-    try:
-        config = await sync_to_async(RepositoryConfig.get_config)(repo_id)
-    except Exception:  # noqa: BLE001
-        logger.warning("delegate_jobs: could not read the default branch of %s", repo_id, exc_info=True)
-        return ""
-    return config.default_branch or ""
+def restack_waiting_legs(run: Run) -> None:
+    """Base the QUEUED legs that waited for ``run`` on the branch its session works on now, before they start."""
+    branch = Session.objects.filter(pk=run.session_id).values_list("ref", flat=True).first()
+    if not branch:
+        return
+    legs = Run.objects.filter(waits_for=run, status=RunStatus.QUEUED, trigger_type=SessionOrigin.DELEGATED_JOB).exclude(
+        ref=branch
+    )
+    with transaction.atomic():
+        Session.objects.filter(pk__in=legs.values("session_id")).update(ref=branch)
+        legs.update(ref=branch)
 
 
 def _session_url(thread_id: str) -> str:
@@ -208,7 +211,9 @@ def resume_coordinator(run: Run) -> None:
 def _resume_batch(batch_id: uuid.UUID) -> bool:
     """Queue ``batch_id``'s continuation if the batch has finished and needs one; returns whether it did."""
     legs = list(Run.objects.by_batch(batch_id).select_related("user", "session__parent").order_by("created_at", "id"))
-    if any(leg.status not in RunStatus.terminal() for leg in legs) or not any(leg.task_result_id for leg in legs):
+    if any(leg.status not in RunStatus.terminal() for leg in legs) or not any(
+        leg.task_result_id or leg.waits_for_id for leg in legs
+    ):
         return False
     coordinator = legs[0].session.parent
     if coordinator is None:
@@ -302,13 +307,15 @@ def resume_stalled_batches() -> int:
 
 
 def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
-    """The continuation's prompt: each leg's outcome, session, merge request and reply."""
+    """The continuation's prompt: each leg's outcome, session, branch, merge request and reply."""
     succeeded = sum(leg.status == RunStatus.SUCCESSFUL for leg in legs)
     lines = [f"The sub-jobs you delegated (batch {batch_id}) have finished: {succeeded} of {len(legs)} succeeded.", ""]
     for leg in legs:
         where = f"{leg.repo_id} on {leg.ref}" if leg.ref else leg.repo_id
         lines.append(f"## {where}: {_OUTCOMES.get(leg.status, leg.status)}")
         lines.append(f"- Session: {_session_url(leg.session_id)}")
+        if leg.session.ref and leg.session.ref != leg.ref:
+            lines.append(f"- Branch: {leg.session.ref}")
         if leg.merge_request_web_url:
             lines.append(f"- Merge request: {leg.merge_request_web_url}")
         if reply := (leg.result_summary or leg.error_message).strip():
@@ -319,7 +326,8 @@ def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
             lines.append("- Reply: none; it failed without an error message, so open its session to see why.")
         lines.append("")
     lines.append(
-        "Check the outcome and report it where the request came from. Delegate another batch if follow-up work "
-        "depends on these results."
+        "Check the outcome and report it where the request came from. A leg's work is on its branch: merge that "
+        "branch into yours if it belongs in this change, or leave its merge request for review. Delegate another "
+        "batch if follow-up work depends on these results."
     )
     return "\n".join(lines)

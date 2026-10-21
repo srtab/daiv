@@ -114,7 +114,7 @@ slash_commands:
 | `slash_commands` | `enabled` | `true` | [Slash Commands & Skills](../features/slash-commands.md) |
 | `pipeline_watch` | `enabled` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — disable to stop DAIV watching CI on published MRs. |
 | `pipeline_watch` | `max_attempts` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — maximum fix attempts before giving up, clamped to the site-wide cap. |
-| `orchestration` | `enabled` | `false` | [Orchestration](../features/orchestration.md) — let the agent delegate sub-jobs to other repositories. Turn it on for a coordination repository. |
+| `orchestration` | `enabled` | `false` | [Orchestration](../features/orchestration.md) — let the agent delegate sub-jobs to other repositories, or to new sessions on this one. |
 
 ## Branch naming and commit conventions
 

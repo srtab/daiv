@@ -180,6 +180,7 @@ async def create_daiv_agent(
     ask_user_enabled: bool = True,
     session_links: SessionLinksResolver | None = None,
     delegator: JobDelegator | None = None,
+    fork_branch: bool = False,
 ):
     """
     Create the DAIV agent.
@@ -205,6 +206,8 @@ async def create_daiv_agent(
             and the merge request; ``None`` publishes without them.
         delegator: What starts ``delegate_jobs`` sub-jobs, from the run executor when the repository turns
             orchestration on; ``None`` binds no ``delegate_jobs`` tool.
+        fork_branch: Whether the run publishes to a new branch and merge request even when the checked-out branch
+            already has an open one; set for a delegated leg.
 
     Returns:
         The DAIV agent.
@@ -314,6 +317,7 @@ async def create_daiv_agent(
             auto_commit_changes=auto_commit_changes,
             capture_patch=capture_patch,
             session_links=session_links,
+            fork_branch=fork_branch,
         ),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,

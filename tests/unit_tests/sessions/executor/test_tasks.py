@@ -415,6 +415,23 @@ async def test_run_job_task_forwards_ask_user_enabled(ask_user_enabled):
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("fork_branch", [True, False])
+async def test_run_job_task_hands_fork_branch_to_the_agent(fork_branch):
+    captured: dict = {}
+
+    async def _execute_run(spec, hooks=None):
+        captured["spec"] = spec
+        return SimpleNamespace(agent_result={"response": "ok"})
+
+    with patch("sessions.executor.run.execute_run", _execute_run):
+        await run_job_task.func(
+            repo_id="owner/repo", prompt="hi", thread_id=await amake_job_session(), fork_branch=fork_branch
+        )
+
+    assert captured["spec"].agent_options == {"fork_branch": fork_branch}
+
+
+@pytest.mark.django_db(transaction=True)
 class TestRunJobTaskAfterRunMatrix:
     @pytest.mark.parametrize(("run_id", "holder"), [("run-9", "run-9"), (None, "job-3f2c9a1b")])
     async def test_it_holds_the_session_lock_while_the_agent_runs(self, run_id, holder):

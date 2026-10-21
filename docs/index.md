@@ -36,7 +36,7 @@ DAIV integrates directly with **GitLab** and **GitHub** through webhooks — no 
 
 - **[Sessions](features/sessions.md)** — a unified workspace and history: chat with the agent live, start background runs, and see every execution — webhook, API, MCP, scheduled, or manual — in one list, with retries.
 - **[Scheduled Jobs](features/scheduled-jobs.md)** — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.
-- **[Orchestration](features/orchestration.md)** — let a coordination repository's agent fan one request out as tailored jobs across your other repositories, then report the combined result.
+- **[Orchestration](features/orchestration.md)** — let the agent fan work out as tailored jobs, across your other repositories or as new sessions on the same one, then report the combined result.
 - **[Sandbox Environments](features/sandbox-environments.md)** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
 - **Per-run model & effort** — pick the LLM and thinking effort for each run.
 - **[Notifications](features/notifications.md)** — know the moment work finishes, in the app, by email, or in Rocket Chat.
