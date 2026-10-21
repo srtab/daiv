@@ -1,5 +1,5 @@
 import pytest
-from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.models import SandboxEnvironment, Visibility
 
 from schedules.models import Frequency, ScheduledJob
 
@@ -9,7 +9,7 @@ def test_scheduled_job_link(db):
     from accounts.models import User
 
     user = User.objects.create_user(username="u", email="u@e.com", password="x")  # noqa: S106
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine:latest")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine:latest")
     job = ScheduledJob.objects.create(
         user=user,
         name="s",

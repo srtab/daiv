@@ -133,14 +133,14 @@ def test_detail_seeds_the_tools_sheet_with_the_effective_selection(member_client
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="a",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://a",
         status=MCPServer.Status.ACTIVE,
     )
     MCPServer.objects.create(
         name="b",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="http://b",
         status=MCPServer.Status.ON_DEMAND,

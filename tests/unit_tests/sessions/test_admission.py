@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import Mock, patch
 
 import pytest
-from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.admission import (
     RejectedOverrideError,
     RepoAccessError,
@@ -23,16 +23,16 @@ _DENIED = RepositoryAccessDenied(["a/b"])
 
 @pytest.fixture
 def global_default(db):
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
     return SandboxEnvironment.objects.create(
-        scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+        scope=Visibility.GLOBAL, name="Default", base_image="python:3.14", is_default=True
     )
 
 
 @pytest.fixture
 def user_env(member_user):
     return SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=member_user, name="mine", base_image="python:3.14", repo_ids=["a/b"]
+        scope=Visibility.USER, user=member_user, name="mine", base_image="python:3.14", repo_ids=["a/b"]
     )
 
 

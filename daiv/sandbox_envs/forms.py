@@ -9,7 +9,7 @@ from django import forms
 from django.core.exceptions import NON_FIELD_ERRORS
 from django.utils.translation import gettext_lazy as _
 
-from sandbox_envs.models import _ENV_VAR_NAME_RE, _REPO_ID_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Scope
+from sandbox_envs.models import _ENV_VAR_NAME_RE, _REPO_ID_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Visibility
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -73,8 +73,8 @@ class SandboxEnvironmentForm(forms.ModelForm):
             # rather than disabling the field, so a submitted GLOBAL value is
             # rejected by clean_scope / choice validation instead of being
             # silently coerced to the initial value.
-            self.fields["scope"].choices = [(Scope.USER.value, Scope.USER.label)]
-            self.fields["scope"].initial = Scope.USER
+            self.fields["scope"].choices = [(Visibility.USER.value, Visibility.USER.label)]
+            self.fields["scope"].initial = Visibility.USER
         instance = self.instance
         if instance.pk is not None:
             self.initial.setdefault("network_choice", "on" if instance.is_networked else "off")
@@ -179,7 +179,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
 
     def clean_scope(self):
         scope = self.cleaned_data["scope"]
-        if scope == Scope.GLOBAL and not self.is_admin:
+        if scope == Visibility.GLOBAL and not self.is_admin:
             raise forms.ValidationError(_("Only administrators can create global environments."))
         return scope
 
@@ -322,7 +322,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
         instance: SandboxEnvironment = super().save(commit=False)
         instance.memory_bytes = self.cleaned_data.get("memory_bytes")
         instance.repo_ids = self.cleaned_data.get("repo_ids_json") or []
-        if instance.scope == Scope.USER and self.user is not None:
+        if instance.scope == Visibility.USER and self.user is not None:
             instance.user = self.user
         if instance.pk is not None:
             env_vars = self._preserve_unchanged_secrets(instance, env_vars)

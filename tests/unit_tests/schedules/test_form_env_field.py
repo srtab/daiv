@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
-from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.models import SandboxEnvironment, Visibility
 
 from schedules.forms import ScheduledJobCreateForm
 
@@ -31,11 +31,11 @@ def _valid_data(**overrides):
 @pytest.mark.django_db
 def test_form_offers_sandbox_environment_field(member_user):
     """The schedule form exposes the sandbox_environment field, scoped to caller + globals."""
-    user_env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="dev", base_image="x")
+    user_env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=member_user, name="dev", base_image="x")
     from accounts.models import User
 
     other = User.objects.create_user(username="other_s", email="other_s@e.com", password="x")  # noqa: S106
-    other_env = SandboxEnvironment.objects.create(scope=Scope.USER, user=other, name="other", base_image="y")
+    other_env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=other, name="other", base_image="y")
 
     form = ScheduledJobCreateForm(owner=member_user, user=member_user)
     qs = form.fields["sandbox_environment"].queryset
@@ -47,7 +47,7 @@ def test_form_offers_sandbox_environment_field(member_user):
 @pytest.mark.django_db
 def test_form_save_persists_sandbox_environment(member_user):
     """Submitting the form with a sandbox_environment persists it on the ScheduledJob."""
-    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="prod", base_image="x")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=member_user, name="prod", base_image="x")
     form = ScheduledJobCreateForm(
         data=_valid_data(sandbox_environment=str(env.id)), owner=member_user, user=member_user
     )

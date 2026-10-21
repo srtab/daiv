@@ -308,9 +308,9 @@ class TestScheduleRunNowView:
 
     def test_run_now_persists_explicit_env_on_run(self, member_client, member_user, schedule):
         """Schedule with an explicit env → run-now stamps that env on the generated Run."""
-        from sandbox_envs.models import SandboxEnvironment, Scope
+        from sandbox_envs.models import SandboxEnvironment, Visibility
 
-        env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="prod", base_image="x")
+        env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=member_user, name="prod", base_image="x")
         schedule.sandbox_environment = env
         schedule.save(update_fields=["sandbox_environment"])
 
@@ -342,13 +342,13 @@ class TestScheduleRunNowView:
         """ScheduleRunNowView.post intentionally resolves Auto against ``schedule.user``,
         not ``request.user`` — locks parity with the cron dispatcher. If a future change
         switches to request.user, this test fails."""
-        from sandbox_envs.models import SandboxEnvironment, Scope
+        from sandbox_envs.models import SandboxEnvironment, Visibility
 
-        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-        SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="x", is_default=True)
+        SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
+        SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="Default", base_image="x", is_default=True)
         # Owner's USER env claiming the schedule's repo; admin (request.user) has none.
         owner_env = SandboxEnvironment.objects.create(
-            scope=Scope.USER, user=member_user, name="owner-env", base_image="x", repo_ids=["owner/repo"]
+            scope=Visibility.USER, user=member_user, name="owner-env", base_image="x", repo_ids=["owner/repo"]
         )
 
         from django.test import Client
@@ -751,12 +751,12 @@ class TestScheduleDuplicateFlow:
         """Duplicating dropped both silently: the copy came up with the default server pool and
         Auto, which reads as "same schedule" right up until it runs against different tooling."""
         from mcp_connectors.models import MCPServer
-        from sandbox_envs.models import SandboxEnvironment, Scope
+        from sandbox_envs.models import SandboxEnvironment, Visibility
 
         from tests.unit_tests.mcp_connectors.helpers import only_servers
 
         only_servers(("opt-in", MCPServer.Status.ON_DEMAND))
-        env = SandboxEnvironment.objects.create(name="heavy", scope=Scope.GLOBAL)
+        env = SandboxEnvironment.objects.create(name="heavy", scope=Visibility.GLOBAL)
         source = ScheduledJob.objects.create(
             user=member_user,
             name="source",
@@ -905,9 +905,11 @@ class TestScheduleViewsEnvContext:
         assert response.context["selected_sandbox_env_id"] == ""
 
     def test_update_view_preselects_saved_env(self, member_client, member_user):
-        from sandbox_envs.models import SandboxEnvironment, Scope
+        from sandbox_envs.models import SandboxEnvironment, Visibility
 
-        env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="dev", base_image="alpine")
+        env = SandboxEnvironment.objects.create(
+            scope=Visibility.USER, user=member_user, name="dev", base_image="alpine"
+        )
         schedule = ScheduledJob.objects.create(
             user=member_user,
             name="nightly",

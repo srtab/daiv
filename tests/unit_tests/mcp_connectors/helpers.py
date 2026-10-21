@@ -9,7 +9,9 @@ from __future__ import annotations
 from mcp_connectors.models import MCPServer
 
 
-def make_server(name: str, *, status: str = MCPServer.Status.ACTIVE, scope: str = MCPServer.Scope.GLOBAL, **kwargs):
+def make_server(
+    name: str, *, status: str = MCPServer.Status.ACTIVE, scope: str = MCPServer.Visibility.GLOBAL, **kwargs
+):
     kwargs.setdefault("transport", MCPServer.Transport.HTTP)
     kwargs.setdefault("url", f"http://{name}")
     return MCPServer.objects.create(name=name, status=status, scope=scope, **kwargs)
