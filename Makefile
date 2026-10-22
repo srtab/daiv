@@ -71,7 +71,7 @@ makemessages:
 	uv run django-admin makemessages --ignore=*/node_modules/* --ignore=.venv --no-location --no-wrap --all
 
 compilemessages:
-	uv run django-admin compilemessages
+	uv run django-admin compilemessages --ignore='.*'
 
 # See AGENTS.md "Integration tests need credentials" for why every flag here is load-bearing.
 # CODEBASE_GITLAB_URL is read from the secrets file rather than config.env: this runs on the host,
