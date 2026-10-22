@@ -82,7 +82,7 @@ class Orchestration(BaseModel):
     """
 
     enabled: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Let the agent delegate tailored sub-jobs, to other repositories or to new sessions on this one, with the "
             "delegate_jobs tool and resume once they finish."

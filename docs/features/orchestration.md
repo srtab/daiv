@@ -33,13 +33,13 @@ sequenceDiagram
 
 Nothing polls while the legs run: the coordinator holds no worker and spends no tokens until it is resumed.
 
-## Turning it on
+## Turning it off
 
-Orchestration is **off by default**. Turn it on in the `.daiv.yml` of the repository whose agent should delegate — a coordination repository, or any repository where you want it to split work off:
+Orchestration is **on by default** on every repository. Turn it off in the `.daiv.yml` of a repository whose agent should never split work off:
 
 ```yaml
 orchestration:
-  enabled: true
+  enabled: false
 ```
 
 A repository needs no configuration to *receive* delegated work; a leg is a normal job.

@@ -3,8 +3,8 @@ the turn; the run executor's ``JobDelegator`` starts them and resumes the sessio
 ``check_delegated_jobs`` and ``cancel_delegated_jobs`` follow and cancel them, and are deferred like any tool outside
 ``ALWAYS_LOADED_TOOLS``.
 
-Bound only on repositories that opt in with ``orchestration.enabled`` in ``.daiv.yml``, so its system prompt carries
-the coordinator workflow that would otherwise need a skill on every repository.
+Bound unless a repository turns ``orchestration.enabled`` off in ``.daiv.yml``; its system prompt carries the
+coordinator workflow, so no repository needs a skill for it.
 """
 
 from __future__ import annotations

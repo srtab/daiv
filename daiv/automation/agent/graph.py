@@ -204,8 +204,8 @@ async def create_daiv_agent(
         ask_user_enabled: Whether the agent may stop to ask the user; off when nobody can answer during the run.
         session_links: What builds the run's session links, from the run executor, for the publish to put in the commit
             and the merge request; ``None`` publishes without them.
-        delegator: What starts ``delegate_jobs`` sub-jobs, from the run executor when the repository turns
-            orchestration on; ``None`` binds no ``delegate_jobs`` tool.
+        delegator: What starts ``delegate_jobs`` sub-jobs, from the run executor unless the repository turns
+            orchestration off; ``None`` binds no ``delegate_jobs`` tool.
         fork_branch: Whether the run publishes to a new branch and merge request even when the checked-out branch
             already has an open one; set for a delegated leg.
 
