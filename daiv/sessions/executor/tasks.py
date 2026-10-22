@@ -1,7 +1,7 @@
 import logging
 from typing import TYPE_CHECKING
 
-from django_tasks import task
+from django.tasks import task
 
 from codebase.base import Scope
 from sessions.executor.lock import wait_for_slot

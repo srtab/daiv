@@ -4,15 +4,15 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any
 
 from django.db import connection, transaction
 from django.db.models import Q
+from django.tasks.base import Task, TaskResult, TaskResultStatus
+from django.utils.json import normalize_json
 from django.utils.version import PY311
 
 from asgiref.sync import sync_to_async
-from django_tasks.base import Task, TaskResult, TaskResultStatus
-from django_tasks.utils import normalize_json
 from django_tasks_db import DatabaseBackend
 from django_tasks_db.models import DBTaskResult
 
@@ -23,12 +23,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.tasks")
 
-T = TypeVar("T")
-P = ParamSpec("P")
-
 
 @dataclass(frozen=True, slots=PY311, kw_only=True)
-class DeduplicatingTask(Task[P, T]):
+class DeduplicatingTask(Task):
     """
     Task that skips enqueuing duplicate tasks based on module path, args, and kwargs.
     """
@@ -49,9 +46,9 @@ class DeduplicatingTask(Task[P, T]):
     Whether a successful task still counts as a duplicate. False: only a queued or running one does.
     """
 
-    def get_or_enqueue(self, *args: P.args, **kwargs: P.kwargs) -> tuple[TaskResult[T], bool]:
+    def get_or_enqueue(self, *args: Any, **kwargs: Any) -> tuple[TaskResult, bool]:
         """``enqueue``, also saying whether it created the task: ``False`` when ``dedup`` matched an earlier one."""
-        return self.get_backend().get_or_enqueue(self, args, kwargs)  # ty: ignore[unresolved-attribute]
+        return self.get_backend().get_or_enqueue(self, args, kwargs)
 
 
 class DeduplicatingDatabaseBackend(DatabaseBackend):
@@ -61,7 +58,7 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
 
     task_class = DeduplicatingTask
 
-    def enqueue(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> DatabaseTaskResult[T]:
+    def enqueue(self, task: DeduplicatingTask, args: tuple[Any, ...], kwargs: dict[str, Any]) -> DatabaseTaskResult:
         """
         Enqueue a task unless a matching dedup key is already queued, running or done.
 
@@ -69,16 +66,18 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
         """
         return self.get_or_enqueue(task, args, kwargs)[0]
 
-    async def aenqueue(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> DatabaseTaskResult[T]:
+    async def aenqueue(
+        self, task: DeduplicatingTask, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> DatabaseTaskResult:
         """Async twin of :meth:`enqueue`: the parent's ``aenqueue`` writes the row itself rather than calling
         ``enqueue``, so a ``dedup`` task goes through :meth:`enqueue` instead."""
         if not task.dedup:
-            return await super().aenqueue(task, args, kwargs)
+            return await super().aenqueue(task, args, kwargs)  # ty: ignore[invalid-argument-type]
         return await sync_to_async(self.enqueue)(task, args, kwargs)
 
     def get_or_enqueue(
-        self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs
-    ) -> tuple[DatabaseTaskResult[T], bool]:
+        self, task: DeduplicatingTask, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> tuple[DatabaseTaskResult, bool]:
         """
         Enqueue a task unless a matching dedup key is already queued, running or done.
 
@@ -94,7 +93,7 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
             concurrent call sees all of them or none.
         """
         if not task.dedup:
-            return super().enqueue(task, args, kwargs), True
+            return super().enqueue(task, args, kwargs), True  # ty: ignore[invalid-argument-type]
 
         dedup_key = self._dedup_key(task, args, kwargs)
         with transaction.atomic():
@@ -102,9 +101,9 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
             if existing_result := self._existing_task_results(task, dedup_key).first():
                 logger.info("Skipping duplicate task: %s with args: %r and kwargs: %r", task.module_path, args, kwargs)
                 return existing_result.task_result, False
-            return super().enqueue(task, args, kwargs), True
+            return super().enqueue(task, args, kwargs), True  # ty: ignore[invalid-argument-type]
 
-    def _dedup_key(self, task: DeduplicatingTask[P, T], args: P.args, kwargs: P.kwargs) -> dict[str, Any]:
+    def _dedup_key(self, task: DeduplicatingTask, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
         """The JSON a duplicate matches: the whole ``args_kwargs``, or only the ``dedup_on`` kwargs."""
         if task.dedup_on is None:
             return normalize_json({"args": args, "kwargs": kwargs})
@@ -121,7 +120,7 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", [int.from_bytes(digest, signed=True)])
 
-    def _existing_task_results(self, task: DeduplicatingTask[P, T], dedup_key: dict[str, Any]) -> QuerySet:
+    def _existing_task_results(self, task: DeduplicatingTask, dedup_key: dict[str, Any]) -> QuerySet:
         """
         The ready or running tasks matching the dedup key, and the successful ones when ``dedup_successful``.
 

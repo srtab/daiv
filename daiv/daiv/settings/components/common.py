@@ -35,7 +35,6 @@ THIRD_PARTY_APPS = [
     "crontask",
     "django_extensions",
     "django_filters",
-    "django_tasks",
     "django_tasks_db",
     "oauth2_provider",
     "allauth",

@@ -1,8 +1,9 @@
 import logging
 from datetime import UTC
 
+from django.tasks import task
+
 from crontask import cron
-from django_tasks import task
 
 from codebase.clients import RepoClient
 from codebase.clients.base import PLATFORM_ERRORS

@@ -31,9 +31,8 @@ from webhooks.tasks import address_issue_label_task, address_issue_task, address
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from django_tasks import Task
-
     from codebase.clients import RepoClient
+    from core.backends.deduplicating import DeduplicatingTask
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -154,7 +153,7 @@ async def _react(add_reaction: Callable[[], object], target: str) -> None:
 
 
 async def _start_run(
-    task: Task,
+    task: DeduplicatingTask,
     author: Author,
     *,
     repo_id: str,
