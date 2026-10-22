@@ -11,14 +11,17 @@ import shutil
 import subprocess  # noqa: S404
 import tarfile
 import uuid
-from contextlib import nullcontext
+from contextlib import asynccontextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from django.db.models import Prefetch
 
 import pytest
 from git import Actor, GitCommandError, Repo
+from langchain_core.messages import AIMessage
+from langchain_core.tools import tool
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from schedules.models import ScheduledJob
@@ -28,6 +31,62 @@ DATA_DIR = Path(__file__).parents[1] / "integration_tests" / "data" / "code_revi
 REPO_ROOT = Path(__file__).parents[2]
 GIT = shutil.which("git")
 CASES = {case["id"]: case for line in (DATA_DIR / "cases.jsonl").read_text().splitlines() if (case := json.loads(line))}
+
+
+@pytest.mark.parametrize("traced", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+async def test_recall_eval_traces_only_when_opted_in(monkeypatch, tmp_path, traced, failed):
+    """Exercise the canonical eval entry point and a real tool callback, without providers or sandbox services."""
+    path = tmp_path / "trace.jsonl"
+    if traced:
+        monkeypatch.setenv("DAIV_EVAL_TRACE_OUT", str(path))
+    else:
+        monkeypatch.delenv("DAIV_EVAL_TRACE_OUT", raising=False)
+    monkeypatch.setenv("DAIV_EVAL_RUN", "1")
+
+    @asynccontextmanager
+    async def checkout(case):
+        yield SimpleNamespace(), SimpleNamespace()
+
+    @tool
+    def diagnostic_probe() -> str:
+        """Return a local diagnostic value."""
+        if failed:
+            raise ValueError("probe failed")
+        return "probe result"
+
+    seen = []
+
+    async def invoke(inputs, *, context, config):
+        seen.append(config)
+        result = await diagnostic_probe.ainvoke(
+            {"type": "tool_call", "name": "diagnostic_probe", "id": "probe", "args": {}}, config=config
+        )
+        return {"messages": [result, AIMessage(content="## Code Review\n\nNo findings.")]}
+
+    monkeypatch.setattr(recall_suite, "patched_checkout", checkout)
+    monkeypatch.setattr(recall_suite, "require_provider_for_model", lambda model: None)
+    monkeypatch.setattr(recall_suite, "agent_settings_on", lambda model, ctx: None)
+    monkeypatch.setattr(recall_suite, "create_daiv_agent", AsyncMock(return_value=SimpleNamespace(ainvoke=invoke)))
+    monkeypatch.setattr(recall_suite.t, "log_inputs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(recall_suite.t, "log_outputs", lambda *args, **kwargs: None)
+    request = SimpleNamespace(node=SimpleNamespace(nodeid="review::local"))
+
+    with pytest.raises(ValueError, match="probe failed") if failed else nullcontext():
+        await recall_suite.test_code_review_recall("scripted", CASES["clean-run-mute-override"], request)
+
+    assert seen[0]["configurable"] == {"thread_id": "1"}
+    assert path.exists() is traced
+    if traced:
+        row = json.loads(path.read_text())
+        assert (row["nodeid"], row["model"]) == ("review::local", "scripted")
+        assert row["error"] == ({"type": "ValueError", "message": "probe failed"} if failed else None)
+        ends = [e for e in row["events"] if e["event"] == ("tool_error" if failed else "tool_end")]
+        assert len(ends) == 1
+        if not failed:
+            assert ends[0]["output"]["content"] == "probe result"
+    else:
+        assert seen == [{"configurable": {"thread_id": "1"}}]
 
 
 @pytest.fixture
