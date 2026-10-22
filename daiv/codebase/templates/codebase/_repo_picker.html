@@ -12,7 +12,7 @@ Reusable repo + branch picker. Renders the chip list, both popovers, and (option
 the hidden form inputs that submit the selection.
 
 Parameters:
-- max_repos (default 1)         — chip-list cap
+- max_repos (default 1)         — chip-list cap; above 1, adding keeps the picker open until Done/dismiss
 - initial_repos (default "[]")  — JSON list of {repo_id, ref} to seed the picker
 - field_name (default "repos")  — hidden input name; set to empty to skip submission
 - required (default True)       — emit the sr-only guard input that blocks form submit when empty
@@ -117,7 +117,7 @@ Parameters:
                placeholder="{{ search_repos_placeholder }}"
                hx-get="{{ repo_picker_url }}"
                hx-trigger="refresh, input changed delay:200ms, search"
-               hx-sync="this:abort"
+               hx-sync="this:replace"
                hx-target="#repo-picker-list"
                class="picker-popover__search">
         <div x-show="repoLoading" class="animate-pulse py-1">
@@ -144,6 +144,12 @@ Parameters:
         <div id="repo-picker-list" x-ref="repoPickerList" x-show="!repoLoading"
              data-error-message="{% translate 'Could not load repositories.' %}"
              class="picker-popover__list scrollbar-thin"></div>
+        <div x-show="isAddingRepos" x-cloak class="repo-picker__footer">
+            <span aria-live="polite" aria-atomic="true" class="repo-picker__count">
+                <span x-text="repos.length">0</span> / <span x-text="maxRepos">{{ max_repos|default:1 }}</span> {% translate "selected" %}
+            </span>
+            <button type="button" @click="closePopover()" class="repo-picker__done">{% translate "Done" %}</button>
+        </div>
     </div>
 
     {% include "core/_sheet_backdrop.html" with show_expr="popover === 'branch'" %}
