@@ -178,7 +178,7 @@ async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
 def create_run(
     *,
     trigger_type: str,
-    task_result_id: uuid.UUID | None,
+    task_result_id: uuid.UUID | str | None,
     repo_id: str,
     ref: str = "",
     prompt: str = "",

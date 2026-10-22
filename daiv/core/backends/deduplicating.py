@@ -48,7 +48,7 @@ class DeduplicatingTask(Task):
 
     def get_or_enqueue(self, *args: Any, **kwargs: Any) -> tuple[TaskResult, bool]:
         """``enqueue``, also saying whether it created the task: ``False`` when ``dedup`` matched an earlier one."""
-        return self.get_backend().get_or_enqueue(self, args, kwargs)  # ty: ignore[unresolved-attribute]
+        return self.get_backend().get_or_enqueue(self, args, kwargs)
 
 
 class DeduplicatingDatabaseBackend(DatabaseBackend):
@@ -72,7 +72,7 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
         """Async twin of :meth:`enqueue`: the parent's ``aenqueue`` writes the row itself rather than calling
         ``enqueue``, so a ``dedup`` task goes through :meth:`enqueue` instead."""
         if not task.dedup:
-            return await super().aenqueue(task, args, kwargs)
+            return await super().aenqueue(task, args, kwargs)  # ty: ignore[invalid-argument-type]
         return await sync_to_async(self.enqueue)(task, args, kwargs)
 
     def get_or_enqueue(
@@ -93,7 +93,7 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
             concurrent call sees all of them or none.
         """
         if not task.dedup:
-            return super().enqueue(task, args, kwargs), True
+            return super().enqueue(task, args, kwargs), True  # ty: ignore[invalid-argument-type]
 
         dedup_key = self._dedup_key(task, args, kwargs)
         with transaction.atomic():
@@ -101,7 +101,7 @@ class DeduplicatingDatabaseBackend(DatabaseBackend):
             if existing_result := self._existing_task_results(task, dedup_key).first():
                 logger.info("Skipping duplicate task: %s with args: %r and kwargs: %r", task.module_path, args, kwargs)
                 return existing_result.task_result, False
-            return super().enqueue(task, args, kwargs), True
+            return super().enqueue(task, args, kwargs), True  # ty: ignore[invalid-argument-type]
 
     def _dedup_key(self, task: DeduplicatingTask, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
         """The JSON a duplicate matches: the whole ``args_kwargs``, or only the ``dedup_on`` kwargs."""
