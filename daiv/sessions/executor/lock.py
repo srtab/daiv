@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
-from sessions.models import RunStatus, Session
+from sessions.models import RunStatus, Session, SessionOrigin
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Iterable
@@ -38,6 +38,17 @@ def session_in_flight(session: Session, runs: Iterable[Run]) -> bool:
     stranded past the window (crashed worker, orphaned queue entry) is dead, whatever its runs' status says.
     """
     return any(run.status not in RunStatus.terminal() for run in runs) and session.last_active_at >= stale_cutoff()
+
+
+def background_in_flight(session: Session, runs: Iterable[Run]) -> bool:
+    """Whether a live non-chat run (a job, a webhook, a CI fix, a delegation resume) keeps ``session`` in flight.
+
+    Only these need the detail page's transcript poller: a chat run streams to the tab that started it.
+    """
+    runs = list(runs)
+    return session_in_flight(session, runs) and any(
+        run.trigger_type != SessionOrigin.CHAT and run.status not in RunStatus.terminal() for run in runs
+    )
 
 
 class SessionLock:

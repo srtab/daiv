@@ -665,6 +665,8 @@
       // (annotate_transcript(build_turns(...))), so key order is stable and the
       // JSON compare is reliable. Alpine's keyed x-for reuses each turn's DOM node
       // on reassignment, so open tool <details> survive a real change too.
+      // A run queued behind this tab's chat turn arms the poller mid-stream; the stream owns the turns until it ends.
+      if (this.streaming || this.resuming) return;
       if (JSON.stringify(turns) === JSON.stringify(this.turns)) return;
       this.turns = turns;
       // Mirror the live-stream path (dispatch() scrolls after every event): follow

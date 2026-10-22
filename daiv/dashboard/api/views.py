@@ -2,21 +2,23 @@
 
 The nav badges (unread notifications, running runs) are fed by one long-lived stream
 per tab: the first frame carries a snapshot, and thereafter a frame is sent only when
-a ``core.ui_events`` poke means a count actually moved.
+a ``core.ui_events`` poke means the snapshot actually moved. Beside the two counts it
+carries the latest running run's start, which the session page watches to notice a
+run that started after it rendered.
 
 Why a snapshot rather than a delta log: the payload *is* the whole state (two
-integers), so a reconnect needs no ``Last-Event-ID`` replay — it just resends the
-truth. That makes the duration cap do double duty: it bounds how long a worker
+integers and a timestamp), so a reconnect needs no ``Last-Event-ID`` replay — it just
+resends the truth. That makes the duration cap do double duty: it bounds how long a worker
 stays occupied by one tab, and the reconnect it forces is the periodic resync
 that repairs anything a dropped poke lost. Every failure short of "this
 deployment has no bus at all" therefore closes *without* a terminal frame, so
 that same reconnect is also the recovery path.
 
-Both counts are computed by the same helpers that render the first page load
-(``dashboard.context_processors.count_running``,
+The snapshot is computed by the same helpers that render the first page load
+(``dashboard.context_processors.running_snapshot``,
 ``notifications.context_processors.query_unread_count``), so the seeded values and
 the streamed ones can't drift apart. The page render reaches the first through
-``query_running_jobs``; the stream hoists that helper's queryset out of the loop.
+``query_running_snapshot``; the stream hoists that helper's queryset out of the loop.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from __future__ import annotations
 import logging
 import time
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.db import Error as DatabaseError
 from django.db import close_old_connections
@@ -37,7 +39,7 @@ from sessions.models import Run
 
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 from core.ui_events import UIEventStream, is_transient_bus_error, redis_connections
-from dashboard.context_processors import count_running
+from dashboard.context_processors import running_snapshot
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -79,8 +81,8 @@ def _open_visible_runs(user: User):
 
 
 @_in_db_thread
-def _snapshot(user: User, visible) -> dict[str, int] | None:
-    """Both badge counts in one trip to the DB thread, or ``None`` when the DB failed.
+def _snapshot(user: User, visible) -> dict[str, Any] | None:
+    """The whole nav state in one trip to the DB thread, or ``None`` when the DB failed.
 
     Sync because the querysets are (Django's async ORM is ``sync_to_async`` underneath
     anyway) — one hop beats two. The connection goes back to the pool on the way out: a
@@ -91,7 +93,7 @@ def _snapshot(user: User, visible) -> dict[str, int] | None:
     and pushing one would blank a badge that is still correct in the browser.
     """
     try:
-        return {"unread_count": query_unread_count(user), "running_runs": count_running(visible)}
+        return {"unread_count": query_unread_count(user), **running_snapshot(visible)}
     except DatabaseError as err:
         logger.warning("nav: recount failed for user pk=%s: %s", user.pk, err)
         return None

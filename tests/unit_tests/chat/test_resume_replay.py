@@ -10,6 +10,7 @@ checkpoint already painted.
 
 from __future__ import annotations
 
+import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from sessions.turns import build_turns
 
@@ -136,3 +137,29 @@ def test_replayed_thoughts_are_timed_by_the_server_not_the_replay():
     thought = next(s for s in segments if s["type"] == "thinking")
     assert thought["endedAt"] - thought["startedAt"] == 7000
     assert thought["label"] == "Thought for 7s"
+
+
+POLL_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat" });
+chat.$nextTick = (cb) => cb();
+chat.scrollToBottom = () => {};
+chat.turns = payload.live;
+chat.streaming = payload.streaming;
+chat.applyPolledTurns(payload.polled);
+process.stdout.write(JSON.stringify(chat.turns.map((t) => t.id)));
+"""
+
+
+@pytest.mark.parametrize(("streaming", "expected"), [(True, ["live-1"]), (False, ["srv-1", "srv-2"])])
+def test_a_polled_transcript_waits_for_the_live_stream_to_end(streaming, expected):
+    """A background run queued behind this tab's chat turn arms the poller mid-stream; its
+    checkpoint copy must not replace the turn the stream is still writing."""
+    live = [{"id": "live-1", "role": "user", "segments": [{"type": "text", "content": "hi"}]}]
+    polled = [
+        {"id": "srv-1", "role": "user", "segments": [{"type": "text", "content": "hi"}]},
+        {"id": "srv-2", "role": "assistant", "segments": [{"type": "text", "content": "ok"}]},
+    ]
+
+    ids = run_chat_stream(POLL_BODY, {"live": live, "polled": polled, "streaming": streaming})
+
+    assert ids == expected

@@ -1,5 +1,6 @@
 import asyncio
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
@@ -11,15 +12,45 @@ from sessions.executor.lock import (
     SessionLock,
     SessionLockTimeoutError,
     Wait,
+    background_in_flight,
     hold_session_lock,
     stale_cutoff,
     still_held,
 )
-from sessions.models import Session
+from sessions.models import RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 
 pytestmark = pytest.mark.django_db(transaction=True)
+
+
+def _session(heartbeat_age=timedelta(0)):
+    return SimpleNamespace(last_active_at=timezone.now() - heartbeat_age)
+
+
+def _run(trigger_type, status=RunStatus.RUNNING):
+    return SimpleNamespace(trigger_type=trigger_type, status=status)
+
+
+class TestBackgroundInFlight:
+    @pytest.mark.parametrize("status", [RunStatus.QUEUED, RunStatus.READY, RunStatus.RUNNING])
+    def test_a_live_non_chat_run_is_background_work(self, status):
+        runs = [_run(SessionOrigin.CHAT, RunStatus.SUCCESSFUL), _run(SessionOrigin.DELEGATION_RESUME, status)]
+
+        assert background_in_flight(_session(), runs) is True
+
+    def test_a_chat_run_alone_is_not(self):
+        assert background_in_flight(_session(), [_run(SessionOrigin.CHAT)]) is False
+
+    def test_a_finished_non_chat_run_is_not(self):
+        runs = [_run(SessionOrigin.PIPELINE_WEBHOOK, RunStatus.SUCCESSFUL), _run(SessionOrigin.CHAT)]
+
+        assert background_in_flight(_session(), runs) is False
+
+    def test_a_stale_holder_is_not(self):
+        runs = [_run(SessionOrigin.DELEGATION_RESUME)]
+
+        assert background_in_flight(_session(heartbeat_age=timedelta(minutes=31)), runs) is False
 
 
 class TestSessionLock:

@@ -37,7 +37,7 @@ from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
-from sessions.executor.lock import session_in_flight
+from sessions.executor.lock import background_in_flight, session_in_flight
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
@@ -376,11 +376,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         # Engage transcript polling when a background run holds the slot and there is
         # no live chat stream from this tab (chat stream manages its own turns in JS;
         # the poller only kicks in for non-chat background runs).
-        ctx["poll_transcript"] = bool(
-            is_in_flight
-            and self.object.active_run_id
-            and any(r.trigger_type != SessionOrigin.CHAT for r in non_terminal)
-        )
+        ctx["poll_transcript"] = bool(self.object.active_run_id and background_in_flight(session, runs))
 
         return ctx
 

@@ -319,3 +319,31 @@ async def test_session_turns_active_needs_a_fresh_heartbeat(client, authed, hear
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.json()["active"] is active
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("trigger_type", "background"), [(SessionOrigin.DELEGATION_RESUME, True), (SessionOrigin.CHAT, False)]
+)
+async def test_session_turns_says_whether_background_work_is_in_flight(client, authed, trigger_type, background):
+    """The detail page arms its transcript poller from this flag when a run starts after it rendered."""
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.CHAT,
+        repo_id="group/project",
+        ref="main",
+        user=user,
+        active_run_id="holder-1",
+        last_active_at=timezone.now(),
+    )
+    await Run.objects.acreate(
+        session=session, trigger_type=trigger_type, repo_id="group/project", status=RunStatus.RUNNING
+    )
+
+    with patch(
+        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+    ):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.json()["background"] is background
