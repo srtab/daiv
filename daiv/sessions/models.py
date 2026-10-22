@@ -16,7 +16,7 @@ from automation.agent.references import ExternalRef, refs_from_stored  # noqa: T
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.executor.result import parse_agent_result
-from sessions.managers import CANCELLED_PREFIX, RunArtifactManager, RunManager, SessionManager
+from sessions.managers import RunArtifactManager, RunManager, SessionManager
 
 if TYPE_CHECKING:
     from sessions.executor.result import AgentResult
@@ -341,6 +341,12 @@ class Run(models.Model):
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)
     finished_at = models.DateTimeField(_("finished at"), null=True, blank=True)
+    cancel_requested_at = models.DateTimeField(
+        _("cancel requested at"),
+        null=True,
+        blank=True,
+        help_text=_("When the run was asked to stop; it ends FAILED unless it finished first."),
+    )
     # False only on pre-feature rows backfilled at deploy, so the classifier never retro-runs the
     # backlog; every new run is eligible. Chat is excluded by origin (SessionOrigin.classified), not this.
     classify_eligible = models.BooleanField(_("classify eligible"), default=True)
@@ -416,8 +422,8 @@ class Run(models.Model):
 
     @property
     def is_cancelled(self) -> bool:
-        """Whether ``RunManager.cancel`` finished this run."""
-        return self.status == RunStatus.FAILED and self.error_message.startswith(CANCELLED_PREFIX)
+        """Whether the run failed after ``RunManager.cancel`` asked it to stop."""
+        return self.status == RunStatus.FAILED and self.cancel_requested_at is not None
 
     @property
     def duration(self) -> float | None:

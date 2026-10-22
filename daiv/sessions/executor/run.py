@@ -180,8 +180,8 @@ async def _supervised(
 async def _run_in_slot(spec: RunSpec, hooks: RunHooks, should_stop: Callable[[], Awaitable[bool]] | None) -> RunOutcome:
     recovery = _Recovery()
     try:
-        invocation = _invoke(spec, hooks, recovery)
-        outcome = await (invocation if should_stop is None else _until_stopped(invocation, spec.thread_id, should_stop))
+        invoke = partial(_invoke, spec, hooks, recovery)
+        outcome = await (invoke() if should_stop is None else _until_stopped(invoke, spec.thread_id, should_stop))
     except Exception as exc:
         await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
         raise
@@ -191,20 +191,25 @@ async def _run_in_slot(spec: RunSpec, hooks: RunHooks, should_stop: Callable[[],
 
 
 async def _until_stopped(
-    invocation: Coroutine[Any, Any, RunOutcome], thread_id: str | None, should_stop: Callable[[], Awaitable[bool]]
+    invoke: Callable[[], Coroutine[Any, Any, RunOutcome]],
+    thread_id: str | None,
+    should_stop: Callable[[], Awaitable[bool]],
 ) -> RunOutcome:
-    """Await ``invocation``, asking ``should_stop`` first and then every ``STOP_POLL_INTERVAL_S``.
+    """Run ``invoke`` unless ``should_stop`` asks to stop first, asking again every ``STOP_POLL_INTERVAL_S``.
 
-    A stop request cancels the invocation, waits for it to close the run's context, and raises ``RunStoppedError``.
+    A stop request raises ``RunStoppedError``, after cancelling the invocation and waiting for it to close the run's
+    context if it had started; an invocation that ends while ``should_stop`` is asked keeps its outcome.
     """
-    task = asyncio.ensure_future(invocation)
+    if await should_stop():
+        raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop before it started")
+    task = asyncio.ensure_future(invoke())
     try:
         while not task.done():
-            if await should_stop():
+            await asyncio.wait({task}, timeout=STOP_POLL_INTERVAL_S)
+            if not task.done() and await should_stop() and not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
                 raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop")
-            await asyncio.wait({task}, timeout=STOP_POLL_INTERVAL_S)
         return task.result()
     finally:
         if not task.done():

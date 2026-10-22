@@ -254,22 +254,25 @@ async def test_cancel_without_legs_cancels_the_whole_batch():
 
 
 @pytest.mark.parametrize(
-    ("cancelled", "resumes", "finished", "note"),
+    ("thread_ids", "cancelled", "resumes", "finished", "note"),
     [
-        ([], True, False, "Nothing was cancelled"),
-        (["t2"], False, True, "no resume will come"),
-        (["t2"], True, False, "once the legs still queued or running have finished"),
-        (["t2"], True, True, "once this turn ends"),
+        (["t2"], [], True, False, "the legs you named had already finished"),
+        (None, [], True, True, "every leg of this batch had already finished"),
+        (None, ["t2"], False, False, "no resume will come"),
+        (None, ["t2"], True, False, "once the legs still queued, running or stopping have finished"),
+        (None, ["t2"], True, True, "once this turn ends"),
     ],
-    ids=["nothing-cancelled", "every-leg-cancelled", "others-still-run", "batch-finished"],
+    ids=["named-legs-done", "batch-done", "every-leg-cancelled", "others-still-run", "batch-finished"],
 )
-async def test_cancel_says_whether_the_batch_still_resumes_the_coordinator(cancelled, resumes, finished, note):
+async def test_cancel_says_whether_the_batch_still_resumes_the_coordinator(
+    thread_ids, cancelled, resumes, finished, note
+):
     delegator = _delegator()
     delegator.acancel = AsyncMock(
         return_value=CancelResult(BatchStatus("b1", finished=finished, legs=[]), cancelled, resumes)
     )
 
-    assert note in (await _cancel(delegator, batch_id="b1"))["note"]
+    assert note in (await _cancel(delegator, batch_id="b1", thread_ids=thread_ids))["note"]
 
 
 async def test_an_unexpected_cancel_failure_is_logged_and_reported_as_ours(caplog):

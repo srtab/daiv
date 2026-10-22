@@ -98,18 +98,18 @@ async def run_job_task(
             extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
         ),
         RunHooks(on_failure=_log_failure),
-        should_stop=partial(_acancelled, run_id) if run_id else None,
+        should_stop=partial(_acancel_requested, run_id) if run_id else None,
     )
 
     logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
     return outcome.agent_result
 
 
-async def _acancelled(run_id: str) -> bool:
-    """Whether the run's row was cancelled; a failed read is logged and counts as not, so only a definitive cancel
+async def _acancel_requested(run_id: str) -> bool:
+    """Whether the run was asked to stop; a failed read is logged and counts as not, so only a definitive request
     stops a live run."""
     try:
-        return await Run.objects.acancelled(run_id)
+        return await Run.objects.acancel_requested(run_id)
     except Exception:
-        logger.exception("Could not read whether run_id=%s was cancelled", run_id)
+        logger.exception("Could not read whether run_id=%s was asked to stop", run_id)
         return False

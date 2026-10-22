@@ -16,7 +16,7 @@ from redisvl.exceptions import RedisSearchError
 from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
-from sessions.executor.run import RunStoppedError, execute_run, stream_run
+from sessions.executor.run import RunStoppedError, _until_stopped, execute_run, stream_run
 from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
@@ -271,12 +271,38 @@ async def test_a_stop_requested_before_the_run_starts_never_reaches_the_agent():
     agent = _agent()
     on_failure = AsyncMock()
 
+    async def _should_stop():
+        await asyncio.sleep(0)
+        return True
+
     with agent_stack(agent) as stack, pytest.raises(RunStoppedError):
-        await execute_run(make_spec(), RunHooks(on_failure=on_failure), should_stop=AsyncMock(return_value=True))
+        await execute_run(make_spec(), RunHooks(on_failure=on_failure), should_stop=_should_stop)
 
     agent.ainvoke.assert_not_awaited()
+    stack.build_spec.assert_not_awaited()
     assert stack.events == []
     on_failure.assert_awaited_once()
+
+
+async def test_an_invoke_that_ends_while_the_stop_is_asked_keeps_its_outcome():
+    release, finished = asyncio.Event(), asyncio.Event()
+    answers = iter([False, True])
+
+    async def _invoke():
+        await release.wait()
+        finished.set()
+        return "outcome"
+
+    async def _should_stop():
+        stop = next(answers)
+        if stop:
+            release.set()
+            await finished.wait()
+            await asyncio.sleep(0)
+        return stop
+
+    with patch("sessions.executor.run.STOP_POLL_INTERVAL_S", 0.01):
+        assert await _until_stopped(_invoke, "thread-1", _should_stop) == "outcome"
 
 
 async def test_a_run_never_asked_to_stop_returns_its_outcome():

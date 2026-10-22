@@ -95,21 +95,23 @@ merge request and reply.
 - `batch_id`: the batch `{DELEGATE_JOBS_TOOL_NAME}` returned; omit it for this session's latest batches.
 
 Returns JSON: `{{"batches": [{{batch_id, finished, legs: [{{repo_id, ref, thread_id, session_url, status, branch, \
-merge_request_url, reply}}]}}]}}`. A leg's `status` is `queued`, `running`, `succeeded`, `failed`, `cancelled`, or \
-`started, but DAIV lost track of it`, which may still open a merge request.
+merge_request_url, reply}}]}}]}}`. A leg's `status` is `queued`, `running`, `stopping` (cancelled, but still \
+running), `succeeded`, `failed`, `cancelled`, or `started, but DAIV lost track of it`, which may still open a merge \
+request.
 
 Check when the user asks how the work is going, or when you need a finished leg's result before the batch resumes \
 you. Never call it to wait for legs: you are resumed once every leg of a batch has finished."""
 
 CANCEL_DELEGATED_JOBS_DESCRIPTION = f"""\
 Cancel sub-jobs you delegated with `{DELEGATE_JOBS_TOOL_NAME}` that have not finished: a queued leg never starts, \
-and a running one stops within seconds.
+and a running one is `stopping` until it stops, within seconds.
 
 - `batch_id`: the batch `{DELEGATE_JOBS_TOOL_NAME}` returned.
 - `thread_ids`: the `thread_id` of each leg to cancel; omit them to cancel every unfinished leg of the batch.
 
-Cancel only when the user asks you to, or when the work a leg does is no longer wanted. A running leg may already \
-have pushed to its branch or opened a merge request: check `merge_request_url` before you report.
+Cancel only when the user asks you to, or when the work a leg does is no longer wanted. A running leg may push to \
+its branch or open a merge request before it stops, even if its `merge_request_url` stays empty: give the user its \
+`session_url` when you report.
 
 Returns JSON: `{{"batch_id", "finished", "cancelled": [thread_id], "legs": [...], "note"}}`, with `legs` as \
 `{CHECK_DELEGATED_JOBS_TOOL_NAME}` reports them; the note says whether the batch still resumes you."""
@@ -160,9 +162,13 @@ _INTERNAL_FAILURE = (
     "The call failed on DAIV's side (not a problem with the request). Do not retry; report it in your final response."
 )
 _NO_BATCHES_NOTE = "This session has delegated no sub-jobs."
-_NOTHING_CANCELLED_NOTE = "Nothing was cancelled: the legs you named had already finished."
-_NO_RESUME_NOTE = "Every leg of this batch is cancelled, so no resume will come for it."
-_RESUMED_AFTER_THE_REST_NOTE = "You are resumed once the legs still queued or running have finished."
+_NAMED_LEGS_DONE_NOTE = "Nothing was cancelled: the legs you named had already finished or been cancelled."
+_BATCH_DONE_NOTE = "Nothing was cancelled: every leg of this batch had already finished or been cancelled."
+_NO_RESUME_NOTE = (
+    "Every leg of this batch is cancelled or stopping: no resume will come for it, unless a stopping leg finishes "
+    "before it stops."
+)
+_RESUMED_AFTER_THE_REST_NOTE = "You are resumed once the legs still queued, running or stopping have finished."
 _RESUMED_AFTER_THIS_TURN_NOTE = "The batch has finished: you are resumed with its summary once this turn ends."
 
 
@@ -233,10 +239,10 @@ class DelegateJobsMiddleware(AgentMiddleware):
         return json.dumps(payload, ensure_ascii=False)
 
     async def _acancel(self, batch_id: str, thread_ids: list[str]) -> str:
-        result = await self._delegator.acancel(
-            batch_id=batch_id, thread_ids=[thread_id.strip() for thread_id in thread_ids if thread_id.strip()]
-        )
-        payload = {**asdict(result.batch), "cancelled": result.cancelled, "note": _cancel_note(result)}
+        named = [thread_id.strip() for thread_id in thread_ids if thread_id.strip()]
+        result = await self._delegator.acancel(batch_id=batch_id, thread_ids=named)
+        note = _cancel_note(result, named=bool(named))
+        payload = {**asdict(result.batch), "cancelled": result.cancelled, "note": note}
         return json.dumps(payload, ensure_ascii=False)
 
     async def awrap_model_call(
@@ -257,9 +263,9 @@ async def _guarded(tool_name: str, call: Awaitable[str]) -> str:
         return json.dumps({"error": _INTERNAL_FAILURE})
 
 
-def _cancel_note(result: CancelResult) -> str:
+def _cancel_note(result: CancelResult, *, named: bool) -> str:
     if not result.cancelled:
-        return _NOTHING_CANCELLED_NOTE
+        return _NAMED_LEGS_DONE_NOTE if named else _BATCH_DONE_NOTE
     if not result.resumes:
         return _NO_RESUME_NOTE
     if not result.batch.finished:

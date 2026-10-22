@@ -55,8 +55,8 @@ A target's `ref` is the branch the leg starts from and the branch its merge requ
 
 Between resumes, the coordinator has two more tools:
 
-- `check_delegated_jobs` reports where its batches stand: each leg's status (`queued`, `running`, `succeeded`, `failed` or `cancelled`), session, branch, merge request and reply. Given a `batch_id` it reports that batch; without one, the session's five latest. The agent uses it when you ask how the work is going, never to wait for the legs: the resume comes on its own.
-- `cancel_delegated_jobs` cancels a batch's unfinished legs, or only the ones it names by `thread_id`. A queued leg never starts. A running leg stops within about ten seconds, and may already have pushed to its branch or opened a merge request. A cancelled leg's session shows it as failed, with the reason, and [Notifications](notifications.md) count it as failed.
+- `check_delegated_jobs` reports where its batches stand: each leg's status (`queued`, `running`, `stopping`, `succeeded`, `failed` or `cancelled`), session, branch, merge request and reply. Given a `batch_id` it reports that batch; without one, the session's five latest. The agent uses it when you ask how the work is going, never to wait for the legs: the resume comes on its own.
+- `cancel_delegated_jobs` cancels a batch's unfinished legs, or only the ones it names by `thread_id`. A queued leg never starts. A running leg shows as `stopping` until it stops, within about ten seconds, and may push to its branch or open a merge request before then. If it finishes first, it keeps its outcome. A cancelled leg's session shows it as stopped, and [Notifications](notifications.md) count it as failed.
 
 The agent cancels when you ask it to, or when the work a leg does is no longer wanted. The coordinator is still resumed once the batch has finished, with the cancelled legs marked as such, unless every leg was cancelled: then no resume comes.
 

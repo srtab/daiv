@@ -26,8 +26,9 @@ instead. A batch none of whose legs reached the task queue or waited for the coo
 already told the agent nothing started, and neither does one whose every leg was cancelled.
 
 ``SessionJobDelegator.astatus`` reports the session's batches, its latest ``MAX_STATUS_BATCHES`` without a batch id,
-and ``acancel`` finishes a batch's unfinished legs FAILED through ``RunManager.cancel``, whose ``run_job_task`` stops
-at its next check. Neither quotes DAIV's own error text, as the continuation's prompt does not.
+and ``acancel`` asks a batch's unfinished legs to stop through ``RunManager.cancel``: a leg that is not running yet
+finishes FAILED at once, and a running one is ``stopping`` until its ``run_job_task`` stops at its next check and it
+finishes as that task does. Neither quotes DAIV's own error text, as the continuation's prompt does not.
 
 :func:`resume_stalled_batches` is the periodic backstop: it resumes a finished batch the signal path left without a
 continuation, retries one whose continuation never ran (it never reached the task queue, or gave up waiting for the
@@ -62,6 +63,7 @@ from automation.agent.delegation import (
     StartedLeg,
 )
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE
+from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
 from core.utils import build_absolute_url
 from sessions.admission import (
     AdmissionError,
@@ -103,7 +105,6 @@ _OUTCOMES = {
     RunStatus.WAITING_INPUT: "stopped to ask a question",
 }
 _UNSTARTED_LEG = "DAIV could not start this leg; the error is on DAIV's side, not in the request."
-_CANCEL_REASON = "stopped by the session that delegated it."
 _UNTRACKED_LEG = (
     "This leg started, but DAIV lost track of it: it may still open a merge request, and its outcome will not "
     "reach you."
@@ -232,11 +233,13 @@ class SessionJobDelegator:
         legs = self._batch_legs(batch_id)
         if unknown := thread_ids - {leg.session_id for leg in legs}:
             raise DelegationError(f"Not legs of batch {batch_id}: {', '.join(sorted(unknown))}.")
-        cancelled = []
-        for leg in legs:
-            if (not thread_ids or leg.session_id in thread_ids) and Run.objects.cancel(leg, _CANCEL_REASON):
-                cancelled.append(leg.session_id)
-        legs = self._batch_legs(batch_id)
+        cancelled = [
+            leg.session_id
+            for leg in legs
+            if (not thread_ids or leg.session_id in thread_ids)
+            and leg.status not in RunStatus.terminal()
+            and Run.objects.cancel(leg, CANCELLED_BY_COORDINATOR_MESSAGE)
+        ]
         return CancelResult(batch=_batch_status(legs), cancelled=cancelled, resumes=_resumes(legs))
 
     def _legs(self) -> QuerySet[Run]:
@@ -317,8 +320,15 @@ def _leg_status(leg: Run) -> LegStatus:
 
 def _resumes(legs: Sequence[Run]) -> bool:
     """Whether ``legs``' batch resumes its coordinator once it has finished: some leg reached the task queue or waited
-    for the coordinator, and not every leg was cancelled."""
-    return any(leg.task_result_id or leg.waits_for_id for leg in legs) and not all(leg.is_cancelled for leg in legs)
+    for the coordinator, and not every leg was cancelled or is stopping."""
+    return any(leg.task_result_id or leg.waits_for_id for leg in legs) and not all(
+        leg.is_cancelled or _stopping(leg) for leg in legs
+    )
+
+
+def _stopping(leg: Run) -> bool:
+    """Whether ``leg`` was asked to stop and has not finished yet."""
+    return leg.cancel_requested_at is not None and leg.status not in RunStatus.terminal()
 
 
 def resume_coordinator(run: Run) -> None:
@@ -478,6 +488,8 @@ def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
 
 
 def _leg_outcome(leg: Run) -> str:
+    if _stopping(leg):
+        return "stopping"
     if leg.is_cancelled:
         return "cancelled"
     if leg.status == RunStatus.FAILED and leg.error_message.startswith(LINK_FAILED_PREFIX):

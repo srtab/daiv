@@ -6,8 +6,11 @@ from django.test import TestCase
 
 import pytest
 from asgiref.sync import sync_to_async
+from django_tasks_db.models import DBTaskResult
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signal_defs import run_ended, run_finished
+
+from tests.unit_tests.sessions.conftest import make_task_result
 
 
 def _create_run(*, status: str = RunStatus.RUNNING, trigger_type: str = SessionOrigin.PIPELINE_WEBHOOK) -> Run:
@@ -119,19 +122,91 @@ class TestFinish:
 
 @pytest.mark.django_db
 class TestCancel:
-    @pytest.mark.parametrize(
-        ("status", "never_started"), [(RunStatus.RUNNING, False), (RunStatus.READY, True), (RunStatus.QUEUED, True)]
-    )
-    def test_it_finishes_an_unfinished_run_as_cancelled(self, run_finished_spy, badge, status, never_started):
+    @pytest.mark.parametrize("status", [RunStatus.READY, RunStatus.QUEUED])
+    def test_a_run_that_is_not_running_finishes_failed_at_once(self, run_finished_spy, badge, status):
         run = _create_run(status=status)
 
-        assert Run.objects.cancel(run, "stopped by its coordinator.") is True
+        assert Run.objects.cancel(run, "Stopped by its coordinator.") is True
 
+        assert run.status == RunStatus.FAILED
         run.refresh_from_db()
-        assert (run.status, run.error_message) == (RunStatus.FAILED, "cancelled: stopped by its coordinator.")
+        assert (run.status, run.error_message) == (RunStatus.FAILED, "Stopped by its coordinator.")
         assert run.started_at is not None and run.finished_at is not None
         assert run.is_cancelled
-        assert run_finished_spy.call_args.kwargs["never_started"] is never_started
+        assert run_finished_spy.call_args.kwargs["never_started"] is True
+
+    def test_its_queued_task_fails_with_it_so_no_worker_claims_it(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.READY)
+        Run.objects.filter(pk=run.pk).update(task_result=make_task_result(status="READY"))
+
+        assert Run.objects.cancel(run, "Stopped by its coordinator.") is True
+
+        task_result = DBTaskResult.objects.get(run=run)
+        assert task_result.status == "FAILED"
+        assert task_result.exception_class_path == "sessions.executor.run.RunStoppedError"
+
+    def test_a_task_a_worker_claimed_is_left_to_it(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.READY)
+        Run.objects.filter(pk=run.pk).update(task_result=make_task_result(status="RUNNING"))
+
+        assert Run.objects.cancel(run, "Stopped by its coordinator.") is True
+
+        assert DBTaskResult.objects.get(run=run).status == "RUNNING"
+        run.refresh_from_db()
+        assert run.is_cancelled
+
+    def test_a_running_run_is_only_asked_to_stop(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+
+        assert Run.objects.cancel(run, "Stopped by its coordinator.") is True
+
+        assert run.status == RunStatus.RUNNING
+        run.refresh_from_db()
+        assert (run.status, run.error_message) == (RunStatus.RUNNING, "")
+        assert run.cancel_requested_at is not None
+        assert not run.is_cancelled
+        assert not run_finished_spy.called
+
+    def test_a_running_run_keeps_what_its_task_recorded(self, run_finished_spy, badge):
+        task_result = make_task_result(
+            status="SUCCESSFUL",
+            return_value={
+                "response": "Opened the merge request.",
+                "code_changes": True,
+                "merge_request_id": 7,
+                "merge_request_web_url": "https://git.example/mr/7",
+            },
+        )
+        run = _create_run(status=RunStatus.RUNNING)
+        Run.objects.filter(pk=run.pk).update(task_result=task_result)
+        Run.objects.cancel(run, "Stopped by its coordinator.")
+
+        run = Run.objects.select_related("task_result").get(pk=run.pk)
+        assert run.sync_and_save() is True
+
+        run.refresh_from_db()
+        assert (run.status, run.merge_request_web_url) == (RunStatus.SUCCESSFUL, "https://git.example/mr/7")
+        assert not run.is_cancelled
+
+    def test_a_running_run_its_task_stops_is_cancelled(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        Run.objects.filter(pk=run.pk).update(
+            task_result=make_task_result(status="FAILED", exception_class_path="sessions.executor.run.RunStoppedError")
+        )
+        Run.objects.cancel(run, "Stopped by its coordinator.")
+
+        run = Run.objects.select_related("task_result").get(pk=run.pk)
+        run.sync_and_save()
+
+        run.refresh_from_db()
+        assert run.is_cancelled
+        assert run_finished_spy.call_args.kwargs["never_started"] is False
+
+    def test_a_run_asked_once_is_not_asked_again(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        Run.objects.cancel(run, "Stopped by its coordinator.")
+
+        assert Run.objects.cancel(run, "Stopped by its coordinator.") is False
 
     def test_a_finished_run_is_left_as_it_ended(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.SUCCESSFUL)
@@ -139,25 +214,18 @@ class TestCancel:
         assert Run.objects.cancel(run, "too late.") is False
 
         run.refresh_from_db()
-        assert run.status == RunStatus.SUCCESSFUL
+        assert (run.status, run.cancel_requested_at) == (RunStatus.SUCCESSFUL, None)
         assert not run_finished_spy.called
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize(
-    ("status", "error_message", "cancelled"),
-    [
-        (RunStatus.FAILED, "cancelled: stopped by its coordinator.", True),
-        (RunStatus.FAILED, "link_failed (agent task will run but its result cannot be captured): boom", False),
-        (RunStatus.RUNNING, "", False),
-    ],
-    ids=["cancelled", "failed-otherwise", "running"],
-)
-async def test_acancelled_is_true_only_for_a_cancelled_run(status, error_message, cancelled):
-    run = await sync_to_async(_create_run)(status=status)
-    await Run.objects.filter(pk=run.pk).aupdate(error_message=error_message)
+@pytest.mark.parametrize("requested", [True, False])
+async def test_acancel_requested_is_true_once_cancel_asked(requested):
+    run = await sync_to_async(_create_run)(status=RunStatus.RUNNING)
+    if requested:
+        await sync_to_async(Run.objects.cancel)(run, "Stopped by its coordinator.")
 
-    assert await Run.objects.acancelled(str(run.pk)) is cancelled
+    assert await Run.objects.acancel_requested(str(run.pk)) is requested
 
 
 @pytest.mark.django_db

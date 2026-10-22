@@ -16,7 +16,12 @@ from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.transcript import annotate_transcript, artifact_turns
 from sessions.turns import build_turns
 
-from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from core.constants import (
+    CANCELLED_BY_COORDINATOR_MESSAGE,
+    CANCELLED_BY_USER_MESSAGE,
+    INTERRUPTED_MESSAGE,
+    RUN_FAILED_MESSAGE,
+)
 from tests.unit_tests.sessions.conftest import make_artifact
 
 CREATED_AT = datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC)
@@ -33,6 +38,7 @@ def _run(
     trigger_type=SessionOrigin.CHAT,
     created_at=None,
     finished_at=None,
+    is_cancelled=False,
 ):
     return SimpleNamespace(
         id=rid,
@@ -43,6 +49,7 @@ def _run(
         trigger_type=trigger_type,
         created_at=created_at,
         finished_at=finished_at,
+        is_cancelled=is_cancelled,
     )
 
 
@@ -137,6 +144,26 @@ def test_non_chat_failed_run_shows_generic_message_not_raw_error():
     assert marker["message"] == RUN_FAILED_MESSAGE
     assert "GitCommandError" not in marker["message"]
     assert "Traceback" not in marker["message"]
+
+
+def test_a_leg_its_delegating_session_cancelled_renders_aborted_marker():
+    turns = [_user("h1"), _assistant("a1")]
+    traceback = "sessions.executor.run.RunStoppedError\nTraceback (most recent call last): ..."
+    runs = [
+        _run(
+            "r1",
+            trigger_type=SessionOrigin.DELEGATED_JOB,
+            status=RunStatus.FAILED,
+            error_message=traceback,
+            is_cancelled=True,
+        )
+    ]
+    assert annotate_transcript(turns, runs)[-1] == {
+        "id": "run-status-r1",
+        "role": "run_status",
+        "status": "aborted",
+        "message": CANCELLED_BY_COORDINATOR_MESSAGE,
+    }
 
 
 def test_chat_failed_run_renders_error_message_verbatim():

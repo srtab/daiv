@@ -6,6 +6,7 @@ from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
+from django_tasks_db.models import DBTaskResult
 from sessions.artifacts import bind_active_run
 from sessions.delegation import (
     MAX_CONTINUATION_ATTEMPTS,
@@ -25,6 +26,7 @@ from sessions.queue import LINK_FAILED_PREFIX
 from automation.agent.delegation import MAX_DELEGATED_TARGETS, Checkout, DelegatedTarget, DelegationError
 from automation.agent.references import RefIn
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
+from tests.unit_tests.sessions.conftest import make_task_result
 
 
 def _coordinator(user=None, **fields) -> Session:
@@ -793,85 +795,112 @@ class TestStatus:
             )
 
 
+def _running_leg(coordinator: Session, batch_id: uuid.UUID) -> Run:
+    task_result = make_task_result(status="RUNNING")
+    return _leg(coordinator, batch_id, status=RunStatus.RUNNING, task_result=task_result, finished_at=None)
+
+
+def _end_task_as_its_worker_would(leg: Run, *, status: str, **task_fields) -> None:
+    DBTaskResult.objects.filter(pk=leg.task_result_id).update(status=status, finished_at=timezone.now(), **task_fields)
+    Run.objects.select_related("task_result", "session").get(pk=leg.pk).sync_and_save()
+
+
 @pytest.mark.django_db(transaction=True)
 class TestCancel:
-    async def test_it_cancels_the_unfinished_legs_and_resumes_the_coordinator_after_its_turn(
-        self, admin_user, create_db_task_result
-    ):
+    async def test_it_finishes_a_queued_leg_and_asks_a_running_one_to_stop(self, admin_user, create_db_task_result):
         coordinator = await sync_to_async(_coordinator)(admin_user)
-        turn = await sync_to_async(_delegating_run)(coordinator, admin_user)
         batch_id = uuid.uuid4()
         done = await sync_to_async(_leg)(
             coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=await sync_to_async(create_db_task_result)()
         )
         queued = await sync_to_async(_leg)(coordinator, batch_id, status=RunStatus.QUEUED, finished_at=None)
-        running = await sync_to_async(_leg)(
-            coordinator,
-            batch_id,
-            status=RunStatus.RUNNING,
-            task_result=await sync_to_async(create_db_task_result)(status="RUNNING"),
-            finished_at=None,
-        )
+        running = await sync_to_async(_running_leg)(coordinator, batch_id)
 
         with patch("sessions.queue.run_job_task"):
             result = await SessionJobDelegator(coordinator.pk).acancel(batch_id=str(batch_id), thread_ids=[])
 
         assert result.cancelled == [queued.session_id, running.session_id]
-        assert [leg.status for leg in result.batch.legs] == ["succeeded", "cancelled", "cancelled"]
-        assert (result.batch.finished, result.resumes) == (True, True)
-        for leg in (queued, running):
-            await leg.arefresh_from_db()
-            assert leg.is_cancelled
-            assert leg.finished_at is not None
+        assert [leg.status for leg in result.batch.legs] == ["succeeded", "cancelled", "stopping"]
+        assert (result.batch.finished, result.resumes) == (False, True)
+        await queued.arefresh_from_db()
+        assert queued.is_cancelled
+        await running.arefresh_from_db()
+        assert (running.status, running.cancel_requested_at is not None) == (RunStatus.RUNNING, True)
         await done.arefresh_from_db()
         assert done.status == RunStatus.SUCCESSFUL
+        assert not await Run.objects.filter(continuation_of_batch_id=batch_id).aexists()
+
+    async def test_once_a_stopping_leg_stops_the_coordinator_resumes_after_its_turn(self, admin_user):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+        turn = await sync_to_async(_delegating_run)(coordinator, admin_user)
+        batch_id = uuid.uuid4()
+        await sync_to_async(_leg)(coordinator, batch_id, status=RunStatus.SUCCESSFUL)
+        running = await sync_to_async(_running_leg)(coordinator, batch_id)
+
+        with patch("sessions.queue.run_job_task"):
+            await SessionJobDelegator(coordinator.pk).acancel(batch_id=str(batch_id), thread_ids=[running.session_id])
+            await sync_to_async(_end_task_as_its_worker_would)(
+                running, status="FAILED", exception_class_path="sessions.executor.run.RunStoppedError"
+            )
+
+        await running.arefresh_from_db()
+        assert running.is_cancelled
         continuation = await Run.objects.aget(continuation_of_batch_id=batch_id)
         assert (continuation.status, continuation.waits_for_id) == (RunStatus.QUEUED, turn.pk)
         assert "## acme/api: cancelled" in continuation.prompt
 
-    async def test_a_batch_whose_every_leg_was_cancelled_resumes_nothing(self, admin_user, create_db_task_result):
+    async def test_a_stopping_leg_that_finishes_first_keeps_its_merge_request(self, admin_user):
         coordinator = await sync_to_async(_coordinator)(admin_user)
+        await sync_to_async(_delegating_run)(coordinator, admin_user)
         batch_id = uuid.uuid4()
-        for _ in range(2):
-            await sync_to_async(_leg)(
-                coordinator,
-                batch_id,
-                status=RunStatus.RUNNING,
-                task_result=await sync_to_async(create_db_task_result)(status="RUNNING"),
-                finished_at=None,
-            )
+        running = await sync_to_async(_running_leg)(coordinator, batch_id)
 
         with patch("sessions.queue.run_job_task"):
             result = await SessionJobDelegator(coordinator.pk).acancel(batch_id=str(batch_id), thread_ids=[])
+            await sync_to_async(_end_task_as_its_worker_would)(
+                running,
+                status="SUCCESSFUL",
+                return_value={"response": "Opened it.", "merge_request_web_url": "https://git.example/mr/3"},
+            )
+
+        assert result.resumes is False
+        [leg] = (await SessionJobDelegator(coordinator.pk).astatus(batch_id=str(batch_id)))[0].legs
+        assert (leg.status, leg.merge_request_url) == ("succeeded", "https://git.example/mr/3")
+        continuation = await Run.objects.aget(continuation_of_batch_id=batch_id)
+        assert "- Merge request: https://git.example/mr/3" in continuation.prompt
+
+    async def test_a_batch_whose_every_leg_was_cancelled_resumes_nothing(self, admin_user):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+        batch_id = uuid.uuid4()
+        legs = [await sync_to_async(_running_leg)(coordinator, batch_id) for _ in range(2)]
+
+        with patch("sessions.queue.run_job_task"):
+            result = await SessionJobDelegator(coordinator.pk).acancel(batch_id=str(batch_id), thread_ids=[])
+            for leg in legs:
+                await sync_to_async(_end_task_as_its_worker_would)(
+                    leg, status="FAILED", exception_class_path="sessions.executor.run.RunStoppedError"
+                )
             stalled = await sync_to_async(resume_stalled_batches)()
 
         assert len(result.cancelled) == 2
-        assert (result.batch.finished, result.resumes) == (True, False)
+        assert (result.batch.finished, result.resumes) == (False, False)
         assert stalled == 0
         assert not await Run.objects.filter(continuation_of_batch_id=batch_id).aexists()
 
-    async def test_it_cancels_only_the_named_legs(self, admin_user, create_db_task_result):
+    async def test_it_cancels_only_the_named_legs(self, admin_user):
         coordinator = await sync_to_async(_coordinator)(admin_user)
         batch_id = uuid.uuid4()
-        named, other = [
-            await sync_to_async(_leg)(
-                coordinator,
-                batch_id,
-                status=RunStatus.RUNNING,
-                task_result=await sync_to_async(create_db_task_result)(status="RUNNING"),
-                finished_at=None,
-            )
-            for _ in range(2)
-        ]
+        named, other = [await sync_to_async(_running_leg)(coordinator, batch_id) for _ in range(2)]
+
         delegator = SessionJobDelegator(coordinator.pk)
 
         result = await delegator.acancel(batch_id=str(batch_id), thread_ids=[named.session_id])
 
         assert result.cancelled == [named.session_id]
+        assert [leg.status for leg in result.batch.legs] == ["stopping", "running"]
         assert (result.batch.finished, result.resumes) == (False, True)
         await other.arefresh_from_db()
-        assert other.status == RunStatus.RUNNING
-        assert not await Run.objects.filter(continuation_of_batch_id=batch_id).aexists()
+        assert (other.status, other.cancel_requested_at) == (RunStatus.RUNNING, None)
 
     async def test_a_finished_leg_is_left_as_it_ended(self, admin_user, create_db_task_result):
         coordinator = await sync_to_async(_coordinator)(admin_user)
@@ -921,7 +950,7 @@ def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
         ),
         _leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, repo_id="acme/ops", result_summary="x" * 5000),
         _leg(coordinator, batch_id, status=RunStatus.FAILED, repo_id="acme/lost", error_message=LINK_FAILED_PREFIX),
-        _leg(coordinator, batch_id, status=RunStatus.FAILED, repo_id="acme/void", error_message="cancelled: by you"),
+        _leg(coordinator, batch_id, status=RunStatus.FAILED, repo_id="acme/void", cancel_requested_at=timezone.now()),
     ]
 
     summary = render_batch_summary(batch_id, legs)

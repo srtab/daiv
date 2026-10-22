@@ -613,7 +613,7 @@ class TestRunJobTaskAfterRunMatrix:
     async def test_a_cancel_check_that_fails_is_logged_and_the_job_runs_on(self, caplog):
         with (
             _job_scaffolding(_agent_with_mr(None), armed=[]),
-            patch.object(type(Run.objects), "acancelled", AsyncMock(side_effect=DatabaseError("db down"))),
+            patch.object(type(Run.objects), "acancel_requested", AsyncMock(side_effect=DatabaseError("db down"))),
             caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
             result = await run_job_task.func(

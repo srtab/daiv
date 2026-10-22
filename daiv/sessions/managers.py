@@ -4,7 +4,10 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from django.db import close_old_connections, models, transaction
+from django.tasks import TaskResultStatus
 from django.utils import timezone
+
+from django_tasks_db.models import DBTaskResult
 
 from core import ui_events
 from sessions.signal_defs import run_ended, run_finished
@@ -12,8 +15,6 @@ from sessions.signal_defs import run_ended, run_finished
 if TYPE_CHECKING:
     from accounts.models import User
     from sessions.models import Run, RunArtifact, Session
-
-CANCELLED_PREFIX = "cancelled"
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
@@ -178,27 +179,45 @@ class RunManager(models.Manager["Run"]):
         return True
 
     def cancel(self, run: Run, reason: str) -> bool:
-        """Finish an unfinished ``run`` FAILED as cancelled, through :meth:`finish`; returns whether this call
-        finished it. A ``run_job_task`` still running it stops at its next :meth:`acancelled` check."""
+        """Ask an unfinished ``run`` to stop, and return whether this call did; ``run`` is left with its row's status.
+
+        A run that is not RUNNING finishes FAILED here as ``never_started``, with ``reason``, and its task fails too
+        unless a worker claimed it. A ``run_job_task`` running the run stops at its next :meth:`acancel_requested`
+        check, before the agent if it has not reached it, and a RUNNING run finishes as that task does: with what it
+        recorded, or SUCCESSFUL if it finished first.
+        """
+        from sessions.executor.run import RunStoppedError
         from sessions.models import RunStatus
 
         now = timezone.now()
-        return self.finish(
+        if not self._unfinished(run).filter(cancel_requested_at__isnull=True).update(cancel_requested_at=now):
+            run.refresh_from_db(fields=["status", "cancel_requested_at"])
+            return False
+        run.cancel_requested_at = now
+        finished = self.finish(
             run,
             RunStatus.FAILED,
-            never_started=run.status != RunStatus.RUNNING,
-            error_message=f"{CANCELLED_PREFIX}: {reason}",
+            where=~models.Q(status=RunStatus.RUNNING),
+            never_started=True,
+            error_message=reason,
             finished_at=now,
             started_at=run.started_at or now,
         )
+        if not finished:
+            run.refresh_from_db(fields=["status"])
+            return run.status not in RunStatus.terminal()
+        if task_result_id := self.filter(pk=run.pk).values_list("task_result_id", flat=True).first():
+            DBTaskResult.objects.filter(pk=task_result_id, status=TaskResultStatus.READY).update(
+                status=TaskResultStatus.FAILED,
+                finished_at=now,
+                exception_class_path=f"{RunStoppedError.__module__}.{RunStoppedError.__qualname__}",
+                traceback=reason,
+            )
+        return True
 
-    async def acancelled(self, run_id: str) -> bool:
-        """Whether :meth:`cancel` finished the run ``run_id``."""
-        from sessions.models import RunStatus
-
-        return await self.filter(
-            pk=run_id, status=RunStatus.FAILED, error_message__startswith=CANCELLED_PREFIX
-        ).aexists()
+    async def acancel_requested(self, run_id: str) -> bool:
+        """Whether :meth:`cancel` asked the run ``run_id`` to stop."""
+        return await self.filter(pk=run_id, cancel_requested_at__isnull=False).aexists()
 
     def update_unfinished(self, run: Run, **fields: Any) -> bool:
         """Write a non-terminal change onto ``run``'s row unless the run has finished, so a stale sync never reopens it.

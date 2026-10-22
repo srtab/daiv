@@ -13,7 +13,12 @@ import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
-from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from core.constants import (
+    CANCELLED_BY_COORDINATOR_MESSAGE,
+    CANCELLED_BY_USER_MESSAGE,
+    INTERRUPTED_MESSAGE,
+    RUN_FAILED_MESSAGE,
+)
 from sessions.artifacts import published_tool_result
 from sessions.models import RunArtifact, RunStatus, SessionOrigin
 from sessions.turns import tool_call_segment
@@ -47,6 +52,8 @@ def _marker(run: Run) -> dict[str, Any] | None:
         # failure chip. This is the single, deliberate string-coupling point: nothing
         # persisted distinguishes them from a genuine failure except these shared messages.
         aborted = run.error_message in (CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE)
+    elif run.is_cancelled:
+        message, aborted = CANCELLED_BY_COORDINATOR_MESSAGE, True
     else:
         message = RUN_FAILED_MESSAGE
         aborted = False
