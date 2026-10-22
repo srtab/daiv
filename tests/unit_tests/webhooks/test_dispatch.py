@@ -2,8 +2,9 @@ import asyncio
 import logging
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.tasks import TaskResultStatus
+
 import pytest
-from django_tasks import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
 from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError

@@ -1,14 +1,22 @@
+import logging
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.tasks import task
+from django.tasks.signals import task_finished, task_started
+
 import pytest
-from django_tasks.signals import task_finished, task_started
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signal_defs import run_ended, run_finished
 
 from accounts.models import User
 from tests.unit_tests.sessions.conftest import commit_revision, make_artifact, make_run
+
+
+@task
+def noop_task() -> None:
+    return None
 
 
 def _make_session(*, thread_id: str | None = None) -> Session:
@@ -203,6 +211,11 @@ class TestSyncRunOnTaskSignals:
 
         with patch.object(Run, "sync_from_task_result", side_effect=RuntimeError("boom")):
             task_finished.send(sender=type(None), task_result=tr.task_result)
+
+    def test_non_database_task_result_is_ignored(self, caplog):
+        noop_task.enqueue()
+
+        assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
 
 
 @pytest.mark.django_db(transaction=True)

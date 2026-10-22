@@ -49,7 +49,6 @@ from django.urls import reverse
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
-from django_tasks.utils import get_module_path
 from sandbox_envs.selection import aresolve_repo_envs
 
 from automation.agent.delegation import (
@@ -110,7 +109,7 @@ _UNTRACKED_LEG = (
     "reach you."
 )
 # A run_job_task that gave up waiting for the session's slot stores its exception's class path as the run's error.
-_LOCK_TIMED_OUT = get_module_path(SessionLockTimeoutError)
+_LOCK_TIMED_OUT = f"{SessionLockTimeoutError.__module__}.{SessionLockTimeoutError.__qualname__}"
 _NEVER_RAN = Q(status=RunStatus.FAILED) & (
     Q(error_message__startswith=ENQUEUE_FAILED_PREFIX) | Q(error_message__startswith=_LOCK_TIMED_OUT)
 )

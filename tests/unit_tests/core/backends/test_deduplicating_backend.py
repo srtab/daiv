@@ -1,10 +1,10 @@
 from dataclasses import replace
 
 from django.db import transaction
+from django.tasks import TaskResultStatus, task
+from django.utils.json import normalize_json
 
 import pytest
-from django_tasks import TaskResultStatus, task
-from django_tasks.utils import normalize_json
 from django_tasks_db.models import DBTaskResult
 
 

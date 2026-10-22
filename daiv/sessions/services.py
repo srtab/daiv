@@ -216,7 +216,7 @@ def pinned_agent_override(session: Session) -> tuple[str, str]:
 def create_run(
     *,
     trigger_type: str,
-    task_result_id: uuid.UUID | None,
+    task_result_id: uuid.UUID | str | None,
     repo_id: str,
     ref: str = "",
     prompt: str = "",

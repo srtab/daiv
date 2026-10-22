@@ -6,13 +6,13 @@ from uuid import UUID
 
 from django.db import IntegrityError
 from django.db.models import Count, Q
+from django.tasks import task
 from django.urls import NoReverseMatch
 from django.utils import timezone
 from django.utils.translation import gettext
 
 from asgiref.sync import sync_to_async
 from crontask import cron
-from django_tasks import task
 from sessions.models import Run, RunStatus, SessionOrigin
 
 from core.constants import TASK_PRIORITY_NOTIFICATION, TASK_QUEUE_INTERACTIVE

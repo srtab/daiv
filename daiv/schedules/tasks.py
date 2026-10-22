@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING
 
 from django.db import models, transaction
 from django.db.models.functions import Coalesce
+from django.tasks import task
 
 from crontask import cron
-from django_tasks import task
 
 from schedules.models import DispatchError, ScheduledJob
 from schedules.signals import schedule_dispatch_failed

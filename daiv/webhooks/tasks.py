@@ -4,9 +4,9 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings as django_settings
 from django.core.management import call_command
+from django.tasks import task
 
 from crontask import cron
-from django_tasks import task
 from sessions.services import aget_session_ref, aget_task_run_id
 
 from codebase.base import GitPlatform
@@ -16,7 +16,8 @@ from codebase.exceptions import CloneRefNotFoundError
 from webhooks.conf import settings
 
 if TYPE_CHECKING:
-    from django_tasks import TaskContext
+    from django.tasks import TaskContext
+
     from sessions.executor.result import AgentResult
 
     from codebase.base import MergeRequest

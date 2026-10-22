@@ -8,8 +8,9 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.tasks.signals import task_finished, task_started
 
-from django_tasks.signals import task_finished, task_started
+from django_tasks_db.backend import TaskResult as DatabaseTaskResult
 
 from core import ui_events
 from sessions.delegation import resume_coordinator
@@ -105,8 +106,11 @@ def sync_run_on_task_signal(sender: type, task_result: Any, **kwargs: Any) -> No
 
     The django-tasks worker commits DBTaskResult state (via ``claim``/``set_successful``/
     ``set_failed``) before dispatching these signals, so reading back the row here is safe
-    without a transaction guard.
+    without a transaction guard. Only a database result can link to a Run, so results from
+    any other backend (the test ``ImmediateBackend``) are skipped.
     """
+    if not isinstance(task_result, DatabaseTaskResult):
+        return
     _sync_run_for_task(task_result.id)
 
 

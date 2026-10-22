@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import wcmatch.glob as wcglob
+from deepagents.backends.composite import CompositeBackend
+from deepagents.backends.utils import sanitize_tool_call_id
 from deepagents.middleware import filesystem as _upstream_fs_module
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
@@ -23,9 +26,15 @@ from automation.agent.constants import SKILLS_TOOL_NAME
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from deepagents.backends.protocol import BackendProtocol
+    from langchain.tools import ToolRuntime
     from langgraph.prebuilt.tool_node import ToolCallRequest
     from langgraph.types import Command
     from pydantic import BaseModel
+
+    from automation.agent.context import RuntimeCtx
+
+logger = logging.getLogger("daiv.tools")
 
 # ---------------------------------------------------------------------------
 # Tool descriptions
@@ -200,6 +209,54 @@ class DAIVFilesystemMiddleware(FilesystemMiddleware):
         if request.tool_call["name"] != "grep":
             return result
         return _label_grep_result(request, result)
+
+
+_PREVIEW_MAX_LINES = 25
+_PREVIEW_MAX_CHARS = 1024
+
+
+def large_tool_results_prefix(backend: BackendProtocol) -> str:
+    """The directory ``FilesystemMiddleware`` evicts a too-large tool result to, for ``backend``.
+
+    Derived exactly as upstream's ``__init__`` derives it (``artifacts_root`` is honoured only for a
+    ``CompositeBackend``), so a tool that writes its result to a file on request lands it beside the
+    auto-evicted ones, under the same ``tool_call_id`` naming: one place for the agent to read them back.
+    """
+    artifacts_root = backend.artifacts_root if isinstance(backend, CompositeBackend) else "/"
+    return f"{artifacts_root.rstrip('/')}/large_tool_results"
+
+
+def _file_write_confirmation(path: str, byte_count: int, line_count: int, output: str) -> str:
+    """Compact confirmation returned in place of the written content: path, size, head preview."""
+    preview = "\n".join(output.splitlines()[:_PREVIEW_MAX_LINES])
+    if len(preview) > _PREVIEW_MAX_CHARS:
+        preview = preview[:_PREVIEW_MAX_CHARS] + "\n… (preview truncated)"
+    shown = min(line_count, _PREVIEW_MAX_LINES)
+    return f"Wrote {byte_count} bytes ({line_count} lines) to {path}\nPreview (first {shown} lines):\n{preview}"
+
+
+async def write_tool_result_to_file(
+    output: str, *, runtime: ToolRuntime[RuntimeCtx], backend: BackendProtocol, tool_name: str
+) -> str:
+    """Write a tool's full result under ``backend``'s :func:`large_tool_results_prefix`, keyed by ``tool_call_id``.
+
+    Writes through the backend the agent's ``read_file``/``grep`` use, so the file is addressable at once.
+    Returns a compact confirmation, or an ``error: ...`` string when the write fails.
+    """
+    if not runtime.tool_call_id:
+        # A shared fallback filename would silently overwrite an earlier dump.
+        logger.error("[%s] Cannot write result to file: missing tool_call_id", tool_name)
+        return "error: Failed to write result to file — missing tool_call_id."
+    path = f"{large_tool_results_prefix(backend)}/{sanitize_tool_call_id(runtime.tool_call_id)}"
+    try:
+        result = await backend.awrite(path, output)
+    except Exception as exc:
+        logger.exception("[%s] Failed to write result to %s", tool_name, path)
+        return f"error: Failed to write result to {path}. Details: {exc}"
+    if result.error:
+        logger.error("[%s] Backend rejected write to %s: %s", tool_name, path, result.error)
+        return f"error: Failed to write result to {path}. Details: {result.error}"
+    return _file_write_confirmation(path, len(output.encode("utf-8")), len(output.splitlines()), output)
 
 
 # deepagents' ``GlobSchema`` ships a ``pattern`` field description carrying a bare `*.txt` example and a

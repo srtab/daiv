@@ -70,7 +70,7 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 
 - **Agent Framework**: [Deep Agents](https://github.com/langchain-ai/deepagents) — the core agent engine powering DAIV. A general-purpose deep agent with sub-agent spawning, middleware stack, and virtual filesystem. Built on [LangGraph](https://langchain-ai.github.io/langgraph).
 - **Backend Framework**: [Django](https://www.djangoproject.com/) for building robust APIs and managing database models.
-- **Async Tasks**: [Django Tasks](https://docs.djangoproject.com/en/6.0/topics/tasks/) with the [`django-tasks` backend](https://pypi.org/project/django-tasks/) and [`django-crontask`](https://pypi.org/project/django-crontask/) for periodic scheduling.
+- **Async Tasks**: [Django Tasks](https://docs.djangoproject.com/en/6.0/topics/tasks/) with the [`django-tasks-db` backend](https://pypi.org/project/django-tasks-db/) and [`django-crontask`](https://pypi.org/project/django-crontask/) for periodic scheduling.
 - **Code Executor**: [Sandbox](https://github.com/srtab/daiv-sandbox/) for running commands in a secure sandbox to allow the agents to perform actions on the codebase.
 - **Observability**: [LangSmith](https://www.langchain.com/langsmith) for tracing and monitoring all the interactions between DAIV and your codebase.
 - **Error Handling**: [Sentry](https://sentry.io/) for tracking and analyzing errors.
