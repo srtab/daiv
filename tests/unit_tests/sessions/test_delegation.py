@@ -724,7 +724,7 @@ class TestResumeStalledBatches:
 
 @pytest.mark.django_db(transaction=True)
 class TestStatus:
-    async def test_it_reports_each_leg_of_a_batch_without_daivs_error_text(self, admin_user, create_db_task_result):
+    async def test_it_reports_each_leg_of_a_batch_without_daivs_error_text(self, admin_user):
         coordinator = await sync_to_async(_coordinator)(admin_user)
         batch_id = uuid.uuid4()
         await sync_to_async(_leg)(
@@ -807,11 +807,11 @@ def _end_task_as_its_worker_would(leg: Run, *, status: str, **task_fields) -> No
 
 @pytest.mark.django_db(transaction=True)
 class TestCancel:
-    async def test_it_finishes_a_queued_leg_and_asks_a_running_one_to_stop(self, admin_user, create_db_task_result):
+    async def test_it_finishes_a_queued_leg_and_asks_a_running_one_to_stop(self, admin_user):
         coordinator = await sync_to_async(_coordinator)(admin_user)
         batch_id = uuid.uuid4()
         done = await sync_to_async(_leg)(
-            coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=await sync_to_async(create_db_task_result)()
+            coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=await sync_to_async(make_task_result)()
         )
         queued = await sync_to_async(_leg)(coordinator, batch_id, status=RunStatus.QUEUED, finished_at=None)
         running = await sync_to_async(_running_leg)(coordinator, batch_id)
@@ -902,7 +902,7 @@ class TestCancel:
         await other.arefresh_from_db()
         assert (other.status, other.cancel_requested_at) == (RunStatus.RUNNING, None)
 
-    async def test_a_finished_leg_is_left_as_it_ended(self, admin_user, create_db_task_result):
+    async def test_a_finished_leg_is_left_as_it_ended(self, admin_user):
         coordinator = await sync_to_async(_coordinator)(admin_user)
         batch_id = uuid.uuid4()
         done = await sync_to_async(_leg)(coordinator, batch_id, status=RunStatus.SUCCESSFUL)
@@ -912,7 +912,7 @@ class TestCancel:
         assert result.cancelled == []
         assert [leg.status for leg in result.batch.legs] == ["succeeded"]
 
-    async def test_a_leg_outside_the_batch_refuses_the_whole_call(self, admin_user, create_db_task_result):
+    async def test_a_leg_outside_the_batch_refuses_the_whole_call(self, admin_user):
         coordinator = await sync_to_async(_coordinator)(admin_user)
         batch_id = uuid.uuid4()
         leg = await sync_to_async(_leg)(coordinator, batch_id, status=RunStatus.RUNNING, finished_at=None)

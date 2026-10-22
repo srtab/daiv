@@ -10,6 +10,7 @@ from django_tasks_db.models import DBTaskResult
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signal_defs import run_ended, run_finished
 
+from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
 from tests.unit_tests.sessions.conftest import make_task_result
 
 
@@ -126,11 +127,11 @@ class TestCancel:
     def test_a_run_that_is_not_running_finishes_failed_at_once(self, run_finished_spy, badge, status):
         run = _create_run(status=status)
 
-        assert Run.objects.cancel(run, "Stopped by its coordinator.") is True
+        assert Run.objects.cancel(run) is True
 
         assert run.status == RunStatus.FAILED
         run.refresh_from_db()
-        assert (run.status, run.error_message) == (RunStatus.FAILED, "Stopped by its coordinator.")
+        assert (run.status, run.error_message) == (RunStatus.FAILED, CANCELLED_BY_COORDINATOR_MESSAGE)
         assert run.started_at is not None and run.finished_at is not None
         assert run.is_cancelled
         assert run_finished_spy.call_args.kwargs["never_started"] is True
@@ -139,7 +140,7 @@ class TestCancel:
         run = _create_run(status=RunStatus.READY)
         Run.objects.filter(pk=run.pk).update(task_result=make_task_result(status="READY"))
 
-        assert Run.objects.cancel(run, "Stopped by its coordinator.") is True
+        assert Run.objects.cancel(run) is True
 
         task_result = DBTaskResult.objects.get(run=run)
         assert task_result.status == "FAILED"
@@ -149,7 +150,7 @@ class TestCancel:
         run = _create_run(status=RunStatus.READY)
         Run.objects.filter(pk=run.pk).update(task_result=make_task_result(status="RUNNING"))
 
-        assert Run.objects.cancel(run, "Stopped by its coordinator.") is True
+        assert Run.objects.cancel(run) is True
 
         assert DBTaskResult.objects.get(run=run).status == "RUNNING"
         run.refresh_from_db()
@@ -158,7 +159,7 @@ class TestCancel:
     def test_a_running_run_is_only_asked_to_stop(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.RUNNING)
 
-        assert Run.objects.cancel(run, "Stopped by its coordinator.") is True
+        assert Run.objects.cancel(run) is True
 
         assert run.status == RunStatus.RUNNING
         run.refresh_from_db()
@@ -179,7 +180,7 @@ class TestCancel:
         )
         run = _create_run(status=RunStatus.RUNNING)
         Run.objects.filter(pk=run.pk).update(task_result=task_result)
-        Run.objects.cancel(run, "Stopped by its coordinator.")
+        Run.objects.cancel(run)
 
         run = Run.objects.select_related("task_result").get(pk=run.pk)
         assert run.sync_and_save() is True
@@ -193,7 +194,7 @@ class TestCancel:
         Run.objects.filter(pk=run.pk).update(
             task_result=make_task_result(status="FAILED", exception_class_path="sessions.executor.run.RunStoppedError")
         )
-        Run.objects.cancel(run, "Stopped by its coordinator.")
+        Run.objects.cancel(run)
 
         run = Run.objects.select_related("task_result").get(pk=run.pk)
         run.sync_and_save()
@@ -204,14 +205,14 @@ class TestCancel:
 
     def test_a_run_asked_once_is_not_asked_again(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.RUNNING)
-        Run.objects.cancel(run, "Stopped by its coordinator.")
+        Run.objects.cancel(run)
 
-        assert Run.objects.cancel(run, "Stopped by its coordinator.") is False
+        assert Run.objects.cancel(run) is False
 
     def test_a_finished_run_is_left_as_it_ended(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.SUCCESSFUL)
 
-        assert Run.objects.cancel(run, "too late.") is False
+        assert Run.objects.cancel(run) is False
 
         run.refresh_from_db()
         assert (run.status, run.cancel_requested_at) == (RunStatus.SUCCESSFUL, None)
@@ -223,7 +224,7 @@ class TestCancel:
 async def test_acancel_requested_is_true_once_cancel_asked(requested):
     run = await sync_to_async(_create_run)(status=RunStatus.RUNNING)
     if requested:
-        await sync_to_async(Run.objects.cancel)(run, "Stopped by its coordinator.")
+        await sync_to_async(Run.objects.cancel)(run)
 
     assert await Run.objects.acancel_requested(str(run.pk)) is requested
 

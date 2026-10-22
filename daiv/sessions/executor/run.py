@@ -207,8 +207,6 @@ async def _until_stopped(
         while not task.done():
             await asyncio.wait({task}, timeout=STOP_POLL_INTERVAL_S)
             if not task.done() and await should_stop() and not task.done():
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
                 raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop")
         return task.result()
     finally:

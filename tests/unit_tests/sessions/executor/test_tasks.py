@@ -201,16 +201,16 @@ async def test_run_job_task_persists_resolved_model():
     assert run.agent_thinking_level == "xhigh"
 
 
-async def _run_spec(thread_id: str):
+async def _execute_run_call(thread_id: str, **task_kwargs) -> dict:
     captured: dict = {}
 
     async def _execute_run(spec, hooks=None, *, should_stop=None):
-        captured["spec"] = spec
+        captured.update(spec=spec, should_stop=should_stop)
         return SimpleNamespace(agent_result={"response": "ok"})
 
     with patch("sessions.executor.run.execute_run", _execute_run):
-        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id)
-    return captured["spec"]
+        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, **task_kwargs)
+    return captured
 
 
 @pytest.mark.django_db(transaction=True)
@@ -220,7 +220,7 @@ async def test_run_job_task_reads_session_mcp_overrides():
         thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="g/r", mcp_overrides={"a": "off"}
     )
 
-    spec = await _run_spec(thread_id)
+    spec = (await _execute_run_call(thread_id))["spec"]
 
     assert spec.mcp_overrides == {"a": "off"}
 
@@ -403,16 +403,7 @@ def _raising_agent() -> AsyncMock:
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("ask_user_enabled", [True, False])
 async def test_run_job_task_forwards_ask_user_enabled(ask_user_enabled):
-    captured: dict = {}
-
-    async def _execute_run(spec, hooks=None, *, should_stop=None):
-        captured["spec"] = spec
-        return SimpleNamespace(agent_result={"response": "ok"})
-
-    with patch("sessions.executor.run.execute_run", _execute_run):
-        await run_job_task.func(
-            repo_id="owner/repo", prompt="hi", thread_id=await amake_job_session(), ask_user_enabled=ask_user_enabled
-        )
+    captured = await _execute_run_call(await amake_job_session(), ask_user_enabled=ask_user_enabled)
 
     assert captured["spec"].ask_user_enabled is ask_user_enabled
 
@@ -420,16 +411,7 @@ async def test_run_job_task_forwards_ask_user_enabled(ask_user_enabled):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("fork_branch", [True, False])
 async def test_run_job_task_hands_fork_branch_to_the_agent(fork_branch):
-    captured: dict = {}
-
-    async def _execute_run(spec, hooks=None, *, should_stop=None):
-        captured["spec"] = spec
-        return SimpleNamespace(agent_result={"response": "ok"})
-
-    with patch("sessions.executor.run.execute_run", _execute_run):
-        await run_job_task.func(
-            repo_id="owner/repo", prompt="hi", thread_id=await amake_job_session(), fork_branch=fork_branch
-        )
+    captured = await _execute_run_call(await amake_job_session(), fork_branch=fork_branch)
 
     assert captured["spec"].agent_options == {"fork_branch": fork_branch}
 
@@ -437,14 +419,7 @@ async def test_run_job_task_hands_fork_branch_to_the_agent(fork_branch):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(("run_id", "checks"), [("run-9", True), (None, False)], ids=["run", "no-run"])
 async def test_run_job_task_checks_for_a_cancel_only_when_it_has_a_run(run_id, checks):
-    captured: dict = {}
-
-    async def _execute_run(spec, hooks=None, *, should_stop=None):
-        captured["should_stop"] = should_stop
-        return SimpleNamespace(agent_result={"response": "ok"})
-
-    with patch("sessions.executor.run.execute_run", _execute_run):
-        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=await amake_job_session(), run_id=run_id)
+    captured = await _execute_run_call(await amake_job_session(), run_id=run_id)
 
     assert (captured["should_stop"] is not None) is checks
 
@@ -593,7 +568,7 @@ class TestRunJobTaskAfterRunMatrix:
         agent = _agent_with_mr(None)
 
         async def _invoke(*_args, **_kwargs):
-            await sync_to_async(Run.objects.cancel)(run, "stopped by the test.")
+            await sync_to_async(Run.objects.cancel)(run)
             await asyncio.Event().wait()
 
         agent.ainvoke = AsyncMock(side_effect=_invoke)

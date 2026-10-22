@@ -63,7 +63,6 @@ from automation.agent.delegation import (
     StartedLeg,
 )
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE
-from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
 from core.utils import build_absolute_url
 from sessions.admission import (
     AdmissionError,
@@ -238,7 +237,7 @@ class SessionJobDelegator:
             for leg in legs
             if (not thread_ids or leg.session_id in thread_ids)
             and leg.status not in RunStatus.terminal()
-            and Run.objects.cancel(leg, CANCELLED_BY_COORDINATOR_MESSAGE)
+            and Run.objects.cancel(leg)
         ]
         return CancelResult(batch=_batch_status(legs), cancelled=cancelled, resumes=_resumes(legs))
 
@@ -461,17 +460,18 @@ def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
     succeeded = sum(leg.status == RunStatus.SUCCESSFUL for leg in legs)
     lines = [f"The sub-jobs you delegated (batch {batch_id}) have finished: {succeeded} of {len(legs)} succeeded.", ""]
     for leg in legs:
-        where = f"{leg.repo_id} on {leg.ref}" if leg.ref else leg.repo_id
-        lines.append(f"## {where}: {_leg_outcome(leg)}")
-        lines.append(f"- Session: {_session_url(leg.session_id)}")
-        if leg.session.ref and leg.session.ref != leg.ref:
-            lines.append(f"- Branch: {leg.session.ref}")
-        if leg.merge_request_web_url:
-            lines.append(f"- Merge request: {leg.merge_request_web_url}")
-        if reply := leg.result_summary.strip():
+        info = _leg_status(leg)
+        where = f"{info.repo_id} on {info.ref}" if info.ref else info.repo_id
+        lines.append(f"## {where}: {info.status}")
+        lines.append(f"- Session: {info.session_url}")
+        if info.branch:
+            lines.append(f"- Branch: {info.branch}")
+        if info.merge_request_url:
+            lines.append(f"- Merge request: {info.merge_request_url}")
+        if info.reply:
             # Quoted so a leg's reply can't pass for a sibling's section or for these instructions.
             lines.append("- Reply:")
-            lines.extend(f"  > {line}" for line in reply[:LEG_REPLY_MAX_CHARS].splitlines())
+            lines.extend(f"  > {line}" for line in info.reply.splitlines())
         elif leg.status == RunStatus.FAILED and not leg.is_cancelled:
             lines.append("- Reply: none; open its session to see what happened.")
         lines.append("")
