@@ -329,6 +329,12 @@ msgstr "Mostrar mais"
 msgid "Show less"
 msgstr "Mostrar menos"
 
+msgid "Delegated jobs finished"
+msgstr "Tarefas delegadas concluídas"
+
+msgid "CI failed"
+msgstr "CI falhou"
+
 msgid "file"
 msgstr "ficheiro"
 

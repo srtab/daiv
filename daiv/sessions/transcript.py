@@ -76,6 +76,13 @@ def _stamp_run_times(seg_turns: list[dict[str, Any]], run: Run) -> None:
         seg_turns[-1]["received_at"] = run.finished_at.isoformat()
 
 
+def _mark_author(user_turn: dict[str, Any], run: Run) -> None:
+    """Tag a user turn whose prompt DAIV wrote, so the page shows it as DAIV's notice, not the user's message."""
+    if run.trigger_type in SessionOrigin.daiv_authored():
+        user_turn["author"] = "daiv"
+        user_turn["origin"] = run.trigger_type
+
+
 def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     """A run that produced no visible user turn. Recover a FAILED run's prompt as a
     user turn plus its marker; a non-failed run with no turn contributes nothing."""
@@ -87,6 +94,7 @@ def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
         user_turn = {"id": f"run-{run.id}", "role": "user", "segments": [{"type": "text", "content": run.prompt}]}
         if run.created_at is not None:
             user_turn["sent_at"] = run.created_at.isoformat()
+        _mark_author(user_turn, run)
         out.append(user_turn)
     out.append(marker)
     return out
@@ -146,8 +154,11 @@ def annotate_transcript(turns: list[dict[str, Any]], runs: list[Run]) -> list[di
             cursor += 1
         # received_at targets the segment's own turns; the run_status marker is appended
         # to `result` separately below, so it never receives a timestamp.
-        _stamp_run_times(segments[matched]["turns"], run)
-        result.extend(segments[matched]["turns"])
+        owned = segments[matched]["turns"]
+        _stamp_run_times(owned, run)
+        if owned[0].get("role") == "user":
+            _mark_author(owned[0], run)
+        result.extend(owned)
         cursor = matched + 1
         if (marker := _marker(run)) is not None:
             result.append(marker)

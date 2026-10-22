@@ -362,6 +362,35 @@ def test_sent_at_not_stamped_on_assistant_first_head_segment():
     assert all("sent_at" not in t for t in result)
 
 
+@pytest.mark.parametrize("trigger_type", [SessionOrigin.DELEGATION_RESUME, SessionOrigin.PIPELINE_WEBHOOK])
+def test_a_prompt_daiv_wrote_is_marked_as_daivs(trigger_type):
+    turns = [_user("u1"), _assistant("a1"), _user("u2", "The sub-jobs you delegated have finished"), _assistant("a2")]
+    runs = [_run("r1", message_id="u1"), _run("r2", trigger_type=trigger_type)]
+
+    result = annotate_transcript(turns, runs)
+
+    assert (result[2]["author"], result[2]["origin"]) == ("daiv", trigger_type)
+    assert "author" not in result[0]
+    assert "author" not in result[3]
+
+
+@pytest.mark.parametrize("trigger_type", [SessionOrigin.CHAT, SessionOrigin.SCHEDULE, SessionOrigin.MR_WEBHOOK])
+def test_a_prompt_a_person_wrote_is_not_marked(trigger_type):
+    result = annotate_transcript([_user("u1"), _assistant("a1")], [_run("r1", trigger_type=trigger_type)])
+
+    assert "author" not in result[0]
+
+
+def test_a_recovered_prompt_daiv_wrote_is_marked_as_daivs():
+    run = _run(
+        "r1", status=RunStatus.FAILED, prompt="The sub-jobs you delegated", trigger_type=SessionOrigin.DELEGATION_RESUME
+    )
+
+    result = annotate_transcript([], [run])
+
+    assert (result[0]["role"], result[0]["author"]) == ("user", "daiv")
+
+
 def _db_run(session: Session) -> Run:
     return Run.objects.create(
         session=session, trigger_type=SessionOrigin.UI_JOB, repo_id=session.repo_id, status=RunStatus.SUCCESSFUL

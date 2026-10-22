@@ -68,6 +68,11 @@ class SessionOrigin(models.TextChoices):
         return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB})
 
     @classmethod
+    def daiv_authored(cls) -> frozenset[str]:
+        """Triggers whose run prompt DAIV writes rather than a person: a CI fix and a delegation resume."""
+        return frozenset({cls.PIPELINE_WEBHOOK, cls.DELEGATION_RESUME})
+
+    @classmethod
     def classified(cls) -> frozenset[str]:
         """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven + DELEGATION_RESUME)."""
         return frozenset({cls.SCHEDULE, cls.DELEGATION_RESUME}) | cls.webhooks() | cls.prompt_driven()
