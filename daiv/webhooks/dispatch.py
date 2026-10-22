@@ -31,7 +31,7 @@ from webhooks.tasks import address_issue_label_task, address_issue_task, address
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from django_tasks import Task
+    from django.tasks import Task
 
     from codebase.clients import RepoClient
 

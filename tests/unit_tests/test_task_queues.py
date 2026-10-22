@@ -21,10 +21,10 @@ import re
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.tasks import Task
 from django.utils.module_loading import import_string
 
 import yaml
-from django_tasks.base import Task
 from django_tasks_db.models import DBTaskResult
 
 from core.constants import TASK_QUEUE_INTERACTIVE

@@ -1,8 +1,9 @@
 import uuid
 from unittest.mock import patch
 
+from django.tasks.base import DEFAULT_TASK_PRIORITY
+
 import pytest
-from django_tasks.base import DEFAULT_TASK_PRIORITY
 from django_tasks_db.models import DBTaskResult
 from sessions.models import Run, Session, SessionOrigin
 from sessions.tasks import generate_batch_title_task, generate_title_task, sync_stuck_runs_cron_task
@@ -15,7 +16,7 @@ def test_sync_stuck_runs_cron_task_dispatches_command():
     """The cron task dispatches the sync_stuck_runs management command.
 
     Guards the wiring (command name + the ``@locked_task`` decorator that ``.func()``
-    exercises), not crontask/django_tasks framework behavior.
+    exercises), not crontask/django.tasks framework behavior.
     """
     with patch("sessions.tasks.call_command") as mock_call_command:
         sync_stuck_runs_cron_task.func()

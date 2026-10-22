@@ -5,11 +5,11 @@ import logging
 from datetime import timedelta
 
 from django.db.models import Count, Min, Q
+from django.tasks import task
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from crontask import cron
-from django_tasks import task
 
 from automation.agent.agent_settings import resolve_features
 from codebase.repo_config import RepositoryConfig

@@ -215,7 +215,7 @@ def test_run_status_superset_of_task_result_status():
     ``Run.status``, so every django-tasks status must be a valid ``RunStatus`` member —
     otherwise a synced row would violate the ``run_status_valid`` CHECK constraint. This
     guards a django-tasks upgrade that introduces a new status value."""
-    from django_tasks.base import TaskResultStatus
+    from django.tasks import TaskResultStatus
 
     assert set(TaskResultStatus.values) <= set(RunStatus.values)
 
