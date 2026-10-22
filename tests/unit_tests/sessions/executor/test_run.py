@@ -229,6 +229,67 @@ async def test_a_raising_agent_still_runs_every_finally_step():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_stop_request_cancels_the_invoke_closes_the_context_and_reaches_on_failure():
+    thread_id = await amake_job_session()
+    invoked = asyncio.Event()
+    cancelled: list[bool] = []
+
+    async def _invoke(*_args, **_kwargs):
+        invoked.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+
+    async def _should_stop():
+        return invoked.is_set()
+
+    agent = _agent()
+    agent.ainvoke = AsyncMock(side_effect=_invoke)
+    spec = make_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1), recover_draft=True)
+
+    with (
+        agent_stack(agent) as stack,
+        patch("sessions.executor.run.STOP_POLL_INTERVAL_S", 0.01),
+        patch("sessions.executor.run.recover_draft", AsyncMock()) as recover,
+    ):
+
+        async def _on_failure(exc, *, draft_published, snapshot):
+            stack.events.append(f"on_failure {type(exc).__name__} holding {await active_holder(thread_id)}")
+
+        with pytest.raises(RunStoppedError):
+            await execute_run(spec, RunHooks(on_failure=_on_failure), should_stop=_should_stop)
+
+    assert cancelled == [True]
+    assert stack.events == ["context entered", "context exited", "on_failure RunStoppedError holding run-1"]
+    assert await active_holder(thread_id) is None
+    recover.assert_not_awaited()
+
+
+async def test_a_stop_requested_before_the_run_starts_never_reaches_the_agent():
+    agent = _agent()
+    on_failure = AsyncMock()
+
+    with agent_stack(agent) as stack, pytest.raises(RunStoppedError):
+        await execute_run(make_spec(), RunHooks(on_failure=on_failure), should_stop=AsyncMock(return_value=True))
+
+    agent.ainvoke.assert_not_awaited()
+    assert stack.events == []
+    on_failure.assert_awaited_once()
+
+
+async def test_a_run_never_asked_to_stop_returns_its_outcome():
+    should_stop = AsyncMock(return_value=False)
+
+    with agent_stack(_agent(state={"merge_request": None})):
+        outcome = await execute_run(make_spec(), should_stop=should_stop)
+
+    assert outcome.response_text == "done"
+    should_stop.assert_awaited()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_a_failing_context_exit_still_frees_the_slot():
     thread_id = await amake_job_session()
 

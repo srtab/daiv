@@ -51,6 +51,15 @@ A target's `ref` is the branch the leg starts from and the branch its merge requ
 - **Omit it** for the repository's default branch: the leg's change stands on its own, in a merge request against the default branch.
 - **Give the coordinator's current branch** to build on its work, even when that is the default branch: such a leg **starts once the coordinator's turn ends**, from the branch that turn published to, so it sees everything the turn changed and its merge request targets that branch. When the coordinator is resumed it can merge the leg's branch into its own, or leave the leg's merge request for review.
 
+## Following and cancelling the legs
+
+Between resumes, the coordinator has two more tools:
+
+- `check_delegated_jobs` reports where its batches stand: each leg's status (`queued`, `running`, `succeeded`, `failed` or `cancelled`), session, branch, merge request and reply. Given a `batch_id` it reports that batch; without one, the session's five latest. The agent uses it when you ask how the work is going, never to wait for the legs: the resume comes on its own.
+- `cancel_delegated_jobs` cancels a batch's unfinished legs, or only the ones it names by `thread_id`. A queued leg never starts. A running leg stops within about ten seconds, and may already have pushed to its branch or opened a merge request. A cancelled leg's session shows it as failed, with the reason, and [Notifications](notifications.md) count it as failed.
+
+The agent cancels when you ask it to, or when the work a leg does is no longer wanted. The coordinator is still resumed once the batch has finished, with the cancelled legs marked as such, unless every leg was cancelled: then no resume comes.
+
 ## Choosing between `task` and `delegate_jobs`
 
 | Use | When |
@@ -88,6 +97,7 @@ The `goal` only titles the batch; it is never sent to a leg.
 | Legs run as the user who triggered the coordinator's run | Targets that user cannot write to come back as failures; the rest still start. A run with no DAIV user behind it (e.g. a mention from an account not linked to DAIV) cannot delegate. The resumed run runs as the same user, and fails instead of starting if that user can no longer write to the coordinator's repository. |
 | Legs cannot ask questions | Nobody is watching a leg, so it decides or reports instead of stopping for input. |
 | Legs and the resumed run keep the coordinator's mute | A muted job or schedule stays quiet through its delegations. |
+| Only the coordinator's session can check or cancel its legs | The tools see the batches their own session delegated, and no other session's. |
 | At most **3 resumes in a row** may delegate again | A coordinator resumed three times in a row by its own delegations, with no other run on its session in between, finishes in that turn instead of delegating again, so failing legs cannot loop it. |
 
 If no target starts, the tool says so and no resume comes: the coordinator deals with the failures in the same turn. If the resumed run cannot be queued when the last leg finishes, or gives up waiting for the coordinator's session, DAIV retries it within a few minutes, and it starts any leg left waiting after the coordinator's turn ended.

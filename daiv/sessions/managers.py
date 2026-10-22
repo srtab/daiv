@@ -4,6 +4,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from django.db import close_old_connections, models, transaction
+from django.utils import timezone
 
 from core import ui_events
 from sessions.signal_defs import run_ended, run_finished
@@ -11,6 +12,8 @@ from sessions.signal_defs import run_ended, run_finished
 if TYPE_CHECKING:
     from accounts.models import User
     from sessions.models import Run, RunArtifact, Session
+
+CANCELLED_PREFIX = "cancelled"
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
@@ -173,6 +176,29 @@ class RunManager(models.Manager["Run"]):
         self._apply(run, status, fields)
         await asyncio.to_thread(self._announce_finished, run, skip_dispatch=skip_dispatch, never_started=never_started)
         return True
+
+    def cancel(self, run: Run, reason: str) -> bool:
+        """Finish an unfinished ``run`` FAILED as cancelled, through :meth:`finish`; returns whether this call
+        finished it. A ``run_job_task`` still running it stops at its next :meth:`acancelled` check."""
+        from sessions.models import RunStatus
+
+        now = timezone.now()
+        return self.finish(
+            run,
+            RunStatus.FAILED,
+            never_started=run.status != RunStatus.RUNNING,
+            error_message=f"{CANCELLED_PREFIX}: {reason}",
+            finished_at=now,
+            started_at=run.started_at or now,
+        )
+
+    async def acancelled(self, run_id: str) -> bool:
+        """Whether :meth:`cancel` finished the run ``run_id``."""
+        from sessions.models import RunStatus
+
+        return await self.filter(
+            pk=run_id, status=RunStatus.FAILED, error_message__startswith=CANCELLED_PREFIX
+        ).aexists()
 
     def update_unfinished(self, run: Run, **fields: Any) -> bool:
         """Write a non-terminal change onto ``run``'s row unless the run has finished, so a stale sync never reopens it.

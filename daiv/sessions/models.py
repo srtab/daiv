@@ -16,7 +16,7 @@ from automation.agent.references import ExternalRef, refs_from_stored  # noqa: T
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.executor.result import parse_agent_result
-from sessions.managers import RunArtifactManager, RunManager, SessionManager
+from sessions.managers import CANCELLED_PREFIX, RunArtifactManager, RunManager, SessionManager
 
 if TYPE_CHECKING:
     from sessions.executor.result import AgentResult
@@ -413,6 +413,11 @@ class Run(models.Model):
         if schedule is not None:
             return schedule.muted
         return False  # non-scheduled runs notify unless the run itself is muted
+
+    @property
+    def is_cancelled(self) -> bool:
+        """Whether ``RunManager.cancel`` finished this run."""
+        return self.status == RunStatus.FAILED and self.error_message.startswith(CANCELLED_PREFIX)
 
     @property
     def duration(self) -> float | None:

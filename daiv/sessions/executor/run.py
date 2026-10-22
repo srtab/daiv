@@ -28,7 +28,7 @@ from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import apersist_session_ref, areset_session_ref
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Awaitable, Callable
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine
     from contextlib import AbstractAsyncContextManager
 
     from langchain.agents import CompiledAgent
@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 STREAM_HEARTBEAT_INTERVAL_S = 5.0
+STOP_POLL_INTERVAL_S = 10.0
 ARCHIVE_TIMEOUT_S = 30.0
 
 
@@ -72,14 +73,16 @@ class AgentRun:
     session_links: SessionLinksResolver | None
 
 
-async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
+async def execute_run(
+    spec: RunSpec, hooks: RunHooks | None = None, *, should_stop: Callable[[], Awaitable[bool]] | None = None
+) -> RunOutcome:
     """Run the agent once for ``spec``; the package docstring lists the order of the steps."""
     hooks = hooks or RunHooks()
     entered = False
     try:
         async with _hold_slot(spec):
             entered = True
-            return await _run_in_slot(spec, hooks)
+            return await _run_in_slot(spec, hooks, should_stop)
     except Exception as exc:
         if not entered:
             await _notify_failure(hooks, exc)
@@ -174,16 +177,39 @@ async def _supervised(
             logger.exception("executor: failed to close the stream for thread_id=%s", thread_id)
 
 
-async def _run_in_slot(spec: RunSpec, hooks: RunHooks) -> RunOutcome:
+async def _run_in_slot(spec: RunSpec, hooks: RunHooks, should_stop: Callable[[], Awaitable[bool]] | None) -> RunOutcome:
     recovery = _Recovery()
     try:
-        outcome = await _invoke(spec, hooks, recovery)
+        invocation = _invoke(spec, hooks, recovery)
+        outcome = await (invocation if should_stop is None else _until_stopped(invocation, spec.thread_id, should_stop))
     except Exception as exc:
         await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
         raise
     if hooks.on_success is not None:
         await hooks.on_success(outcome)
     return outcome
+
+
+async def _until_stopped(
+    invocation: Coroutine[Any, Any, RunOutcome], thread_id: str | None, should_stop: Callable[[], Awaitable[bool]]
+) -> RunOutcome:
+    """Await ``invocation``, asking ``should_stop`` first and then every ``STOP_POLL_INTERVAL_S``.
+
+    A stop request cancels the invocation, waits for it to close the run's context, and raises ``RunStoppedError``.
+    """
+    task = asyncio.ensure_future(invocation)
+    try:
+        while not task.done():
+            if await should_stop():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop")
+            await asyncio.wait({task}, timeout=STOP_POLL_INTERVAL_S)
+        return task.result()
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 @dataclass

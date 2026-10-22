@@ -7,12 +7,17 @@ from langchain.tools import ToolRuntime
 from pydantic import ValidationError
 
 from automation.agent.delegation import (
+    CANCEL_DELEGATED_JOBS_TOOL_NAME,
+    CHECK_DELEGATED_JOBS_TOOL_NAME,
     DELEGATE_JOBS_TOOL_NAME,
+    BatchStatus,
+    CancelResult,
     Checkout,
     DelegatedTarget,
     DelegationError,
     DelegationResult,
     FailedLeg,
+    LegStatus,
     StartedLeg,
 )
 from automation.agent.middlewares.delegate_jobs import (
@@ -42,8 +47,8 @@ def _delegator(result: DelegationResult | None = None, *, side_effect: Exception
     return delegator
 
 
-def _tool(delegator: Mock):
-    [tool] = DelegateJobsMiddleware(delegator=delegator).tools
+def _tool(delegator: Mock, name: str = DELEGATE_JOBS_TOOL_NAME):
+    [tool] = [t for t in DelegateJobsMiddleware(delegator=delegator).tools if t.name == name]
     return tool
 
 
@@ -52,8 +57,24 @@ async def _call(delegator: Mock, *, goal: str = "Bump auth", targets=None):
     return json.loads(await _tool(delegator).coroutine(goal=goal, targets=targets, runtime=_runtime()))
 
 
-def test_the_middleware_adds_the_delegate_jobs_tool():
-    assert _tool(_delegator()).name == DELEGATE_JOBS_TOOL_NAME
+def _leg_status(thread_id: str = "t2", status: str = "running") -> LegStatus:
+    return LegStatus("acme/api", "", thread_id, f"https://daiv.example/sessions/{thread_id}/", status)
+
+
+async def _check(delegator: Mock, **kwargs):
+    return json.loads(await _tool(delegator, CHECK_DELEGATED_JOBS_TOOL_NAME).coroutine(**kwargs))
+
+
+async def _cancel(delegator: Mock, **kwargs):
+    return json.loads(await _tool(delegator, CANCEL_DELEGATED_JOBS_TOOL_NAME).coroutine(**kwargs))
+
+
+def test_the_middleware_adds_the_delegate_check_and_cancel_tools():
+    assert [t.name for t in DelegateJobsMiddleware(delegator=_delegator()).tools] == [
+        DELEGATE_JOBS_TOOL_NAME,
+        CHECK_DELEGATED_JOBS_TOOL_NAME,
+        CANCEL_DELEGATED_JOBS_TOOL_NAME,
+    ]
 
 
 def test_every_target_needs_a_prompt():
@@ -156,3 +177,107 @@ async def test_it_appends_the_coordinator_workflow_to_the_system_prompt():
 
     request.override.assert_called_once_with(system_prompt=f"BASE\n\n{DELEGATE_JOBS_SYSTEM_PROMPT}")
     handler.assert_awaited_once_with("overridden")
+
+
+@pytest.mark.parametrize(("batch_id", "asked"), [(" b1 ", "b1"), ("", None)], ids=["one-batch", "latest-batches"])
+async def test_check_reports_the_batches_the_delegator_finds(batch_id, asked):
+    delegator = _delegator()
+    delegator.astatus = AsyncMock(return_value=[BatchStatus("b1", finished=False, legs=[_leg_status()])])
+
+    payload = await _check(delegator, batch_id=batch_id)
+
+    delegator.astatus.assert_awaited_once_with(batch_id=asked)
+    assert payload == {
+        "batches": [
+            {
+                "batch_id": "b1",
+                "finished": False,
+                "legs": [
+                    {
+                        "repo_id": "acme/api",
+                        "ref": "",
+                        "thread_id": "t2",
+                        "session_url": "https://daiv.example/sessions/t2/",
+                        "status": "running",
+                        "branch": "",
+                        "merge_request_url": "",
+                        "reply": "",
+                    }
+                ],
+            }
+        ]
+    }
+
+
+async def test_check_says_when_the_session_delegated_nothing():
+    delegator = _delegator()
+    delegator.astatus = AsyncMock(return_value=[])
+
+    assert await _check(delegator) == {"batches": [], "note": "This session has delegated no sub-jobs."}
+
+
+async def test_check_returns_why_a_refused_call_was_refused():
+    delegator = _delegator()
+    delegator.astatus = AsyncMock(side_effect=DelegationError("no batch b9"))
+
+    assert await _check(delegator, batch_id="b9") == {"error": "no batch b9"}
+
+
+def test_cancel_needs_a_batch_but_not_the_legs():
+    schema = _tool(_delegator(), CANCEL_DELEGATED_JOBS_TOOL_NAME).args_schema
+
+    with pytest.raises(ValidationError):
+        schema.model_validate({"thread_ids": ["t2"]})
+    assert schema.model_validate({"batch_id": "b1"}).thread_ids is None
+
+
+async def test_cancel_hands_the_trimmed_batch_and_legs_to_the_delegator():
+    delegator = _delegator()
+    batch = BatchStatus("b1", finished=True, legs=[_leg_status(status="cancelled")])
+    delegator.acancel = AsyncMock(return_value=CancelResult(batch, ["t2"], resumes=False))
+
+    payload = await _cancel(delegator, batch_id=" b1 ", thread_ids=[" t2 ", " "])
+
+    delegator.acancel.assert_awaited_once_with(batch_id="b1", thread_ids=["t2"])
+    assert payload["batch_id"] == "b1"
+    assert payload["cancelled"] == ["t2"]
+    assert payload["legs"][0]["status"] == "cancelled"
+
+
+async def test_cancel_without_legs_cancels_the_whole_batch():
+    delegator = _delegator()
+    delegator.acancel = AsyncMock(return_value=CancelResult(BatchStatus("b1", finished=True, legs=[]), [], True))
+
+    await _cancel(delegator, batch_id="b1")
+
+    delegator.acancel.assert_awaited_once_with(batch_id="b1", thread_ids=[])
+
+
+@pytest.mark.parametrize(
+    ("cancelled", "resumes", "finished", "note"),
+    [
+        ([], True, False, "Nothing was cancelled"),
+        (["t2"], False, True, "no resume will come"),
+        (["t2"], True, False, "once the legs still queued or running have finished"),
+        (["t2"], True, True, "once this turn ends"),
+    ],
+    ids=["nothing-cancelled", "every-leg-cancelled", "others-still-run", "batch-finished"],
+)
+async def test_cancel_says_whether_the_batch_still_resumes_the_coordinator(cancelled, resumes, finished, note):
+    delegator = _delegator()
+    delegator.acancel = AsyncMock(
+        return_value=CancelResult(BatchStatus("b1", finished=finished, legs=[]), cancelled, resumes)
+    )
+
+    assert note in (await _cancel(delegator, batch_id="b1"))["note"]
+
+
+async def test_an_unexpected_cancel_failure_is_logged_and_reported_as_ours(caplog):
+    delegator = _delegator()
+    delegator.acancel = AsyncMock(side_effect=RuntimeError("db down"))
+
+    with caplog.at_level("ERROR", logger="daiv.tools"):
+        payload = await _cancel(delegator, batch_id="b1")
+
+    assert "failed on DAIV's side" in payload["error"]
+    assert "cancel_delegated_jobs: unexpected failure" in caplog.text

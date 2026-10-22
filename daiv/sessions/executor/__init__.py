@@ -31,10 +31,13 @@ step sits where it does:
    invoked, or handed to ``stream_run``'s stream factory, whose events are yielded as they come. Between its events, at
    most every ``run.STREAM_HEARTBEAT_INTERVAL_S``, a stream heartbeats its slot and asks ``should_stop``: a slot a stale
    takeover reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one
-   closes the stream (the trigger's generator), abandoning the graph run inside it. If the agent or its stream raises (a
-   lost slot or a stop request included) and the spec asks for it (``recover_draft``), a draft merge request is
-   published from its checkpoint through that workspace, with the settings the run resolved, while the clone and
-   sandbox are still open, and the checkpoint is read again for the failure hook. Setup errors skip this.
+   closes the stream (the trigger's generator), abandoning the graph run inside it. An invoke given ``should_stop`` asks
+   it once the slot is held and then every ``run.STOP_POLL_INTERVAL_S``: a stop request cancels steps 2-6 in flight,
+   which close as they do for a cancelled stream, and raises ``run.RunStoppedError`` for step 7, with no draft
+   recovery. If the agent or its stream raises (a lost slot or a stop request included) and the spec asks for it
+   (``recover_draft``), a draft merge request is published from its checkpoint through that workspace, with the
+   settings the run resolved, while the clone and sandbox are still open, and the checkpoint is read again for the
+   failure hook. Setup errors skip this.
 5. On success, still inside the context: the checkpoint is read once, the session's working branch is synced
    against the ref the clone landed on (``persist_ref``), the CI watch is armed (``arm_watch``) and the
    ``AgentResult`` is built. A failed checkpoint read yields ``None`` and logs an error, a failed ref sync or watch

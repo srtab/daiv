@@ -23,7 +23,11 @@ user and with their mute, whose prompt summarises every leg without quoting DAIV
 any QUEUED run once it is not waiting. When several legs finish at once, ``run_one_continuation_per_batch`` lets one
 insert win. A user who has lost WRITE access to the coordinator's repository meanwhile gets the continuation FAILED
 instead. A batch none of whose legs reached the task queue or waited for the coordinator resumes nothing: the tool
-already told the agent nothing started.
+already told the agent nothing started, and neither does one whose every leg was cancelled.
+
+``SessionJobDelegator.astatus`` reports the session's batches, its latest ``MAX_STATUS_BATCHES`` without a batch id,
+and ``acancel`` finishes a batch's unfinished legs FAILED through ``RunManager.cancel``, whose ``run_job_task`` stops
+at its next check. Neither quotes DAIV's own error text, as the continuation's prompt does not.
 
 :func:`resume_stalled_batches` is the periodic backstop: it resumes a finished batch the signal path left without a
 continuation, retries one whose continuation never ran (it never reached the task queue, or gave up waiting for the
@@ -34,11 +38,13 @@ continuations left QUEUED on a session with no active run once they are not wait
 from __future__ import annotations
 
 import logging
+import uuid
+from collections import defaultdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Max, Q
 from django.urls import reverse
 from django.utils import timezone
 
@@ -46,7 +52,16 @@ from asgiref.sync import sync_to_async
 from django_tasks.utils import get_module_path
 from sandbox_envs.selection import aresolve_repo_envs
 
-from automation.agent.delegation import MAX_DELEGATED_TARGETS, DelegationError, DelegationResult, FailedLeg, StartedLeg
+from automation.agent.delegation import (
+    MAX_DELEGATED_TARGETS,
+    BatchStatus,
+    CancelResult,
+    DelegationError,
+    DelegationResult,
+    FailedLeg,
+    LegStatus,
+    StartedLeg,
+)
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE
 from core.utils import build_absolute_url
 from sessions.admission import (
@@ -63,8 +78,9 @@ from sessions.queue import ENQUEUE_FAILED_PREFIX, LINK_FAILED_PREFIX, dispatch_n
 from sessions.services import RepoTarget, asubmit_batch_runs, create_run, pinned_agent_override
 
 if TYPE_CHECKING:
-    import uuid
     from collections.abc import Sequence
+
+    from django.db.models import QuerySet
 
     from accounts.models import User
     from automation.agent.delegation import Checkout, DelegatedTarget
@@ -75,15 +91,20 @@ logger = logging.getLogger("daiv.sessions")
 LEG_REPLY_MAX_CHARS = 1000
 MAX_CONTINUATION_ATTEMPTS = 3
 MAX_RESUMES_IN_A_ROW = 3
+MAX_STATUS_BATCHES = 5
 STALLED_BATCH_WINDOW = timedelta(days=1)
 ACCESS_DENIED_PREFIX = "access_denied"
 
 _OUTCOMES = {
+    RunStatus.QUEUED: "queued",
+    RunStatus.READY: "queued",
+    RunStatus.RUNNING: "running",
     RunStatus.SUCCESSFUL: "succeeded",
     RunStatus.FAILED: "failed",
     RunStatus.WAITING_INPUT: "stopped to ask a question",
 }
 _UNSTARTED_LEG = "DAIV could not start this leg; the error is on DAIV's side, not in the request."
+_CANCEL_REASON = "stopped by the session that delegated it."
 _UNTRACKED_LEG = (
     "This leg started, but DAIV lost track of it: it may still open a merge request, and its outcome will not "
     "reach you."
@@ -186,6 +207,53 @@ class SessionJobDelegator:
             failed=[*failed, *(_failed_leg(failure) for failure in result.failed)],
         )
 
+    async def astatus(self, *, batch_id: str | None) -> list[BatchStatus]:
+        return await sync_to_async(self._status)(batch_id)
+
+    async def acancel(self, *, batch_id: str, thread_ids: Sequence[str]) -> CancelResult:
+        return await sync_to_async(self._cancel)(batch_id, set(thread_ids))
+
+    def _status(self, batch_id: str | None) -> list[BatchStatus]:
+        if batch_id:
+            return [_batch_status(self._batch_legs(batch_id))]
+        latest = list(
+            self
+            ._legs()
+            .values("batch_id")
+            .annotate(latest=Max("created_at"))
+            .order_by("-latest")
+            .values_list("batch_id", flat=True)[:MAX_STATUS_BATCHES]
+        )
+        by_batch: dict[uuid.UUID, list[Run]] = defaultdict(list)
+        for leg in self._legs().filter(batch_id__in=latest).order_by("created_at", "id"):
+            by_batch[leg.batch_id].append(leg)
+        return [_batch_status(by_batch[batch]) for batch in latest]
+
+    def _cancel(self, batch_id: str, thread_ids: set[str]) -> CancelResult:
+        legs = self._batch_legs(batch_id)
+        if unknown := thread_ids - {leg.session_id for leg in legs}:
+            raise DelegationError(f"Not legs of batch {batch_id}: {', '.join(sorted(unknown))}.")
+        cancelled = []
+        for leg in legs:
+            if (not thread_ids or leg.session_id in thread_ids) and Run.objects.cancel(leg, _CANCEL_REASON):
+                cancelled.append(leg.session_id)
+        legs = self._batch_legs(batch_id)
+        return CancelResult(batch=_batch_status(legs), cancelled=cancelled, resumes=_resumes(legs))
+
+    def _legs(self) -> QuerySet[Run]:
+        return Run.objects.filter(
+            trigger_type=SessionOrigin.DELEGATED_JOB, session__parent_id=self._thread_id
+        ).select_related("session")
+
+    def _batch_legs(self, batch_id: str) -> list[Run]:
+        try:
+            batch = uuid.UUID(batch_id)
+        except ValueError:
+            raise DelegationError(f"`{batch_id}` is not a batch id: give one delegate_jobs returned.") from None
+        if legs := list(self._legs().filter(batch_id=batch).order_by("created_at", "id")):
+            return legs
+        raise DelegationError(f"This session delegated no batch {batch_id}.")
+
 
 async def _aactive_run(thread_id: str) -> Run | None:
     if (run := await aresolve_active_run(thread_id)) is None:
@@ -227,6 +295,33 @@ def _session_url(thread_id: str) -> str:
     return build_absolute_url(reverse("session_detail", kwargs={"thread_id": thread_id}))
 
 
+def _batch_status(legs: Sequence[Run]) -> BatchStatus:
+    return BatchStatus(
+        batch_id=str(legs[0].batch_id),
+        finished=all(leg.status in RunStatus.terminal() for leg in legs),
+        legs=[_leg_status(leg) for leg in legs],
+    )
+
+
+def _leg_status(leg: Run) -> LegStatus:
+    return LegStatus(
+        repo_id=leg.repo_id,
+        ref=leg.ref,
+        thread_id=leg.session_id,
+        session_url=_session_url(leg.session_id),
+        status=_leg_outcome(leg),
+        branch=leg.session.ref if leg.session.ref != leg.ref else "",
+        merge_request_url=leg.merge_request_web_url,
+        reply=leg.result_summary.strip()[:LEG_REPLY_MAX_CHARS],
+    )
+
+
+def _resumes(legs: Sequence[Run]) -> bool:
+    """Whether ``legs``' batch resumes its coordinator once it has finished: some leg reached the task queue or waited
+    for the coordinator, and not every leg was cancelled."""
+    return any(leg.task_result_id or leg.waits_for_id for leg in legs) and not all(leg.is_cancelled for leg in legs)
+
+
 def resume_coordinator(run: Run) -> None:
     """Queue the coordinator's continuation once ``run``'s delegated batch has finished; the module docstring says
     when nothing is queued."""
@@ -241,7 +336,7 @@ def _resume_batch(batch_id: uuid.UUID) -> bool:
     if batch.exclude(status__in=RunStatus.terminal()).exists():
         return False
     legs = list(batch.select_related("user", "session__parent").order_by("created_at", "id"))
-    if not any(leg.task_result_id or leg.waits_for_id for leg in legs):
+    if not _resumes(legs):
         return False
     coordinator = legs[0].session.parent
     if coordinator is None:
@@ -368,7 +463,7 @@ def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
             # Quoted so a leg's reply can't pass for a sibling's section or for these instructions.
             lines.append("- Reply:")
             lines.extend(f"  > {line}" for line in reply[:LEG_REPLY_MAX_CHARS].splitlines())
-        elif leg.status == RunStatus.FAILED:
+        elif leg.status == RunStatus.FAILED and not leg.is_cancelled:
             lines.append("- Reply: none; open its session to see what happened.")
         lines.append("")
     lines.append(
@@ -384,6 +479,8 @@ def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
 
 
 def _leg_outcome(leg: Run) -> str:
+    if leg.is_cancelled:
+        return "cancelled"
     if leg.status == RunStatus.FAILED and leg.error_message.startswith(LINK_FAILED_PREFIX):
         return "started, but DAIV lost track of it"
     return _OUTCOMES.get(leg.status, leg.status)

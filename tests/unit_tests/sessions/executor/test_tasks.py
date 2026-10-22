@@ -4,10 +4,14 @@ from contextlib import asynccontextmanager, contextmanager, nullcontext, suppres
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import DatabaseError
+
 import pytest
+from asgiref.sync import sync_to_async
 from sessions.executor.lock import SessionLock
+from sessions.executor.run import RunStoppedError
 from sessions.executor.tasks import run_job_task
-from sessions.models import Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.conftest import stub_sandbox_spec
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, watch_recorder
@@ -200,7 +204,7 @@ async def test_run_job_task_persists_resolved_model():
 async def _run_spec(thread_id: str):
     captured: dict = {}
 
-    async def _execute_run(spec, hooks=None):
+    async def _execute_run(spec, hooks=None, *, should_stop=None):
         captured["spec"] = spec
         return SimpleNamespace(agent_result={"response": "ok"})
 
@@ -401,7 +405,7 @@ def _raising_agent() -> AsyncMock:
 async def test_run_job_task_forwards_ask_user_enabled(ask_user_enabled):
     captured: dict = {}
 
-    async def _execute_run(spec, hooks=None):
+    async def _execute_run(spec, hooks=None, *, should_stop=None):
         captured["spec"] = spec
         return SimpleNamespace(agent_result={"response": "ok"})
 
@@ -418,7 +422,7 @@ async def test_run_job_task_forwards_ask_user_enabled(ask_user_enabled):
 async def test_run_job_task_hands_fork_branch_to_the_agent(fork_branch):
     captured: dict = {}
 
-    async def _execute_run(spec, hooks=None):
+    async def _execute_run(spec, hooks=None, *, should_stop=None):
         captured["spec"] = spec
         return SimpleNamespace(agent_result={"response": "ok"})
 
@@ -428,6 +432,21 @@ async def test_run_job_task_hands_fork_branch_to_the_agent(fork_branch):
         )
 
     assert captured["spec"].agent_options == {"fork_branch": fork_branch}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(("run_id", "checks"), [("run-9", True), (None, False)], ids=["run", "no-run"])
+async def test_run_job_task_checks_for_a_cancel_only_when_it_has_a_run(run_id, checks):
+    captured: dict = {}
+
+    async def _execute_run(spec, hooks=None, *, should_stop=None):
+        captured["should_stop"] = should_stop
+        return SimpleNamespace(agent_result={"response": "ok"})
+
+    with patch("sessions.executor.run.execute_run", _execute_run):
+        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=await amake_job_session(), run_id=run_id)
+
+    assert (captured["should_stop"] is not None) is checks
 
 
 @pytest.mark.django_db(transaction=True)
@@ -565,6 +584,44 @@ class TestRunJobTaskAfterRunMatrix:
 
         [record] = [r for r in caplog.records if r.getMessage().startswith("Job failed")]
         assert record.exc_info[1] is agent.ainvoke.side_effect
+
+    async def test_a_run_cancelled_mid_way_stops_and_is_logged_as_cancelled(self, caplog):
+        thread_id = await amake_job_session()
+        run = await Run.objects.acreate(
+            session_id=thread_id, trigger_type=SessionOrigin.API_JOB, repo_id="owner/repo", status=RunStatus.RUNNING
+        )
+        agent = _agent_with_mr(None)
+
+        async def _invoke(*_args, **_kwargs):
+            await sync_to_async(Run.objects.cancel)(run, "stopped by the test.")
+            await asyncio.Event().wait()
+
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        with (
+            _job_scaffolding(agent, armed=[]),
+            patch("sessions.executor.run.STOP_POLL_INTERVAL_S", 0.01),
+            caplog.at_level("INFO", logger="daiv.sessions"),
+            pytest.raises(RunStoppedError),
+        ):
+            await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id=str(run.pk))
+
+        messages = [r.getMessage() for r in caplog.records]
+        assert any(m.startswith("Job cancelled") for m in messages)
+        assert not any(m.startswith("Job failed") for m in messages)
+        assert await active_holder(thread_id) is None
+
+    async def test_a_cancel_check_that_fails_is_logged_and_the_job_runs_on(self, caplog):
+        with (
+            _job_scaffolding(_agent_with_mr(None), armed=[]),
+            patch.object(type(Run.objects), "acancelled", AsyncMock(side_effect=DatabaseError("db down"))),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
+        ):
+            result = await run_job_task.func(
+                repo_id="owner/repo", prompt="hi", thread_id=await amake_job_session(), run_id=str(uuid.uuid4())
+            )
+
+        assert result is not None
+        assert "Could not read whether" in caplog.text
 
     async def test_it_survives_a_failed_watch_arm(self, caplog):
         arms: list[dict] = []

@@ -1,4 +1,5 @@
 import logging
+from functools import partial
 from typing import TYPE_CHECKING
 
 from django_tasks import task
@@ -6,7 +7,7 @@ from django_tasks import task
 from codebase.base import Scope
 from sessions.executor.lock import wait_for_slot
 from sessions.executor.spec import RunHooks, RunSpec
-from sessions.models import Session
+from sessions.models import Run, Session
 
 if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
@@ -49,7 +50,7 @@ async def run_job_task(
     # this module.
     from langchain_core.messages import HumanMessage
 
-    from sessions.executor.run import execute_run
+    from sessions.executor.run import RunStoppedError, execute_run
 
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
@@ -67,6 +68,9 @@ async def run_job_task(
     session_row = await Session.objects.only("thread_id", "mcp_overrides", "external_refs").aget(pk=thread_id)
 
     async def _log_failure(exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
+        if isinstance(exc, RunStoppedError):
+            logger.info("Job cancelled for repo_id=%s, thread_id=%s", repo_id, thread_id)
+            return
         logger.error(
             "Job failed for repo_id=%s, ref=%s, agent_model=%s", repo_id, ref, agent_model or "<auto>", exc_info=exc
         )
@@ -94,7 +98,18 @@ async def run_job_task(
             extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
         ),
         RunHooks(on_failure=_log_failure),
+        should_stop=partial(_acancelled, run_id) if run_id else None,
     )
 
     logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
     return outcome.agent_result
+
+
+async def _acancelled(run_id: str) -> bool:
+    """Whether the run's row was cancelled; a failed read is logged and counts as not, so only a definitive cancel
+    stops a live run."""
+    try:
+        return await Run.objects.acancelled(run_id)
+    except Exception:
+        logger.exception("Could not read whether run_id=%s was cancelled", run_id)
+        return False

@@ -10,6 +10,7 @@ from sessions.artifacts import bind_active_run
 from sessions.delegation import (
     MAX_CONTINUATION_ATTEMPTS,
     MAX_RESUMES_IN_A_ROW,
+    MAX_STATUS_BATCHES,
     STALLED_BATCH_WINDOW,
     SessionJobDelegator,
     adelegator_for,
@@ -719,6 +720,184 @@ class TestResumeStalledBatches:
         assert (continuation.status, continuation.task_result_id) == (RunStatus.READY, task.id)
 
 
+@pytest.mark.django_db(transaction=True)
+class TestStatus:
+    async def test_it_reports_each_leg_of_a_batch_without_daivs_error_text(self, admin_user, create_db_task_result):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+        batch_id = uuid.uuid4()
+        await sync_to_async(_leg)(
+            coordinator,
+            batch_id,
+            status=RunStatus.SUCCESSFUL,
+            ref="release",
+            session_ref="fix/bump-auth",
+            result_summary=" Bumped. ",
+            merge_request_web_url="https://git.example/mr/1",
+        )
+        await sync_to_async(_leg)(
+            coordinator,
+            batch_id,
+            status=RunStatus.FAILED,
+            repo_id="acme/web",
+            error_message="enqueue_failed: OperationalError: host db-internal:5432",
+        )
+        await sync_to_async(_leg)(coordinator, batch_id, status=RunStatus.RUNNING, repo_id="acme/ops", finished_at=None)
+
+        [batch] = await SessionJobDelegator(coordinator.pk).astatus(batch_id=str(batch_id))
+
+        assert (batch.batch_id, batch.finished) == (str(batch_id), False)
+        assert [(leg.repo_id, leg.status) for leg in batch.legs] == [
+            ("acme/api", "succeeded"),
+            ("acme/web", "failed"),
+            ("acme/ops", "running"),
+        ]
+        done = batch.legs[0]
+        assert (done.ref, done.branch, done.merge_request_url, done.reply) == (
+            "release",
+            "fix/bump-auth",
+            "https://git.example/mr/1",
+            "Bumped.",
+        )
+        assert done.session_url.endswith(f"/sessions/{done.thread_id}/")
+        assert "db-internal" not in repr(batch)
+
+    async def test_without_a_batch_it_reports_the_latest_batches_of_this_session_newest_first(self, admin_user):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+        other = await sync_to_async(_coordinator)(admin_user)
+        batch_ids = [uuid.uuid4() for _ in range(MAX_STATUS_BATCHES + 1)]
+        for age, batch_id in enumerate(reversed(batch_ids)):
+            await sync_to_async(_leg)(
+                coordinator, batch_id, status=RunStatus.SUCCESSFUL, created_at=timezone.now() - timedelta(hours=age)
+            )
+        await sync_to_async(_leg)(other, uuid.uuid4(), status=RunStatus.SUCCESSFUL)
+
+        batches = await SessionJobDelegator(coordinator.pk).astatus(batch_id=None)
+
+        assert [batch.batch_id for batch in batches] == [str(b) for b in reversed(batch_ids[1:])]
+        assert all(batch.finished for batch in batches)
+
+    async def test_a_session_that_delegated_nothing_has_no_batches(self, admin_user):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+
+        assert await SessionJobDelegator(coordinator.pk).astatus(batch_id=None) == []
+
+    @pytest.mark.parametrize("batch_id", ["another-sessions", "not-a-uuid"])
+    async def test_it_refuses_a_batch_this_session_did_not_delegate(self, admin_user, batch_id):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+        foreign = uuid.uuid4()
+        await sync_to_async(_leg)(await sync_to_async(_coordinator)(admin_user), foreign, status=RunStatus.SUCCESSFUL)
+
+        with pytest.raises(DelegationError):
+            await SessionJobDelegator(coordinator.pk).astatus(
+                batch_id=str(foreign) if batch_id == "another-sessions" else batch_id
+            )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCancel:
+    async def test_it_cancels_the_unfinished_legs_and_resumes_the_coordinator_after_its_turn(
+        self, admin_user, create_db_task_result
+    ):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+        turn = await sync_to_async(_delegating_run)(coordinator, admin_user)
+        batch_id = uuid.uuid4()
+        done = await sync_to_async(_leg)(
+            coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=await sync_to_async(create_db_task_result)()
+        )
+        queued = await sync_to_async(_leg)(coordinator, batch_id, status=RunStatus.QUEUED, finished_at=None)
+        running = await sync_to_async(_leg)(
+            coordinator,
+            batch_id,
+            status=RunStatus.RUNNING,
+            task_result=await sync_to_async(create_db_task_result)(status="RUNNING"),
+            finished_at=None,
+        )
+
+        with patch("sessions.queue.run_job_task"):
+            result = await SessionJobDelegator(coordinator.pk).acancel(batch_id=str(batch_id), thread_ids=[])
+
+        assert result.cancelled == [queued.session_id, running.session_id]
+        assert [leg.status for leg in result.batch.legs] == ["succeeded", "cancelled", "cancelled"]
+        assert (result.batch.finished, result.resumes) == (True, True)
+        for leg in (queued, running):
+            await leg.arefresh_from_db()
+            assert leg.is_cancelled
+            assert leg.finished_at is not None
+        await done.arefresh_from_db()
+        assert done.status == RunStatus.SUCCESSFUL
+        continuation = await Run.objects.aget(continuation_of_batch_id=batch_id)
+        assert (continuation.status, continuation.waits_for_id) == (RunStatus.QUEUED, turn.pk)
+        assert "## acme/api: cancelled" in continuation.prompt
+
+    async def test_a_batch_whose_every_leg_was_cancelled_resumes_nothing(self, admin_user, create_db_task_result):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+        batch_id = uuid.uuid4()
+        for _ in range(2):
+            await sync_to_async(_leg)(
+                coordinator,
+                batch_id,
+                status=RunStatus.RUNNING,
+                task_result=await sync_to_async(create_db_task_result)(status="RUNNING"),
+                finished_at=None,
+            )
+
+        with patch("sessions.queue.run_job_task"):
+            result = await SessionJobDelegator(coordinator.pk).acancel(batch_id=str(batch_id), thread_ids=[])
+            stalled = await sync_to_async(resume_stalled_batches)()
+
+        assert len(result.cancelled) == 2
+        assert (result.batch.finished, result.resumes) == (True, False)
+        assert stalled == 0
+        assert not await Run.objects.filter(continuation_of_batch_id=batch_id).aexists()
+
+    async def test_it_cancels_only_the_named_legs(self, admin_user, create_db_task_result):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+        batch_id = uuid.uuid4()
+        named, other = [
+            await sync_to_async(_leg)(
+                coordinator,
+                batch_id,
+                status=RunStatus.RUNNING,
+                task_result=await sync_to_async(create_db_task_result)(status="RUNNING"),
+                finished_at=None,
+            )
+            for _ in range(2)
+        ]
+        delegator = SessionJobDelegator(coordinator.pk)
+
+        result = await delegator.acancel(batch_id=str(batch_id), thread_ids=[named.session_id])
+
+        assert result.cancelled == [named.session_id]
+        assert (result.batch.finished, result.resumes) == (False, True)
+        await other.arefresh_from_db()
+        assert other.status == RunStatus.RUNNING
+        assert not await Run.objects.filter(continuation_of_batch_id=batch_id).aexists()
+
+    async def test_a_finished_leg_is_left_as_it_ended(self, admin_user, create_db_task_result):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+        batch_id = uuid.uuid4()
+        done = await sync_to_async(_leg)(coordinator, batch_id, status=RunStatus.SUCCESSFUL)
+
+        result = await SessionJobDelegator(coordinator.pk).acancel(batch_id=str(batch_id), thread_ids=[done.session_id])
+
+        assert result.cancelled == []
+        assert [leg.status for leg in result.batch.legs] == ["succeeded"]
+
+    async def test_a_leg_outside_the_batch_refuses_the_whole_call(self, admin_user, create_db_task_result):
+        coordinator = await sync_to_async(_coordinator)(admin_user)
+        batch_id = uuid.uuid4()
+        leg = await sync_to_async(_leg)(coordinator, batch_id, status=RunStatus.RUNNING, finished_at=None)
+        stranger = await sync_to_async(_leg)(coordinator, uuid.uuid4(), status=RunStatus.RUNNING, finished_at=None)
+
+        with pytest.raises(DelegationError, match=stranger.session_id):
+            await SessionJobDelegator(coordinator.pk).acancel(
+                batch_id=str(batch_id), thread_ids=[leg.session_id, stranger.session_id]
+            )
+
+        await leg.arefresh_from_db()
+        assert leg.status == RunStatus.RUNNING
+
+
 @pytest.mark.django_db
 def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
     coordinator = _coordinator(admin_user)
@@ -742,11 +921,12 @@ def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
         ),
         _leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, repo_id="acme/ops", result_summary="x" * 5000),
         _leg(coordinator, batch_id, status=RunStatus.FAILED, repo_id="acme/lost", error_message=LINK_FAILED_PREFIX),
+        _leg(coordinator, batch_id, status=RunStatus.FAILED, repo_id="acme/void", error_message="cancelled: by you"),
     ]
 
     summary = render_batch_summary(batch_id, legs)
 
-    assert summary.startswith(f"The sub-jobs you delegated (batch {batch_id}) have finished: 2 of 4 succeeded.")
+    assert summary.startswith(f"The sub-jobs you delegated (batch {batch_id}) have finished: 2 of 5 succeeded.")
     assert "## acme/api on release: succeeded" in summary
     assert "- Branch: fix/bump-auth" in summary
     assert "- Merge request: https://git.example/mr/1" in summary
@@ -756,5 +936,7 @@ def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
     assert "- Reply: none; open its session to see what happened." in summary
     assert "  > " + "x" * 1000 + "\n" in summary
     assert "## acme/lost: started, but DAIV lost track of it" in summary
+    assert "## acme/void: cancelled\n- Session:" in summary
+    assert summary.count("- Reply: none") == 2
     assert "this is not their answer" in summary
     assert f"/sessions/{legs[0].session_id}/" in summary

@@ -118,6 +118,49 @@ class TestFinish:
 
 
 @pytest.mark.django_db
+class TestCancel:
+    @pytest.mark.parametrize(
+        ("status", "never_started"), [(RunStatus.RUNNING, False), (RunStatus.READY, True), (RunStatus.QUEUED, True)]
+    )
+    def test_it_finishes_an_unfinished_run_as_cancelled(self, run_finished_spy, badge, status, never_started):
+        run = _create_run(status=status)
+
+        assert Run.objects.cancel(run, "stopped by its coordinator.") is True
+
+        run.refresh_from_db()
+        assert (run.status, run.error_message) == (RunStatus.FAILED, "cancelled: stopped by its coordinator.")
+        assert run.started_at is not None and run.finished_at is not None
+        assert run.is_cancelled
+        assert run_finished_spy.call_args.kwargs["never_started"] is never_started
+
+    def test_a_finished_run_is_left_as_it_ended(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.SUCCESSFUL)
+
+        assert Run.objects.cancel(run, "too late.") is False
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.SUCCESSFUL
+        assert not run_finished_spy.called
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("status", "error_message", "cancelled"),
+    [
+        (RunStatus.FAILED, "cancelled: stopped by its coordinator.", True),
+        (RunStatus.FAILED, "link_failed (agent task will run but its result cannot be captured): boom", False),
+        (RunStatus.RUNNING, "", False),
+    ],
+    ids=["cancelled", "failed-otherwise", "running"],
+)
+async def test_acancelled_is_true_only_for_a_cancelled_run(status, error_message, cancelled):
+    run = await sync_to_async(_create_run)(status=status)
+    await Run.objects.filter(pk=run.pk).aupdate(error_message=error_message)
+
+    assert await Run.objects.acancelled(str(run.pk)) is cancelled
+
+
+@pytest.mark.django_db
 class TestUpdateUnfinished:
     def test_a_finished_row_is_left_alone(self, badge):
         run = _create_run(status=RunStatus.SUCCESSFUL)
