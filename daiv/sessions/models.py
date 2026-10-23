@@ -36,11 +36,6 @@ class RunStatus(models.TextChoices):
     def terminal(cls) -> frozenset[str]:
         return frozenset({cls.SUCCESSFUL, cls.WAITING_INPUT, cls.FAILED})
 
-    @classmethod
-    def waiting(cls) -> frozenset[str]:
-        """Not started yet: waiting for a worker, or for the session's running run to finish."""
-        return frozenset({cls.READY, cls.QUEUED})
-
 
 class SessionOrigin(models.TextChoices):
     """How a session (or an individual run) was triggered.

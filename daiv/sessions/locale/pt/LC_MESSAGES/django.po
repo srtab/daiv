@@ -352,23 +352,8 @@ msgstr "Selecione um repositório para começar."
 msgid "Ready when you are — describe the change, the bug, or what to explore."
 msgstr "Pronto quando quiser — descreva a alteração, o erro ou o que explorar."
 
-msgid "Job is queued"
-msgstr "Tarefa em fila"
-
 msgid "Waiting in queue"
 msgstr "À espera na fila"
-
-msgid "This job will start shortly."
-msgstr "Esta tarefa vai iniciar em breve."
-
-msgid "Agent is still running"
-msgstr "O agente ainda está a executar"
-
-msgid "Agent is working"
-msgstr "O agente está a trabalhar"
-
-msgid "This page refreshes automatically when the run finishes."
-msgstr "Esta página atualiza automaticamente quando a execução terminar."
 
 msgid "Publishing…"
 msgstr "A publicar…"

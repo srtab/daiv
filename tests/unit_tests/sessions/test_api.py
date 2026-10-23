@@ -363,10 +363,13 @@ async def test_session_turns_waits_until_the_run_runs(client, authed):
     with patch("sessions.api.views.ahydrate_thread", hydrated):
         ready = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
         await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.RUNNING)
+        unclaimed = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+        await Session.objects.filter(pk=session.pk).aupdate(active_run_id=str(run.pk))
         running = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert ready.json()["waiting_since"] == run.created_at.isoformat()
     assert [t.get("pending") for t in ready.json()["turns"]] == [True]
+    assert unclaimed.json()["waiting_since"] == run.created_at.isoformat()
     assert running.json()["waiting_since"] is None
     assert [(t["segments"][0]["content"], t.get("pending")) for t in running.json()["turns"]] == [
         ("please fix X", None)

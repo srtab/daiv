@@ -313,7 +313,8 @@ def test_detail_missing_checkpoint_not_expired_while_run_in_flight(member_client
     """A just-started background run has no checkpoint yet; that must NOT render as
     'expired'. Instead its prompt shows while the live stream takes over."""
     session = _create_session(user=member_user, ref="")  # ref="" skips the MR-payload lookup
-    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING, prompt="please fix X")
+    run = _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING, prompt="please fix X")
+    Session.objects.filter(pk=session.pk).update(active_run_id=str(run.pk))
 
     with patch("sessions.hydration.open_checkpointer") as cp_ctx:
         saver = MagicMock()
@@ -333,7 +334,7 @@ def test_detail_missing_checkpoint_not_expired_while_run_in_flight(member_client
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("status", [RunStatus.READY, RunStatus.QUEUED])
+@pytest.mark.parametrize("status", [RunStatus.READY, RunStatus.QUEUED, RunStatus.RUNNING])
 def test_detail_run_not_started_shows_its_prompt_as_pending(member_client, member_user, status):
     session = _create_session(user=member_user, ref="")
     run = _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=status, prompt="please fix X")
@@ -482,7 +483,7 @@ def test_detail_missing_checkpoint_expired_when_run_stale(member_client, member_
     session = _create_session(
         user=member_user, ref="", last_active_at=timezone.now() - timedelta(minutes=STALE_RUN_MINUTES + 1)
     )
-    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING, prompt="please fix X")
 
     with patch("sessions.hydration.open_checkpointer") as cp_ctx:
         saver = MagicMock()
@@ -492,9 +493,10 @@ def test_detail_missing_checkpoint_expired_when_run_stale(member_client, member_
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
-    # Stale heartbeat => not in flight => expired banner.
+    # Stale heartbeat => not in flight => expired banner, the dead run's prompt not recovered.
     assert resp.context["is_in_flight"] is False
     assert resp.context["expired"] is True
+    assert resp.context["turns"] == []
 
 
 @pytest.mark.django_db

@@ -112,7 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fixed the session page letting you send a message while the session's run was still waiting to start, which started a chat turn ahead of the queued job. The composer now stays locked until the run starts, and the page shows the run's prompt as pending with a "Waiting in queue" line in place of the boxed queue card.
+- Fixed the session page letting you send a message while the session's run was still waiting to start, which started a chat turn ahead of the queued job. The composer now stays locked until the run starts, a chat turn sent meanwhile, from another tab or the API, gets a `409`, and the page shows the run's prompt as pending with a "Waiting in queue" line in place of the boxed queue card.
 - Fixed concurrent GitHub API calls able to send each other's request: the GitHub client is shared by the whole process, and PyGithub kept each request on the shared connection between building and sending it, so two calls at once, such as two webhooks, could both send the same request and one of them act on the other's response.
 - Fixed the Jobs API and MCP `get_job_status` cutting a job's `result` at 2,000 characters. It now returns the agent's whole last response.
 - Fixed a job, schedule or webhook run on the default model pinning its session to the model it resolved, so a chat turn on that session later failed with "the model pinned to this thread is no longer available" or a `409` for a model nobody chose. The resolved model is now recorded on the run only, and the session list shows the model the latest run used.

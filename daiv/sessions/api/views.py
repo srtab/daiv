@@ -9,7 +9,7 @@ from ninja.errors import HttpError
 from ninja.security import django_auth
 
 from accounts.api.security import AuthBearer
-from sessions.executor.lock import live_run_for, session_in_flight, session_waiting_since
+from sessions.executor.lock import live_run_for, session_activity
 from sessions.hydration import ahydrate_thread
 from sessions.models import Session
 from sessions.transcript import annotate_transcript, artifact_turns
@@ -38,15 +38,15 @@ async def session_turns(request: HttpRequest, thread_id: str):
     session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
-    turns = annotate_transcript(build_turns(hydrated.messages), runs)
+    activity = session_activity(session, runs)
+    turns = annotate_transcript(build_turns(hydrated.messages), runs, activity)
     if not hydrated.messages:
         turns += await sync_to_async(artifact_turns)(runs)
-    live = await sync_to_async(live_run_for)(session, runs, request.auth)  # ty: ignore[unresolved-attribute]
-    waiting_since = session_waiting_since(session, runs)
+    live = await sync_to_async(live_run_for)(activity.live, session, request.auth)  # ty: ignore[unresolved-attribute]
     return {
         "turns": turns,
-        "active": session_in_flight(session, runs),
-        "waiting_since": waiting_since.isoformat() if waiting_since else None,
+        "active": activity.in_flight,
+        "waiting_since": activity.waiting_since.isoformat() if activity.waiting_since else None,
         "expired": hydrated.expired,
         "live_run": {"id": live.id, "stoppable": live.stoppable, "started_at": live.started_at.isoformat()}
         if live

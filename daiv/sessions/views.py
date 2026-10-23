@@ -37,7 +37,7 @@ from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
-from sessions.executor.lock import live_run_for, session_in_flight, session_waiting_since
+from sessions.executor.lock import live_run_for, session_activity
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
@@ -313,7 +313,6 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "merge_request": None,
                 "thread_ref": "",
                 "diff_stats": None,
-                "runs": [],
                 "is_in_flight": False,
                 "in_flight_ids": "",
                 "context_usage": None,
@@ -334,29 +333,28 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]
         # A dead holder falls through to "not in flight", so the expired banner shows instead of a permanent
         # "working" state.
-        is_in_flight = session_in_flight(session, runs)
+        activity = session_activity(session, runs)
+        is_in_flight = activity.in_flight
 
         # A freshly submitted run has not checkpointed yet, so "no checkpoint or archive" only means
         # the session is really over once nothing is (freshly) in flight; while in flight the
         # "working" state and transcript poller render the same view a chat session gets.
         no_state = hydrated.expired and not is_in_flight
 
-        turns = annotate_transcript(build_turns(hydrated.messages), runs)
+        turns = annotate_transcript(build_turns(hydrated.messages), runs, activity)
         # Expired banner only when there is genuinely nothing to show: no checkpoint or archive
         # AND no failed run whose prompt/marker annotate_transcript could recover.
         ctx["expired"] = no_state and not turns
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
-        waiting_since = session_waiting_since(session, runs)
-        ctx["waiting_since"] = waiting_since.isoformat() if waiting_since else ""
+        ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
         ctx["turns"] = turns if hydrated.messages else turns + artifact_turns(runs)
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats
         ctx["context_usage"] = hydrated.context_usage
         ctx["session_spend"] = build_session_spend(runs)
-        ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
-        live = live_run_for(session, runs, self.request.user)
+        live = live_run_for(activity.live, session, self.request.user)
         ctx["live_run_id"] = live.id if live else ""
         ctx["live_run_started_at"] = live.started_at.isoformat() if live else ""
         ctx["live_run_stoppable"] = bool(live and live.stoppable)
