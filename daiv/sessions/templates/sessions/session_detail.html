@@ -127,6 +127,7 @@
        @daiv:agent-changed.window="applyAgentSelection($event.detail)"
        @daiv:session-turns.window="applyPolledTurns($event.detail.turns)"
        @daiv:session-live-run.window="followLiveRun($event.detail)"
+       @daiv:session-settled.window="holdReload($event)"
        x-cloak
        class="chat-shell">
 

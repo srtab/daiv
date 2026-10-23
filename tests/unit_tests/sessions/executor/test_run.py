@@ -150,6 +150,19 @@ async def test_a_one_shot_run_invokes_without_streaming():
     agent.ainvoke.assert_awaited_once()
 
 
+async def test_a_session_run_without_redis_runs_unpublished_and_quietly(caplog):
+    agent = _agent()
+
+    with agent_stack(agent) as stack, caplog.at_level("ERROR", logger="daiv.sessions"):
+        stack.configured.return_value = False
+        await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    stack.build_client.assert_not_called()
+    assert stack.live_calls == []
+    agent.ainvoke.assert_awaited_once()
+    assert caplog.records == []
+
+
 async def test_a_session_run_without_a_relay_still_runs():
     agent = _agent()
 
@@ -261,6 +274,7 @@ async def test_the_steps_run_in_order_inside_the_slot():
         "result built",
         "context exited",
         "on_success holding run-1",
+        "stream ended",
     ]
     assert await active_holder(thread_id) is None
 
@@ -302,6 +316,7 @@ async def test_a_raising_agent_still_runs_every_finally_step():
         "context entered",
         "context exited",
         "on_failure agent blew up draft=False snapshot=None holding run-1",
+        "stream ended",
     ]
     assert heartbeat_cancelled == [True]
     assert await active_holder(thread_id) is None

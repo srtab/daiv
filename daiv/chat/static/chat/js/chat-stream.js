@@ -802,12 +802,17 @@
 
     // ---------- Run stream (EventSource against the relay) -------------
 
-    followLiveRun({ id, stoppable }) {
+    followLiveRun({ id, stoppable, started_at }) {
       if (this.streaming) return;
       this.runStoppable = stoppable;
       this.resuming = true;
-      this.runStartedAt = Date.now();
+      this.runStartedAt = Date.parse(started_at || "") || Date.now();
       this._resumeRun(id);
+    },
+
+    // A reload once the session settles would drop an unsent draft or race a send that just started.
+    holdReload(event) {
+      if (this.streaming || this.resuming || this.draftMessage.trim()) event.preventDefault();
     },
 
     async _resumeRun(runId) {

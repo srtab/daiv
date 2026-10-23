@@ -87,7 +87,7 @@ def patched_streamer():
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
         patch("chat.api.views.ChatRunStreamer") as m_streamer_cls,
     ):
-        m_agent_cls.return_value = MagicMock(run=_empty_stream)
+        m_agent_cls.return_value = MagicMock(run=_empty_stream, graph_stream=None)
         m_streamer_cls.return_value = MagicMock(events=_empty_events)
         yield m_streamer_cls
 

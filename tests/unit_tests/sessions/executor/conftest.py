@@ -6,7 +6,7 @@ import uuid
 from contextlib import asynccontextmanager, contextmanager
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from langchain_core.messages import HumanMessage
 from sessions.executor.lock import NoLock
@@ -117,9 +117,14 @@ def agent_stack(
         )
         return await agent.ainvoke(graph_input, config=config, context=context)
 
+    async def _end_stream(run_relay):
+        stack.events.append("stream ended")
+
     with (
         stub_sandbox_spec() as build_spec,
         patch("sessions.live.publisher.ainvoke_live", _ainvoke_live),
+        patch("sessions.live.publisher.end_stream", _end_stream),
+        patch("core.redis.RedisConnections.configured", new_callable=PropertyMock, return_value=True) as configured,
         patch(
             "core.redis.redis_connections.build_async_client", return_value=MagicMock(aclose=AsyncMock())
         ) as build_client,
@@ -146,6 +151,7 @@ def agent_stack(
     ):
         stack.build_spec = build_spec
         stack.build_client = build_client
+        stack.configured = configured
         stack.snapshot = snapshot
         stack.create_agent = create_agent
         stack.build_servers = build_servers

@@ -326,3 +326,43 @@ async def test_no_live_run_without_a_holder_or_with_a_stale_heartbeat(stale):
     session, _run = await _holder_session(status=RunStatus.QUEUED, **fields)
 
     assert await _live_run(session) is None
+
+
+async def test_a_webhook_run_waiting_for_the_slot_leaves_the_chat_turn_stoppable():
+    session, chat_run = await _holder_session(trigger_type=SessionOrigin.CHAT, active_run_id="agui-1")
+    await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+        repo_id="owner/repo",
+        status=RunStatus.RUNNING,
+        started_at=timezone.now(),
+    )
+
+    assert await _live_run(session) == LiveRun(id="agui-1", stoppable=True, started_at=chat_run.started_at)
+
+
+async def test_a_job_holder_is_the_run_its_holder_id_names():
+    session, waiting = await _holder_session(trigger_type=SessionOrigin.MR_WEBHOOK, active_run_id="placeholder")
+    holder = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.API_JOB,
+        repo_id="owner/repo",
+        status=RunStatus.RUNNING,
+        started_at=timezone.now(),
+    )
+    session.active_run_id = str(holder.pk)
+
+    live = live_run(session, [waiting, holder])
+
+    assert live.started_at == holder.started_at
+
+
+async def test_live_run_does_not_depend_on_the_runs_order():
+    session, chat_run = await _holder_session(trigger_type=SessionOrigin.CHAT, active_run_id="agui-1")
+    await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.API_JOB, repo_id="owner/repo", status=RunStatus.QUEUED
+    )
+
+    newest_first = [r async for r in session.runs.order_by("-created_at")]
+
+    assert live_run(session, newest_first) == await _live_run(session)

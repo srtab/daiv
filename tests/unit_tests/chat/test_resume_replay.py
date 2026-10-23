@@ -10,6 +10,9 @@ checkpoint already painted.
 
 from __future__ import annotations
 
+import json
+
+import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from sessions.turns import build_turns
 
@@ -145,14 +148,15 @@ chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
 chat.$nextTick = (cb) => cb();
 chat.scrollToBottom = () => {};
 
-chat.followLiveRun({ id: "r2", stoppable: false });
+chat.followLiveRun({ id: "r2", stoppable: false, started_at: "2026-10-23T10:00:00+00:00" });
 const url = opened.url;
 const runStoppable = chat.runStoppable;
+const runStartedAt = chat.runStartedAt;
 opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
 await new Promise((resolve) => setTimeout(resolve, 0));
 
 const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended");
-process.stdout.write(JSON.stringify({ url, runStoppable, ended: ended.map((e) => e.detail) }));
+process.stdout.write(JSON.stringify({ url, runStoppable, runStartedAt, ended: ended.map((e) => e.detail) }));
 """
 
 FOLLOW_PRELUDE = PRELUDE.replace("constructor() {", "constructor(url) { this.url = url;")
@@ -169,6 +173,12 @@ def test_following_a_background_run_hides_stop():
 
     assert result["runStoppable"] is False
     assert "run_id=r2" in result["url"]
+
+
+def test_a_followed_run_is_timed_from_its_server_start():
+    result = _follow()
+
+    assert result["runStartedAt"] == 1792749600000
 
 
 def test_a_rejoined_run_announces_its_end():
@@ -231,3 +241,18 @@ process.stdout.write(JSON.stringify({ opened: opened !== null, runStoppable: cha
     result = run_chat_stream(body, {}, prelude=PRELUDE, extra_globals="EventSource: FakeEventSource,")
 
     assert result == {"opened": False, "runStoppable": True}
+
+
+@pytest.mark.parametrize(
+    ("state", "held"),
+    [({}, False), ({"draftMessage": "next prompt"}, True), ({"streaming": True}, True), ({"resuming": True}, True)],
+)
+def test_the_chat_holds_the_settled_reload_only_while_it_has_something_to_lose(state, held):
+    body = f"""
+const chat = registry.chat({{ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" }});
+Object.assign(chat, {json.dumps(state)});
+let prevented = false;
+chat.holdReload({{ preventDefault: () => {{ prevented = true; }} }});
+process.stdout.write(JSON.stringify({{ prevented }}));
+"""
+    assert run_chat_stream(body, {}) == {"prevented": held}

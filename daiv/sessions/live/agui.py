@@ -45,6 +45,9 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         self.graph_stream: AsyncGenerator[Any] | None = None
 
     async def prepare_stream(self, input: RunAgentInput, agent_state: Any, config: RunnableConfig) -> PreparedStream:  # noqa: A002
+        if self._graph_input is not None:
+            # Upstream replays an open interrupt instead of running the graph; ``ainvoke`` runs the new input.
+            agent_state = agent_state._replace(tasks=())
         prepared = await super().prepare_stream(input=input, agent_state=agent_state, config=config)
         self.graph_stream = prepared["stream"]
         return prepared

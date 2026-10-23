@@ -31,7 +31,10 @@ let hold = false;
 const sandbox = {
   document: { addEventListener: (name, cb) => { if (name === "alpine:init") cb(); } },
   console: { warn() {} },
-  CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
+  CustomEvent: class {
+    constructor(type, init) { this.type = type; this.detail = init?.detail; this.defaultPrevented = false; }
+    preventDefault() { this.defaultPrevented = true; }
+  },
   setInterval: (fn, ms) => { const id = nextId++; timers.push({ id, fn, ms, at: now + ms }); return id; },
   clearInterval: (id) => { timers = timers.filter((t) => t.id !== id); },
   location: { reload: () => { reloads += 1; } },
@@ -47,7 +50,7 @@ sandbox.addEventListener = (name, cb) => { listeners[name] = cb; };
 sandbox.dispatchEvent = (event) => {
   events.push({ type: event.type, detail: event.detail });
   if (listeners[event.type]) listeners[event.type](event);
-  return true;
+  return !event.defaultPrevented;
 };
 sandbox.Alpine = { data: (name, factory) => { components[name] = factory; } };
 vm.createContext(sandbox);
@@ -61,6 +64,7 @@ for (const [action, value] of steps) {
   if (action === "respond") responses.push(value);
   else if (action === "hold") hold = true;
   else if (action === "release") pending[value[0]](value[1]);
+  else if (action === "hold-reload") listeners["daiv:session-settled"] = (event) => event.preventDefault();
   else if (action === "event") sandbox.dispatchEvent(new sandbox.CustomEvent(value, { detail: {} }));
   else if (action === "advance") {
     const end = now + value;
@@ -134,6 +138,15 @@ def test_an_idle_session_reloads():
 
     assert result["reloads"] == 1
     assert result["fetches"] == 1
+
+
+def test_a_settled_session_stays_when_the_chat_holds_the_reload():
+    payload = {"active": False, "live_run": None, "turns": []}
+
+    result = _run({"liveRunId": ""}, [["hold-reload", None], ["respond", payload], ["advance", 5000]])
+
+    assert result["reloads"] == 0
+    assert "daiv:session-settled" in [e["type"] for e in result["events"]]
 
 
 @pytest.mark.parametrize("live_run_id", ["", "r1"])

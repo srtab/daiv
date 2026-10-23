@@ -17,7 +17,7 @@ from sessions.executor.spec import RunHooks, RunSpec
 from sessions.live import relay
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import SubagentEventFilter
-from sessions.live.publisher import sanitize_run_error
+from sessions.live.publisher import close_graph_stream, sanitize_run_error
 from sessions.models import Run, RunStatus, SessionOrigin, agent_result_field_updates, usage_field_updates
 
 from automation.agent.usage_tracking import build_usage_summary
@@ -270,13 +270,17 @@ class ChatRunStreamer:
         # the checkpoint lacks to the graph input.
         turn_message = _last_user_message(self.input_data)
         agui_input = self.input_data.model_copy(update={"messages": [turn_message] if turn_message else []})
-        async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(agui_input))) as events:
-            async for event in events:
-                if event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
-                    turn.add_text(getattr(event, "delta", None))
-                elif event.type == EventType.RUN_ERROR:
-                    turn.error = RUN_FAILED_MESSAGE
-                yield sanitize_run_error(event)
+        try:
+            async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(agui_input))) as events:
+                async for event in events:
+                    if event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
+                        turn.add_text(getattr(event, "delta", None))
+                    elif event.type == EventType.RUN_ERROR:
+                        turn.error = RUN_FAILED_MESSAGE
+                    yield sanitize_run_error(event)
+        finally:
+            if agui.graph_stream is not None:
+                await close_graph_stream(agui.graph_stream, thread_id=self.thread_id, run_id=self.run_id)
         if turn.error is not None:
             raise _ReportedRunError
 

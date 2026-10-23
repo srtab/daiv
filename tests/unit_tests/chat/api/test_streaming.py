@@ -9,6 +9,7 @@ here so these tests stay focused on the stream and slot invariants; the
 Run helpers are covered directly in ``tests/unit_tests/sessions/test_chat_runs.py``.
 """
 
+import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager, contextmanager
@@ -121,7 +122,7 @@ def _mock_agent(events):
         for e in events:
             yield e
 
-    instance = MagicMock()
+    instance = MagicMock(graph_stream=None)
     instance.run = _run
     return instance
 
@@ -220,7 +221,7 @@ async def test_events_skips_persist_ref_when_run_errored():
         yield snap
         raise RuntimeError("kaboom")
 
-    runner = MagicMock()
+    runner = MagicMock(graph_stream=None)
     runner.run = lambda _input: _events_then_boom()
 
     persist_calls: list = []
@@ -279,7 +280,9 @@ async def test_events_streams_the_agent_with_the_chat_run_bound_for_artifacts():
         yield _snapshot()
 
     with (
-        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=MagicMock(run=_run)),
+        patch(
+            "chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=MagicMock(run=_run, graph_stream=None)
+        ),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
@@ -377,6 +380,37 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_turn_closes_the_graph_run_ag_ui_abandoned():
+    from ag_ui.core.events import RunErrorEvent
+
+    closed: list[str] = []
+
+    async def _graph_stream():
+        try:
+            yield {}
+            await asyncio.sleep(10)
+        finally:
+            closed.append("graph")
+
+    graph_stream = _graph_stream()
+    await anext(graph_stream)
+    agent = _mock_agent([RunErrorEvent(type=EventType.RUN_ERROR, message="adapter bug")])
+    agent.graph_stream = graph_stream
+
+    with (
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agent),
+        patch("chat.api.streaming.finalize_chat_run", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert closed == ["graph"]
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_events_finalizes_failed_with_generic_message_when_agent_raises():
     """A raised agent error finalizes the Run FAILED and records a *generic*, user-facing
     reason — never the raw exception class/text (which is logged server-side only). The
@@ -387,7 +421,7 @@ async def test_events_finalizes_failed_with_generic_message_when_agent_raises():
         raise RuntimeError("kaboom-secret-internal-detail")
         yield  # pragma: no cover - unreachable, makes this an async generator
 
-    runner = MagicMock()
+    runner = MagicMock(graph_stream=None)
     runner.run = lambda _input: _events_then_boom()
 
     finalize_calls: list = []

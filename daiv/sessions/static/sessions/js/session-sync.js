@@ -50,7 +50,7 @@ document.addEventListener("alpine:init", () => {
         window.dispatchEvent(new CustomEvent("daiv:session-turns", { detail: data }));
         if (!data.active) {
           this._stop();
-          location.reload();
+          if (window.dispatchEvent(new CustomEvent("daiv:session-settled", { cancelable: true }))) location.reload();
         } else if (data.live_run && data.live_run.id !== this._followed) {
           this._stop();
           this._followed = data.live_run.id;

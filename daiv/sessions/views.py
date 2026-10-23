@@ -37,7 +37,7 @@ from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
-from sessions.executor.lock import live_run, session_in_flight
+from sessions.executor.lock import live_run_for, session_in_flight
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
@@ -355,12 +355,10 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["session_spend"] = build_session_spend(runs)
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
-        live = live_run(session, runs)
+        live = live_run_for(session, runs, self.request.user)
         ctx["live_run_id"] = live.id if live else ""
         ctx["live_run_started_at"] = live.started_at.isoformat() if live else ""
-        ctx["live_run_stoppable"] = bool(
-            live and live.stoppable and Session.objects.by_owner(self.request.user).filter(pk=session.pk).exists()
-        )
+        ctx["live_run_stoppable"] = bool(live and live.stoppable)
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
 
         return ctx

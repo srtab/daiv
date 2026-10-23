@@ -10,10 +10,11 @@ Contract:
   embedded so reader authorization reduces to thread visibility.
 * Normal entries: ``{"data": <AG-UI event JSON (by_alias, exclude_none)>}``.
 * Terminal sentinel: ``{"end": "1"}`` — published on a best-effort basis by the
-  publisher's ``finally`` (``chat.api.runner`` or ``sessions.live.publisher``; if
-  Redis is down even that can fail, in which case readers fall back to the liveness
-  probe in ``_run_event_frames``), so readers can usually distinguish "run finished"
-  from "writer died".
+  writer once the run settles (``chat.api.runner``'s ``finally``, or the executor's
+  ``_live_relay`` for a background run, which also ends the stream when a publish
+  fails; if Redis is down even that can fail, in which case readers fall back to the
+  liveness probe in ``_run_event_frames``), so readers can usually distinguish "run
+  finished" from "writer died".
 * A background run clears its stream before its first publish (``clear``): its run
   id can repeat, and a stale sentinel would end a new viewer's replay at once.
 * Cancel flag ``daiv:chat:run-cancel:{thread_id}:{run_id}`` — set by the cancel

@@ -8,7 +8,14 @@ from dataclasses import dataclass
 from unittest.mock import patch
 
 import pytest
-from ag_ui.core.events import EventType, RawEvent, RunErrorEvent, TextMessageContentEvent
+from ag_ui.core.events import (
+    EventType,
+    MessagesSnapshotEvent,
+    RawEvent,
+    RunErrorEvent,
+    StateSnapshotEvent,
+    TextMessageContentEvent,
+)
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.callbacks import AsyncCallbackHandler, AsyncCallbackManager
@@ -17,11 +24,12 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import interrupt
 from langsmith.run_helpers import tracing_context
 from langsmith.run_trees import RunTree
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
-from sessions.live.publisher import LiveRunError, _driving_live_run, ainvoke_live, publish_event
+from sessions.live.publisher import LiveRunError, _driving_live_run, _RootOutcome, ainvoke_live, publish_event
 from sessions.live.relay import RunRelay
 
 from core.constants import RUN_FAILED_MESSAGE
@@ -157,6 +165,24 @@ async def test_publish_event_leaves_the_raw_copy_off_the_wire():
     assert event.raw_event == raw
 
 
+async def test_publish_event_drops_messages_snapshots():
+    run_relay = _relay()
+
+    await publish_event(run_relay, MessagesSnapshotEvent(type=EventType.MESSAGES_SNAPSHOT, messages=[]))
+
+    assert await _entries(run_relay) == []
+
+
+async def test_publish_event_keeps_only_the_streamed_state_keys():
+    run_relay = _relay()
+    snapshot = {"messages": ["whole thread"], "merge_request": {"merge_request_id": 7}, "diff_stats": None}
+
+    await publish_event(run_relay, StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=snapshot))
+
+    [payload] = _events(await _entries(run_relay))
+    assert payload["snapshot"] == {"merge_request": {"merge_request_id": 7}, "diff_stats": None}
+
+
 async def test_the_model_input_never_reaches_the_relay():
     agent = create_agent(
         model=GenericFakeChatModel(messages=iter([AIMessage(content="hello there")])),
@@ -194,7 +220,7 @@ async def test_it_streams_the_reply_token_by_token_to_the_relay():
     deltas = [e["delta"] for e in _events(entries) if e["type"] == "TEXT_MESSAGE_CONTENT"]
     assert len(deltas) >= 2
     assert "".join(deltas) == "hello there"
-    assert entries[-1].is_end
+    assert not any(entry.is_end for entry in entries)
 
 
 async def test_input_ids_already_in_the_checkpoint_append_like_ainvoke():
@@ -240,7 +266,6 @@ async def test_a_graph_error_raises_the_original_exception():
     errors = [e for e in _events(entries) if e["type"] == "RUN_ERROR"]
     assert [(e["message"], e["code"]) for e in errors] == [(RUN_FAILED_MESSAGE, "run_failed")]
     assert not any("secret" in entry.data for entry in entries if entry.data)
-    assert entries[-1].is_end
 
 
 @contextlib.asynccontextmanager
@@ -342,6 +367,51 @@ async def test_a_translation_failure_mid_run_still_returns_the_graphs_result(log
     assert (await agent.aget_state(_config("t-1"))).values["messages"] == checkpointed
 
 
+async def test_a_translation_failure_the_graph_outlives_publishes_no_run_error():
+    agent = _two_tool_rounds([])
+    translate = RuntimeContextLangGraphAGUIAgent._handle_single_event
+
+    async def failing_at_the_first_tool(self, event, state):
+        if event.get("event") == "on_tool_start":
+            raise ValueError("adapter bug")
+        async for agui_event in translate(self, event, state):
+            yield agui_event
+
+    run_relay = _relay()
+    with patch.object(RuntimeContextLangGraphAGUIAgent, "_handle_single_event", failing_at_the_first_tool):
+        await _live(agent, [HumanMessage(content="hi")], run_relay)
+
+    assert "RUN_ERROR" not in [e["type"] for e in _events(await _entries(run_relay))]
+
+
+async def test_an_open_interrupt_does_not_stop_the_graph_running_its_input():
+    @tool
+    async def ask() -> str:
+        """Ask the user."""
+        return interrupt("which branch?")
+
+    def agent():
+        model = _ToolModel(
+            messages=iter([
+                AIMessage(content="", id="a1", tool_calls=[{"name": "ask", "args": {}, "id": "c1"}]),
+                AIMessage(content="answered", id="a2"),
+            ]),
+            disable_streaming=True,
+        )
+        return create_agent(model=model, tools=[ask], checkpointer=InMemorySaver(), context_schema=_Ctx)
+
+    live_agent, twin_agent = agent(), agent()
+    for graph, thread_id in ((live_agent, "t-live"), (twin_agent, "t-twin")):
+        await graph.ainvoke({"messages": [HumanMessage(content="hi")]}, config=_config(thread_id), context=_Ctx())
+
+    live = await _live(live_agent, [HumanMessage(content="main")], _relay("t-live"))
+    twin = await twin_agent.ainvoke(
+        {"messages": [HumanMessage(content="main")]}, config=_config("t-twin"), context=_Ctx()
+    )
+
+    assert [m.content for m in live["messages"]] == [m.content for m in twin["messages"]]
+
+
 async def test_a_cancelled_call_leaves_no_graph_running():
     tool_started, publish_stalled, tool_ends = asyncio.Event(), asyncio.Event(), []
 
@@ -429,6 +499,24 @@ async def test_a_dead_relay_never_fails_the_run(caplog):
     assert len([r for r in caplog.records if r.name == "daiv.sessions" and r.levelname == "ERROR"]) == 1
 
 
+async def test_a_failed_publish_ends_the_stream_for_its_viewers():
+    class OneFailedWrite(FakeAsyncRedis):
+        failed = False
+
+        async def xadd(self, key, fields, *args, **kwargs):
+            if "data" in fields and not self.failed:
+                self.failed = True
+                raise RedisConnectionError("blip")
+            return await super().xadd(key, fields, *args, **kwargs)
+
+    run_relay = _relay(client=OneFailedWrite())
+
+    result = await _live(_agent(AIMessage(content="still here")), [HumanMessage(content="hi")], run_relay)
+
+    assert result["messages"][-1].content == "still here"
+    assert [entry.is_end for entry in await _entries(run_relay)] == [True]
+
+
 async def test_a_reused_holder_id_starts_a_clean_stream():
     run_relay = _relay()
     await run_relay.publish_event('{"type":"RUN_FINISHED"}')
@@ -437,8 +525,8 @@ async def test_a_reused_holder_id_starts_a_clean_stream():
     await _live(_agent(AIMessage(content="again")), [HumanMessage(content="hi")], run_relay)
 
     entries = await _entries(run_relay)
-    assert not entries[0].is_end
-    assert [entry.is_end for entry in entries].count(True) == 1
+    assert entries
+    assert not any(entry.is_end for entry in entries)
 
 
 async def test_ag_ui_does_not_report_a_failure_the_executor_reraises(caplog):
@@ -446,6 +534,22 @@ async def test_ag_ui_does_not_report_a_failure_the_executor_reraises(caplog):
         await _live(_failing_agent(RuntimeError("boom")), [HumanMessage(content="hi")], _relay())
 
     assert [r for r in caplog.records if r.name == "ag_ui_langgraph.agent" and r.levelname == "ERROR"] == []
+
+
+def test_ag_ui_logs_of_the_reraised_exception_are_dropped_whatever_their_message(caplog):
+    outcome = _RootOutcome()
+    outcome.error = RuntimeError("boom")
+    token = _driving_live_run.set(outcome)
+    try:
+        with caplog.at_level("ERROR"):
+            try:
+                raise outcome.error
+            except RuntimeError:
+                logging.getLogger("ag_ui_langgraph.agent").exception("run failed with subagents still open: %r", ["s"])
+    finally:
+        _driving_live_run.reset(token)
+
+    assert caplog.records == []
 
 
 def test_ag_ui_failure_log_still_reaches_chat(caplog):
