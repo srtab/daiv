@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from langchain.chat_models import init_chat_model
 
@@ -17,6 +17,8 @@ from core.models import ThinkingLevelChoices as ThinkingLevel
 logger = logging.getLogger("daiv.automation")
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from langchain_core.language_models.chat_models import BaseChatModel
 
     from core.models import Provider
@@ -24,44 +26,40 @@ if TYPE_CHECKING:
 
 CLAUDE_MAX_TOKENS = 16_384
 
-# Every thinking-capable Claude model, declared once: native Anthropic name, OpenRouter
-# slug, and whether it belongs to the adaptive-thinking generation. Both spellings are
-# spelled out rather than derived from each other — a future naming scheme would silently
-# mint a wrong slug. Names are matched as prefixes, so dated variants (e.g.
-# ``claude-opus-5-20260101``) are covered.
+
+class _ClaudeModel(NamedTuple):
+    native: str
+    slug: str
+    adaptive: bool = True  # 4.6 deprecates ``budget_tokens`` for adaptive thinking; 4.7+ rejects it
+    no_sampling: bool = True
+    xhigh: bool = True
+
+
+# Both spellings are spelled out (deriving one would mint wrong slugs) and matched as prefixes,
+# so dated variants are covered. The defaults describe the 4.7+ generation.
 _CLAUDE_MODELS = (
-    # (anthropic name, openrouter slug, adaptive thinking)
-    ("claude-sonnet-4-5", "anthropic/claude-sonnet-4.5", False),
-    ("claude-sonnet-4-6", "anthropic/claude-sonnet-4.6", False),
-    ("claude-sonnet-5", "anthropic/claude-sonnet-5", True),
-    ("claude-opus-4-5", "anthropic/claude-opus-4.5", False),
-    ("claude-opus-4-6", "anthropic/claude-opus-4.6", False),
-    ("claude-opus-4-7", "anthropic/claude-opus-4.7", True),
-    ("claude-opus-4-8", "anthropic/claude-opus-4.8", True),
-    ("claude-opus-5", "anthropic/claude-opus-5", True),
-    ("claude-haiku-4-5", "anthropic/claude-haiku-4.5", False),
-    ("claude-haiku-5", "anthropic/claude-haiku-5", True),
-    ("claude-fable-5", "anthropic/claude-fable-5", True),
+    _ClaudeModel("claude-sonnet-4-5", "anthropic/claude-sonnet-4.5", adaptive=False, no_sampling=False, xhigh=False),
+    _ClaudeModel("claude-sonnet-4-6", "anthropic/claude-sonnet-4.6", no_sampling=False, xhigh=False),
+    _ClaudeModel("claude-sonnet-5", "anthropic/claude-sonnet-5"),
+    _ClaudeModel("claude-opus-4-5", "anthropic/claude-opus-4.5", adaptive=False, no_sampling=False, xhigh=False),
+    _ClaudeModel("claude-opus-4-6", "anthropic/claude-opus-4.6", no_sampling=False, xhigh=False),
+    _ClaudeModel("claude-opus-4-7", "anthropic/claude-opus-4.7"),
+    _ClaudeModel("claude-opus-4-8", "anthropic/claude-opus-4.8"),
+    _ClaudeModel("claude-opus-5", "anthropic/claude-opus-5"),
+    _ClaudeModel("claude-haiku-4-5", "anthropic/claude-haiku-4.5", adaptive=False, no_sampling=False, xhigh=False),
+    _ClaudeModel("claude-haiku-5", "anthropic/claude-haiku-5"),
+    _ClaudeModel("claude-fable-5", "anthropic/claude-fable-5"),
 )
 
-CLAUDE_THINKING_MODELS = tuple(name for native, slug, _ in _CLAUDE_MODELS for name in (native, slug))
 
-# Opus 4.7 and every later generation removed the manual extended-thinking config:
-# ``thinking={"type": "enabled", "budget_tokens": N}`` returns a 400
-# ("`thinking.type.enabled` is not supported for this model. Use `thinking.type.adaptive`
-# and `output_config.effort` to control thinking behavior."). Thinking depth is driven by
-# the effort level instead. Derived from the table so it cannot drift out of
-# ``CLAUDE_THINKING_MODELS``: the adaptive branch is only reachable for thinking-capable
-# models, so a model listed here but not there would silently get no thinking at all.
-CLAUDE_ADAPTIVE_THINKING_MODELS = tuple(
-    name for native, slug, adaptive in _CLAUDE_MODELS if adaptive for name in (native, slug)
-)
+def _claude_names(models: Iterable[_ClaudeModel]) -> tuple[str, ...]:
+    return tuple(name for m in models for name in (m.native, m.slug))
 
-# The same generation also removed the sampling parameters — sending ``temperature``
-# returns a 400 ``invalid_request_error``. Dropping sampling params and dropping manual
-# thinking are two distinct API rules that currently cover exactly the same models; if
-# they ever diverge, give this its own column in ``_CLAUDE_MODELS``.
-CLAUDE_NO_TEMPERATURE_MODELS = CLAUDE_ADAPTIVE_THINKING_MODELS
+
+CLAUDE_THINKING_MODELS = _claude_names(_CLAUDE_MODELS)
+CLAUDE_ADAPTIVE_THINKING_MODELS = _claude_names(m for m in _CLAUDE_MODELS if m.adaptive)
+CLAUDE_NO_TEMPERATURE_MODELS = _claude_names(m for m in _CLAUDE_MODELS if m.no_sampling)
+CLAUDE_XHIGH_EFFORT_MODELS = _claude_names(m for m in _CLAUDE_MODELS if m.xhigh)
 
 OPENAI_GPT6_MODELS = ("gpt-6", "openai/gpt-6")
 
@@ -86,7 +84,7 @@ ANTHROPIC_STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
 
 
 # Shared by Anthropic's ``output_config.effort`` and OpenAI's ``reasoning_effort``: neither
-# accepts our ``minimal``, so it down-maps to ``low``. ``max`` is intentionally unused.
+# accepts our ``minimal``, so it down-maps to ``low``.
 _EFFORT_BY_LEVEL = {
     ThinkingLevel.MINIMAL: "low",
     ThinkingLevel.LOW: "low",
@@ -130,19 +128,18 @@ def _apply_anthropic_thinking(kw: dict, thinking_level: ThinkingLevel | None, mo
     # Keep the per-level output ceiling on both paths: with adaptive thinking there is no
     # client-side budget, so max_tokens is the only ceiling and thinking is billed against it.
     kw["max_tokens"] = max_tokens
+    # Anthropic requires temperature=1 while thinking; _apply_temperature_support strips it on 4.7+.
+    kw["temperature"] = 1
 
     if model_name.startswith(CLAUDE_ADAPTIVE_THINKING_MODELS):
-        # ``display`` must be requested explicitly: it defaults to "omitted" on these
-        # models, which streams thinking blocks with empty text, so the reasoning never
-        # reaches DAIV at all — live AG-UI events and reloaded transcripts alike end up
-        # with nothing to show. ``effort`` is langchain-anthropic's shorthand for
-        # ``output_config.effort`` and takes precedence over any output_config we or
-        # with_structured_output pass, so it can't be clobbered by the ``format`` key.
+        # ``display`` defaults to "omitted" on 4.7+, leaving DAIV no reasoning to show. ``effort``
+        # (langchain's ``output_config.effort`` shorthand) wins over with_structured_output's ``format``.
         kw["thinking"] = {"type": "adaptive", "display": "summarized"}
-        kw["effort"] = _EFFORT_BY_LEVEL[thinking_level]
+        effort = _EFFORT_BY_LEVEL[thinking_level]
+        if effort == "xhigh" and not model_name.startswith(CLAUDE_XHIGH_EFFORT_MODELS):
+            effort = "max"  # 4.6 has no ``xhigh``; ``max`` is its only level above ``high``
+        kw["effort"] = effort
     else:
-        # Anthropic requires temperature=1 when manual thinking is enabled.
-        kw["temperature"] = 1
         kw["thinking"] = {"type": "enabled", "budget_tokens": budget}
 
 

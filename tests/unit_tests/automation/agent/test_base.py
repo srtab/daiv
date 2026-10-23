@@ -235,8 +235,9 @@ class TestGetModelKwargs:
         assert "max_tokens" not in kw["extra_body"]["reasoning"]
 
     def test_openrouter_anthropic_xhigh(self):
-        """xhigh on Anthropic-via-OpenRouter passes the effort string straight through;
-        ``max_tokens`` stays inside Anthropic's per-model cap (64K)."""
+        """xhigh on Anthropic-via-OpenRouter passes the effort string straight through, even
+        on 4.6: OpenRouter turns it into a ``budget_tokens`` ratio rather than forwarding it as
+        ``output_config.effort``. ``max_tokens`` stays inside Anthropic's per-model cap (64K)."""
         self._enable_seed("openrouter", "sk-or")
         kw = get_model_kwargs(
             resolved=parse_model_spec("openrouter:anthropic/claude-sonnet-4.6"),
@@ -302,11 +303,11 @@ class TestGetModelKwargs:
         assert kw["reasoning_effort"] == expected_effort
 
     def test_anthropic_xhigh_budget(self):
-        """xhigh on direct Anthropic stays at the Sonnet/Haiku 64K cap — the level
+        """xhigh on a manual-thinking model stays at the Sonnet/Haiku 64K cap — the level
         differentiates from HIGH only on OpenRouter, where the ratio formula applies."""
         self._enable_seed("anthropic", "sk-a")
         kw = get_model_kwargs(
-            resolved=parse_model_spec("anthropic:claude-sonnet-4-6"), thinking_level=ThinkingLevelChoices.XHIGH
+            resolved=parse_model_spec("anthropic:claude-haiku-4-5"), thinking_level=ThinkingLevelChoices.XHIGH
         )
         assert kw["temperature"] == 1
         assert kw["max_tokens"] == 64_000
@@ -314,21 +315,23 @@ class TestGetModelKwargs:
         assert kw["thinking"]["budget_tokens"] == 64_000 - 16_384
 
     @pytest.mark.parametrize(
-        "model_name",
+        ("model_name", "expected_temperature"),
         [
-            "claude-opus-4-7",
-            "claude-opus-4-8",
-            "claude-opus-5",
-            "claude-sonnet-5",
-            "claude-fable-5",
-            "claude-haiku-5-5",
+            ("claude-sonnet-4-6", 1),
+            ("claude-opus-4-6", 1),
+            ("claude-opus-4-7", None),
+            ("claude-opus-4-8", None),
+            ("claude-opus-5", None),
+            ("claude-sonnet-5", None),
+            ("claude-fable-5", None),
+            ("claude-haiku-5-5", None),
         ],
     )
-    def test_adaptive_thinking_models_use_effort_not_budget(self, model_name):
-        """Opus 4.7+ rejects ``thinking.type=enabled``/``budget_tokens`` with a 400 and
-        drives depth through ``output_config.effort`` instead. The per-level output ceiling
-        carries over, ``display`` is requested explicitly (it defaults to omitted), and
-        temperature must be stripped — the same generation rejects sampling params."""
+    def test_adaptive_thinking_models_use_effort_not_budget(self, model_name, expected_temperature):
+        """4.6 deprecates ``thinking.type=enabled``/``budget_tokens`` and 4.7+ rejects it with a
+        400; both drive depth through ``output_config.effort`` instead. The per-level output
+        ceiling carries over and ``display`` is requested explicitly (4.7+ defaults to omitted).
+        4.6 still needs temperature=1 while thinking; 4.7+ rejects sampling params outright."""
         self._enable_seed("anthropic", "sk-a")
         kw = get_model_kwargs(
             resolved=parse_model_spec(f"anthropic:{model_name}"), thinking_level=ThinkingLevelChoices.MEDIUM
@@ -336,7 +339,7 @@ class TestGetModelKwargs:
         assert kw["thinking"] == {"type": "adaptive", "display": "summarized"}
         assert kw["effort"] == "medium"
         assert kw["max_tokens"] == 16_384 + 25_600
-        assert "temperature" not in kw
+        assert kw.get("temperature") == expected_temperature
 
     def test_adaptive_thinking_model_dated_variant(self):
         """Model names are matched as prefixes, so dated snapshots take the adaptive path."""
@@ -375,10 +378,19 @@ class TestGetModelKwargs:
         assert "temperature" not in kw
         assert kw["max_tokens"] == 16_384
 
-    @pytest.mark.parametrize("model_name", ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"])
+    @pytest.mark.parametrize("model_name", ["claude-sonnet-4-6", "claude-opus-4-6"])
+    def test_claude_4_6_sends_xhigh_as_max(self, model_name):
+        """4.6 has no ``xhigh`` effort (it would 400); ``max`` is its only level above ``high``."""
+        self._enable_seed("anthropic", "sk-a")
+        kw = get_model_kwargs(
+            resolved=parse_model_spec(f"anthropic:{model_name}"), thinking_level=ThinkingLevelChoices.XHIGH
+        )
+        assert kw["effort"] == "max"
+
+    @pytest.mark.parametrize("model_name", ["claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"])
     def test_pre_adaptive_models_keep_budget_tokens(self, model_name):
-        """Models older than Opus 4.7 still take the manual extended-thinking budget
-        (paired with temperature=1) — they don't accept ``output_config.effort``."""
+        """Models older than 4.6 reject adaptive thinking, so they keep the manual
+        extended-thinking budget (paired with temperature=1) and no ``output_config.effort``."""
         self._enable_seed("anthropic", "sk-a")
         kw = get_model_kwargs(
             resolved=parse_model_spec(f"anthropic:{model_name}"), thinking_level=ThinkingLevelChoices.MEDIUM
