@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
-from sessions.models import RunStatus, Session
+from sessions.models import RunStatus, Session, SessionOrigin
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Iterable
+    from collections.abc import AsyncGenerator, Iterable, Sequence
 
     from sessions.models import Run
 
@@ -38,6 +38,29 @@ def session_in_flight(session: Session, runs: Iterable[Run]) -> bool:
     stranded past the window (crashed worker, orphaned queue entry) is dead, whatever its runs' status says.
     """
     return any(run.status not in RunStatus.terminal() for run in runs) and session.last_active_at >= stale_cutoff()
+
+
+@dataclass(frozen=True)
+class LiveRun:
+    """The run a session page can stream: ``id`` is the slot holder's relay id, ``stoppable`` is whether the
+    cancel endpoint can stop it (chat runs only), ``started_at`` seeds the page's working timer."""
+
+    id: str
+    stoppable: bool
+    started_at: datetime
+
+
+def live_run(session: Session, runs: Sequence[Run]) -> LiveRun | None:
+    """The in-flight run holding ``session``'s slot, or ``None`` when nothing is in flight or no holder is recorded."""
+    if not session.active_run_id or not session_in_flight(session, runs):
+        return None
+    non_terminal = [run for run in runs if run.status not in RunStatus.terminal()]
+    latest = non_terminal[-1]
+    return LiveRun(
+        id=session.active_run_id,
+        stoppable=all(run.trigger_type == SessionOrigin.CHAT for run in non_terminal),
+        started_at=latest.started_at or latest.created_at,
+    )
 
 
 class SessionLock:

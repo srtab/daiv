@@ -106,7 +106,7 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     another thread reads an empty stream even if guessed.
     """
     user = request.auth  # ty: ignore[unresolved-attribute]
-    if not await Session.objects.by_owner(user).filter(thread_id=thread_id).aexists():
+    if not await sync_to_async(lambda: Session.objects.visible_to(user).filter(thread_id=thread_id).exists())():
         raise HttpError(404, "Thread not found")
     last_id = request.headers.get("Last-Event-ID") or "0-0"
     return sse_response(_run_event_frames(thread_id, run_id, last_id))

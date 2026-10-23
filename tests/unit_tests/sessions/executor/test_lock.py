@@ -7,15 +7,17 @@ from django.utils import timezone
 import pytest
 from sessions.executor.lock import (
     Held,
+    LiveRun,
     NoLock,
     SessionLock,
     SessionLockTimeoutError,
     Wait,
     hold_session_lock,
+    live_run,
     stale_cutoff,
     still_held,
 )
-from sessions.models import Session
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 
@@ -282,3 +284,36 @@ class TestStillHeld:
             assert await still_held("t-1", "run-1") is True
 
         assert "heartbeat failed" in caplog.text
+
+
+async def _holder_session(*, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING, **fields):
+    thread_id = await amake_job_session(**fields)
+    session = await Session.objects.aget(pk=thread_id)
+    run = await Run.objects.acreate(
+        session=session, trigger_type=trigger_type, repo_id="owner/repo", status=status, started_at=timezone.now()
+    )
+    return session, run
+
+
+async def _live_run(session):
+    return live_run(session, [r async for r in session.runs.order_by("created_at")])
+
+
+async def test_live_run_is_the_slot_holder_while_in_flight():
+    session, run = await _holder_session(active_run_id="42")
+
+    assert await _live_run(session) == LiveRun(id="42", stoppable=False, started_at=run.started_at)
+
+
+async def test_a_chat_only_session_is_stoppable():
+    session, _run = await _holder_session(trigger_type=SessionOrigin.CHAT, active_run_id="agui-1")
+
+    assert (await _live_run(session)).stoppable is True
+
+
+@pytest.mark.parametrize("stale", [False, True])
+async def test_no_live_run_without_a_holder_or_with_a_stale_heartbeat(stale):
+    fields = {"active_run_id": "42", "last_active_at": stale_cutoff() - timedelta(minutes=1)} if stale else {}
+    session, _run = await _holder_session(status=RunStatus.QUEUED, **fields)
+
+    assert await _live_run(session) is None

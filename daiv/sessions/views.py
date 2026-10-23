@@ -37,7 +37,7 @@ from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
-from sessions.executor.lock import session_in_flight
+from sessions.executor.lock import live_run, session_in_flight
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
@@ -307,8 +307,9 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "watch_only": False,
                 "awaiting_transcript": False,
                 "active_run_id": "",
-                "chat_active_run_id": "",
-                "chat_active_run_started_at": "",
+                "live_run_id": "",
+                "live_run_started_at": "",
+                "live_run_stoppable": False,
                 "merge_request": None,
                 "thread_ref": "",
                 "diff_stats": None,
@@ -354,33 +355,11 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["session_spend"] = build_session_spend(runs)
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
-        # The chat page rejoins the event relay only when the in-flight holder is a
-        # chat run (holder id == AG-UI run id). Background holders don't publish to
-        # the relay — for those the transcript poller (below) owns live updates.
-        ctx["chat_active_run_id"] = (
-            session.active_run_id
-            if is_in_flight
-            and session.active_run_id
-            and all(r.trigger_type == SessionOrigin.CHAT for r in non_terminal)
-            else ""
-        )
-        # Seeds the working timer on resume so it counts from when the run actually
-        # started server-side, not from when this page loaded. ``created_at`` covers a
-        # run still queued, which has no ``started_at`` yet.
-        active_run = non_terminal[-1] if ctx["chat_active_run_id"] else None
-        ctx["chat_active_run_started_at"] = (
-            (active_run.started_at or active_run.created_at).isoformat() if active_run else ""
-        )
+        live = live_run(session, runs)
+        ctx["live_run_id"] = live.id if live else ""
+        ctx["live_run_started_at"] = live.started_at.isoformat() if live else ""
+        ctx["live_run_stoppable"] = live.stoppable if live else False
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
-
-        # Engage transcript polling when a background run holds the slot and there is
-        # no live chat stream from this tab (chat stream manages its own turns in JS;
-        # the poller only kicks in for non-chat background runs).
-        ctx["poll_transcript"] = bool(
-            is_in_flight
-            and self.object.active_run_id
-            and any(r.trigger_type != SessionOrigin.CHAT for r in non_terminal)
-        )
 
         return ctx
 

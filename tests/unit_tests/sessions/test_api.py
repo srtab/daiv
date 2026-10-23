@@ -319,3 +319,23 @@ async def test_session_turns_active_needs_a_fresh_heartbeat(client, authed, hear
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.json()["active"] is active
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_names_the_live_run(client, authed):
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=user
+    )
+    await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="group/project", status=RunStatus.RUNNING
+    )
+    hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
+
+    with patch("sessions.api.views.ahydrate_thread", hydrated):
+        idle = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+        await Session.objects.filter(pk=session.pk).aupdate(active_run_id="42", last_active_at=timezone.now())
+        live = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert idle.json()["live_run"] is None
+    assert live.json()["live_run"] == {"id": "42", "stoppable": False}

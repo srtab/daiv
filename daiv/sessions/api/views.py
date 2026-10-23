@@ -9,7 +9,7 @@ from ninja.errors import HttpError
 from ninja.security import django_auth
 
 from accounts.api.security import AuthBearer
-from sessions.executor.lock import session_in_flight
+from sessions.executor.lock import live_run, session_in_flight
 from sessions.hydration import ahydrate_thread
 from sessions.models import Session
 from sessions.transcript import annotate_transcript, artifact_turns
@@ -41,4 +41,10 @@ async def session_turns(request: HttpRequest, thread_id: str):
     turns = annotate_transcript(build_turns(hydrated.messages), runs)
     if not hydrated.messages:
         turns += await sync_to_async(artifact_turns)(runs)
-    return {"turns": turns, "active": session_in_flight(session, runs), "expired": hydrated.expired}
+    live = live_run(session, runs)
+    return {
+        "turns": turns,
+        "active": session_in_flight(session, runs),
+        "expired": hydrated.expired,
+        "live_run": {"id": live.id, "stoppable": live.stoppable} if live else None,
+    }

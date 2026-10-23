@@ -872,6 +872,29 @@ async def _seed_run_events(fake_redis, thread_id, run_id, payloads, *, end=True)
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_stream_serves_a_reader_of_the_sessions_repository(client: TestAsyncClient, authed, fake_redis):
+    from asgiref.sync import sync_to_async
+
+    from tests.unit_tests.sessions.conftest import grant_read_access
+
+    _, raw, user = authed
+    owner = await User.objects.acreate_user(username="stream-owner", email="so@example.com", password="x")  # noqa: S106
+    await Session.objects.acreate(
+        origin=SessionOrigin.API_JOB, thread_id="t-s0", user=owner, repo_id="group/project", ref="main"
+    )
+    await _seed_run_events(fake_redis, "t-s0", "r-1", ['{"type":"RUN_STARTED"}'])
+    url = "/chat/stream?thread_id=t-s0&run_id=r-1"
+
+    denied = await client.get(url, headers=_auth_headers(raw))
+    await sync_to_async(grant_read_access)(user, "group/project")
+    served = await client.get(url, headers=_auth_headers(raw))
+
+    assert denied.status_code == 404
+    assert served.status_code == 200
+    assert served["Content-Type"] == "text/event-stream"
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_stream_replays_all_events_and_ends(client: TestAsyncClient, authed, fake_redis):
     _, raw, user = authed
     await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-s1", user=user, repo_id="a/b", ref="main")
