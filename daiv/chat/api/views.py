@@ -98,7 +98,7 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
 
 @chat_router.get("/stream", url_name="chat_run_stream")
 async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
-    """Resumable SSE stream of a chat run's AG-UI events.
+    """Resumable SSE stream of a session run's AG-UI events, whatever started the run (chat, job, webhook or schedule).
 
     Replays from the start (or from the ``Last-Event-ID`` header on browser
     reconnect) and tails live until the run's terminal sentinel. Authorization

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from automation.agent.context import RuntimeCtx
 
-logger = logging.getLogger("daiv.chat")
+logger = logging.getLogger("daiv.sessions")
 
 # GitState fields that survive the ag-ui output-schema filter and reach the
 # chat client through STATE_SNAPSHOT events.
@@ -137,7 +137,7 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         if event.get("name") != ASSISTANT_MESSAGE_EVENT:
             return []
         if (parsed := parse_assistant_message(event.get("data"))) is None:
-            logger.warning("chat: malformed %s payload; dropping frames", ASSISTANT_MESSAGE_EVENT)
+            logger.warning("live: malformed %s payload; dropping frames", ASSISTANT_MESSAGE_EVENT)
             return []
         # Only the keys the filter reads: stamping the whole event would ship the LangGraph
         # internals *and* a second copy of the message body on each of the three frames.
@@ -163,7 +163,7 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         ctx_schema = getattr(self.graph, "context_schema", None)
         if not is_dataclass(ctx_schema):
             logger.warning(
-                "chat: context_schema %r is not a dataclass; STATE_SNAPSHOT context keys will be empty", ctx_schema
+                "live: context_schema %r is not a dataclass; STATE_SNAPSHOT context keys will be empty", ctx_schema
             )
             context_keys: list[str] = []
         else:

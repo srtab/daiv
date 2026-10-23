@@ -145,6 +145,8 @@ As the agent works, the workspace streams updates live:
 
 While a run is streaming you can press **Stop** to cancel it server-side. Refreshing the page or losing the connection does not stop the run — reopening the session rejoins the live stream. Only one run can be in flight per session at a time.
 
+Stop is offered on chat runs only, and only to the session's owner: a run started by a job, webhook or schedule streams without it.
+
 ### Model and sandbox environment
 
 Each session pins three choices, set in the hero before your first message and then locked for the rest of the session:

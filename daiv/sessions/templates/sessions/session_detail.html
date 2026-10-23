@@ -85,9 +85,8 @@
          activeRunId: "{{ live_run_id|default:''|escapejs }}",
          activeRunStartedAt: "{{ live_run_started_at|default:''|escapejs }}",
          liveRunStoppable: {{ live_run_stoppable|yesno:"true,false" }},
-         {# Covers both live holders — a chat run this tab rejoins via the relay, and a #}
-         {# background run the transcript poller follows — so the load-time scroll can #}
-         {# tell "still working" from "finished" without duplicating that logic in JS. #}
+         {# Any run in flight, streamed from the relay or polled until it holds the slot, so the load-time #}
+         {# scroll can tell "still working" from "finished" without duplicating that logic in JS. #}
          sessionLive: {{ is_in_flight|yesno:"true,false" }},
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if session %}{
