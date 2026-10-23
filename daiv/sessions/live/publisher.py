@@ -30,14 +30,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.sessions")
 
-_driving_live_run: contextvars.ContextVar[bool] = contextvars.ContextVar("driving_live_run", default=False)
+_driving_live_run: contextvars.ContextVar[_RootOutcome | None] = contextvars.ContextVar(
+    "driving_live_run", default=None
+)
 
 
 class _DropReraisedRunFailure(logging.Filter):
-    """ag-ui logs a failed run itself; ``ainvoke_live`` re-raises it to the executor, which reports it once."""
+    """Drops ag-ui's log of the graph's own exception, which ``ainvoke_live`` re-raises for the executor to report;
+    ag-ui's other failures are still logged."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        return not (_driving_live_run.get() and record.msg == "LangGraph run failed")
+        outcome = _driving_live_run.get()
+        if outcome is None or record.msg != "LangGraph run failed" or not record.exc_info:
+            return True
+        return record.exc_info[1] is not outcome.error
 
 
 logging.getLogger("ag_ui_langgraph.agent").addFilter(_DropReraisedRunFailure())
@@ -94,7 +100,7 @@ async def ainvoke_live(
         forwarded_props={},
     )
     run_error = None
-    token = _driving_live_run.set(True)
+    token = _driving_live_run.set(outcome)
     try:
         async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(run_input))) as events:
             async for event in events:

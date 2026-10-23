@@ -236,7 +236,10 @@ async def _ainvoke_live(run: AgentRun, spec: RunSpec, holder_id: str) -> dict[st
             run_relay=RunRelay(run.thread_id, holder_id, client=client),
         )
     finally:
-        await client.aclose()
+        try:
+            await client.aclose()
+        except Exception:
+            logger.exception("executor: failed to close the run relay client for thread_id=%s", run.thread_id)
 
 
 async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:

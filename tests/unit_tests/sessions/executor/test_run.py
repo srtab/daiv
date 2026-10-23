@@ -1,9 +1,10 @@
 import asyncio
+import dataclasses
 import json
 import uuid
 from contextlib import asynccontextmanager, nullcontext
 from types import SimpleNamespace
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from django.contrib.sites.models import Site
 from django.urls import reverse
@@ -12,6 +13,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from redisvl.exceptions import RedisSearchError
 from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
@@ -40,7 +42,7 @@ from tests.unit_tests.conftest import (
     site_snapshot,
 )
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
-from tests.unit_tests.sessions.executor.conftest import SITE_URL, agent_stack, disk_ctx, make_spec
+from tests.unit_tests.sessions.executor.conftest import SITE_URL, agent_stack, disk_ctx, make_spec, resolved_to
 
 MR = {"merge_request_id": 7, "source_branch": "feat/published"}
 
@@ -122,15 +124,20 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
 async def test_a_session_run_streams_under_its_slots_holder_id():
     agent = _agent()
     spec = make_spec(lock=Held(holder_id="h-1"))
+    resolved = dataclasses.replace(resolved_to("claude-4-7-opus"), recursion_limit=7)
 
-    with agent_stack(agent) as stack:
+    with agent_stack(agent, resolve=MagicMock(return_value=resolved)) as stack:
         await execute_run(spec)
 
-    (call,) = stack.live_calls
-    assert call.run_relay.thread_id == spec.thread_id
-    assert call.run_relay.run_id == "h-1"
-    assert call.recursion_limit == stack.resolve.return_value.recursion_limit
-    agent.ainvoke.assert_awaited_once()
+    (call_,) = stack.live_calls
+    assert call_.run_relay.thread_id == spec.thread_id
+    assert call_.run_relay.run_id == "h-1"
+    assert call_.run_relay._client is stack.build_client.return_value
+    assert call_.recursion_limit == 7
+    assert call_.graph_input == {"messages": list(spec.input_messages)}
+    assert agent.ainvoke.call_args == call(
+        {"messages": list(spec.input_messages)}, config=stack.langsmith.return_value, context=stack.ctx
+    )
 
 
 async def test_a_one_shot_run_invokes_without_streaming():
@@ -169,6 +176,31 @@ async def test_the_worker_closes_the_redis_client_it_built(error):
 
     stack.build_client.assert_called_once_with(socket_timeout=5.0)
     stack.build_client.return_value.aclose.assert_awaited_once()
+
+
+async def test_a_failing_relay_close_does_not_fail_a_finished_run():
+    agent = _agent()
+
+    with agent_stack(agent) as stack:
+        stack.build_client.return_value.aclose.side_effect = RedisTimeoutError("Timed out closing connection")
+        outcome = await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    assert outcome.response_text == "done"
+
+
+async def test_a_failing_relay_close_does_not_mask_the_agents_error():
+    boom = RuntimeError("boom")
+    agent = _agent()
+    agent.ainvoke = AsyncMock(side_effect=boom)
+    on_failure = AsyncMock()
+
+    with agent_stack(agent) as stack:
+        stack.build_client.return_value.aclose.side_effect = RedisTimeoutError("Timed out closing connection")
+        with pytest.raises(RuntimeError) as raised:
+            await execute_run(make_spec(lock=Held(holder_id="h-1")), RunHooks(on_failure=on_failure))
+
+    assert raised.value is boom
+    assert on_failure.await_args.args[0] is boom
 
 
 async def test_it_returns_the_outcome_and_hands_it_to_on_success():

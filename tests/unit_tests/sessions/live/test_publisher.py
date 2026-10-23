@@ -14,7 +14,8 @@ from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import ConnectionError as RedisConnectionError
-from sessions.live.publisher import LiveRunError, ainvoke_live, publish_event
+from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
+from sessions.live.publisher import LiveRunError, _driving_live_run, ainvoke_live, publish_event
 from sessions.live.relay import RunRelay
 
 from core.constants import RUN_FAILED_MESSAGE
@@ -241,3 +242,24 @@ def test_ag_ui_failure_log_still_reaches_chat(caplog):
         logging.getLogger("ag_ui_langgraph.agent").error("LangGraph run failed")
 
     assert [r.name for r in caplog.records] == ["ag_ui_langgraph.agent"]
+
+
+async def test_ag_ui_reports_its_own_failure_while_driving_a_run(caplog):
+    async def broken(self, event, state):
+        raise ValueError("adapter bug")
+        yield
+
+    with (
+        patch.object(RuntimeContextLangGraphAGUIAgent, "_handle_single_event", broken),
+        caplog.at_level("ERROR"),
+        contextlib.suppress(Exception),
+    ):
+        await _live(_agent(AIMessage(content="fine")), [HumanMessage(content="hi")], _relay())
+
+    assert [r.getMessage() for r in caplog.records if r.name == "ag_ui_langgraph.agent"] == ["LangGraph run failed"]
+
+
+async def test_the_failure_filter_stops_applying_once_the_run_ends():
+    await _live(_agent(AIMessage(content="ok")), [HumanMessage(content="hi")], _relay())
+
+    assert _driving_live_run.get() is None
