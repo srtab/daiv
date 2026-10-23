@@ -5,6 +5,7 @@ import contextvars
 import logging
 import time
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from ag_ui.core import RunAgentInput
 from ag_ui.core.events import EventType, RunErrorEvent
@@ -99,7 +100,9 @@ async def ainvoke_live(
         name="DAIV",
         description="DAIV agent",
         graph=agent,
-        config=merge_configs({"recursion_limit": recursion_limit, **config}, {"callbacks": [outcome]}),
+        config=merge_configs(
+            {"recursion_limit": recursion_limit, **config}, {"callbacks": [outcome], "run_id": outcome.root_id}
+        ),
         runtime_context=context,
         graph_input=graph_input,
     )
@@ -146,20 +149,21 @@ async def _attempt(run_relay: RunRelay, operation: Awaitable[None]) -> bool:
 
 
 class _RootOutcome(AsyncCallbackHandler):
-    """The root run's output or error: ag-ui reports a failed graph only as a RUN_ERROR with the exception's text."""
+    """The root run's output or error: ag-ui reports a failed graph only as a RUN_ERROR with the exception's text.
+
+    The root is the run started with ``root_id`` as its run id; it can have a parent of its own, the caller's
+    LangSmith trace or callbacks.
+    """
 
     def __init__(self) -> None:
+        self.root_id = uuid4()
         self.output: dict[str, Any] | None = None
         self.error: BaseException | None = None
 
-    async def on_chain_end(
-        self, outputs: dict[str, Any], *, run_id: UUID, parent_run_id: UUID | None = None, **kwargs: Any
-    ) -> None:
-        if parent_run_id is None:
+    async def on_chain_end(self, outputs: dict[str, Any], *, run_id: UUID, **kwargs: Any) -> None:
+        if run_id == self.root_id:
             self.output = outputs
 
-    async def on_chain_error(
-        self, error: BaseException, *, run_id: UUID, parent_run_id: UUID | None = None, **kwargs: Any
-    ) -> None:
-        if parent_run_id is None:
+    async def on_chain_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
+        if run_id == self.root_id:
             self.error = error

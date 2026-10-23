@@ -2,17 +2,21 @@ import contextlib
 import json
 import logging
 import time
+import uuid
 from dataclasses import dataclass
 from unittest.mock import patch
 
 import pytest
 from ag_ui.core.events import EventType, RawEvent, RunErrorEvent, TextMessageContentEvent
 from langchain.agents import create_agent
+from langchain_core.callbacks import AsyncCallbackManager
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
+from langsmith.run_helpers import tracing_context
+from langsmith.run_trees import RunTree
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.publisher import LiveRunError, _driving_live_run, ainvoke_live, publish_event
@@ -41,6 +45,18 @@ def _agent(*replies: AIMessage, model: GenericFakeChatModel | None = None):
     )
 
 
+def _failing_agent(error: BaseException):
+    class FailingModel(GenericFakeChatModel):
+        async def _astream(self, *args, **kwargs):
+            raise error
+            yield
+
+        async def _agenerate(self, *args, **kwargs):
+            raise error
+
+    return _agent(model=FailingModel(messages=iter([])))
+
+
 def _config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
 
@@ -49,11 +65,11 @@ def _relay(thread_id: str = "t-1", client: FakeAsyncRedis | None = None) -> RunR
     return RunRelay(thread_id, "h-1", client=client or FakeAsyncRedis())
 
 
-async def _live(agent, messages, run_relay: RunRelay) -> dict:
+async def _live(agent, messages, run_relay: RunRelay, **config) -> dict:
     return await ainvoke_live(
         agent,
         {"messages": messages},
-        config=_config(run_relay.thread_id),
+        config=_config(run_relay.thread_id) | config,
         context=_Ctx(),
         recursion_limit=50,
         run_relay=run_relay,
@@ -174,19 +190,10 @@ async def test_a_checkpointed_last_message_never_forks_the_thread():
 
 async def test_a_graph_error_raises_the_original_exception():
     boom = RuntimeError("secret /srv/x")
-
-    class FailingModel(GenericFakeChatModel):
-        async def _astream(self, *args, **kwargs):
-            raise boom
-            yield
-
-        async def _agenerate(self, *args, **kwargs):
-            raise boom
-
     run_relay = _relay()
 
     with pytest.raises(RuntimeError) as raised:
-        await _live(_agent(model=FailingModel(messages=iter([]))), [HumanMessage(content="hi")], run_relay)
+        await _live(_failing_agent(boom), [HumanMessage(content="hi")], run_relay)
 
     assert raised.value is boom
     entries = await _entries(run_relay)
@@ -194,6 +201,36 @@ async def test_a_graph_error_raises_the_original_exception():
     assert [(e["message"], e["code"]) for e in errors] == [(RUN_FAILED_MESSAGE, "run_failed")]
     assert not any("secret" in entry.data for entry in entries if entry.data)
     assert entries[-1].is_end
+
+
+@contextlib.asynccontextmanager
+async def _nested_under_a_callers_run(caller: str):
+    """The config extras for a graph run nested under a caller's run: a LangSmith trace, or a parent's callbacks."""
+    if caller == "langsmith":
+        with tracing_context(parent=RunTree(name="caller"), enabled=False):
+            yield {}
+    else:
+        run_manager = await AsyncCallbackManager(handlers=[]).on_chain_start({}, {}, run_id=uuid.uuid4())
+        yield {"callbacks": run_manager.get_child()}
+
+
+@pytest.mark.parametrize("caller", ["langsmith", "callbacks"])
+async def test_a_run_nested_under_a_callers_run_returns_its_output(caller):
+    async with _nested_under_a_callers_run(caller) as config:
+        result = await _live(_agent(AIMessage(content="nested")), [HumanMessage(content="hi")], _relay(), **config)
+
+    assert result["messages"][-1].content == "nested"
+
+
+@pytest.mark.parametrize("caller", ["langsmith", "callbacks"])
+async def test_a_run_nested_under_a_callers_run_raises_its_graph_error(caller):
+    boom = RuntimeError("boom")
+
+    async with _nested_under_a_callers_run(caller) as config:
+        with pytest.raises(RuntimeError) as raised:
+            await _live(_failing_agent(boom), [HumanMessage(content="hi")], _relay(), **config)
+
+    assert raised.value is boom
 
 
 async def test_a_failure_before_the_graph_runs_raises_live_run_error():
@@ -211,7 +248,8 @@ async def test_a_failure_before_the_graph_runs_raises_live_run_error():
 
 
 async def test_an_inner_failure_the_graph_recovers_from_does_not_fail_the_run():
-    """A subagent that raises inside a ``task`` call the parent recovers from is such a failure."""
+    """Only the run started with the call's own run id is the root: a subagent that raises inside a ``task`` call the
+    parent recovers from is such an inner failure."""
 
     def fail(_):
         raise RuntimeError("inner")
@@ -261,16 +299,8 @@ async def test_a_reused_holder_id_starts_a_clean_stream():
 
 
 async def test_ag_ui_does_not_report_a_failure_the_executor_reraises(caplog):
-    class FailingModel(GenericFakeChatModel):
-        async def _astream(self, *args, **kwargs):
-            raise RuntimeError("boom")
-            yield
-
-        async def _agenerate(self, *args, **kwargs):
-            raise RuntimeError("boom")
-
     with caplog.at_level("ERROR"), pytest.raises(RuntimeError, match="boom"):
-        await _live(_agent(model=FailingModel(messages=iter([]))), [HumanMessage(content="hi")], _relay())
+        await _live(_failing_agent(RuntimeError("boom")), [HumanMessage(content="hi")], _relay())
 
     assert [r for r in caplog.records if r.name == "ag_ui_langgraph.agent" and r.levelname == "ERROR"] == []
 
