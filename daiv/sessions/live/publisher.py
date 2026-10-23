@@ -67,9 +67,14 @@ async def publish_event(run_relay: RunRelay, event: BaseEvent) -> None:
     The chat client clocks a turn's reasoning segments from ``timestamp`` (epoch ms): a
     rejoining browser replays the whole run at once, so its own clock would measure every
     thought as instantaneous. Only this side knows when the event actually happened.
+
+    RAW events and every event's ``raw_event`` copy stay off the wire: no viewer reads them, they carry the model's
+    full input, and they are most of a run's bytes. The subagent filter reads them before this point.
     """
+    if event.type == EventType.RAW:
+        return
     event.timestamp = event.timestamp or int(time.time() * 1000)
-    await run_relay.publish_event(event.model_dump_json(by_alias=True, exclude_none=True))
+    await run_relay.publish_event(event.model_dump_json(by_alias=True, exclude_none=True, exclude={"raw_event"}))
 
 
 async def ainvoke_live(

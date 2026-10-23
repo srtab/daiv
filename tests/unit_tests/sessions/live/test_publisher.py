@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from unittest.mock import patch
 
 import pytest
-from ag_ui.core.events import EventType, RunErrorEvent
+from ag_ui.core.events import EventType, RawEvent, RunErrorEvent, TextMessageContentEvent
 from langchain.agents import create_agent
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage
@@ -78,6 +78,44 @@ async def test_publish_event_stamps_the_emit_time():
     assert isinstance(payload["timestamp"], int)
     assert before <= payload["timestamp"] <= int(time.time() * 1000)
     assert payload == {"type": "RUN_ERROR", "message": "m", "timestamp": payload["timestamp"]}
+
+
+async def test_publish_event_drops_raw_events():
+    run_relay = _relay()
+
+    await publish_event(run_relay, RawEvent(type=EventType.RAW, event={"event": "on_chat_model_start"}))
+
+    assert await _entries(run_relay) == []
+
+
+async def test_publish_event_leaves_the_raw_copy_off_the_wire():
+    run_relay = _relay()
+    raw = {"event": "on_chat_model_stream", "metadata": {"langgraph_checkpoint_ns": ""}}
+    event = TextMessageContentEvent(type=EventType.TEXT_MESSAGE_CONTENT, message_id="m1", delta="hi", raw_event=raw)
+
+    await publish_event(run_relay, event)
+
+    [payload] = _events(await _entries(run_relay))
+    assert "rawEvent" not in payload
+    assert payload["delta"] == "hi"
+    assert event.raw_event == raw
+
+
+async def test_the_model_input_never_reaches_the_relay():
+    agent = create_agent(
+        model=GenericFakeChatModel(messages=iter([AIMessage(content="hello there")])),
+        tools=[],
+        system_prompt="SYSTEM-PROMPT-MARKER",
+        checkpointer=InMemorySaver(),
+        context_schema=_Ctx,
+    )
+    run_relay = _relay()
+
+    await _live(agent, [HumanMessage(content="hi")], run_relay)
+
+    published = [entry.data for entry in await _entries(run_relay) if entry.data]
+    assert published
+    assert not any("SYSTEM-PROMPT-MARKER" in data or '"RAW"' in data or "rawEvent" in data for data in published)
 
 
 async def test_it_returns_what_ainvoke_returns():
