@@ -50,3 +50,16 @@ async def test_the_gitlab_tool_writes_through_the_middleware_backend():
     assert path == "/workspace/large_tool_results/test_call_gitlab"
     assert content == '[{"iid": 1}]'
     assert result.startswith("Wrote ")
+
+
+def test_the_project_argument_is_absent_from_the_schema_when_off():
+    for platform in (GitPlatform.GITLAB, GitPlatform.GITHUB):
+        mw = GitPlatformMiddleware(git_platform=platform, backend=recording_backend())
+        assert "project" not in mw.tools[0].args_schema.model_fields
+
+
+def test_the_project_argument_is_present_when_on():
+    for platform in (GitPlatform.GITLAB, GitPlatform.GITHUB):
+        mw = GitPlatformMiddleware(git_platform=platform, backend=recording_backend(), cross_project_enabled=True)
+        assert "project" in mw.tools[0].args_schema.model_fields
+        assert mw.tools[0].name in ("gitlab", "gh")

@@ -14,6 +14,7 @@ from sessions.services import RepoTarget, asubmit_batch_runs
 
 from accounts.api.security import AuthBearer
 from core.api.throttling import JobsRateThrottle
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 
 from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
 
@@ -110,11 +111,16 @@ async def get_job_status(request: HttpRequest, job_id: str):
         return 404, {"detail": "Job not found"}
 
     try:
-        run = await Run.objects.select_related("task_result").aget(id=run_uuid, user=request.auth)
+        run = await Run.objects.select_related("task_result").aget(
+            Run.objects.results_visible_q(request.auth), id=run_uuid, user=request.auth
+        )
     except Run.DoesNotExist:
         return 404, {"detail": "Job not found"}
 
-    error = "Job execution failed" if run.status == RunStatus.FAILED else None
+    error = None
+    if run.status == RunStatus.FAILED:
+        refused = run.error_message == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        error = CROSS_PROJECT_SESSION_REFUSED_MESSAGE if refused else "Job execution failed"
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     return 200, JobStatusResponse(
         job_id=str(run.id),

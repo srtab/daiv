@@ -86,6 +86,7 @@ TEMPLATES = [
                 "notifications.context_processors.unread_notification_count",
                 "dashboard.context_processors.nav",
                 "codebase.context_processors.git_platform",
+                "accounts.context_processors.social_consent",
                 "core.context_processors.build_info",
             ]
         },

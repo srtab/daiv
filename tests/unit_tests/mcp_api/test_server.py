@@ -314,7 +314,7 @@ async def test_submit_job_wait_success():
 
         # We need to capture the run ID after submit to build the finished mock.
         # Use a filter side effect that builds the row from the captured run.
-        def _make_filter(**kwargs):
+        def _make_filter(*_args, **kwargs):
             if not created_runs:
                 return _AsyncRows([])
             finished = MagicMock()
@@ -329,7 +329,7 @@ async def test_submit_job_wait_success():
             finished.question = None
             return _AsyncRows([finished])
 
-        mock_model.objects.filter = MagicMock(side_effect=lambda **kw: _make_filter(**kw))
+        mock_model.objects.filter = MagicMock(side_effect=_make_filter)
 
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
 
@@ -392,7 +392,7 @@ async def test_submit_job_batch_poll_filters_by_authenticated_user(_default_mcp_
             if False:
                 yield None
 
-    def _capture_filter(**kwargs):
+    def _capture_filter(*_args, **kwargs):
         captured.append(kwargs)
         return _EmptyAsyncRows()
 

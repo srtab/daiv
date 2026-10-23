@@ -5,7 +5,7 @@ import logging
 import os
 import shlex
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from automation.agent.middlewares.file_system import write_tool_result_to_file
 from automation.agent.utils import repo_relative_text
@@ -42,14 +42,36 @@ class PlatformCli:
     disallowed_flags_error: str
 
 
+class CliOutcomes(Protocol):
+    """Takes over what :func:`run_cli` reports, for a call whose CLI errors must not reach the model as they are."""
+
+    async def on_timeout(self, message: str) -> str: ...
+
+    async def on_launch_error(self) -> str: ...
+
+    async def on_failure(self, returncode: int, stderr: str) -> str: ...
+
+    async def on_success(self) -> str | None:
+        """``None`` lets the output through; a string withholds it and is reported instead."""
+        ...
+
+
 @dataclass(frozen=True)
 class CliInvocation:
-    """How to run one checked subcommand: the arguments after the executable, the platform's environment, and what
-    to do to a successful output before the model reads it."""
+    """How to run one checked subcommand: the arguments after the executable, the platform's environment, what
+    to do to a successful output before the model reads it, and who reports its outcome instead of the defaults."""
 
     args: list[str]
     env: dict[str, str]
     postprocess: Callable[[str], str] | None = None
+    outcomes: CliOutcomes | None = None
+
+
+class PolicyRefusal(str):
+    """An ``error: ...`` from :func:`check_subcommand` that the platform's policy refused, as opposed to a malformed
+    subcommand."""
+
+    __slots__ = ()
 
 
 _PUBLISHED_TEXT_FLAGS = frozenset({
@@ -114,7 +136,8 @@ def _cli_failure_message(platform: str, returncode: int, stdout: bytes, stderr: 
 
 
 def check_subcommand(cli: PlatformCli, subcommand: str) -> list[str] | str:
-    """Parse ``subcommand`` and check it against ``cli``'s policy: the arguments, or an ``error: ...`` to return."""
+    """Parse ``subcommand`` and check it against ``cli``'s policy: the arguments, or an ``error: ...`` to return, a
+    ``PolicyRefusal`` when the policy refused it."""
     if not subcommand or not subcommand.strip():
         return f"error: Subcommand cannot be empty. Format: '{cli.usage}'"
 
@@ -140,10 +163,10 @@ def check_subcommand(cli: PlatformCli, subcommand: str) -> list[str] | str:
 
     is_allowed, policy_message = _is_allowed_cli_command(resource, action, cli.allow_commands)
     if not is_allowed:
-        return policy_message
+        return PolicyRefusal(policy_message)
 
     if cli.has_disallowed_flags(args[2:]):
-        return cli.disallowed_flags_error
+        return PolicyRefusal(cli.disallowed_flags_error)
 
     return args
 
@@ -167,6 +190,7 @@ async def run_cli(
         "HOME": os.environ.get("HOME", "/tmp"),  # noqa: S108
         **invocation.env,
     }
+    outcomes = invocation.outcomes
 
     try:
         process = await asyncio.create_subprocess_exec(
@@ -180,16 +204,24 @@ async def run_cli(
             await process.wait()
         except Exception as e:
             logger.warning("[%s] Failed to kill %s process: %s", cli.tool_name, cli.display_name, e)
-        return (
+        message = (
             f"error: {cli.display_name} command timed out after {DEFAULT_CLI_TIMEOUT} seconds. "
             "The operation may be too complex or the API is slow."
         )
+        return await outcomes.on_timeout(message) if outcomes else message
     except Exception as e:
         logger.exception("[%s] Failed to execute %s command.", cli.tool_name, cli.display_name)
+        if outcomes:
+            return await outcomes.on_launch_error()
         return f"error: Failed to execute {cli.display_name} command. Details: {e}"
 
     if process.returncode != 0:
+        if outcomes:
+            return await outcomes.on_failure(process.returncode, stderr.decode("utf-8").strip())
         return _cli_failure_message(cli.display_name, process.returncode, stdout, stderr)
+
+    if outcomes and (withheld := await outcomes.on_success()) is not None:
+        return withheld
 
     output = stdout.decode("utf-8").strip()
     if not output:

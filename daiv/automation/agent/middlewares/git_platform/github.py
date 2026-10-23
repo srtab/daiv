@@ -9,12 +9,23 @@ from django.utils import timezone
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
+from accounts.credentials import platform_host
 from automation.agent.middlewares.git_platform.cli import (
     AllowCommands,
     CliInvocation,
     PlatformCli,
+    PolicyRefusal,
     check_subcommand,
     run_cli,
+)
+from automation.agent.middlewares.git_platform.cross_project import (
+    REFUSAL_FOREIGN_REFERENCE,
+    REFUSAL_FOREIGN_REFERENCE_UNAVAILABLE,
+    CrossProjectOutcomes,
+    decide_target,
+    foreign_github_reference,
+    mark_cross_project_body,
+    record_refused_before_decision,
 )
 from codebase.base import GitPlatform
 from codebase.clients.github.utils import get_github_integration
@@ -126,24 +137,76 @@ def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str,
     return token, None
 
 
-async def run_github_subcommand(
-    subcommand: str, runtime: ToolRuntime[RuntimeCtx], to_file: bool, *, backend: BackendProtocol
-) -> str | Command:
-    """Run a `gh` CLI subcommand on behalf of the ``gh`` tool, scoped to the run's repository.
+def _cross_project_token_env(token: str) -> dict[str, str]:
+    """Without GH_HOST, ``--repo owner/name`` means github.com; any other host reads GH_ENTERPRISE_TOKEN only."""
+    host = platform_host(GitPlatform.GITHUB)
+    token_name = "GH_TOKEN" if host.lower() == "github.com" else "GH_ENTERPRISE_TOKEN"  # noqa: S105
+    return {"GH_HOST": host, token_name: token}
 
-    Returns a ``Command`` when a refreshed CLI token must be written back to state.
+
+async def run_github_subcommand(
+    subcommand: str,
+    runtime: ToolRuntime[RuntimeCtx],
+    to_file: bool,
+    *,
+    backend: BackendProtocol,
+    project: str = "",
+    cross_project_enabled: bool = False,
+) -> str | Command:
+    """Run a `gh` CLI subcommand on behalf of the ``gh`` tool.
+
+    Returns a ``Command`` when a refreshed CLI token must be written back to state — never on the cross-project path,
+    whose token belongs to a person and must not be checkpointed.
+
+    ``project`` empty (or equal to the attached repository) is the unchanged path: the attached repository under the
+    App installation token. Any other repository is executed with the acting person's own credential, and is refused
+    rather than falling back.
     """
     args = check_subcommand(GITHUB_CLI, subcommand)
+    if isinstance(args, PolicyRefusal):
+        await record_refused_before_decision(runtime, provider=GitPlatform.GITHUB, project=project)
     if isinstance(args, str):
         return args
 
-    token, state_update = _get_cached_github_cli_token(runtime)
-    resource, action = args[0:2]
+    resource, action, rest = args[0], args[1], args[2:]
+    decision = await decide_target(
+        resource,
+        action,
+        rest,
+        project,
+        runtime,
+        provider=GitPlatform.GITHUB,
+        cross_project_enabled=cross_project_enabled,
+    )
+    if decision.refusal is not None:
+        # The refusal is the whole answer: retrying under the service identity is the leak this prevents.
+        return decision.refusal
+
+    target = decision.target or runtime.context.repository.slug
+    if not decision.is_cross_project and (reference := foreign_github_reference(resource, action, rest, target=target)):
+        refusal = REFUSAL_FOREIGN_REFERENCE if cross_project_enabled else REFUSAL_FOREIGN_REFERENCE_UNAVAILABLE
+        return refusal.format(reference=reference, target=target)
+
+    if decision.is_cross_project:
+        # The installation token is DAIV's own and may live in checkpointed state; a person's token may not, so this
+        # path mints none and produces no state update.
+        state_update = None
+        token_env = _cross_project_token_env(decision.token or "")
+        args = mark_cross_project_body(args, provider=GitPlatform.GITHUB)
+        outcomes = CrossProjectOutcomes(
+            runtime=runtime, provider=GitPlatform.GITHUB, display_name=GITHUB_CLI.display_name, decision=decision
+        )
+    else:
+        token, state_update = _get_cached_github_cli_token(runtime)
+        token_env = {"GH_TOKEN": token}
+        outcomes = None
+
     is_run_log = resource == "run" and action == "view" and "--log" in args
     invocation = CliInvocation(
-        args=[*args, "--repo", runtime.context.repository.slug],
-        env={"GIT_TERMINAL_PROMPT": "0", "NO_COLOR": "1", "GH_TOKEN": token, "GH_PAGER": "cat"},
+        args=[*args, "--repo", target],
+        env={"GIT_TERMINAL_PROMPT": "0", "NO_COLOR": "1", **token_env, "GH_PAGER": "cat"},
         postprocess=partial(clean_job_logs, git_platform=GitPlatform.GITHUB) if is_run_log else None,
+        outcomes=outcomes,
     )
     output = await run_cli(GITHUB_CLI, invocation, runtime, to_file=to_file, backend=backend)
     if state_update:

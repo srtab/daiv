@@ -28,6 +28,7 @@ from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 from codebase.authorization import asearch_viewable_repositories
 from core.conf import settings as core_settings
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for MCPServer
 from daiv import __version__
 from mcp_api.auth import DjangoTokenVerifier, get_current_user
@@ -309,7 +310,10 @@ async def submit_job(
 
 async def _build_job_response_dict(run: Run) -> dict:
     """Build a dict response from a Run (shared by single + batch paths)."""
-    error = "Job execution failed." if run.status == RunStatus.FAILED else None
+    error = None
+    if run.status == RunStatus.FAILED:
+        refused = run.error_message == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        error = CROSS_PROJECT_SESSION_REFUSED_MESSAGE if refused else "Job execution failed."
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     result = await sync_to_async(lambda: run.response_text)()
     return {
@@ -368,7 +372,9 @@ async def _poll_batch_until_complete(
         elapsed += POLL_INTERVAL
 
         try:
-            async for row in Run.objects.filter(id__in=list(outstanding), user=mcp_user):
+            async for row in Run.objects.filter(
+                Run.objects.results_visible_q(mcp_user), id__in=list(outstanding), user=mcp_user
+            ):
                 results_by_id[str(row.id)] = row
                 if row.status in TERMINAL_STATUSES:
                     outstanding.discard(row.id)
@@ -390,7 +396,7 @@ async def _poll_job_until_complete(job_id: str, mcp_user: object) -> str:
         elapsed += POLL_INTERVAL
 
         try:
-            last = await Run.objects.aget(id=job_uuid, user=mcp_user)
+            last = await Run.objects.aget(Run.objects.results_visible_q(mcp_user), id=job_uuid, user=mcp_user)
         except Run.DoesNotExist:
             logger.debug("Job %s not yet available, retrying (%.0fs elapsed)", job_id, elapsed)
             continue
@@ -446,7 +452,7 @@ async def get_job_status(
         return json.dumps({"error": "Invalid job_id format."})
 
     try:
-        run = await Run.objects.aget(id=run_uuid, user=mcp_user)
+        run = await Run.objects.aget(Run.objects.results_visible_q(mcp_user), id=run_uuid, user=mcp_user)
     except Run.DoesNotExist:
         if wait:
             return await _poll_job_until_complete(job_id, mcp_user)

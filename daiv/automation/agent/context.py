@@ -103,6 +103,10 @@ class RuntimeCtx:
     acting_user_id: int | None = None
     """The DAIV user who triggered this run, when known; outside issue-scoped runs, the new merge request's
     assignee. ``None`` for webhook-triggered runs (issue/MR labels)."""
+    acting_platform_uid: str | None = None
+    """Platform user id that triggered a webhook run; the only identity whose grant such a run may spend."""
+    acting_user_authenticated: bool = False
+    """Whether ``acting_user_id`` came from a DAIV sign-in rather than a webhook's username or email match."""
 
     def __post_init__(self) -> None:
         if not isinstance(self.repos, tuple):
@@ -194,6 +198,8 @@ async def set_runtime_ctx(
     offline: bool = False,
     sandbox_spec: SandboxSpec,
     acting_user_id: int | None = None,
+    acting_platform_uid: str | None = None,
+    acting_user_authenticated: bool = False,
     references: Sequence[ExternalRef] | None = None,
     fallback_ref_on_missing: bool = False,
     repo_client: RepoClient | None = None,
@@ -209,6 +215,8 @@ async def set_runtime_ctx(
         offline: Whether to use the cached configuration or to fetch it from the repository.
         sandbox_spec: The run's sandbox (:func:`sandbox_envs.services.build_sandbox_spec`).
         acting_user_id: DAIV user id that triggered the run.
+        acting_platform_uid: Platform user id that triggered a webhook run.
+        acting_user_authenticated: Whether ``acting_user_id`` is a DAIV sign-in.
         references: Caller-declared external references, from ``Session.external_refs``.
         fallback_ref_on_missing: When True, a clone that fails because ``ref`` no longer exists on
             the remote (a merged-and-deleted branch) retries on the repository default branch
@@ -264,6 +272,8 @@ async def set_runtime_ctx(
                     references, scope=scope, issue=issue, git_platform=repo_client.git_platform
                 ),
                 acting_user_id=acting_user_id,
+                acting_platform_uid=acting_platform_uid,
+                acting_user_authenticated=acting_user_authenticated,
             )
             token = runtime_ctx.set(ctx)
             try:

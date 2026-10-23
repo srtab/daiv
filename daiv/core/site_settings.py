@@ -108,6 +108,9 @@ def _build_field_defaults() -> dict[str, Any]:
         "web_fetch_cache_ttl_seconds": 900,
         "web_fetch_timeout_seconds": 15,
         "web_fetch_max_content_chars": 50_000,
+        # Cross-project access
+        "cross_project_access_enabled": False,
+        "cross_project_webhook_runs_enabled": False,
         # Sandbox
         "sandbox_timeout": 600,
         # Jobs
@@ -184,6 +187,8 @@ class SiteSnapshot:
     web_fetch_cache_ttl_seconds: int
     web_fetch_timeout_seconds: int
     web_fetch_max_content_chars: int
+    cross_project_access_enabled: bool
+    cross_project_webhook_runs_enabled: bool
     sandbox_timeout: float
     jobs_throttle_rate: str
     pipeline_watch_enabled: bool

@@ -5,7 +5,7 @@ from allauth.account import views as account_views
 from allauth.socialaccount import views as socialaccount_views
 from allauth.urls import build_provider_urlpatterns
 
-from accounts.socialaccount import oauth2_callback, oauth2_login
+from accounts.socialaccount import github_oauth2_callback, github_oauth2_login, oauth2_callback, oauth2_login
 
 urlpatterns = [
     # Custom GitLab OAuth adapter must come before auto-discovered provider
@@ -14,6 +14,10 @@ urlpatterns = [
     # unchanged.
     path("gitlab/login/", oauth2_login, name="gitlab_login"),
     path("gitlab/login/callback/", oauth2_callback, name="gitlab_callback"),
+    # Same precedence rule for GitHub: the App's user-to-server flow, and the raw token response
+    # the credential store needs, come from the DAIV adapter rather than the stock one.
+    path("github/login/", github_oauth2_login, name="github_login"),
+    path("github/login/callback/", github_oauth2_callback, name="github_callback"),
     # Account views (login, logout, login-by-code only — no signup, password,
     # or email management routes).
     # Stub so allauth's login view can reverse("account_signup") without error;

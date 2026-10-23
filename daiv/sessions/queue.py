@@ -39,14 +39,19 @@ class EnqueueFailure:
     task_enqueued: bool
 
 
-async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = False) -> EnqueueFailure | None:
+async def aenqueue_run(
+    run: Run, *, log_context: str, skip_dispatch: bool = False, acting_user_authenticated: bool | None = None
+) -> EnqueueFailure | None:
     """Enqueue ``run_job_task`` for a READY ``run`` and link its task result to the row.
 
     Returns ``None`` once both steps land. When either fails, :func:`amark_failed_and_advance` marks the row FAILED
     unless it moved on meanwhile, and sets ``run.error_message``, which starts with ``ENQUEUE_FAILED_PREFIX`` when no
     task reached the queue, or with ``LINK_FAILED_PREFIX`` when one did: that task still runs, and
     ``sessions.signals._sync_run_for_task`` no-ops on its result because no row links to it.
+    ``acting_user_authenticated`` defaults to whether ``run.trigger_type`` is a DAIV sign-in.
     """
+    if acting_user_authenticated is None:
+        acting_user_authenticated = run.trigger_type in SessionOrigin.daiv_authenticated()
     try:
         task = await run_job_task.aenqueue(
             repo_id=run.repo_id,
@@ -58,6 +63,7 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
             sandbox_environment_id=str(run.sandbox_environment_id) if run.sandbox_environment_id else None,
             run_id=str(run.pk),
             user_id=run.user_id,
+            acting_user_authenticated=acting_user_authenticated,
             ask_user_enabled=run.trigger_type not in SessionOrigin.unattended(),
         )
     except Exception as err:  # noqa: BLE001

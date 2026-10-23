@@ -35,13 +35,17 @@ async def _get_visible_session(user, thread_id: str) -> Session:
 async def session_turns(request: HttpRequest, thread_id: str):
     """Re-hydrated transcript of an in-flight session, which the detail page polls while no run streams to it.
     ``live_run`` names the slot holder, so the page can stream that run from the relay instead."""
-    session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
+    user = request.auth  # ty: ignore[unresolved-attribute]
+    session = await _get_visible_session(user, thread_id)
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
     turns = annotate_transcript(build_turns(hydrated.messages), runs)
     if not hydrated.messages:
         turns += await sync_to_async(artifact_turns)(runs)
-    live = await sync_to_async(live_run_for)(session, runs, request.auth)  # ty: ignore[unresolved-attribute]
+    live = await sync_to_async(live_run_for)(session, runs, user)
+    # Authorised before the reads above; a fetch that restricted the session since must not be returned.
+    if not await Session.objects.cross_project_visible_to(user).filter(pk=thread_id).aexists():
+        raise HttpError(404, "Session not found")
     return {
         "turns": turns,
         "active": session_in_flight(session, runs),

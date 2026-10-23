@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import TYPE_CHECKING
 
 from django.http import Http404, HttpRequest
 
@@ -25,6 +26,9 @@ from . import runner
 from .streaming import ChatRunStreamer
 from .threads import ChatSessionService, _extract_last_user_message, _extract_last_user_message_id
 
+if TYPE_CHECKING:
+    from accounts.models import User
+
 logger = logging.getLogger("daiv.chat")
 
 HEADER_REPO_ID = "X-Repo-ID"
@@ -40,7 +44,7 @@ STREAM_BLOCK_MS = 15_000
 STREAM_DRAIN_BLOCK_MS = 500
 
 
-async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
+async def _run_event_frames(user: User, thread_id: str, run_id: str, last_id: str):
     """Replay + live-tail a run's relay stream as SSE frames.
 
     Every data frame carries the Redis entry id as the SSE ``id:`` so browsers
@@ -53,6 +57,10 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
     since ``events()`` releases the lock before the runner publishes it), then
     finish. Holder present but heartbeat-stale → the writer is dead; tell the
     client instead of hanging forever.
+
+    Each batch is re-checked against ``user`` after it is read and before it is sent: a cross-project fetch
+    restricts the session before its result is published, so a batch holding that result always sees the
+    restriction, and the stream ends with ``reason: "restricted"``.
 
     A relay/DB error mid-tail emits an ``event: end`` with ``reason: "error"``
     rather than letting the generator raise: an unframed abort is indistinguishable
@@ -69,6 +77,9 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
             block_ms = STREAM_DRAIN_BLOCK_MS if released_drain else STREAM_BLOCK_MS
             entries = await run_relay.read_events(last_id, block_ms=block_ms)
             if entries:
+                if not await Session.objects.cross_project_visible_to(user).filter(thread_id=thread_id).aexists():
+                    yield end_frame("restricted")
+                    return
                 for entry in entries:
                     last_id = entry.id
                     if entry.is_end:
@@ -109,7 +120,7 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     if not await sync_to_async(lambda: Session.objects.visible_to(user).filter(thread_id=thread_id).exists())():
         raise HttpError(404, "Thread not found")
     last_id = request.headers.get("Last-Event-ID") or "0-0"
-    return sse_response(_run_event_frames(thread_id, run_id, last_id))
+    return sse_response(_run_event_frames(user, thread_id, run_id, last_id))
 
 
 class RunHandle(Schema):
@@ -307,7 +318,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         # a browser EventSource auto-reconnects with Last-Event-ID, but a raw AG-UI
         # client that doesn't must reconnect via ``GET /stream`` with a
         # ``Last-Event-ID`` header to resume a run longer than the cap.
-        return sse_response(_run_event_frames(thread_id, run_id, "0-0"))
+        return sse_response(_run_event_frames(user, thread_id, run_id, "0-0"))
     return {"run_id": run_id, "thread_id": thread_id}
 
 

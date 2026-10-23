@@ -185,6 +185,7 @@ async def _start_run(
             repo_id=repo_id,
             thread_id=thread_id,
             sandbox_environment_id=sandbox_environment_id,
+            acting_platform_uid=str(author.uid),
             use_max=use_max,
             **task_kwargs,
         )

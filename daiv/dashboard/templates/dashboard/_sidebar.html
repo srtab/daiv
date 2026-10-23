@@ -104,6 +104,12 @@
       <span class="sidebar__collapsible">{% translate "Configuration" %}</span>
     </a>
 
+    <a href="{% url 'codebase:cross-project-access' %}"
+       class="sidebar__nav-item {% nav_active 'cross_project_access' %}">
+      {% icon "lock-closed" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Cross-project access" %}</span>
+    </a>
+
     <a href="{% url 'schedule_template_list' %}"
        class="sidebar__nav-item {% nav_active 'schedule_templates' %}">
       {% icon "clock" "h-4 w-4 shrink-0" %}
@@ -174,6 +180,10 @@
         <a href="{% url 'api_keys' %}" class="account-menu__item">
           {% icon "key" "h-4 w-4 shrink-0" %}
           {% translate "API keys" %}
+        </a>
+        <a href="{% url 'platform_credential' %}" class="account-menu__item">
+          {% icon "lock-closed" "h-4 w-4 shrink-0" %}
+          {% translate "Git authorisation" %}
         </a>
         <a href="{% url 'mfa_list_webauthn' %}" class="account-menu__item">
           {% icon "lock-closed" "h-4 w-4 shrink-0" %}

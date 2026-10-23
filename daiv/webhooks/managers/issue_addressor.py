@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from sessions.executor.run import execute_run
+from sessions.executor.run import CrossProjectSessionRefusedError, execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 
 from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
@@ -106,6 +106,7 @@ class IssueAddressorManager(BaseManager):
         mention_note_id: int | None = None,
         ref: str | None = None,
         sandbox_env_id: str | None = None,
+        acting_platform_uid: str | None = None,
         run_id: str | None = None,
     ) -> AgentResult:
         """
@@ -120,6 +121,7 @@ class IssueAddressorManager(BaseManager):
             mention_note_id: The note that mentioned the bot, which the run answers.
             ref: The branch to clone; ``None`` for the repository default.
             sandbox_env_id: The sandbox environment the callback selected.
+            acting_platform_uid: The platform user id that triggered this run.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
 
         Returns:
@@ -131,6 +133,7 @@ class IssueAddressorManager(BaseManager):
             mention_comment_id=mention_comment_id,
             mention_note_id=mention_note_id,
             thread_id=thread_id,
+            acting_platform_uid=acting_platform_uid,
         )
 
         try:
@@ -157,6 +160,7 @@ class IssueAddressorManager(BaseManager):
                 fallback_ref_on_missing=True,
                 use_max=use_max,
                 sandbox_env_id=sandbox_env_id,
+                acting_platform_uid=self.acting_platform_uid,
                 run_id=run_id,
                 persist_ref=True,
                 arm_watch=True,
@@ -201,6 +205,10 @@ class IssueAddressorManager(BaseManager):
             self._add_unable_to_address_issue_note()
 
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
+        if isinstance(exc, CrossProjectSessionRefusedError):
+            if self._claim_unable_note():
+                self._leave_comment(str(exc), reply_to_id=self.reply_to_id)
+            return
         if isinstance(exc, AgentConfigurationError):
             logger.warning("issue_addressor: %s", exc)
             if self._claim_unable_note():

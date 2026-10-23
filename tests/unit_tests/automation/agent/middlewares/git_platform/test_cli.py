@@ -6,6 +6,7 @@ import pytest
 
 from automation.agent.middlewares.git_platform.cli import (
     CliInvocation,
+    PolicyRefusal,
     _repo_relative_flag_values,
     check_subcommand,
     run_cli,
@@ -90,3 +91,49 @@ class TestPublishedTextIsRepoRelative:
     @pytest.mark.parametrize("flag", ["-n", "--note", "--message", "--content"])
     def test_other_text_flags_are_rewritten(self, flag):
         assert _repo_relative_flag_values(["x", flag, "See /workspace/repo/a.py"]) == ["x", flag, "See a.py"]
+
+
+@pytest.mark.parametrize(("cli", "resource"), PLATFORMS)
+def test_a_policy_refusal_is_told_apart_from_a_malformed_subcommand(cli, resource):
+    assert isinstance(check_subcommand(cli, "not-a-resource list"), PolicyRefusal)
+    assert not isinstance(check_subcommand(cli, resource), PolicyRefusal)
+
+
+def _outcomes(*, on_success=None) -> Mock:
+    return Mock(
+        on_timeout=AsyncMock(return_value="timed out"),
+        on_launch_error=AsyncMock(return_value="launch failed"),
+        on_failure=AsyncMock(return_value="failed"),
+        on_success=AsyncMock(return_value=on_success),
+    )
+
+
+async def test_outcomes_report_a_failure_instead_of_its_stderr():
+    outcomes = _outcomes()
+
+    with cli_process(stdout=b"out", stderr=b"secret\n", returncode=1):
+        result = await _run(GITLAB_CLI, CliInvocation(args=["project-issue", "list"], env={}, outcomes=outcomes))
+
+    assert result == "failed"
+    outcomes.on_failure.assert_awaited_once_with(1, "secret")
+
+
+@pytest.mark.parametrize(("withheld", "expected"), [(None, "out"), ("withheld", "withheld")])
+async def test_outcomes_may_withhold_a_successful_output(withheld, expected):
+    outcomes = _outcomes(on_success=withheld)
+
+    with cli_process(stdout=b"out\n"):
+        result = await _run(GITLAB_CLI, CliInvocation(args=["project-issue", "list"], env={}, outcomes=outcomes))
+
+    assert result == expected
+
+
+async def test_outcomes_report_a_launch_error_without_its_details():
+    outcomes = _outcomes()
+
+    with patch(
+        "automation.agent.middlewares.git_platform.cli.asyncio.create_subprocess_exec", side_effect=OSError("x")
+    ):
+        result = await _run(GITLAB_CLI, CliInvocation(args=["project-issue", "list"], env={}, outcomes=outcomes))
+
+    assert result == "launch failed"

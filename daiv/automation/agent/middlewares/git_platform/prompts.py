@@ -152,13 +152,38 @@ This tool is best for retrieving the current state of:
 - When the output is long, extract only the decisive facts needed for the next step"""  # noqa: E501
 
 
+CROSS_PROJECT_TOOL_DESCRIPTION = """
+
+**Targeting another project (`project`):**
+- Leave `project` empty — the default — to target the current project. That is the right choice for almost every call, and it behaves exactly as described above.
+- Set `project` to a project path (for example `group/name`) to query a different project. The call is then made **as the person who requested this run**, so it returns only what that person can see.
+- A project that person cannot access is refused with a stated reason. It is never silently empty, and it is never retried under DAIV's own identity — so an empty-looking answer is a real empty result, not a hidden permission failure.
+- Pass a project path, not a flag and not a URL with a different host. On GitHub, name an issue or pull request by its number: an issue or pull request URL, or `owner/repo#N`, naming another repository is refused.
+- Reads cross, and so do these writes: creating an issue; adding a note, comment, discussion, reply, emoji reaction, issue link or draft note; editing a draft note; logging time spent or an estimate; reordering an issue; and editing an issue's or merge/pull request's title, description, labels and the other fields not refused below.
+- Refused outside the current project: deleting anything; creating a merge request or pull request; moving an issue; editing an existing note, discussion or comment; resetting time spent or an estimate; creating or editing labels, snippets, branches, tags or releases; running, retrying, cancelling or playing pipelines, jobs or workflows; closing, reopening, locking or unlocking an issue or PR, `issue develop`, and reviewing a PR; changing state, assignees (though `issue create --assignee` crosses on GitHub), the target or base branch, or the discussion lock; on GitHub, setting a milestone; on a GitLab update, `--confidential`; adding `daiv`, `daiv-auto` or `daiv-max` as a label; a value read from a file (a GitLab value starting with `@`, GitHub `--body-file`, `--template`, `--recover`); a GitLab body line starting with `/`, which is a quick action; an inline merge request diff comment (use a regular note); and a flag the tool cannot recognise (on GitLab an unknown or ambiguous `--option`, on GitHub any unknown flag on a write).
+- The timeout and the automatic saving of oversized results are unchanged."""  # noqa: E501
+
+PROJECT_ARG_DESCRIPTION = (
+    "Project to target, as a project path such as 'group/name'. Leave empty (the default) to "
+    "target the current project, which is what almost every call wants. Naming a different "
+    "project runs that call as the person who requested this run: it returns only what they can "
+    "see, and is refused outright — not silently empty — if they cannot see it. Some subcommands "
+    "they *can* perform are still refused there by policy; see the tool description."
+)
+
+
 GIT_PLATFORM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
     f"""\
 ## Git Platform Tools
 
 Use the available Git platform tool early whenever platform state can change what you should do.
 
+{{{{^cross_project}}}}
 Scope: All operations are scoped to the CURRENT project only. You cannot access files, pipelines, or metadata from other projects. If you need cross-project information, ask the user to provide it.
+{{{{/cross_project}}}}
+{{{{#cross_project}}}}
+Scope: By default every operation targets the CURRENT project, under DAIV's own identity. You may also set the tool's `project` argument to read or act on another project — that call is made as the person who requested this run and sees only what they can see. Files, pipelines and metadata of the current project are always reachable; another project is reachable only through that argument, only if that person has access, and not for the subcommands the tool description lists as refused there. Never treat a cross-project refusal as a reason to retry the same call against the current project under DAIV's identity.
+{{{{/cross_project}}}}
 
 **Core policy:**
 - If the user references an issue, PR/MR, pipeline, workflow, job, check, CI failure, review comment, or platform artifact, inspect it before editing code. An issue already in the latest `<issue>` block of the conversation counts as inspected; fetch it only for its comments or when its description was cut.

@@ -60,7 +60,14 @@ SITE_URL = "https://daiv.test"
 
 @contextmanager
 def agent_stack(
-    agent, *, ctx=None, context=None, resolve=None, site: SiteSnapshot | None = None, checkpointed: dict | None = None
+    agent,
+    *,
+    ctx=None,
+    context=None,
+    resolve=None,
+    site: SiteSnapshot | None = None,
+    session_guard: bool = False,
+    checkpointed: dict | None = None,
 ):
     """Stub everything ``execute_run`` builds around ``agent``; the yielded namespace records what it saw.
 
@@ -71,6 +78,7 @@ def agent_stack(
     is seeded with an empty archive. ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed
     to the clone. ``build_servers`` stubs ``build_runtime_servers``; the servers it returns are the ones handed to the
     agent. ``build_absolute_url`` stubs the session links' URL builder, resolving against ``SITE_URL``.
+    ``session_guard`` keeps the real cross-project session check, which reads the ``Session`` row.
     """
     last_checkpoint = None if checkpointed is None else SimpleNamespace(checkpoint={"channel_values": checkpointed})
     stack = SimpleNamespace(
@@ -120,6 +128,10 @@ def agent_stack(
     async def _end_stream(run_relay):
         stack.events.append("stream ended")
 
+    run_patches = {"PipelineWatch": _Watch}
+    if not session_guard:
+        run_patches["_refuse_cross_project_session"] = AsyncMock()
+
     with (
         stub_sandbox_spec() as build_spec,
         patch("sessions.live.publisher.ainvoke_live", _ainvoke_live),
@@ -140,7 +152,7 @@ def agent_stack(
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
-        patch("sessions.executor.run.PipelineWatch", _Watch),
+        patch.multiple("sessions.executor.run", **run_patches),
         patch(
             "sessions.executor.run.build_absolute_url", side_effect=lambda path: f"{SITE_URL}{path}"
         ) as build_absolute_url,
@@ -160,6 +172,7 @@ def agent_stack(
         stack.persist = persist
         stack.reset = reset
         stack.build_absolute_url = build_absolute_url
+        stack.guard = run_patches.get("_refuse_cross_project_session")
         yield stack
 
 
