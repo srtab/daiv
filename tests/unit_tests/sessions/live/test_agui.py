@@ -39,6 +39,18 @@ def test_get_stream_kwargs_overrides_configurable_context_with_runtime_ctx():
     assert kwargs["context"] is runtime_ctx
 
 
+def test_graph_input_replaces_the_stream_input():
+    def stream_input(**adapter_kwargs):
+        agent = RuntimeContextLangGraphAGUIAgent(
+            name="DAIV", description="d", graph=_FakeGraph(), config={}, runtime_context=object(), **adapter_kwargs
+        )
+        kwargs = agent.get_stream_kwargs(input={"messages": ["ag-ui's"]}, config={}, subgraphs=True, version="v2")
+        return kwargs["input"]
+
+    assert stream_input(graph_input={"messages": ["ours"]}) == {"messages": ["ours"]}
+    assert stream_input() == {"messages": ["ag-ui's"]}
+
+
 def _assistant_event(**data):
     return {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": data}
 

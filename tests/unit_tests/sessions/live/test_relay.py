@@ -42,6 +42,15 @@ async def test_publish_end_appends_sentinel_entry(fake_redis):
     assert entries[-1][1] == {"end": "1"}
 
 
+async def test_clear_drops_the_runs_events(fake_redis):
+    run_relay = RunRelay("t-1", "r-1")
+    await run_relay.publish_event("x")
+
+    await run_relay.clear()
+
+    assert await run_relay.read_events("0-0", block_ms=0) == []
+
+
 async def test_cancel_roundtrip(fake_redis):
     run_relay = RunRelay("t-1", "r-1")
     assert await run_relay.cancel_requested() is False

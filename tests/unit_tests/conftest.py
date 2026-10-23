@@ -710,6 +710,7 @@ class FakeAsyncRedis:
         self.streams: dict[str, list[tuple[str, dict]]] = {}
         self.kv: dict[str, str] = {}
         self.ttls: dict[str, int] = {}
+        self.closed = False
         self._seq = 0
 
     async def xadd(self, key, fields, maxlen=None, approximate=False):
@@ -749,6 +750,17 @@ class FakeAsyncRedis:
 
     async def get(self, key):
         return self.kv.get(key)
+
+    async def delete(self, *keys):
+        deleted = 0
+        for key in keys:
+            self.ttls.pop(key, None)
+            if self.streams.pop(key, None) is not None or self.kv.pop(key, None) is not None:
+                deleted += 1
+        return deleted
+
+    async def aclose(self):
+        self.closed = True
 
     def pipeline(self, transaction=True):
         return _FakePipeline(self)

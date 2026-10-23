@@ -26,11 +26,15 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
 
     Upstream's ``get_stream_kwargs`` only accepts dict-shaped contexts, but our graph
     declares ``context_schema=RuntimeCtx`` and expects the frozen dataclass itself.
+
+    With ``graph_input``, the graph runs on that input rather than the one upstream derives from
+    ``RunAgentInput.messages``, which forks the thread when a message id is already checkpointed.
     """
 
-    def __init__(self, *, runtime_context: RuntimeCtx, **kwargs: Any):
+    def __init__(self, *, runtime_context: RuntimeCtx, graph_input: dict[str, Any] | None = None, **kwargs: Any):
         super().__init__(**kwargs)
         self._runtime_context = runtime_context
+        self._graph_input = graph_input
 
     def get_stream_kwargs(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         stream_kwargs = super().get_stream_kwargs(*args, **kwargs)
@@ -40,6 +44,8 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         # Passing the dataclass instance skips coercion; ``thread_id`` still reaches the checkpointer
         # through ``config['configurable']``.
         stream_kwargs["context"] = self._runtime_context
+        if self._graph_input is not None:
+            stream_kwargs["input"] = self._graph_input
         return stream_kwargs
 
     async def _handle_single_event(self, event: Any, state: dict[str, Any]) -> AsyncGenerator[Any]:
