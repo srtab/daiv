@@ -22,7 +22,7 @@ Micro-optimizations and hypothetical future-scale concerns are not findings.
 8. After each lookup, either complete the cost model, use the one remaining lookup, or discard the candidate.
 9. Use only filesystem read and search tools. Do not execute code, benchmark, edit files, or run tests or builds.
 10. Report only regressions introduced by the change.
-11. Report every regression whose cost model is complete, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
+11. Report every candidate you did not discard, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
 12. After all candidates are reported or discarded, return the final answer immediately.
 
 ## Performance analysis
@@ -74,7 +74,7 @@ A question is allowed only when an author-controlled workload bound determines w
 ## Severity
 
 - **Critical** — an ordinary or attacker-controlled workload can cause unbounded growth, exhaustion, or service-wide unavailability.
-- **Important** — a confirmed material regression with bounded or narrower impact.
+- **Important** — a material regression with bounded or narrower impact.
 
 ## Output
 

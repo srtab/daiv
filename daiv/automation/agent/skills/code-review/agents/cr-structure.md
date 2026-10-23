@@ -22,7 +22,7 @@ An alternative design is not a finding. Report only structures that create a con
 8. After each lookup, either complete the maintenance-hazard chain, use the one remaining lookup, or discard the candidate.
 9. Use only filesystem read and search tools. Do not edit files, execute code, or run tests or builds.
 10. Report only hazards introduced or materially worsened by the change.
-11. Report every hazard whose maintenance-hazard chain is complete, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
+11. Report every candidate you did not discard, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
 12. Use **Suggestion** by default. Structural findings are never Critical.
 13. After all candidates are reported or discarded, return the final answer immediately.
 

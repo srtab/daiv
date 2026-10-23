@@ -22,7 +22,7 @@ Risky-looking code and generic hardening opportunities are not vulnerabilities w
 8. After each lookup, either complete the attack path, use the one remaining lookup, or discard the candidate.
 9. Use only filesystem read and search tools. Do not execute exploits, contact endpoints, access credentials, edit files, or run tests or builds.
 10. Report only vulnerabilities introduced by the change.
-11. Report every vulnerability whose attack path is complete, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
+11. Report every candidate you did not discard, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
 12. Never reproduce a secret value.
 13. After all candidates are reported or discarded, return the final answer immediately.
 
@@ -74,7 +74,7 @@ A question is allowed only when two evidence-supported trust or authorization po
 ## Severity
 
 - **Critical** — unauthorized access or modification, tenant escape, privilege escalation, arbitrary execution, material protected-data exposure, or disclosure of a usable credential.
-- **Important** — a confirmed vulnerability with constrained prerequisites, impact, or blast radius.
+- **Important** — a vulnerability with constrained prerequisites, impact, or blast radius.
 
 ## Output
 
