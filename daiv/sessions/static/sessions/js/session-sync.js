@@ -1,18 +1,27 @@
-// Polls the session turns endpoint while a background (non-chat) run holds the
-// session slot, so the transcript grows as the run progresses.
+// Polls the session turns endpoint while no run streams to this page, and hands the
+// session to the chat component as soon as a run holder appears.
 document.addEventListener("alpine:init", () => {
-  Alpine.data("sessionSync", ({ turnsUrl, active }) => ({
-    active,
+  Alpine.data("sessionSync", ({ turnsUrl, liveRunId }) => ({
+    _followed: liveRunId || "",
     _timer: null,
     _failures: 0,
     // Stop polling after this many consecutive failures so a persistent error
     // (endpoint 500s, auth expired) doesn't poll forever in the background.
     _maxFailures: 5,
     init() {
-      if (this.active) this._timer = setInterval(() => this.poll(), 5000);
+      this._onEnded = () => {
+        this._start();
+        this.poll();
+      };
+      window.addEventListener("daiv:live-run-ended", this._onEnded);
+      if (!liveRunId) this._start();
     },
     destroy() {
-      if (this._timer) clearInterval(this._timer);
+      this._stop();
+      window.removeEventListener("daiv:live-run-ended", this._onEnded);
+    },
+    _start() {
+      if (!this._timer) this._timer = setInterval(() => this.poll(), 5000);
     },
     _stop() {
       if (this._timer) clearInterval(this._timer);
@@ -38,6 +47,10 @@ document.addEventListener("alpine:init", () => {
         if (!data.active) {
           this._stop();
           location.reload();
+        } else if (data.live_run && data.live_run.id !== this._followed) {
+          this._stop();
+          this._followed = data.live_run.id;
+          window.dispatchEvent(new CustomEvent("daiv:session-live-run", { detail: data.live_run }));
         }
       } catch (e) {
         // Transient network errors: keep polling until the failure cap is hit.

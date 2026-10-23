@@ -39,7 +39,7 @@
   {{ session_spend|json_script:"chat-session-spend" }}
 
   {% if is_in_flight %}
-  <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', active: true })"
+  <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}' })"
        style="display:none" aria-hidden="true"></div>
   {% endif %}
 
@@ -84,6 +84,7 @@
          spendEndpoint: "{% url 'api:chat_session_spend' %}",
          activeRunId: "{{ live_run_id|default:''|escapejs }}",
          activeRunStartedAt: "{{ live_run_started_at|default:''|escapejs }}",
+         liveRunStoppable: {{ live_run_stoppable|yesno:"true,false" }},
          {# Covers both live holders — a chat run this tab rejoins via the relay, and a #}
          {# background run the transcript poller follows — so the load-time scroll can #}
          {# tell "still working" from "finished" without duplicating that logic in JS. #}
@@ -126,6 +127,7 @@
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
        @daiv:agent-changed.window="applyAgentSelection($event.detail)"
        @daiv:session-turns.window="applyPolledTurns($event.detail.turns)"
+       @daiv:session-live-run.window="followLiveRun($event.detail)"
        x-cloak
        class="chat-shell">
 

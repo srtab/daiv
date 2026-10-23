@@ -136,3 +136,55 @@ def test_replayed_thoughts_are_timed_by_the_server_not_the_replay():
     thought = next(s for s in segments if s["type"] == "thinking")
     assert thought["endedAt"] - thought["startedAt"] == 7000
     assert thought["label"] == "Thought for 7s"
+
+
+FOLLOW_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
+chat.turns = [];
+chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+chat.$nextTick = (cb) => cb();
+chat.scrollToBottom = () => {};
+
+chat.followLiveRun({ id: "r2", stoppable: false });
+const url = opened.url;
+const runStoppable = chat.runStoppable;
+opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+await new Promise((resolve) => setTimeout(resolve, 0));
+
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended");
+process.stdout.write(JSON.stringify({ url, runStoppable, ended: ended.map((e) => e.detail) }));
+"""
+
+FOLLOW_PRELUDE = PRELUDE.replace("constructor() {", "constructor(url) { this.url = url;")
+
+
+def _follow() -> dict:
+    return run_chat_stream(
+        FOLLOW_BODY, {}, prelude=FOLLOW_PRELUDE, extra_globals="EventSource: FakeEventSource, setTimeout,"
+    )
+
+
+def test_following_a_background_run_hides_stop():
+    result = _follow()
+
+    assert result["runStoppable"] is False
+    assert "run_id=r2" in result["url"]
+
+
+def test_a_rejoined_run_announces_its_end():
+    result = _follow()
+
+    assert result["ended"] == [{"runId": "r2"}]
+
+
+def test_following_is_ignored_while_a_run_streams_here():
+    body = """
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
+chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+chat.streaming = true;
+chat.followLiveRun({ id: "r2", stoppable: false });
+process.stdout.write(JSON.stringify({ opened: opened !== null, runStoppable: chat.runStoppable }));
+"""
+    result = run_chat_stream(body, {}, prelude=PRELUDE, extra_globals="EventSource: FakeEventSource,")
+
+    assert result == {"opened": False, "runStoppable": True}

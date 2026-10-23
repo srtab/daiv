@@ -382,6 +382,7 @@
     draftRef: "",
     streaming: false,
     resuming: !!config.activeRunId,
+    runStoppable: config.liveRunStoppable ?? true,
     _source: null,
     _activeRun: null,
     _replayDedup: null,
@@ -801,6 +802,14 @@
 
     // ---------- Run stream (EventSource against the relay) -------------
 
+    followLiveRun({ id, stoppable }) {
+      if (this.streaming) return;
+      this.runStoppable = stoppable;
+      this.resuming = true;
+      this.runStartedAt = Date.now();
+      this._resumeRun(id);
+    },
+
     async _resumeRun(runId) {
       // LangChain message ids (turn.id) and tool_call ids from the hydrated
       // checkpoint are the same ids the AG-UI events carry — anything already
@@ -828,6 +837,7 @@
 
       const reason = await this._streamRun(this._activeRun, turn);
       this._finishTurn(turn, reason);
+      window.dispatchEvent(new CustomEvent("daiv:live-run-ended", { detail: { runId } }));
     },
 
     _streamRun(run, turn) {
@@ -1470,6 +1480,7 @@
       if (text === null) this.draftMessage = "";
       this.$nextTick(() => this.autosize());
       this.streaming = true;
+      this.runStoppable = true;
       this.runStartedAt = Date.now();
       this._activeRun = { threadId: this.thread.thread_id, runId: body.runId };
 
