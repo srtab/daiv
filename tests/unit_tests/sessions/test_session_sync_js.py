@@ -1,4 +1,8 @@
-"""Drive ``session-sync.js``'s real Alpine state under Node."""
+"""Drive ``session-sync.js``'s real Alpine state under Node.
+
+A page that rendered idle has no run to poll; ``running-start`` moves the nav store's latest running
+start, which is how such a page hears that a run started after it rendered.
+"""
 
 from __future__ import annotations
 
@@ -19,6 +23,7 @@ const { src, args, steps } = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
 const listeners = {};
 const events = [];
+const watchers = [];
 const fetches = [];
 let reloads = 0;
 let now = 0;
@@ -57,6 +62,7 @@ vm.createContext(sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
 const sync = components.sessionSync(args);
+sync.$watch = (expression, callback) => watchers.push({ expression, callback });
 sync.init();
 listeners["daiv:live-run-ended"] = () => sync.resume();
 
@@ -66,6 +72,7 @@ for (const [action, value] of steps) {
   else if (action === "hold") hold = true;
   else if (action === "release") pending[value[0]](value[1]);
   else if (action === "hold-reload") listeners["daiv:session-settled"] = (event) => event.preventDefault();
+  else if (action === "running-start") for (const watcher of watchers) watcher.callback(value);
   else if (action === "event") sandbox.dispatchEvent(new sandbox.CustomEvent(value, { detail: {} }));
   else if (action === "advance") {
     const end = now + value;
@@ -81,14 +88,18 @@ for (const [action, value] of steps) {
   }
   await settle();
 }
-process.stdout.write(JSON.stringify({ events, fetches: fetches.length, reloads }));
+process.stdout.write(
+  JSON.stringify({ events, fetches: fetches.length, reloads, watched: watchers.map((w) => w.expression) }),
+);
 """
 
 TURNS_URL = "/api/sessions/t1/turns"
 
 
 def _run(args: dict, steps: list) -> dict:
-    return run_node(HARNESS, {"src": str(SESSION_SYNC_JS), "args": {"turnsUrl": TURNS_URL, **args}, "steps": steps})
+    return run_node(
+        HARNESS, {"src": str(SESSION_SYNC_JS), "args": {"turnsUrl": TURNS_URL, "active": True, **args}, "steps": steps}
+    )
 
 
 def test_it_stays_quiet_while_a_live_run_streams():
@@ -157,3 +168,82 @@ def test_ending_the_run_polls_at_once(live_run_id):
     result = _run({"liveRunId": live_run_id}, [["respond", payload], ["event", "daiv:live-run-ended"]])
 
     assert result["fetches"] == 1
+
+
+STARTED = "2026-10-23T13:16:20+00:00"
+
+
+def _idle(steps: list) -> dict:
+    return _run({"liveRunId": "", "active": False}, steps)
+
+
+def test_an_idle_page_watches_the_nav_stores_latest_running_start():
+    result = _idle([["advance", 15000]])
+
+    assert result["fetches"] == 0
+    assert len(result["watched"]) == 1
+    assert "latestRunningStart" in result["watched"][0]
+
+
+def test_a_background_run_starting_on_an_idle_page_is_followed():
+    payload = {"active": True, "background": True, "live_run": {"id": "r2", "stoppable": False}, "turns": []}
+
+    result = _idle([["respond", payload], ["running-start", STARTED], ["advance", 15000]])
+
+    assert [e["type"] for e in result["events"]] == ["daiv:session-turns", "daiv:session-live-run"]
+    assert result["fetches"] == 1
+
+
+def test_a_background_run_with_no_holder_yet_is_polled():
+    payload = {"active": True, "background": True, "live_run": None, "turns": []}
+
+    result = _idle([["respond", payload], ["running-start", STARTED], ["respond", payload], ["advance", 5000]])
+
+    assert result["fetches"] == 2
+
+
+def test_a_run_starting_elsewhere_leaves_an_idle_page_alone():
+    payload = {"active": False, "background": False, "live_run": None, "turns": []}
+
+    result = _idle([["respond", payload], ["running-start", STARTED], ["advance", 15000]])
+
+    assert result["fetches"] == 1
+    assert result["events"] == []
+    assert result["reloads"] == 0
+
+
+def test_nothing_running_is_not_worth_a_check():
+    assert _idle([["running-start", ""]])["fetches"] == 0
+
+
+@pytest.mark.parametrize("live_run_id", ["", "r1"])
+def test_an_engaged_page_does_not_check(live_run_id):
+    result = _run({"liveRunId": live_run_id}, [["running-start", STARTED]])
+
+    assert result["fetches"] == 0
+
+
+def test_an_idle_page_ignores_its_own_chat_turn_ending():
+    result = _idle([["event", "daiv:live-run-ended"], ["advance", 15000]])
+
+    assert result["fetches"] == 0
+    assert result["reloads"] == 0
+
+
+def test_a_page_that_held_its_reload_wakes_for_the_next_background_run():
+    settled = {"active": False, "live_run": None, "turns": []}
+    resumed = {"active": True, "background": True, "live_run": {"id": "r3", "stoppable": False}, "turns": []}
+
+    result = _run(
+        {"liveRunId": ""},
+        [
+            ["hold-reload", None],
+            ["respond", settled],
+            ["advance", 5000],
+            ["respond", resumed],
+            ["running-start", STARTED],
+        ],
+    )
+
+    assert result["events"][-1] == {"type": "daiv:session-live-run", "detail": resumed["live_run"]}
+    assert result["reloads"] == 0

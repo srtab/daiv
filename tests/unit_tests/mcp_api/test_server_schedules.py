@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from accounts.models import User
 from schedules.models import Frequency, Intent, ScheduledJob
@@ -30,6 +31,28 @@ async def test_schedule_job_creates_daily_schedule():
     assert data["name"] == "Nightly"
     assert data["next_run_at"] is not None
     assert await ScheduledJob.objects.filter(user=user, name="Nightly").aexists()
+
+
+async def test_schedule_job_offers_no_per_repository_prompt():
+    from mcp_api.server import mcp
+
+    tools = {tool.name: tool for tool in await mcp.list_tools()}
+
+    def repo_item(tool_name: str) -> dict:
+        schema = tools[tool_name].input_schema
+        definition = schema["properties"]["repos"]["items"]["$ref"].removeprefix("#/$defs/")
+        return schema["$defs"][definition]
+
+    assert "prompt" in repo_item("submit_job")["properties"]
+    assert "prompt" not in repo_item("schedule_job")["properties"]
+    assert repo_item("schedule_job")["additionalProperties"] is False
+
+
+def test_a_schedule_repo_with_its_own_prompt_is_refused_not_dropped():
+    from mcp_api.server import RepoScheduleSpec
+
+    with pytest.raises(PydanticValidationError, match="prompt"):
+        RepoScheduleSpec.model_validate({"repo_id": "a/b", "prompt": "Only here."})
 
 
 @pytest.mark.django_db(transaction=True)

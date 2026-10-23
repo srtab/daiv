@@ -1025,6 +1025,85 @@ html {
   .chat-turn--user .chat-turn__actions {
     flex-direction: row-reverse;
   }
+
+  /* A prompt DAIV wrote (a delegation resume, a CI fix) keeps role "user" for the agent but reads as
+     a one-line disclosure. These rules must stay after the .chat-turn--user ones they override. */
+  .chat-turn--daiv .chat-turn__body {
+    align-items: stretch;
+    text-align: left;
+  }
+
+  .chat-turn--daiv .chat-segment--text {
+    max-width: none;
+    padding: 0;
+    background: none;
+    border: 0;
+    color: inherit;
+  }
+
+  .chat-turn--daiv .chat-text {
+    white-space: normal;
+  }
+
+  .chat-daiv-notice__summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+    padding: 2px 0;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    transition: color 0.15s ease;
+  }
+
+  .chat-daiv-notice__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .chat-daiv-notice__summary::before {
+    content: "›";
+    display: inline-block;
+    width: 10px;
+    color: var(--color-text-faint);
+    transition: transform 0.15s ease;
+  }
+
+  .chat-daiv-notice[open] > .chat-daiv-notice__summary::before {
+    transform: rotate(90deg);
+  }
+
+  .chat-daiv-notice__summary:hover {
+    color: var(--color-text);
+  }
+
+  .chat-daiv-notice__from {
+    font-weight: 600;
+    color: var(--color-brand-bright);
+  }
+
+  .chat-daiv-notice__time {
+    display: inline-flex;
+    gap: 6px;
+    color: var(--color-text-faint);
+  }
+
+  .chat-daiv-notice__body {
+    margin: 0.5rem 0 0.75rem 18px;
+    padding-left: 10px;
+    border-left: 2px solid color-mix(in srgb, var(--color-brand) 35%, transparent);
+    color: var(--color-text-muted);
+    font-size: 13.5px;
+    line-height: 1.65;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chat-daiv-notice__summary::before { transition: none; }
+  }
+
   .chat-turn__action-btn {
     display: inline-flex;
     align-items: center;

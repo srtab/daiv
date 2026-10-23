@@ -354,6 +354,112 @@ class TestAsubmitBatchRuns:
         assert len(result.runs) == 1
         assert result.runs[0].batch_id == result.batch_id
 
+    async def test_a_targets_own_prompt_replaces_the_batch_prompt_for_that_repository(self, member_user):
+        patcher, mock_task = _patch_run_job_task(side_effect=[await _make_db_task_result() for _ in range(2)])
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="batch",
+                repos=[RepoTarget(repo_id="a/b"), RepoTarget(repo_id="a/c", prompt="own")],
+                trigger_type=SessionOrigin.API_JOB,
+            )
+
+        assert sorted((run.repo_id, run.prompt) for run in result.runs) == [("a/b", "batch"), ("a/c", "own")]
+        assert sorted(call.kwargs["prompt"] for call in mock_task.aenqueue.call_args_list) == ["batch", "own"]
+
+    async def test_every_row_of_the_batch_exists_before_any_task_is_queued(self, member_user):
+        tasks = [await _make_db_task_result() for _ in range(3)]
+        siblings_at_enqueue: list[int] = []
+
+        async def enqueue(**kwargs):
+            run = await Run.objects.aget(pk=kwargs["run_id"])
+            siblings_at_enqueue.append(await Run.objects.filter(batch_id=run.batch_id).acount())
+            return tasks[len(siblings_at_enqueue) - 1]
+
+        patcher, _ = _patch_run_job_task(side_effect=enqueue)
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[RepoTarget(repo_id=f"a/r{i}") for i in range(3)],
+                trigger_type=SessionOrigin.API_JOB,
+            )
+
+        assert len(result.runs) == 3
+        assert siblings_at_enqueue == [3, 3, 3]
+
+    async def test_the_outcomes_follow_the_targets_order(self, member_user):
+        patcher, _ = _patch_run_job_task(side_effect=[RuntimeError("broker down"), await _make_db_task_result()])
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[RepoTarget(repo_id="a/b", prompt="first"), RepoTarget(repo_id="a/b", prompt="second")],
+                trigger_type=SessionOrigin.API_JOB,
+            )
+
+        assert [type(outcome).__name__ for outcome in result.outcomes] == ["BatchSubmitFailure", "Run"]
+        assert result.outcomes[1].prompt == "second"
+
+    async def test_a_delegated_batch_opens_its_sessions_under_the_coordinators(self, member_user):
+        coordinator = await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="acme/coord"
+        )
+        patcher, mock_task = _patch_run_job_task()
+        mock_task.aenqueue.return_value = await _make_db_task_result()
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="goal",
+                repos=[RepoTarget(repo_id="a/b", prompt="do it")],
+                trigger_type=SessionOrigin.DELEGATED_JOB,
+                parent=coordinator,
+            )
+
+        assert await Session.objects.filter(pk=result.runs[0].session_id, parent=coordinator).aexists()
+
+    async def test_a_targets_references_add_to_the_batchs_for_its_run_only(self, member_user):
+        patcher, mock_task = _patch_run_job_task(side_effect=[await _make_db_task_result() for _ in range(2)])
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[
+                    RepoTarget(repo_id="a/b", references=(RefIn(key="DAIV-1V", provider="sentry"),)),
+                    RepoTarget(repo_id="a/c"),
+                ],
+                trigger_type=SessionOrigin.API_JOB,
+                references=[RefIn(key="PROJ-1", provider="jira")],
+            )
+
+        keys = {}
+        for run in result.runs:
+            session = await Session.objects.aget(pk=run.session_id)
+            keys[run.repo_id] = sorted(ref.key for ref in session.external_references())
+        assert keys == {"a/b": ["DAIV-1V", "PROJ-1"], "a/c": ["PROJ-1"]}
+
+    async def test_a_waiting_target_is_created_queued_and_left_for_the_queue(self, member_user):
+        awaited = await Run.objects.acreate(
+            session=await Session.objects.acreate(
+                thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="acme/coord"
+            ),
+            trigger_type=SessionOrigin.API_JOB,
+            repo_id="acme/coord",
+            status=RunStatus.RUNNING,
+        )
+        patcher, mock_task = _patch_run_job_task()
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[RepoTarget(repo_id="acme/coord", ref="feat/x", waits_for_run_id=awaited.pk)],
+                trigger_type=SessionOrigin.DELEGATED_JOB,
+            )
+
+        mock_task.aenqueue.assert_not_called()
+        [run] = result.runs
+        assert (run.status, run.waits_for_id) == (RunStatus.QUEUED, awaited.pk)
+
 
 # ---------------------------------------------------------------------------
 # Batch title task tests (ported from TestBatchTitleEnqueue)

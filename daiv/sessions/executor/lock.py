@@ -85,6 +85,17 @@ def live_run_for(session: Session, runs: Iterable[Run], user: User) -> LiveRun |
     return live
 
 
+def background_in_flight(session: Session, runs: Iterable[Run]) -> bool:
+    """Whether a live non-chat run (a job, a webhook, a CI fix, a delegation resume) keeps ``session`` in flight.
+
+    Only these wake a session page that rendered idle: a chat run streams to the tab that started it.
+    """
+    runs = list(runs)
+    return session_in_flight(session, runs) and any(
+        run.trigger_type != SessionOrigin.CHAT and run.status not in RunStatus.terminal() for run in runs
+    )
+
+
 class SessionLock:
     """Unified execution slot for a session.
 

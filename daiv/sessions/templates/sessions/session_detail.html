@@ -22,7 +22,7 @@
   <script defer src="{% static 'sessions/js/prompt-box.js' %}"></script>
   <script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
-  {% if is_in_flight %}
+  {% if session %}
   <script defer src="{% static 'sessions/js/session-sync.js' %}"></script>
   {% endif %}
   {% include "sandbox_envs/_scripts.html" %}
@@ -38,8 +38,8 @@
   {{ context_usage|json_script:"chat-context-usage" }}
   {{ session_spend|json_script:"chat-session-spend" }}
 
-  {% if is_in_flight %}
-  <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}' })"
+  {% if session %}
+  <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}', active: {{ is_in_flight|yesno:'true,false' }} })"
        @daiv:live-run-ended.window="resume()"
        style="display:none" aria-hidden="true"></div>
   {% endif %}
@@ -55,6 +55,10 @@
   {# below so a translation containing a quote can't break the JS string literal. #}
   {% translate "Show more" as show_more_label %}
   {% translate "Show less" as show_less_label %}
+
+  {# Titles for a prompt DAIV wrote, keyed by the run's trigger (``SessionOrigin.daiv_authored``). #}
+  {% translate "Delegated jobs finished" as daiv_resume_title %}
+  {% translate "CI failed" as daiv_ci_fix_title %}
 
   {# Composer wording. The progress pill and the MCP rows are assembled in JS from live #}
   {# counts, so the pieces are translated here and handed over rather than built from an #}
@@ -216,7 +220,9 @@
                 </div>
               </template>
               <template x-if="turn.role !== 'run_status'">
-                <article class="chat-turn" :class="{ [`chat-turn--${turn.role}`]: true }" :data-role="turn.role">
+                <article class="chat-turn"
+                         :class="{ [`chat-turn--${turn.role}`]: true, 'chat-turn--daiv': turn.author === 'daiv' }"
+                         :data-role="turn.role">
                   <div class="chat-turn__body">
                     <template x-for="(seg, si) in visibleSegments(turn)" :key="si">
                       <div class="chat-segment" :class="`chat-segment--${seg.type}`">
@@ -225,7 +231,25 @@
                             <div class="chat-text" x-html="renderMarkdown(seg.content)"></div>
                           </template>
                         </template>
-                        <template x-if="seg.type === 'text' && turn.role === 'user'">
+                        <template x-if="seg.type === 'text' && turn.role === 'user' && turn.author === 'daiv'">
+                          <details class="chat-daiv-notice">
+                            <summary class="chat-daiv-notice__summary">
+                              <span class="chat-daiv-notice__from">DAIV</span>
+                              <span aria-hidden="true">·</span>
+                              <span x-text="({ delegation_resume: '{{ daiv_resume_title|escapejs }}', pipeline_webhook: '{{ daiv_ci_fix_title|escapejs }}' })[turn.origin] || ''"></span>
+                              <template x-if="turn.sent_at">
+                                <span class="chat-daiv-notice__time">
+                                  <span aria-hidden="true">·</span>
+                                  <time :datetime="turn.sent_at"
+                                        :title="absoluteTime(turn.sent_at)"
+                                        x-text="relativeTime(turn.sent_at)"></time>
+                                </span>
+                              </template>
+                            </summary>
+                            <div class="chat-daiv-notice__body chat-text" x-html="renderMarkdown(seg.content)"></div>
+                          </details>
+                        </template>
+                        <template x-if="seg.type === 'text' && turn.role === 'user' && turn.author !== 'daiv'">
                           <div class="chat-user-msg" x-data="userClamp(`chat-user-text-${turn.id}-${si}`)">
                             <span class="chat-text"
                                   :id="id"
@@ -365,7 +389,7 @@
                     </template>
                   </div>
 
-                  <template x-if="turnHasActions(turn, ti)">
+                  <template x-if="turnHasActions(turn, ti) && turn.author !== 'daiv'">
                     <div class="chat-turn__actions">
                       {# Icon-only: the labels stay as sr-only text so the shown span still names #}
                       {# the button (x-show=display:none drops the hidden ones from the a11y #}
