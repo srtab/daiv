@@ -1,13 +1,18 @@
+import re
 from unittest.mock import patch
 
 import pytest
+from deepagents import create_deep_agent
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, TodoListMiddleware
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import tool
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.errors import GraphRecursionError
 
-from automation.agent.middlewares.step_budget import StepBudgetMiddleware, supersteps_per_turn
+from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.synthetic import is_synthetic
 
 
@@ -28,7 +33,7 @@ def _patched_config(recursion_limit: int | None, step: int | None):
     return patch("automation.agent.middlewares.step_budget.get_config", return_value=_config(recursion_limit, step))
 
 
-def _middleware(baseline: int | None = 0, steps_per_turn: int = 2) -> StepBudgetMiddleware:
+def _middleware(baseline: int | None = 0, steps_per_turn: int = 2, setup_steps: int = 0) -> StepBudgetMiddleware:
     """A fresh middleware whose run started at ``baseline`` (default 0, i.e. a fresh thread).
 
     ``None`` leaves the baseline uncaptured so the next ``_budget_reminder`` call records it,
@@ -36,6 +41,7 @@ def _middleware(baseline: int | None = 0, steps_per_turn: int = 2) -> StepBudget
     """
     middleware = StepBudgetMiddleware(warn_remaining_turns=20, finalize_remaining_turns=8)
     middleware.steps_per_turn = steps_per_turn
+    middleware.setup_steps = setup_steps
     middleware._baseline_step = baseline
     return middleware
 
@@ -43,6 +49,21 @@ def _middleware(baseline: int | None = 0, steps_per_turn: int = 2) -> StepBudget
 class _BeforeModelHook(AgentMiddleware):
     async def abefore_model(self, state, runtime):
         return None
+
+
+class _BeforeAgentHook(AgentMiddleware):
+    async def abefore_agent(self, state, runtime):
+        return None
+
+
+class _LoopingModel(GenericFakeChatModel):
+    def bind_tools(self, tools, **kwargs):
+        return self
+
+
+def _looping_model() -> _LoopingModel:
+    calls = (AIMessage(content="", tool_calls=[{"name": "ping", "args": {}, "id": f"call_{i}"}]) for i in range(500))
+    return _LoopingModel(messages=calls)
 
 
 class TestStepBudgetMiddleware:
@@ -77,6 +98,27 @@ class TestStepBudgetMiddleware:
             band, text = _middleware(steps_per_turn=4)._budget_reminder()
         assert band == "finalize"
         assert "at most 8 tool-call turns" in text
+
+    def test_setup_steps_count_against_the_turns_left(self):
+        # The PR #1616 run: 6 before_agent hooks, 4 supersteps per turn, 16 left since the baseline.
+        with _patched_config(recursion_limit=500, step=484):
+            band, text = _middleware(steps_per_turn=4, setup_steps=6)._budget_reminder()
+        assert band == "finalize"
+        assert "at most 2 tool-call turns" in text
+
+    @pytest.mark.parametrize("recursion_limit", [32, 80])
+    def test_a_low_limit_gets_no_reminder_on_its_first_call(self, recursion_limit):
+        with _patched_config(recursion_limit=recursion_limit, step=0):
+            assert _middleware(steps_per_turn=4)._budget_reminder() is None
+
+    def test_unbound_middleware_logs_once_and_sends_nothing(self, caplog):
+        middleware = StepBudgetMiddleware()
+        with _patched_config(recursion_limit=500, step=0):
+            assert middleware._budget_reminder() is None
+        with _patched_config(recursion_limit=500, step=495):
+            assert middleware._budget_reminder() is None
+
+        assert [r.levelname for r in caplog.records] == ["ERROR"]
 
     def test_no_reminder_without_recursion_limit_in_config(self):
         with _patched_config(recursion_limit=None, step=470):
@@ -204,15 +246,54 @@ class TestStepBudgetMiddleware:
         assert is_synthetic(response.result[0])
 
 
-class TestSuperstepsPerTurn:
+class TestBind:
     def test_model_and_tools_only(self):
-        graph = create_agent(model=GenericFakeChatModel(messages=iter([])), tools=[])
+        middleware = StepBudgetMiddleware()
+        middleware.bind(create_agent(model=GenericFakeChatModel(messages=iter([])), tools=[]))
 
-        assert supersteps_per_turn(graph) == 2
+        assert (middleware.steps_per_turn, middleware.setup_steps) == (2, 0)
 
-    def test_each_model_hook_adds_a_superstep(self):
-        graph = create_agent(
-            model=GenericFakeChatModel(messages=iter([])), middleware=[TodoListMiddleware(), _BeforeModelHook()]
+    def test_reads_each_hook_node(self):
+        middleware = StepBudgetMiddleware()
+        middleware.bind(
+            create_agent(
+                model=GenericFakeChatModel(messages=iter([])),
+                middleware=[_BeforeAgentHook(), TodoListMiddleware(), _BeforeModelHook()],
+            )
         )
 
-        assert supersteps_per_turn(graph) == 4
+        assert (middleware.steps_per_turn, middleware.setup_steps) == (4, 1)
+
+    async def test_announced_turns_are_the_tool_rounds_a_deep_agent_still_runs(self):
+        rounds: list[int] = []
+        announced: list[tuple[int, int]] = []
+
+        @tool
+        def ping() -> str:
+            """Ping."""
+            rounds.append(1)
+            return "pong"
+
+        class Recording(StepBudgetMiddleware):
+            def _budget_reminder(self):
+                reminder = super()._budget_reminder()
+                if reminder is not None:
+                    announced.append((int(re.search(r"(\d+) tool-call turns", reminder[1])[1]), len(rounds)))
+                return reminder
+
+        step_budget = Recording(warn_remaining_turns=6, finalize_remaining_turns=3)
+        agent = create_deep_agent(
+            model=_looping_model(),
+            tools=[ping],
+            middleware=[_BeforeAgentHook(), TodoListMiddleware(), _BeforeModelHook(), step_budget],
+            checkpointer=InMemorySaver(),
+        )
+        step_budget.bind(agent)
+
+        with pytest.raises(GraphRecursionError):
+            await agent.ainvoke(
+                {"messages": [HumanMessage(content="hi")]}, {"configurable": {"thread_id": "t"}, "recursion_limit": 80}
+            )
+
+        assert [turns for turns, _ in announced] == [6, 3]
+        assert [len(rounds) - before for _, before in announced] == [6, 3]

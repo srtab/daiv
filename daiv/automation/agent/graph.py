@@ -42,7 +42,7 @@ from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMidd
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
-from automation.agent.middlewares.step_budget import StepBudgetMiddleware, supersteps_per_turn
+from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
@@ -337,5 +337,5 @@ async def create_daiv_agent(
     )
     # recursion_limit counts supersteps, not turns: each before_model/after_model hook adds one to every
     # turn on top of the model and tools nodes, so a new hook shrinks the turn budget.
-    step_budget.steps_per_turn = supersteps_per_turn(deep_agent)
+    step_budget.bind(deep_agent)
     return deep_agent.with_config({"recursion_limit": settings.recursion_limit})

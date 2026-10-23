@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.agent")
 
 MODEL_AND_TOOLS_STEPS = 2
-PER_TURN_HOOKS = (".before_model", ".after_model")
 
 WARN_REMAINING_TURNS = 20
 FINALIZE_REMAINING_TURNS = 8
@@ -43,10 +42,8 @@ BUDGET_FINALIZE = (
 type Band = Literal["warn", "finalize"]
 
 
-def supersteps_per_turn(graph: Pregel[Any, Any, Any, Any]) -> int:
-    """Supersteps one model/tools turn costs in ``graph``: the model and tools nodes plus one node per
-    ``before_model``/``after_model`` hook, which run on every turn."""
-    return MODEL_AND_TOOLS_STEPS + sum(name.endswith(PER_TURN_HOOKS) for name in graph.nodes)
+def _hook_nodes(graph: Pregel[Any, Any, Any, Any], hook: str) -> int:
+    return sum(name.endswith(f".{hook}") for name in graph.nodes)
 
 
 class StepBudgetMiddleware(AgentMiddleware):
@@ -76,8 +73,8 @@ class StepBudgetMiddleware(AgentMiddleware):
     middleware stack, so the agent — and this instance — is necessarily rebuilt per invocation;
     the baseline and the bands already sent thus reset each run without needing a graph node.
 
-    The bands are measured in turns. A turn costs ``steps_per_turn`` supersteps, which
-    ``create_daiv_agent`` sets from the built graph (see :func:`supersteps_per_turn`).
+    The bands are measured in tool-call turns, from the graph shape ``bind`` reads off the built
+    agent; until then no reminder is sent.
     """
 
     def __init__(
@@ -86,11 +83,19 @@ class StepBudgetMiddleware(AgentMiddleware):
         super().__init__()
         self.warn_remaining_turns = warn_remaining_turns
         self.finalize_remaining_turns = finalize_remaining_turns
-        self.steps_per_turn = MODEL_AND_TOOLS_STEPS
+        self.steps_per_turn: int | None = None
+        self.setup_steps = 0
         # Absolute ``langgraph_step`` this run started at, captured lazily on the first model
         # call; consumption is then measured relative to it (see class docstring).
         self._baseline_step: int | None = None
         self._sent_bands: set[Band] = set()
+
+    def bind(self, graph: Pregel[Any, Any, Any, Any]) -> None:
+        """Read the turn cost from ``graph``: a turn runs the model and tools nodes plus every ``before_model`` and
+        ``after_model`` hook node, and each run first spends a superstep on every ``before_agent`` hook node."""
+        per_turn_hooks = _hook_nodes(graph, "before_model") + _hook_nodes(graph, "after_model")
+        self.steps_per_turn = MODEL_AND_TOOLS_STEPS + per_turn_hooks
+        self.setup_steps = _hook_nodes(graph, "before_agent")
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
@@ -115,6 +120,10 @@ class StepBudgetMiddleware(AgentMiddleware):
         # call records the baseline, and remaining is measured from supersteps consumed since.
         if self._baseline_step is None:
             self._baseline_step = step
+            if self.steps_per_turn is None:
+                logger.error("StepBudgetMiddleware was never bound to its graph; this run gets no budget reminders.")
+        if self.steps_per_turn is None:
+            return None
         consumed = step - self._baseline_step
         if consumed < 0:
             # langgraph_step below the captured baseline means the per-run-rebuild invariant this
@@ -128,11 +137,14 @@ class StepBudgetMiddleware(AgentMiddleware):
             consumed = 0
 
         remaining = limit - consumed
-        turns = remaining // self.steps_per_turn
+        # Tool rounds that still run: the setup steps before the baseline count against the limit, and they
+        # cancel exactly with where the tools node falls inside a turn.
+        turns = (remaining - self.setup_steps) // self.steps_per_turn
+        budget = (limit - self.setup_steps) // self.steps_per_turn
         band: Band
-        if turns <= self.finalize_remaining_turns:
+        if turns <= min(self.finalize_remaining_turns, budget // 4):
             band, template = "finalize", BUDGET_FINALIZE
-        elif turns <= self.warn_remaining_turns:
+        elif turns <= min(self.warn_remaining_turns, budget // 2):
             band, template = "warn", BUDGET_WARNING
         else:
             return None
@@ -147,4 +159,4 @@ class StepBudgetMiddleware(AgentMiddleware):
             self.steps_per_turn,
             band,
         )
-        return band, template.format(turns=max(turns, 1))
+        return band, template.format(turns=max(turns, 0))

@@ -23,7 +23,7 @@ class ContextUsageMiddleware(AgentMiddleware):
     """Emit :data:`CONTEXT_USAGE_EVENT` after each main-model call, for the chat's context meter.
 
     ``awrap_model_call`` rather than a hook: a ``before_model``/``after_model`` middleware adds a
-    graph node, and a superstep, to every turn (see ``supersteps_per_turn``).
+    graph node, and a superstep, to every turn (see ``StepBudgetMiddleware.bind``).
     Must be registered after ``ModelFallbackMiddleware``: the fallback retries the inner chain
     with ``request.override(model=...)``, so only a middleware inside it sees the model that
     actually served the call — listed before it, a fallback-served call would divide one model's
