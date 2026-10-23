@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
-from sessions.locks import stale_cutoff
+from sessions.executor.lock import stale_cutoff
 from sessions.models import WatchState
 from sessions.pipeline_watch.platform import WatchPlatform
 from sessions.pipeline_watch.service import PipelineWatch

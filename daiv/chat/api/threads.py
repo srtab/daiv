@@ -5,8 +5,7 @@ from typing import TYPE_CHECKING
 
 from sessions.models import Session, SessionOrigin
 from sessions.tasks import generate_title_task
-
-from automation.titling.services import TitlerService
+from sessions.titling import heuristic_title
 
 if TYPE_CHECKING:
     from ag_ui.core import RunAgentInput
@@ -95,7 +94,7 @@ class ChatSessionService:
             "user": user,
             "repo_id": repo_id,
             "ref": ref,
-            "title": TitlerService.heuristic(first_message),
+            "title": heuristic_title(first_message),
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
             "mcp_overrides": mcp_overrides or {},
@@ -105,9 +104,7 @@ class ChatSessionService:
         session, created = await Session.objects.aget_or_create(thread_id=thread_id, defaults=defaults)
         if created and first_message:
             try:
-                await generate_title_task.aenqueue(
-                    entity_type="session", pk=session.thread_id, prompt=first_message, repo_id=repo_id, ref=ref
-                )
+                await generate_title_task.aenqueue(pk=session.thread_id, prompt=first_message, repo_id=repo_id, ref=ref)
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to enqueue title task for session %s", session.thread_id)
         return session, created

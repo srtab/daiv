@@ -6,7 +6,7 @@
 {% block container_width %}{% if artifact.kind == "html" %}max-w-screen-2xl{% else %}max-w-4xl{% endif %}{% endblock %}
 
 {% block breadcrumb %}
-{% include "accounts/_breadcrumb.html" %}
+{% include "core/_breadcrumb.html" %}
 {% endblock breadcrumb %}
 
 {% block app_content %}
@@ -99,7 +99,7 @@
             {{ text|json_script:"artifact-source" }}
             {% translate "Copy source" as copy_label %}
             <span class="shrink-0 whitespace-nowrap">
-                {% include "activity/_copy_markdown_button.html" with source_id="artifact-source" label=copy_label %}
+                {% include "sessions/_copy_markdown_button.html" with source_id="artifact-source" label=copy_label %}
             </span>
             {% elif artifact.kind == "html" %}
             <button type="button" class="btn-secondary shrink-0 gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm"

@@ -9,18 +9,13 @@ import pytest
 from sessions.executor.lock import NoLock
 from sessions.executor.spec import RunOutcome
 
-from automation.agent import ThinkingLevel
+from automation.agent.base import ThinkingLevel
+from automation.agent.context import set_runtime_ctx
 from automation.agent.graph import create_daiv_agent
 from automation.agent.validators import AgentOverrideError
-from codebase.base import GitPlatform, Scope
-from codebase.clients import RepoClient
-from codebase.clients.swe import SWERepoClient
-from codebase.context import set_runtime_ctx
+from codebase.base import Scope
 from evals import swebench
-
-# Captured before the autouse ``mock_repo_client`` fixture replaces ``RepoClient.create_instance``,
-# so the option-pinning test below still calls the real one.
-_real_create_instance = RepoClient.create_instance
+from evals.swe_client import SWERepoClient
 
 ITEM = {
     "instance_id": "owner__repo-1",
@@ -59,7 +54,10 @@ async def test_each_instance_runs_as_a_one_shot_run_on_the_exact_model_chain(tmp
     assert (spec.thread_id, spec.lock, spec.trigger) == (None, NoLock(), "eval")
     assert (spec.repo_id, spec.ref, spec.scope) == ("owner/repo", "abc123", Scope.GLOBAL)
     assert (spec.model_names, spec.agent_thinking_level) == (("model-a", "model-b"), ThinkingLevel.HIGH)
-    assert spec.context_options == {"offline": True, "git_platform": GitPlatform.SWE, "repo_host": "github.com"}
+    assert spec.context_options["offline"] is True
+    client = spec.context_options["repo_client"]
+    assert isinstance(client, SWERepoClient)
+    assert client.repo_host == "github.com"
     assert spec.agent_options == {"auto_commit_changes": False, "capture_patch": True}
     assert (spec.web_search_enabled, spec.web_fetch_enabled) == (False, False)
     assert spec.extra_metadata == {"instance_id": "owner__repo-1"}
@@ -180,13 +178,14 @@ def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_acce
     agent_sig.bind(settings=None, ctx=None, checkpointer=None, workspace=None, **spec.agent_options)
 
     ctx_sig = inspect.signature(set_runtime_ctx, annotation_format=annotationlib.Format.FORWARDREF)
-    explicit_params = set(ctx_sig.parameters) - {"kwargs"}
-    ctx_kwargs = {k: v for k, v in spec.context_options.items() if k in explicit_params}
-    client_kwargs = {k: v for k, v in spec.context_options.items() if k not in explicit_params}
-    ctx_sig.bind(spec.repo_id, scope=spec.scope, sandbox_spec=None, **ctx_kwargs)
-    client = _real_create_instance(**client_kwargs)
-    assert isinstance(client, SWERepoClient)
-    assert client.repo_host == "github.com"
+    ctx_sig.bind(spec.repo_id, scope=spec.scope, sandbox_spec=None, **spec.context_options)
+
+
+def test_each_instance_clones_through_a_client_of_its_own():
+    first = swebench._run_spec(ITEM, ["model-a"]).context_options["repo_client"]
+    second = swebench._run_spec(SECOND, ["model-a"]).context_options["repo_client"]
+
+    assert first is not second
 
 
 def test_a_message_with_hints_includes_the_hints_section():

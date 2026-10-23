@@ -1,13 +1,66 @@
 import asyncio
+from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
+from django.utils import timezone
+
 import pytest
-from sessions.executor.lock import Held, NoLock, SessionLockTimeoutError, Wait, hold_session_lock, still_held
-from sessions.locks import SessionLock
+from sessions.executor.lock import (
+    Held,
+    LiveRun,
+    NoLock,
+    SessionLock,
+    SessionLockTimeoutError,
+    Wait,
+    hold_session_lock,
+    live_run,
+    stale_cutoff,
+    still_held,
+)
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 
 pytestmark = pytest.mark.django_db(transaction=True)
+
+
+class TestSessionLock:
+    async def test_it_claims_a_free_slot(self):
+        thread_id = await amake_job_session()
+
+        assert await SessionLock.try_claim(thread_id, "run-1") is True
+        assert await active_holder(thread_id) == "run-1"
+
+    async def test_it_refuses_a_live_holders_slot(self):
+        thread_id = await amake_job_session(active_run_id="run-1")
+
+        assert await SessionLock.try_claim(thread_id, "run-2") is False
+
+    async def test_it_takes_over_a_stale_holders_slot(self):
+        stale = stale_cutoff() - timedelta(minutes=1)
+        thread_id = await amake_job_session(active_run_id="run-1", last_active_at=stale)
+
+        assert await SessionLock.try_claim(thread_id, "run-2") is True
+        assert await active_holder(thread_id) == "run-2"
+
+    async def test_only_the_holder_releases(self):
+        thread_id = await amake_job_session(active_run_id="run-1")
+
+        await SessionLock.release(thread_id, "run-2")
+        assert await active_holder(thread_id) == "run-1"
+
+        await SessionLock.release(thread_id, "run-1")
+        assert await active_holder(thread_id) is None
+
+    async def test_only_the_holder_heartbeats(self):
+        old = timezone.now() - timedelta(minutes=10)
+        thread_id = await amake_job_session(active_run_id="run-1", last_active_at=old)
+
+        assert await SessionLock.heartbeat(thread_id, "run-2") is False
+        assert (await Session.objects.aget(pk=thread_id)).last_active_at == old
+
+        assert await SessionLock.heartbeat(thread_id, "run-1") is True
+        assert (await Session.objects.aget(pk=thread_id)).last_active_at > old
 
 
 class TestWait:
@@ -84,6 +137,16 @@ class TestWait:
 
         body.assert_not_awaited()
         assert await active_holder(thread_id) == "chat-run"
+
+    async def test_a_thread_without_a_session_row_fails_instead_of_waiting(self):
+        body = AsyncMock()
+
+        with patch("sessions.executor.lock.asyncio.sleep") as sleep, pytest.raises(Session.DoesNotExist):
+            async with hold_session_lock(Wait(holder_id="run-1", timeout_s=60), "t-gone"):
+                await body()
+
+        body.assert_not_awaited()
+        sleep.assert_not_called()
 
 
 class TestHeld:
@@ -221,3 +284,85 @@ class TestStillHeld:
             assert await still_held("t-1", "run-1") is True
 
         assert "heartbeat failed" in caplog.text
+
+
+async def _holder_session(*, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING, **fields):
+    thread_id = await amake_job_session(**fields)
+    session = await Session.objects.aget(pk=thread_id)
+    run = await Run.objects.acreate(
+        session=session, trigger_type=trigger_type, repo_id="owner/repo", status=status, started_at=timezone.now()
+    )
+    return session, run
+
+
+async def _live_run(session):
+    return live_run(session, [r async for r in session.runs.order_by("created_at")])
+
+
+async def test_live_run_is_the_slot_holder_while_in_flight():
+    session, run = await _holder_session(active_run_id="42")
+
+    assert await _live_run(session) == LiveRun(id="42", stoppable=False, started_at=run.started_at)
+
+
+async def test_a_chat_only_session_is_stoppable():
+    session, _run = await _holder_session(trigger_type=SessionOrigin.CHAT, active_run_id="agui-1")
+
+    assert (await _live_run(session)).stoppable is True
+
+
+async def test_a_job_queued_behind_a_chat_turn_leaves_the_turn_stoppable():
+    session, chat_run = await _holder_session(trigger_type=SessionOrigin.CHAT, active_run_id="agui-1")
+    await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.API_JOB, repo_id="owner/repo", status=RunStatus.QUEUED
+    )
+
+    assert await _live_run(session) == LiveRun(id="agui-1", stoppable=True, started_at=chat_run.started_at)
+
+
+@pytest.mark.parametrize("stale", [False, True])
+async def test_no_live_run_without_a_holder_or_with_a_stale_heartbeat(stale):
+    fields = {"active_run_id": "42", "last_active_at": stale_cutoff() - timedelta(minutes=1)} if stale else {}
+    session, _run = await _holder_session(status=RunStatus.QUEUED, **fields)
+
+    assert await _live_run(session) is None
+
+
+async def test_a_webhook_run_waiting_for_the_slot_leaves_the_chat_turn_stoppable():
+    session, chat_run = await _holder_session(trigger_type=SessionOrigin.CHAT, active_run_id="agui-1")
+    await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+        repo_id="owner/repo",
+        status=RunStatus.RUNNING,
+        started_at=timezone.now(),
+    )
+
+    assert await _live_run(session) == LiveRun(id="agui-1", stoppable=True, started_at=chat_run.started_at)
+
+
+async def test_a_job_holder_is_the_run_its_holder_id_names():
+    session, waiting = await _holder_session(trigger_type=SessionOrigin.MR_WEBHOOK, active_run_id="placeholder")
+    holder = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.API_JOB,
+        repo_id="owner/repo",
+        status=RunStatus.RUNNING,
+        started_at=timezone.now(),
+    )
+    session.active_run_id = str(holder.pk)
+
+    live = live_run(session, [waiting, holder])
+
+    assert live.started_at == holder.started_at
+
+
+async def test_live_run_does_not_depend_on_the_runs_order():
+    session, chat_run = await _holder_session(trigger_type=SessionOrigin.CHAT, active_run_id="agui-1")
+    await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.API_JOB, repo_id="owner/repo", status=RunStatus.QUEUED
+    )
+
+    newest_first = [r async for r in session.runs.order_by("-created_at")]
+
+    assert live_run(session, newest_first) == await _live_run(session)

@@ -12,10 +12,12 @@ from langchain.agents.middleware import (
     TodoListMiddleware,
     dynamic_prompt,
 )
+from skills.constants import SKILLS_PATH
 
-from automation.agent.base import BaseAgent
-from automation.agent.constants import REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
-from automation.agent.mcp.toolkits import MCPToolkit
+from automation.agent.base import get_model
+from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
+from automation.agent.context import RuntimeCtx
+from automation.agent.mcp.toolkits import load_mcp_tools
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
@@ -54,15 +56,18 @@ from automation.agent.subagents import (
     load_custom_subagents,
 )
 from codebase.base import GitPlatform
-from codebase.context import RuntimeCtx
 from core.constants import BOT_NAME
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.artifacts import ArtifactStore
+    from automation.agent.mcp.schemas import UserMcpServer
+    from automation.agent.session_links import SessionLinksResolver
     from automation.agent.workspace.base import Workspace
 
 
@@ -160,6 +165,7 @@ async def create_daiv_agent(
     ctx: RuntimeCtx,
     workspace: Workspace,
     artifact_store: ArtifactStore | None = None,
+    mcp_servers: Sequence[tuple[str, UserMcpServer]] = (),
     auto_commit_changes: bool = True,
     capture_patch: bool = False,
     checkpointer: BaseCheckpointSaver | None = None,
@@ -168,6 +174,7 @@ async def create_daiv_agent(
     interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
     middleware: list[AgentMiddleware] | None = None,
     ask_user_enabled: bool = True,
+    session_links: SessionLinksResolver | None = None,
 ):
     """
     Create the DAIV agent.
@@ -178,6 +185,8 @@ async def create_daiv_agent(
         workspace: Where the agent works, built by the run executor: the worker's clone, or the run's sandbox session.
         artifact_store: Where ``publish_artifact`` keeps files and ``fetch_artifact`` reads them; ``None`` leaves both
             tools out (the run executor always passes one).
+        mcp_servers: The ``(name, server)`` pairs whose tools the agent gets, resolved by the run executor for the
+            acting user; empty leaves MCP tools out.
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
         capture_patch: Whether to expose the run's working-tree diff as ``model_patch`` in the
             output state at turn end. For eval harnesses; keep ``False`` for normal runs.
@@ -187,15 +196,16 @@ async def create_daiv_agent(
         interrupt_on: The interrupt on configuration for the agent.
         middleware: The middleware to use for the agent.
         ask_user_enabled: Whether the agent may stop to ask the user; off when nobody can answer during the run.
+        session_links: What builds the run's session links, from the run executor, for the publish to put in the commit
+            and the merge request; ``None`` publishes without them.
 
     Returns:
         The DAIV agent.
     """
     chain = settings.agent
-    model = BaseAgent.get_model(model=chain.names[0], thinking_level=chain.thinking_level)
+    model = get_model(model=chain.names[0], thinking_level=chain.thinking_level)
     fallback_models = [
-        BaseAgent.get_model(model=model_name, thinking_level=chain.fallback_thinking_level)
-        for model_name in chain.names[1:]
+        get_model(model=model_name, thinking_level=chain.fallback_thinking_level) for model_name in chain.names[1:]
     ]
 
     bash_tool_enabled = workspace.bash is not None
@@ -215,7 +225,7 @@ async def create_daiv_agent(
     # parent's MCP toolset — otherwise a `task` delegation that calls an MCP tool fails with
     # "command not found". Explore and the code-review detectors stay deliberately scoped and don't
     # receive it.
-    mcp_tools = await MCPToolkit.get_tools(user_id=ctx.acting_user_id, overrides=ctx.mcp_overrides)
+    mcp_tools = await load_mcp_tools(mcp_servers)
 
     subagents = [
         create_general_purpose_subagent(
@@ -248,6 +258,7 @@ async def create_daiv_agent(
     subagents.extend(custom_subagents)
 
     deferred_tools = deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools)
+    step_budget = StepBudgetMiddleware()
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         # Replaces the FilesystemMiddleware create_deep_agent would auto-add: 0.7 merges custom
@@ -267,11 +278,12 @@ async def create_daiv_agent(
         # source of write_todos and the harness profile excludes nothing here.
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=bash_tool_enabled)),
         *([SlashCommandMiddleware(subagents=subagents)] if settings.features.slash_commands else []),
-        *([SandboxMiddleware(agent_root=agent_root, workspace=workspace)] if bash_tool_enabled else []),
+        *([SandboxMiddleware(workspace=workspace)] if bash_tool_enabled else []),
         SkillsMiddleware(
             backend=backend,
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
             copy_global_skills=not workspace.provisions_skills,
+            provisioning_errors=workspace.skills_provisioning_errors,
         ),
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
@@ -286,13 +298,17 @@ async def create_daiv_agent(
         # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
         # and discard work — the failure mode StepBudget guards against.
         LoopBreakerMiddleware(terminal="finalize"),
-        StepBudgetMiddleware(),
+        step_budget,
         ContextUsageMiddleware(),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
         GitMiddleware(
-            workspace=workspace, settings=settings, auto_commit_changes=auto_commit_changes, capture_patch=capture_patch
+            workspace=workspace,
+            settings=settings,
+            auto_commit_changes=auto_commit_changes,
+            capture_patch=capture_patch,
+            session_links=session_links,
         ),
         GitPlatformMiddleware(
             git_platform=ctx.git_platform, backend=backend, cross_project_enabled=settings.cross_project_enabled
@@ -323,9 +339,7 @@ async def create_daiv_agent(
         debug=debug,
         name="DAIV Agent",
     )
-    # recursion_limit counts graph supersteps, not model turns. With every per-turn
-    # middleware implemented via wrap_model_call (zero extra nodes), one model+tools cycle
-    # costs 2 supersteps, so the default 500 ≈ 250 tool-call turns. Registering a
-    # before_model/after_model hook adds a node to EVERY cycle and silently shrinks that
-    # budget (3 steps/turn ≈ 165 turns) — keep per-turn hooks out of the stack.
+    # recursion_limit counts supersteps, not turns: each before_model/after_model hook adds one to every
+    # turn on top of the model and tools nodes, so a new hook shrinks the turn budget.
+    step_budget.bind(deep_agent)
     return deep_agent.with_config({"recursion_limit": settings.recursion_limit})

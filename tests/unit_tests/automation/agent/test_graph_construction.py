@@ -28,14 +28,14 @@ _BARE_TODO_CTOR = re.compile(r"(?<![A-Za-z0-9_])TodoListMiddleware\(")
 def test_graph_gates_sandbox_middleware_on_the_workspace_shell():
     src = inspect.getsource(graph_module)
     assert "bash_tool_enabled = workspace.bash is not None" in src
-    assert "*([SandboxMiddleware(agent_root=agent_root, workspace=workspace)] if bash_tool_enabled else [])" in src
+    assert "*([SandboxMiddleware(workspace=workspace)] if bash_tool_enabled else [])" in src
 
 
 def test_general_purpose_subagent_gates_sandbox_middleware_on_the_workspace_shell():
     src = inspect.getsource(subagents_module)
     assert "bash_tool_enabled = workspace.bash is not None" in src
     assert "if bash_tool_enabled:" in src
-    assert "SandboxMiddleware(agent_root=REPO_PATH, workspace=workspace)" in src
+    assert "SandboxMiddleware(workspace=workspace)" in src
 
 
 def test_global_skills_source_is_workspace_skills():
@@ -51,7 +51,7 @@ def test_middleware_order_slash_then_sandbox_then_skills():
     # and SkillsMiddleware must run AFTER SandboxMiddleware (so the backend is bound + seeded before
     # discovery reads it).
     slash = src.index("SlashCommandMiddleware(")
-    sandbox = src.index("SandboxMiddleware(agent_root=agent_root, workspace=workspace)")
+    sandbox = src.index("SandboxMiddleware(workspace=workspace)")
     skills = src.index("SkillsMiddleware(")
     assert slash < sandbox < skills, "order must be SlashCommandMiddleware -> SandboxMiddleware -> SkillsMiddleware"
 
@@ -70,6 +70,7 @@ def test_skills_middleware_copies_global_skills_unless_the_workspace_provisions_
     src = inspect.getsource(graph_module)
     skills_call = _balanced_call_args(src, "SkillsMiddleware(")
     assert "copy_global_skills=not workspace.provisions_skills" in skills_call
+    assert "provisioning_errors=workspace.skills_provisioning_errors" in skills_call
 
 
 def test_slash_command_middleware_receives_subagents():
@@ -81,7 +82,7 @@ def test_git_middleware_registered_after_sandbox_middleware():
     # before_agent hooks run in registration order, so GitMiddleware must come after SandboxMiddleware — otherwise
     # its pre-run check would run git in a session nothing has acquired yet.
     src = inspect.getsource(graph_module)
-    sandbox = src.index("SandboxMiddleware(agent_root=agent_root")
+    sandbox = src.index("SandboxMiddleware(workspace=workspace)")
     git = src.index("GitMiddleware(")
     assert sandbox < git, "GitMiddleware must be registered after SandboxMiddleware"
 
@@ -188,8 +189,7 @@ async def _construct(
         "create_general_purpose_subagent": {},
         "load_custom_subagents": {"new": AsyncMock(return_value=[])},
         "create_deep_agent": {},
-        "MCPToolkit": {"get_tools": AsyncMock(return_value=[])},
-        "BaseAgent": {},
+        "get_model": {},
         "SkillsMiddleware": {},
         "GitMiddleware": {},
         "GitPlatformMiddleware": {},
@@ -201,7 +201,7 @@ async def _construct(
             name: stack.enter_context(patch(f"automation.agent.graph.{name}", **kwargs))
             for name, kwargs in graph_patches.items()
         }
-        explore_models = stack.enter_context(patch("automation.agent.subagents.BaseAgent")).get_model
+        explore_models = stack.enter_context(patch("automation.agent.subagents.get_model"))
         stack.enter_context(patch("automation.agent.subagents.create_agent"))
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
         ctx = MagicMock()
@@ -210,7 +210,7 @@ async def _construct(
 
     deep_agent = mocks["create_deep_agent"]
     return SimpleNamespace(
-        models=[(c.kwargs["model"], c.kwargs["thinking_level"]) for c in mocks["BaseAgent"].get_model.call_args_list],
+        models=[(c.kwargs["model"], c.kwargs["thinking_level"]) for c in mocks["get_model"].call_args_list],
         explore_models=[c.kwargs["model"] for c in explore_models.call_args_list],
         middleware=deep_agent.call_args.kwargs["middleware"],
         subagent_web={

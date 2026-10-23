@@ -1,18 +1,17 @@
 import logging
 from typing import TYPE_CHECKING
 
-from django_tasks import task
+from django.tasks import task
 
 from codebase.base import Scope
-from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
-from sessions.executor.run import CrossProjectSessionRefusedError, execute_run
+from sessions.executor.lock import wait_for_slot
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.models import Session
 
 if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
 
-    from automation.agent.results import AgentResult
+    from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -46,8 +45,11 @@ async def run_job_task(
     Webhook callers (issue/review addressors) bypass this task; ``use_max`` is therefore
     not accepted here.
     """
-    # Heavy imports live here so enqueue-side importers of this module stay light.
+    # Deferred: enqueue-side importers stay light, and executor.run -> sessions.services -> sessions.queue imports
+    # this module.
     from langchain_core.messages import HumanMessage
+
+    from sessions.executor.run import CrossProjectSessionRefusedError, execute_run
 
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
@@ -61,15 +63,8 @@ async def run_job_task(
         thread_id,
     )
 
-    session_row = (
-        await Session.objects.filter(pk=thread_id).only("thread_id", "mcp_overrides", "external_refs").afirst()
-    )
-    if session_row is None:
-        logger.warning("run_job_task: no session row for thread_id=%s; running without lock", thread_id)
-        lock, mcp_overrides, references = NoLock(), {}, ()
-    else:
-        lock = Wait(holder_id=run_id or f"job-{thread_id[:8]}", timeout_s=LOCK_WAIT_TIMEOUT_S)
-        mcp_overrides, references = session_row.mcp_overrides, session_row.external_references()
+    # Every enqueue goes through ``sessions.queue.aenqueue_run``, whose ``Run`` holds this row.
+    session_row = await Session.objects.only("thread_id", "mcp_overrides", "external_refs").aget(pk=thread_id)
 
     async def _log_failure(exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
         if isinstance(exc, CrossProjectSessionRefusedError):
@@ -86,15 +81,15 @@ async def run_job_task(
             scope=Scope.GLOBAL,
             input_messages=(HumanMessage(content=prompt),),
             trigger="job",
-            lock=lock,
+            lock=wait_for_slot(run_id or f"job-{thread_id[:8]}"),
             ref=ref,
             agent_model=agent_model,
             agent_thinking_level=agent_thinking_level,
             sandbox_env_id=sandbox_environment_id,
             acting_user_id=user_id,
             acting_user_authenticated=acting_user_authenticated,
-            mcp_overrides=mcp_overrides,
-            references=references,
+            mcp_overrides=session_row.mcp_overrides,
+            references=session_row.external_references(),
             run_id=run_id,
             persist_ref=True,
             arm_watch=True,

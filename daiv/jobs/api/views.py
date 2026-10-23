@@ -7,14 +7,12 @@ from django.http import HttpRequest  # noqa: TC002 - required at runtime by Djan
 
 from ninja import Router
 from ninja.errors import HttpError
-from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
+from sessions.admission import AdmissionError, RepoAccessError, aadmit
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, asubmit_batch_runs
 
 from accounts.api.security import AuthBearer
-from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
 from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 
@@ -42,7 +40,7 @@ async def _validate_thread_id(thread_id: UUID, user: User) -> tuple[bool, str | 
     return True, None
 
 
-@jobs_router.post("", response={202: JobSubmitResponse, 400: dict, 503: dict}, throttle=[JobsRateThrottle()])
+@jobs_router.post("", response={202: JobSubmitResponse, 400: dict, 404: dict, 503: dict}, throttle=[JobsRateThrottle()])
 async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     """Submit a batch of 1-20 agent jobs. Each repository runs as an independent job.
 
@@ -59,38 +57,29 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             return 400, {"detail": err}
 
     try:
-        agent_model, agent_thinking_level = validate_agent_override(payload.agent_model, payload.agent_thinking_level)
-        ensure_agent_model_available(agent_model)
-    except AgentOverrideError as err:
-        return 400, {"detail": str(err)}
-
-    try:
-        await aassert_can_run(request.auth, [spec.repo_id for spec in payload.repos])
-    except RepositoryAccessDenied as err:
+        admission = await aadmit(
+            user=request.auth,
+            repos=[RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos],
+            agent_model=payload.agent_model,
+            agent_thinking_level=payload.agent_thinking_level,
+            environment=payload.environment,
+        )
+        result = await asubmit_batch_runs(
+            user=request.auth,
+            prompt=payload.prompt,
+            repos=admission.targets,
+            agent_model=admission.agent_model,
+            agent_thinking_level=admission.agent_thinking_level,
+            muted=payload.muted,
+            trigger_type=SessionOrigin.API_JOB,
+            thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
+            references=payload.references,
+        )
+    except RepoAccessError as err:
         # Opaque 404: don't confirm the repo's existence to unauthorized callers.
-        raise HttpError(404, REPO_ACCESS_DENIED_MESSAGE) from err
-
-    explicit_env_id = None
-    if payload.environment:
-        try:
-            env = await resolve_env_for_user(request.auth, payload.environment)
-        except LookupError as err:
-            return 400, {"detail": str(err)}
-        explicit_env_id = str(env.id) if env else None
-
-    targets = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos]
-    targets = await aresolve_repo_envs(user=request.auth, repos=targets, explicit_env_id=explicit_env_id)
-    result = await asubmit_batch_runs(
-        user=request.auth,
-        prompt=payload.prompt,
-        repos=targets,
-        agent_model=agent_model,
-        agent_thinking_level=agent_thinking_level,
-        muted=payload.muted,
-        trigger_type=SessionOrigin.API_JOB,
-        thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
-        references=payload.references,
-    )
+        raise HttpError(404, str(err)) from err
+    except AdmissionError as err:
+        return 400, {"detail": str(err)}
 
     failed_keys = {(f.repo_id, f.ref) for f in result.failed}
     runs_iter = iter(result.runs)
@@ -122,7 +111,9 @@ async def get_job_status(request: HttpRequest, job_id: str):
         return 404, {"detail": "Job not found"}
 
     try:
-        run = await Run.objects.aget(Run.objects.results_visible_q(request.auth), id=run_uuid, user=request.auth)
+        run = await Run.objects.select_related("task_result").aget(
+            Run.objects.results_visible_q(request.auth), id=run_uuid, user=request.auth
+        )
     except Run.DoesNotExist:
         return 404, {"detail": "Job not found"}
 
@@ -135,7 +126,7 @@ async def get_job_status(request: HttpRequest, job_id: str):
         job_id=str(run.id),
         status=cast("Literal['QUEUED', 'READY', 'RUNNING', 'SUCCESSFUL', 'WAITING_INPUT', 'FAILED']", run.status),
         thread_id=str(run.session_id) if run.session_id else None,
-        result=run.result_summary or None,
+        result=run.response_text or None,
         question=run.question,
         merge_request_url=run.merge_request_web_url or None,
         artifacts=artifacts,

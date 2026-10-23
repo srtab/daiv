@@ -92,15 +92,6 @@ msgstr "Webhook de issue"
 msgid "MR/PR Webhook"
 msgstr "Webhook de MR/PR"
 
-msgid "All clear"
-msgstr "Tudo em ordem"
-
-msgid "Found issues"
-msgstr "Problemas encontrados"
-
-msgid "Needs attention"
-msgstr "Requer atenção"
-
 msgid "None"
 msgstr "Nenhuma"
 
@@ -146,9 +137,6 @@ msgstr "ambiente sandbox"
 msgid "scheduled job"
 msgstr "tarefa agendada"
 
-msgid "issue IID"
-msgstr "IID da issue"
-
 msgid "merge request IID"
 msgstr "IID do merge request"
 
@@ -191,9 +179,6 @@ msgstr "ID da mensagem"
 msgid "notify on"
 msgstr "notificar em"
 
-msgid "mention comment ID"
-msgstr "ID do comentário de menção"
-
 msgid "merge request URL"
 msgstr "URL do merge request"
 
@@ -235,24 +220,6 @@ msgstr "Execuções"
 
 msgid "run"
 msgstr "execução"
-
-msgid "count"
-msgstr "contagem"
-
-msgid "summary"
-msgstr "resumo"
-
-msgid "actionable"
-msgstr "itens acionáveis"
-
-msgid "Run Envelope"
-msgstr "Envelope de execução"
-
-msgid "Run Envelopes"
-msgstr "Envelopes de execução"
-
-msgid "Run failed."
-msgstr "A execução falhou."
 
 msgid "Repository already in the list: __LABEL__."
 msgstr "Repositório já na lista: __LABEL__."

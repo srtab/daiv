@@ -17,25 +17,18 @@ from django.urls import reverse
 from django.utils.http import urlencode
 
 from django_filters.views import FilterView
-from github import GithubException
-from gitlab.exceptions import GitlabError
-from requests.exceptions import RequestException
 
-from accounts.mixins import AdminRequiredMixin
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, can_view, search_viewable_repositories
 from codebase.clients import RepoClient
+from codebase.clients.base import PLATFORM_ERRORS
 from codebase.filters import CrossProjectAccessRecordFilterSet
 from codebase.models import CrossProjectAccessRecord
+from core.mixins import AdminRequiredMixin
 
 if TYPE_CHECKING:
     from django.http import HttpRequest, HttpResponse
 
 logger = logging.getLogger("daiv.codebase")
-
-# Transient platform/network failures render as a "Could not load" row. Auth/config
-# errors (ImproperlyConfigured, missing tokens, Django's SuspiciousOperation, bugs)
-# propagate so operators see them instead of a silent UI fallback.
-_PICKER_CLIENT_ERRORS: tuple[type[Exception], ...] = (GitlabError, GithubException, RequestException)
 
 PICKER_LIMIT = 10
 
@@ -77,7 +70,7 @@ def picker_branches_view(request: HttpRequest, slug: str) -> HttpResponse:
     client = RepoClient.create_instance()
     try:
         branches = client.list_branches(slug, search=query or None, limit=PICKER_LIMIT)
-    except _PICKER_CLIENT_ERRORS:
+    except PLATFORM_ERRORS:
         logger.exception("picker_branches_view failed slug=%s q=%r user=%s", slug, query, request.user.pk)
         return render(request, "codebase/_branch_picker_list.html", {"error": True})
     return render(request, "codebase/_branch_picker_list.html", {"branches": branches, "selected": selected})

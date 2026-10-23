@@ -2,6 +2,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from codebase.base import MergeRequest, User
+
 
 @pytest.fixture
 def emit_custom_event():
@@ -13,3 +15,18 @@ def emit_custom_event():
     """
     with patch("automation.agent.utils.adispatch_custom_event", AsyncMock()) as emit:
         yield emit
+
+
+def make_merge_request(**overrides) -> MergeRequest:
+    defaults = {
+        "repo_id": "owner/repo",
+        "merge_request_id": 42,
+        "source_branch": "feature",
+        "target_branch": "main",
+        "title": "Test MR",
+        "description": "Test description",
+        "web_url": "https://example.com/owner/repo/-/merge_requests/42",
+        "author": User(id=1, username="testuser"),
+    }
+    defaults.update(overrides)
+    return MergeRequest(**defaults)

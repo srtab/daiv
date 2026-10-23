@@ -78,8 +78,8 @@ SHEET_TOKENS = frozenset({"--sheet-inset-start", "--sheet-inset-end", "--sheet-w
 VIEWPORT_ANCHORED = re.compile(r"\.([\w-]+) \{([^{}]*position: fixed[^{}]*)\}")
 # The scrim is one too, and dims the whole app on purpose — see `core/_sheet_backdrop.html`.
 FULL_WIDTH_BY_DESIGN = frozenset({"sheet-backdrop"})
-SIDEBAR_TEMPLATE = DAIV_DIR / "accounts" / "templates" / "accounts" / "_sidebar.html"
-BASE_APP_TEMPLATE = DAIV_DIR / "accounts" / "templates" / "base_app.html"
+SIDEBAR_TEMPLATE = DAIV_DIR / "dashboard" / "templates" / "dashboard" / "_sidebar.html"
+BASE_APP_TEMPLATE = DAIV_DIR / "dashboard" / "templates" / "base_app.html"
 
 
 def _templates_with_popovers() -> dict[str, str]:
@@ -266,7 +266,7 @@ def test_every_surface_class_is_on_the_surface_rise_roster():
 def test_the_group_helper_loads_before_the_component_definitions():
     """Alpine starts on the microtask after its own tag, so a script placed lower runs
     after every `init()` — `surfaceGroup` would be undefined there."""
-    source = (DAIV_DIR / "accounts/templates/base.html").read_text(encoding="utf-8")
+    source = (DAIV_DIR / "core/templates/base.html").read_text(encoding="utf-8")
     helper = source.find("core/js/surface-group.js")
     block = source.find("{% block alpine_plugins %}")
 

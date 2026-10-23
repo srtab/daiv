@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from sessions.executor.lock import NoLock, SessionLockTimeoutError
+from sessions.executor.lock import NoLock, SessionLock, SessionLockTimeoutError
 from sessions.executor.run import CrossProjectSessionRefusedError
-from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
 from webhooks.managers.base import BaseManager
 from webhooks.managers.issue_addressor import (
@@ -108,7 +107,10 @@ def _question_agent():
 async def _address(**kwargs):
     """``address_issue`` for a label-triggered issue on ``owner/repo``; ``kwargs`` override."""
     return await IssueAddressorManager.address_issue(
-        **({"repo_id": "owner/repo", "issue": _issue(labels=[BOT_LABEL])} | kwargs)
+        **(
+            {"repo_id": "owner/repo", "issue": _issue(labels=[BOT_LABEL]), "thread_id": "t-issue", "use_max": False}
+            | kwargs
+        )
     )
 
 
@@ -125,40 +127,41 @@ async def test_the_run_spec_carries_the_triggering_platform_uid(stub_base_init):
     assert (spec.acting_platform_uid, spec.acting_user_id, spec.acting_user_authenticated) == ("4242", None, False)
 
 
-class TestMaxLabelRoutesToMaxModel:
+def _mention(client: MagicMock, *, note_id: int = 11, username: str = "bob", body: str = "please") -> dict:
+    """Stub the mention note on ``client`` and return the ``_address`` kwargs that point at it."""
+    client.get_issue_note.return_value = SimpleNamespace(
+        author=SimpleNamespace(username=username), id=note_id, body=body
+    )
+    return {"mention_comment_id": "c-1", "mention_note_id": note_id}
+
+
+class TestUseMaxRoutesToMaxModel:
     """Lock the webhook → ``use_max`` → ``site_settings.agent_max_*`` contract, checked at the ``create_daiv_agent``
     boundary with the real model resolution."""
 
     @staticmethod
-    async def _agent_kwargs(labels: list[str]) -> dict:
+    async def _agent_kwargs(*, use_max: bool) -> dict:
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
         with addressor_run(agent, ctx=_ctx(), resolve=resolve_agent_settings) as run:
-            await _address(issue=_issue(labels=labels))
+            await _address(use_max=use_max)
         chain = run.create_agent.await_args.kwargs["settings"].agent
         return {"model_names": list(chain.names), "thinking_level": chain.thinking_level}
 
-    async def test_max_label_resolves_to_max_model(self, stub_base_init):
-        """``daiv-max`` label → primary model is ``site_settings.agent_max_model_name`` and thinking level is
+    async def test_use_max_resolves_to_max_model(self, stub_base_init):
+        """``use_max`` → primary model is ``site_settings.agent_max_model_name`` and thinking level is
         ``site_settings.agent_max_thinking_level``. The repo-config model is preserved as a fallback so the run
         degrades cleanly on provider outage."""
-        captured = await self._agent_kwargs(["daiv-max"])
+        captured = await self._agent_kwargs(use_max=True)
 
         model_names = captured["model_names"]
         assert model_names[0] == site_settings.agent_max_model_name
         assert captured["thinking_level"] == site_settings.agent_max_thinking_level
         assert site_settings.agent_model_name in model_names[1:]
 
-    async def test_max_label_case_insensitive(self, stub_base_init):
-        """Label matching must be case-insensitive — GitHub UIs upper-case labels freely."""
-        captured = await self._agent_kwargs(["DAIV-MAX"])
-
-        assert captured["model_names"][0] == site_settings.agent_max_model_name
-        assert captured["thinking_level"] == site_settings.agent_max_thinking_level
-
-    async def test_no_max_label_uses_the_site_default_model(self, stub_base_init):
-        """Without ``daiv-max`` the resolved primary model and thinking level are the site's defaults, proving the
+    async def test_without_use_max_the_site_default_model_is_used(self, stub_base_init):
+        """Without ``use_max`` the resolved primary model and thinking level are the site's defaults, proving the
         ``use_max`` branch is the only path to the max model."""
-        captured = await self._agent_kwargs(["daiv"])
+        captured = await self._agent_kwargs(use_max=False)
 
         assert captured["model_names"][0] == site_settings.agent_model_name
         assert captured["thinking_level"] == site_settings.agent_thinking_level
@@ -225,11 +228,8 @@ class TestIssueAfterRunMatrix:
         assert reply.args[2] == "done"
 
     async def test_a_question_is_posted_under_the_mention_with_the_reply_footer(self, captured_client):
-        captured_client.get_issue_comment.return_value = SimpleNamespace(
-            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
-        )
         with addressor_run(_question_agent(), ctx=_ctx()):
-            await _address(mention_comment_id="c-1")
+            await _address(**_mention(captured_client))
 
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == (
@@ -246,11 +246,8 @@ class TestIssueAfterRunMatrix:
 
     async def test_a_question_on_github_is_not_threaded(self, captured_client):
         captured_client.git_platform = GitPlatform.GITHUB
-        captured_client.get_issue_comment.return_value = SimpleNamespace(
-            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
-        )
         with addressor_run(_question_agent(), ctx=_ctx()):
-            await _address(mention_comment_id="c-1")
+            await _address(**_mention(captured_client))
 
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.kwargs["reply_to_id"] is None
@@ -266,6 +263,7 @@ class TestIssueAfterRunMatrix:
             "thread_id": "t-issue",
             "workspace": run.create_agent.await_args.kwargs["workspace"],
             "settings": run.resolve.return_value,
+            "session_links": run.create_agent.await_args.kwargs["session_links"],
         }
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]
@@ -300,14 +298,14 @@ class TestIssueAfterRunMatrix:
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]
 
-    async def test_a_missing_model_says_it_cannot_run_yet_and_returns(self, captured_client):
-        captured_client.get_issue_comment.return_value = SimpleNamespace(
-            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
-        )
-        with addressor_run(addressor_agent(), kwargs_error=AgentConfigurationError("no model")) as run:
-            result = await _address(mention_comment_id="c-1")
+    async def test_a_missing_model_says_it_cannot_run_yet_and_re_raises(self, captured_client):
+        """Re-raised like the merge request addressor's, so the task and its Run end FAILED, not an empty success."""
+        with (
+            addressor_run(addressor_agent(), kwargs_error=AgentConfigurationError("no model")) as run,
+            pytest.raises(AgentConfigurationError),
+        ):
+            await _address(**_mention(captured_client))
 
-        assert result is None
         run.create_agent.assert_not_awaited()
         [note] = captured_client.create_issue_comment.call_args_list
         assert note.args[2] == "@alice I can't run yet: no model"
@@ -334,7 +332,7 @@ class TestIssueAfterRunMatrix:
 
         with (
             addressor_run(addressor_agent(), real_lock=True) as run,
-            patch("webhooks.managers.base.LOCK_WAIT_TIMEOUT_S", 0.05),
+            patch("sessions.executor.lock.LOCK_WAIT_TIMEOUT_S", 0.05),
             patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
             pytest.raises(SessionLockTimeoutError),
         ):
@@ -350,15 +348,12 @@ class TestIssueAfterRunMatrix:
         self, captured_client
     ):
         thread_id = await _issue_session(cross_project_user_ids=[7])
-        captured_client.get_issue_comment.return_value = SimpleNamespace(
-            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
-        )
 
         with (
             addressor_run(addressor_agent(), real_lock=True, session_guard=True) as run,
             pytest.raises(CrossProjectSessionRefusedError),
         ):
-            await _address(thread_id=thread_id, mention_comment_id="c-1", acting_platform_uid="42")
+            await _address(thread_id=thread_id, acting_platform_uid="42", **_mention(captured_client))
 
         run.create_agent.assert_not_awaited()
         run.recover.assert_not_awaited()
@@ -381,18 +376,33 @@ class TestIssueAfterRunMatrix:
         assert prompt_message.content == prompt.format(issue_iid=42)
 
     async def test_a_mention_run_sends_the_issue_before_the_comment(self, captured_client):
-        captured_client.get_issue_comment.return_value = SimpleNamespace(
-            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="@daiv-bot please fix it")]
-        )
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
 
         with addressor_run(agent, ctx=_ctx()):
-            await _address(issue=_described_issue(), mention_comment_id="c-1")
+            await _address(issue=_described_issue(), **_mention(captured_client, body="@daiv-bot please fix it"))
 
         issue_message, prompt_message = agent.ainvoke.await_args.args[0]["messages"]
         assert is_synthetic(issue_message)
         assert "<title>Crash on save</title>" in issue_message.content
         assert prompt_message.content == "@daiv-bot please fix it"
+
+    async def test_a_mention_run_answers_the_note_it_was_started_for(self, captured_client):
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address(**_mention(captured_client, note_id=12, username="carol", body="@daiv-bot second ask"))
+
+        captured_client.get_issue_note.assert_called_once_with("owner/repo", 42, 12)
+        _, prompt_message = agent.ainvoke.await_args.args[0]["messages"]
+        assert (prompt_message.name, prompt_message.content) == ("carol", "@daiv-bot second ask")
+
+    async def test_a_mention_without_a_note_id_says_it_is_unable_and_raises(self, captured_client):
+        with addressor_run(addressor_agent(), ctx=_ctx()) as run, pytest.raises(ValueError, match="mention_note_id"):
+            await _address(mention_comment_id="c-1")
+
+        run.create_agent.assert_not_awaited()
+        [note] = captured_client.create_issue_comment.call_args_list
+        assert _UNABLE in note.args[2]
 
     async def test_the_reply_is_posted_repo_relative(self, captured_client):
         agent = addressor_agent(return_value={"messages": [AIMessage(content="Fixed /workspace/repo/daiv/x.py:3.")]})

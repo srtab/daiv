@@ -5,10 +5,9 @@ import pytest
 import pytest_asyncio
 from sandbox_envs.services import build_sandbox_spec
 
-from automation.agent.middlewares.sandbox import acquire_sandbox
-from automation.agent.workspace.session import SandboxSession
+from automation.agent.context import set_runtime_ctx
+from automation.agent.workspace.session import SandboxSession, acquire_sandbox
 from codebase.base import Scope
-from codebase.context import set_runtime_ctx
 
 _HERE = Path(__file__).parent
 

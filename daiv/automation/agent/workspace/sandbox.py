@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from deepagents.backends.composite import CompositeBackend
+
 from automation.agent.constants import WORKSPACE_PATH
-from automation.agent.git_manager import GitManager
-from automation.agent.git_runners import SandboxGitRunner
-from automation.agent.middlewares.file_system import DAIVCompositeBackend
+from automation.agent.workspace.git_manager import GitManager
+from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 if TYPE_CHECKING:
@@ -32,12 +33,16 @@ class SandboxWorkspace:
         self.bash = SandboxFileBackend(session)
         # A composite only so the offloading middlewares get an ``artifacts_root`` under /workspace: a bare backend
         # defaults to "/", and the sandbox rejects evictions written there.
-        self.backend = DAIVCompositeBackend(default=self.bash, routes={}, artifacts_root=WORKSPACE_PATH)
+        self.backend = CompositeBackend(default=self.bash, routes={}, artifacts_root=WORKSPACE_PATH)
         self.git = GitManager(SandboxGitRunner(self.bash))
 
     @property
     def is_ready(self) -> bool:
         return self.session.is_acquired
+
+    @property
+    def skills_provisioning_errors(self) -> list[str]:
+        return self.session.skills_seed_errors
 
     async def authenticated_git(self) -> GitManager:
         """Re-mint the git-platform token onto the container, then hand back ``git``.

@@ -10,18 +10,19 @@ from mcp_connectors.selection import build_selection_pool, diff_selection, parse
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth
-from sandbox_envs.selection import resolve_env_for_run, resolve_env_for_user
-from sessions.locks import SessionLock, stale_cutoff
+from sandbox_envs.selection import resolve_env_for_run
+from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_access, aresolve_environment
+from sessions.executor.lock import SessionLock, stale_cutoff
+from sessions.live import relay
 from sessions.models import Session
 from sessions.spend import build_session_spend
 
 from accounts.api.security import AuthBearer
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 
-from . import relay, runner
+from . import runner
 from .streaming import ChatRunStreamer
 from .threads import ChatSessionService, _extract_last_user_message, _extract_last_user_message_id
 
@@ -108,7 +109,7 @@ async def _run_event_frames(user: User, thread_id: str, run_id: str, last_id: st
 
 @chat_router.get("/stream", url_name="chat_run_stream")
 async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
-    """Resumable SSE stream of a chat run's AG-UI events.
+    """Resumable SSE stream of a session run's AG-UI events, whatever started the run (chat, job, webhook or schedule).
 
     Replays from the start (or from the ``Last-Event-ID`` header on browser
     reconnect) and tails live until the run's terminal sentinel. Authorization
@@ -116,7 +117,7 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     another thread reads an empty stream even if guessed.
     """
     user = request.auth  # ty: ignore[unresolved-attribute]
-    if not await Session.objects.by_owner(user).filter(thread_id=thread_id).aexists():
+    if not await sync_to_async(lambda: Session.objects.visible_to(user).filter(thread_id=thread_id).exists())():
         raise HttpError(404, "Thread not found")
     last_id = request.headers.get("Last-Event-ID") or "0-0"
     return sse_response(_run_event_frames(user, thread_id, run_id, last_id))
@@ -164,10 +165,10 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
 
     user = request.auth  # ty: ignore[unresolved-attribute]
     try:
-        await aassert_can_run(user, [repo_id])
-    except RepositoryAccessDenied as err:
+        await aassert_repo_access(user, [repo_id])
+    except RepoAccessError as err:
         # Opaque 404: don't confirm the repo's existence to unauthorized callers.
-        raise Http404(REPO_ACCESS_DENIED_MESSAGE) from err
+        raise Http404(str(err)) from err
 
     thread_id = input_data.thread_id
     run_id = input_data.run_id
@@ -194,8 +195,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
 
     env_header = request.headers.get(HEADER_SANDBOX_ENV)
     try:
-        env_obj = await resolve_env_for_user(user, env_header)
-    except LookupError as err:
+        env_obj = await aresolve_environment(user, env_header)
+    except AdmissionError as err:
         raise HttpError(400, str(err)) from err
     # Auto: snapshot the resolved env at session creation so the stored env matches what ran.
     # Existing sessions keep their original env (get_or_create_for_user only applies on create);

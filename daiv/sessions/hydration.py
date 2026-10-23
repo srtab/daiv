@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from automation.agent.events import context_usage_payload
+from automation.agent.git_state import checkpointed_merge_request
 from automation.agent.usage_tracking import message_model_name, resolve_window_by_name
 from core.checkpointer import aread_thread_values, open_checkpointer
 from sessions.archive import aarchived_contexts, aload_archived_values, amerge_into_context
@@ -56,8 +57,6 @@ async def ahydrate_thread(thread_id: str) -> HydratedThread:
     Archived contexts before it come first, so the transcript keeps them. A context that fails to load is logged and
     left out.
     """
-    from automation.agent.publishers import checkpointed_merge_request
-
     async with open_checkpointer() as cp:
         current = await aread_thread_values(cp, thread_id)
     contexts = await aarchived_contexts(thread_id)

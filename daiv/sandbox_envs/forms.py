@@ -6,9 +6,10 @@ import re
 import uuid
 
 from django import forms
+from django.core.exceptions import NON_FIELD_ERRORS
 from django.utils.translation import gettext_lazy as _
 
-from sandbox_envs.models import _ENV_VAR_NAME_RE, _REPO_ID_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Scope
+from sandbox_envs.models import _ENV_VAR_NAME_RE, _REPO_ID_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Visibility
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -21,6 +22,12 @@ _HEADER_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 # Placeholder shown for an unchanged secret; a submitted value equal to this (or "") means
 # "keep the stored value" on edit. The JS editor and MCP read path emit the same string.
 _MASK_SENTINEL = "******"
+_MODEL_ERROR_FIELDS = {
+    "env_vars": "env_vars_json",
+    "repo_ids": "repo_ids_json",
+    "egress_policy": "egress_json",
+    "egress_secrets": "egress_json",
+}
 
 
 def _empty_egress_state() -> dict:
@@ -66,8 +73,8 @@ class SandboxEnvironmentForm(forms.ModelForm):
             # rather than disabling the field, so a submitted GLOBAL value is
             # rejected by clean_scope / choice validation instead of being
             # silently coerced to the initial value.
-            self.fields["scope"].choices = [(Scope.USER.value, Scope.USER.label)]
-            self.fields["scope"].initial = Scope.USER
+            self.fields["scope"].choices = [(Visibility.USER.value, Visibility.USER.label)]
+            self.fields["scope"].initial = Visibility.USER
         instance = self.instance
         if instance.pk is not None:
             self.initial.setdefault("network_choice", "on" if instance.is_networked else "off")
@@ -83,6 +90,22 @@ class SandboxEnvironmentForm(forms.ModelForm):
         self.fields["env_vars_json"].initial = self._initial_env_vars_json()
         self.fields["repo_ids_json"].initial = self._initial_repo_ids_json()
         self.fields["egress_json"].initial = self._initial_egress_json()
+
+    def add_error(self, field, error):
+        """Attach model-validation errors keyed on model attributes (``repo_ids``,
+        ``env_vars``, ...) to the form field that edits them, or to the non-field
+        errors when no form field does, instead of raising ``ValueError``."""
+        if field is None:
+            error = forms.ValidationError(error)
+            if hasattr(error, "error_dict"):
+                remapped: dict[str, list] = {}
+                for key, messages in error.error_dict.items():
+                    target = _MODEL_ERROR_FIELDS.get(key, key)
+                    if target not in self.fields:
+                        target = NON_FIELD_ERRORS
+                    remapped.setdefault(target, []).extend(messages)
+                error = forms.ValidationError(remapped)
+        super().add_error(field, error)
 
     def _initial_env_vars_json(self) -> str:
         """JSON string for the env-vars editor's initial state. Secret values
@@ -156,7 +179,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
 
     def clean_scope(self):
         scope = self.cleaned_data["scope"]
-        if scope == Scope.GLOBAL and not self.is_admin:
+        if scope == Visibility.GLOBAL and not self.is_admin:
             raise forms.ValidationError(_("Only administrators can create global environments."))
         return scope
 
@@ -299,7 +322,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
         instance: SandboxEnvironment = super().save(commit=False)
         instance.memory_bytes = self.cleaned_data.get("memory_bytes")
         instance.repo_ids = self.cleaned_data.get("repo_ids_json") or []
-        if instance.scope == Scope.USER and self.user is not None:
+        if instance.scope == Visibility.USER and self.user is not None:
             instance.user = self.user
         if instance.pk is not None:
             env_vars = self._preserve_unchanged_secrets(instance, env_vars)

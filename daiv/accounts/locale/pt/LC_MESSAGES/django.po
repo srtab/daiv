@@ -160,61 +160,8 @@ msgstr ""
 "que a própria pessoa pode ver, e a autorização pode ser revista ou retirada "
 "nas definições da sua conta."
 
-msgid "Dashboard"
-msgstr "Painel"
-
-msgid "Sessions"
-msgstr "Sessões"
-
-#, python-brace-format
-msgid "{count} running"
-msgstr "{count} em execução"
-
-msgid "Schedules"
-msgstr "Agendamentos"
-
-msgid "Sandbox environments"
-msgstr "Ambientes sandbox"
-
-msgid "Memory"
-msgstr "Memória"
-
-msgid "Account"
-msgstr "Conta"
-
-msgid "Notification channels"
-msgstr "Canais de notificação"
-
-msgid "API keys"
-msgstr "Chaves API"
-
 msgid "Git authorisation"
 msgstr "Autorização Git"
-
-msgid "Users"
-msgstr "Utilizadores"
-
-msgid "Configuration"
-msgstr "Configuração"
-
-msgid "Cross-project access"
-msgstr "Acesso entre projetos"
-
-#| msgid "Schedules"
-msgid "Schedule templates"
-msgstr "Modelos de agendamento"
-
-msgid "Skills"
-msgstr "Competências"
-
-msgid "MCP servers"
-msgstr "Servidores MCP"
-
-msgid "API documentation"
-msgstr "Documentação da API"
-
-msgid "Sign out"
-msgstr "Terminar sessão"
 
 msgid "No users found."
 msgstr "Nenhum utilizador encontrado."
@@ -365,9 +312,6 @@ msgstr ""
 "O acesso entre projetos está atualmente desativado nesta instalação, pelo "
 "que uma autorização aqui ainda não tem efeito."
 
-msgid "Open navigation"
-msgstr "Abrir navegação"
-
 msgid "Authorization request"
 msgstr "Pedido de autorização"
 
@@ -404,9 +348,6 @@ msgstr "Não existia nenhuma autorização do %(provider)s para desligar."
 msgid "This deployment has no git platform authorisation to grant."
 msgstr ""
 "Esta instalação não tem nenhuma autorização de plataforma Git para conceder."
-
-msgid "Artifacts"
-msgstr "Artefactos"
 
 #~ msgid "Activity"
 #~ msgstr "Atividade"

@@ -263,3 +263,11 @@ msgstr "Nenhum registo de acesso corresponde ao filtro."
 
 msgid "No cross-project access has been attempted yet."
 msgstr "Ainda não foi tentado nenhum acesso entre projetos."
+msgid "selected"
+msgstr "selecionados"
+
+msgid "Done"
+msgstr "Concluído"
+
+msgid "Selected:"
+msgstr "Selecionado:"

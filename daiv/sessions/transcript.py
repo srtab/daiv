@@ -43,7 +43,7 @@ def _marker(run: Run) -> dict[str, Any] | None:
         return None
     # error_message is only user-safe for chat runs: the chat streamer writes fixed
     # constants (see chat.api.streaming). Background/non-chat runs store raw exception
-    # text and tracebacks in error_message via Run.mark_failed, which must never be
+    # text and tracebacks in error_message (sessions.queue), which must never be
     # rendered verbatim. Fall those back to the generic sanitized message.
     if run.trigger_type == SessionOrigin.CHAT:
         message = run.error_message or RUN_FAILED_MESSAGE

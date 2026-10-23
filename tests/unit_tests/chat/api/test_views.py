@@ -82,12 +82,12 @@ def patched_streamer():
 
     with (
         patch("core.checkpointer.open_checkpointer", _mock_stream),
-        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.context.set_runtime_ctx", _mock_stream),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
         patch("chat.api.views.ChatRunStreamer") as m_streamer_cls,
     ):
-        m_agent_cls.return_value = MagicMock(run=_empty_stream)
+        m_agent_cls.return_value = MagicMock(run=_empty_stream, graph_stream=None)
         m_streamer_cls.return_value = MagicMock(events=_empty_events)
         yield m_streamer_cls
 
@@ -137,7 +137,7 @@ async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient
     _, raw, user = authed
     with (
         patch("core.checkpointer.open_checkpointer", _mock_stream),
-        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.context.set_runtime_ctx", _mock_stream),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
@@ -174,20 +174,20 @@ async def test_first_message_auto_resolves_user_env_onto_thread(
 ):
     """When the first chat message omits the env header (Auto), the view resolves the env
     for the calling user + repo and stamps it on the freshly-created thread."""
-    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.models import SandboxEnvironment, Visibility
 
     _, raw, user = authed
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     await SandboxEnvironment.objects.acreate(
-        scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+        scope=Visibility.GLOBAL, name="Default", base_image="python:3.14", is_default=True
     )
     user_env = await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER, user=user, name="mine", base_image="python:3.14", repo_ids=["a/b"]
+        scope=Visibility.USER, user=user, name="mine", base_image="python:3.14", repo_ids=["a/b"]
     )
 
     with (
         patch("core.checkpointer.open_checkpointer", _mock_stream),
-        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.context.set_runtime_ctx", _mock_stream),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
@@ -219,12 +219,12 @@ async def test_existing_thread_keeps_original_env_even_when_resolution_would_pic
 ):
     """``get_or_create_for_user`` only applies ``sandbox_environment`` on create. A second
     request whose Auto-resolution would pick a different env must NOT overwrite the thread."""
-    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.models import SandboxEnvironment, Visibility
 
     _, raw, user = authed
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     original = await SandboxEnvironment.objects.acreate(
-        scope=Scope.GLOBAL, name="Original", base_image="python:3.14", is_default=True
+        scope=Visibility.GLOBAL, name="Original", base_image="python:3.14", is_default=True
     )
     # Pre-create the thread with the original env, simulating a prior first-message run.
     await Session.objects.acreate(
@@ -238,12 +238,12 @@ async def test_existing_thread_keeps_original_env_even_when_resolution_would_pic
     # Now add a USER env that would win at Auto resolution; the existing thread must
     # ignore it because get_or_create_for_user only applies on create.
     await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER, user=user, name="newer", base_image="python:3.14", repo_ids=["a/b"]
+        scope=Visibility.USER, user=user, name="newer", base_image="python:3.14", repo_ids=["a/b"]
     )
 
     with (
         patch("core.checkpointer.open_checkpointer", _mock_stream),
-        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.context.set_runtime_ctx", _mock_stream),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
@@ -275,12 +275,12 @@ async def test_auto_resolved_env_passed_to_streamer_on_first_turn(
 ):
     """First-turn Auto with a successful resolution → ``auto_resolved_env`` carries the
     {id, name, scope} of the resolved env so the streamer can swap the locked pill."""
-    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.models import SandboxEnvironment, Visibility
 
     _, raw, user = authed
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     user_env = await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER, user=user, name="mine", base_image="python:3.14", repo_ids=["a/b"]
+        scope=Visibility.USER, user=user, name="mine", base_image="python:3.14", repo_ids=["a/b"]
     )
 
     response = await client.post(
@@ -305,12 +305,12 @@ async def test_existing_thread_auto_submit_does_not_emit_resolved_env(
     """Existing-thread Auto submit must NOT emit ``auto_resolved_env``: the freshly
     resolved env is discarded in favour of the thread's stored env, and emitting would
     mis-stamp the locked pill with a different env from the one actually running."""
-    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.models import SandboxEnvironment, Visibility
 
     _, raw, user = authed
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     original = await SandboxEnvironment.objects.acreate(
-        scope=Scope.GLOBAL, name="Original", base_image="python:3.14", is_default=True
+        scope=Visibility.GLOBAL, name="Original", base_image="python:3.14", is_default=True
     )
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT,
@@ -338,12 +338,12 @@ async def test_explicit_env_header_does_not_emit_resolved_env(
 ):
     """Explicit ``X-Sandbox-Env`` pick → no auto-resolution happened, so no emit. The
     locked pill already shows the picked env name client-side."""
-    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.models import SandboxEnvironment, Visibility
 
     _, raw, user = authed
-    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
     picked = await SandboxEnvironment.objects.acreate(
-        scope=Scope.USER, user=user, name="picked", base_image="python:3.14"
+        scope=Visibility.USER, user=user, name="picked", base_image="python:3.14"
     )
 
     response = await client.post(
@@ -366,7 +366,7 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(
 
     with (
         patch("core.checkpointer.open_checkpointer", _mock_stream),
-        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.context.set_runtime_ctx", _mock_stream),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
@@ -392,7 +392,7 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(
     refreshed = await Session.objects.aget(thread_id="t-boom")
     assert refreshed.active_run_id is None
 
-    from chat.api.relay import RunRelay
+    from sessions.live.relay import RunRelay
 
     published = "".join(
         fields.get("data", "") for _id, fields in fake_redis.streams[RunRelay("t-boom", "r-1").events_key]
@@ -545,7 +545,7 @@ async def test_existing_thread_with_disabled_provider_returns_400(
     client: TestAsyncClient, authed, disabled_openrouter_provider
 ):
     """``is_enabled=False`` rows must also fail at the 400 boundary, not deep in
-    ``BaseAgent.get_model_kwargs`` mid-run."""
+    ``get_model_kwargs`` mid-run."""
     _, raw, user = authed
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT,
@@ -608,7 +608,7 @@ async def test_completion_denied_repo_returns_404_and_no_thread(client: TestAsyn
     thread_id = str(uuid.uuid4())
     body = _run_agent_input(threadId=thread_id)
 
-    with patch("chat.api.views.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["group/repo"]))):
+    with patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["group/repo"])):
         response = await client.post(
             "/chat/completions", json=body, headers=_auth_headers(raw, **{"X-Repo-ID": "group/repo", "X-Ref": "main"})
         )
@@ -628,7 +628,7 @@ async def ondemand_global_mcp():
     await MCPServer.objects.all().adelete()
     return await MCPServer.objects.acreate(
         name="b",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         status=MCPServer.Status.ON_DEMAND,
         transport=MCPServer.Transport.HTTP,
         url="http://mcp-b.internal/mcp",
@@ -644,7 +644,7 @@ async def test_chat_creation_stamps_mcp_overrides(
     from django.core.cache import cache
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     response = await client.post(
         "/chat/completions",
         json=_run_agent_input(threadId="t-mcp-new", forwardedProps={"mcp_servers": ["b"]}),
@@ -669,7 +669,7 @@ async def test_chat_retunes_mcp_selection_on_an_existing_thread(
     from django.core.cache import cache
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT,
         thread_id="t-mcp-retune",
@@ -715,7 +715,7 @@ async def test_chat_rejects_malformed_mcp_servers_payload(client: TestAsyncClien
 
     _, raw, user = authed
     for i, bad in enumerate([123, [["x"]], "b"]):
-        await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+        await cache.aclear()  # isolate from the shared per-user job-throttle bucket
         response = await client.post(
             "/chat/completions",
             json=_run_agent_input(threadId=f"t-mcp-bad-{i}", forwardedProps={"mcp_servers": bad}),
@@ -739,11 +739,11 @@ async def test_chat_mcp_selection_is_pool_relative_across_status_flip(
     from mcp_connectors.models import MCPServer
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     await MCPServer.objects.all().adelete()
     server = await MCPServer.objects.acreate(
         name="b",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         status=MCPServer.Status.ACTIVE,
         transport=MCPServer.Transport.HTTP,
         url="http://mcp-b.internal/mcp",
@@ -777,10 +777,10 @@ async def test_chat_forwards_the_sessions_external_refs_to_the_streamer(
     later chat turns, because they live on the session row."""
     from django.core.cache import cache
 
-    from codebase.references import ExternalRef
+    from automation.agent.references import ExternalRef
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT,
         thread_id="t-refs",
@@ -812,7 +812,7 @@ async def test_chat_rejects_out_of_bounds_mcp_servers_payload(client: TestAsyncC
     from django.core.cache import cache
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     thread_id = f"t-mcp-bounds-{uuid.uuid4()}"
     response = await client.post(
         "/chat/completions",
@@ -833,7 +833,7 @@ async def test_a_rejected_duplicate_run_does_not_rewrite_the_selection(
     from django.core.cache import cache
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT,
         thread_id="t-mcp-locked",
@@ -862,13 +862,36 @@ async def test_a_rejected_duplicate_run_does_not_rewrite_the_selection(
 
 
 async def _seed_run_events(fake_redis, thread_id, run_id, payloads, *, end=True):
-    from chat.api.relay import RunRelay
+    from sessions.live.relay import RunRelay
 
     run_relay = RunRelay(thread_id, run_id)
     for p in payloads:
         await run_relay.publish_event(p)
     if end:
         await run_relay.publish_end()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_serves_a_reader_of_the_sessions_repository(client: TestAsyncClient, authed, fake_redis):
+    from asgiref.sync import sync_to_async
+
+    from tests.unit_tests.sessions.conftest import grant_read_access
+
+    _, raw, user = authed
+    owner = await User.objects.acreate_user(username="stream-owner", email="so@example.com", password="x")  # noqa: S106
+    await Session.objects.acreate(
+        origin=SessionOrigin.API_JOB, thread_id="t-s0", user=owner, repo_id="group/project", ref="main"
+    )
+    await _seed_run_events(fake_redis, "t-s0", "r-1", ['{"type":"RUN_STARTED"}'])
+    url = "/chat/stream?thread_id=t-s0&run_id=r-1"
+
+    denied = await client.get(url, headers=_auth_headers(raw))
+    await sync_to_async(grant_read_access)(user, "group/project")
+    served = await client.get(url, headers=_auth_headers(raw))
+
+    assert denied.status_code == 404
+    assert served.status_code == 200
+    assert served["Content-Type"] == "text/event-stream"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1031,7 +1054,7 @@ async def test_stream_emits_error_frame_when_relay_read_fails(client: TestAsyncC
     broken = MagicMock()
     broken.xread = AsyncMock(side_effect=RuntimeError("redis down"))
 
-    with patch("chat.api.relay.get_redis", return_value=broken):
+    with patch("sessions.live.relay.get_redis", return_value=broken):
         response = await client.get("/chat/stream?thread_id=t-err&run_id=r-1", headers=_auth_headers(raw))
 
     body = response.content.decode()
@@ -1051,14 +1074,14 @@ async def test_stream_emits_keepalive_and_resumes_tail_across_reads(client: Test
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT, thread_id="t-live", user=user, repo_id="a/b", ref="main", active_run_id="r-1"
     )
-    from chat.api.relay import RunRelay
+    from sessions.live.relay import RunRelay
 
     key = RunRelay("t-live", "r-1").events_key
     scripted = _ScriptedRedis(
         key, {0: [("1-0", {"data": '{"n":1}'})], 2: [("2-0", {"data": '{"n":2}'}), ("3-0", {"end": "1"})]}
     )
 
-    with patch("chat.api.relay.get_redis", return_value=scripted):
+    with patch("sessions.live.relay.get_redis", return_value=scripted):
         response = await client.get("/chat/stream?thread_id=t-live&run_id=r-1", headers=_auth_headers(raw))
 
     body = response.content.decode()
@@ -1085,7 +1108,8 @@ class _RestrictingRedis(_ScriptedRedis):
 
 async def _stream_across_a_fetch(client, raw, user, *, thread_id: str, fetched_by: User) -> str:
     """Tail a run whose second read follows a cross-project fetch by ``fetched_by``; return the SSE body."""
-    from chat.api.relay import RunRelay
+    from sessions.live.relay import RunRelay
+
     from codebase.models import CrossProjectAccessRecord
     from core.constants import CrossProjectOutcome
 
@@ -1111,7 +1135,7 @@ async def _stream_across_a_fetch(client, raw, user, *, thread_id: str, fetched_b
         at=1,
         restrict=fetch,
     )
-    with patch("chat.api.relay.get_redis", return_value=scripted):
+    with patch("sessions.live.relay.get_redis", return_value=scripted):
         response = await client.get(f"/chat/stream?thread_id={thread_id}&run_id=r-1", headers=_auth_headers(raw))
     return response.content.decode()
 
@@ -1166,7 +1190,7 @@ async def test_stream_closes_without_end_frame_at_duration_cap(client: TestAsync
     )
 
     with (
-        patch("chat.api.relay.get_redis", return_value=_QuietSlowRedis()),
+        patch("sessions.live.relay.get_redis", return_value=_QuietSlowRedis()),
         patch("chat.api.views.STREAM_MAX_DURATION_S", 0.05),
     ):
         response = await client.get("/chat/stream?thread_id=t-cap&run_id=r-1", headers=_auth_headers(raw))
@@ -1232,10 +1256,10 @@ async def test_completion_invalid_env_header_returns_400_and_no_thread(client: T
     from django.core.cache import cache
 
     _, raw, user = authed
-    # The per-user job throttle keys on the (constant) test username, so completion
+    # The per-user job throttle keys on the (constant) test user, so completion
     # POSTs share one bucket across the file — reset it so this test isn't throttled.
     await cache.aclear()
-    with patch("chat.api.views.resolve_env_for_user", new=AsyncMock(side_effect=LookupError("unknown env"))):
+    with patch("sessions.admission.resolve_env_for_user", new=AsyncMock(side_effect=LookupError("unknown env"))):
         response = await client.post(
             "/chat/completions",
             json=_run_agent_input(threadId="t-badenv"),
@@ -1257,7 +1281,7 @@ async def test_completion_no_resolvable_model_returns_400(client: TestAsyncClien
     from automation.agent.validators import AgentOverrideError
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     with patch(
         "chat.api.views.ensure_agent_model_available", side_effect=AgentOverrideError("no agent model configured")
     ):
@@ -1278,7 +1302,7 @@ async def test_completion_no_resolvable_model_returns_400(client: TestAsyncClien
 
 @pytest.mark.django_db(transaction=True)
 async def test_cancel_sets_flag_and_reports_local_miss(client: TestAsyncClient, authed, fake_redis):
-    from chat.api.relay import RunRelay
+    from sessions.live.relay import RunRelay
 
     _, raw, user = authed
     await Session.objects.acreate(
@@ -1338,7 +1362,7 @@ async def test_completion_releases_slot_when_spawn_rejects_run_id(
     from django.core.cache import cache
 
     _, raw, user = authed
-    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await cache.aclear()  # isolate from the shared per-user job-throttle bucket
     with patch("chat.api.runner.supervisor.spawn", side_effect=RuntimeError("already live for run_id=r-1")):
         response = await client.post(
             "/chat/completions",

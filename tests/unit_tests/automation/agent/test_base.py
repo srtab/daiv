@@ -1,117 +1,17 @@
 from typing import TYPE_CHECKING
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
-from langchain.chat_models import BaseChatModel
-from langchain_core.runnables import Runnable
 
-from automation.agent.base import (
-    CLAUDE_THINKING_MODELS,
-    OPENAI_THINKING_MODELS,
-    BaseAgent,
-    ResolvedProvider,
-    parse_model_spec,
-)
-from automation.agent.chat_models import OPENROUTER_BASE_URL, ChatOpenRouter
+from automation.agent.base import CLAUDE_THINKING_MODELS, OPENAI_THINKING_MODELS, get_model, get_model_kwargs
+from automation.agent.chat_models import ChatOpenRouter
+from automation.agent.model_spec import parse_model_spec
+from automation.agent.provider_clients import OPENROUTER_BASE_URL
 from core.constants import ModelName
 from core.models import Provider, ProviderType, ThinkingLevelChoices
 
 if TYPE_CHECKING:
     import httpx
-
-
-class ConcreteAgent(BaseAgent):
-    def compile(self) -> Runnable:
-        return Mock(spec=Runnable)
-
-
-class TestBaseAgent:
-    @pytest.fixture
-    def mock_init_chat_model(self):
-        with patch("automation.agent.base.init_chat_model") as mock:
-            mock.return_value = Mock(spec=BaseChatModel)
-            yield mock
-
-    def test_default_initialization(self, mock_init_chat_model):
-        agent = ConcreteAgent()
-
-        assert agent.checkpointer is None
-
-    def test_custom_initialization(self, mock_init_chat_model):
-        checkpointer = Mock(name="RedisSaver")
-
-        agent = ConcreteAgent(checkpointer=checkpointer)
-
-        assert agent.checkpointer == checkpointer
-
-
-@pytest.mark.django_db
-class TestParseModelSpec:
-    def test_parse_resolves_seed_slug(self):
-        resolved = parse_model_spec("anthropic:claude-sonnet-4-6")
-        assert isinstance(resolved, ResolvedProvider)
-        assert resolved.row.slug == "anthropic"
-        assert resolved.row.provider_type == ProviderType.ANTHROPIC
-        assert resolved.model_name == "claude-sonnet-4-6"
-
-    def test_parse_resolves_user_added_slug(self):
-        Provider.objects.create(slug="vllm", display_name="vLLM", provider_type=ProviderType.OPENAI, api_key="k")
-        resolved = parse_model_spec("vllm:llama-3.3-70b")
-        assert resolved.row.slug == "vllm"
-        assert resolved.model_name == "llama-3.3-70b"
-
-    def test_parse_google_alias(self):
-        resolved = parse_model_spec("google:gemini-2.5-pro")
-        assert resolved.row.slug == "google_genai"
-        assert resolved.model_name == "gemini-2.5-pro"
-
-    def test_parse_bare_name_heuristic(self):
-        assert parse_model_spec("gpt-5.4").row.slug == "openai"
-        assert parse_model_spec("gpt-6-luna").row.slug == "openai"
-        assert parse_model_spec("claude-haiku-4-5").row.slug == "anthropic"
-        assert parse_model_spec("gemini-2.5-pro").row.slug == "google_genai"
-
-    def test_parse_unknown_prefix_raises(self):
-        with pytest.raises(ValueError, match="Unknown"):
-            parse_model_spec("notaprovider:foo")
-
-    def test_parse_empty_model_name_raises(self):
-        with pytest.raises(ValueError, match="Empty"):
-            parse_model_spec("anthropic:")
-
-    def test_parse_whitespace_model_name_raises(self):
-        with pytest.raises(ValueError, match="Empty"):
-            parse_model_spec("anthropic:   ")
-
-    def test_parse_bare_o4(self):
-        assert parse_model_spec("o4-mini").row.slug == "openai"
-
-    @pytest.mark.parametrize(
-        "model_spec",
-        [
-            "anthropic:claude-sonnet-4-6",
-            "openai:gpt-5.4",
-            "google_genai:gemini-2.5-pro",
-            "openrouter:anthropic/claude-sonnet-4.6",
-            "claude-haiku-4-5",
-            "gpt-5.4",
-            "gpt-6-luna",
-            "gemini-2.5-pro",
-            "o4-mini",
-        ],
-    )
-    def test_resolve_provider_slug_matches_parse_model_spec(self, model_spec: str) -> None:
-        """The integration-test helper must resolve to the same row parse_model_spec picks.
-
-        If a future change adds a new built-in slug or bare-name heuristic to
-        parse_model_spec, the helper in tests/integration_tests/utils.py must
-        be updated in lockstep. This test makes drift visible.
-        """
-        from tests.integration_tests.utils import _resolve_provider_slug
-
-        expected_row = parse_model_spec(model_spec).row
-        helper_slug = _resolve_provider_slug(model_spec)
-        assert expected_row.slug == helper_slug
 
 
 @pytest.mark.django_db
@@ -127,12 +27,12 @@ class TestGetModelKwargs:
             slug="off", display_name="off", provider_type=ProviderType.OPENAI, api_key="k", is_enabled=False
         )
         with pytest.raises(RuntimeError, match="disabled"):
-            BaseAgent.get_model_kwargs(resolved=parse_model_spec("off:gpt-5.4"))
+            get_model_kwargs(resolved=parse_model_spec("off:gpt-5.4"))
 
     def test_keyless_provider_raises(self):
         Provider.objects.create(slug="nokey", display_name="No key", provider_type=ProviderType.OPENAI)
         with pytest.raises(RuntimeError, match="no API key"):
-            BaseAgent.get_model_kwargs(resolved=parse_model_spec("nokey:gpt-5.4"))
+            get_model_kwargs(resolved=parse_model_spec("nokey:gpt-5.4"))
 
     def test_anthropic_row(self):
         Provider.objects.create(
@@ -142,7 +42,7 @@ class TestGetModelKwargs:
             api_key="sk-a",
             base_url="https://proxy.example.com",
         )
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("anth2:claude-haiku-4-5"))
+        kw = get_model_kwargs(resolved=parse_model_spec("anth2:claude-haiku-4-5"))
         assert kw["model_provider"] == ProviderType.ANTHROPIC.value
         assert kw["api_key"] == "sk-a"
         assert kw["base_url"] == "https://proxy.example.com"
@@ -161,7 +61,7 @@ class TestGetModelKwargs:
         """Claude 5-generation models reject ``temperature`` (400 invalid_request_error), so it
         must be stripped — covers direct-Anthropic and OpenRouter slug forms. See Sentry DAIV-9P."""
         Provider.objects.create(slug=slug, display_name=slug, provider_type=provider_type, api_key="sk")
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec(f"{slug}:{model_name}"))
+        kw = get_model_kwargs(resolved=parse_model_spec(f"{slug}:{model_name}"))
         assert kw["model"] == model_name
         assert "temperature" not in kw
 
@@ -178,9 +78,7 @@ class TestGetModelKwargs:
         """GPT-6 models reject ``temperature`` outright, and langchain-openai only strips it
         for ``gpt-5*``. See Sentry DAIV-CK."""
         self._enable_seed(slug, "sk")
-        kw = BaseAgent.get_model_kwargs(
-            resolved=parse_model_spec(f"{slug}:{model_name}"), thinking_level=thinking_level
-        )
+        kw = get_model_kwargs(resolved=parse_model_spec(f"{slug}:{model_name}"), thinking_level=thinking_level)
         assert kw["model"] == model_name
         assert "temperature" not in kw
 
@@ -195,7 +93,7 @@ class TestGetModelKwargs:
             base_url="http://localhost:8000/v1",
             extra_headers={"X-Trace": "yes"},
         )
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("vllm:llama-3.3-70b"))
+        kw = get_model_kwargs(resolved=parse_model_spec("vllm:llama-3.3-70b"))
         assert kw["model_provider"] == ProviderType.OPENAI.value
         assert kw["api_key"] == "sk-v"
         assert kw["openai_api_base"] == "http://localhost:8000/v1"
@@ -211,13 +109,13 @@ class TestGetModelKwargs:
             base_url="https://bedrock.example.com/v1",
             use_responses_api=True,
         )
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("bedrock:gpt-5.4"))
+        kw = get_model_kwargs(resolved=parse_model_spec("bedrock:gpt-5.4"))
         assert kw["use_responses_api"] is True
 
     def test_seed_openai_row_keeps_responses_api(self):
         """Migration enables Responses API for the locked ``openai`` seed row."""
         self._enable_seed("openai", "sk-o")
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("openai:gpt-5.4"))
+        kw = get_model_kwargs(resolved=parse_model_spec("openai:gpt-5.4"))
         assert kw["use_responses_api"] is True
 
     def test_verify_ssl_disabled_injects_insecure_http_clients(self):
@@ -231,7 +129,7 @@ class TestGetModelKwargs:
             base_url="https://internal.example.test/v1",
             verify_ssl=False,
         )
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("selfsigned:gpt-5.4"))
+        kw = get_model_kwargs(resolved=parse_model_spec("selfsigned:gpt-5.4"))
         assert isinstance(kw["http_client"], httpx.Client)
         assert isinstance(kw["http_async_client"], httpx.AsyncClient)
 
@@ -243,7 +141,7 @@ class TestGetModelKwargs:
             api_key="sk-x",
             base_url="https://api.example.com/v1",
         )
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("secure:gpt-5.4"))
+        kw = get_model_kwargs(resolved=parse_model_spec("secure:gpt-5.4"))
         assert "http_client" not in kw
         assert "http_async_client" not in kw
 
@@ -254,7 +152,7 @@ class TestGetModelKwargs:
         Provider.objects.create(
             slug="or_insec", display_name="OR", provider_type=ProviderType.OPENROUTER, api_key="sk-or", verify_ssl=False
         )
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("or_insec:z-ai/glm-5"))
+        kw = get_model_kwargs(resolved=parse_model_spec("or_insec:z-ai/glm-5"))
         assert isinstance(kw["http_client"], httpx.Client)
         assert isinstance(kw["http_async_client"], httpx.AsyncClient)
 
@@ -267,7 +165,7 @@ class TestGetModelKwargs:
         )
         model_name = "claude-haiku-4-5" if ptype == ProviderType.ANTHROPIC else "gemini-2.5-pro"
         with caplog.at_level("WARNING", logger="daiv.automation"):
-            kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec(f"skip_{ptype.value}:{model_name}"))
+            kw = get_model_kwargs(resolved=parse_model_spec(f"skip_{ptype.value}:{model_name}"))
         assert "http_client" not in kw
         assert any("SDK has no http_client hook" in rec.message for rec in caplog.records)
 
@@ -295,7 +193,7 @@ class TestGetModelKwargs:
             mock_init.side_effect = capture_and_raise
 
             with pytest.raises(RuntimeError, match="simulated"):
-                BaseAgent.get_model(model="badmodel:gpt-5.4")
+                get_model(model="badmodel:gpt-5.4")
 
         assert len(sync_holder) == 2
         sync_client, _async_client = sync_holder
@@ -304,25 +202,25 @@ class TestGetModelKwargs:
 
     def test_get_model_openrouter_returns_chat_openrouter(self):
         self._enable_seed("openrouter", "sk-or")
-        model = BaseAgent.get_model(model="openrouter:anthropic/claude-sonnet-4.6")
+        model = get_model(model="openrouter:anthropic/claude-sonnet-4.6")
         assert isinstance(model, ChatOpenRouter)
         assert model.openai_api_base == OPENROUTER_BASE_URL
 
     def test_get_model_non_openrouter_is_not_chat_openrouter(self):
         self._enable_seed("anthropic", "sk-a")
-        model = BaseAgent.get_model(model="anthropic:claude-sonnet-4-6")
+        model = get_model(model="anthropic:claude-sonnet-4-6")
         assert not isinstance(model, ChatOpenRouter)
 
     @pytest.mark.parametrize("thinking_level", [None, ThinkingLevelChoices.HIGH])
     @pytest.mark.parametrize("model", ["openrouter:z-ai/glm-5", "openrouter:anthropic/claude-sonnet-4.6"])
     def test_openrouter_routes_to_the_cheapest_provider(self, model, thinking_level):
         self._enable_seed("openrouter", "sk-or")
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec(model), thinking_level=thinking_level)
+        kw = get_model_kwargs(resolved=parse_model_spec(model), thinking_level=thinking_level)
         assert kw["extra_body"]["provider"] == {"sort": "price"}
 
     def test_openrouter_anthropic_thinking(self):
         self._enable_seed("openrouter", "sk-or")
-        kw = BaseAgent.get_model_kwargs(
+        kw = get_model_kwargs(
             resolved=parse_model_spec("openrouter:anthropic/claude-sonnet-4.6"),
             thinking_level=ThinkingLevelChoices.MEDIUM,
         )
@@ -340,7 +238,7 @@ class TestGetModelKwargs:
         """xhigh on Anthropic-via-OpenRouter passes the effort string straight through;
         ``max_tokens`` stays inside Anthropic's per-model cap (64K)."""
         self._enable_seed("openrouter", "sk-or")
-        kw = BaseAgent.get_model_kwargs(
+        kw = get_model_kwargs(
             resolved=parse_model_spec("openrouter:anthropic/claude-sonnet-4.6"),
             thinking_level=ThinkingLevelChoices.XHIGH,
         )
@@ -349,7 +247,7 @@ class TestGetModelKwargs:
 
     def test_openrouter_generic_thinking(self):
         self._enable_seed("openrouter", "sk-or")
-        kw = BaseAgent.get_model_kwargs(
+        kw = get_model_kwargs(
             resolved=parse_model_spec("openrouter:z-ai/glm-5"), thinking_level=ThinkingLevelChoices.HIGH
         )
         assert kw["extra_body"]["reasoning"]["enabled"] is True
@@ -357,7 +255,7 @@ class TestGetModelKwargs:
 
     def test_openrouter_generic_xhigh_passthrough(self):
         self._enable_seed("openrouter", "sk-or")
-        kw = BaseAgent.get_model_kwargs(
+        kw = get_model_kwargs(
             resolved=parse_model_spec("openrouter:z-ai/glm-5"), thinking_level=ThinkingLevelChoices.XHIGH
         )
         assert kw["extra_body"]["reasoning"]["enabled"] is True
@@ -368,19 +266,19 @@ class TestGetModelKwargs:
 
     def test_google_genai(self):
         self._enable_seed("google_genai", "sk-g")
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("google_genai:gemini-2.5-pro"))
+        kw = get_model_kwargs(resolved=parse_model_spec("google_genai:gemini-2.5-pro"))
         assert kw["model_provider"] == ProviderType.GOOGLE_GENAI.value
         assert kw["api_key"] == "sk-g"
         assert kw["include_thoughts"] is True
 
     def test_anthropic_no_thinking_sets_default_max_tokens(self):
         self._enable_seed("anthropic", "sk-a")
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("anthropic:claude-sonnet-4-6"))
+        kw = get_model_kwargs(resolved=parse_model_spec("anthropic:claude-sonnet-4-6"))
         assert kw["max_tokens"] == 16_384
 
     def test_openai_with_thinking_model(self):
         self._enable_seed("openai", "sk-o")
-        kw = BaseAgent.get_model_kwargs(
+        kw = get_model_kwargs(
             resolved=parse_model_spec("openai:gpt-5.3-codex"), thinking_level=ThinkingLevelChoices.LOW
         )
         assert kw["temperature"] == 1
@@ -400,16 +298,14 @@ class TestGetModelKwargs:
     )
     def test_openai_effort_mapping(self, model_name, thinking_level, expected_effort):
         self._enable_seed("openai", "sk-o")
-        kw = BaseAgent.get_model_kwargs(
-            resolved=parse_model_spec(f"openai:{model_name}"), thinking_level=thinking_level
-        )
+        kw = get_model_kwargs(resolved=parse_model_spec(f"openai:{model_name}"), thinking_level=thinking_level)
         assert kw["reasoning_effort"] == expected_effort
 
     def test_anthropic_xhigh_budget(self):
         """xhigh on direct Anthropic stays at the Sonnet/Haiku 64K cap — the level
         differentiates from HIGH only on OpenRouter, where the ratio formula applies."""
         self._enable_seed("anthropic", "sk-a")
-        kw = BaseAgent.get_model_kwargs(
+        kw = get_model_kwargs(
             resolved=parse_model_spec("anthropic:claude-sonnet-4-6"), thinking_level=ThinkingLevelChoices.XHIGH
         )
         assert kw["temperature"] == 1
@@ -434,7 +330,7 @@ class TestGetModelKwargs:
         carries over, ``display`` is requested explicitly (it defaults to omitted), and
         temperature must be stripped — the same generation rejects sampling params."""
         self._enable_seed("anthropic", "sk-a")
-        kw = BaseAgent.get_model_kwargs(
+        kw = get_model_kwargs(
             resolved=parse_model_spec(f"anthropic:{model_name}"), thinking_level=ThinkingLevelChoices.MEDIUM
         )
         assert kw["thinking"] == {"type": "adaptive", "display": "summarized"}
@@ -445,7 +341,7 @@ class TestGetModelKwargs:
     def test_adaptive_thinking_model_dated_variant(self):
         """Model names are matched as prefixes, so dated snapshots take the adaptive path."""
         self._enable_seed("anthropic", "sk-a")
-        kw = BaseAgent.get_model_kwargs(
+        kw = get_model_kwargs(
             resolved=parse_model_spec("anthropic:claude-opus-5-20260101"), thinking_level=ThinkingLevelChoices.HIGH
         )
         assert kw["thinking"]["type"] == "adaptive"
@@ -465,9 +361,7 @@ class TestGetModelKwargs:
     def test_adaptive_thinking_effort_mapping(self, thinking_level, expected_effort):
         """Pins every row of the ThinkingLevel -> ``output_config.effort`` mapping."""
         self._enable_seed("anthropic", "sk-a")
-        kw = BaseAgent.get_model_kwargs(
-            resolved=parse_model_spec("anthropic:claude-opus-4-8"), thinking_level=thinking_level
-        )
+        kw = get_model_kwargs(resolved=parse_model_spec("anthropic:claude-opus-4-8"), thinking_level=thinking_level)
         assert kw["effort"] == expected_effort
 
     @pytest.mark.parametrize("model_name", ["claude-opus-4-8", "claude-fable-5", "claude-haiku-5-5"])
@@ -475,7 +369,7 @@ class TestGetModelKwargs:
         """No thinking level means no ``thinking`` field at all (valid on these models),
         but the seeded ``temperature=0`` would still 400 — it has to go."""
         self._enable_seed("anthropic", "sk-a")
-        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec(f"anthropic:{model_name}"))
+        kw = get_model_kwargs(resolved=parse_model_spec(f"anthropic:{model_name}"))
         assert "thinking" not in kw
         assert "effort" not in kw
         assert "temperature" not in kw
@@ -486,7 +380,7 @@ class TestGetModelKwargs:
         """Models older than Opus 4.7 still take the manual extended-thinking budget
         (paired with temperature=1) — they don't accept ``output_config.effort``."""
         self._enable_seed("anthropic", "sk-a")
-        kw = BaseAgent.get_model_kwargs(
+        kw = get_model_kwargs(
             resolved=parse_model_spec(f"anthropic:{model_name}"), thinking_level=ThinkingLevelChoices.MEDIUM
         )
         assert kw["thinking"] == {"type": "enabled", "budget_tokens": 25_600}
@@ -506,7 +400,7 @@ class TestGetModelKwargs:
         """The OpenRouter Anthropic path also seeds temperature=1 for Claude thinking
         models; the adaptive generation must still end up with it stripped."""
         self._enable_seed("openrouter", "sk-or")
-        kw = BaseAgent.get_model_kwargs(
+        kw = get_model_kwargs(
             resolved=parse_model_spec(f"openrouter:{model_name}"), thinking_level=ThinkingLevelChoices.MEDIUM
         )
         assert kw["extra_body"]["reasoning"]["enabled"] is True

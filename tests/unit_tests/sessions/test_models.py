@@ -3,7 +3,8 @@ import uuid
 from django.db import IntegrityError
 
 import pytest
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.executor.result import parse_agent_result
+from sessions.models import Run, RunStatus, Session, SessionOrigin, agent_result_field_updates
 
 from automation.agent.workspace.session import SandboxAcquisition
 
@@ -24,10 +25,6 @@ def _mk_run(session: Session, **kwargs) -> Run:
 
 def test_run_status_terminal_set():
     assert RunStatus.terminal() == frozenset({RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT, RunStatus.FAILED})
-
-
-def test_run_status_completed_set_leaves_out_waiting_input():
-    assert RunStatus.completed() == frozenset({RunStatus.SUCCESSFUL, RunStatus.FAILED})
 
 
 def test_daiv_authenticated_origins_exclude_every_webhook():
@@ -87,6 +84,15 @@ def test_session_origin_includes_chat():
         "issue_webhook",
         "mr_webhook",
         "pipeline_webhook",
+    }
+
+
+def test_classified_origins_exclude_chat_and_pipeline_webhook():
+    """Classification is "universal for non-chat" except pipeline-watch runs, which have a
+    separate result path. Pinning the set forces a newly-added SessionOrigin to decide."""
+    assert SessionOrigin.classified() == frozenset(SessionOrigin.values) - {
+        SessionOrigin.CHAT,
+        SessionOrigin.PIPELINE_WEBHOOK,
     }
 
 
@@ -150,18 +156,6 @@ def test_with_latest_status_annotation():
     _mk_run(session, status=RunStatus.RUNNING)
     annotated = Session.objects.with_latest_status().get(pk=session.pk)
     assert annotated.latest_run_status == RunStatus.RUNNING
-
-
-def test_run_is_retryable_mirrors_activity_semantics():
-    session = _mk_session()
-    done = _mk_run(session, status=RunStatus.SUCCESSFUL)
-    webhook = _mk_run(session, status=RunStatus.FAILED, trigger_type=SessionOrigin.MR_WEBHOOK)
-    running = _mk_run(session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.UI_JOB)
-    waiting = _mk_run(session, status=RunStatus.WAITING_INPUT, trigger_type=SessionOrigin.UI_JOB)
-    assert done.is_retryable is True
-    assert webhook.is_retryable is False
-    assert running.is_retryable is False
-    assert waiting.is_retryable is False
 
 
 def test_run_duration():
@@ -233,24 +227,24 @@ def test_run_status_superset_of_task_result_status():
     ``Run.status``, so every django-tasks status must be a valid ``RunStatus`` member —
     otherwise a synced row would violate the ``run_status_valid`` CHECK constraint. This
     guards a django-tasks upgrade that introduces a new status value."""
-    from django_tasks.base import TaskResultStatus
+    from django.tasks import TaskResultStatus
 
     assert set(TaskResultStatus.values) <= set(RunStatus.values)
 
 
-# --- RunManager.by_owner (run-level authorization boundary) ----------------
+# --- RunManager.visible_to ownership (run-level authorization boundary) -----
 
 
-def test_run_by_owner_admin_sees_all(admin_user, django_user_model):
+def test_run_visible_to_admin_sees_all(admin_user, django_user_model):
     other = django_user_model.objects.create_user(username="ro", email="ro@x.io", password="x")  # noqa: S106
     session = _mk_session(user=other)
     mine = _mk_run(session, user=admin_user, status=RunStatus.QUEUED)
     theirs = _mk_run(session, user=other, status=RunStatus.SUCCESSFUL)
-    visible = set(Run.objects.by_owner(admin_user).values_list("pk", flat=True))
+    visible = set(Run.objects.visible_to(admin_user).values_list("pk", flat=True))
     assert {mine.pk, theirs.pk} <= visible
 
 
-def test_run_by_owner_matches_user_and_external_username_but_not_stranger(django_user_model):
+def test_run_visible_to_matches_user_and_external_username_but_not_stranger(django_user_model):
     user = django_user_model.objects.create_user(username="ru1", email="ru1@x.io", password="x")  # noqa: S106
     other = django_user_model.objects.create_user(username="ru2", email="ru2@x.io", password="x")  # noqa: S106
     # Webhook session: runs are exempt from the one-active-per-session constraint, so
@@ -259,13 +253,13 @@ def test_run_by_owner_matches_user_and_external_username_but_not_stranger(django
     own = _mk_run(session, user=user, trigger_type=SessionOrigin.ISSUE_WEBHOOK)
     ext = _mk_run(session, user=None, external_username="ru1", trigger_type=SessionOrigin.ISSUE_WEBHOOK)
     stranger = _mk_run(session, user=other, trigger_type=SessionOrigin.ISSUE_WEBHOOK)
-    visible = set(Run.objects.by_owner(user).values_list("pk", flat=True))
+    visible = set(Run.objects.visible_to(user).values_list("pk", flat=True))
     assert own.pk in visible
     assert ext.pk in visible
     assert stranger.pk not in visible
 
 
-def test_run_by_owner_matches_subscribed_schedule(django_user_model):
+def test_run_visible_to_matches_subscribed_schedule(django_user_model):
     from schedules.models import Frequency, ScheduledJob
 
     owner = django_user_model.objects.create_user(username="rowner", email="rowner@x.io", password="x")  # noqa: S106
@@ -277,7 +271,7 @@ def test_run_by_owner_matches_subscribed_schedule(django_user_model):
     session = _mk_session(user=owner, origin=SessionOrigin.SCHEDULE, scheduled_job=sched)
     run = _mk_run(session, user=owner, trigger_type=SessionOrigin.SCHEDULE, status=RunStatus.SUCCESSFUL)
     # A subscriber to the session's schedule can see its runs.
-    assert run.pk in set(Run.objects.by_owner(sub).values_list("pk", flat=True))
+    assert run.pk in set(Run.objects.visible_to(sub).values_list("pk", flat=True))
 
 
 @pytest.mark.django_db
@@ -401,3 +395,9 @@ def test_artifact_visible_to_follows_session_visibility(admin_user, member_user,
 
     assert set(RunArtifact.objects.visible_to(member_user)) == {mine, on_my_session_by_other}
     assert set(RunArtifact.objects.visible_to(admin_user)) == {mine, on_my_session_by_other, theirs}
+
+
+@pytest.mark.parametrize(("code_changes", "expected"), [(True, {"code_changes": True}), (False, {})])
+def test_agent_result_field_updates_maps_code_changes_only_when_set(code_changes, expected):
+    """False is left out so a later empty result never clears a flag an earlier sync recorded."""
+    assert agent_result_field_updates(parse_agent_result({"code_changes": code_changes})) == expected

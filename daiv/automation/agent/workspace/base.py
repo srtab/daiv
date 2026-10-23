@@ -10,10 +10,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from deepagents.backends.protocol import BackendProtocol, FileDownloadResponse
     from deepagents.middleware.filesystem import FilesystemPermission
 
-    from automation.agent.git_manager import GitManager
+    from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from automation.agent.workspace.session import SandboxSession
 
@@ -49,6 +51,12 @@ class Workspace(Protocol):
     def provisions_skills(self) -> bool:
         """Whether the global skills are already under ``/workspace/skills``; if not, ``SkillsMiddleware`` copies
         them."""
+        ...
+
+    @property
+    def skills_provisioning_errors(self) -> Sequence[str]:
+        """What provisioning the global skills left out, worded for the agent; ``SkillsMiddleware`` reports them. Empty
+        where ``provisions_skills`` is false: the middleware's own copy reports its errors."""
         ...
 
     @property

@@ -8,12 +8,10 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
-from allauth.socialaccount.models import SocialAccount
 from sessions import views as views_module
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
-from codebase.models import RepositoryAccess
-from tests.unit_tests.sessions.conftest import commit_revision, make_artifact
+from tests.unit_tests.sessions.conftest import commit_revision, grant_read_access, make_artifact
 
 pytestmark = pytest.mark.django_db
 
@@ -319,18 +317,6 @@ def test_detail_embeds_markdown_source_for_copy(member_client, member_user):
     assert '<script id="artifact-source" type="application/json">"# Notes\\n\\n- a \\u003Cb\\u003E"</script>' in html
 
 
-def _grant_read_access(user, repo_id: str) -> None:
-    SocialAccount.objects.get_or_create(user=user, provider="gitlab", uid=str(user.pk))
-    RepositoryAccess.objects.create(
-        provider="gitlab",
-        uid=str(user.pk),
-        username=user.username,
-        repo_id=repo_id,
-        access_level="read",
-        synced_at=timezone.now(),
-    )
-
-
 class TestArtifactListView:
     def test_requires_login(self, client, member_user):
         resp = client.get(reverse("artifact_list"))
@@ -346,7 +332,7 @@ class TestArtifactListView:
         assert list(resp.context["artifacts"]) == [artifact]
 
     def test_user_sees_artifact_of_a_readable_repo_they_dont_own(self, member_client, member_user, other_user):
-        _grant_read_access(member_user, "readable/repo")
+        grant_read_access(member_user, "readable/repo")
         session = _create_session(user=other_user, repo_id="readable/repo")
         artifact = make_artifact(_create_run(session))
 
@@ -496,7 +482,7 @@ class TestArtifactListView:
 
         html = member_client.get(reverse("artifact_list"), {"kind": "markdown"}).content.decode()
 
-        assert 'href="?kind=markdown&amp;repo=group/project"' in html
+        assert 'href="?kind=markdown&amp;repo=group%2Fproject"' in html
 
     @pytest.mark.parametrize(
         ("query", "expected"),

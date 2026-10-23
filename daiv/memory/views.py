@@ -13,8 +13,8 @@ from django.views.generic import TemplateView
 
 from django_filters.views import FilterView
 
-from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from codebase.authorization import can_view, viewable_repo_ids
+from core.mixins import AdminRequiredMixin, BreadcrumbMixin
 from core.site_settings import site_settings
 from core.utils import is_htmx
 from memory.consolidation import document_would_be_discarded

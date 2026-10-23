@@ -12,6 +12,7 @@ import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
+from schedules.models import Frequency, ScheduledJob
 
 
 @pytest.fixture
@@ -41,6 +42,17 @@ def _create_session(**kwargs) -> Session:
     return Session.objects.create(**defaults)
 
 
+def _create_schedule(user: User, name: str, repo_id: str = "group/project") -> ScheduledJob:
+    return ScheduledJob.objects.create(
+        user=user,
+        name=name,
+        prompt="p",
+        repos=[{"repo_id": repo_id, "ref": ""}],
+        frequency=Frequency.DAILY,
+        time="09:00",
+    )
+
+
 def _create_run(session: Session, **kwargs) -> Run:
     defaults = {
         "session": session,
@@ -62,6 +74,10 @@ class TestSessionListView:
     def test_authenticated_user_can_access(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))
         assert response.status_code == 200
+
+    def test_has_no_breadcrumb(self, logged_in_client):
+        response = logged_in_client.get(reverse("session_list"))
+        assert b'data-testid="app-breadcrumb"' not in response.content
 
     def test_owner_scoping_excludes_other_users_sessions(self, logged_in_client, user):
         """Owner scoping is applied before filters — another user's sessions are invisible."""
@@ -236,6 +252,24 @@ class TestSessionListView:
         assert response.context["has_active_filters"] is True
         assert "Merge request !42" in response.content.decode()
 
+    def test_schedule_filter_chip_names_the_schedule(self, logged_in_client, user):
+        schedule = _create_schedule(user, "Nightly audit")
+        _create_session(user=user, scheduled_job=schedule)
+
+        response = logged_in_client.get(reverse("session_list"), {"schedule": str(schedule.pk)})
+
+        assert response.context["schedule_name"] == "Nightly audit"
+        assert "Schedule: Nightly audit" in response.content.decode()
+
+    def test_schedule_filter_chip_hides_another_users_schedule_name(self, logged_in_client, other_user):
+        schedule = _create_schedule(other_user, "Secret audit", repo_id="other/secret")
+        _create_session(user=other_user, repo_id="other/secret", scheduled_job=schedule)
+
+        response = logged_in_client.get(reverse("session_list"), {"schedule": str(schedule.pk)})
+
+        assert response.context["schedule_name"] == ""
+        assert "Secret audit" not in response.content.decode()
+
     def test_runs_are_prefetched_newest_first(self, logged_in_client, user, django_assert_num_queries):
         session = _create_session(user=user)
         _create_run(session, status=RunStatus.SUCCESSFUL)
@@ -253,6 +287,14 @@ class TestSessionListView:
         html = logged_in_client.get(reverse("session_list")).content.decode()
 
         assert re.search(r'<a href="https://git\.example/mr/31"[^>]*class="mr-pill[^"]*">.*?!31</a>', html, re.DOTALL)
+
+    def test_row_shows_the_model_the_latest_run_ran_on(self, logged_in_client, user):
+        session = _create_session(user=user, origin=SessionOrigin.API_JOB)
+        _create_run(session, agent_model="openrouter:z-ai/glm-5.2")
+
+        html = logged_in_client.get(reverse("session_list")).content.decode()
+
+        assert re.search(r'<span class="meta-pill[^"]*">openrouter:z-ai/glm-5\.2</span>', html)
 
     def test_more_rows_cost_no_more_queries(self, logged_in_client, user, django_assert_num_queries):
         """A run field the row reads but ``.only()`` leaves out costs a query per row."""
@@ -456,8 +498,7 @@ def test_pagination_partial_swap_marker_is_opt_in(rf):
 
     def _render(**extra):
         return render_to_string(
-            "accounts/_pagination.html",
-            {"is_paginated": True, "page_obj": _Page(), "request": rf.get("/x/?foo=bar"), **extra},
+            "core/_pagination.html", {"is_paginated": True, "page_obj": _Page(), **extra}, request=rf.get("/x/?foo=bar")
         )
 
     assert "data-page-swap" not in _render()  # default: plain links

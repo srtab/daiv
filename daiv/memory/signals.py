@@ -5,7 +5,7 @@ from typing import Any
 
 from django.dispatch import receiver
 
-from sessions.signals import run_finished
+from sessions.signal_defs import run_finished
 
 from memory.tasks import extract_observations_task
 
@@ -17,8 +17,8 @@ def capture_run_observations(sender: type, run: Any, **kwargs: Any) -> None:
     """Enqueue transcript extraction when a run reaches a terminal status.
 
     FAILED runs are included — failures are valuable learning signal.
-    ``skip_dispatch=True`` marks re-emits from dispatch-failure paths: those
-    runs never executed, so there is no new transcript to mine.
+    ``never_started=True`` marks a run whose row failed before it started: the
+    session's checkpoint holds only earlier turns, which their own runs already mined.
     CHAT-triggered runs are skipped — interactive chat turns are not agent
     sessions worth mining for repository-scoped memory. So are runs whose session
     holds another project's results, which must not reach this repository's memory.
@@ -28,7 +28,7 @@ def capture_run_observations(sender: type, run: Any, **kwargs: Any) -> None:
     from sessions.models import RunStatus, Session, SessionOrigin
 
     try:
-        if kwargs.get("skip_dispatch"):
+        if kwargs.get("never_started"):
             return
         if run.trigger_type == SessionOrigin.CHAT:
             return

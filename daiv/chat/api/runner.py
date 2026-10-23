@@ -4,7 +4,7 @@
 it: the run executes as an ``asyncio.Task`` in the web process and publishes its
 AG-UI events to the Redis relay, so client disconnects never cancel the run. The
 supervisor's task registry enables immediate local cancellation ("Stop" in the
-UI); the Redis cancel flag (see ``chat.api.relay``) covers the cross-process
+UI); the Redis cancel flag (see ``sessions.live.relay``) covers the cross-process
 case.
 
 Organization: the stateless execution recipe (drive the streamer, publish to the
@@ -23,31 +23,19 @@ import asyncio
 import contextlib
 import contextvars
 import logging
-import time
 from typing import TYPE_CHECKING
 
-from ag_ui.core.events import BaseEvent, EventType, RunErrorEvent
+from ag_ui.core.events import EventType, RunErrorEvent
 from asgiref.sync import ThreadSensitiveContext
+from sessions.live import relay
+from sessions.live.publisher import end_stream, publish_event
 
 from core.constants import CANCELLED_BY_USER_MESSAGE
-
-from . import relay
 
 if TYPE_CHECKING:
     from .streaming import ChatRunStreamer
 
 logger = logging.getLogger("daiv.chat")
-
-
-async def _publish(run_relay: relay.RunRelay, event: BaseEvent) -> None:
-    """Serialize one AG-UI event to the relay, stamped with its emit time.
-
-    The chat client clocks a turn's reasoning segments from ``timestamp`` (epoch ms): a
-    rejoining browser replays the whole run at once, so its own clock would measure every
-    thought as instantaneous. Only this side knows when the event actually happened.
-    """
-    event.timestamp = event.timestamp or int(time.time() * 1000)
-    await run_relay.publish_event(event.model_dump_json(by_alias=True, exclude_none=True))
 
 
 async def run_to_relay(streamer: ChatRunStreamer) -> None:
@@ -79,7 +67,7 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
     try:
         async with ThreadSensitiveContext(), contextlib.aclosing(streamer.events()) as events:
             async for event in events:
-                await _publish(run_relay, event)
+                await publish_event(run_relay, event)
     except asyncio.CancelledError:
         # The cancelled streamer can't yield its own RUN_ERROR(run_cancelled); publish it
         # here so the live client marks the turn stopped. Gate on the cancel flag so a
@@ -87,7 +75,7 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
         # Best-effort: a teardown-time Redis failure must not mask the cancellation.
         with contextlib.suppress(Exception):
             if await run_relay.cancel_requested():
-                await _publish(
+                await publish_event(
                     run_relay,
                     RunErrorEvent(type=EventType.RUN_ERROR, message=CANCELLED_BY_USER_MESSAGE, code="run_cancelled"),
                 )
@@ -95,10 +83,7 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
     except Exception:
         logger.exception("chat: run publisher failed for thread_id=%s run_id=%s", thread_id, run_id)
     finally:
-        try:
-            await run_relay.publish_end()
-        except Exception:
-            logger.exception("chat: failed to publish end sentinel for thread_id=%s run_id=%s", thread_id, run_id)
+        await end_stream(run_relay)
 
 
 class RunSupervisor:

@@ -15,9 +15,8 @@ from django.views.generic import TemplateView
 from asgiref.sync import async_to_sync
 from django_filters.views import FilterView
 
-from accounts.context_processors import NAV_SECTION_MCP_GLOBAL
-from accounts.mixins import AdminRequiredMixin
 from core.encryption import DecryptionError
+from core.mixins import AdminRequiredMixin
 from mcp_connectors import services
 from mcp_connectors.filters import MCPServerFilter
 from mcp_connectors.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset, build_tool_choices
@@ -44,17 +43,17 @@ def _decorate(servers, *, global_names=frozenset()):
 
 
 def _pin_nav_section(request, obj: MCPServer) -> None:
-    """Pin the sidebar to the global section for a global row. The edit/delete URLs
+    """Highlight the global list's sidebar item for a global row. The edit/delete URLs
     are shared with the personal page and resolve to the personal section by default,
-    so global rows need the explicit override; no-op for user-scoped rows."""
-    if obj.scope == MCPServer.Scope.GLOBAL:
-        request.nav_section_override = NAV_SECTION_MCP_GLOBAL
+    so global rows borrow the global list's view name; no-op for user-scoped rows."""
+    if obj.scope == MCPServer.Visibility.GLOBAL:
+        request.nav_view_name = "mcp_connectors:global_list"
 
 
 def _list_url_for_scope(scope) -> str:
     """The list page for a scope — the single source of the scope→list-URL mapping,
     shared by redirects-after-save and the form's Cancel link so they never diverge."""
-    if scope == MCPServer.Scope.GLOBAL:
+    if scope == MCPServer.Visibility.GLOBAL:
         return reverse("mcp_connectors:global_list")
     return reverse("mcp_connectors:list")
 
@@ -95,7 +94,7 @@ class MCPServerListView(LoginRequiredMixin, FilterView):
     strict = False
 
     def get_queryset(self):
-        return MCPServer.objects.filter(scope=MCPServer.Scope.USER).select_related("user").order_by("name")
+        return MCPServer.objects.filter(scope=MCPServer.Visibility.USER).select_related("user").order_by("name")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -134,7 +133,7 @@ class MCPServerCreateView(LoginRequiredMixin, View):
     template_name = "mcp_connectors/form.html"
     # Which scope this entry point creates. The personal route uses the default;
     # the global route is the AdminRequiredMixin subclass below.
-    scope = MCPServer.Scope.USER
+    scope = MCPServer.Visibility.USER
 
     def _form_kwargs(self):
         return {"user": self.request.user, "scope": self.scope}
@@ -143,7 +142,7 @@ class MCPServerCreateView(LoginRequiredMixin, View):
         # Personal servers accept literal headers only (the runtime never
         # resolves env_ref for user-scoped rows) — keyed on scope, not on the
         # acting user's role, so admin personal servers behave like members'.
-        return {"form_kwargs": {"literal_only": self.scope == MCPServer.Scope.USER}}
+        return {"form_kwargs": {"literal_only": self.scope == MCPServer.Visibility.USER}}
 
     def get(self, request):
         return self._render(
@@ -192,7 +191,7 @@ class MCPServerCreateView(LoginRequiredMixin, View):
 
 
 class MCPServerGlobalCreateView(AdminRequiredMixin, MCPServerCreateView):
-    scope = MCPServer.Scope.GLOBAL
+    scope = MCPServer.Visibility.GLOBAL
 
 
 class MCPServerEditView(LoginRequiredMixin, View):
@@ -405,9 +404,9 @@ class MCPServerTestView(LoginRequiredMixin, View):
         Neither may borrow another member's personal secret — that stays private to
         its owner, matching the per-user isolation the runtime enforces (an admin's
         own run never loads another member's rows)."""
-        own = MCPServer.objects.filter(name=name, scope=MCPServer.Scope.USER, user=user)
+        own = MCPServer.objects.filter(name=name, scope=MCPServer.Visibility.USER, user=user)
         if user.is_admin:
-            return MCPServer.objects.filter(name=name, scope=MCPServer.Scope.GLOBAL).first() or own.first()
+            return MCPServer.objects.filter(name=name, scope=MCPServer.Visibility.GLOBAL).first() or own.first()
         return own.first()
 
 

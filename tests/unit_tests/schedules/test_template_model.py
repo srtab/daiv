@@ -186,7 +186,7 @@ class TestScheduleTemplateToPickerDict:
         assert row["agent_thinking_level_display"] == "High"
 
     def test_display_caps_long_model_name(self):
-        from automation.agent.display import MODEL_NAME_MAX_LEN
+        from automation.picker.display import MODEL_NAME_MAX_LEN
 
         tpl = self._make_tpl(agent_model="openrouter:vendor/" + "x" * 50, agent_thinking_level="")
         row = tpl.to_picker_dict()

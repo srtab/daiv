@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 from memory.signals import capture_run_observations
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.signals import run_finished
+from sessions.signal_defs import run_finished
 
 
 def _session(**kwargs):
@@ -52,12 +52,13 @@ class TestCaptureRunObservations:
             capture_run_observations(sender=Run, run=run)
         task_mock.enqueue.assert_not_called()
 
-    def test_skips_dispatch_failure_reemits(self):
-        """skip_dispatch=True marks re-emits for runs that never actually executed."""
+    def test_skips_a_run_that_never_started(self):
+        """A batch submit or CI fix run that failed to enqueue releases its siblings (no ``skip_dispatch``), but
+        its session's checkpoint holds only earlier turns, already mined under their own runs."""
         session = _session()
         run = _run(session, status=RunStatus.FAILED)
         with patch("memory.signals.extract_observations_task") as task_mock:
-            capture_run_observations(sender=Run, run=run, skip_dispatch=True)
+            capture_run_observations(sender=Run, run=run, never_started=True)
         task_mock.enqueue.assert_not_called()
 
     def test_skips_chat_trigger_runs(self):

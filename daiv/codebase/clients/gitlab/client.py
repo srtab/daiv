@@ -17,7 +17,6 @@ from gitlab.const import AccessLevel
 from gitlab.exceptions import GitlabError, GitlabGetError
 
 from codebase.base import (
-    Discussion,
     GitPlatform,
     Issue,
     Job,
@@ -25,10 +24,6 @@ from codebase.base import (
     MergeRequestCommit,
     MergeRequestDiffStats,
     Note,
-    NoteDiffPosition,
-    NotePosition,
-    NotePositionLineRange,
-    NoteType,
     Pipeline,
     RepoAccessLevel,
     RepoMember,
@@ -39,8 +34,8 @@ from codebase.base import (
 from codebase.clients import RepoClient
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
 from codebase.exceptions import CloneRefNotFoundError, MergeRequestBranchNotVisibleError
+from codebase.utils import is_git_auth_error_text, is_git_ref_not_found_text
 from core.constants import BOT_NAME
-from core.utils import async_download_url, build_uri, is_git_auth_error_text, is_git_ref_not_found_text
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
@@ -91,7 +86,7 @@ def _is_clone_auth_error(error: GitCommandError) -> bool:
     Only auth rejections are worth retrying (with propagation backoff, then one re-mint); everything
     else would fail identically on a retry and so propagates immediately. A clone that under-matches
     would silently keep serving the dead cached token — the exact wedge this self-heal exists to
-    break — so it reuses the shared marker set (:func:`core.utils.is_git_auth_error_text`) the push
+    break — so it reuses the shared marker set (:func:`codebase.utils.is_git_auth_error_text`) the push
     side uses. Keep the markers tight, though: with the retry loop, over-matching a non-credential
     failure (e.g. a proxy or WAF 403) now costs the full propagation-and-re-mint budget (~30s / up to
     ten attempts) before the real error surfaces.
@@ -340,14 +335,6 @@ class GitLabClient(RepoClient):
         except UnicodeDecodeError:
             return None
 
-    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
-        """
-        Download a markdown uploaded file from a repository.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        url = build_uri(self.client.url, f"/api/v4/projects/{project.get_id()}/{file_path}")
-        return await async_download_url(url, headers={"PRIVATE-TOKEN": self.client.private_token})
-
     def set_repository_webhooks(
         self,
         repo_id: str,
@@ -595,7 +582,6 @@ class GitLabClient(RepoClient):
             title=issue.title,
             description=issue.description,
             state=issue.state,
-            notes=self._get_issue_notes(repo_id, issue_id),
             labels=issue.labels,
             assignee=User(
                 id=issue.assignee.get("id"), username=issue.assignee.get("username"), name=issue.assignee.get("name")
@@ -628,27 +614,24 @@ class GitLabClient(RepoClient):
         issue = project.issues.create(issue_data)
         return issue.iid
 
-    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
+    def get_issue_note(self, repo_id: str, issue_id: int, note_id: int) -> Note:
         """
-        Get a comment from an issue.
+        Get a note on an issue.
 
         Args:
             repo_id: The repository ID.
-            issue_id: The issue ID.
-            comment_id: The comment ID.
+            issue_id: The issue IID.
+            note_id: The note ID.
 
         Returns:
-            The discussion object.
+            The note.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
-        discussion = issue.discussions.get(comment_id)
-        return Discussion(
-            id=comment_id, notes=self._serialize_notes(discussion.attributes["notes"], [None], only_resolvable=False)
-        )
+        return Note.model_validate(issue.notes.get(note_id).attributes)
 
     def create_issue_comment(
-        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """
         Comment on an issue.
@@ -666,9 +649,6 @@ class GitLabClient(RepoClient):
         if reply_to_id:
             discussion = issue.discussions.get(reply_to_id, lazy=True)
             return discussion.notes.create({"body": body}).id
-        elif as_thread:
-            discussion = issue.discussions.create({"body": body})
-            return discussion.attributes["notes"][0]["id"]
         return issue.notes.create({"body": body}).id
 
     def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
@@ -900,13 +880,7 @@ class GitLabClient(RepoClient):
         return self._serialize_merge_request(repo_id, merge_request)
 
     def create_merge_request_comment(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        reply_to_id: str | None = None,
-        as_thread: bool = False,
-        mark_as_resolved: bool = False,
+        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """
         Comment on a merge request.
@@ -918,23 +892,10 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        to_return = None
-
         if reply_to_id:
             discussion = merge_request.discussions.get(reply_to_id, lazy=True)
-            to_return = discussion.notes.create({"body": body}).id
-
-            if mark_as_resolved:
-                self.mark_merge_request_comment_as_resolved(repo_id, merge_request_id, reply_to_id)
-
-        elif as_thread:
-            discussion = merge_request.discussions.create({"body": body})
-            note_id = discussion.attributes["notes"][0]["id"]
-            to_return = note_id
-        else:
-            to_return = merge_request.notes.create({"body": body}).id
-
-        return to_return
+            return discussion.notes.create({"body": body}).id
+        return merge_request.notes.create({"body": body}).id
 
     def trigger_merge_request_pipeline(
         self, repo_id: str, merge_request_id: int, expected_sha: str | None = None
@@ -1138,24 +1099,21 @@ class GitLabClient(RepoClient):
         mr = project.mergerequests.get(merge_request_id)
         return self._serialize_merge_request(repo_id, mr, merged=mr.state == "merged")
 
-    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
+    def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
         """
-        Get a comment from a merge request.
+        Get a note on a merge request.
 
         Args:
             repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            comment_id: The comment ID.
+            merge_request_id: The merge request IID.
+            note_id: The note ID.
 
         Returns:
-            The discussion object.
+            The note.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        discussion = merge_request.discussions.get(comment_id)
-        return Discussion(
-            id=discussion.id, notes=self._serialize_notes(discussion.attributes["notes"], [None], only_resolvable=False)
-        )
+        return Note.model_validate(merge_request.notes.get(note_id).attributes)
 
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """
@@ -1170,14 +1128,6 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         _create_award_emoji(merge_request.notes.get(note_id, lazy=True), emoji)
-
-    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        """
-        Mark a review as resolved.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        merge_request.discussions.update(discussion_id, {"resolved": True})
 
     def create_merge_request_inline_discussion(
         self, repo_id: str, merge_request_id: int, body: str, position: dict[str, Any]
@@ -1216,95 +1166,6 @@ class GitLabClient(RepoClient):
         if user := self.client.user:
             return User(id=user.id, username=user.username, name=user.name)
         raise ValueError("Couldn't get current user profile")
-
-    def _get_issue_notes(self, repo_id: str, issue_id: int) -> list[Note]:
-        """
-        Get the notes of an issue.
-
-        Args:
-            repo_id: The repository ID.
-            issue_id: The issue ID.
-
-        Returns:
-            The list of issue notes.
-        """
-        project = self.client.projects.get(repo_id, lazy=True)
-        issue = project.issues.get(issue_id, lazy=True)
-        return [
-            Note(
-                id=note.id,
-                body=note.body,
-                type=note.type,
-                noteable_type=note.noteable_type,
-                system=note.system,
-                resolvable=note.resolvable,
-                resolved=note.resolvable and note.resolved or None,
-                author=User(
-                    id=note.author.get("id"), username=note.author.get("username"), name=note.author.get("name")
-                ),
-            )
-            for note in issue.notes.list(get_all=True)
-            if not note.system and not note.resolvable
-        ]
-
-    def _serialize_notes(
-        self, notes: list[dict], note_types: list[NoteType] | None = None, only_resolvable: bool = True
-    ) -> list[Note]:
-        """
-        Serialize dictionary of notes to Note objects.
-
-        Args:
-            notes: The list of notes.
-            note_types: The list of note types.
-            only_resolvable: Whether to only return resolvable notes.
-
-        Returns:
-            The list of Note objects.
-        """
-        return [
-            Note(
-                id=note["id"],
-                body=note["body"],
-                type=note["type"],
-                noteable_type=note["noteable_type"],
-                system=note["system"],
-                resolvable=note["resolvable"],
-                resolved=note.get("resolved"),
-                author=User(
-                    id=note["author"].get("id"),
-                    username=note["author"].get("username"),
-                    name=note["author"].get("name"),
-                ),
-                position=NotePosition(
-                    head_sha=note["position"].get("head_sha"),
-                    old_path=note["position"].get("old_path"),
-                    new_path=note["position"].get("new_path"),
-                    position_type=note["position"].get("position_type"),
-                    old_line=note["position"].get("old_line"),
-                    new_line=note["position"].get("new_line"),
-                    line_range=NotePositionLineRange(
-                        start=NoteDiffPosition(
-                            type=note["position"]["line_range"]["start"]["type"],
-                            old_line=note["position"]["line_range"]["start"]["old_line"],
-                            new_line=note["position"]["line_range"]["start"]["new_line"],
-                        ),
-                        end=NoteDiffPosition(
-                            type=note["position"]["line_range"]["end"]["type"],
-                            old_line=note["position"]["line_range"]["end"]["old_line"],
-                            new_line=note["position"]["line_range"]["end"]["new_line"],
-                        ),
-                    )
-                    if note["position"].get("line_range")
-                    else None,
-                )
-                if "position" in note
-                else None,
-            )
-            for note in notes
-            if not note["system"]
-            and (only_resolvable is False or note["resolvable"] and not note["resolved"])
-            and (note_types is None or note["type"] in note_types)
-        ]
 
     def _serialize_merge_request(
         self, repo_id: str, merge_request: ProjectMergeRequest, *, merged: bool = False

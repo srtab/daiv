@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from unittest.mock import AsyncMock, patch
+
+from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
@@ -13,7 +16,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from daiv.api import api
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import grant_read_access, make_artifact
 
 
 @pytest.fixture
@@ -246,6 +249,127 @@ async def test_session_turns_404_for_other_users_session(client, authed):
 
     assert resp.status_code == 404
     hydrate.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_serves_a_reader_of_the_sessions_repository(client, authed):
+    """The detail page shows a session on a repo the caller can read, so its poller must not 404 on it."""
+    _key_obj, raw, user = authed
+    owner = await User.objects.acreate_user(username="owner-turns", email="owner-turns@example.com", password="x")  # noqa: S106
+    await sync_to_async(grant_read_access)(user, "group/project")
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=owner
+    )
+
+    with patch(
+        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+    ):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_expired_keeps_a_failed_runs_turns(client, authed):
+    """An expired checkpoint still shows each failed run's prompt and marker, as the detail page does."""
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=user
+    )
+    run = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.UI_JOB,
+        repo_id="group/project",
+        status=RunStatus.FAILED,
+        prompt="fix the build",
+        error_message="Run failed.",
+    )
+
+    with patch(
+        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+    ):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    turns = resp.json()["turns"]
+    assert [(t["id"], t["role"]) for t in turns][0] == (f"run-{run.id}", "user")
+    assert turns[1]["role"] == "run_status"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(("heartbeat_age", "active"), [(timedelta(0), True), (timedelta(minutes=31), False)])
+async def test_session_turns_active_needs_a_fresh_heartbeat(client, authed, heartbeat_age, active):
+    """A holder past the staleness window is dead: the poller must stop, as the page no longer counts it in flight."""
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.UI_JOB,
+        repo_id="group/project",
+        ref="main",
+        user=user,
+        active_run_id="holder-1",
+        last_active_at=timezone.now() - heartbeat_age,
+    )
+    await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="group/project", status=RunStatus.RUNNING
+    )
+
+    with patch(
+        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+    ):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.json()["active"] is active
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_names_the_live_run(client, authed):
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=user
+    )
+    run = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.UI_JOB,
+        repo_id="group/project",
+        status=RunStatus.RUNNING,
+        started_at=timezone.now(),
+    )
+    hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
+
+    with patch("sessions.api.views.ahydrate_thread", hydrated):
+        idle = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+        await Session.objects.filter(pk=session.pk).aupdate(active_run_id="42", last_active_at=timezone.now())
+        live = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert idle.json()["live_run"] is None
+    assert live.json()["live_run"] == {"id": "42", "stoppable": False, "started_at": run.started_at.isoformat()}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_offers_stop_only_to_the_sessions_owner(client, authed):
+    _key_obj, raw, owner = authed
+    reader = await User.objects.acreate_user(username="reader-turns", email="reader-turns@example.com", password="x")  # noqa: S106
+    _reader_key, reader_raw = await APIKey.objects.create_key(user=reader, name="Reader")
+    await sync_to_async(grant_read_access)(reader, "group/project")
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.CHAT,
+        repo_id="group/project",
+        ref="main",
+        user=owner,
+        active_run_id="agui-1",
+    )
+    await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.CHAT, repo_id="group/project", status=RunStatus.RUNNING
+    )
+    hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
+
+    with patch("sessions.api.views.ahydrate_thread", hydrated):
+        as_reader = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(reader_raw))
+        as_owner = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert as_reader.json()["live_run"]["stoppable"] is False
+    assert as_owner.json()["live_run"]["stoppable"] is True
 
 
 @pytest.mark.django_db(transaction=True)

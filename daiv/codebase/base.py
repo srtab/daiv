@@ -5,13 +5,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from core.constants import BOT_AUTO_LABEL, BOT_MAX_LABEL
-
 
 class GitPlatform(StrEnum):
     GITLAB = "gitlab"
     GITHUB = "github"
     SWE = "swe"
+    """SWE-bench evals (``evals/swe_client.py``): public repositories, no platform API. Never ``CODEBASE_CLIENT``."""
 
 
 class Scope(StrEnum):
@@ -55,13 +54,6 @@ class Repository(BaseModel):
     default_branch: str
     git_platform: GitPlatform
     topics: list[str] = Field(default_factory=list)
-
-
-class RepositoryFile(BaseModel):
-    repo_id: str
-    file_path: str
-    ref: str | None = None
-    content: str | None = None
 
 
 class Job(BaseModel):
@@ -125,22 +117,6 @@ class MergeRequest(BaseModel):
     merged-MR skip guard reads. Other construction sites keep the ``False`` default, so do not
     treat it as a source of truth off those paths."""
 
-    def has_max_label(self) -> bool:
-        """Whether the merge request carries the daiv-max label (case-insensitive)."""
-        return any(label.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
-
-
-class MergeRequestDiff(BaseModel):
-    repo_id: str
-    merge_request_id: int
-    ref: str
-    old_path: str
-    new_path: str
-    diff: bytes
-    new_file: bool = False
-    renamed_file: bool = False
-    deleted_file: bool = False
-
 
 class User(BaseModel):
     id: int
@@ -170,44 +146,6 @@ class NoteableType(StrEnum):
     MERGE_REQUEST = "MergeRequest"
 
 
-class NoteDiffPositionType(StrEnum):
-    OLD = "old"
-    NEW = "new"
-    EXPANDED = "expanded"
-
-
-class NoteDiffPosition(BaseModel):
-    type: NoteDiffPositionType | None
-    old_line: int | None
-    new_line: int | None
-
-
-class NotePositionLineRange(BaseModel):
-    start: NoteDiffPosition
-    end: NoteDiffPosition
-
-
-class NotePositionType(StrEnum):
-    TEXT = "text"
-    FILE = "file"
-
-
-class NoteLineInfo(BaseModel):
-    side: Literal["source", "target"]
-    line_no: int
-
-
-class NotePosition(BaseModel):
-    head_sha: str
-    old_path: str
-    new_path: str
-    position_type: NotePositionType
-    old_line: int | None = None
-    new_line: int | None = None
-    line_range: NotePositionLineRange | None = None
-    line_info: NoteLineInfo | None = None
-
-
 class NoteType(StrEnum):
     DIFF_NOTE = "DiffNote"
     DISCUSSION_NOTE = "DiscussionNote"
@@ -222,29 +160,7 @@ class Note(BaseModel):
     resolvable: bool
     resolved: bool | None = None
     type: NoteType | None = None
-    position: NotePosition | None = None
     hunk: str | None = None
-
-
-class SimpleDiscussion(BaseModel):
-    id: str
-    resolve_id: str | None = None  # The id of the comment to resolve, only used for GitHub.
-    is_thread: bool = False
-    is_resolvable: bool = False
-
-
-class Discussion(SimpleDiscussion):
-    notes: list[Note] = Field(default_factory=list)
-
-    def as_simple(self) -> SimpleDiscussion:
-        return SimpleDiscussion(
-            id=self.id, resolve_id=self.resolve_id, is_thread=self.is_thread, is_resolvable=self.is_resolvable
-        )
-
-
-class IssueType(StrEnum):
-    ISSUE = "issue"
-    TASK = "task"
 
 
 class Issue(BaseModel):
@@ -255,24 +171,4 @@ class Issue(BaseModel):
     state: str | None = None
     assignee: User | None = None
     author: User
-    issue_type: IssueType = IssueType.ISSUE
-    notes: list[Note] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
-
-    def has_max_label(self) -> bool:
-        """
-        Check if the issue has the daiv-max label (case-insensitive).
-
-        Returns:
-            bool: True if the issue has the daiv-max label, False otherwise.
-        """
-        return any(label.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
-
-    def has_auto_label(self) -> bool:
-        """
-        Check if the issue has the daiv-auto label (case-insensitive).
-
-        Returns:
-            bool: True if the issue has the daiv-auto label, False otherwise.
-        """
-        return any(label.lower() == BOT_AUTO_LABEL.lower() for label in self.labels)

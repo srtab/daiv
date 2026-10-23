@@ -7,22 +7,20 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.fields.json import DataContains
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from automation.agent.results import parse_agent_result
-from codebase.references import ExternalRef, refs_from_stored  # noqa: TC001
+from automation.agent.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
-from sessions.envelopes import validate_actionable
-from sessions.managers import RunArtifactManager, RunEnvelopeManager, RunManager, SessionManager
+from sessions.executor.result import parse_agent_result
+from sessions.managers import RunArtifactManager, RunManager, SessionManager
 
 if TYPE_CHECKING:
-    from automation.agent.results import AgentResult
+    from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -39,20 +37,14 @@ class RunStatus(models.TextChoices):
     def terminal(cls) -> frozenset[str]:
         return frozenset({cls.SUCCESSFUL, cls.WAITING_INPUT, cls.FAILED})
 
-    @classmethod
-    def completed(cls) -> frozenset[str]:
-        """Terminal statuses that close the work, unlike ``WAITING_INPUT``, which waits for the user's answer."""
-        return frozenset({cls.SUCCESSFUL, cls.FAILED})
-
 
 class SessionOrigin(models.TextChoices):
     """How a session (or an individual run) was triggered.
 
     Shared by ``Session.origin`` (first trigger) and ``Run.trigger_type`` (per run):
     a webhook-origin session can later contain chat runs.
-    Values for the non-chat members must stay identical to the old
-    ``activity.TriggerType`` strings — dashboards deep-link ``?trigger=<value>``
-    and the data migration copies them verbatim.
+    Values are stored on rows and deep-linked by dashboards (``?trigger=<value>``),
+    so they must not change.
     """
 
     CHAT = "chat", _("Chat")
@@ -80,6 +72,11 @@ class SessionOrigin(models.TextChoices):
         return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB})
 
     @classmethod
+    def classified(cls) -> frozenset[str]:
+        """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven)."""
+        return frozenset({cls.SCHEDULE}) | cls.webhooks() | cls.prompt_driven()
+
+    @classmethod
     def unattended(cls) -> frozenset[str]:
         """Job triggers nobody is around to answer a question for."""
         return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK})
@@ -99,52 +96,6 @@ class WatchState(models.TextChoices):
     def open(cls) -> frozenset[str]:
         """States the reconciler sweeps."""
         return frozenset({cls.WATCHING, cls.FIXING})
-
-
-class EnvelopeStatus(models.TextChoices):
-    """The classification of a terminal run (stored on ``RunEnvelope.status``).
-
-    Values are hyphenated by deliberate convention — distinct from ``RunStatus``'s UPPER and
-    ``SessionOrigin``'s snake_case, consistent with Story 1.1's ``intent`` (``watch-find``).
-    Do not "normalize" them; the DB ``CheckConstraint`` pins these exact strings.
-    """
-
-    ALL_CLEAR = "all-clear", _("All clear")
-    FOUND_ISSUES = "found-issues", _("Found issues")
-    NEEDS_ATTENTION = "needs-attention", _("Needs attention")
-    NEEDS_INPUT = "needs-input", _("Needs input")
-    FAILED = "failed", _("Failed")
-
-    @classmethod
-    def worst_first(cls) -> tuple[EnvelopeStatus, ...]:
-        """Severity ranking, worst first. Load-bearing wherever a list of runs is capped: unordered
-        rows let a rollup show three needs-attention repos and hide the failure."""
-        return (cls.FAILED, cls.NEEDS_INPUT, cls.FOUND_ISSUES, cls.NEEDS_ATTENTION, cls.ALL_CLEAR)
-
-
-class OfferedAction(models.TextChoices):
-    """The action the console offers for an envelope status (the FR-5 semantics).
-
-    A stable action identifier the UI (Epic 5 ``button-fix``/``button-review``/``button-retry``)
-    binds labels/colors to. It is **not** a stored field — it is derived per instance by
-    :attr:`RunEnvelope.offered_action`.
-    """
-
-    NONE = "none", _("None")
-    FIX = "fix", _("Fix it")
-    REVIEW = "review", _("Review this")
-    RETRY = "retry", _("Retry")
-
-
-# The status -> offered-action mapping, defined exactly once (AC3/AC4); no call site
-# recomputes it. ``FOUND_ISSUES`` is intentionally absent: its action depends on whether
-# ``actionable`` is non-empty and is resolved in :attr:`RunEnvelope.offered_action`.
-_STATUS_OFFERED_ACTION = {
-    EnvelopeStatus.ALL_CLEAR: OfferedAction.NONE,
-    EnvelopeStatus.NEEDS_ATTENTION: OfferedAction.REVIEW,
-    EnvelopeStatus.NEEDS_INPUT: OfferedAction.REVIEW,
-    EnvelopeStatus.FAILED: OfferedAction.RETRY,
-}
 
 
 class Session(models.Model):
@@ -185,7 +136,6 @@ class Session(models.Model):
         related_name="agent_sessions",
         verbose_name=_("scheduled job"),
     )
-    issue_iid = models.PositiveIntegerField(_("issue IID"), null=True, blank=True)
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     external_refs = models.JSONField(_("external references"), default=list, blank=True)
     watch_state = models.CharField(_("watch state"), max_length=10, choices=WatchState.choices, default=WatchState.OFF)
@@ -197,13 +147,11 @@ class Session(models.Model):
 
     # Unified execution lock. NULL means "free slot"; any non-NULL value is the
     # holder id (AG-UI run_id for chat turns, str(Run.pk) for background runs).
-    # Same semantics as the old ChatThread.active_run_id.
     active_run_id = models.CharField(max_length=64, null=True, blank=True, default=None)  # noqa: DJ001
 
-    # default (not auto_now_add) so the data migration can backfill historical values.
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     # Ordering + lock staleness. Bumped explicitly by the lock service and run creation
-    # (not auto_now: queryset .aupdate() paths must control it, as ChatThread did).
+    # (not auto_now: queryset .aupdate() paths must control it).
     last_active_at = models.DateTimeField(_("last active at"), default=timezone.now)
 
     objects = SessionManager()
@@ -261,9 +209,9 @@ class Session(models.Model):
         )
         return {self.merge_request_iid, *run_iids} - {None}
 
-    async def atouch(self) -> None:
-        """Bump ``last_active_at`` (queryset update; safe from async contexts)."""
-        await type(self).objects.filter(pk=self.pk).aupdate(last_active_at=timezone.now())
+    def touch(self) -> None:
+        """Bump ``last_active_at`` (a queryset update, so no other column is written)."""
+        type(self).objects.filter(pk=self.pk).update(last_active_at=timezone.now())
 
     def external_references(self) -> tuple[ExternalRef, ...]:
         """The stored refs as validated objects — the one route from this column into a run, so no
@@ -314,6 +262,7 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
     Shared by the same two paths as :func:`usage_field_updates`, for the same reason.
     """
     updates = {
+        "code_changes": result["code_changes"],
         "merge_request_iid": result["merge_request_id"],
         "merge_request_web_url": result["merge_request_web_url"],
     }
@@ -321,9 +270,7 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
 
 
 class Run(models.Model):
-    """One agent execution within a session. Successor of ``activity.Activity``;
-    UUIDs are preserved by the data migration so external job IDs keep resolving.
-    """
+    """One agent execution within a session."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="runs", verbose_name=_("session"))
@@ -360,7 +307,6 @@ class Run(models.Model):
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
     muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)  # null = inherit
-    mention_comment_id = models.CharField(_("mention comment ID"), max_length=255, blank=True, default="")
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
     sandbox_environment = models.ForeignKey(
@@ -389,7 +335,7 @@ class Run(models.Model):
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)
     finished_at = models.DateTimeField(_("finished at"), null=True, blank=True)
     # False only on pre-feature rows backfilled at deploy, so the classifier never retro-runs the
-    # backlog; every new run is eligible. Chat is excluded by origin (get_classify_origins), not this.
+    # backlog; every new run is eligible. Chat is excluded by origin (SessionOrigin.classified), not this.
     classify_eligible = models.BooleanField(_("classify eligible"), default=True)
 
     objects = RunManager()
@@ -445,12 +391,6 @@ class Run(models.Model):
         return False  # non-scheduled runs notify unless the run itself is muted
 
     @property
-    def is_retryable(self) -> bool:
-        return self.status in RunStatus.completed() and self.trigger_type not in (
-            SessionOrigin.webhooks() | {SessionOrigin.CHAT}
-        )
-
-    @property
     def duration(self) -> float | None:
         """Return the execution duration in seconds, or None if not finished."""
         if self.started_at and self.finished_at:
@@ -466,40 +406,23 @@ class Run(models.Model):
                 return parsed["response"]
         return self.result_summary
 
-    def mark_failed(self, prefix: str, err: Exception) -> list[str]:
-        """Set the terminal FAILED fields in-memory and return the ``update_fields`` list.
-
-        Centralizes the exact field set + ``started_at`` backfill shared by the
-        post-create failure paths (batch-submit enqueue/link failure in
-        ``sessions.services`` and the dispatcher in ``sessions.signals``). The caller
-        owns the save and the ``run_finished`` emit — this only mutates the instance.
-        """
-        now = timezone.now()
-        self.status = RunStatus.FAILED
-        self.error_message = f"{prefix}: {type(err).__name__}: {err}"
-        self.finished_at = now
-        if self.started_at is None:
-            self.started_at = now
-        return ["status", "error_message", "finished_at", "started_at"]
-
     def sync_and_save(self) -> bool:
         """Sync from the linked DBTaskResult and persist changed fields.
 
-        Returns True if any field was updated (and a save was issued), else False.
-        Emits ``run_finished`` when the status transitions to a terminal state.
+        Returns True if any field was updated (and a write was issued and landed), else False.
+        A transition to a terminal status is written by ``RunManager.finish``, which emits
+        ``run_finished``. No write lands on a row that already finished.
 
-        Raises whatever ``sync_from_task_result`` or ``self.save`` raise — callers running
+        Raises whatever ``sync_from_task_result`` or the write raise — callers running
         in long-lived loops (signal handlers, management commands) must catch.
         """
-        previous_status = self.status
         changed = self.sync_from_task_result()
         if not changed:
             return False
-        self.save(update_fields=changed)
-        from sessions.signals import emit_run_finished_if_terminal  # local import to avoid circular deps
-
-        emit_run_finished_if_terminal(self, previous_status=previous_status)
-        return True
+        fields = {name: getattr(self, name) for name in changed}
+        if fields.get("status") in RunStatus.terminal():
+            return type(self).objects.finish(self, fields.pop("status"), **fields)
+        return type(self).objects.update_unfinished(self, **fields)
 
     def sync_from_task_result(self) -> list[str]:
         """Pull latest status/timing/result from the linked DBTaskResult.
@@ -525,9 +448,6 @@ class Run(models.Model):
             if parsed["response"] and not self.result_summary:
                 self.result_summary = parsed["response"][:2000]
                 changed.append("result_summary")
-            if parsed["code_changes"] and not self.code_changes:
-                self.code_changes = True
-                changed.append("code_changes")
             for field, value in agent_result_field_updates(parsed).items():
                 if not getattr(self, field):
                     setattr(self, field, value)
@@ -548,97 +468,6 @@ class Run(models.Model):
             changed.append("error_message")
 
         return changed
-
-
-class RunEnvelope(models.Model):
-    """The structured classification of a completed scheduled ``Run``.
-
-    The sole store of a run's classification (``status`` / ``count`` / ``summary`` /
-    ``actionable[]``), OneToOne to its run. Read it via :meth:`RunEnvelopeManager.for_run`
-    (None-safe: returns ``None`` for a still-classifying run) or the ``run.envelope`` reverse
-    accessor (which raises ``DoesNotExist`` for a pending run). It is **not** a throughput/merge
-    record — that is ``codebase.MergeMetric`` (AD-10), which this model never touches.
-    """
-
-    run = models.OneToOneField(Run, on_delete=models.CASCADE, related_name="envelope", verbose_name=_("run"))
-    # No default: the classifier (Story 1.3) always sets a status; an unset value is invalid.
-    status = models.CharField(_("status"), max_length=16, choices=EnvelopeStatus.choices, db_index=True)
-    count = models.PositiveIntegerField(_("count"), default=0)
-    # The classifier's one-line gloss — distinct from ``Run.result_summary`` (the full
-    # agent-response fallback); do not conflate the two.
-    summary = models.TextField(_("summary"), blank=True, default="")
-    # The house list-JSON idiom (cf. ``codebase.topics``). The item contract lives in
-    # ``sessions.envelopes`` (enforced by ``clean()``); never store filterable state inside.
-    actionable = models.JSONField(_("actionable"), default=list, blank=True)
-    # Mirrors ``Run.created_at``; supports Feed freshness/ordering and leaves room for a later
-    # composite ``["status", "-created_at"]`` index without a rewrite.
-    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
-
-    objects = RunEnvelopeManager()
-
-    class Meta:
-        verbose_name = _("Run Envelope")
-        verbose_name_plural = _("Run Envelopes")
-        # ``-id`` tiebreaker keeps Feed ordering/pagination deterministic when envelopes
-        # share a ``created_at`` (cf. RunManager's ("-created_at", "-id") ordering).
-        ordering = ["-created_at", "-id"]
-        constraints = [
-            # DB-level enum enforcement (``choices=`` alone is not enforced, and
-            # ``.aupdate()``/raw writes bypass field validation). References
-            # ``EnvelopeStatus.values`` directly so the constraint cannot drift.
-            models.CheckConstraint(
-                condition=models.Q(status__in=EnvelopeStatus.values), name="run_envelope_status_valid"
-            )
-        ]
-
-    def __str__(self) -> str:
-        return f"Envelope({self.status}) for run {self.run_id}"
-
-    def save(self, *args, **kwargs):
-        """Keep ``count`` a derived mirror of ``len(actionable)``.
-
-        ``count`` is a queryable column (the Feed badge) but never an independently-authored value:
-        deriving it here means no writer — an admin edit, a data fix, a future second producer — can
-        persist a count that disagrees with the list. (The classifier task also sets it explicitly;
-        this makes the coherence structural rather than convention.)
-        """
-        self.count = len(self.actionable)
-        update_fields = kwargs.get("update_fields")
-        if update_fields is not None:
-            update_fields = set(update_fields)
-            if "actionable" in update_fields:
-                update_fields.add("count")
-                kwargs["update_fields"] = update_fields
-        super().save(*args, **kwargs)
-
-    def clean(self) -> None:
-        """Enforce the ``actionable[]`` contract and the FR-5 status<->actionable coherence invariant.
-
-        Defense-in-depth at the model boundary: the Story 1.3 classifier already guarantees these,
-        but ``full_clean()`` should independently reject an incoherent envelope so an admin edit, a
-        raw ``RunEnvelope(...)`` build, or a future second writer cannot persist one. Both directions
-        of the found-issues invariant are enforced here; ``count`` is kept coherent in ``save()``.
-        """
-        super().clean()
-        validate_actionable(self.actionable)
-        if self.status == EnvelopeStatus.FOUND_ISSUES and not self.actionable:
-            raise ValidationError({"actionable": "A found-issues envelope must list at least one actionable item."})
-        if self.status != EnvelopeStatus.FOUND_ISSUES and self.actionable:
-            raise ValidationError({"actionable": "Only a found-issues envelope may carry actionable items."})
-
-    @property
-    def offered_action(self) -> OfferedAction:
-        """The action the console offers for this envelope (the single mapping site, AC3/AC4)."""
-        if self.status == EnvelopeStatus.FOUND_ISSUES:
-            return OfferedAction.FIX if self.actionable else OfferedAction.NONE
-        # ``.get`` (not ``[]``) so an unset/pending in-memory envelope resolves to NONE
-        # rather than raising KeyError — persisted rows always have a constraint-valid status.
-        return _STATUS_OFFERED_ACTION.get(self.status, OfferedAction.NONE)
-
-    @property
-    def is_actionable(self) -> bool:
-        """Whether the console offers any action (Queue / Finding -> Fix gating)."""
-        return self.offered_action != OfferedAction.NONE
 
 
 def artifact_upload_to(instance: RunArtifact, filename: str, *, revision: str = "") -> str:

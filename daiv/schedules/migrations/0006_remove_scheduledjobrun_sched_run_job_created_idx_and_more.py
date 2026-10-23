@@ -4,7 +4,7 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-    dependencies = [("activity", "0002_migrate_scheduled_job_runs"), ("schedules", "0005_add_use_max_to_scheduledjob")]
+    dependencies = [("schedules", "0005_add_use_max_to_scheduledjob")]
 
     operations = [
         migrations.RemoveIndex(model_name="scheduledjobrun", name="sched_run_job_created_idx"),

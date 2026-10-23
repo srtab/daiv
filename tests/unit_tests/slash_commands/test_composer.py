@@ -1,28 +1,20 @@
 from __future__ import annotations
 
 import pytest
-from skills.models import GlobalSkill
-from skills.services import list_builtins
 
 from slash_commands.composer import composer_command_rows
+from tests.unit_tests.conftest import write_skill
 
 
 @pytest.fixture
-def builtin_skills_root(tmp_path, monkeypatch, request):
-    """Point ``list_builtins`` at a controlled tree: two skills so ordering is observable."""
-    builtin = tmp_path / "builtin_skills"
-    for name, description in (("zeta-skill", "last alphabetically"), ("alpha-skill", "first alphabetically")):
-        (builtin / name).mkdir(parents=True)
-        (builtin / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n# {name}\n")
-    monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
-    # list_builtins is lru_cached: clear before populating it against tmp_path, and
-    # register a teardown so later tests don't see entries from a deleted tmp dir.
-    list_builtins.cache_clear()
-    request.addfinalizer(list_builtins.cache_clear)
-    return builtin
+def custom_skills_root(skill_roots):
+    """Two built-ins so ordering is observable, and the empty custom root the test writes uploads into."""
+    builtin, custom = skill_roots
+    write_skill(builtin, "zeta-skill", "last alphabetically")
+    write_skill(builtin, "alpha-skill", "first alphabetically")
+    return custom
 
 
-@pytest.mark.django_db
 def test_global_commands_included_with_kind():
     commands = {row["name"]: row for row in composer_command_rows() if row["kind"] == "command"}
 
@@ -31,7 +23,6 @@ def test_global_commands_included_with_kind():
     assert commands["help"]["description"]
 
 
-@pytest.mark.django_db
 def test_issue_only_commands_excluded():
     """The chat runs at GLOBAL scope; commands registered only for issues/MRs must not
     be offered in the composer."""
@@ -41,19 +32,15 @@ def test_issue_only_commands_excluded():
     assert "clone-to-topics" not in names
 
 
-@pytest.mark.django_db
-def test_builtin_skills_included(builtin_skills_root):
+def test_builtin_skills_included(custom_skills_root):
     skills = {row["name"]: row for row in composer_command_rows() if row["kind"] == "skill"}
 
     assert skills["alpha-skill"]["description"] == "first alphabetically"
     assert skills["zeta-skill"]["description"] == "last alphabetically"
 
 
-@pytest.mark.django_db
-def test_global_skill_shadows_builtin(builtin_skills_root):
-    GlobalSkill.objects.create(
-        name="alpha-skill", description="custom override", size_bytes=1, file_count=1, checksum="x"
-    )
+def test_custom_skill_shadows_builtin(custom_skills_root):
+    write_skill(custom_skills_root, "alpha-skill", "custom override")
 
     rows = [row for row in composer_command_rows() if row["name"] == "alpha-skill"]
 
@@ -61,17 +48,15 @@ def test_global_skill_shadows_builtin(builtin_skills_root):
     assert rows[0]["description"] == "custom override"
 
 
-@pytest.mark.django_db
-def test_custom_skill_without_builtin_counterpart_included(builtin_skills_root):
-    GlobalSkill.objects.create(name="brand-new", description="uploaded", size_bytes=1, file_count=1, checksum="x")
+def test_custom_skill_without_builtin_counterpart_included(custom_skills_root):
+    write_skill(custom_skills_root, "brand-new", "uploaded")
 
     skills = {row["name"] for row in composer_command_rows() if row["kind"] == "skill"}
 
     assert "brand-new" in skills
 
 
-@pytest.mark.django_db
-def test_ordering_commands_first_then_skills_alphabetical(builtin_skills_root):
+def test_ordering_commands_first_then_skills_alphabetical(custom_skills_root):
     rows = composer_command_rows()
 
     kinds = [row["kind"] for row in rows]

@@ -2,10 +2,10 @@ from django.contrib.sitemaps import Sitemap
 from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path, reverse
 
+from dashboard.views import homepage
 from mcp_api.oauth import oauth_metadata
-from sessions.urls_legacy import legacy_activity_urlpatterns, legacy_chat_urlpatterns
+from notifications.views import UserChannelsView
 
-from accounts.views import homepage
 from core.views import HealthCheckView, VersionView
 from daiv.api import api
 
@@ -24,15 +24,13 @@ urlpatterns = [
     path("", homepage, name="homepage"),
     path("accounts/", include("accounts.urls.allauth")),
     path("accounts/api-keys/", include("accounts.urls.api_keys")),
-    path("accounts/channels/", include("accounts.urls.channels")),
+    path("accounts/channels/", UserChannelsView.as_view(), name="user_channels"),
     path("accounts/git-authorisation/", include("accounts.urls.credentials")),
     path("accounts/users/", include("accounts.urls.users")),
-    path("dashboard/", include("accounts.urls.dashboard")),
+    path("dashboard/", include("dashboard.urls")),
     path("dashboard/configuration/", include("configuration.urls")),
-    path("dashboard/activity/", include(legacy_activity_urlpatterns)),
     path("dashboard/sessions/", include("sessions.urls")),
     path("dashboard/artifacts/", include("sessions.urls_artifacts")),
-    path("dashboard/chat/", include(legacy_chat_urlpatterns)),
     path("dashboard/runs/", include("sessions.urls_runs", namespace="runs")),
     path("dashboard/notifications/", include("notifications.urls")),
     path("dashboard/sandbox-envs/", include("sandbox_envs.urls", namespace="sandbox_envs")),

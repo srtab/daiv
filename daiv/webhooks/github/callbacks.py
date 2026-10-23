@@ -1,30 +1,28 @@
 import logging
 from functools import cached_property
-from typing import Any, Literal
+from typing import Literal
 
-from asgiref.sync import sync_to_async
-from github.GithubException import GithubException
-from sandbox_envs.selection import resolve_env_for_run
-from sessions.models import SessionOrigin
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.service import PipelineWatch
-from sessions.services import acreate_run
 
-from accounts.utils import resolve_user
-from codebase.base import Scope
+from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.clients.github.client import github_conclusion_to_status
 from codebase.repo_config import RepositoryConfig
-from codebase.utils import compute_thread_id, note_mentions_daiv
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER
+from codebase.utils import note_mentions_daiv
+from core.constants import CROSS_PROJECT_CONTENT_MARKER, has_bot_label, has_max_label
 from webhooks.callbacks import BaseCallback
-from webhooks.tasks import address_issue_task, address_mr_comments_task
+from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
 from .models import Comment, Issue, Label, PullRequest, Repository, User, WorkflowRun  # noqa: TC001
 
 logger = logging.getLogger("daiv.webhooks")
+
+
+def _author(user: User) -> Author:
+    return Author(provider=GitPlatform.GITHUB, uid=user.id, username=user.username)
 
 
 class GitHubCallback(BaseCallback):
@@ -33,6 +31,14 @@ class GitHubCallback(BaseCallback):
     """
 
     repository: Repository
+
+    @cached_property
+    def _repo_config(self) -> RepositoryConfig:
+        return RepositoryConfig.get_config(self.repository.full_name)
+
+    @property
+    def _client(self) -> RepoClient:
+        return RepoClient.create_instance()
 
 
 class IssueCallback(GitHubCallback):
@@ -44,10 +50,6 @@ class IssueCallback(GitHubCallback):
     issue: Issue
     label: Label | None = None
     sender: User
-
-    def model_post_init(self, __context: Any):
-        self._repo_config = RepositoryConfig.get_config(self.repository.full_name)
-        self._client = RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         # Check basic conditions
@@ -84,53 +86,25 @@ class IssueCallback(GitHubCallback):
                 logger.warning("Labeled action received but no label field in payload")
                 return False
 
-            daiv_labels = {BOT_LABEL.lower(), BOT_AUTO_LABEL.lower(), BOT_MAX_LABEL.lower()}
-            if self.label.name.lower() not in daiv_labels:
+            if not has_bot_label([self.label.name]):
                 logger.debug("Label %s is not a DAIV label, ignoring", self.label.name)
                 return False
 
         # For opened/reopened, check if issue has DAIV label
-        elif not self.issue.is_daiv():
+        elif not has_bot_label(self.issue.label_names):
             return False
 
         return True
 
     async def process_callback(self):
-        try:
-            self._client.create_issue_emoji(self.repository.full_name, self.issue.number, Emoji.EYES)
-        except GithubException, OSError:
-            logger.exception("Failed to add reaction to issue %s#%s", self.repository.full_name, self.issue.number)
-        thread_id = compute_thread_id(
-            repo_slug=self.repository.full_name, scope=Scope.ISSUE, entity_iid=self.issue.number
-        )
-        # user=None: the webhook fires for whoever touched the issue/PR, not the agent owner, so USER envs never apply.
-        sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
-        sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
-        use_max = self.issue.has_max_label()
-        result = await address_issue_task.aenqueue(
+        await dispatch_issue_run(
+            client=self._client,
             repo_id=self.repository.full_name,
             issue_iid=self.issue.number,
-            thread_id=thread_id,
-            sandbox_environment_id=sandbox_environment_id,
-            acting_platform_uid=str(self.sender.id),
-            use_max=use_max,
+            title=self.issue.title,
+            use_max=has_max_label(self.issue.label_names),
+            author=_author(self.sender),
         )
-        daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
-        try:
-            await acreate_run(
-                trigger_type=SessionOrigin.ISSUE_WEBHOOK,
-                task_result_id=result.id,
-                repo_id=self.repository.full_name,
-                issue_iid=self.issue.number,
-                use_max=use_max,
-                user=daiv_user,
-                external_username=self.sender.username,
-                title=self.issue.title,
-                thread_id=thread_id,
-                sandbox_environment_id=sandbox_environment_id,
-            )
-        except Exception:
-            logger.exception("Failed to create run for issue %s#%s", self.repository.full_name, self.issue.number)
 
 
 class IssueCommentCallback(GitHubCallback):
@@ -141,10 +115,6 @@ class IssueCommentCallback(GitHubCallback):
     action: Literal["created", "edited", "deleted"]
     issue: Issue
     comment: Comment
-
-    def model_post_init(self, __context: Any):
-        self._repo_config = RepositoryConfig.get_config(self.repository.full_name)
-        self._client = RepoClient.create_instance()
 
     def accept_callback(self) -> bool:
         """
@@ -174,100 +144,28 @@ class IssueCommentCallback(GitHubCallback):
         """
         Trigger the task to address the review feedback or issue comment like the plan approval use case.
         """
-        daiv_user = await resolve_user("github", self.comment.user.id, username=self.comment.user.username)
-
+        mention = Mention(note_id=self.comment.id, comment_id=str(self.comment.id))
         if self._is_issue_comment:
-            try:
-                self._client.create_issue_emoji(
-                    self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id
-                )
-            except GithubException, OSError:
-                logger.exception("Failed to add reaction to issue comment %s", self.comment.id)
-            thread_id = compute_thread_id(
-                repo_slug=self.repository.full_name, scope=Scope.ISSUE, entity_iid=self.issue.number
-            )
-            sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
-            sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
-            use_max = self.issue.has_max_label()
-            result = await address_issue_task.aenqueue(
+            await dispatch_issue_run(
+                client=self._client,
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
-                mention_comment_id=str(self.comment.id),
-                thread_id=thread_id,
-                sandbox_environment_id=sandbox_environment_id,
-                acting_platform_uid=str(self.comment.user.id),
-                use_max=use_max,
+                title=self.issue.title,
+                use_max=has_max_label(self.issue.label_names),
+                author=_author(self.comment.user),
+                mention=mention,
             )
-            try:
-                await acreate_run(
-                    trigger_type=SessionOrigin.ISSUE_WEBHOOK,
-                    task_result_id=result.id,
-                    repo_id=self.repository.full_name,
-                    issue_iid=self.issue.number,
-                    mention_comment_id=str(self.comment.id),
-                    use_max=use_max,
-                    user=daiv_user,
-                    external_username=self.comment.user.username,
-                    title=self.issue.title,
-                    thread_id=thread_id,
-                    sandbox_environment_id=sandbox_environment_id,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to create run for issue comment %s#%s", self.repository.full_name, self.issue.number
-                )
-
         elif self._is_merge_request_review:
-            try:
-                self._client.create_merge_request_note_emoji(
-                    self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id
-                )
-            except GithubException, OSError:
-                logger.exception("Failed to add reaction to PR comment %s", self.comment.id)
-            thread_id = compute_thread_id(
-                repo_slug=self.repository.full_name, scope=Scope.MERGE_REQUEST, entity_iid=self.issue.number
-            )
-            sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
-            sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
-            use_max = self.issue.has_max_label()
-            result = await address_mr_comments_task.aenqueue(
+            await dispatch_mr_comment_run(
+                client=self._client,
                 repo_id=self.repository.full_name,
-                merge_request_id=self.issue.number,
-                mention_comment_id=str(self.comment.id),
-                thread_id=thread_id,
-                sandbox_environment_id=sandbox_environment_id,
-                acting_platform_uid=str(self.comment.user.id),
-                use_max=use_max,
+                merge_request_iid=self.issue.number,
+                ref=None,
+                title=self.issue.title,
+                use_max=has_max_label(self.issue.label_names),
+                author=_author(self.comment.user),
+                mention=mention,
             )
-            # GitHub's issue_comment payload omits head.ref, so fetch the PR. If that
-            # fails the activity is still useful without a branch — don't drop it.
-            source_branch = ""
-            try:
-                pr = await sync_to_async(self._client.get_merge_request)(self.repository.full_name, self.issue.number)
-                source_branch = pr.source_branch
-            except Exception:
-                logger.exception(
-                    "Failed to resolve source branch for PR comment %s#%s", self.repository.full_name, self.issue.number
-                )
-            try:
-                await acreate_run(
-                    trigger_type=SessionOrigin.MR_WEBHOOK,
-                    task_result_id=result.id,
-                    repo_id=self.repository.full_name,
-                    ref=source_branch,
-                    merge_request_iid=self.issue.number,
-                    mention_comment_id=str(self.comment.id),
-                    use_max=use_max,
-                    user=daiv_user,
-                    external_username=self.comment.user.username,
-                    title=self.issue.title,
-                    thread_id=thread_id,
-                    sandbox_environment_id=sandbox_environment_id,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to create run for PR comment %s#%s", self.repository.full_name, self.issue.number
-                )
 
     @property
     def _is_merge_request_review(self) -> bool:
@@ -361,10 +259,6 @@ class WorkflowRunCallback(GitHubCallback):
 
     action: str
     workflow_run: WorkflowRun
-
-    @cached_property
-    def _repo_config(self) -> RepositoryConfig:
-        return RepositoryConfig.get_config(self.repository.full_name)
 
     def accept_callback(self) -> bool:
         """Accept finished workflow runs on repos with the watch enabled.

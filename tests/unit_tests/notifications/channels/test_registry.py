@@ -1,6 +1,6 @@
 import pytest
 from notifications.channels.base import NotificationChannel
-from notifications.channels.registry import all_channels, get_channel, register_channel
+from notifications.channels.registry import get_channel, register_channel
 from notifications.exceptions import UnknownChannelError
 
 
@@ -41,7 +41,3 @@ class TestRegistry:
         with pytest.raises(UnknownChannelError) as exc_info:
             get_channel("does-not-exist")
         assert exc_info.value.channel_type == "does-not-exist"
-
-    def test_all_channels_lists_registered(self):
-        register_channel(_DummyChannel)
-        assert _DummyChannel in all_channels()

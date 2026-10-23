@@ -6,9 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from sessions.executor.lock import NoLock, SessionLockTimeoutError
+from sessions.executor.lock import NoLock, SessionLock, SessionLockTimeoutError
 from sessions.executor.run import CrossProjectSessionRefusedError
-from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
 from sessions.services import acreate_run
 from webhooks.managers.base import BaseManager
@@ -57,8 +56,8 @@ def _ctx() -> SimpleNamespace:
 
 @pytest.fixture
 def mention(captured_client):
-    captured_client.get_merge_request_comment.return_value = SimpleNamespace(
-        notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please fix")]
+    captured_client.get_merge_request_note.return_value = SimpleNamespace(
+        author=SimpleNamespace(username="bob"), id=11, body="please fix"
     )
     return captured_client
 
@@ -72,7 +71,17 @@ async def _review_session(thread_id: str, **fields) -> Session:
 async def _address(**kwargs):
     """``address_comments`` for mention ``c-1`` on MR 99 of ``owner/repo``; ``kwargs`` override."""
     return await CommentsAddressorManager.address_comments(
-        **({"repo_id": "owner/repo", "merge_request": _merge_request(), "mention_comment_id": "c-1"} | kwargs)
+        **(
+            {
+                "repo_id": "owner/repo",
+                "merge_request": _merge_request(),
+                "mention_comment_id": "c-1",
+                "mention_note_id": 11,
+                "thread_id": "t-mr",
+                "use_max": False,
+            }
+            | kwargs
+        )
     )
 
 
@@ -182,13 +191,37 @@ class TestReviewAfterRunMatrix:
         )
         assert reply.kwargs["reply_to_id"] == "c-1"
 
+    async def test_a_mention_run_answers_the_note_it_was_started_for(self, captured_client):
+        captured_client.get_merge_request_note.return_value = SimpleNamespace(
+            author=SimpleNamespace(username="carol"), id=12, body="@daiv-bot add it"
+        )
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address(mention_note_id=12)
+
+        captured_client.get_merge_request_note.assert_called_once_with("owner/repo", 99, 12)
+        [prompt_message] = agent.ainvoke.await_args.args[0]["messages"]
+        assert (prompt_message.name, prompt_message.content) == ("carol", "@daiv-bot add it")
+
+    async def test_a_mention_without_a_note_id_says_it_is_unable_and_raises(self, mention):
+        with addressor_run(addressor_agent(), ctx=_ctx()) as run, pytest.raises(ValueError, match="mention_note_id"):
+            await _address(mention_note_id=None)
+
+        run.create_agent.assert_not_awaited()
+        [note] = mention.create_merge_request_comment.call_args_list
+        assert _UNABLE in note.args[2]
+
     async def test_a_question_on_github_is_not_threaded(self, mention):
         mention.git_platform = GitPlatform.GITHUB
+        mention.get_merge_request_note.return_value = SimpleNamespace(
+            author=SimpleNamespace(username="bob"), id=7, body="please fix"
+        )
         messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
         agent = addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
 
         with addressor_run(agent, ctx=_ctx()):
-            await _address()
+            await _address(mention_comment_id="7", mention_note_id=7)
 
         [reply] = mention.create_merge_request_comment.call_args_list
         assert reply.kwargs["reply_to_id"] is None
@@ -208,6 +241,7 @@ class TestReviewAfterRunMatrix:
             "thread_id": session.thread_id,
             "workspace": run.create_agent.await_args.kwargs["workspace"],
             "settings": run.resolve.return_value,
+            "session_links": run.create_agent.await_args.kwargs["session_links"],
         }
         [note] = mention.create_merge_request_comment.call_args_list
         assert "committed the changes done so far" in note.args[2]
@@ -299,7 +333,7 @@ class TestReviewAfterRunMatrix:
 
         with (
             addressor_run(addressor_agent(), real_lock=True) as run,
-            patch("webhooks.managers.base.LOCK_WAIT_TIMEOUT_S", 0.05),
+            patch("sessions.executor.lock.LOCK_WAIT_TIMEOUT_S", 0.05),
             patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
             pytest.raises(SessionLockTimeoutError),
         ):
@@ -341,14 +375,13 @@ async def test_a_daiv_max_comment_runs_on_the_max_model_it_stamped(mention):
             repo_id="owner/repo",
             ref="feature",
             merge_request_iid=99,
-            use_max=True,
+            agent_model="site-max",
+            agent_thinking_level="high",
             thread_id=thread_id,
         )
-        stamped = (run.agent_model, run.agent_thinking_level)
         with addressor_run(agent, ctx=_ctx(), resolve=resolve_agent_settings, site=site_snapshot(**site)) as stack:
             await _address(thread_id=thread_id, run_id=str(run.pk), use_max=True)
 
     await run.arefresh_from_db()
-    assert stamped == ("site-max", "high")
     assert stack.create_agent.await_args.kwargs["settings"].agent.names[0] == "site-max"
     assert (run.agent_model, run.agent_thinking_level) == ("site-max", "high")

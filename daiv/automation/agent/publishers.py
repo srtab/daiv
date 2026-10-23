@@ -2,37 +2,34 @@ from __future__ import annotations
 
 import logging
 import re
-from abc import abstractmethod
 from dataclasses import dataclass
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlencode
 
 from django.template.loader import render_to_string
-from django.urls import reverse
 
 from asgiref.sync import sync_to_async
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
+from automation.agent.references import render_agent_context, render_commit_trailers, render_references_block
 from automation.agent.utils import build_langsmith_config, repo_relative_text
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
-from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
-from codebase.references import render_agent_context, render_commit_trailers, render_references_block
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
-from core.utils import build_absolute_url
 
 from .diff_to_metadata.graph import create_diff_to_metadata_graph
 from .diff_to_metadata.prompts import sanitize_agent_report
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from automation.agent.agent_settings import AgentSettings
-    from automation.agent.git_manager import PendingMerge
+    from automation.agent.context import RuntimeCtx
+    from automation.agent.session_links import SessionLinks, SessionLinksResolver
     from automation.agent.workspace.base import Workspace
-    from codebase.context import RuntimeCtx
+    from automation.agent.workspace.git_manager import PendingMerge
 
 
 logger = logging.getLogger("daiv.tools")
@@ -54,51 +51,6 @@ class UnresolvedMergeConflictsError(RuntimeError):
             f"The merge still has conflict markers in {', '.join(paths)}; nothing was committed or pushed. "
             "The merge stays in progress in the run's workspace."
         )
-
-
-def checkpointed_merge_request(state: Mapping[str, Any], *, strict: bool) -> MergeRequest | None:
-    """Read ``state["merge_request"]``, rejecting a value that didn't revive to a ``MergeRequest``.
-
-    ``DAIVRedisSerializer`` hands back the raw ``lc:2`` envelope ``dict`` when reconstruction fails
-    (a schema drift across a deploy), and downstream ``mr.source_branch`` would then raise far from
-    the cause. ``strict`` picks the policy: raise where the run can still be failed cleanly, or
-    degrade to ``None`` on a last-chance path whose own catch-all would swallow the error and
-    discard the work it exists to save.
-    """
-    merge_request = state.get("merge_request")
-    if merge_request is None or isinstance(merge_request, MergeRequest):
-        return merge_request
-    logger.error(
-        "Checkpointed merge_request revived as %s, not a MergeRequest — likely a stale checkpoint "
-        "after a MergeRequest schema change.",
-        type(merge_request).__name__,
-    )
-    if strict:
-        raise TypeError(f"Checkpointed merge_request revived as {type(merge_request).__name__}, expected MergeRequest")
-    return None
-
-
-def effective_merge_request(
-    *, context_mr: MergeRequest | None, state_mr: MergeRequest | None, current_ref: str
-) -> MergeRequest | None:
-    """The MR a run may advertise in its prompt and add commits onto, or ``None`` for a fresh one.
-
-    Prefer the context MR (MR-scope runs), then the checkpointed one while its ``source_branch`` is
-    still the checked-out ref. Publishing onto a branch this workspace is not on pushes a sibling of
-    that branch's tip, and the rejected push rebases into a conflict that discards the turn's work —
-    so a redundant MR is the cheap failure here and a stale publish target the expensive one.
-
-    ``current_ref`` is the ref the *clone* is on — whether this workspace's history descends from
-    the MR's branch — not where in-sandbox git points, which the sandbox policy keeps the agent from switching.
-
-    Every caller that hands a ``merge_request`` to :meth:`GitChangePublisher.publish` resolves it
-    through this, the post-error draft recovery included.
-    """
-    if context_mr is not None:
-        return context_mr
-    if state_mr is not None and state_mr.source_branch == current_ref:
-        return state_mr
-    return None
 
 
 def run_base_branch(ctx: RuntimeCtx) -> str:
@@ -151,29 +103,27 @@ class PublishOutcome:
     prepared answers zero."""
 
 
-class ChangePublisher:
+class GitChangePublisher:
     """
-    Publisher for changes made by the agent.
+    Publisher for changes made by the agent to the Git repository.
+
+    ``session_links`` builds the links a publish puts in the commit and the merge request, only once it has something
+    to push; ``None`` when the run has no session to link, or links are off.
     """
 
-    def __init__(self, ctx: RuntimeCtx, workspace: Workspace, *, settings: AgentSettings, thread_id: str | None = None):
+    def __init__(
+        self,
+        ctx: RuntimeCtx,
+        workspace: Workspace,
+        *,
+        settings: AgentSettings,
+        session_links: SessionLinksResolver | None,
+    ):
         self.ctx = ctx
         self.workspace = workspace
         self.settings = settings
-        self.client = RepoClient.create_instance()
-        self.thread_id = thread_id
-
-    @abstractmethod
-    async def publish(self, **kwargs) -> Any:
-        """
-        Publish the changes.
-        """
-
-
-class GitChangePublisher(ChangePublisher):
-    """
-    Publisher for changes made by the agent to the Git repository.
-    """
+        self.client = ctx.repo.client
+        self.session_links = session_links
 
     async def publish(
         self,
@@ -182,7 +132,6 @@ class GitChangePublisher(ChangePublisher):
         skip_ci: bool = False,
         as_draft: bool = False,
         agent_summary: str | None = None,
-        **kwargs,
     ) -> PublishOutcome:
         """
         Daiv-direct publish: ensure the run's changes reach a merge request.
@@ -248,6 +197,8 @@ class GitChangePublisher(ChangePublisher):
             logger.info("No changes to open a merge request with.")
             return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
 
+        links = await self.session_links() if self.session_links else None
+
         pr_metadata_diff = (
             snapshot.diff if merge_request is None or (merge_request.draft and as_draft is False) else None
         )
@@ -268,7 +219,7 @@ class GitChangePublisher(ChangePublisher):
             )
             if skip_ci:
                 commit_message = f"[skip ci] {commit_message}"
-            await git_manager.commit_all(await self._with_trailers(commit_message))
+            await git_manager.commit_all(self._with_trailers(commit_message, links))
 
         if merge_request is None:
             branch_name = git_manager.unique_branch_name(
@@ -316,6 +267,7 @@ class GitChangePublisher(ChangePublisher):
                     target_branch=self._live_target_branch(base_branch, snapshot.remote_branches, default_branch),
                     as_draft=as_draft,
                     fallback_from_mr=fallback_from_mr,
+                    session_links=links,
                 )
             except MergeRequestBranchNotVisibleError:
                 # Branch is pushed but GitLab won't open the MR yet; failing here would orphan the work
@@ -544,6 +496,7 @@ class GitChangePublisher(ChangePublisher):
         target_branch: str,
         as_draft: bool = False,
         fallback_from_mr: MergeRequest | None = None,
+        session_links: SessionLinks | None = None,
     ) -> MergeRequest:
         """
         Update or create the merge request.
@@ -557,6 +510,7 @@ class GitChangePublisher(ChangePublisher):
             as_draft: Whether to create the merge request as a draft.
             fallback_from_mr: The original MR whose protected source branch forced this fresh MR;
                 the description back-links to it so reviewers can trace the relationship.
+            session_links: The session links; the description links to the session's merge request page.
 
         Returns:
             The merge request.
@@ -582,7 +536,7 @@ class GitChangePublisher(ChangePublisher):
                     "bot_username": self.ctx.bot_username,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
                     "fallback_from_mr": fallback_from_mr,
-                    "session_url": await self._session_link("session_merge_request"),
+                    "session_url": session_links.merge_request if session_links else None,
                 },
             ),
         )
@@ -625,24 +579,7 @@ class GitChangePublisher(ChangePublisher):
             )
         return assignee_id
 
-    async def _session_link(self, route: str) -> str | None:
-        """Absolute URL of ``route`` for the producing session, or None when unavailable.
-
-        This runs before the commit, so every failure degrades to no link: losing a cosmetic
-        link is always preferable to losing the run's work.
-        """
-        if not self.thread_id or not self.settings.features.session_link:
-            return None
-
-        try:
-            return await sync_to_async(build_absolute_url)(reverse(route, kwargs={"thread_id": self.thread_id}))
-        except Exception:
-            logger.warning(
-                "Could not build a session link for thread_id %r; publishing without it", self.thread_id, exc_info=True
-            )
-            return None
-
-    async def _with_trailers(self, commit_message: str) -> str:
+    def _with_trailers(self, commit_message: str, session_links: SessionLinks | None) -> str:
         """Append reference trailers and the session trailer to ``commit_message``.
 
         Reference lines come first so the session trailer — the only line needing git-trailer
@@ -651,9 +588,8 @@ class GitChangePublisher(ChangePublisher):
         message = commit_message
         for line in render_commit_trailers(self.ctx.references):
             message = append_trailer(message, line)
-        session_url = await self._session_link("session_detail")
-        if session_url:
-            message = append_trailer(message, f"{SESSION_TRAILER}: {session_url}")
+        if session_links:
+            message = append_trailer(message, f"{SESSION_TRAILER}: {session_links.detail}")
         return message
 
     async def _suggest_context_file(self, merge_request: MergeRequest) -> None:

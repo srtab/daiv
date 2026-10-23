@@ -12,17 +12,6 @@ from codebase.base import MergeRequestCommit, MergeRequestDiffStats
 from codebase.conf import settings as codebase_settings
 from codebase.models import CrossProjectAccessRecord
 
-
-async def test_setup_webhooks_cron_task_calls_command():
-    if not hasattr(codebase_tasks, "setup_webhooks_cron_task"):
-        pytest.skip("setup_webhooks_cron_task is only defined for the GitLab client")
-
-    with patch("codebase.tasks.call_command") as mock_call_command, patch("codebase.tasks.settings.DEBUG", True):
-        await codebase_tasks.setup_webhooks_cron_task.aenqueue()
-
-    mock_call_command.assert_called_once_with("setup_webhooks", disable_ssl_verification=True)
-
-
 _TASK_DEFAULTS = {
     "repo_id": "owner/repo",
     "merge_request_iid": 42,

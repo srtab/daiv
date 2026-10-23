@@ -11,12 +11,11 @@ from django.db.models import Q
 
 from asgiref.sync import async_to_sync, sync_to_async
 
-from codebase.authorization import aassert_can_run
-from codebase.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
-from sessions.executor.tasks import run_job_task
+from automation.agent.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
+from sessions.admission import aassert_repo_access
 from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.queue import aenqueue_run, amark_failed_and_advance
 from sessions.repo_state import mr_to_payload
-from sessions.signals import LINK_FAILED_PREFIX, emit_run_finished_if_terminal
 from sessions.tasks import generate_batch_title_task
 from sessions.validators import MAX_REPOS_PER_BATCH
 
@@ -25,13 +24,11 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from accounts.models import User
+    from automation.agent.references import RefIn
     from codebase.base import MergeRequest
-    from codebase.references import RefIn
     from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.sessions")
-
-TASK_RUN_LOOKUP_DELAYS_S = (0.5, 1.0, 2.0)
 
 
 @dataclass(frozen=True)
@@ -62,7 +59,7 @@ def _validate(repos: list[RepoTarget]) -> None:
         raise ValueError(f"repos exceeds the maximum of {MAX_REPOS_PER_BATCH}")
 
 
-async def aget_or_create_session(
+def get_or_create_session(
     *,
     thread_id: str,
     origin: str,
@@ -75,7 +72,6 @@ async def aget_or_create_session(
     agent_thinking_level: str = "",
     sandbox_environment_id: str | None = None,
     scheduled_job=None,
-    issue_iid: int | None = None,
     merge_request_iid: int | None = None,
     mcp_overrides: dict | None = None,
 ) -> Session:
@@ -84,7 +80,7 @@ async def aget_or_create_session(
     continued via API keeps origin=issue_webhook). External refs never land here —
     :func:`_amerge_session_refs` writes them only after a run row exists.
     """
-    session, created = await Session.objects.aget_or_create(
+    session, created = Session.objects.get_or_create(
         thread_id=thread_id,
         defaults={
             "origin": origin,
@@ -97,13 +93,12 @@ async def aget_or_create_session(
             "agent_thinking_level": agent_thinking_level,
             "sandbox_environment_id": sandbox_environment_id,
             "scheduled_job": scheduled_job,
-            "issue_iid": issue_iid,
             "merge_request_iid": merge_request_iid,
             "mcp_overrides": mcp_overrides or {},
         },
     )
     if not created:
-        await session.atouch()
+        session.touch()
     return session
 
 
@@ -161,16 +156,10 @@ async def aget_session_ref(*, thread_id: str) -> str:
 async def aget_task_run_id(task_result_id: uuid.UUID | str) -> str | None:
     """The id of the ``Run`` linked to a task result, or ``None`` when none is.
 
-    A webhook callback creates the Run only after enqueueing its task, so a worker that claims the task in
-    between finds no row yet; the lookup waits a few seconds for it before giving up.
+    A webhook callback commits the Run with its task (see ``webhooks.dispatch``), so a worker that sees the task
+    sees its Run too.
     """
-    lookup = Run.objects.filter(task_result_id=task_result_id).values_list("pk", flat=True)
-    run_id = await lookup.afirst()
-    for delay in TASK_RUN_LOOKUP_DELAYS_S:
-        if run_id is not None:
-            break
-        await asyncio.sleep(delay)
-        run_id = await lookup.afirst()
+    run_id = await Run.objects.filter(task_result_id=task_result_id).values_list("pk", flat=True).afirst()
     if run_id is None:
         logger.warning("No run is linked to task result %s; running without one", task_result_id)
         return None
@@ -186,19 +175,16 @@ async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
     await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
 
 
-async def acreate_run(
+def create_run(
     *,
     trigger_type: str,
-    task_result_id: uuid.UUID | None,
+    task_result_id: uuid.UUID | str | None,
     repo_id: str,
     ref: str = "",
     prompt: str = "",
     agent_model: str = "",
     agent_thinking_level: str = "",
-    use_max: bool = False,
-    issue_iid: int | None = None,
     merge_request_iid: int | None = None,
-    mention_comment_id: str = "",
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
@@ -210,19 +196,9 @@ async def acreate_run(
     status: str = RunStatus.READY,
     mcp_overrides: dict | None = None,
 ) -> Run:
-    """Async: create a Session (idempotent) then a Run linked to it.
-
-    ``use_max=True`` pins the site-configured max agent model/thinking level (used by
-    the ``daiv-max`` webhook label) unless an explicit ``agent_model`` was supplied.
-    """
-    if use_max and not agent_model:
-        from core.site_settings import site_settings
-
-        agent_model = site_settings.agent_max_model_name
-        agent_thinking_level = site_settings.agent_max_thinking_level
-    effective_thread_id = thread_id or str(uuid.uuid4())
-    session = await aget_or_create_session(
-        thread_id=effective_thread_id,
+    """Create a Session (idempotent) then a Run linked to it."""
+    session = get_or_create_session(
+        thread_id=thread_id or str(uuid.uuid4()),
         origin=trigger_type,
         repo_id=repo_id,
         ref=ref,
@@ -233,11 +209,10 @@ async def acreate_run(
         agent_thinking_level=agent_thinking_level,
         sandbox_environment_id=sandbox_environment_id,
         scheduled_job=scheduled_job,
-        issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
         mcp_overrides=mcp_overrides,
     )
-    return await Run.objects.acreate(
+    return Run.objects.create(
         session=session,
         trigger_type=trigger_type,
         status=status,
@@ -254,40 +229,10 @@ async def acreate_run(
         title=title[: Run._meta.get_field("title").max_length],
         sandbox_environment_id=sandbox_environment_id,
         merge_request_iid=merge_request_iid,
-        mention_comment_id=mention_comment_id,
     )
 
 
-async def amark_failed_and_advance(
-    run: Run, *, prefix: str, err: Exception, previous_status: str, log_context: str = "submit_batch_runs"
-) -> None:
-    """Transition a row to FAILED with finished_at and emit ``run_finished``.
-
-    Does NOT touch ``Session.active_run_id`` (that is ``SessionLock``'s job); the
-    "advance" is emitting ``run_finished`` so any QUEUED siblings on the session
-    get dispatched. Used by every post-create error path (enqueue or task-result-id-link
-    failure); pass ``log_context`` so the log names the caller, not this module's first
-    one. The emit is best-effort — if it raises, we log
-    loudly and recommend the operator run ``release_orphan_queued_sessions`` to
-    recover stranded siblings.
-    """
-    update_fields = run.mark_failed(prefix, err)
-    try:
-        await run.asave(update_fields=update_fields)
-    except Exception:
-        # Best-effort: on a failed save the row may be left non-terminal (still READY)
-        # while we still emit below to advance siblings. release_orphan_queued_sessions
-        # reconciles any row stranded this way.
-        logger.exception("%s: terminal save failed for run=%s", log_context, run.pk)
-    try:
-        await asyncio.to_thread(emit_run_finished_if_terminal, run, previous_status=previous_status)
-    except Exception:
-        logger.exception(
-            "%s: emit_run_finished_if_terminal failed for run=%s; "
-            "queued siblings on this session may be stranded — run release_orphan_queued_sessions",
-            log_context,
-            run.pk,
-        )
+acreate_run = sync_to_async(create_run)
 
 
 async def asubmit_batch_runs(
@@ -310,14 +255,14 @@ async def asubmit_batch_runs(
     Each ``RepoTarget`` carries its own ``sandbox_environment_id`` (resolved upstream by
     :func:`sandbox_envs.selection.aresolve_repo_envs` or its sync wrapper), so the batch can mix per-repo envs.
 
-    Best-effort: any per-repo exception (enqueue failure or post-enqueue run-creation
-    failure) lands in ``result.failed`` while siblings continue.
+    Best-effort: a per-repo failure (run creation, refs merge, enqueue or link) lands in
+    ``result.failed`` while siblings continue.
     """
     _validate(repos)
     if user is not None:
         # Gate only when a user is attached. All current callers supply one; the None branch
         # is a defensive allowance for future internal callers with no user context.
-        await aassert_can_run(user, [target.repo_id for target in repos])
+        await aassert_repo_access(user, [target.repo_id for target in repos])
     if thread_id is not None:
         if not thread_id:
             raise ValueError("thread_id must be a non-empty UUID string")
@@ -390,53 +335,16 @@ async def asubmit_batch_runs(
                 # A READY row left behind would hold the one-active-per-session claim forever
                 # (never enqueued → run_finished never fires → siblings stay QUEUED).
                 logger.exception("submit_batch_runs: session ref merge failed for repo_id=%s", target.repo_id)
-                await amark_failed_and_advance(run, prefix="refs_merge_failed", err=err, previous_status=run.status)
-                return BatchSubmitFailure(
-                    repo_id=target.repo_id, ref=target.ref, error=f"RefsMergeFailed: {type(err).__name__}: {err}"
+                await amark_failed_and_advance(
+                    run, prefix="refs_merge_failed", err=err, log_context="submit_batch_runs"
                 )
+                return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
 
         if run.status == RunStatus.QUEUED:
             return run
 
-        try:
-            task = await run_job_task.aenqueue(
-                repo_id=target.repo_id,
-                prompt=prompt,
-                ref=target.ref or None,
-                agent_model=agent_model or None,
-                agent_thinking_level=agent_thinking_level or None,
-                thread_id=effective_thread_id,
-                sandbox_environment_id=target.sandbox_environment_id,
-                run_id=str(run.pk),
-                user_id=user.id if user is not None else None,
-                acting_user_authenticated=trigger_type in SessionOrigin.daiv_authenticated(),
-                ask_user_enabled=trigger_type not in SessionOrigin.unattended(),
-            )
-        except Exception as err:  # noqa: BLE001
-            logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
-            await amark_failed_and_advance(run, prefix="enqueue_failed", err=err, previous_status=RunStatus.READY)
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
-
-        try:
-            run.task_result_id = task.id
-            await run.asave(update_fields=["task_result_id"])
-        except Exception as save_err:
-            # The broker now holds a task this Run row doesn't link to.
-            # Mark the row FAILED so callers see the failure and queued siblings advance;
-            # the orphan task itself will execute and ``_sync_run_for_task`` will no-op
-            # (no Run with that task_result_id).
-            logger.exception(
-                "submit_batch_runs: failed to link task_result_id=%s to run=%s (orphan task will run)", task.id, run.pk
-            )
-            # Surface in error_message that the agent may run to completion (push a
-            # commit / open an MR) while this row shows FAILED — the work is real but
-            # uncapturable because nothing links back to it.
-            await amark_failed_and_advance(
-                run, prefix=LINK_FAILED_PREFIX, err=save_err, previous_status=RunStatus.READY
-            )
-            return BatchSubmitFailure(
-                repo_id=target.repo_id, ref=target.ref, error=f"LinkFailed: {type(save_err).__name__}: {save_err}"
-            )
+        if await aenqueue_run(run, log_context="submit_batch_runs") is not None:
+            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
         return run
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the

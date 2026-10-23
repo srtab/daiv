@@ -30,17 +30,17 @@ from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context
 
-from accounts.mixins import Breadcrumb, BreadcrumbMixin
-from automation.agent.picker_context import agent_picker_context
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
+from automation.picker.context import agent_picker_context
+from codebase.authorization import can_run
+from core.mixins import Breadcrumb, BreadcrumbMixin
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
-from schedules.models import ScheduledJob
+from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
+from sessions.executor.lock import live_run_for, session_in_flight
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
-from sessions.locks import stale_cutoff
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
@@ -166,6 +166,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
                         "merge_request_iid",
                         "merge_request_web_url",
                         "cost_usd",
+                        "agent_model",
                         "created_at",
                     ).order_by("-created_at", "-id"),
                 )
@@ -207,11 +208,10 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["statuses"] = RunStatus.choices
         context["ranges"] = RANGE_CHOICES
 
-        # Resolve schedule name for the filter-bar chip. Only the full page renders the
-        # filter bar, so skip this extra query on the HTMX results-fragment path.
-        if not is_htmx(self.request) and (schedule_id := context["current_schedule"]):
-            schedule = ScheduledJob.objects.filter(pk=schedule_id).values_list("name", flat=True).first()
-            context["schedule_name"] = schedule or ""
+        # The page rows are already scoped to this user and the schedule, so they name the chip.
+        if context["current_schedule"]:
+            first = next(iter(context["sessions"]), None)
+            context["schedule_name"] = first.scheduled_job.name if first else ""
 
         # In-flight RUN ids across the page's sessions, for the SSE status stream.
         page_ids = [s.pk for s in context["sessions"]]
@@ -307,8 +307,9 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "watch_only": False,
                 "awaiting_transcript": False,
                 "active_run_id": "",
-                "chat_active_run_id": "",
-                "chat_active_run_started_at": "",
+                "live_run_id": "",
+                "live_run_started_at": "",
+                "live_run_stoppable": False,
                 "merge_request": None,
                 "thread_ref": "",
                 "diff_stats": None,
@@ -331,14 +332,9 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
 
         runs = list(session.runs.order_by("created_at"))
         non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]
-        # A live holder — a chat stream, ``run_job_task``, or a webhook run — bumps
-        # the session heartbeat (``last_active_at``) every ~60s, so the session is
-        # only really in flight while that heartbeat is fresh. A holder stranded
-        # past ``STALE_RUN_MINUTES`` (crashed worker, orphaned queue entry) is dead:
-        # falling through to "not in flight" surfaces the expired banner instead of
-        # pinning the view on a permanent "working" state. This reuses the
-        # staleness signal ``SessionLock`` / ``sync_stuck_runs`` use to decide a holder is dead.
-        is_in_flight = bool(non_terminal) and session.last_active_at >= stale_cutoff()
+        # A dead holder falls through to "not in flight", so the expired banner shows instead of a permanent
+        # "working" state.
+        is_in_flight = session_in_flight(session, runs)
 
         # A freshly submitted run has not checkpointed yet, so "no checkpoint or archive" only means
         # the session is really over once nothing is (freshly) in flight; while in flight the
@@ -359,33 +355,11 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["session_spend"] = build_session_spend(runs)
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
-        # The chat page rejoins the event relay only when the in-flight holder is a
-        # chat run (holder id == AG-UI run id). Background holders don't publish to
-        # the relay — for those the transcript poller (below) owns live updates.
-        ctx["chat_active_run_id"] = (
-            session.active_run_id
-            if is_in_flight
-            and session.active_run_id
-            and all(r.trigger_type == SessionOrigin.CHAT for r in non_terminal)
-            else ""
-        )
-        # Seeds the working timer on resume so it counts from when the run actually
-        # started server-side, not from when this page loaded. ``created_at`` covers a
-        # run still queued, which has no ``started_at`` yet.
-        active_run = non_terminal[-1] if ctx["chat_active_run_id"] else None
-        ctx["chat_active_run_started_at"] = (
-            (active_run.started_at or active_run.created_at).isoformat() if active_run else ""
-        )
+        live = live_run_for(session, runs, self.request.user)
+        ctx["live_run_id"] = live.id if live else ""
+        ctx["live_run_started_at"] = live.started_at.isoformat() if live else ""
+        ctx["live_run_stoppable"] = bool(live and live.stoppable)
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
-
-        # Engage transcript polling when a background run holds the slot and there is
-        # no live chat stream from this tab (chat stream manages its own turns in JS;
-        # the poller only kicks in for non-chat background runs).
-        ctx["poll_transcript"] = bool(
-            is_in_flight
-            and self.object.active_run_id
-            and any(r.trigger_type != SessionOrigin.CHAT for r in non_terminal)
-        )
 
         # ``get_queryset`` authorised before the reads above; a fetch that restricted the session since must not render.
         if not Session.objects.cross_project_visible_to(self.request.user).filter(pk=session.pk).exists():
@@ -641,10 +615,10 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             )
         except Http404, PermissionDenied, SuspiciousOperation:
             raise
-        except RepositoryAccessDenied:
+        except RepoAccessError as err:
             # Access can be revoked between form.clean() and submit; surface it on the field
             # rather than as a generic failure.
-            form.add_error("repos", REPO_ACCESS_DENIED_MESSAGE)
+            form.add_error("repos", str(err))
             return self.form_invalid(form)
         except Exception:
             logger.exception(

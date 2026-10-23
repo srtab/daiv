@@ -203,13 +203,6 @@ class TestSocialAccountAdapterListApps:
             result = adapter.list_apps(Mock())
             assert result == []
 
-    def test_returns_empty_when_codebase_client_is_swe(self, adapter, login_mocks):
-        mock_site, mock_codebase = login_mocks
-        mock_codebase.CLIENT = GitPlatform.SWE
-        mock_site.auth_client_id = "some-id"
-        mock_site.auth_client_secret = SecretStr("some-secret")
-        assert adapter.list_apps(Mock()) == []
-
     def test_returns_empty_when_client_id_is_none(self, adapter, login_mocks):
         mock_site, mock_codebase = login_mocks
         mock_codebase.CLIENT = GitPlatform.GITLAB

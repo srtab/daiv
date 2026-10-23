@@ -38,8 +38,8 @@ async def ensure_non_empty_response(
 
     Implemented with ``wrap_model_call`` instead of an ``after_model`` hook on purpose:
     hook middlewares add a graph node to every model/tools cycle, raising the superstep
-    cost per turn from 2 to 3 and silently cutting the effective tool-call budget under
-    ``recursion_limit`` by a third. Retrying within the node costs zero extra supersteps
+    cost of each turn and cutting the tool-call budget under ``recursion_limit``
+    (see ``StepBudgetMiddleware.bind``). Retrying within the node costs zero extra supersteps
     and keeps the synthetic no-op tool round-trip out of the persisted history.
 
     Each retry sends the original request plus one nudge, the same message on every retry.

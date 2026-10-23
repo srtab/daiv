@@ -9,7 +9,7 @@ from django.db import transaction
 
 import pytest
 
-from automation.agent.model_catalog.cache_keys import MODEL_CATALOG_CACHE_KEY_FMT
+from automation.picker.model_catalog.cache_keys import MODEL_CATALOG_CACHE_KEY_FMT
 from core.models import Provider, ProviderType
 
 KEY = MODEL_CATALOG_CACHE_KEY_FMT.format(slug="customprov")

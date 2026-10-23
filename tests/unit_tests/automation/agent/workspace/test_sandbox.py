@@ -2,10 +2,10 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from deepagents.backends.composite import CompositeBackend
 
 from automation.agent.constants import WORKSPACE_PATH
-from automation.agent.git_runners import SandboxGitRunner
-from automation.agent.middlewares.file_system import DAIVCompositeBackend
+from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
@@ -21,7 +21,7 @@ def test_the_files_the_shell_and_git_all_reach_the_one_session():
 
     assert workspace.session is session
     assert isinstance(workspace.bash, SandboxFileBackend)
-    assert isinstance(workspace.backend, DAIVCompositeBackend)
+    assert isinstance(workspace.backend, CompositeBackend)
     assert (workspace.backend.default, workspace.backend.routes) == (workspace.bash, {})
     assert workspace.backend.artifacts_root == WORKSPACE_PATH
     assert workspace.git._runner == SandboxGitRunner(workspace.bash)
@@ -32,6 +32,7 @@ def test_a_sandbox_workspace_is_unfenced_and_seeded_with_the_skills():
 
     assert workspace.fs_permissions is None
     assert workspace.provisions_skills is True
+    assert workspace.skills_provisioning_errors is workspace.session.skills_seed_errors
 
 
 async def test_it_is_ready_once_its_session_is_acquired():

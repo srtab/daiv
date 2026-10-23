@@ -2,10 +2,18 @@ from django.utils import timezone
 
 import pytest
 from notifications.choices import ChannelType
+from notifications.classification.envelopes import build_actionable_item
 from notifications.models import Notification, NotificationDelivery, UserChannelBinding
 from pydantic import SecretStr
+from sessions.models import Session, SessionOrigin
 
 from schedules.models import Frequency, ScheduledJob
+
+
+def actionable_item(item_id: str = "f1", **overrides) -> dict:
+    item = build_actionable_item(id=item_id, kind="finding", label="Fix the bug", ref="app/module.py:10")
+    item.update(overrides)
+    return item
 
 
 @pytest.fixture
@@ -13,7 +21,7 @@ def run_schedule(member_user, email_binding):
     """A daily schedule owned by ``member_user`` with notifications always on.
 
     Shared by the run-signal notification suites (``test_signals.py`` and
-    ``test_run_signals.py``).
+    ``test_run_notifiers.py``).
     """
     return ScheduledJob.objects.create(
         user=member_user,
@@ -22,6 +30,19 @@ def run_schedule(member_user, email_binding):
         repos=[{"repo_id": "x/y", "ref": ""}],
         frequency=Frequency.DAILY,
         time="12:00",
+    )
+
+
+@pytest.fixture
+def watch_session(member_user):
+    """A session whose CI watch used up its fix attempts. Shared by the watch-exhausted suites."""
+    return Session.objects.create(
+        thread_id="repo-mr-7",
+        origin=SessionOrigin.PIPELINE_WEBHOOK,
+        repo_id="group/repo",
+        merge_request_iid=7,
+        watch_attempts=3,
+        user=member_user,
     )
 
 

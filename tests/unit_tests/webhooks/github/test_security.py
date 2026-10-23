@@ -21,8 +21,8 @@ def mock_request():
         (True, True, True, True),  # Secret configured, signature header present and valid
         (True, True, False, False),  # Secret configured, signature header present but invalid
         (True, False, False, False),  # Secret configured, signature header missing
-        (False, True, False, True),  # No secret configured, signature header present (should pass)
-        (False, False, False, True),  # No secret configured, signature header missing (should pass)
+        (False, True, True, False),  # No secret configured, signature header present
+        (False, False, False, False),  # No secret configured, signature header missing
     ],
 )
 def test_validate_github_webhook(mock_request, secret_configured, signature_header, valid_signature, expected_result):

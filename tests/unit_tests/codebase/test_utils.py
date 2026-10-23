@@ -1,101 +1,15 @@
 import logging
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
 
-from codebase.base import Discussion, Note, NoteableType, Scope, User
+from codebase.base import User
 from codebase.utils import (
-    compute_thread_id,
     diff_line_stats,
-    discussion_has_daiv_mentions,
+    is_git_auth_error_text,
+    is_git_ref_not_found_text,
     note_mentions_daiv,
-    notes_to_messages,
     redact_diff_content,
 )
-from core.constants import BOT_NAME
-
-
-class TestNotesToMessages:
-    def test_notes_to_messages_with_bot_notes(self):
-        bot_user_id = 1
-        notes = [
-            Note(
-                author=User(id=1, name="bot", username="bot"),
-                body="Bot message 1",
-                id=1,
-                noteable_type=NoteableType.ISSUE,
-                system=True,
-                resolvable=True,
-            ),
-            Note(
-                author=User(id=1, name="bot", username="bot"),
-                body="Bot message 2",
-                id=2,
-                noteable_type=NoteableType.ISSUE,
-                system=True,
-                resolvable=True,
-            ),
-        ]
-        expected_messages = [
-            AIMessage(content="Bot message 1", name=BOT_NAME, id=1),
-            AIMessage(content="Bot message 2", name=BOT_NAME, id=2),
-        ]
-        result = notes_to_messages(notes, bot_user_id)
-        assert result == expected_messages
-
-    def test_notes_to_messages_with_human_notes(self):
-        bot_user_id = 1
-        notes = [
-            Note(
-                author=User(id=2, username="user1", name="user1"),
-                body="User message 1",
-                id=1,
-                noteable_type=NoteableType.ISSUE,
-                system=False,
-                resolvable=True,
-            ),
-            Note(
-                author=User(id=3, username="user2", name="user1"),
-                body="User message 2",
-                id=2,
-                noteable_type=NoteableType.ISSUE,
-                system=False,
-                resolvable=True,
-            ),
-        ]
-        expected_messages = [
-            HumanMessage(content="User message 1", name="user1", id=1),
-            HumanMessage(content="User message 2", name="user2", id=2),
-        ]
-        result = notes_to_messages(notes, bot_user_id)
-        assert result == expected_messages
-
-    def test_notes_to_messages_with_mixed_notes(self):
-        bot_user_id = 1
-        notes = [
-            Note(
-                author=User(id=1, username="bot", name="bot"),
-                body="Bot message",
-                id=1,
-                noteable_type=NoteableType.ISSUE,
-                system=True,
-                resolvable=True,
-            ),
-            Note(
-                author=User(id=2, username="user1", name="user1"),
-                body="User message",
-                id=2,
-                noteable_type=NoteableType.ISSUE,
-                system=False,
-                resolvable=True,
-            ),
-        ]
-        expected_messages = [
-            AIMessage(content="Bot message", name=BOT_NAME, id=1),
-            HumanMessage(content="User message", name="user1", id=2),
-        ]
-        result = notes_to_messages(notes, bot_user_id)
-        assert result == expected_messages
 
 
 class TestNoteMentionsDaiv:
@@ -152,153 +66,6 @@ class TestNoteMentionsDaiv:
         current_user = User(id=1, username="bot", name="Bot")
         note_body = "@bot please review this code"
         assert note_mentions_daiv(note_body, current_user) is True
-
-
-class TestDiscussionHasDAIVMentions:
-    def test_discussion_with_daiv_mentions(self):
-        """Test that discussions with DAIV mentions are detected."""
-        current_user = User(id=1, username="daiv", name="DAIV")
-
-        notes = [
-            Note(
-                id=1,
-                author=User(id=2, username="reviewer", name="Reviewer"),
-                body=f"This needs fixing @{current_user.username}",
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            ),
-            Note(
-                id=2,
-                author=current_user,
-                body="I've updated the code",
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            ),
-        ]
-
-        discussion = Discussion(id="discussion_1", notes=notes)
-        assert discussion_has_daiv_mentions(discussion, current_user) is True
-
-    def test_discussion_without_daiv_mentions(self):
-        """Test that discussions without DAIV mentions are not detected."""
-        current_user = User(id=1, username="daiv", name="DAIV")
-
-        notes = [
-            Note(
-                id=1,
-                author=User(id=2, username="reviewer", name="Reviewer"),
-                body="This needs fixing",
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            ),
-            Note(
-                id=2,
-                author=User(id=3, username="other_reviewer", name="Other Reviewer"),
-                body="I agree with the changes",
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            ),
-        ]
-
-        discussion = Discussion(id="discussion_1", notes=notes)
-        assert discussion_has_daiv_mentions(discussion, current_user) is False
-
-    def test_empty_discussion(self):
-        """Test that empty discussions return False."""
-        current_user = User(id=1, username="daiv", name="DAIV")
-        discussion = Discussion(id="discussion_1", notes=[])
-        assert discussion_has_daiv_mentions(discussion, current_user) is False
-
-    def test_discussion_with_daiv_mentions_on_other_notes(self):
-        """Test that discussions with DAIV mentions on other notes are detected."""
-        current_user = User(id=1, username="daiv", name="DAIV")
-
-        notes = [
-            Note(
-                id=1,
-                author=User(id=2, username="reviewer", name="Reviewer"),
-                body="This needs fixing",
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            ),
-            Note(
-                id=2,
-                author=User(id=3, username="other_reviewer", name="Other Reviewer"),
-                body="I agree with the changes",
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            ),
-            Note(
-                id=3,
-                author=User(id=2, username="reviewer", name="Reviewer"),
-                body=f"This needs fixing @{current_user.username}",
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            ),
-        ]
-
-        discussion = Discussion(id="discussion_1", notes=notes)
-        assert discussion_has_daiv_mentions(discussion, current_user) is True
-
-    def test_discussion_with_daiv_mentions_multilines(self):
-        """Test that discussions with DAIV mentions on multiple lines are detected."""
-        current_user = User(id=1, username="daiv", name="DAIV")
-
-        notes = [
-            Note(
-                id=1,
-                author=User(id=2, username="reviewer", name="Reviewer"),
-                body=f"This needs fixing\n\nThis needs fixing @{current_user.username}\n\nThis needs fixing",
-                noteable_type=NoteableType.MERGE_REQUEST,
-                system=False,
-                resolvable=False,
-            )
-        ]
-
-        discussion = Discussion(id="discussion_1", notes=notes)
-        assert discussion_has_daiv_mentions(discussion, current_user) is True
-
-
-class TestComputeThreadId:
-    def test_deterministic(self):
-        a = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-        b = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-        assert a == b
-
-    def test_scope_distinguishes(self):
-        issue = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-        mr = compute_thread_id(repo_slug="owner/repo", scope=Scope.MERGE_REQUEST, entity_iid=42)
-        assert issue != mr
-
-    def test_entity_iid_distinguishes(self):
-        a = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-        b = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=43)
-        assert a != b
-
-    def test_repo_slug_distinguishes(self):
-        a = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
-        b = compute_thread_id(repo_slug="other/repo", scope=Scope.ISSUE, entity_iid=42)
-        assert a != b
-
-    @pytest.mark.parametrize(
-        ("repo_slug", "scope", "entity_iid"),
-        [
-            ("", Scope.ISSUE, 42),
-            ("owner/repo", None, 42),
-            ("owner/repo", Scope.ISSUE, None),
-            ("owner/repo", Scope.ISSUE, ""),
-        ],
-    )
-    def test_rejects_falsy_inputs(self, repo_slug, scope, entity_iid):
-        with pytest.raises(ValueError):
-            compute_thread_id(repo_slug=repo_slug, scope=scope, entity_iid=entity_iid)
 
 
 class TestRedactDiffContent:
@@ -430,3 +197,51 @@ class TestDiffLineStats:
         diff = "diff --git a/a.c b/a.c\n--- a/a.c\n+++ b/a.c\n@@ -1,2 +1,2 @@\n+++i;\n--- audit trail\n"
         stats = diff_line_stats(diff)
         assert (stats.lines_added, stats.lines_removed) == (1, 1)
+
+
+class TestIsGitAuthErrorText:
+    """Direct contract test for the shared marker set used by both the clone-retry self-heal
+    (codebase.clients.gitlab) and the push-failure classifier (automation.agent.workspace.git_manager).
+    A marker dropped here silently widens or narrows both behaviours, so pin them explicitly."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "fatal: Authentication failed for 'https://gitlab.example/acme/repo.git'",
+            "remote: HTTP Basic: Access denied",  # subsumed by "access denied"
+            "The requested URL returned error: 403",
+            "fatal: could not read Username for 'https://...': terminal prompts disabled",
+            "remote: Permission denied",
+            "remote: You are not authorized to push to this repository",
+            "AUTHENTICATION FAILED",  # case-insensitive
+        ],
+    )
+    def test_auth_markers_return_true(self, text):
+        assert is_git_auth_error_text(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "fatal: unable to access 'https://...': Could not resolve host",
+            "fatal: couldn't find remote ref refs/heads/missing",
+            "",
+            "Everything up-to-date",
+        ],
+    )
+    def test_non_auth_text_returns_false(self, text):
+        assert is_git_auth_error_text(text) is False
+
+
+class TestIsGitRefNotFoundText:
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("fatal: Remote branch chore/x not found in upstream origin", True),
+            ("Remote branch feature-1 not found in upstream origin\n", True),
+            ("fatal: could not read Username for 'https://...'", False),  # auth, not a missing ref
+            ("fatal: unable to access '...': Could not resolve host", False),  # network
+            ("", False),
+        ],
+    )
+    def test_is_git_ref_not_found_text(self, text, expected):
+        assert is_git_ref_not_found_text(text) is expected

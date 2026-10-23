@@ -197,16 +197,14 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 
 | Variable            | Description                              | Default   | Example   |
 |---------------------|------------------------------------------|:---------:|-----------|
-| `CODEBASE_CLIENT`   | Client to use for codebase operations    | `gitlab`  | `gitlab`, `github`, or `swe`  |
+| `CODEBASE_CLIENT`   | Client to use for codebase operations    | `gitlab`  | `gitlab` or `github`  |
 | `CODEBASE_WEBHOOK_SETUP_CRON` | Cron expression for periodic webhook setup (GitLab only) | `*/5 * * * *` | `*/10 * * * *` |
 | `CODEBASE_REPO_ACCESS_SYNC_CRON` | Cron expression for the periodic repository access sync | `*/15 * * * *` | `*/10 * * * *` |
 | `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` | Hours a repository's synced access data stays trusted before it is denied (fails closed); tracked per repository | `24` | `12` |
 | `CODEBASE_CROSS_PROJECT_RECORD_RETENTION_DAYS` | Days a [cross-project access](../features/cross-project-access.md#audit-log) record is kept before the repository access sync prunes it; `0` keeps them forever | `90` | `30` |
 
 !!! note
-    Set `CODEBASE_CLIENT` to either `gitlab`, `github`, or `swe` depending on which platform you want to use. Only one platform can be active at a time.
-
-    The `swe` client type is designed for SWE-bench style evaluations and clones public OSS repositories to temporary directories without requiring credentials. It uses ephemeral temporary clones per run and does not cache repositories across runs. Repository identifiers should be in the format `owner/name` (e.g., `psf/requests`).
+    Set `CODEBASE_CLIENT` to either `gitlab` or `github` depending on which platform you want to use. Only one platform can be active at a time.
 
 !!! note "Repository access sync"
     `CODEBASE_REPO_ACCESS_SYNC_CRON` controls how often DAIV mirrors per-user repository membership from the connected Git platform into the database (one member-list call per repository). Admins are exempt from repository authorization and always have full access. Freshness is tracked per repository: if a repository's sync stops succeeding — e.g. the platform token loses access to it — its access data keeps working on the last known-good data until `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` elapses, after which that repository fails closed while others keep syncing normally. See [Accounts & Roles](../getting-started/accounts.md#repository-access) for the access model this enforces.
@@ -217,7 +215,7 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 |---------------------------------|---------------------------------------------|:---------:|----------------------|
 | :material-asterisk: `CODEBASE_GITLAB_URL`            | URL of the GitLab instance                  | *(none)*  | `https://gitlab.com` |
 | :material-asterisk: `CODEBASE_GITLAB_AUTH_TOKEN`  :material-lock:    | Authentication token for GitLab             | *(none)*  | `glpat-xyz`          |
-| `CODEBASE_GITLAB_WEBHOOK_SECRET` :material-lock:| Secret token for GitLab webhook validation  | *(none)*  | `random-webhook-secret` |
+| :material-asterisk: `CODEBASE_GITLAB_WEBHOOK_SECRET` :material-lock:| Secret token for GitLab webhook validation. Without it, every GitLab webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
 
 !!! note
     The `CODEBASE_GITLAB_AUTH_TOKEN` is used to authenticate with the GitLab instance using a
@@ -248,7 +246,7 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 | :material-asterisk: `CODEBASE_GITHUB_APP_ID`               | GitHub App ID                               | *(none)*  | `123456`             |
 | :material-asterisk: `CODEBASE_GITHUB_INSTALLATION_ID`      | GitHub App Installation ID                  | *(none)*  | `789012`             |
 | :material-asterisk: `CODEBASE_GITHUB_PRIVATE_KEY` :material-lock:         | GitHub App private key (PEM format)         | *(none)*  |                      |
-| `CODEBASE_GITHUB_WEBHOOK_SECRET` :material-lock:| Secret token for GitHub webhook validation  | *(none)*  | `random-webhook-secret` |
+| :material-asterisk: `CODEBASE_GITHUB_WEBHOOK_SECRET` :material-lock:| Secret token for GitHub webhook validation. Without it, every GitHub webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
 
 !!! note
     GitHub uses GitHub App authentication. You must create a GitHub App in your account or organization settings. The private key is a multi-line PEM file that should be stored securely using Docker secrets.

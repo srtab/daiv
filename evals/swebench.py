@@ -20,10 +20,11 @@ from sessions.executor.lock import NoLock  # noqa: E402
 from sessions.executor.run import execute_run  # noqa: E402
 from sessions.executor.spec import RunOutcome, RunSpec  # noqa: E402
 
-from automation.agent import ThinkingLevel  # noqa: E402
+from automation.agent.base import ThinkingLevel  # noqa: E402
 from automation.agent.validators import validate_agent_override  # noqa: E402
-from codebase.base import GitPlatform, Scope  # noqa: E402
+from codebase.base import Scope  # noqa: E402
 from core.constants import ModelName  # noqa: E402
+from evals.swe_client import SWERepoClient  # noqa: E402
 
 
 async def main(
@@ -125,7 +126,7 @@ def _run_spec(item: dict, model_names: list[ModelName | str]) -> RunSpec:
         lock=NoLock(),
         model_names=tuple(model_names),
         agent_thinking_level=ThinkingLevel.HIGH,
-        context_options={"offline": True, "git_platform": GitPlatform.SWE, "repo_host": "github.com"},
+        context_options={"offline": True, "repo_client": SWERepoClient(repo_host="github.com")},
         web_search_enabled=False,
         web_fetch_enabled=False,
         agent_options={"auto_commit_changes": False, "capture_patch": True},

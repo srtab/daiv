@@ -2,7 +2,7 @@ import hmac
 import logging
 from typing import TYPE_CHECKING
 
-from codebase.conf import settings
+from webhooks.conf import settings
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -18,11 +18,11 @@ def validate_gitlab_webhook(request: HttpRequest) -> bool:
         request: The HTTP request containing the webhook payload
 
     Returns:
-        True if the webhook is valid, False otherwise
+        True if the webhook is valid, False otherwise, including when no secret is configured
     """
     if not settings.GITLAB_WEBHOOK_SECRET:
-        logger.warning("GitLab webhook validation skipped: No secret token configured")
-        return True
+        logger.warning("GitLab webhook validation failed: CODEBASE_GITLAB_WEBHOOK_SECRET is not configured")
+        return False
 
     token = request.headers.get("X-Gitlab-Token")
     if not token:

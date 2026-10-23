@@ -52,7 +52,7 @@ from langchain_core.tools import StructuredTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_openai import ChatOpenAI
 
-from automation.agent import BaseAgent
+from automation.agent.base import get_model
 from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.deferred.index import DeferredToolsIndex
 from automation.agent.deferred.prompt import build_deferred_tools_block
@@ -121,7 +121,7 @@ def _openai_block(tool: BaseTool) -> dict:
 
 def _inline_model(model_spec: str) -> tuple[BaseChatModel, Callable[[BaseTool], dict]]:
     """The model for ``model_spec`` set up for inline definitions, and the block builder for its provider."""
-    model = BaseAgent.get_model(model=model_spec)
+    model = get_model(model=model_spec)
     if type(model) is ChatAnthropic:
         if not _supports_mid_conversation_system_messages(model.model):
             pytest.skip(f"langchain-anthropic hoists mid-conversation system messages for {model.model!r}")
@@ -232,7 +232,7 @@ async def test_inline_beta_header_flip_keeps_cache(model_spec):
 @pytest.mark.parametrize("model_spec", DEFERRED_CACHE_FROZEN_MODELS)
 async def test_frozen_array_keeps_cache(model_spec):
     require_provider_for_model(model_spec)
-    model = BaseAgent.get_model(model=model_spec)
+    model = get_model(model=model_spec)
     nonce = uuid.uuid4().hex
     _assert_hits(f"frozen {model_spec}", await _measure(model, _prompts(nonce), _cache_kwargs(model, nonce)))
 
@@ -241,7 +241,7 @@ async def test_frozen_array_keeps_cache(model_spec):
 @pytest.mark.parametrize("model_spec", [*DEFERRED_FROZEN_ALLOWLISTED, *DEFERRED_FROZEN_CANDIDATES])
 async def test_freezing_keeps_more_cache_than_appending(model_spec):
     require_provider_for_model(model_spec)
-    model = BaseAgent.get_model(model=model_spec)
+    model = get_model(model=model_spec)
     nonce = uuid.uuid4().hex
     kwargs = _cache_kwargs(model, nonce)
     prompt_a, prompt_b, prompt_c = _prompts(nonce)

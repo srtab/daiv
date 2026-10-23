@@ -1,18 +1,20 @@
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
-from django.db import DatabaseError
+from django.db import DatabaseError, connection
 
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
 from notifications.choices import EventType
 from notifications.models import Notification
+from notifications.signals import on_schedule_dispatch_failed
 from sessions.models import Run, SessionOrigin
 
 from accounts.models import User
 from codebase.authorization import RepositoryAccessDenied
 from schedules.models import DispatchError, Frequency, ScheduledJob
+from schedules.signals import schedule_dispatch_failed
 from schedules.tasks import dispatch_scheduled_jobs_cron_task
 
 
@@ -63,7 +65,7 @@ def test_dispatch_single_repo_propagates_agent_override(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -92,7 +94,7 @@ def test_dispatch_single_repo_auto_override(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -119,7 +121,7 @@ def test_dispatch_three_repos_creates_three_activities_sharing_batch(member_user
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -149,7 +151,7 @@ def test_dispatch_advances_next_run_on_success(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -176,7 +178,7 @@ def test_dispatch_once_schedule_auto_disables_on_success(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -230,7 +232,7 @@ def test_dispatch_respects_owner_is_active(member_user, owner_active, expected_r
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -263,7 +265,7 @@ def test_dispatch_resumes_after_owner_reactivated(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -316,7 +318,7 @@ def test_dispatch_skips_only_inactive_owner_in_mixed_run(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -350,7 +352,7 @@ def test_dispatch_stamps_schedule_mcp_overrides_onto_session(member_user):
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -380,7 +382,7 @@ def test_dispatch_skips_once_schedule_of_inactive_owner_without_retiring(member_
         next_run_at=past,
     )
 
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -422,11 +424,14 @@ def _make_due(schedule):
 
 def _dispatch(*, denied=None, aenqueue=_aenqueue_ok):
     with (
-        patch("sessions.services.aassert_can_run", new=AsyncMock(side_effect=denied, return_value=None)),
-        patch("sessions.services.run_job_task") as mock_task,
+        patch("sessions.admission.assert_can_run", side_effect=denied, return_value=None),
+        patch("sessions.queue.run_job_task") as mock_task,
     ):
         mock_task.aenqueue.side_effect = aenqueue
         dispatch_scheduled_jobs_cron_task.func()
+
+
+NOTIFY_UID = "notifications.on_schedule_dispatch_failed"
 
 
 def _failure_notices():
@@ -459,6 +464,41 @@ def test_dispatch_denied_records_the_failure_without_counting_a_run(member_user)
     assert schedule.dispatch_error == DispatchError.REPO_ACCESS_DENIED
     assert schedule.dispatch_error_repo_ids == ["acme/repo"]
     assert (schedule.last_run_at, schedule.run_count) == (None, 0)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_failed_dispatch_sends_schedule_dispatch_failed_after_commit(member_user):
+    schedule = _due_daily(member_user)
+    received = []
+
+    def receiver(sender, signal, **kwargs):
+        received.append({"sender": sender, "in_atomic_block": connection.in_atomic_block, **kwargs})
+
+    schedule_dispatch_failed.connect(receiver, weak=False, dispatch_uid="test-dispatch-failed")
+    try:
+        _dispatch(denied=RepositoryAccessDenied(["acme/repo"]))
+    finally:
+        schedule_dispatch_failed.disconnect(dispatch_uid="test-dispatch-failed")
+
+    assert received == [{"sender": ScheduledJob, "in_atomic_block": False, "schedule_pk": schedule.pk}]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_receiver_that_raises_first_does_not_stop_the_owner_notice(member_user):
+    _due_daily(member_user)
+
+    def boom(sender, **kwargs):
+        raise RuntimeError("receiver down")
+
+    schedule_dispatch_failed.disconnect(dispatch_uid=NOTIFY_UID)
+    schedule_dispatch_failed.connect(boom, weak=False, dispatch_uid="test-dispatch-failed-boom")
+    schedule_dispatch_failed.connect(on_schedule_dispatch_failed, dispatch_uid=NOTIFY_UID)
+    try:
+        _dispatch(denied=RepositoryAccessDenied(["acme/repo"]))
+    finally:
+        schedule_dispatch_failed.disconnect(dispatch_uid="test-dispatch-failed-boom")
+
+    assert list(_failure_notices().values_list("recipient", flat=True)) == [member_user.pk]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -564,7 +604,7 @@ def test_a_database_error_recording_one_failure_keeps_the_other_dispatches(membe
     denied = _due_daily(member_user, name="denied", repos=[{"repo_id": "acme/denied", "ref": ""}])
     healthy = _due_daily(member_user, name="healthy", repos=[{"repo_id": "acme/ok", "ref": ""}])
 
-    async def can_run(user, repo_ids):
+    def can_run(user, repo_ids):
         if "acme/denied" in repo_ids:
             raise RepositoryAccessDenied(["acme/denied"])
 

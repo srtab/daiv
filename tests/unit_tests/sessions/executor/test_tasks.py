@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sessions.executor.lock import SessionLock
 from sessions.executor.run import CrossProjectSessionRefusedError
 from sessions.executor.tasks import run_job_task
-from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
@@ -16,7 +16,7 @@ from tests.unit_tests.sessions.conftest import active_holder, amake_job_session,
 from tests.unit_tests.sessions.executor.conftest import disk_ctx, resolved_to
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_run_job_task_uses_async_redis_saver_with_thread_id():
     """run_job_task must use the shared open_checkpointer (AsyncRedisSaver) and thread its
     thread_id through to the langgraph config."""
@@ -31,16 +31,18 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
     agent.ainvoke = AsyncMock(return_value=fake_result)
     agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
 
+    await amake_job_session("t-123")
+
     with (
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
-        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent_mock,
         patch(
             "automation.agent.agent_settings.resolve_agent_settings",
             return_value=resolved_to("claude-4-7-opus", thinking_level="medium"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {"thread_id": "t-123"}}),
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("sessions.executor.result.build_agent_result", return_value={"response": "ok"}),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
     ):
@@ -66,7 +68,7 @@ async def test_run_job_task_rejects_missing_thread_id():
         await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="")
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_run_job_task_builds_the_sandbox_spec_from_its_env_id():
     """run_job_task hands sandbox_environment_id to the executor, which builds the run's spec from it once."""
     captured: dict = {}
@@ -77,18 +79,20 @@ async def test_run_job_task_builds_the_sandbox_spec_from_its_env_id():
         # Yield a stub RuntimeCtx-ish object enough to navigate the rest of the task.
         yield disk_ctx(config=MagicMock(models=MagicMock(agent=object())))
 
+    await amake_job_session("t1")
+
     # We're not setting up enough scaffolding to complete the agent invoke;
     # the assertion below is what matters.
     with (
         stub_sandbox_spec() as build_spec,
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
-        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("automation.agent.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer"),
         patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
         patch("automation.agent.agent_settings.resolve_agent_settings", return_value=resolved_to("m")),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
+        patch("sessions.executor.result.build_agent_result", return_value="ok"),
         suppress(Exception),
     ):
         await run_job_task.func(repo_id="r/p", prompt="p", thread_id="t1", sandbox_environment_id="env-uuid")
@@ -97,7 +101,7 @@ async def test_run_job_task_builds_the_sandbox_spec_from_its_env_id():
     assert captured["sandbox_spec"] is build_spec.return_value
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_run_job_task_forwards_overrides():
     """When called with explicit overrides, the override pair flows into resolve_agent_settings."""
     last_message = MagicMock()
@@ -112,6 +116,7 @@ async def test_run_job_task_forwards_overrides():
     agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
 
     captured_kwargs: dict = {}
+    await amake_job_session("t-123")
 
     def capture(**kwargs):
         captured_kwargs.update(kwargs)
@@ -119,11 +124,11 @@ async def test_run_job_task_forwards_overrides():
 
     with (
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
-        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch("automation.agent.agent_settings.resolve_agent_settings", side_effect=capture),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("sessions.executor.result.build_agent_result", return_value={"response": "ok"}),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
     ):
@@ -146,9 +151,9 @@ async def test_run_job_task_forwards_overrides():
 
 @pytest.mark.django_db(transaction=True)
 async def test_run_job_task_persists_resolved_model():
-    """The resolved model/thinking are written back onto the Run + Session so the
-    session detail view reflects what the run actually executed with, not the empty
-    "no override" placeholder. This is the case where the schedule pinned no model.
+    """The resolved model/thinking are written back onto the Run so the session detail view reflects what the run
+    executed with, not the empty "no override" placeholder; the Session keeps its empty pin, which chat reuses.
+    This is the case where the schedule pinned no model.
     """
     from sessions.models import Run, RunStatus, Session, SessionOrigin
 
@@ -171,14 +176,14 @@ async def test_run_job_task_persists_resolved_model():
     with (
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
-        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch(
             "automation.agent.agent_settings.resolve_agent_settings",
             return_value=resolved_to("openrouter:z-ai/glm-5.2", "fallback", thinking_level="xhigh"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("sessions.executor.result.build_agent_result", return_value={"response": "ok"}),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
     ):
@@ -189,75 +194,33 @@ async def test_run_job_task_persists_resolved_model():
 
     await session.arefresh_from_db()
     await run.arefresh_from_db()
-    assert session.agent_model == "openrouter:z-ai/glm-5.2"
-    assert session.agent_thinking_level == "xhigh"
+    assert (session.agent_model, session.agent_thinking_level) == ("", "")
     assert run.agent_model == "openrouter:z-ai/glm-5.2"
     assert run.agent_thinking_level == "xhigh"
 
 
+async def _run_spec(thread_id: str):
+    captured: dict = {}
+
+    async def _execute_run(spec, hooks=None):
+        captured["spec"] = spec
+        return SimpleNamespace(agent_result={"response": "ok"})
+
+    with patch("sessions.executor.run.execute_run", _execute_run):
+        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id)
+    return captured["spec"]
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_run_job_task_reads_session_mcp_overrides():
-    """run_job_task must pass Session.mcp_overrides to set_runtime_ctx; missing row → {}."""
-    import uuid
-    from contextlib import asynccontextmanager, suppress
-
-    from sessions.models import Session, SessionOrigin
-
     thread_id = str(uuid.uuid4())
     await Session.objects.acreate(
         thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="g/r", mcp_overrides={"a": "off"}
     )
 
-    captured: dict = {}
+    spec = await _run_spec(thread_id)
 
-    @asynccontextmanager
-    async def _fake_set_runtime_ctx(*args, **kwargs):
-        captured.update(kwargs)
-        yield disk_ctx(config=MagicMock(models=MagicMock(agent=object())))
-
-    with (
-        patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
-        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
-        patch("core.checkpointer.open_checkpointer"),
-        patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
-        patch("automation.agent.agent_settings.resolve_agent_settings", return_value=resolved_to("m")),
-        patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
-        suppress(Exception),
-    ):
-        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id)
-
-    assert captured.get("mcp_overrides") == {"a": "off"}
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_run_job_task_mcp_overrides_defaults_to_empty_when_no_session():
-    """When there is no Session row, mcp_overrides forwarded to set_runtime_ctx is {}."""
-    import uuid
-    from contextlib import asynccontextmanager, suppress
-
-    captured: dict = {}
-
-    @asynccontextmanager
-    async def _fake_set_runtime_ctx(*args, **kwargs):
-        captured.update(kwargs)
-        yield disk_ctx(config=MagicMock(models=MagicMock(agent=object())))
-
-    with (
-        patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
-        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
-        patch("core.checkpointer.open_checkpointer"),
-        patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
-        patch("automation.agent.agent_settings.resolve_agent_settings", return_value=resolved_to("m")),
-        patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
-        suppress(Exception),
-    ):
-        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=str(uuid.uuid4()))
-
-    assert captured.get("mcp_overrides") == {}
+    assert spec.mcp_overrides == {"a": "off"}
 
 
 @pytest.mark.django_db(transaction=True)
@@ -281,7 +244,7 @@ async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolutio
     with (
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("core.checkpointer.open_checkpointer"),
-        patch("codebase.context.set_runtime_ctx", _boom),
+        patch("automation.agent.context.set_runtime_ctx", _boom),
         patch(
             "automation.agent.agent_settings.resolve_agent_settings",
             return_value=resolved_to("m", thinking_level="high"),
@@ -318,14 +281,14 @@ def _job_scaffolding(agent, *, real_lock: bool = False, armed: list[dict] | None
         else patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         nullcontext() if armed is None else patch("sessions.executor.run.PipelineWatch", watch_recorder(armed)),
         patch("core.checkpointer.open_checkpointer"),
-        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch(
             "automation.agent.agent_settings.resolve_agent_settings",
             return_value=resolved_to("claude-4-7-opus", thinking_level="medium"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("sessions.executor.result.build_agent_result", return_value={"response": "ok"}),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run._record_measurements", new=AsyncMock()),
@@ -375,7 +338,7 @@ async def test_run_job_task_survives_a_failed_ref_sync():
 
     with (
         _job_scaffolding(_agent_with_mr({"source_branch": "feat/published"})),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=RuntimeError("db down"))),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=RuntimeError("db down"))),
     ):
         result = await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id="t-ref-job-3")
 
@@ -393,7 +356,7 @@ async def _runtime_ctx_kwargs(thread_id: str, **job_kwargs) -> dict:
 
     with (
         _job_scaffolding(AsyncMock()),
-        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("automation.agent.context.set_runtime_ctx", _fake_set_runtime_ctx),
         suppress(Exception),
     ):
         await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id, **job_kwargs)
@@ -405,7 +368,7 @@ async def _runtime_ctx_kwargs(thread_id: str, **job_kwargs) -> dict:
 async def test_run_job_task_forwards_ref_and_acting_user():
     """Both are now user-visible on the published MR: ``ref`` becomes its target branch and the
     acting user becomes its assignee."""
-    captured = await _runtime_ctx_kwargs(str(uuid.uuid4()), ref="master", user_id=42)
+    captured = await _runtime_ctx_kwargs(await amake_job_session(), ref="master", user_id=42)
 
     assert captured.get("ref") == "master"
     assert captured.get("acting_user_id") == 42
@@ -413,20 +376,20 @@ async def test_run_job_task_forwards_ref_and_acting_user():
 
 @pytest.mark.django_db(transaction=True)
 async def test_run_job_task_forwards_the_authenticated_flag():
-    captured = await _runtime_ctx_kwargs(str(uuid.uuid4()), user_id=42, acting_user_authenticated=True)
+    captured = await _runtime_ctx_kwargs(await amake_job_session(), user_id=42, acting_user_authenticated=True)
     assert captured.get("acting_user_authenticated") is True
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_run_job_task_is_unauthenticated_by_default():
-    captured = await _runtime_ctx_kwargs(str(uuid.uuid4()), user_id=42)
+    captured = await _runtime_ctx_kwargs(await amake_job_session(), user_id=42)
     assert captured.get("acting_user_authenticated") is False
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_run_job_task_forwards_session_references():
     """run_job_task must pass Session.external_refs to set_runtime_ctx as ExternalRef objects."""
-    from codebase.references import ExternalRef
+    from automation.agent.references import ExternalRef
 
     thread_id = str(uuid.uuid4())
     await Session.objects.acreate(
@@ -441,19 +404,13 @@ async def test_run_job_task_forwards_session_references():
     assert captured.get("references") == (ExternalRef(key="PROJ-1", provider="jira"),)
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_run_job_task_references_default_to_empty_when_no_session():
-    captured = await _runtime_ctx_kwargs(str(uuid.uuid4()))
-
-    assert captured.get("references") == ()
-
-
 def _raising_agent() -> AsyncMock:
     agent = AsyncMock()
     agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
     return agent
 
 
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("ask_user_enabled", [True, False])
 async def test_run_job_task_forwards_ask_user_enabled(ask_user_enabled):
     captured: dict = {}
@@ -462,13 +419,9 @@ async def test_run_job_task_forwards_ask_user_enabled(ask_user_enabled):
         captured["spec"] = spec
         return SimpleNamespace(agent_result={"response": "ok"})
 
-    with (
-        patch("sessions.executor.tasks.Session.objects.filter") as session_filter,
-        patch("sessions.executor.tasks.execute_run", _execute_run),
-    ):
-        session_filter.return_value.only.return_value.afirst = AsyncMock(return_value=None)
+    with patch("sessions.executor.run.execute_run", _execute_run):
         await run_job_task.func(
-            repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()), ask_user_enabled=ask_user_enabled
+            repo_id="owner/repo", prompt="hi", thread_id=await amake_job_session(), ask_user_enabled=ask_user_enabled
         )
 
     assert captured["spec"].ask_user_enabled is ask_user_enabled
@@ -498,7 +451,7 @@ class TestRunJobTaskAfterRunMatrix:
 
         with (
             _job_scaffolding(_agent_with_mr(None), real_lock=True) as set_ctx,
-            patch("sessions.executor.tasks.LOCK_WAIT_TIMEOUT_S", 0.05),
+            patch("sessions.executor.lock.LOCK_WAIT_TIMEOUT_S", 0.05),
             patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
             patch("sessions.executor.lock.SessionLock.try_claim", wraps=SessionLock.try_claim) as try_claim,
             pytest.raises(TimeoutError, match="not released within"),
@@ -539,20 +492,16 @@ class TestRunJobTaskAfterRunMatrix:
         assert attempts == [False, True]
         assert seen == ["run-1"]
 
-    async def test_it_runs_unlocked_without_a_session_row(self):
-        heartbeats: list[tuple] = []
-
-        async def _loop(*args):
-            heartbeats.append(args)
-
+    async def test_a_missing_session_row_fails_the_job_before_it_waits_for_the_slot(self):
         with (
-            _job_scaffolding(_agent_with_mr(None), real_lock=True, armed=[]),
-            patch("sessions.executor.lock._heartbeat_loop", _loop),
+            _job_scaffolding(_agent_with_mr(None), real_lock=True) as set_ctx,
+            patch("sessions.executor.lock.SessionLock.try_claim") as try_claim,
+            pytest.raises(Session.DoesNotExist),
         ):
-            result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
+            await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
 
-        assert result == {"response": "ok"}
-        assert heartbeats == []
+        try_claim.assert_not_called()
+        set_ctx.assert_not_called()
 
     async def test_it_heartbeats_while_locked_and_cancels_the_heartbeat_after(self):
         thread_id = await amake_job_session()
@@ -590,7 +539,7 @@ class TestRunJobTaskAfterRunMatrix:
 
         with (
             _job_scaffolding(agent, real_lock=True, armed=armed),
-            patch("sessions.services.apersist_session_ref", persist),
+            patch("sessions.executor.run.apersist_session_ref", persist),
             pytest.raises(RuntimeError, match="agent blew up"),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
@@ -609,7 +558,7 @@ class TestRunJobTaskAfterRunMatrix:
             caplog.at_level("ERROR", logger="daiv.sessions"),
             pytest.raises(RuntimeError, match="agent blew up"),
         ):
-            await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
+            await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=await amake_job_session())
 
         [record] = [r for r in caplog.records if r.getMessage().startswith("Job failed")]
         assert record.exc_info[1] is agent.ainvoke.side_effect
@@ -648,7 +597,7 @@ class TestRunJobTaskAfterRunMatrix:
             patch("sessions.executor.run.PipelineWatch", watch_recorder(arms, error=RuntimeError("redis down"))),
             caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
-            result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
+            result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=await amake_job_session())
 
         assert result == {"response": "ok"}
         assert len(arms) == 1
@@ -755,7 +704,7 @@ class TestRunJobTaskAfterRunMatrix:
         with (
             _job_scaffolding(agent, real_lock=True),
             patch("sessions.executor.lock.SessionLock.release", _release),
-            patch("sessions.services.apersist_session_ref", _persist),
+            patch("sessions.executor.run.apersist_session_ref", _persist),
             patch("sessions.executor.run.PipelineWatch", _Watch),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id=thread_id, run_id="run-1")
@@ -779,21 +728,22 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
 
     runtime_ctx = disk_ctx()
     runtime_ctx.config.models.agent = MagicMock()
+    thread_id = await amake_job_session()
 
     with (
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
-        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch(
             "automation.agent.agent_settings.resolve_agent_settings",
             return_value=resolved_to("m", thinking_level="medium"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("sessions.executor.result.build_agent_result", return_value={"response": "ok"}),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("sessions.executor.run.PipelineWatch", watch_recorder(armed)),
         patch("sessions.executor.run._record_measurements", new=AsyncMock()),
     ):
@@ -801,13 +751,13 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
         rc_ctx.return_value.__aenter__.return_value = runtime_ctx
 
         await run_job_task.func(
-            repo_id="group/repo", prompt="p", ref="main", thread_id="t-1", run_id=run_id, user_id=user_id
+            repo_id="group/repo", prompt="p", ref="main", thread_id=thread_id, run_id=run_id, user_id=user_id
         )
 
     return armed
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_it_arms_off_the_published_flag():
     """The watch is armed off the publisher's own verdict: ``published``, read from the checkpoint the task
     already fetches for ``apersist_session_ref``."""
@@ -821,7 +771,7 @@ async def test_it_arms_off_the_published_flag():
     assert armed[0]["user_id"] == 9
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_a_clean_tree_on_its_mr_is_not_reported_as_published():
     """The regression that matters: ``code_changes`` is true here, ``published`` is not. Passing
     the former let a fix run that changed nothing re-arm instead of giving up, stranding the

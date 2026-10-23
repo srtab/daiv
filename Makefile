@@ -71,7 +71,7 @@ makemessages:
 	uv run django-admin makemessages --ignore=*/node_modules/* --ignore=.venv --no-location --no-wrap --all
 
 compilemessages:
-	uv run django-admin compilemessages
+	uv run django-admin compilemessages --ignore='.*'
 
 # See AGENTS.md "Integration tests need credentials" for why every flag here is load-bearing.
 # CODEBASE_GITLAB_URL is read from the secrets file rather than config.env: this runs on the host,
@@ -108,7 +108,7 @@ eval-prompts:
 	done
 
 swebench:
-	uv run evals/swebench.py --dataset-path "princeton-nlp/SWE-bench_Verified" --dataset-split "test" --output-path swebench-predictions.json --num-samples 10
+	uv run python -m evals.swebench --dataset-path "princeton-nlp/SWE-bench_Verified" --dataset-split "test" --output-path swebench-predictions.json --num-samples 10
 
 swebench-evaluate: swebench-clean
 	mkdir -p /tmp/swebench
@@ -124,7 +124,7 @@ swebench-clean:
 	rm -rf /tmp/swebench
 
 swerebench:
-	uv run evals/swebench.py --dataset-path "nebius/SWE-rebench-leaderboard" --dataset-split "2026_03" --output-path swerebench-predictions.json --num-samples 10
+	uv run python -m evals.swebench --dataset-path "nebius/SWE-rebench-leaderboard" --dataset-split "2026_03" --output-path swerebench-predictions.json --num-samples 10
 
 swerebench-evaluate: swerebench-clean
 	mkdir -p /tmp/swerebench

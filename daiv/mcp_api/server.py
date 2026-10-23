@@ -13,24 +13,20 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from asgiref.sync import sync_to_async
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
-from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
+from sandbox_envs.selection import resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
+from sessions.admission import AdmissionError, aadmit, aassert_repo_access, aresolve_environment, check_agent_override
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, asubmit_batch_runs
 
-from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
-from codebase.authorization import (
-    REPO_ACCESS_DENIED_MESSAGE,
-    RepositoryAccessDenied,
-    aassert_can_run,
-    asearch_viewable_repositories,
-)
-from codebase.references import MAX_REFS_PER_SUBMISSION, RefIn
+from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
+from codebase.authorization import asearch_viewable_repositories
 from core.conf import settings as core_settings
 from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for MCPServer
@@ -247,12 +243,6 @@ async def submit_job(
     if not await asyncio.to_thread(_allow_job_submission, mcp_user):
         return json.dumps({"error": "Rate limit exceeded for job submissions. Try again later."})
 
-    try:
-        agent_model, agent_thinking_level = validate_agent_override(agent_model, agent_thinking_level)
-        ensure_agent_model_available(agent_model)
-    except AgentOverrideError as err:
-        return json.dumps({"error": str(err)})
-
     thread_id_str: str | None = None
     if thread_id is not None:
         # MCPServer's protocol layer coerces to UUID via Pydantic; direct callers (tests, in-process
@@ -267,32 +257,26 @@ async def submit_job(
             return json.dumps({"error": _THREAD_NOT_FOUND})
 
     try:
-        await aassert_can_run(mcp_user, [spec.repo_id for spec in specs])
-    except RepositoryAccessDenied:
-        return json.dumps({"error": REPO_ACCESS_DENIED_MESSAGE})
-
-    explicit_env_id: str | None = None
-    if environment:
-        try:
-            env_row = await resolve_env_for_user(mcp_user, environment)
-        except LookupError as err:
-            return json.dumps({"error": str(err)})
-        if env_row is not None:
-            explicit_env_id = str(env_row.id)
-
-    targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs]
-    targets = await aresolve_repo_envs(user=mcp_user, repos=targets, explicit_env_id=explicit_env_id)
-    result = await asubmit_batch_runs(
-        user=mcp_user,
-        prompt=prompt,
-        repos=targets,
-        agent_model=agent_model,
-        agent_thinking_level=agent_thinking_level,
-        muted=muted,
-        trigger_type=SessionOrigin.MCP_JOB,
-        thread_id=thread_id_str,
-        references=refs_in,
-    )
+        admission = await aadmit(
+            user=mcp_user,
+            repos=[RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs],
+            agent_model=agent_model,
+            agent_thinking_level=agent_thinking_level,
+            environment=environment,
+        )
+        result = await asubmit_batch_runs(
+            user=mcp_user,
+            prompt=prompt,
+            repos=admission.targets,
+            agent_model=admission.agent_model,
+            agent_thinking_level=admission.agent_thinking_level,
+            muted=muted,
+            trigger_type=SessionOrigin.MCP_JOB,
+            thread_id=thread_id_str,
+            references=refs_in,
+        )
+    except AdmissionError as err:
+        return json.dumps({"error": str(err)})
 
     # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
     # non-failed one with the next run in result.runs (same order as input).
@@ -331,11 +315,12 @@ async def _build_job_response_dict(run: Run) -> dict:
         refused = run.error_message == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
         error = CROSS_PROJECT_SESSION_REFUSED_MESSAGE if refused else "Job execution failed."
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
+    result = await sync_to_async(lambda: run.response_text)()
     return {
         "job_id": str(run.id),
         "status": str(run.status),
         "thread_id": str(run.session_id) if run.session_id else None,
-        "result": run.result_summary or None,
+        "result": result or None,
         "question": run.question,
         "merge_request_url": run.merge_request_web_url or None,
         "artifacts": [artifact.model_dump() for artifact in artifacts],
@@ -877,19 +862,14 @@ async def schedule_job(
     if auth_error is not None:
         return auth_error
 
-    try:
-        agent_model, agent_thinking_level = validate_agent_override(agent_model, agent_thinking_level)
-        ensure_agent_model_available(agent_model)
-    except AgentOverrideError as err:
-        return {"error": str(err)}
-
     specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
     repo_dicts = [{"repo_id": s.repo_id, "ref": s.ref or ""} for s in specs]
 
     try:
-        await aassert_can_run(mcp_user, [spec.repo_id for spec in specs])
-    except RepositoryAccessDenied:
-        return {"error": REPO_ACCESS_DENIED_MESSAGE}
+        agent_model, agent_thinking_level = check_agent_override(agent_model, agent_thinking_level)
+        await aassert_repo_access(mcp_user, [spec.repo_id for spec in specs])
+    except AdmissionError as err:
+        return {"error": str(err)}
 
     parsed_time = None
     if time:
@@ -907,12 +887,10 @@ async def schedule_job(
         if timezone.is_naive(parsed_run_at):
             parsed_run_at = timezone.make_aware(parsed_run_at)
 
-    env_row = None
-    if environment:
-        try:
-            env_row = await resolve_env_for_user(mcp_user, environment)
-        except LookupError as err:
-            return {"error": str(err)}
+    try:
+        env_row = await aresolve_environment(mcp_user, environment)
+    except AdmissionError as err:
+        return {"error": str(err)}
 
     try:
         schedule = await acreate_scheduled_job(

@@ -1,11 +1,9 @@
-import logging
 import uuid
 from typing import TYPE_CHECKING
 
 from django.template.loader import render_to_string
 
-from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
-from sessions.models import Session
+from sessions.executor.lock import wait_for_slot
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
@@ -13,8 +11,6 @@ from codebase.clients import RepoClient
 if TYPE_CHECKING:
     from sessions.executor.lock import LockPolicy
     from sessions.executor.spec import RunOutcome
-
-logger = logging.getLogger("daiv.managers")
 
 
 class BaseManager:
@@ -32,11 +28,13 @@ class BaseManager:
         repo_id: str,
         thread_id: str,
         mention_comment_id: str | None = None,
+        mention_note_id: int | None = None,
         acting_platform_uid: str | None = None,
     ):
         self.repo_id = repo_id
         self.thread_id = thread_id
         self.mention_comment_id = mention_comment_id
+        self.mention_note_id = mention_note_id
         self.acting_platform_uid = acting_platform_uid
         self.client = RepoClient.create_instance()
 
@@ -44,6 +42,12 @@ class BaseManager:
     def reply_to_id(self) -> str | None:
         """The mention a failure comment answers under; GitHub can't reply to a comment, so only GitLab gets one."""
         return self.mention_comment_id if self.client.git_platform == GitPlatform.GITLAB else None
+
+    def _require_mention_note_id(self) -> int:
+        """The note a mention run answers; a mention task queued without one fails instead of guessing."""
+        if self.mention_note_id is None:
+            raise ValueError(f"The mention run on {self.repo_id} has no mention_note_id.")
+        return self.mention_note_id
 
     @staticmethod
     def _append_footer(body: str, footer: str | None) -> str:
@@ -74,11 +78,6 @@ class BaseManager:
         self._unable_note_posted = True
         return True
 
-    async def _lock_policy(self) -> LockPolicy:
-        """Wait for the session's slot, or run unlocked on a thread's first turn: the callback creates the
-        ``Session`` row just after enqueueing this run, so the row may not exist yet, and then nothing else can
-        hold the slot either."""
-        if await Session.objects.filter(pk=self.thread_id).aexists():
-            return Wait(holder_id=f"webhook-{uuid.uuid4().hex}", timeout_s=LOCK_WAIT_TIMEOUT_S)
-        logger.warning("webhook run: no session row for thread_id=%s; running without lock", self.thread_id)
-        return NoLock()
+    def _lock_policy(self) -> LockPolicy:
+        """Wait for the session's slot, which ``webhooks.dispatch`` opened before it enqueued this run."""
+        return wait_for_slot(f"webhook-{uuid.uuid4().hex}")

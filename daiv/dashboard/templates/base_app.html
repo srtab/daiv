@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% load i18n icon_tags static %}
+
+{% block alpine_stores %}
+<script defer src="{% static 'core/js/nav-events.js' %}"></script>
+{% endblock alpine_stores %}
+
+{% block content %}
+{% translate "{count} running" as nav_running_label %}
+<div x-data="{ mobileNavOpen: false }"
+     x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }} }, runningLabel: '{{ nav_running_label|escapejs }}' })"
+     @keydown.escape.window="mobileNavOpen = false"
+     class="flex h-dvh bg-ground">
+  {% include "dashboard/_sidebar.html" %}
+
+  {% comment %}
+  Mobile navigation sheet (< 768px) — reuses the sidebar partial WITHOUT the
+  icon-rail modifier, so it always shows full labels.
+  {% endcomment %}
+  <div x-show="mobileNavOpen" x-cloak class="fixed inset-0 z-40 md:hidden">
+    <div x-show="mobileNavOpen" x-transition.opacity
+         @click="mobileNavOpen = false"
+         class="absolute inset-0 bg-black/60"></div>
+    <div x-show="mobileNavOpen"
+         x-transition:enter="transition-transform duration-200"
+         x-transition:enter-start="-translate-x-full"
+         x-transition:enter-end="translate-x-0"
+         x-transition:leave="transition-transform duration-150"
+         x-transition:leave-start="translate-x-0"
+         x-transition:leave-end="-translate-x-full"
+         class="relative flex h-full w-[85%] max-w-[260px] flex-col bg-surface-1 shadow-overlay">
+      {% include "dashboard/_sidebar.html" with sidebar_root_class="flex min-h-0 w-full flex-1 flex-col" %}
+    </div>
+  </div>
+
+  <div class="flex flex-1 flex-col min-w-0">
+    {# Below `md:` the sidebar is a sheet, and this bar is the only way to open it. #}
+    <header data-testid="mobile-top-bar" class="flex items-center gap-3 border-b border-border bg-surface-1 px-4 py-2 md:hidden">
+      <button type="button"
+              @click="mobileNavOpen = !mobileNavOpen"
+              class="relative inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border text-text-muted transition-colors hover:text-text"
+              aria-label="{% translate 'Open navigation' %}">
+        {% icon "bars-3" "h-5 w-5" %}
+        <span x-show="$store.nav.unread > 0" x-cloak aria-hidden="true"
+              class="status-dot absolute top-2 right-2 bg-accent"></span>
+      </button>
+      <a href="{% url 'dashboard' %}" class="brand-wordmark flex items-center gap-2.5">
+        <span class="brand-mark"></span>
+        DAIV
+      </a>
+    </header>
+
+    <main class="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 {% block main_padding_bottom %}pb-10{% endblock %} sm:px-(--app-content-gutter) sm:pt-8">
+      {# container_width tier — allowed: max-w-3xl (narrow) | max-w-6xl (default) | max-w-screen-2xl (wide) | max-w-none (fluid) #}
+      <div class="mx-auto {% block container_width %}max-w-6xl{% endblock %}">
+        {% block breadcrumb %}{% endblock %}
+        {% block app_content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+</div>
+{% endblock content %}

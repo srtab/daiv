@@ -118,15 +118,6 @@ class UIEventPublisher:
         """Poke every reader to recompute its visible running-runs count."""
         self._publish(Channel.RUNS, UIEventKind.RUNS)
 
-    async def aruns_changed(self) -> None:
-        """``runs_changed`` for callers already on the web worker's event loop.
-
-        The chat run finalizer lives there and would otherwise pay a thread hop for a
-        single round-trip. No ``on_commit`` for that one either: it runs outside the ORM's
-        sync transaction machinery, and its own write has already been awaited.
-        """
-        await self._apublish(Channel.RUNS, UIEventKind.RUNS)
-
     def notifications_changed(self, user_id: int | str | None) -> None:
         """Poke one user's readers to recompute their unread count."""
         if user_id is None:
@@ -138,14 +129,6 @@ class UIEventPublisher:
             return
         try:
             self._connections.sync_client().publish(channel, kind.as_payload())
-        except Exception as err:  # noqa: BLE001
-            self._log_failure(channel, kind, err)
-
-    async def _apublish(self, channel: str, kind: UIEventKind) -> None:
-        if not self._connections.configured:
-            return
-        try:
-            await self._connections.async_client().publish(channel, kind.as_payload())
         except Exception as err:  # noqa: BLE001
             self._log_failure(channel, kind, err)
 

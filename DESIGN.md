@@ -199,16 +199,6 @@ Centered card for "nothing here yet" and "can't show this" states, classes in `i
 </div>
 ```
 
-### Quick Link Card
-
-Reusable partial at `accounts/templates/accounts/_quick_link_card.html`:
-
-```django
-{% include "accounts/_quick_link_card.html" with url=target_url icon="key" title="API Keys" description="Manage tokens" badge=count %}
-```
-
-Accepts: `url`, `icon` (icon name), `title`, `description`, `badge` (optional).
-
 ### Page Header
 
 Every page title with actions at its top right is a `.page-header` holding exactly two
@@ -264,10 +254,10 @@ Auto-dismissing notifications anchored `fixed top-5 right-5 z-50`. Color-coded b
 
 ### Pagination
 
-Reusable partial at `accounts/templates/accounts/_pagination.html`:
+Reusable partial at `core/templates/core/_pagination.html`:
 
 ```django
-{% include "accounts/_pagination.html" %}
+{% include "core/_pagination.html" %}
 ```
 
 Requires `is_paginated` and `page_obj` in template context (standard Django `ListView`).
@@ -392,7 +382,11 @@ as `promptBox(...)`:
 ```
 
 Both popovers are HTMX fragments served by `codebase.views` — debounced search on the input, and
-the repository list pages in on scroll via an `intersect`-triggered sentinel row. A failed fragment
+the repository list pages in on scroll via an `intersect`-triggered sentinel row. Adding to a
+multi-repository field keeps the picker open, with a selection count and a Done control; single
+choices and chip replacements close it. Selected rows show their branches and block duplicate
+choices. Successful repository results, search, and scroll position survive reopening on the same
+page; reopening after a failed request retries the current search. A failed fragment
 request is surfaced by `promptBox`, which listens for both `htmx:sendError` and `htmx:responseError`
 (HTMX skips the swap on 4xx/5xx, so without the latter the popover stays blank).
 
@@ -404,7 +398,7 @@ the failure row for every HTMX picker popover, reading its message from the near
 
 ### Base Template
 
-All pages extend `accounts/templates/base.html`, which provides:
+All pages extend `core/templates/base.html`, which provides:
 
 - HTML shell with `<head>` (fonts, CSS, Alpine.js, meta tags)
 - `<body class="h-full bg-ground font-sans text-text antialiased">`
@@ -473,12 +467,11 @@ sidebar's tier and that switch moves with it.
 |-------------------------|-----------------------------------------------|
 | Tailwind source         | `daiv/static_src/css/input.css`               |
 | Compiled CSS            | `daiv/static/css/styles.css`                  |
-| Base template           | `daiv/accounts/templates/base.html`           |
-| App shell template      | `daiv/accounts/templates/base_app.html`       |
-| Sidebar partial         | `daiv/accounts/templates/accounts/_sidebar.html` |
+| Base template           | `daiv/core/templates/base.html`               |
+| App shell template      | `daiv/dashboard/templates/base_app.html`      |
+| Sidebar partial         | `daiv/dashboard/templates/dashboard/_sidebar.html` |
 | Self-hosted fonts       | `daiv/static/fonts/geist/`                    |
-| Pagination partial      | `daiv/accounts/templates/accounts/_pagination.html` |
-| Quick link card partial | `daiv/accounts/templates/accounts/_quick_link_card.html` |
+| Pagination partial      | `daiv/core/templates/core/_pagination.html`   |
 | Default field template  | `daiv/configuration/templates/configuration/fields/default.html` |
 | Icon template           | `daiv/core/templates/core/icons/_icon.html`   |
 | Icon SVGs               | `daiv/core/static/core/img/icons/`            |

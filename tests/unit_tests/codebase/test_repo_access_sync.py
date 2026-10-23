@@ -188,14 +188,6 @@ class TestSyncRepositoryAccess:
         assert not RepositoryAccess.objects.filter(repo_id="a/b").exists()  # aged out and pruned
         assert RepositoryAccess.objects.filter(repo_id="c/d", uid="8").exists()
 
-    def test_swe_platform_is_a_noop(self, mock_repo_client):
-        with patch.object(codebase_settings, "CLIENT", GitPlatform.SWE):
-            sync_repository_access_cron_task.func()
-
-        assert not mock_repo_client.list_repositories.called
-        assert not RepositoryAccess.objects.exists()
-        assert not RepositoryAccessSyncState.objects.exists()
-
 
 @pytest.mark.django_db
 class TestSyncRepositoryCatalog:

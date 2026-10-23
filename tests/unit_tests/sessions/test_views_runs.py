@@ -160,6 +160,21 @@ def test_post_submit_failure_rerenders_form_with_error(member_client):
     assert resp.context["form"].errors
 
 
+@pytest.mark.django_db
+def test_post_access_revoked_before_submit_errors_on_repos(member_client):
+    from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
+
+    with (
+        patch("sessions.views.resolve_repo_envs", side_effect=lambda *, user, repos, explicit_env_id: repos),
+        patch("sessions.admission.assert_can_run", side_effect=[None, RepositoryAccessDenied(["acme/repo"])]),
+    ):
+        resp = member_client.post(NEW_RUN_URL, _post_data())
+
+    assert resp.status_code == 200
+    assert resp.context["form"].errors["repos"] == [REPO_ACCESS_DENIED_MESSAGE]
+    assert not Run.objects.exists()
+
+
 # --- MCP overrides ---------------------------------------------------------
 
 
@@ -172,7 +187,7 @@ def test_run_form_submit_passes_mcp_overrides(member_client, member_user):
 
     MCPServer.objects.create(
         name="b",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         status=MCPServer.Status.ON_DEMAND,
         transport=MCPServer.Transport.HTTP,
         url="http://b.test/mcp",
@@ -203,7 +218,7 @@ def test_retry_prefills_selection_from_source_session(member_client, member_user
 
     MCPServer.objects.create(
         name="b",
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         status=MCPServer.Status.ON_DEMAND,
         transport=MCPServer.Transport.HTTP,
         url="http://b.test/mcp",

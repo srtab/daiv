@@ -10,8 +10,6 @@ from core.site_settings import site_settings
 
 from .schemas import (
     EgressConfigRequest,
-    FsDeleteRequest,
-    FsDeleteResponse,
     FsEditRequest,
     FsEditResponse,
     FsGlobRequest,
@@ -172,12 +170,6 @@ class DAIVSandboxClient:
         response = await self._client.post(f"session/{session_id}/fs/edit", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return FsEditResponse.model_validate(response.json())
-
-    async def fs_delete(self, session_id: str, request: FsDeleteRequest) -> FsDeleteResponse:
-        """Delete a file under ``/workspace`` on the sandbox session."""
-        response = await self._client.post(f"session/{session_id}/fs/delete", json=request.model_dump(mode="json"))
-        response.raise_for_status()
-        return FsDeleteResponse.model_validate(response.json())
 
     async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
         """

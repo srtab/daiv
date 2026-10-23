@@ -29,5 +29,5 @@ def composer_command_rows() -> list[dict[str, str]]:
 
     return commands + [
         {"name": name, "description": Truncator(description).chars(DESCRIPTION_CHARS), "kind": "skill"}
-        for name, description in sorted(list_global_skills().items())
+        for name, description in list_global_skills().items()
     ]

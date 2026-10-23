@@ -18,13 +18,13 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from mcp_connectors.selection import mcp_picker_context
 from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context
+from sessions.admission import RepoAccessError
 from sessions.models import SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 
-from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.templatetags.avatar_tags import user_color_index, user_initials
-from automation.agent.picker_context import agent_picker_context
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
+from automation.picker.context import agent_picker_context
+from core.mixins import AdminRequiredMixin, BreadcrumbMixin
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
 from schedules.models import ScheduledJob, ScheduleTemplate
 
@@ -249,8 +249,8 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                 scheduled_job=schedule,
                 mcp_overrides=schedule.mcp_overrides,
             )
-        except RepositoryAccessDenied:
-            messages.error(request, f"Schedule '{schedule.name}' was not triggered: {REPO_ACCESS_DENIED_MESSAGE}")
+        except RepoAccessError as err:
+            messages.error(request, f"Schedule '{schedule.name}' was not triggered: {err}")
             return redirect("schedule_list")
         except Exception:
             logger.exception("Failed to enqueue run-now for schedule pk=%d (%s)", schedule.pk, schedule.name)

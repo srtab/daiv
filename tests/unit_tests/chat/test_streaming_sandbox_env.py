@@ -46,7 +46,7 @@ async def test_streamer_emits_resolved_env_custom_event_when_auto_resolved():
         auto_resolved_env={"id": "env-uuid", "name": "Default", "scope": "global"},
     )
     with (
-        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("automation.agent.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer", _fake_open_checkpointer),
         patch("automation.agent.graph.create_daiv_agent", MagicMock(return_value=MagicMock())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", MagicMock()),
@@ -89,7 +89,7 @@ async def test_streamer_skips_resolved_env_emit_when_not_auto_resolved():
     )
     with (
         stub_sandbox_spec(),
-        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("automation.agent.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer", _fake_open_checkpointer),
         patch("automation.agent.graph.create_daiv_agent", MagicMock(return_value=MagicMock())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", MagicMock()),

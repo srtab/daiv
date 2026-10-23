@@ -11,15 +11,18 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from asgiref.sync import sync_to_async
+from github import GithubException
+from gitlab.exceptions import GitlabError
 from pydantic import SecretStr
 
 from codebase.base import (
-    Discussion,
     GitPlatform,
     Issue,
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    Note,
     Pipeline,
     RepoAccessLevel,
     RepoMember,
@@ -40,6 +43,10 @@ logger = logging.getLogger("daiv.clients")
 
 GIT_NO_PROMPT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""}
 
+PLATFORM_ERRORS: tuple[type[Exception], ...] = (GitlabError, GithubException, OSError)
+"""A failure of the platform rather than of DAIV: an API error, or a network one, since both SDKs transport over
+``requests`` and its ``RequestException`` is an ``OSError``."""
+
 
 def is_transient_platform_error(exc: BaseException) -> bool:
     """True for an anticipated GitLab/GitHub outage rather than a bug in how we call it.
@@ -49,9 +56,6 @@ def is_transient_platform_error(exc: BaseException) -> bool:
     ``is_transient_bus_error`` draws. Auth (401/403) counts as transient: DAIV's project-scoped
     tokens are ephemeral and expire mid-watch by design.
     """
-    from github import GithubException
-    from gitlab.exceptions import GitlabError
-
     transient_status = {401, 403, 408, 429, 500, 502, 503, 504}
     if isinstance(exc, GithubException):
         return exc.status in transient_status
@@ -144,7 +148,7 @@ class GitAuthEnv:
         ``GIT_CONFIG_{COUNT,KEY_0,VALUE_0}`` apply the command-scoped ``extraheader``.
         ``GIT_TERMINAL_PROMPT=0`` **and** ``GIT_ASKPASS=""`` together disable every prompt path so a
         *rejected* credential fails fast with ``could not read Username`` — one of
-        :func:`core.utils.is_git_auth_error_text`'s markers, so the clone-retry self-heal and
+        :func:`codebase.utils.is_git_auth_error_text`'s markers, so the clone-retry self-heal and
         push-failure classifier keep recognising auth errors. Both are needed: with only
         ``GIT_TERMINAL_PROMPT=0`` git still falls back to an inherited ``SSH_ASKPASS`` GUI helper and
         hangs; the empty ``GIT_ASKPASS`` is non-null (short-circuiting that fallback chain) yet empty
@@ -243,10 +247,6 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
-        pass
-
-    @abc.abstractmethod
-    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
         pass
 
     @abc.abstractmethod
@@ -354,12 +354,12 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
+    def get_issue_note(self, repo_id: str, issue_id: int, note_id: int) -> Note:
         pass
 
     @abc.abstractmethod
     def create_issue_comment(
-        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         pass
 
@@ -420,13 +420,7 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def create_merge_request_comment(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        reply_to_id: str | None = None,
-        as_thread: bool = False,
-        mark_as_resolved: bool = False,
+        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         pass
 
@@ -495,8 +489,8 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
-        pass
+    def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
+        """`note_id` names a conversation comment, as for `create_merge_request_note_emoji`."""
 
     @abc.abstractmethod
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
@@ -505,10 +499,6 @@ class RepoClient(abc.ABC):
         `note_id` names a conversation comment; GitHub review (diff) comments are not addressable
         here, since DAIV receives none.
         """
-
-    @abc.abstractmethod
-    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        pass
 
     # Implemented only on GitLab for now.
     def create_merge_request_inline_discussion(
@@ -544,12 +534,11 @@ class RepoClient(abc.ABC):
     # Factory
     @staticmethod
     @functools.cache
-    def create_instance(*, git_platform: GitPlatform = settings.CLIENT, **kwargs: Any) -> RepoClient:
+    def create_instance() -> RepoClient:
         """
-        Get the repository client based on the configuration.
+        Get the client of the configured git platform (``CODEBASE_CLIENT``).
 
-        Args:
-            git_platform: The git platform to use (defaults to the configured client).
+        Cached, so one instance serves the whole process, concurrently from any thread.
 
         Returns:
             The repository client instance.
@@ -557,27 +546,30 @@ class RepoClient(abc.ABC):
         from .github import GitHubClient
         from .github.utils import get_github_integration
         from .gitlab import GitLabClient
-        from .swe import SWERepoClient
 
-        if git_platform == GitPlatform.GITLAB:
+        if settings.CLIENT == GitPlatform.GITLAB:
             assert settings.GITLAB_AUTH_TOKEN is not None, "GitLab auth token is not set"
 
             return GitLabClient(
                 auth_token=settings.GITLAB_AUTH_TOKEN.get_secret_value(),
                 url=settings.GITLAB_URL and str(settings.GITLAB_URL) or None,
-                **kwargs,
             )
 
-        if git_platform == GitPlatform.GITHUB:
-            assert settings.GITHUB_PRIVATE_KEY is not None, "GitHub private key is not set"
-            assert settings.GITHUB_APP_ID is not None, "GitHub app ID is not set"
-            assert settings.GITHUB_INSTALLATION_ID is not None, "GitHub installation ID is not set"
+        assert settings.GITHUB_PRIVATE_KEY is not None, "GitHub private key is not set"
+        assert settings.GITHUB_APP_ID is not None, "GitHub app ID is not set"
+        assert settings.GITHUB_INSTALLATION_ID is not None, "GitHub installation ID is not set"
 
-            return GitHubClient(
-                integration=get_github_integration(), installation_id=settings.GITHUB_INSTALLATION_ID, **kwargs
-            )
+        return GitHubClient(integration=get_github_integration(), installation_id=settings.GITHUB_INSTALLATION_ID)
 
-        if git_platform == GitPlatform.SWE:
-            return SWERepoClient(**kwargs)
 
-        raise ValueError("Invalid repository client configuration")
+async def aget_open_merge_request(client: RepoClient, repo_id: str, source_branch: str) -> MergeRequest | None:
+    """The open merge request from ``source_branch``, or ``None`` when there is none or the platform failed.
+
+    Best-effort: a platform error (:data:`PLATFORM_ERRORS`) is logged and reads as no merge request, so the caller
+    carries on and the publisher opens one if it must. Anything else is a bug and propagates.
+    """
+    try:
+        return await sync_to_async(client.get_merge_request_by_branches)(repo_id, source_branch)
+    except PLATFORM_ERRORS:
+        logger.exception("Failed to look up the open merge request for %s on %s", repo_id, source_branch)
+        return None

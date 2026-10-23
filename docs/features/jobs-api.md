@@ -160,7 +160,7 @@ GET /api/jobs/{job_id}
 | `QUEUED` | Job is waiting for an earlier run on the same thread to finish; released FIFO. Only occurs for thread continuations (`thread_id` supplied). |
 | `READY` | Job is queued, waiting for a worker |
 | `RUNNING` | Agent is executing |
-| `SUCCESSFUL` | Completed — `result` contains the agent's response summary |
+| `SUCCESSFUL` | Completed — `result` contains the agent's last response |
 | `WAITING_INPUT` | The agent stopped to ask you a question instead of guessing — a terminal state, not a step towards `SUCCESSFUL`. `question` holds the questions asked, and `result` their rendered text |
 | `FAILED` | Agent encountered an error — `error` contains a message |
 
@@ -197,6 +197,7 @@ For `POST /api/jobs`:
 | Code | When |
 |------|------|
 | `400` | Invalid request — bad `agent_model` / `agent_thinking_level` override, no `agent_model` given and no system default model configured (a model set only in `.daiv.yml` does not count), unresolvable `environment`, or invalid `thread_id` continuation (unknown/unowned thread, or more than one repo). |
+| `404` | A repository in `repos` is not found or you lack write access to it. The response does not say which one. |
 | `422` | Malformed body or unknown fields (e.g. the removed `use_max` or `notify_on`). |
 | `429` | Rate limit exceeded (see [Rate limiting](#rate-limiting)). |
 | `401` | Missing or invalid API key |
@@ -217,7 +218,7 @@ stateDiagram-v2
 
 A job only starts in `QUEUED` when you supply a `thread_id` and an earlier run on that thread is still in flight; it is released to `READY` (FIFO) when that run terminates. Every other submission starts at `READY`.
 
-Once a job reaches `SUCCESSFUL`, `WAITING_INPUT`, or `FAILED`, the status is final for that job — `WAITING_INPUT` doesn't progress to `SUCCESSFUL` on its own, it waits for a new job on the same thread (see [Answering a question](#answering-a-question)). The `result` field contains the agent's text response summary (its last response, truncated to 2000 characters) — not necessarily the complete output.
+Once a job reaches `SUCCESSFUL`, `WAITING_INPUT`, or `FAILED`, the status is final for that job — `WAITING_INPUT` doesn't progress to `SUCCESSFUL` on its own, it waits for a new job on the same thread (see [Answering a question](#answering-a-question)). The `result` field contains the agent's last response in full, not the rest of the run's messages.
 
 ## Examples
 

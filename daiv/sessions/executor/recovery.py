@@ -1,13 +1,16 @@
 import logging
 from typing import TYPE_CHECKING, Any
 
+from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
+
 if TYPE_CHECKING:
     from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
 
     from automation.agent.agent_settings import AgentSettings
+    from automation.agent.context import RuntimeCtx
+    from automation.agent.session_links import SessionLinksResolver
     from automation.agent.workspace.base import Workspace
-    from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -20,20 +23,17 @@ async def recover_draft(
     thread_id: str,
     workspace: Workspace,
     settings: AgentSettings,
+    session_links: SessionLinksResolver | None,
 ) -> bool:
     """Publish a draft merge request from the agent's checkpoint after the agent raised; return whether one landed.
 
     Runs inside the run's context, so the clone (and, on a sandbox run, its session) is still open. It publishes through
-    ``workspace``, the one the agent worked in, with the run's own ``settings``, and recovers nothing when that
-    workspace never became ready: the run acquired no sandbox session. Never raises: this is the last attempt to save
-    the run's work, and a failure only means no draft. A merge left with conflict markers is not a draft to save.
+    ``workspace``, the one the agent worked in, with the run's own ``settings`` and ``session_links``, and recovers
+    nothing when that workspace never became ready: the run acquired no sandbox session. Never raises: this is the last
+    attempt to save the run's work, and a failure only means no draft. A merge left with conflict markers is not a
+    draft to save.
     """
-    from automation.agent.publishers import (
-        GitChangePublisher,
-        UnresolvedMergeConflictsError,
-        checkpointed_merge_request,
-        effective_merge_request,
-    )
+    from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
 
     if not workspace.is_ready:
         logger.info("executor: no draft to recover for thread_id=%s: the run acquired no sandbox session", thread_id)
@@ -46,7 +46,7 @@ async def recover_draft(
             state_mr=checkpointed_merge_request(snapshot.values, strict=False),
             current_ref=ctx.repo.current_ref,
         )
-        publisher = GitChangePublisher(ctx, workspace, settings=settings, thread_id=thread_id)
+        publisher = GitChangePublisher(ctx, workspace, settings=settings, session_links=session_links)
         outcome = await publisher.publish(
             merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
         )

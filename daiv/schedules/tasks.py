@@ -5,11 +5,12 @@ from typing import TYPE_CHECKING
 
 from django.db import models, transaction
 from django.db.models.functions import Coalesce
+from django.tasks import task
 
 from crontask import cron
-from django_tasks import task
 
 from schedules.models import DispatchError, ScheduledJob
+from schedules.signals import schedule_dispatch_failed
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -20,14 +21,12 @@ logger = logging.getLogger("daiv.schedules")
 def _record_dispatch_failure(
     schedule: ScheduledJob, now: datetime, error: DispatchError, repo_ids: Sequence[str] = ()
 ) -> None:
-    """Record a failed dispatch and notify the owner.
+    """Record a failed dispatch and send ``schedule_dispatch_failed`` once it commits.
 
     Still advance ``next_run_at`` so the schedule does not busy-retry every minute; if even that
     fails, disable the schedule (keeping the failure on record) so it stops wedging the dispatcher.
     Each write gets its own savepoint so a database error can't abort the other schedules' dispatches.
     """
-    from notifications.schedule_notifiers import emit_schedule_dispatch_failed
-
     try:
         with transaction.atomic():
             schedule.refresh_from_db()
@@ -52,7 +51,7 @@ def _record_dispatch_failure(
             logger.exception("Failed to disable stuck scheduled job pk=%d (%s)", schedule.pk, schedule.name)
             return
 
-    transaction.on_commit(partial(emit_schedule_dispatch_failed, schedule.pk), robust=True)
+    transaction.on_commit(partial(schedule_dispatch_failed.send_robust, sender=ScheduledJob, schedule_pk=schedule.pk))
 
 
 @cron("* * * * *")
@@ -66,11 +65,11 @@ def dispatch_scheduled_jobs_cron_task():
     does not roll back updates for other schedules.
     """
     from sandbox_envs.selection import resolve_repo_envs
+    from sessions.admission import RepoAccessError
     from sessions.models import SessionOrigin
     from sessions.services import RepoTarget, submit_batch_runs
 
     from accounts.models import User
-    from codebase.authorization import RepositoryAccessDenied
 
     now = datetime.now(tz=UTC)
     dispatched = 0
@@ -129,7 +128,7 @@ def dispatch_scheduled_jobs_cron_task():
                                 *recovery_fields,
                             ]
                         )
-            except RepositoryAccessDenied as err:
+            except RepoAccessError as err:
                 logger.warning(
                     "Scheduled job pk=%d (%s) skipped: owner lacks access to %s",
                     schedule.pk,

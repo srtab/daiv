@@ -33,6 +33,12 @@ def schedule(member_user):
 
 @pytest.mark.django_db
 class TestScheduleCreateView:
+    def test_renders_breadcrumb(self, member_client):
+        response = member_client.get(reverse("schedule_create"))
+        assert b'data-testid="app-breadcrumb"' in response.content
+        assert b"Schedules" in response.content
+        assert b"New schedule" in response.content
+
     def test_form_renders_muted_checkbox(self, member_client):
         response = member_client.get(reverse("schedule_create"))
         assert response.status_code == 200
@@ -230,7 +236,7 @@ class TestScheduleRunNowView:
         return m
 
     def test_enqueues_single_repo_and_redirects_to_session_detail(self, member_client, member_user, schedule):
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -247,7 +253,7 @@ class TestScheduleRunNowView:
         async def _aenq(**kwargs):
             return await self._amake_task_row()
 
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue.side_effect = _aenq
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -262,7 +268,7 @@ class TestScheduleRunNowView:
         schedule.next_run_at = None
         schedule.save(update_fields=["is_enabled", "next_run_at"])
 
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -271,7 +277,7 @@ class TestScheduleRunNowView:
         assert response.url == reverse("session_detail", kwargs={"thread_id": run.session_id})
 
     def test_enqueue_failure_returns_error_message(self, member_client, schedule):
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(side_effect=RuntimeError("backend down"))
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]), follow=True)
 
@@ -290,9 +296,7 @@ class TestScheduleRunNowView:
         before run creation, so this must not fall through to the generic handler)."""
         from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
 
-        with mock.patch(
-            "sessions.services.aassert_can_run", new=mock.AsyncMock(side_effect=RepositoryAccessDenied(["owner/repo"]))
-        ):
+        with mock.patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["owner/repo"])):
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]), follow=True)
 
         assert response.status_code == 200
@@ -304,13 +308,13 @@ class TestScheduleRunNowView:
 
     def test_run_now_persists_explicit_env_on_run(self, member_client, member_user, schedule):
         """Schedule with an explicit env → run-now stamps that env on the generated Run."""
-        from sandbox_envs.models import SandboxEnvironment, Scope
+        from sandbox_envs.models import SandboxEnvironment, Visibility
 
-        env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="prod", base_image="x")
+        env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=member_user, name="prod", base_image="x")
         schedule.sandbox_environment = env
         schedule.save(update_fields=["sandbox_environment"])
 
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -322,7 +326,7 @@ class TestScheduleRunNowView:
         schedule.mcp_overrides = {"tool-x": "off"}
         schedule.save(update_fields=["mcp_overrides"])
 
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -338,20 +342,20 @@ class TestScheduleRunNowView:
         """ScheduleRunNowView.post intentionally resolves Auto against ``schedule.user``,
         not ``request.user`` — locks parity with the cron dispatcher. If a future change
         switches to request.user, this test fails."""
-        from sandbox_envs.models import SandboxEnvironment, Scope
+        from sandbox_envs.models import SandboxEnvironment, Visibility
 
-        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-        SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="x", is_default=True)
+        SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
+        SandboxEnvironment.objects.create(scope=Visibility.GLOBAL, name="Default", base_image="x", is_default=True)
         # Owner's USER env claiming the schedule's repo; admin (request.user) has none.
         owner_env = SandboxEnvironment.objects.create(
-            scope=Scope.USER, user=member_user, name="owner-env", base_image="x", repo_ids=["owner/repo"]
+            scope=Visibility.USER, user=member_user, name="owner-env", base_image="x", repo_ids=["owner/repo"]
         )
 
         from django.test import Client
 
         admin_client = Client()
         admin_client.force_login(admin_user)
-        with mock.patch("sessions.services.run_job_task") as m_task:
+        with mock.patch("sessions.queue.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = admin_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
@@ -747,12 +751,12 @@ class TestScheduleDuplicateFlow:
         """Duplicating dropped both silently: the copy came up with the default server pool and
         Auto, which reads as "same schedule" right up until it runs against different tooling."""
         from mcp_connectors.models import MCPServer
-        from sandbox_envs.models import SandboxEnvironment, Scope
+        from sandbox_envs.models import SandboxEnvironment, Visibility
 
         from tests.unit_tests.mcp_connectors.helpers import only_servers
 
         only_servers(("opt-in", MCPServer.Status.ON_DEMAND))
-        env = SandboxEnvironment.objects.create(name="heavy", scope=Scope.GLOBAL)
+        env = SandboxEnvironment.objects.create(name="heavy", scope=Visibility.GLOBAL)
         source = ScheduledJob.objects.create(
             user=member_user,
             name="source",
@@ -901,9 +905,11 @@ class TestScheduleViewsEnvContext:
         assert response.context["selected_sandbox_env_id"] == ""
 
     def test_update_view_preselects_saved_env(self, member_client, member_user):
-        from sandbox_envs.models import SandboxEnvironment, Scope
+        from sandbox_envs.models import SandboxEnvironment, Visibility
 
-        env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="dev", base_image="alpine")
+        env = SandboxEnvironment.objects.create(
+            scope=Visibility.USER, user=member_user, name="dev", base_image="alpine"
+        )
         schedule = ScheduledJob.objects.create(
             user=member_user,
             name="nightly",

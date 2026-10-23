@@ -54,6 +54,7 @@ async def _run(*, published_mr: MergeRequest | None, cloned_ref: str, persist_ra
             repo_id="owner/repo",
             issue=Issue(id=1, iid=10, title="t", author=_AUTHOR, labels=["daiv-auto"]),
             thread_id="t-1",
+            use_max=False,
         )
 
     return run.persist, result, agent

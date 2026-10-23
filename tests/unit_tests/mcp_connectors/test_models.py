@@ -11,7 +11,7 @@ from mcp_connectors.models import MCPServer
 def _global(name="g1", **kw):
     return MCPServer.objects.create(
         name=name,
-        scope=MCPServer.Scope.GLOBAL,
+        scope=MCPServer.Visibility.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="https://example.test/mcp",
         **kw,
@@ -21,7 +21,7 @@ def _global(name="g1", **kw):
 def _user_server(user, name="u1", **kw):
     return MCPServer.objects.create(
         name=name,
-        scope=MCPServer.Scope.USER,
+        scope=MCPServer.Visibility.USER,
         user=user,
         transport=MCPServer.Transport.HTTP,
         url="https://example.test/mcp",
@@ -61,7 +61,7 @@ def test_user_scope_requires_owner():
     with pytest.raises(IntegrityError):
         MCPServer.objects.create(
             name="bad",
-            scope=MCPServer.Scope.USER,
+            scope=MCPServer.Visibility.USER,
             user=None,
             transport=MCPServer.Transport.HTTP,
             url="https://example.test/mcp",
@@ -73,7 +73,7 @@ def test_global_scope_forbids_owner(member_user):
     with pytest.raises(IntegrityError):
         MCPServer.objects.create(
             name="bad",
-            scope=MCPServer.Scope.GLOBAL,
+            scope=MCPServer.Visibility.GLOBAL,
             user=member_user,
             transport=MCPServer.Transport.HTTP,
             url="https://example.test/mcp",
@@ -85,7 +85,7 @@ def test_builtin_must_be_global(member_user):
     with pytest.raises(IntegrityError):
         MCPServer.objects.create(
             name="bad",
-            scope=MCPServer.Scope.USER,
+            scope=MCPServer.Visibility.USER,
             user=member_user,
             source=MCPServer.Source.BUILTIN,
             transport=MCPServer.Transport.HTTP,

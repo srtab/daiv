@@ -43,7 +43,9 @@ def _new_mr_value(merge_request_id: int = 200) -> MergeRequest:
 
 
 def _make_manager(*, platform: GitPlatform = GitPlatform.GITLAB) -> CommentsAddressorManager:
-    manager = CommentsAddressorManager(repo_id="owner/repo", merge_request=_merge_request(), mention_comment_id="c1")
+    manager = CommentsAddressorManager(
+        repo_id="owner/repo", merge_request=_merge_request(), mention_comment_id="c1", thread_id="t-1"
+    )
     manager.client.git_platform = platform
     return manager
 

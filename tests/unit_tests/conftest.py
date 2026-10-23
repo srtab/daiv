@@ -1,5 +1,7 @@
+import asyncio
 import io
 import json
+import os
 import tarfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -7,17 +9,19 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import DEFAULT, AsyncMock, Mock, patch
 
 from django.core.cache import cache
 from django.test import Client
 
 import httpx
 import pytest
+from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.protocol import BackendProtocol
 from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import SecretStr
 from sandbox_envs.spec import SandboxSpec
+from webhooks.conf import settings as webhooks_settings
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
@@ -100,6 +104,13 @@ def sandbox_backend_on(client, session_id: str = "sess-1") -> SandboxFileBackend
 def unacquired_backend(client=None) -> SandboxFileBackend:
     """A ``SandboxFileBackend`` whose session nothing has acquired, as a slash-command turn leaves it."""
     return SandboxFileBackend(SandboxSession(client or FakeSandboxClient(), sandbox_spec()))
+
+
+def recording_backend(*, error: str | None = None) -> CompositeBackend:
+    """A backend rooted at ``/workspace`` whose ``awrite`` records its calls and reports ``error``, writing nothing."""
+    backend = CompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
+    backend.awrite = AsyncMock(return_value=Mock(error=error))
+    return backend
 
 
 @dataclass
@@ -271,6 +282,7 @@ class FakeWorkspace:
     session: Any = None
     fs_permissions: Any = None
     provisions_skills: bool = False
+    skills_provisioning_errors: Any = ()
     is_ready: bool = True
 
     async def authenticated_git(self) -> Any:
@@ -327,6 +339,42 @@ def _archive_members(archive: bytes | None) -> frozenset[str] | None:
         return None
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
         return frozenset(member.name for member in tf.getmembers() if member.isfile())
+
+
+@pytest.fixture
+def chmod():
+    """Change a path's mode for the test, restoring it afterwards so ``tmp_path`` can be cleaned up."""
+    if os.geteuid() == 0:
+        pytest.skip("root reads and lists directories regardless of their mode")
+    restore: list[tuple[Path, int]] = []
+
+    def _chmod(path: Path, mode: int) -> None:
+        restore.append((path, path.stat().st_mode))
+        path.chmod(mode)
+
+    yield _chmod
+    for path, mode in reversed(restore):
+        path.chmod(mode)
+
+
+def write_skill(root: Path, name: str, description: str, files: dict[str, str] | None = None) -> None:
+    """Write the skill ``name`` under ``root``, plus ``files`` by their path in the skill."""
+    (root / name).mkdir(parents=True)
+    (root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n")
+    for path, content in (files or {}).items():
+        (root / name / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / name / path).write_text(content)
+
+
+@pytest.fixture
+def skill_roots(tmp_path, monkeypatch) -> tuple[Path, Path]:
+    """Point the built-in and custom global skill roots at empty temp dirs."""
+    builtin, custom = tmp_path / "builtin", tmp_path / "custom"
+    builtin.mkdir()
+    custom.mkdir()
+    monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
+    monkeypatch.setattr("skills.services.settings.CUSTOM_SKILLS_PATH", custom)
+    return builtin, custom
 
 
 @pytest.fixture(autouse=True)
@@ -441,15 +489,15 @@ def mock_settings(monkeypatch):
     """Fixture to mock secret tokens for testing.
 
     Sets environment variables so that ``site_settings`` resolves API keys
-    without hitting the database.  Pydantic-only settings (codebase) are
-    patched directly.
+    without hitting the database.  Pydantic-only settings (codebase, webhooks)
+    are patched directly.
     """
     monkeypatch.setenv("DAIV_SANDBOX_API_KEY", "test-key")
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     with (
-        patch.object(codebase_settings, "GITLAB_WEBHOOK_SECRET", SecretStr("test_secret")),
-        patch.object(codebase_settings, "GITHUB_WEBHOOK_SECRET", SecretStr("test_secret")),
+        patch.object(webhooks_settings, "GITLAB_WEBHOOK_SECRET", SecretStr("test_secret")),
+        patch.object(webhooks_settings, "GITHUB_WEBHOOK_SECRET", SecretStr("test_secret")),
         patch.object(codebase_settings, "CLIENT", GitPlatform.GITLAB),
     ):
         yield codebase_settings
@@ -492,7 +540,8 @@ def mock_repo_client():
     Global fixture that automatically mocks RepoClient.create_instance for all tests.
 
     This fixture returns a comprehensive mock that implements all the abstract methods
-    of RepoClient to prevent AttributeError during tests.
+    of RepoClient to prevent AttributeError during tests. The factory keeps the real,
+    argument-less signature, so a caller that tries to pick a platform fails here too.
     """
     with patch.object(RepoClient, "create_instance") as mock_create_instance:
         # Create a mock that implements the RepoClient interface
@@ -516,7 +565,6 @@ def mock_repo_client():
         mock_client.list_repositories.return_value = []
         mock_client.list_repository_members.return_value = []
         mock_client.get_repository_file.return_value = None
-        mock_client.get_project_uploaded_file = AsyncMock(return_value=b"image content")
 
         # Mock repository modification operations
         mock_client.set_repository_webhooks.return_value = True
@@ -525,7 +573,7 @@ def mock_repo_client():
         mock_client.get_issue.return_value = Mock()
         mock_client.create_issue_comment.return_value = None
         mock_client.create_issue_emoji.return_value = None
-        mock_client.get_issue_comment.return_value = Mock()
+        mock_client.get_issue_note.return_value = Mock()
 
         # Mock merge request operations
         merge_request = MergeRequest(
@@ -543,10 +591,9 @@ def mock_repo_client():
         mock_client.update_or_create_merge_request.return_value = merge_request
         mock_client.update_merge_request.return_value = merge_request
         mock_client.get_merge_request.return_value = merge_request
-        mock_client.get_merge_request_comment.return_value = Mock()
+        mock_client.get_merge_request_note.return_value = Mock()
         mock_client.create_merge_request_comment.return_value = None
         mock_client.create_merge_request_note_emoji.return_value = None
-        mock_client.mark_merge_request_comment_as_resolved.return_value = None
         mock_client.get_merge_request_commits.return_value = []
         mock_client.get_bot_commit_email.return_value = "daiv@users.noreply.gitlab.com"
 
@@ -560,6 +607,8 @@ def mock_repo_client():
 
         # Set up the create_instance mock to return our comprehensive mock
         mock_create_instance.return_value = mock_client
+
+        mock_create_instance.side_effect = lambda: DEFAULT
 
         yield mock_client
 
@@ -578,11 +627,7 @@ def mock_repo_authorization():
     themselves; otherwise they will see ``[]`` against an empty test catalog.
     """
     with (
-        patch("sessions.services.aassert_can_run", new=AsyncMock(return_value=None)),
-        patch("jobs.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
-        patch("mcp_api.server.aassert_can_run", new=AsyncMock(return_value=None)),
-        patch("chat.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
-        patch("sessions.forms.assert_can_run", new=Mock(return_value=None)),
+        patch("sessions.admission.assert_can_run", new=Mock(return_value=None)),
         patch("sessions.views.can_run", new=Mock(return_value=True)),
         patch("codebase.views.can_view", new=Mock(return_value=True)),
         patch("memory.views.can_view", new=Mock(return_value=True)),
@@ -658,3 +703,91 @@ async def model_attempts_with_failing_primary(middleware: list, primary) -> list
         ModelRequest(model=primary, messages=[HumanMessage(content="hi")], state={"messages": []}, runtime=Mock())
     )
     return attempts
+
+
+class FakeAsyncRedis:
+    def __init__(self):
+        self.streams: dict[str, list[tuple[str, dict]]] = {}
+        self.kv: dict[str, str] = {}
+        self.ttls: dict[str, int] = {}
+        self._seq = 0
+
+    async def xadd(self, key, fields, maxlen=None, approximate=False):
+        self._seq += 1
+        entry_id = f"{self._seq}-0"
+        self.streams.setdefault(key, []).append((entry_id, {k: str(v) for k, v in fields.items()}))
+        return entry_id
+
+    async def xread(self, streams, count=None, block=None):
+        # Yield control so a concurrently running writer task can make progress
+        # before we report "nothing new" (the stand-in for a block timeout).
+        await asyncio.sleep(0)
+        out = []
+        for key, last_id in streams.items():
+            entries = [e for e in self.streams.get(key, []) if self._after(e[0], last_id)]
+            if count:
+                entries = entries[:count]
+            if entries:
+                out.append((key, entries))
+        return out
+
+    @staticmethod
+    def _after(entry_id: str, last_id: str) -> bool:
+        def parse(i: str) -> tuple[int, int]:
+            a, _, b = i.partition("-")
+            return (int(a), int(b or 0))
+
+        return parse(entry_id) > parse(last_id)
+
+    async def expire(self, key, ttl):
+        self.ttls[key] = ttl
+        return True
+
+    async def set(self, key, value, ex=None):
+        self.kv[key] = str(value)
+        return True
+
+    async def get(self, key):
+        return self.kv.get(key)
+
+    async def delete(self, *keys):
+        return sum(self.streams.pop(key, None) is not None for key in keys)
+
+    def pipeline(self, transaction=True):
+        return _FakePipeline(self)
+
+
+class _FakePipeline:
+    """Minimal async-pipeline stand-in: buffers commands and replays them against
+    the parent fake on ``execute`` (matches how ``relay._append`` batches XADD +
+    EXPIRE into one round-trip). Command methods return ``self`` for chaining and
+    are not awaited, mirroring redis.asyncio's buffered pipeline."""
+
+    def __init__(self, redis: FakeAsyncRedis):
+        self._redis = redis
+        self._ops: list[tuple[str, tuple, dict]] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def xadd(self, *args, **kwargs):
+        self._ops.append(("xadd", args, kwargs))
+        return self
+
+    def expire(self, *args, **kwargs):
+        self._ops.append(("expire", args, kwargs))
+        return self
+
+    async def execute(self):
+        return [await getattr(self._redis, name)(*args, **kwargs) for name, args, kwargs in self._ops]
+
+
+@pytest.fixture
+def fake_redis():
+    """Route every relay call through an in-memory fake."""
+    fake = FakeAsyncRedis()
+    with patch("sessions.live.relay.get_redis", return_value=fake):
+        yield fake

@@ -23,7 +23,7 @@ step sits where it does:
    ``spec.overrides()``, so a site-settings change applies from the next run. The model is recorded before the invoke,
    so a run that fails mid-way still shows what it ran with: on the ``Run`` and its session for a spec with ``run_id``,
    on the ``Run`` alone for one only ``on_context_ready`` started (chat reads the session's model as a pinned override).
-4. A sandbox run acquires its container (``automation.agent.middlewares.sandbox.acquire_sandbox``), reusing the warm one
+4. A sandbox run acquires its container (``automation.agent.workspace.session.acquire_sandbox``), reusing the warm one
    the thread's last checkpoint names when it can, so building the agent can read the repository's subagents from it;
    a builtin slash command that does not read the repository acquires none, as it never reaches the agent loop
    (``automation.agent.middlewares.slash_commands.skips_sandbox``). The agent is then built over the run's workspace
@@ -31,7 +31,9 @@ step sits where it does:
    ``publish_artifact`` files land on the bound run. A session thread whose checkpoint expired is first seeded from its
    archive (``sessions.archive.arestore_thread``), unless the run resets it (``/clear``: ``resets_thread``, beside
    ``skips_sandbox``); a context that fails to restore fails the run there, as a setup error. The agent is then
-   invoked, or handed to ``stream_run``'s stream factory, whose events are yielded as they come. Between its events, at
+   invoked (a session run through ``sessions.live.publisher.ainvoke_live`` under its slot's holder id, so its page
+   streams it; a one-shot run plainly), or handed to ``stream_run``'s stream factory, whose events are yielded as
+   they come. Between its events, at
    most every ``run.STREAM_HEARTBEAT_INTERVAL_S``, a stream heartbeats its slot and asks ``should_stop``: a slot a stale
    takeover reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one
    closes the stream (the trigger's generator), abandoning the graph run inside it. If the agent or its stream raises (a

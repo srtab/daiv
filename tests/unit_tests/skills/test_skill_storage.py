@@ -21,7 +21,7 @@ def storage(tmp_path, monkeypatch):
     cache = tmp_path / "cache"
     custom.mkdir()
     cache.mkdir()
-    monkeypatch.setattr("skills.services.agent_settings.CUSTOM_SKILLS_PATH", custom)
+    monkeypatch.setattr("skills.services.settings.CUSTOM_SKILLS_PATH", custom)
     monkeypatch.setattr("skills.services.SKILLS_CACHE_PATH", cache)
     return SkillStorage()
 

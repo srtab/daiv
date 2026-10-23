@@ -9,11 +9,11 @@ from langchain.agents.middleware import ModelFallbackMiddleware, dynamic_prompt
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnableParallel
 
-from automation.agent import BaseAgent
+from automation.agent.base import get_model
 from automation.agent.constants import REPO_PATH
+from automation.agent.context import RuntimeCtx
 from automation.agent.middlewares.memory import build_agents_memory_middleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
-from codebase.context import RuntimeCtx
 
 from .prompts import human_commit_message, human_pr_metadata, memory_section, system
 from .schemas import CommitMetadata, PullRequestMetadata
@@ -63,8 +63,8 @@ def create_diff_to_metadata_graph(
         "At least one of include_pr_metadata or include_commit_message must be True"
     )
 
-    model = BaseAgent.get_model(model=model_names[0])
-    fallback_models = [BaseAgent.get_model(model=model_name) for model_name in model_names[1:]]
+    model = get_model(model=model_names[0])
+    fallback_models = [get_model(model=model_name) for model_name in model_names[1:]]
 
     middleware = [
         build_agents_memory_middleware(backend, REPO_PATH, ctx.config.context_file_name, memory_section),
@@ -129,7 +129,7 @@ def create_diff_to_metadata_graph(
         # `emit-messages: False` silences the subagents' text frames so partial JSON
         # from the structured response never bleeds into the chat. ag_ui_langgraph
         # honors it for text only — its reasoning branch returns before the gate —
-        # so `chat.api.event_filter` applies the same flag to REASONING_* events.
+        # so `sessions.live.event_filter` applies the same flag to REASONING_* events.
         # We *do* let TOOL_CALL_* events through: the chat client recognizes the
         # `PullRequestMetadata` and `CommitMetadata` tool names and renders them as
         # inline progress chips ("Creating merge request…" / "Committing changes…")

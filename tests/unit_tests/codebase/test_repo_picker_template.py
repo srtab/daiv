@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from django.template.loader import render_to_string
 
+from bs4 import BeautifulSoup
+
 CONTEXT = {"initial_repos": "[]", "max_repos": 1, "field_name": "", "required": False}
 
 
@@ -26,3 +28,14 @@ def test_context_variant_swaps_remove_for_a_chevron_and_accents_the_empty_state(
     assert "Pick a repository" in html
     assert "repo-chip__caret" in html
     assert "repo-chip__remove" not in html
+
+
+def test_multi_repo_done_control_does_not_submit_the_enclosing_form():
+    html = render_to_string("codebase/_repo_picker.html", CONTEXT | {"max_repos": 20})
+    footer = BeautifulSoup(html, "html.parser").select_one(".repo-picker__footer")
+
+    assert footer is not None
+    done = footer.find("button", string="Done")
+    assert done is not None
+    assert done["type"] == "button"
+    assert footer.find(attrs={"aria-live": "polite"}) is not None

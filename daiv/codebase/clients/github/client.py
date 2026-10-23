@@ -12,7 +12,6 @@ from github import Consts, Github, GithubIntegration, Installation
 from github.GithubException import GithubException
 
 from codebase.base import (
-    Discussion,
     GitPlatform,
     Issue,
     Job,
@@ -31,12 +30,13 @@ from codebase.base import (
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji, WebhookSetupResult
 from codebase.exceptions import CloneRefNotFoundError
-from core.utils import async_download_url, is_git_ref_not_found_text
+from codebase.utils import is_git_ref_not_found_text
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from github.IssueComment import IssueComment
+    from github.PullRequest import PullRequest
 
 
 logger = logging.getLogger("daiv.clients")
@@ -244,20 +244,6 @@ class GitHubClient(RepoClient):
         except UnicodeDecodeError:
             return None
 
-    async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
-        """
-        Download a user-attachments file from GitHub.
-
-        Args:
-            repo_id: The repository ID (not used for GitHub, as file_path contains full URL).
-            file_path: The full URL to the GitHub user-attachments file.
-
-        Returns:
-            The file content as bytes, or None if the download fails.
-        """
-        token = self.client.requester.auth.token
-        return await async_download_url(file_path, headers={"Authorization": f"Bearer {token}"})
-
     def set_repository_webhooks(
         self,
         repo_id: str,
@@ -389,7 +375,6 @@ class GitHubClient(RepoClient):
             if issue.assignee
             else None,
             author=User(id=issue.user.id, username=issue.user.login, name=issue.user.name) if issue.user else None,
-            notes=self._serialize_comments(issue.get_comments()),
             labels=[label.name for label in issue.labels],
         )
 
@@ -410,27 +395,23 @@ class GitHubClient(RepoClient):
         issue = repo.create_issue(title=title, body=description, labels=labels or [])
         return issue.number
 
-    def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
+    def get_issue_note(self, repo_id: str, issue_id: int, note_id: int) -> Note:
         """
-        Get a comment from an issue.
-
-        For GitHub, there's no distinction between comments and notes.
+        Get a comment on an issue.
 
         Args:
             repo_id: The repository ID.
-            issue_id: The issue ID.
-            comment_id: The comment ID.
+            issue_id: The issue number.
+            note_id: The comment ID.
 
         Returns:
-            The discussion object.
+            The comment as a note.
         """
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
-        comment = issue.get_comment(int(comment_id))
-        # GitHub doesn't have discussions like GitLab. This is a workaround to get the notes of an issue.
-        return Discussion(id=str(comment_id), notes=self._serialize_comments([comment]))
+        return self._serialize_comment(issue.get_comment(note_id), NoteableType.ISSUE)
 
     def create_issue_comment(
-        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None, as_thread: bool = False
+        self, repo_id: str, issue_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """
         Comment on an issue.
@@ -440,7 +421,6 @@ class GitHubClient(RepoClient):
             issue_id: The issue ID.
             body: The comment body.
             reply_to_id: The ID of the comment to reply to. This is not supported for GitHub.
-            as_thread: Whether to create a thread. This is not supported for GitHub.
 
         Returns:
             The comment ID.
@@ -542,19 +522,7 @@ class GitHubClient(RepoClient):
         if assignee_id and not any(assignee.login == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=pr.number,
-            source_branch=pr.head.ref,
-            target_branch=pr.base.ref,
-            title=pr.title,
-            description=pr.body or "",
-            labels=[label.name for label in pr.labels],
-            web_url=pr.html_url,
-            sha=pr.head.sha,
-            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
-            draft=pr.draft,
-        )
+        return self._serialize_pull_request(repo_id, pr)
 
     def get_merge_request_by_branches(self, repo_id: str, source_branch: str) -> MergeRequest | None:
         """
@@ -584,19 +552,7 @@ class GitHubClient(RepoClient):
             logger.warning(
                 "Multiple open PRs for head %s in %s; using the oldest (#%s).", source_branch, repo_id, pr.number
             )
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=pr.number,
-            source_branch=pr.head.ref,
-            target_branch=pr.base.ref,
-            title=pr.title,
-            description=pr.body or "",
-            labels=[label.name for label in pr.labels],
-            web_url=pr.html_url,
-            sha=pr.head.sha,
-            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
-            draft=pr.draft,
-        )
+        return self._serialize_pull_request(repo_id, pr)
 
     def update_merge_request(
         self,
@@ -647,28 +603,10 @@ class GitHubClient(RepoClient):
         if assignee_id is not None and not any(assignee.login == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=pr.number,
-            source_branch=pr.head.ref,
-            target_branch=pr.base.ref,
-            title=pr.title,
-            description=pr.body or "",
-            labels=[label.name for label in pr.labels],
-            web_url=pr.html_url,
-            sha=pr.head.sha,
-            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
-            draft=pr.draft,
-        )
+        return self._serialize_pull_request(repo_id, pr)
 
     def create_merge_request_comment(
-        self,
-        repo_id: str,
-        merge_request_id: int,
-        body: str,
-        reply_to_id: str | None = None,
-        as_thread: bool = False,
-        mark_as_resolved: bool = False,
+        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
     ) -> str | None:
         """
         Comment on a merge request.
@@ -678,27 +616,14 @@ class GitHubClient(RepoClient):
             merge_request_id: The merge request ID.
             body: The comment body.
             reply_to_id: The ID of the comment to reply to.
-            as_thread: Whether to create a thread.
-            mark_as_resolved: Whether to mark the comment as resolved.
 
         Returns:
             The ID of the comment.
         """
         pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        to_return = None
-
         if reply_to_id:
-            to_return = pr.create_review_comment_reply(int(reply_to_id), body).id
-
-            if mark_as_resolved:
-                self.mark_merge_request_comment_as_resolved(repo_id, merge_request_id, reply_to_id)
-
-        elif as_thread:
-            # The only threadable comments are review comments.
-            raise NotImplementedError("Not implemented for GitHub")
-        else:
-            to_return = pr.create_issue_comment(body).id
-        return to_return
+            return pr.create_review_comment_reply(int(reply_to_id), body).id
+        return pr.create_issue_comment(body).id
 
     def _workflow_run_to_pipeline(self, run) -> Pipeline:
         return Pipeline(
@@ -818,37 +743,24 @@ class GitHubClient(RepoClient):
         """
         repo = self.client.get_repo(repo_id, lazy=True)
         mr = repo.get_pull(merge_request_id)
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=merge_request_id,
-            source_branch=mr.head.ref,
-            target_branch=mr.base.ref,
-            title=mr.title,
-            description=mr.body or "",
-            labels=[label.name for label in mr.labels],
-            web_url=mr.html_url,
-            sha=mr.head.sha,
-            author=User(id=mr.user.id, username=mr.user.login, name=mr.user.name),
-            merged=mr.merged,
-        )
+        return self._serialize_pull_request(repo_id, mr, merged=mr.merged)
 
-    def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
+    def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
         """
-        Get a comment from a merge request.
+        Get a comment on the pull request conversation.
 
         Args:
             repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            comment_id: The comment ID.
+            merge_request_id: The pull request number.
+            note_id: The comment ID.
 
         Returns:
-            The discussion object.
+            The comment as a note.
         """
         # A comment on the pull request conversation is an issue comment. Going through the issue
         # keeps this to one request: reaching it via ``get_pull`` would fetch the whole PR first.
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(merge_request_id)
-        comment = issue.get_comment(int(comment_id))
-        return Discussion(id=str(comment_id), notes=self._serialize_comments([comment], from_merge_request=True))
+        return self._serialize_comment(issue.get_comment(note_id), NoteableType.MERGE_REQUEST)
 
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """
@@ -857,17 +769,6 @@ class GitHubClient(RepoClient):
         Those are issue comments, so they resolve on the issues API; review (diff) comment ids do not.
         """
         self.create_issue_emoji(repo_id, issue_id=merge_request_id, emoji=emoji, note_id=note_id)
-
-    def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
-        """
-        Mark a review as resolved.
-        """
-        _, result = self.client.requester.graphql_named_mutation(
-            "resolveReviewThread", {"threadId": discussion_id}, "thread { id isResolved resolvedBy { login } }"
-        )
-
-        if result["thread"]["isResolved"]:
-            return
 
     # User
     @cached_property
@@ -881,24 +782,36 @@ class GitHubClient(RepoClient):
         user = self.client.get_user(f"{self.client_installation.app_slug}[bot]")
         return User(id=user.id, username=self.client_installation.app_slug, name=user.name)
 
-    def _serialize_comments(self, comments: list[IssueComment], from_merge_request: bool = False) -> list[Note]:
+    def _serialize_comment(self, comment: IssueComment, noteable_type: NoteableType) -> Note:
         """
-        Get the notes of an issue or a merge request.
+        Serialize an issue comment, which is also what a pull request conversation comment is.
 
-        Only issue comments arrive here — DAIV subscribes to no review-comment event — so no note
-        carries a diff position.
+        Only issue comments arrive here — DAIV subscribes to no review-comment event. The author's ``name`` is
+        left out: nothing reads it, and PyGithub completes a missing one with a ``/users`` request per comment.
         """
-        return [
-            Note(
-                id=note.id,
-                body=note.body,
-                type=NoteType.DISCUSSION_NOTE,
-                noteable_type=NoteableType.MERGE_REQUEST if from_merge_request else NoteableType.ISSUE,
-                system=False,
-                resolvable=False,
-                resolved=False,
-                author=User(id=note.user.id, username=note.user.login, name=note.user.name),
-                position=None,
-            )
-            for note in comments
-        ]
+        return Note(
+            id=comment.id,
+            body=comment.body,
+            type=NoteType.DISCUSSION_NOTE,
+            noteable_type=noteable_type,
+            system=False,
+            resolvable=False,
+            resolved=False,
+            author=User(id=comment.user.id, username=comment.user.login),
+        )
+
+    def _serialize_pull_request(self, repo_id: str, pr: PullRequest, *, merged: bool = False) -> MergeRequest:
+        return MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=pr.number,
+            source_branch=pr.head.ref,
+            target_branch=pr.base.ref,
+            title=pr.title,
+            description=pr.body or "",
+            labels=[label.name for label in pr.labels],
+            web_url=pr.html_url,
+            sha=pr.head.sha,
+            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
+            draft=pr.draft,
+            merged=merged,
+        )

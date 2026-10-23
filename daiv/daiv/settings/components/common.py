@@ -13,12 +13,12 @@ SITE_ID = 1
 
 LOCAL_APPS = [
     "accounts",
-    "activity",
     "automation",
     "chat",
     "codebase",
     "configuration",
     "core",
+    "dashboard",
     "mcp_api",
     "mcp_connectors",
     "memory",
@@ -35,7 +35,6 @@ THIRD_PARTY_APPS = [
     "crontask",
     "django_extensions",
     "django_filters",
-    "django_tasks",
     "django_tasks_db",
     "oauth2_provider",
     "allauth",
@@ -85,7 +84,8 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "notifications.context_processors.unread_notification_count",
-                "accounts.context_processors.nav",
+                "dashboard.context_processors.nav",
+                "codebase.context_processors.git_platform",
                 "accounts.context_processors.social_consent",
                 "core.context_processors.build_info",
             ]

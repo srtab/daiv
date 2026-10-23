@@ -6,16 +6,19 @@ had no ``run_id`` to read ``trigger_type`` off — the arm saw "not a fix run" a
 that wire rather than about the helper's own arguments.
 """
 
+import uuid
+from types import SimpleNamespace
+
 import pytest
 from asgiref.sync import sync_to_async
-from sandbox_envs.models import SandboxEnvironment
-from sandbox_envs.models import Scope as SandboxScope
+from sandbox_envs.models import SandboxEnvironment, Visibility
+from sessions.ids import compute_thread_id
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.judgment import PipelineReport
+from sessions.queue import LINK_FAILED_PREFIX
 
 from codebase.base import Scope
-from codebase.utils import compute_thread_id
 
 from ..conftest import amake_watched_session, make_pipeline
 
@@ -34,7 +37,7 @@ def stub_enqueue(monkeypatch):
             calls.append(kwargs)
             return holder["result"]
 
-    monkeypatch.setattr("sessions.executor.tasks.run_job_task", FakeTask())
+    monkeypatch.setattr("sessions.queue.run_job_task", FakeTask())
     return calls, holder
 
 
@@ -145,13 +148,13 @@ async def test_the_fix_run_keeps_the_sessions_environment_after_the_repo_binding
     calls, holder = stub_enqueue
     holder["result"] = await sync_to_async(create_db_task_result)()
     original = await SandboxEnvironment.objects.acreate(
-        scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14", repo_ids=["group/repo"]
+        scope=Visibility.GLOBAL, name="ci", base_image="python:3.14", repo_ids=["group/repo"]
     )
     session = await _make_watched_session(sandbox_environment=original)
     original.repo_ids = []
     await original.asave(update_fields=["repo_ids"])
     await SandboxEnvironment.objects.acreate(
-        scope=SandboxScope.GLOBAL, name="ci-next", base_image="python:3.14-slim", repo_ids=["group/repo"]
+        scope=Visibility.GLOBAL, name="ci-next", base_image="python:3.14-slim", repo_ids=["group/repo"]
     )
 
     await FixRunDispatcher().adispatch(
@@ -173,9 +176,7 @@ async def test_a_fix_run_runs_in_the_environment_of_the_run_that_published_the_m
 
     calls, holder = stub_enqueue
     holder["result"] = await sync_to_async(create_db_task_result)()
-    picked = await SandboxEnvironment.objects.acreate(
-        scope=SandboxScope.GLOBAL, name="picked", base_image="python:3.14"
-    )
+    picked = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="picked", base_image="python:3.14")
 
     await PipelineWatch("group/repo").aarm_after_run(
         run_id=None,
@@ -200,7 +201,7 @@ async def test_a_session_without_an_environment_runs_its_fix_on_the_global_defau
     holder["result"] = await sync_to_async(create_db_task_result)()
     session = await _make_watched_session()
     await SandboxEnvironment.objects.acreate(
-        scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14", repo_ids=["group/repo"]
+        scope=Visibility.GLOBAL, name="ci", base_image="python:3.14", repo_ids=["group/repo"]
     )
 
     await FixRunDispatcher().adispatch(
@@ -254,7 +255,7 @@ async def test_a_fix_run_falls_back_to_the_default_when_the_sessions_model_is_un
 
     run = await _dispatch_with_session_model("gone:model", "high")
 
-    assert (calls[0]["agent_model"], calls[0]["agent_thinking_level"]) == ("", "")
+    assert (calls[0]["agent_model"], calls[0]["agent_thinking_level"]) == (None, None)
     assert (run.agent_model, run.agent_thinking_level) == ("", "")
     assert "'gone:model', which cannot be used (Provider 'gone' is disabled.)" in caplog.text
 
@@ -269,7 +270,7 @@ async def test_a_failed_enqueue_refunds_the_attempt_and_reopens_the_watch(stub_e
         async def aenqueue(self, **kwargs):
             raise RuntimeError("broker down")
 
-    monkeypatch.setattr("sessions.executor.tasks.run_job_task", BrokenTask())
+    monkeypatch.setattr("sessions.queue.run_job_task", BrokenTask())
     session = await _make_watched_session(attempts=2)
 
     await FixRunDispatcher().adispatch(
@@ -283,3 +284,22 @@ async def test_a_failed_enqueue_refunds_the_attempt_and_reopens_the_watch(stub_e
     # The orphan row is reachable by neither arm of sync_stuck_runs, so it must not be left READY.
     run = await Run.objects.aget(session_id=session.thread_id)
     assert run.status == RunStatus.FAILED
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_task_result_link_marks_the_run_failed(stub_enqueue):
+    _calls, holder = stub_enqueue
+    holder["result"] = SimpleNamespace(id=uuid.uuid4())
+    session = await _make_watched_session(attempts=2)
+
+    await FixRunDispatcher().adispatch(
+        session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
+    )
+
+    run = await Run.objects.aget(session_id=session.thread_id)
+    assert run.status == RunStatus.FAILED
+    assert run.error_message.startswith(LINK_FAILED_PREFIX)
+    assert run.task_result_id is None
+    await session.arefresh_from_db()
+    assert session.watch_state == WatchState.FIXING
+    assert session.watch_attempts == 2

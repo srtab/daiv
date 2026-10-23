@@ -8,44 +8,45 @@ from unidiff.constants import LINE_TYPE_CONTEXT
 from unidiff.errors import UnidiffParseError
 from unidiff.patch import Line
 
-from core.constants import BOT_NAME
-from core.utils import generate_uuid
-
 if TYPE_CHECKING:
     from git import Repo
-    from langchain_core.messages import AnyMessage
 
-    from codebase.base import Discussion, MergeRequestDiffStats, Note, Scope, User
+    from codebase.base import MergeRequestDiffStats, User
 
 logger = logging.getLogger("daiv.codebase")
 
 
-def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
-    """Deterministic LangGraph checkpoint key for an issue or merge-request conversation.
+def is_git_auth_error_text(text: str) -> bool:
+    """True when git command output indicates the remote rejected the credential (auth/permission).
 
-    Webhook callbacks mint this to set ``Activity.thread_id`` before enqueueing the
-    addressor task; the addressor managers must compute the same value so follow-up
-    events resume the same checkpointer state.
+    Single source of truth shared by the clone-retry self-heal (``codebase.clients.gitlab``) and the
+    push-failure classifier (``automation.agent.workspace.git_manager``) so both agree on what a rejected
+    credential looks like — git's wording varies by version and by smart- vs dumb-HTTP. ``"access
+    denied"`` already subsumes GitLab's ``"HTTP Basic: Access denied"``.
     """
-    if not repo_slug or scope is None or entity_iid is None or entity_iid == "":
-        raise ValueError(
-            f"compute_thread_id requires non-empty values; "
-            f"got repo_slug={repo_slug!r}, scope={scope!r}, entity_iid={entity_iid!r}"
+    lowered = text.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "authentication failed",
+            "access denied",
+            "returned error: 403",
+            "could not read username",
+            "permission denied",
+            "not authorized",
         )
-    return generate_uuid(f"{repo_slug}:{scope}/{entity_iid}")
+    )
 
 
-def resolve_thread_id(thread_id: str | None, *, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
-    """Return ``thread_id``, computing the deterministic default when it is None.
+def is_git_ref_not_found_text(text: str) -> bool:
+    """True when git clone output indicates the requested branch/ref does not exist on the remote.
 
-    An explicit empty string is a caller bug, not a request for the default: the managers hand
-    this to the publisher, where an empty value silently drops the session link and trailer.
+    Distinct from an auth or network failure: retrying is pointless — a deleted branch will not
+    reappear — so callers fall back or skip instead of surfacing an opaque GitCommandError. Git's
+    wording for ``git clone --branch <x>`` against a missing ref is ``Remote branch <x> not found
+    in upstream origin``.
     """
-    if thread_id is None:
-        return compute_thread_id(repo_slug=repo_slug, scope=scope, entity_iid=entity_iid)
-    if not thread_id:
-        raise ValueError(f"thread_id must be non-empty or None, got {thread_id!r}")
-    return thread_id
+    return "not found in upstream" in text.lower()
 
 
 def get_repo_branch(repo: Repo) -> str | None:
@@ -82,11 +83,7 @@ def get_repo_ref(repo: Repo) -> str:
 
 def note_mentions_daiv(note_body: str, current_user: User) -> bool:
     """
-    Check if the note body references the DAIV GitLab account.
-
-    Returns True when the note contains:
-    - Explicit user-mention (e.g. @daiv, @DAIV)
-    - Bare textual reference to the bot name (e.g. DAIV please fix)
+    Check if the note body @-mentions the DAIV account (case-insensitive, e.g. @daiv or @DAIV).
 
     Args:
         note_body: The note body text to check
@@ -97,42 +94,6 @@ def note_mentions_daiv(note_body: str, current_user: User) -> bool:
     """
     mention_pattern = rf"@{re.escape(current_user.username)}\b"
     return bool(re.search(mention_pattern, note_body, re.IGNORECASE))
-
-
-def discussion_has_daiv_mentions(discussion: Discussion, current_user: User) -> bool:
-    """
-    Check if the discussion has any notes mentioning DAIV.
-
-    Args:
-        discussion: The discussion to check
-        current_user: The current DAIV user
-
-    Returns:
-        bool: True if any note in the discussion mentions DAIV, False otherwise
-    """
-    return any(note_mentions_daiv(note.body, current_user) for note in discussion.notes)
-
-
-def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
-    """
-    Convert a list of notes to a list of messages.
-
-    Args:
-        notes: List of notes
-        bot_user_id: ID of the bot user
-
-    Returns:
-        List of messages
-    """
-    from langchain_core.messages import AIMessage, HumanMessage
-
-    messages: list[AnyMessage] = []
-    for note in notes:
-        if note.author.id == bot_user_id:
-            messages.append(AIMessage(id=note.id, content=note.body, name=BOT_NAME))
-        else:
-            messages.append(HumanMessage(id=note.id, content=note.body, name=note.author.username))
-    return messages
 
 
 def diff_line_stats(diff: str) -> MergeRequestDiffStats:

@@ -78,6 +78,14 @@ def test_usage_not_resynced_when_input_tokens_already_set(create_db_task_result)
     assert run.input_tokens == 7  # the `input_tokens is None` guard prevents overwrite
 
 
+def test_code_changes_synced_from_the_task_result(create_db_task_result):
+    tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "x", "code_changes": True})
+    run = _run(tr)
+    assert "code_changes" in run.sync_from_task_result()
+    assert run.code_changes is True
+    assert run.sync_from_task_result() == []
+
+
 def test_no_usage_leaves_token_fields_null(create_db_task_result):
     tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "x"})
     run = _run(tr)
@@ -102,10 +110,50 @@ def test_sync_and_save_returns_false_when_nothing_changed(create_db_task_result)
     assert run.sync_and_save() is False
 
 
-def test_sync_and_save_emits_run_finished_on_terminal_transition(create_db_task_result):
+def test_sync_and_save_finishes_a_terminal_transition(create_db_task_result):
     tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Done."})
     run = _run(tr, status=RunStatus.RUNNING)
-    with patch("sessions.signals.emit_run_finished_if_terminal") as m_emit:
+    with patch.object(Run.objects, "finish", wraps=Run.objects.finish) as finish:
         assert run.sync_and_save() is True
-        m_emit.assert_called_once()
-        assert m_emit.call_args.kwargs["previous_status"] == RunStatus.RUNNING
+    finish.assert_called_once()
+    assert finish.call_args.args[1] == RunStatus.SUCCESSFUL
+    run.refresh_from_db()
+    assert (run.status, run.result_summary) == (RunStatus.SUCCESSFUL, "Done.")
+
+
+def test_sync_and_save_does_not_refinish_a_row_another_sync_finished(create_db_task_result, run_finished_spy):
+    """Two syncs of one task (the worker's ``task_finished`` and the ``sync_stuck_runs`` cron) both read the row
+    RUNNING; only the first may finish it, or ``run_finished`` reaches the receivers twice."""
+    tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Done."})
+    first = _run(tr, status=RunStatus.RUNNING)
+    second = Run.objects.select_related("task_result").get(pk=first.pk)
+    assert first.sync_and_save() is True
+    assert second.sync_and_save() is False
+    assert run_finished_spy.call_count == 1
+
+
+def test_a_stale_sync_does_not_reopen_a_finished_row(create_db_task_result):
+    """``sync_stuck_runs`` read the row READY while its task ran; the worker finished the row before the cron's
+    write, which must not move it back to RUNNING, or the next sync finishes it and emits a second time."""
+    tr = create_db_task_result(status="RUNNING", started_at=_STARTED)
+    stale = Run.objects.select_related("task_result").get(pk=_run(tr, status=RunStatus.READY).pk)
+    Run.objects.filter(pk=stale.pk).update(status=RunStatus.SUCCESSFUL)
+
+    assert stale.sync_and_save() is False
+
+    stale.refresh_from_db()
+    assert (stale.status, stale.started_at) == (RunStatus.SUCCESSFUL, None)
+
+
+def test_a_sync_that_starts_the_run_refreshes_the_badge_once_committed(
+    create_db_task_result, badge, django_capture_on_commit_callbacks
+):
+    tr = create_db_task_result(status="RUNNING", started_at=_STARTED)
+    run = _run(tr, status=RunStatus.READY)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert run.sync_and_save() is True
+
+    badge.assert_called_once_with()
+    run.refresh_from_db()
+    assert (run.status, run.started_at) == (RunStatus.RUNNING, _STARTED)

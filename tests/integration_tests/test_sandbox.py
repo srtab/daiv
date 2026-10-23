@@ -10,6 +10,7 @@ from .utils import (
     CODING_MODEL_NAMES,
     INTERRUPT_ALL_TOOLS_CONFIG,
     agent_settings_on,
+    default_mcp_servers,
     extract_tool_calls,
     require_provider_for_model,
 )
@@ -94,6 +95,7 @@ async def test_sandbox_bash_tool_activated(model_name, inputs, runtime_ctx, sand
         settings=agent_settings_on(model_name, runtime_ctx),
         ctx=runtime_ctx,
         workspace=SandboxWorkspace(sandbox_session),
+        mcp_servers=await default_mcp_servers(),
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,
         checkpointer=InMemorySaver(),
@@ -159,6 +161,7 @@ async def test_sandbox_policy_blocks_forbidden_commands(
         settings=agent_settings_on(model_name, runtime_ctx),
         ctx=runtime_ctx,
         workspace=SandboxWorkspace(sandbox_session),
+        mcp_servers=await default_mcp_servers(),
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,
         checkpointer=InMemorySaver(),

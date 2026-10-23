@@ -274,6 +274,15 @@ class TestPostSave:
                 f"row {idx} missing sort_order hidden input"
             )
 
+    def test_renders_when_an_api_key_cannot_be_decrypted(self, client, admin_user, group_url):
+        provider = _enable_seed_provider("anthropic")
+        Provider.objects.filter(pk=provider.pk).update(_api_key_encrypted="not-a-fernet-token")
+        client.force_login(admin_user)
+
+        response = client.get(group_url("providers"))
+
+        assert response.status_code == 200
+
     def test_clear_api_key_via_button(self, client, admin_user, group_url):
         """clear_api_key=on forces api_key=None and is_enabled=False even when the
         POST also re-sends is_enabled=on for that row — disable wins."""
@@ -598,14 +607,6 @@ class TestAuthFieldFiltering:
         assert "auth_login_enabled" in fields
         assert "auth_client_id" in fields
         assert "auth_client_secret" in fields
-        assert "auth_gitlab_url" not in fields
-        assert "auth_gitlab_server_url" not in fields
-
-    def test_swe_hides_all_auth_fields(self, db):
-        fields = self._get_form_fields("SWE")
-        assert "auth_login_enabled" not in fields
-        assert "auth_client_id" not in fields
-        assert "auth_client_secret" not in fields
         assert "auth_gitlab_url" not in fields
         assert "auth_gitlab_server_url" not in fields
 

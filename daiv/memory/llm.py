@@ -15,12 +15,12 @@ def build_structured_llm(schema: type, model_names: Sequence[str]):
     Deliberately no ``with_retry``: the dominant failure is the model returning no tool call at all,
     which surfaces as a ``None`` result rather than an exception, so a retry layer never fired on it.
     The fallback *model* is the only escape that can change the outcome — see AGENTS.md
-    §"Repository memory". ``sessions.classification`` keeps its retry on purpose.
+    §"Repository memory". ``notifications.classification.llm`` keeps its retry on purpose.
     """
-    from automation.agent.base import BaseAgent
+    from automation.agent.base import get_model
 
     def _structured(model_name: str):
-        return BaseAgent.get_model(model=model_name).with_structured_output(schema)
+        return get_model(model=model_name).with_structured_output(schema)
 
     chain = _structured(model_names[0])
     if fallbacks := [_structured(name) for name in model_names[1:]]:

@@ -34,7 +34,7 @@
     </div>
     {% translate "No personal MCP servers yet." as your_empty %}
     {% include "mcp_connectors/_server_list.html" with servers=your_servers empty_message=your_empty %}
-    {% include "accounts/_pagination.html" %}
+    {% include "core/_pagination.html" %}
 </section>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 150ms">

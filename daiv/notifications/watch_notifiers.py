@@ -36,7 +36,7 @@ def _render_payload(session: Session, failing_jobs: Sequence[str], pipeline_url:
         "merge_request_iid": session.merge_request_iid,
         "attempts": session.watch_attempts,
         "failing_jobs": list(failing_jobs),
-        # Not link_url: the email channel and the Rocket Chat renderer both run that through
+        # Not link_url: the email channel and the chat renderers all run that through
         # build_absolute_url, which would prefix the site domain onto an already-absolute CI URL.
         "pipeline_url": pipeline_url,
     }

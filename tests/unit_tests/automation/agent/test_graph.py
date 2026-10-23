@@ -18,7 +18,7 @@ from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynam
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
-from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS, DAIVFilesystemMiddleware
+from automation.agent.middlewares.file_system import DAIVFilesystemMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import build_agents_memory_middleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
@@ -26,6 +26,7 @@ from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
+from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
@@ -39,8 +40,7 @@ def _patches() -> dict[str, tuple[str, dict]]:
         "create_explore": ("create_explore_subagent", {}),
         "load_custom": ("load_custom_subagents", {"new": AsyncMock(return_value=[])}),
         "create_deep_agent": ("create_deep_agent", {}),
-        "mcp_toolkit": ("MCPToolkit", {"get_tools": AsyncMock(return_value=[])}),
-        "base_agent": ("BaseAgent", {}),
+        "get_model": ("get_model", {}),
         "skills_middleware": ("SkillsMiddleware", {}),
         "git_middleware": ("GitMiddleware", {}),
         "git_platform_middleware": ("GitPlatformMiddleware", {}),
@@ -188,7 +188,7 @@ async def test_main_agent_summarizes_through_daivs_builder():
     built = await _build(workspace)
 
     assert built.summarization.return_value in _middleware(built)
-    built.summarization.assert_called_once_with(built.base_agent.get_model.return_value, workspace.backend)
+    built.summarization.assert_called_once_with(built.get_model.return_value, workspace.backend)
 
 
 def _final_stack(**deep_agent_kwargs) -> list:
@@ -226,6 +226,14 @@ async def test_the_empty_reply_retry_runs_inside_the_reminder_middlewares():
     retry = middleware.index(ensure_non_empty_response)
     assert middleware.index(loop_breaker) < retry
     assert middleware.index(step_budget) < retry
+
+
+async def test_the_step_budget_is_bound_to_the_built_graph():
+    with patch.object(StepBudgetMiddleware, "bind", autospec=True) as bind:
+        built = await _build(_disk_workspace())
+    [step_budget] = [m for m in _middleware(built) if isinstance(m, StepBudgetMiddleware)]
+
+    bind.assert_called_once_with(step_budget, built.create_deep_agent.return_value)
 
 
 async def test_ask_user_is_enabled_by_default():

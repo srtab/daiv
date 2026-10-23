@@ -57,7 +57,7 @@ def test_thinking_level_alone_is_allowed(openrouter_provider):
 
 def test_rejects_disabled_provider(db):
     """A Provider row that exists but has ``is_enabled=False`` must be rejected at
-    submit time, otherwise the deep ``RuntimeError`` inside ``BaseAgent.get_model_kwargs``
+    submit time, otherwise the deep ``RuntimeError`` inside ``get_model_kwargs``
     fires mid-run with no actionable signal at the boundary."""
     Provider.objects.filter(slug="openrouter").delete()
     Provider.objects.create(

@@ -26,6 +26,7 @@ const registry = {};
 // A suite that brings a reactivity stand-in reassigns `alpineEffect` from its prelude; the
 // default runs the body once, which is all an untracked read amounts to.
 let alpineEffect = (fn) => { fn(); return fn; };
+const dispatched = [];
 // __PRELUDE__
 const sandbox = {
   console: { log: () => {}, debug: () => {}, warn: () => {}, error: () => {} },
@@ -39,7 +40,9 @@ const sandbox = {
     querySelector: () => null,
     addEventListener: (name, cb) => { if (name === "alpine:init") cb(); },
   },
+  CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
   window: {
+    dispatchEvent: (event) => { dispatched.push(event); return true; },
     Alpine: {
       data: (name, factory) => (registry[name] = factory),
       effect: (fn) => alpineEffect(fn),

@@ -3,28 +3,23 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING
 
 from langchain.chat_models import init_chat_model
-from langchain_core.runnables import Runnable
-from langgraph.graph.state import CompiledStateGraph
 
 from automation.agent.chat_models import ChatOpenRouter
-from automation.agent.model_catalog.exceptions import MissingApiKeyError
-from automation.agent.provider_clients import build_sdk_client_kwargs
+from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, ResolvedProvider, parse_model_spec
+from automation.agent.provider_clients import MissingApiKeyError, build_sdk_client_kwargs
 from core.constants import BOT_NAME
-from core.models import Provider, ProviderType
+from core.models import ProviderType
 from core.models import ThinkingLevelChoices as ThinkingLevel
 
 logger = logging.getLogger("daiv.automation")
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
-    from langchain_core.messages import BaseMessage
-    from langgraph.checkpoint.base import BaseCheckpointSaver
-    from langgraph.store.base import BaseStore
+
+    from core.models import Provider
 
 
 CLAUDE_MAX_TOKENS = 16_384
@@ -207,20 +202,6 @@ def _apply_temperature_support(kw: dict, model_name: str) -> None:
         kw.pop("temperature", None)
 
 
-@dataclass(frozen=True)
-class ResolvedProvider:
-    """Result of resolving a ``slug:model_name`` string against the Provider table."""
-
-    row: Provider.Cached
-    model_name: str
-
-
-# langchain-anthropic and langchain-google-genai don't expose ``http_client`` /
-# ``http_async_client`` as model fields, so ``verify_ssl=False`` can't reach the
-# underlying SDK there. Both fall back to the warn-and-skip branch.
-_HTTPX_CLIENT_PROVIDER_TYPES = frozenset({ProviderType.OPENAI, ProviderType.OPENROUTER})
-
-
 _PENDING_ACLOSE_TASKS: set[asyncio.Task] = set()
 
 
@@ -259,7 +240,7 @@ def _close_insecure_http_clients(kw: dict) -> None:
 
 
 def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:
-    if row.provider_type not in _HTTPX_CLIENT_PROVIDER_TYPES:
+    if row.provider_type not in HTTPX_CLIENT_PROVIDER_TYPES:
         logger.warning(
             "Provider %r: verify_ssl=False ignored for provider_type %s (SDK has no"
             " http_client hook); mount the CA into the container.",
@@ -273,204 +254,94 @@ def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:
     kw["http_async_client"] = httpx.AsyncClient(verify=False)  # noqa: S501
 
 
-_BARE_NAME_HEURISTICS = (
-    (("gpt-4", "gpt-5", "gpt-6", "o4"), ProviderType.OPENAI.value),
-    (("claude",), ProviderType.ANTHROPIC.value),
-    (("gemini",), ProviderType.GOOGLE_GENAI.value),
-)
-
-
-def parse_model_spec(model_spec: str) -> ResolvedProvider:
+def get_model(*, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:
     """
-    Parse ``slug:model_name`` against the current Provider rows.
+    Get the model instance to use for the agent.
 
-    Order:
-      1. Explicit ``slug:model`` where ``slug`` matches a Provider row.
-      2. Explicit ``google:model`` alias → ``google_genai`` row.
-      3. Bare ``model`` matched by prefix heuristic.
-
-    Raises ``ValueError`` on unknown prefix, empty model name, or missing row.
+    Returns:
+        BaseChatModel: The model instance
     """
-    rows_by_slug = Provider.get_cached_by_slug()
-
-    if ":" in model_spec:
-        prefix, model_name = model_spec.split(":", 1)
-        if not model_name.strip():
-            raise ValueError(f"Empty model name in spec '{model_spec}'")
-        if prefix == "google" and "google_genai" in rows_by_slug:
-            return ResolvedProvider(row=rows_by_slug["google_genai"], model_name=model_name)
-        if prefix in rows_by_slug:
-            return ResolvedProvider(row=rows_by_slug[prefix], model_name=model_name)
-        raise ValueError(
-            f"Unknown provider prefix '{prefix}' in model spec '{model_spec}'. "
-            f"Valid prefixes: {', '.join(sorted(rows_by_slug)) or '(no providers configured)'}"
-        )
-
-    for prefixes, target_slug in _BARE_NAME_HEURISTICS:
-        if model_spec.startswith(prefixes) and target_slug in rows_by_slug:
-            return ResolvedProvider(row=rows_by_slug[target_slug], model_name=model_spec)
-
-    raise ValueError(f"Unknown/Unsupported provider for model {model_spec}")
+    resolved = parse_model_spec(model)
+    model_kwargs = get_model_kwargs(resolved=resolved, thinking_level=thinking_level, **kwargs)
+    try:
+        if resolved.row.provider_type == ProviderType.OPENROUTER:
+            # OpenRouter routes through our ChatOpenAI subclass (reasoning extraction +
+            # base-URL default). init_chat_model can't return a subclass, so instantiate
+            # directly.
+            return ChatOpenRouter(**model_kwargs)
+        return init_chat_model(**model_kwargs)
+    except Exception:
+        _close_insecure_http_clients(model_kwargs)
+        raise
 
 
-T = TypeVar("T", bound=Runnable)
-
-
-class BaseAgent(ABC, Generic[T]):  # noqa: UP046
+def get_model_kwargs(*, resolved: ResolvedProvider, thinking_level: ThinkingLevel | None = None, **kwargs) -> dict:
     """
-    Base agent class for creating agents that interact with a model.
+    Get the keyword arguments to pass to ``init_chat_model`` for the given
+    resolved provider row.
     """
+    row = resolved.row
+    if not row.is_enabled:
+        raise RuntimeError(f"Provider '{row.slug}' is disabled. Enable it in the configuration.")
 
-    _runnable: T
-    """
-    The runnable instance that can be used to invoke the agent.
-    """
+    # Shared primitive: api_key plaintext, base_url, default_headers.
+    # LangChain needs both sync and async httpx clients when verify_ssl=False
+    # — those are constructed below via _apply_insecure_http_clients, so we
+    # skip the helper's AsyncClient here to avoid leaking it.
+    try:
+        sdk_kw = build_sdk_client_kwargs(row, with_http_client=False)
+    except MissingApiKeyError as err:
+        raise RuntimeError(f"Provider '{row.slug}' has no API key configured.") from err
 
-    def __init__(self, *, checkpointer: BaseCheckpointSaver | None = None, store: BaseStore | None = None):
-        self.checkpointer = checkpointer
-        self.store = store
+    kw: dict = {"temperature": 0, "model_kwargs": {}, "model": resolved.model_name, **kwargs}
+    kw["api_key"] = sdk_kw["api_key"]
 
-    @classmethod
-    async def get_runnable(cls, *args, **kwargs) -> T:
-        """
-        Get the compiled agent instance.
-        """
-        instance = cls(*args, **kwargs)
-        instance._runnable = await instance.compile()
-        return instance._runnable
+    if row.provider_type == ProviderType.ANTHROPIC:
+        kw["model_provider"] = ProviderType.ANTHROPIC.value
+        kw["betas"] = [ANTHROPIC_STRUCTURED_OUTPUTS_BETA]
+        if sdk_kw["base_url"]:
+            kw["base_url"] = sdk_kw["base_url"]
+        _apply_anthropic_thinking(kw, thinking_level, resolved.model_name)
 
-    @abstractmethod
-    async def compile(self) -> T:
-        """
-        Compile the agent.
+    elif row.provider_type == ProviderType.OPENAI:
+        kw["model_provider"] = ProviderType.OPENAI.value
+        if row.use_responses_api:
+            kw["use_responses_api"] = True
+        if sdk_kw["base_url"]:
+            kw["openai_api_base"] = sdk_kw["base_url"]
+        _apply_openai_reasoning(kw, thinking_level, resolved.model_name)
 
-        Typically this method returns a Runnable or a CompiledStateGraph.
-        """
-        pass
+    elif row.provider_type == ProviderType.OPENROUTER:
+        # OpenRouter is OpenAI-compatible over the wire, but constructed directly as a
+        # ChatOpenRouter (not via init_chat_model) — that subclass supplies the base-URL
+        # default, so mirror the OpenAI branch and only forward an explicit override.
+        if sdk_kw["base_url"]:
+            kw["openai_api_base"] = sdk_kw["base_url"]
+        kw["model_kwargs"]["extra_headers"] = {"HTTP-Referer": "https://srtab.github.io/daiv", "X-Title": BOT_NAME}
+        # Unsorted, the pool includes open-weight models' priority endpoints (~2x the price), and
+        # cache-sticky routing can keep a whole run on one.
+        kw["extra_body"] = {"provider": {"sort": "price"}}
+        _apply_openrouter_thinking(kw, thinking_level, resolved.model_name)
 
-    @staticmethod
-    def get_model(*, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:
-        """
-        Get the model instance to use for the agent.
+    elif row.provider_type == ProviderType.GOOGLE_GENAI:
+        kw["model_provider"] = ProviderType.GOOGLE_GENAI.value
+        kw["include_thoughts"] = True
+        if sdk_kw["base_url"]:
+            kw["base_url"] = sdk_kw["base_url"]
 
-        Returns:
-            BaseChatModel: The model instance
-        """
-        resolved = parse_model_spec(model)
-        model_kwargs = BaseAgent.get_model_kwargs(resolved=resolved, thinking_level=thinking_level, **kwargs)
-        try:
-            if resolved.row.provider_type == ProviderType.OPENROUTER:
-                # OpenRouter routes through our ChatOpenAI subclass (reasoning extraction +
-                # base-URL default). init_chat_model can't return a subclass, so instantiate
-                # directly.
-                return ChatOpenRouter(**model_kwargs)
-            return init_chat_model(**model_kwargs)
-        except Exception:
-            _close_insecure_http_clients(model_kwargs)
-            raise
+    else:
+        raise RuntimeError(f"Unknown provider_type {row.provider_type!r} on slug {row.slug!r}")
 
-    @staticmethod
-    def get_model_kwargs(*, resolved: ResolvedProvider, thinking_level: ThinkingLevel | None = None, **kwargs) -> dict:
-        """
-        Get the keyword arguments to pass to ``init_chat_model`` for the given
-        resolved provider row.
-        """
-        row = resolved.row
-        if not row.is_enabled:
-            raise RuntimeError(f"Provider '{row.slug}' is disabled. Enable it in the configuration.")
+    if not row.verify_ssl:
+        _apply_insecure_http_clients(kw, row)
 
-        # Shared primitive: api_key plaintext, base_url, default_headers.
-        # LangChain needs both sync and async httpx clients when verify_ssl=False
-        # — those are constructed below via _apply_insecure_http_clients, so we
-        # skip the helper's AsyncClient here to avoid leaking it.
-        try:
-            sdk_kw = build_sdk_client_kwargs(row, with_http_client=False)
-        except MissingApiKeyError as err:
-            raise RuntimeError(f"Provider '{row.slug}' has no API key configured.") from err
+    if sdk_kw["default_headers"]:
+        # User-supplied headers don't override agent-managed ones (HTTP-Referer,
+        # X-Title, anthropic-beta); admins customise via the agent code, not the row.
+        existing = kw["model_kwargs"].setdefault("extra_headers", {})
+        for name, value in sdk_kw["default_headers"].items():
+            existing.setdefault(name, value)
 
-        kw: dict = {"temperature": 0, "model_kwargs": {}, "model": resolved.model_name, **kwargs}
-        kw["api_key"] = sdk_kw["api_key"]
+    _apply_temperature_support(kw, resolved.model_name)
 
-        if row.provider_type == ProviderType.ANTHROPIC:
-            kw["model_provider"] = ProviderType.ANTHROPIC.value
-            kw["betas"] = [ANTHROPIC_STRUCTURED_OUTPUTS_BETA]
-            if sdk_kw["base_url"]:
-                kw["base_url"] = sdk_kw["base_url"]
-            _apply_anthropic_thinking(kw, thinking_level, resolved.model_name)
-
-        elif row.provider_type == ProviderType.OPENAI:
-            kw["model_provider"] = ProviderType.OPENAI.value
-            if row.use_responses_api:
-                kw["use_responses_api"] = True
-            if sdk_kw["base_url"]:
-                kw["openai_api_base"] = sdk_kw["base_url"]
-            _apply_openai_reasoning(kw, thinking_level, resolved.model_name)
-
-        elif row.provider_type == ProviderType.OPENROUTER:
-            # OpenRouter is OpenAI-compatible over the wire, but constructed directly as a
-            # ChatOpenRouter (not via init_chat_model) — that subclass supplies the base-URL
-            # default, so mirror the OpenAI branch and only forward an explicit override.
-            if sdk_kw["base_url"]:
-                kw["openai_api_base"] = sdk_kw["base_url"]
-            kw["model_kwargs"]["extra_headers"] = {"HTTP-Referer": "https://srtab.github.io/daiv", "X-Title": BOT_NAME}
-            # Unsorted, the pool includes open-weight models' priority endpoints (~2x the price), and
-            # cache-sticky routing can keep a whole run on one.
-            kw["extra_body"] = {"provider": {"sort": "price"}}
-            _apply_openrouter_thinking(kw, thinking_level, resolved.model_name)
-
-        elif row.provider_type == ProviderType.GOOGLE_GENAI:
-            kw["model_provider"] = ProviderType.GOOGLE_GENAI.value
-            kw["include_thoughts"] = True
-            if sdk_kw["base_url"]:
-                kw["base_url"] = sdk_kw["base_url"]
-
-        else:
-            raise RuntimeError(f"Unknown provider_type {row.provider_type!r} on slug {row.slug!r}")
-
-        if not row.verify_ssl:
-            _apply_insecure_http_clients(kw, row)
-
-        if sdk_kw["default_headers"]:
-            # User-supplied headers don't override agent-managed ones (HTTP-Referer,
-            # X-Title, anthropic-beta); admins customise via the agent code, not the row.
-            existing = kw["model_kwargs"].setdefault("extra_headers", {})
-            for name, value in sdk_kw["default_headers"].items():
-                existing.setdefault(name, value)
-
-        _apply_temperature_support(kw, resolved.model_name)
-
-        return kw
-
-    async def draw_mermaid_png(self) -> bytes:
-        """
-        Draw the graph as a Mermaid PNG image.
-
-        Returns:
-            The PNG image bytes.
-        """
-        if isinstance(self._runnable, CompiledStateGraph):
-            return (await self._runnable.aget_graph(xray=True)).draw_mermaid_png()
-        return (await self._runnable.aget_graph()).draw_mermaid_png()
-
-    def get_num_tokens_from_messages(self, messages: list[BaseMessage], model_name: str) -> int:
-        """
-        Get the number of tokens from a list of messages.
-
-        Args:
-            messages (list[BaseMessage]): The messages
-            model_name (str): The model name
-
-        Returns:
-            int: The number of tokens
-        """
-        return BaseAgent.get_model(model=model_name).get_num_tokens_from_messages(messages)
-
-    @staticmethod
-    def get_model_provider(model_name: str) -> ProviderType:
-        """
-        Get the model provider for a model spec.
-
-        Args:
-            model_name: The model specification string (e.g. ``"anthropic:claude-sonnet-4-6"``).
-        """
-        return ProviderType(parse_model_spec(model_name).row.provider_type)
+    return kw

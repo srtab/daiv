@@ -21,7 +21,7 @@ def test_per_target_sandbox_env_reaches_task_and_run(member_user, create_db_task
     env = SandboxEnvironment.objects.filter(scope="global").first()
     assert env is not None, "the global default sandbox env is seeded by migration"
 
-    with mock.patch("sessions.services.run_job_task") as m_task:
+    with mock.patch("sessions.queue.run_job_task") as m_task:
         m_task.aenqueue = mock.AsyncMock(return_value=create_db_task_result())
         result = submit_batch_runs(
             user=member_user,

@@ -7,17 +7,18 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import testing as t
 from sandbox_envs.services import build_sandbox_spec
 
+from automation.agent.context import set_runtime_ctx
 from automation.agent.graph import create_daiv_agent
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME, SKIP_ANSWER, pending_question, render_questions
 from automation.agent.workspace.disk import DiskWorkspace
 from codebase.base import Scope
-from codebase.context import set_runtime_ctx
 
 from .evaluators import judge_question_relevance
 from .prompt_leak import assert_no_prompt_leak
 from .utils import (
     ASK_USER_MODELS,
     agent_settings_on,
+    default_mcp_servers,
     extract_tool_calls,
     final_text,
     measure,
@@ -57,6 +58,7 @@ async def agent_runner(model_name: str):
             auto_commit_changes=False,
             checkpointer=InMemorySaver(),
             workspace=DiskWorkspace(ctx),
+            mcp_servers=await default_mcp_servers(),
         )
 
         async def run(content: str) -> dict:

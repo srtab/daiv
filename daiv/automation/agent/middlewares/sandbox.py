@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import asyncio
-import io
 import json
 import logging
-import tarfile
 from enum import Enum
-from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, NotRequired
+from typing import TYPE_CHECKING, Annotated, NotRequired
 
 import httpx
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
@@ -16,8 +12,7 @@ from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
-from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH
+from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.workspace.bash_policy.command_parser import CommandParseError, parse_command
 from automation.agent.workspace.bash_policy.command_policy import (
     CommandPolicy,
@@ -25,13 +20,12 @@ from automation.agent.workspace.bash_policy.command_policy import (
     evaluate_command_policy,
     parse_rule,
 )
-from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
 from core.sandbox.client import is_transient_sandbox_error
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping
+    from collections.abc import Awaitable, Callable
 
     from langgraph.runtime import Runtime
 
@@ -243,75 +237,6 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
     )
 
 
-def _make_repo_archive(working_dir: str) -> bytes:
-    """Tar the contents of `working_dir` (members are relative to working_dir)."""
-    repo_dir = Path(working_dir)
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-        for child in repo_dir.iterdir():
-            tf.add(child, arcname=child.name)
-    return buf.getvalue()
-
-
-def _make_global_skills_archive() -> bytes | None:
-    """Tar builtin + custom global skills (members relative to their skill dir).
-
-    These are the only-disk sources for global skills; seeding them into the sandbox's
-    ``/workspace/skills`` is the single provisioning step (one RPC), replacing per-file
-    uploads. Custom skills are added after builtins so a same-named custom skill overrides.
-    Returns ``None`` if there is nothing to pack.
-    """
-    roots: list[Path] = [BUILTIN_SKILLS_PATH]
-    custom = agent_settings.CUSTOM_SKILLS_PATH
-    if custom is not None and custom.is_dir():
-        roots.append(custom)
-
-    members: dict[str, Path] = {}
-    for root in roots:
-        if not root.is_dir():
-            continue
-        try:
-            children = list(root.iterdir())
-        except OSError:
-            logger.warning("Could not read skills root '%s'; skipping for seed archive", root, exc_info=True)
-            continue
-        for child in children:
-            if child.is_dir() and (child.name.startswith(".") or child.name == "__pycache__"):
-                continue
-            members[child.name] = child  # later root (custom) overrides builtin
-
-    if not members:
-        return None
-
-    buf = io.BytesIO()
-    try:
-        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-            for name, path in members.items():
-                tf.add(path, arcname=name)
-    except OSError, tarfile.TarError:
-        logger.warning("Failed to build global skills archive; seeding without skills", exc_info=True)
-        return None
-    return buf.getvalue()
-
-
-async def _seed_archives(working_dir: str) -> tuple[bytes, bytes | None]:
-    """The repository and global-skills archives a fresh sandbox session is seeded with."""
-    repo_archive, skills_archive = await asyncio.gather(
-        asyncio.to_thread(_make_repo_archive, working_dir), asyncio.to_thread(_make_global_skills_archive)
-    )
-    return repo_archive, skills_archive
-
-
-async def acquire_sandbox(session: SandboxSession, ctx: RuntimeCtx, checkpointed: Mapping[str, Any]) -> None:
-    """Acquire the run's container, reusing the warm one ``checkpointed`` (the thread's last checkpoint values) names
-    when ``SandboxSession.acquire`` can, else starting one seeded from the worker's clone."""
-    await session.acquire(
-        prior_id=checkpointed.get("session_id"),
-        prior_fingerprint=checkpointed.get("sandbox_fingerprint"),
-        seed=lambda: _seed_archives(str(ctx.gitrepo.working_dir)),
-    )
-
-
 class BashFailure(Enum):
     """Why a bash invocation produced no result, mapped to the guidance the agent gets.
 
@@ -393,14 +318,12 @@ class SandboxMiddleware(AgentMiddleware):
     (``read_file``/``write_file``/``edit_file``/``ls``/``glob``/``grep``) then operate on the sandbox through the
     ``/workspace`` :class:`SandboxFileBackend`; it is the one true store, with no local mirror to keep in sync.
 
-    The session is the run executor's: it acquires it (:func:`acquire_sandbox`) before building the agent, so the build
-    can read the repository's subagents from the container, and releases it afterwards, whatever the agent did. A turn
-    that skips the sandbox (``skips_sandbox``) acquires none. Subagents share the parent's session and record the same
-    values.
+    The session is the run executor's: it acquires it (:func:`~automation.agent.workspace.session.acquire_sandbox`)
+    before building the agent, so the build can read the repository's subagents from the container, and releases it
+    afterwards, whatever the agent did. A turn that skips the sandbox (``skips_sandbox``) acquires none. Subagents share
+    the parent's session and record the same values.
 
     Args:
-        agent_root: Virtual path prefix the agent's filesystem tools see (e.g. ``/workspace/repo``); the agent's repo
-            root.
         workspace: The run's sandbox workspace; its ``bash`` backs the tool and its session is recorded here.
 
     Example:
@@ -409,20 +332,19 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware(agent_root="/workspace/repo", workspace=SandboxWorkspace(session))],
+            middleware=[SandboxMiddleware(workspace=SandboxWorkspace(session))],
         )
         ```
     """
 
     state_schema = SandboxState
 
-    def __init__(self, *, agent_root: str, workspace: Workspace):
+    def __init__(self, *, workspace: Workspace):
         if site_settings.sandbox_api_key is None:
             raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
         bash, session = workspace.bash, workspace.session
         if bash is None or session is None:
             raise ValueError("SandboxMiddleware needs a workspace with a shell and a sandbox session")
-        self._agent_root = agent_root
         self._bash: SandboxFileBackend = bash
         self._session: SandboxSession = session
         self.tools = [self._build_bash_tool()]

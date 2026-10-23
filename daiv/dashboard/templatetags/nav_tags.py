@@ -1,0 +1,21 @@
+from __future__ import annotations
+
+from django import template
+
+register = template.Library()
+
+# `sidebar__nav-item--active` draws the 3px brand rail (see input.css); it is part of the
+# active state so no inactive item has to carry a hidden copy of the indicator.
+ACTIVE_CLASSES = "bg-surface-3 text-text-strong sidebar__nav-item--active"
+
+
+@register.simple_tag(takes_context=True)
+def nav_active(context, section_key: str) -> str:
+    """Return CSS classes when the sidebar item for ``section_key`` is the active section.
+
+    The active section is computed once per request by ``dashboard.context_processors.nav``
+    and exposed as ``nav_active_section`` in the template context.
+    """
+    if context.get("nav_active_section") == section_key:
+        return ACTIVE_CLASSES
+    return ""

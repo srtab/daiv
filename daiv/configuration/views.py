@@ -8,7 +8,6 @@ from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 
-from accounts.mixins import AdminRequiredMixin
 from configuration.forms import (
     PROVIDERS_FORMSET_PREFIX,
     WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX,
@@ -16,6 +15,7 @@ from configuration.forms import (
     build_provider_formset,
     build_web_fetch_auth_header_formset,
 )
+from core.mixins import AdminRequiredMixin
 from core.models import FieldGroup, Provider, SiteConfiguration, WebFetchAuthHeader
 from core.site_settings import site_settings
 

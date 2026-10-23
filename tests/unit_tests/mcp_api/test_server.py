@@ -16,7 +16,14 @@ from mcp_api.server import (
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import (
+    FakeRun,
+    amake_job_session,
+    fake_acreate_run,
+    make_artifact,
+    make_task_result,
+)
+from tests.unit_tests.webhooks.conftest import make_db_task_result
 
 
 def _mock_task():
@@ -25,30 +32,10 @@ def _mock_task():
     return m
 
 
-class _FakeRun:
-    _next_pk = 0
-
-    def __init__(self, task_result_id):
-        self.id = uuid.uuid4()
-        self.task_result_id = task_result_id
-        self.session_id = str(uuid.uuid4())
-        self.status = "READY"
-        type(self)._next_pk += 1
-        self.pk = type(self)._next_pk
-        # Tests bypass the real ORM via ``_patch_acreate``; provide an async no-op
-        # so the post-acreate ``run.asave(update_fields=...)`` call in
-        # ``asubmit_batch_runs`` doesn't AttributeError on this stub.
-        self.asave = AsyncMock(return_value=None)
-
-
-async def _fake_acreate_run(**kwargs):
-    return _FakeRun(task_result_id=kwargs["task_result_id"])
-
-
 def _patch_acreate():
     # Patch acreate_run and silence the post-create title task enqueue so
     # tests don't depend on the queue backend.
-    acreate_patch = patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=_fake_acreate_run)
+    acreate_patch = patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=fake_acreate_run)
     title_patch = patch("sessions.services.generate_batch_title_task")
 
     class _Combined:
@@ -83,7 +70,7 @@ def _default_mcp_user(db):
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_single_repo_returns_batch_response():
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug")
 
@@ -104,7 +91,7 @@ async def test_submit_job_multi_repo_enqueues_each():
         call_log.append(kwargs)
         return tasks[len(call_log) - 1]
 
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = _aenqueue
         result = await submit_job(
             repos=[{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": "dev"}, {"repo_id": "o/c", "ref": ""}],
@@ -120,24 +107,25 @@ async def test_submit_job_multi_repo_enqueues_each():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_reports_partial_failure():
+    task_id = await make_db_task_result()
+
     async def _flaky(**kwargs):
         if kwargs["repo_id"] == "o/b":
             raise RuntimeError("boom")
-        return _mock_task()
+        return MagicMock(id=task_id)
 
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.queue.run_job_task") as mock_task:
         mock_task.aenqueue = _flaky
         result = await submit_job(repos=[{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": None}], prompt="p")
 
     data = json.loads(result)
-    assert len(data["jobs"]) == 1
-    assert len(data["failed"]) == 1
-    assert data["failed"][0]["repo_id"] == "o/b"
+    assert [job["repo_id"] for job in data["jobs"]] == ["o/a"]
+    assert [(f["repo_id"], f["error"]) for f in data["failed"]] == [("o/b", "enqueue_failed: RuntimeError: boom")]
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_passes_ref():
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": "feature-branch"}], prompt="Fix the bug")
         mock_task.aenqueue.assert_called_once()
@@ -203,7 +191,7 @@ async def test_submit_job_rejects_invalid_thinking_level(openrouter_provider):
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_agent_override(openrouter_provider):
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(
             repos=[{"repo_id": "group/project", "ref": None}],
@@ -225,7 +213,7 @@ def _capture_asubmit_batch_runs(captured: dict):
 
     async def _fake(**kwargs):
         captured.update(kwargs)
-        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[_FakeRun(task_result_id=None)], failed=[])
+        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[FakeRun(task_result_id=None)], failed=[])
 
     return patch("mcp_api.server.asubmit_batch_runs", side_effect=_fake)
 
@@ -243,7 +231,7 @@ async def test_submit_job_forwards_muted_at_batch_boundary():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_muted_to_runs():
     """End-to-end: MCP submit tool threads ``muted`` through asubmit_batch_runs into ``acreate_run``."""
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p", muted=True)
 
@@ -253,7 +241,7 @@ async def test_submit_job_forwards_muted_to_runs():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_muted_defaults_to_false():
     """Omitting ``muted`` defaults to False."""
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p")
 
@@ -263,7 +251,7 @@ async def test_submit_job_muted_defaults_to_false():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_all_fail():
     """When every enqueue fails, no jobs in response, all entries in failed."""
-    with patch("sessions.services.run_job_task") as mock_task:
+    with patch("sessions.queue.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug")
 
@@ -295,10 +283,10 @@ async def test_submit_job_wait_success():
     mock_result.id = str(uuid.uuid4())
 
     now = datetime.now(UTC)
-    created_runs: list[_FakeRun] = []
+    created_runs: list[FakeRun] = []
 
     async def _capture_acreate(**kwargs):
-        run = _FakeRun(task_result_id=kwargs["task_result_id"])
+        run = FakeRun(task_result_id=kwargs["task_result_id"])
         created_runs.append(run)
         return run
 
@@ -314,7 +302,7 @@ async def test_submit_job_wait_success():
                 yield r
 
     with (
-        patch("sessions.services.run_job_task") as mock_task,
+        patch("sessions.queue.run_job_task") as mock_task,
         patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=_capture_acreate),
         patch("sessions.services.generate_batch_title_task") as mock_title,
         patch("mcp_api.server.Run") as mock_model,
@@ -332,7 +320,7 @@ async def test_submit_job_wait_success():
             finished = MagicMock()
             finished.id = created_runs[0].id
             finished.status = RunStatus.SUCCESSFUL
-            finished.result_summary = "All done"
+            finished.response_text = "All done"
             finished.merge_request_web_url = ""
             finished.session_id = None
             finished.created_at = now
@@ -370,7 +358,7 @@ async def test_submit_job_wait_running_when_never_terminal():
                 yield None  # never yields
 
     with (
-        patch("sessions.services.run_job_task") as mock_task,
+        patch("sessions.queue.run_job_task") as mock_task,
         patch("mcp_api.server.Run") as mock_model,
         _patch_acreate(),
         patch("mcp_api.server.asyncio.sleep", new_callable=AsyncMock),
@@ -460,7 +448,7 @@ async def test_get_job_status_wait_already_complete():
     mock_run = MagicMock()
     mock_run.id = uuid.UUID(job_id)
     mock_run.status = RunStatus.SUCCESSFUL
-    mock_run.result_summary = "Done"
+    mock_run.response_text = "Done"
     mock_run.merge_request_web_url = ""
     mock_run.session_id = None
     mock_run.created_at = now
@@ -498,7 +486,7 @@ async def test_get_job_status_wait_polls_until_complete():
     finished_result = MagicMock()
     finished_result.id = uuid.UUID(job_id)
     finished_result.status = RunStatus.SUCCESSFUL
-    finished_result.result_summary = "Done"
+    finished_result.response_text = "Done"
     finished_result.merge_request_web_url = ""
     finished_result.session_id = None
     finished_result.created_at = now
@@ -533,7 +521,7 @@ async def test_get_job_status_wait_not_found_then_appears():
     finished_result = MagicMock()
     finished_result.id = uuid.UUID(job_id)
     finished_result.status = RunStatus.SUCCESSFUL
-    finished_result.result_summary = "Done"
+    finished_result.response_text = "Done"
     finished_result.merge_request_web_url = ""
     finished_result.session_id = None
     finished_result.created_at = now
@@ -567,7 +555,7 @@ async def test_submit_job_batch_poll_db_exception_breaks_loop():
     mock_result.id = str(uuid.uuid4())
 
     with (
-        patch("sessions.services.run_job_task") as mock_task,
+        patch("sessions.queue.run_job_task") as mock_task,
         patch("mcp_api.server.Run") as mock_model,
         _patch_acreate(),
         patch("mcp_api.server.asyncio.sleep", new_callable=AsyncMock),
@@ -731,10 +719,10 @@ async def test_list_repositories_error_handling():
 class TestMCPThreadContinuation:
     async def test_response_includes_thread_id_and_status(self):
         with (
-            patch("sessions.services.run_job_task") as mock_task,
+            patch("sessions.queue.run_job_task") as mock_task,
             _patch_acreate(),
             patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=MagicMock(pk=1))),
-            patch("mcp_api.server.aresolve_repo_envs", new=AsyncMock(side_effect=lambda **kw: kw["repos"])),
+            patch("sessions.admission.aresolve_repo_envs", new=AsyncMock(side_effect=lambda **kw: kw["repos"])),
         ):
             mock_task.aenqueue = AsyncMock(return_value=_mock_task())
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
@@ -742,12 +730,34 @@ class TestMCPThreadContinuation:
         assert data["jobs"][0]["thread_id"]
         assert data["jobs"][0]["status"] in {"READY", "QUEUED"}
 
-    async def test_unknown_thread_id_rejected(self):
+    async def test_thread_is_checked_before_the_override(self):
         user = MagicMock(pk=1)
         with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
-            result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=str(uuid.uuid4()))
-        data = json.loads(result)
-        assert "thread_id not found" in data["error"]
+            result = await submit_job(
+                repos=[{"repo_id": "a/b", "ref": None}],
+                prompt="x",
+                agent_model="nopesuch:model-x",
+                thread_id=str(uuid.uuid4()),
+            )
+        assert json.loads(result)["error"] == "thread_id not found"
+
+    async def test_owned_thread_still_gets_the_override_error(self, _default_mcp_user):
+        thread_id = await amake_job_session(user=_default_mcp_user)
+
+        result = await submit_job(
+            repos=[{"repo_id": "a/b", "ref": None}], prompt="x", agent_model="nopesuch:model-x", thread_id=thread_id
+        )
+
+        assert "Unknown provider prefix 'nopesuch'" in json.loads(result)["error"]
+
+    async def test_owned_thread_is_forwarded_to_the_batch(self, _default_mcp_user):
+        thread_id = await amake_job_session(user=_default_mcp_user)
+        captured: dict = {}
+
+        with _capture_asubmit_batch_runs(captured):
+            await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=uuid.UUID(thread_id))
+
+        assert captured["thread_id"] == thread_id
 
     async def test_multi_repo_with_thread_id_rejected(self):
         user = MagicMock(pk=1)
@@ -862,6 +872,29 @@ async def test_get_job_status_lists_artifacts(_default_mcp_user):
     )
     assert data["artifacts"][0]["download_url"].endswith("/raw/?download=1")
     assert data["artifacts"][0]["kind"] == "markdown"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_returns_the_full_response_past_the_summary_cap(_default_mcp_user):
+    from asgiref.sync import sync_to_async
+
+    response_text = "x" * 2500
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, repo_id="a/b", user=_default_mcp_user
+    )
+    run = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.MCP_JOB,
+        repo_id="a/b",
+        user=_default_mcp_user,
+        status=RunStatus.SUCCESSFUL,
+        result_summary=response_text[:2000],
+        task_result=await sync_to_async(make_task_result)(return_value={"response": response_text}),
+    )
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data["result"] == response_text
 
 
 async def _run_with_artifact(user, **run_kwargs) -> tuple[Run, object]:

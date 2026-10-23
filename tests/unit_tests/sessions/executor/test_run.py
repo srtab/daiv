@@ -1,14 +1,19 @@
 import asyncio
+import dataclasses
 import json
 import uuid
 from contextlib import asynccontextmanager, nullcontext
 from types import SimpleNamespace
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
+
+from django.contrib.sites.models import Site
+from django.urls import reverse
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from redisvl.exceptions import RedisSearchError
 from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
@@ -18,27 +23,37 @@ from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
-from automation.agent.git_runners import LocalGitRunner
 from automation.agent.questions import render_questions
+from automation.agent.references import ExternalRef
+from automation.agent.session_links import SessionLinks
 from automation.agent.validators import AgentConfigurationError
 from automation.agent.workspace.disk import DiskWorkspace
+from automation.agent.workspace.git_runners import LocalGitRunner
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import Scope
 from codebase.clients.base import GitEgressCredential
-from codebase.references import ExternalRef
 from codebase.repo_config import RepositoryConfig
 from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+from core.redis import SOCKET_TIMEOUT_S
 from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
     FakeSandboxClient,
     agent_settings,
     ask_user_question_messages,
     sandbox_spec,
+    site_snapshot,
 )
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
-from tests.unit_tests.sessions.executor.conftest import agent_stack, disk_ctx, make_spec
+from tests.unit_tests.sessions.executor.conftest import SITE_URL, agent_stack, disk_ctx, make_spec, resolved_to
 
 MR = {"merge_request_id": 7, "source_branch": "feat/published"}
+
+
+def _session_links(thread_id: str) -> SessionLinks:
+    return SessionLinks(
+        detail=SITE_URL + reverse("session_detail", kwargs={"thread_id": thread_id}),
+        merge_request=SITE_URL + reverse("session_merge_request", kwargs={"thread_id": thread_id}),
+    )
 
 
 def _agent(*, messages: list | None = None, state: dict | None = None) -> AsyncMock:
@@ -79,7 +94,6 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         "acting_user_id": 7,
         "acting_platform_uid": "4242",
         "acting_user_authenticated": True,
-        "mcp_overrides": {"sentry": "off"},
         "references": refs,
     }
     stack.build_spec.assert_awaited_once_with("env-1")
@@ -89,6 +103,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         repo=stack.ctx.config,
         run=RunOverrides(agent_model="openrouter:z-ai/glm-5.2", agent_thinking_level="low", cross_project_allowed=True),
     )
+    stack.build_servers.assert_called_once_with(7, {"sentry": "off"})
     stack.create_agent.assert_awaited_once_with(
         settings=stack.resolve.return_value,
         ctx=stack.ctx,
@@ -96,6 +111,8 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         ask_user_enabled=True,
         workspace=ANY,
         artifact_store=ANY,
+        mcp_servers=stack.build_servers.return_value,
+        session_links=ANY,
     )
     stack.langsmith.assert_called_once_with(
         stack.ctx,
@@ -110,6 +127,101 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
     assert agent.ainvoke.call_args.kwargs == {"config": stack.langsmith.return_value, "context": stack.ctx}
 
 
+async def test_a_session_run_streams_under_its_slots_holder_id():
+    agent = _agent()
+    spec = make_spec(lock=Held(holder_id="h-1"))
+    resolved = dataclasses.replace(resolved_to("claude-4-7-opus"), recursion_limit=7)
+
+    with agent_stack(agent, resolve=MagicMock(return_value=resolved)) as stack:
+        await execute_run(spec)
+
+    (call_,) = stack.live_calls
+    assert call_.run_relay.thread_id == spec.thread_id
+    assert call_.run_relay.run_id == "h-1"
+    assert call_.run_relay._client is stack.build_client.return_value
+    assert call_.recursion_limit == 7
+    assert call_.graph_input == {"messages": list(spec.input_messages)}
+    assert agent.ainvoke.call_args == call(
+        {"messages": list(spec.input_messages)}, config=stack.langsmith.return_value, context=stack.ctx
+    )
+
+
+async def test_a_one_shot_run_invokes_without_streaming():
+    agent = _agent()
+
+    with agent_stack(agent) as stack:
+        await execute_run(make_spec(thread_id=None, lock=NoLock()))
+
+    assert stack.live_calls == []
+    agent.ainvoke.assert_awaited_once()
+
+
+async def test_a_session_run_without_redis_runs_unpublished_and_quietly(caplog):
+    agent = _agent()
+
+    with agent_stack(agent) as stack, caplog.at_level("ERROR", logger="daiv.sessions"):
+        stack.configured.return_value = False
+        await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    stack.build_client.assert_not_called()
+    assert stack.live_calls == []
+    agent.ainvoke.assert_awaited_once()
+    assert caplog.records == []
+
+
+async def test_a_session_run_without_a_relay_still_runs():
+    agent = _agent()
+
+    with agent_stack(agent) as stack:
+        stack.build_client.side_effect = RuntimeError("requires Redis")
+        outcome = await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    assert stack.live_calls == []
+    agent.ainvoke.assert_awaited_once()
+    assert outcome.response_text == "done"
+
+
+@pytest.mark.parametrize("error", [None, RuntimeError("boom")])
+async def test_the_worker_closes_the_redis_client_it_built(error):
+    agent = _agent()
+    agent.ainvoke = AsyncMock(return_value={"messages": [MagicMock(content="done")]}, side_effect=error)
+
+    with agent_stack(agent) as stack:
+        if error is None:
+            await execute_run(make_spec(lock=Held(holder_id="h-1")))
+        else:
+            with pytest.raises(RuntimeError, match="boom"):
+                await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    stack.build_client.assert_called_once_with(socket_timeout=SOCKET_TIMEOUT_S)
+    stack.build_client.return_value.aclose.assert_awaited_once()
+
+
+async def test_a_failing_relay_close_does_not_fail_a_finished_run():
+    agent = _agent()
+
+    with agent_stack(agent) as stack:
+        stack.build_client.return_value.aclose.side_effect = RedisTimeoutError("Timed out closing connection")
+        outcome = await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    assert outcome.response_text == "done"
+
+
+async def test_a_failing_relay_close_does_not_mask_the_agents_error():
+    boom = RuntimeError("boom")
+    agent = _agent()
+    agent.ainvoke = AsyncMock(side_effect=boom)
+    on_failure = AsyncMock()
+
+    with agent_stack(agent) as stack:
+        stack.build_client.return_value.aclose.side_effect = RedisTimeoutError("Timed out closing connection")
+        with pytest.raises(RuntimeError) as raised:
+            await execute_run(make_spec(lock=Held(holder_id="h-1")), RunHooks(on_failure=on_failure))
+
+    assert raised.value is boom
+    assert on_failure.await_args.args[0] is boom
+
+
 async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     agent = _agent(state={"merge_request": None})
     on_success = AsyncMock()
@@ -122,13 +234,8 @@ async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     assert (outcome.agent_result["response"], outcome.agent_result["question"]) == ("done", None)
     assert outcome.snapshot is agent.aget_state.return_value
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
-    stack.build_result.assert_awaited_once_with(
-        agent,
-        stack.langsmith.return_value,
-        response="done",
-        usage={},
-        snapshot=agent.aget_state.return_value,
-        question=None,
+    stack.build_result.assert_called_once_with(
+        response="done", usage={}, snapshot=agent.aget_state.return_value, question=None
     )
     on_success.assert_awaited_once_with(outcome)
     on_failure.assert_not_awaited()
@@ -180,6 +287,7 @@ async def test_the_steps_run_in_order_inside_the_slot():
         "result built",
         "context exited",
         "on_success holding run-1",
+        "stream ended",
     ]
     assert await active_holder(thread_id) is None
 
@@ -221,6 +329,7 @@ async def test_a_raising_agent_still_runs_every_finally_step():
         "context entered",
         "context exited",
         "on_failure agent blew up draft=False snapshot=None holding run-1",
+        "stream ended",
     ]
     assert heartbeat_cancelled == [True]
     assert await active_holder(thread_id) is None
@@ -311,7 +420,8 @@ async def _job_run() -> tuple[Session, Run]:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("error", [None, RuntimeError("agent blew up")], ids=["succeeds", "fails"])
-async def test_a_run_records_the_model_it_resolved(error):
+async def test_a_run_records_the_model_it_resolved_on_the_run_only(error):
+    """``Session.agent_model`` is the thread's pin, which chat and CI fix runs reuse; an Auto run must not set it."""
     session, run = await _job_run()
     agent = _agent()
     agent.ainvoke.side_effect = error
@@ -321,7 +431,7 @@ async def test_a_run_records_the_model_it_resolved(error):
 
     await session.arefresh_from_db()
     await run.arefresh_from_db()
-    assert (session.agent_model, session.agent_thinking_level) == ("claude-4-7-opus", "medium")
+    assert (session.agent_model, session.agent_thinking_level) == ("", "")
     assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
 
 
@@ -484,7 +594,7 @@ async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
             "sandbox_environment_id": None,
         }
     ]
-    assert stack.build_result.await_args.kwargs["snapshot"] is None
+    assert stack.build_result.call_args.kwargs["snapshot"] is None
     [record] = caplog.records
     assert (record.levelname, record.exc_info[1]) == ("ERROR", error)
     assert "ref sync and the CI watch" in record.getMessage()
@@ -554,14 +664,15 @@ async def test_an_exact_model_chain_replaces_model_resolution(thinking_level):
 
 
 async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
+    repo_client = MagicMock()
     spec = make_spec(
-        context_options={"offline": True, "repo_host": "github.com"}, agent_options={"capture_patch": True}
+        context_options={"offline": True, "repo_client": repo_client}, agent_options={"capture_patch": True}
     )
 
     with agent_stack(_agent()) as stack:
         await execute_run(spec)
 
-    assert (stack.context_kwargs["offline"], stack.context_kwargs["repo_host"]) == (True, "github.com")
+    assert (stack.context_kwargs["offline"], stack.context_kwargs["repo_client"]) == (True, repo_client)
     stack.create_agent.assert_awaited_once_with(
         settings=stack.resolve.return_value,
         ctx=stack.ctx,
@@ -569,8 +680,47 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
         ask_user_enabled=True,
         workspace=ANY,
         artifact_store=ANY,
+        mcp_servers=[],
+        session_links=ANY,
         capture_patch=True,
     )
+
+
+@pytest.mark.parametrize(
+    ("spec_overrides", "settings"),
+    [
+        pytest.param({"thread_id": None}, agent_settings(), id="one-shot-run"),
+        pytest.param({}, agent_settings(site=site_snapshot(session_link_enabled=False)), id="off-site-wide"),
+        pytest.param({}, agent_settings(repo=RepositoryConfig(session_link=False)), id="off-per-repository"),
+    ],
+)
+async def test_a_run_without_a_session_to_link_hands_the_agent_no_links(spec_overrides, settings):
+    with agent_stack(_agent(), resolve=MagicMock(return_value=settings)) as stack:
+        await execute_run(make_spec(**spec_overrides))
+
+    assert stack.create_agent.await_args.kwargs["session_links"] is None
+
+
+async def test_the_agent_gets_the_sessions_links_unbuilt():
+    spec = make_spec()
+
+    with agent_stack(_agent()) as stack:
+        await execute_run(spec)
+        stack.build_absolute_url.assert_not_called()
+        links = await stack.create_agent.await_args.kwargs["session_links"]()
+
+    assert links == _session_links(spec.thread_id)
+
+
+async def test_session_links_that_cannot_be_built_publish_without_them(caplog):
+    """A link is cosmetic: a missing Sites row costs the publish its links, not its work."""
+    with agent_stack(_agent()) as stack, caplog.at_level("WARNING", logger="daiv.sessions"):
+        stack.build_absolute_url.side_effect = Site.DoesNotExist("no site")
+        await execute_run(make_spec())
+        links = await stack.create_agent.await_args.kwargs["session_links"]()
+
+    assert links is None
+    assert "could not build the session links" in caplog.text
 
 
 async def test_the_web_toggles_reach_the_resolver():
@@ -702,6 +852,7 @@ async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_f
         thread_id=spec.thread_id,
         workspace=stack.create_agent.await_args.kwargs["workspace"],
         settings=stack.resolve.return_value,
+        session_links=stack.create_agent.await_args.kwargs["session_links"],
     )
     assert stack.events == ["context entered", "draft recovered", "context exited"]
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
@@ -1170,6 +1321,7 @@ class TestStreamRun:
             thread_id=ANY,
             workspace=stack.create_agent.await_args.kwargs["workspace"],
             settings=stack.resolve.return_value,
+            session_links=stack.create_agent.await_args.kwargs["session_links"],
         )
         on_failure.assert_awaited_once_with(error, draft_published=True, snapshot=agent.aget_state.return_value)
 
@@ -1467,7 +1619,7 @@ class TestASessionHoldingCrossProjectResults:
             await execute_run(self._spec(thread_id, run_id=str(run.pk), **acting), RunHooks(on_failure=on_failure))
 
         assert str(raised.value) == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
-        assert stack.events == []
+        assert stack.events == ["stream ended"]
         stack.build_spec.assert_not_called()
         stack.create_agent.assert_not_awaited()
         on_failure.assert_awaited_once_with(raised.value, draft_published=False, snapshot=None)

@@ -12,7 +12,7 @@ if [ ! -f "$CERT_DIR/cert.key" ] || [ ! -f "$CERT_DIR/cert.crt" ]; then
     echo "Generated self-signed SSL certificates in $CERT_DIR"
 fi
 
-django-admin compilemessages --ignore=.venv
+django-admin compilemessages --ignore='.*'
 django-admin migrate --noinput --skip-checks
 django-admin setup_default_site --skip-checks
 django-admin setup_checkpoint_saver --skip-checks

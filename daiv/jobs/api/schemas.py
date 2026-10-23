@@ -6,7 +6,7 @@ from ninja import Field, Schema
 from pydantic import ConfigDict
 from sessions.artifacts import ArtifactPayload  # noqa: TC002 - required at runtime by Ninja
 
-from codebase.references import MAX_REFS_PER_SUBMISSION, RefIn  # noqa: TC001 - required at runtime by Ninja
+from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn  # noqa: TC001 - required at runtime by Ninja
 from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtime by Ninja
 
 

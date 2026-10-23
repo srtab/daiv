@@ -9,9 +9,10 @@ here so these tests stay focused on the stream and slot invariants; the
 Run helpers are covered directly in ``tests/unit_tests/sessions/test_chat_runs.py``.
 """
 
+import asyncio
+import json
 import uuid
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,29 +21,25 @@ from ag_ui.core import RunAgentInput
 from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentEvent
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel, GenericFakeChatModel
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
+from sessions.executor.result import parse_agent_result
 from sessions.executor.run import CrossProjectSessionRefusedError
+from sessions.live.relay import RunRelay
 from sessions.models import Run, Session
 
 from automation.agent.agent_settings import resolve_agent_settings
-from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
-from automation.agent.middlewares.context_usage import ContextUsageMiddleware
 from automation.agent.questions import render_questions
-from automation.agent.results import parse_agent_result
-from automation.agent.usage_tracking import ResolvedWindow
-from automation.agent.utils import streamed_assistant_message
-from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
-from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
-from codebase.references import ExternalRef
+from automation.agent.references import ExternalRef
+from chat.api import runner
+from chat.api.streaming import ChatRunStreamer
+from core.constants import RUN_FAILED_MESSAGE
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
 from tests.unit_tests.sessions.conftest import amake_job_session, watch_recorder
 from tests.unit_tests.sessions.executor.conftest import agent_stack
-
-_TEXT_FRAME_TYPES = (EventType.TEXT_MESSAGE_START, EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_END)
 
 
 @pytest.fixture(autouse=True)
@@ -119,7 +116,7 @@ def _mock_agent(events):
         for e in events:
             yield e
 
-    instance = MagicMock()
+    instance = MagicMock(graph_stream=None)
     instance.run = _run
     return instance
 
@@ -145,7 +142,7 @@ async def test_events_persists_the_checkpoints_merge_request_and_releases_the_sl
     with (
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph(merge_request=mr))),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([_snapshot()])),
-        patch("sessions.services.apersist_session_ref", side_effect=_capture_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -172,7 +169,7 @@ async def test_events_persists_the_checkpoints_merge_request_over_the_streamed_o
             "chat.api.streaming.RuntimeContextLangGraphAGUIAgent",
             return_value=_mock_agent([_snapshot(merge_request=streamed)]),
         ),
-        patch("sessions.services.apersist_session_ref", side_effect=_capture_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -192,7 +189,7 @@ async def test_events_persists_none_when_the_checkpoint_has_no_merge_request():
 
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([_snapshot()])),
-        patch("sessions.services.apersist_session_ref", side_effect=_capture_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -218,7 +215,7 @@ async def test_events_skips_persist_ref_when_run_errored():
         yield snap
         raise RuntimeError("kaboom")
 
-    runner = MagicMock()
+    runner = MagicMock(graph_stream=None)
     runner.run = lambda _input: _events_then_boom()
 
     persist_calls: list = []
@@ -232,7 +229,7 @@ async def test_events_skips_persist_ref_when_run_errored():
 
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner),
-        patch("sessions.services.apersist_session_ref", side_effect=_capture_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -258,7 +255,7 @@ async def test_events_releases_run_even_when_persist_ref_raises():
 
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-        patch("sessions.services.apersist_session_ref", side_effect=_persist_boom),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_persist_boom),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -277,8 +274,10 @@ async def test_events_streams_the_agent_with_the_chat_run_bound_for_artifacts():
         yield _snapshot()
 
     with (
-        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=MagicMock(run=_run)),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch(
+            "chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=MagicMock(run=_run, graph_stream=None)
+        ),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -331,10 +330,9 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
     finalized FAILED, and a failed run must not pin the session ref.
 
     §F safety guarantee: the upstream RUN_ERROR event's ``.message`` can carry raw
-    exception text; it is fine to stream live (yielded to the client) but must never
-    be persisted to Run.error_message, which sessions.transcript renders verbatim in
-    the transcript on reload. The persisted reason is the same sanitized generic
-    constant used by the raised-exception path (parity with
+    exception text; it is neither streamed nor persisted to Run.error_message, which
+    sessions.transcript renders verbatim in the transcript on reload. Both carry the
+    same sanitized generic constant as the raised-exception path (parity with
     ``test_events_finalizes_failed_with_generic_message_when_agent_raises``).
     """
     from ag_ui.core.events import RunErrorEvent
@@ -345,7 +343,7 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
+    async def _capture_finalize(_run, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     persist_calls: list = []
@@ -358,7 +356,7 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([err])),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", side_effect=_capture_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -370,10 +368,40 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
     # §F: raw event message must NOT be persisted to Run.error_message.
     assert finalize_calls[0]["error_message"] == RUN_FAILED_MESSAGE
     assert "boom in agent" not in finalize_calls[0]["error_message"]
-    # The live client still receives the original upstream message.
     run_error_events = [e for e in streamed_events if getattr(e, "type", None) == EventType.RUN_ERROR]
-    assert any(getattr(e, "message", "") == "boom in agent" for e in run_error_events)
+    assert [(e.message, e.code) for e in run_error_events] == [(RUN_FAILED_MESSAGE, "run_failed")]
     assert persist_calls == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_closes_the_graph_run_ag_ui_abandoned():
+    from ag_ui.core.events import RunErrorEvent
+
+    closed: list[str] = []
+
+    async def _graph_stream():
+        try:
+            yield {}
+            await asyncio.sleep(10)
+        finally:
+            closed.append("graph")
+
+    graph_stream = _graph_stream()
+    await anext(graph_stream)
+    agent = _mock_agent([RunErrorEvent(type=EventType.RUN_ERROR, message="adapter bug")])
+    agent.graph_stream = graph_stream
+
+    with (
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agent),
+        patch("chat.api.streaming.finalize_chat_run", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert closed == ["graph"]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -387,18 +415,18 @@ async def test_events_finalizes_failed_with_generic_message_when_agent_raises():
         raise RuntimeError("kaboom-secret-internal-detail")
         yield  # pragma: no cover - unreachable, makes this an async generator
 
-    runner = MagicMock()
+    runner = MagicMock(graph_stream=None)
     runner.run = lambda _input: _events_then_boom()
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
+    async def _capture_finalize(_run, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -414,129 +442,32 @@ async def test_events_finalizes_failed_with_generic_message_when_agent_raises():
     assert "kaboom-secret-internal-detail" not in finalize_calls[0]["error_message"]
 
 
-class _FakeGraph:
-    """Minimal stand-in for a CompiledStateGraph. ``nodes`` feeds the subgraph
-    scan in ``LangGraphAGUIAgent.__init__``; ``astream_events`` exists only so
-    upstream's signature probe sees a ``context`` parameter (newer LangGraph),
-    which makes ``get_stream_kwargs`` populate ``context`` from configurable.
-    """
+@pytest.mark.django_db(transaction=True)
+async def test_an_exception_ag_ui_swallows_never_reaches_the_relay(_executor_stack, fake_redis):
+    """ag-ui turns a graph exception into a RUN_ERROR carrying its text, and repo readers can stream the run."""
 
-    nodes: dict = {}
+    class FailingModel(GenericFakeChatModel):
+        async def _astream(self, *args, **kwargs):
+            raise RuntimeError("secret /srv/internal")
+            yield
 
-    async def astream_events(self, _input=None, *, context=None, **kwargs):  # pragma: no cover - never invoked
-        yield None
+        async def _agenerate(self, *args, **kwargs):
+            raise RuntimeError("secret /srv/internal")
 
-
-def test_get_stream_kwargs_overrides_configurable_context_with_runtime_ctx():
-    """Regression: newer LangGraph's ``astream_events`` accepts ``context``, so
-    upstream builds ``context={"thread_id": ...}`` from ``config['configurable']``.
-    Our override must replace that dict with the ``RuntimeCtx`` instance — passing
-    the dict through makes LangGraph's ``_coerce_context`` call ``RuntimeCtx(**ctx)``,
-    raising ``TypeError: RuntimeCtx.__init__() got an unexpected keyword argument 'thread_id'``.
-    """
-    runtime_ctx = object()  # sentinel; identity is all we assert on
-    agent = RuntimeContextLangGraphAGUIAgent(
-        name="DAIV", description="d", graph=_FakeGraph(), config={}, runtime_context=runtime_ctx
+    _executor_stack.create_agent.return_value = create_agent(
+        model=FailingModel(messages=iter([])), tools=[], checkpointer=InMemorySaver()
     )
 
-    kwargs = agent.get_stream_kwargs(
-        input={}, config={"configurable": {"thread_id": "abc"}}, subgraphs=False, version="v2"
-    )
+    with (
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        await runner.run_to_relay(_streamer())
 
-    assert kwargs["context"] is runtime_ctx
-
-
-def _assistant_event(**data):
-    return {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": data}
-
-
-async def test_a_middleware_message_reaches_the_stream_as_text_frames():
-    """Closes the producer→consumer loop: a real middleware emitting through
-    ``streamed_assistant_message``, a real graph, and the real agent class.
-
-    The two halves live in packages with no shared schema and the consumer degrades an
-    unreadable payload to "no frames", so unit-testing each side against its own literals
-    leaves a renamed key green on both — and back to painting empty turns. This is the only
-    test that fails for that.
-    """
-
-    @dataclass
-    class Ctx:
-        pass
-
-    class ReplyingMiddleware(AgentMiddleware):
-        """Stands in for SlashCommandMiddleware / LoopBreakerMiddleware: answers without the model."""
-
-        async def awrap_model_call(self, request, handler):
-            return await streamed_assistant_message("answered without the model")
-
-    agent = create_agent(
-        model=FakeMessagesListChatModel(responses=[AIMessage(content="the model would have answered")]),
-        tools=[],
-        middleware=[ReplyingMiddleware()],
-        context_schema=Ctx,
-        checkpointer=InMemorySaver(),
-    )
-    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=Ctx())
-    payload = RunAgentInput(
-        thread_id=str(uuid.uuid4()),
-        run_id=str(uuid.uuid4()),
-        state={},
-        messages=[{"id": "m1", "role": "user", "content": "/agents"}],
-        tools=[],
-        context=[],
-        forwarded_props={},
-    )
-
-    frames = [e async for e in agui.run(payload) if e is not None and e.type in _TEXT_FRAME_TYPES]
-
-    assert [f.type for f in frames] == [
-        EventType.TEXT_MESSAGE_START,
-        EventType.TEXT_MESSAGE_CONTENT,
-        EventType.TEXT_MESSAGE_END,
-    ]
-    assert frames[1].delta == "answered without the model"
-    # One message end to end: the id the producer minted is the id the client dedupes replays on.
-    assert len({f.message_id for f in frames}) == 1
-
-
-def test_assistant_message_event_becomes_text_frames():
-    """A message the agent produced without a model call (slash command reply, loop-breaker stop)
-    streams only through this translation — otherwise it reaches the client only in the terminal
-    MESSAGES_SNAPSHOT, which chat-stream.js ignores, and the turn paints empty."""
-    frames = RuntimeContextLangGraphAGUIAgent._assistant_message_frames(
-        _assistant_event(message_id="m-1", message="### Available Sub-Agents"), {"langgraph_checkpoint_ns": "model:1"}
-    )
-
-    assert [f.type for f in frames] == [
-        EventType.TEXT_MESSAGE_START,
-        EventType.TEXT_MESSAGE_CONTENT,
-        EventType.TEXT_MESSAGE_END,
-    ]
-    assert {f.message_id for f in frames} == {"m-1"}
-    assert frames[0].role == "assistant"
-    assert frames[1].delta == "### Available Sub-Agents"
-    # Only the provenance keys, not the whole source event: SubagentEventFilter reads the namespace
-    # off raw_event to drop a subagent's message, and stamping the event would ship the body twice.
-    assert [f.raw_event for f in frames] == [{"metadata": {"langgraph_checkpoint_ns": "model:1"}}] * 3
-
-
-@pytest.mark.parametrize(
-    "event",
-    [
-        {"event": "on_chat_model_stream", "name": ASSISTANT_MESSAGE_EVENT, "data": {}},
-        {"event": "on_custom_event", "name": "some_other_event", "data": {}},
-        {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": None},
-        {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": {"message": "no id"}},
-        {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": {"message_id": "m-1"}},
-        "not-a-dict",
-    ],
-    ids=["wrong-event", "wrong-name", "no-data", "missing-id", "missing-message", "not-a-dict"],
-)
-def test_assistant_message_frames_ignores_anything_else(event):
-    """Every other event flows through untouched; a malformed payload is dropped rather than
-    emitting frames the client cannot close."""
-    assert RuntimeContextLangGraphAGUIAgent._assistant_message_frames(event, {}) == []
+    published = [fields.get("data", "") for _id, fields in fake_redis.streams[RunRelay("t-stream", "r-1").events_key]]
+    errors = [json.loads(data) for data in published if '"RUN_ERROR"' in data]
+    assert [(e["message"], e["code"]) for e in errors] == [(RUN_FAILED_MESSAGE, "run_failed")]
+    assert not any("secret" in data for data in published)
 
 
 def test_streamer_post_init_rejects_thread_id_mismatch():
@@ -577,7 +508,7 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
+    async def _capture_finalize(_run, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     release_calls: list = []
@@ -590,9 +521,9 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
         # after the first — the second must never be yielded.
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snap, snap])),
         patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
-        patch("chat.api.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=True)),
+        patch("sessions.live.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=True)),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -629,13 +560,13 @@ async def test_events_finalizes_interrupted_on_task_cancellation():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
+    async def _capture_finalize(_run, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner_mock),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -670,7 +601,7 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
+    async def _capture_finalize(_run, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
@@ -680,9 +611,9 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
         patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock(return_value=False)),
         # Cancel flag never set: the stop is driven purely by the lost slot.
-        patch("chat.api.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=False)),
+        patch("sessions.live.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=False)),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
     ):
         seen = [e async for e in _streamer().events()]
@@ -707,7 +638,6 @@ class TestStartChatRunPersistence:
 
     @pytest.mark.django_db(transaction=True)
     async def test_start_chat_run_persists_message_id(self):
-        import uuid
 
         from sessions.models import Session, SessionOrigin
 
@@ -742,14 +672,14 @@ async def test_events_buffers_text_deltas_into_result_summary():
 
     captured: dict = {}
 
-    async def _capture_finalize(run_pk, *, success, response_text, **_kwargs):
+    async def _capture_finalize(_run, *, success, response_text, **_kwargs):
         captured["response_text"] = response_text
         captured["success"] = success
 
     with (
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent(events)),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -777,14 +707,14 @@ async def test_the_turn_finalizes_with_the_question_it_ended_on(checkpoint_messa
     """The question is never streamed as text; the checkpoint is the only place the finished turn reads it from."""
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, response_text, question=None, **_kwargs):
+    async def _capture_finalize(_run, *, response_text, question=None, **_kwargs):
         finalize_calls.append({"question": question, "response_text": response_text})
 
     with (
         agent_stack(_graph(messages=checkpoint_messages)),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -798,7 +728,7 @@ async def test_the_turn_finalizes_with_the_question_it_ended_on(checkpoint_messa
 async def test_the_turn_finalizes_with_its_agent_result(_executor_stack):
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, agent_result=None, **_kwargs):
+    async def _capture_finalize(_run, *, agent_result=None, **_kwargs):
         finalize_calls.append(agent_result)
 
     agent_result = parse_agent_result({"merge_request_id": 7, "merge_request_web_url": "https://git.example/mr/7"})
@@ -814,116 +744,6 @@ async def test_the_turn_finalizes_with_its_agent_result(_executor_stack):
             pass
 
     assert finalize_calls == [agent_result]
-
-
-class TestReasoningProvenance:
-    """``ag_ui_langgraph`` builds every event type with ``raw_event=event`` except
-    the ``REASONING_*`` family, which it emits bare. ``SubagentEventFilter``
-    identifies subagent frames solely from ``raw_event.metadata.langgraph_checkpoint_ns``,
-    so untagged reasoning reads back as top-level and a subagent's thinking bleeds
-    into the parent turn. The agent stamps the source event's metadata onto any
-    untagged event so the filter can see where it came from.
-    """
-
-    NESTED_NS = "tools:11111111-1111|model:22222222-2222"
-    TOP_NS = "model:33333333-3333"
-
-    @staticmethod
-    def _agent():
-        agent = RuntimeContextLangGraphAGUIAgent(
-            name="DAIV", description="d", graph=_FakeGraph(), config={}, runtime_context=object()
-        )
-        # Mirrors upstream's INITIAL_ACTIVE_RUN (ag_ui_langgraph agent.py), which is a
-        # function-local in ``run()`` and so cannot be imported. Only ``id`` is read on
-        # these paths today; the rest documents the real runtime shape so a future
-        # upstream ``.get()``-to-``[]`` change surfaces as a KeyError, not a silent skip.
-        agent.active_run = {
-            "id": "run-1",
-            "thread_id": "thread-1",
-            "mode": "continue",
-            "reasoning_process": None,
-            "node_name": "model",
-            "has_function_streaming": False,
-            "streamed_tool_call_ids": set(),
-            "model_made_tool_call": False,
-            "state_reliable": True,
-            "manually_emitted_state": None,
-        }
-        return agent
-
-    @staticmethod
-    def _chunk_event(ns: str, chunk: AIMessageChunk, *, emit_messages: bool | None = None) -> dict:
-        """A LangGraph ``on_chat_model_stream`` envelope around ``chunk``."""
-        metadata: dict = {"langgraph_checkpoint_ns": ns}
-        if emit_messages is not None:
-            metadata["emit-messages"] = emit_messages
-        return {"event": "on_chat_model_stream", "run_id": "r1", "metadata": metadata, "data": {"chunk": chunk}}
-
-    @classmethod
-    def _thinking_event(cls, ns: str, text: str, **kwargs) -> dict:
-        """A chunk event carrying an Anthropic extended-thinking block."""
-        chunk = AIMessageChunk(content=[{"type": "thinking", "thinking": text, "index": 0}])
-        return cls._chunk_event(ns, chunk, **kwargs)
-
-    async def _emit(self, agent, event: dict) -> list:
-        return [ev async for ev in agent._handle_single_event(event, {})]
-
-    @staticmethod
-    async def _survivors(produced: list) -> list:
-        """What the client would actually receive for ``produced``."""
-
-        async def _aiter():
-            for ev in produced:
-                yield ev
-
-        return [ev async for ev in SubagentEventFilter().apply(_aiter())]
-
-    async def test_reasoning_events_are_stamped_with_source_namespace(self):
-        agent = self._agent()
-        out = await self._emit(agent, self._thinking_event(self.NESTED_NS, "subagent thought"))
-
-        assert out, "expected the thinking chunk to produce REASONING_* events"
-        # Asserting against the production frozenset (not a "REASONING" name prefix)
-        # also pins it against the real event stream: a reasoning type upstream adds
-        # and REASONING_EVENT_TYPES misses fails here instead of silently un-gating.
-        assert all(e.type in REASONING_EVENT_TYPES for e in out)
-        for ev in out:
-            ns = (ev.raw_event or {}).get("metadata", {}).get("langgraph_checkpoint_ns")
-            assert ns == self.NESTED_NS, f"{ev.type.value} lost its namespace: raw_event={ev.raw_event!r}"
-
-    async def test_nested_subagent_thinking_never_reaches_the_client(self):
-        """Over the real upstream handler and the real filter, not a mock of the seam.
-
-        Still one layer short of production: ``_handle_stream_events`` (which drives
-        this handler) is not exercised, so an upstream change that stops routing
-        reasoning through ``_handle_single_event`` would leave this green.
-        """
-        agent = self._agent()
-        produced = []
-        for text in ("subagent secret ", "thought"):
-            produced += await self._emit(agent, self._thinking_event(self.NESTED_NS, text))
-
-        survivors = await self._survivors(produced)
-        leaked = "".join(getattr(ev, "delta", "") for ev in survivors)
-        assert survivors == [], f"subagent thinking leaked: {leaked!r}"
-
-    async def test_top_level_thinking_still_reaches_the_client(self):
-        """The guard must not silence the main agent's own reasoning."""
-        agent = self._agent()
-        produced = await self._emit(agent, self._thinking_event(self.TOP_NS, "my own thought"))
-
-        survivors = await self._survivors(produced)
-        assert "my own thought" in "".join(getattr(ev, "delta", "") for ev in survivors)
-
-    async def test_stamping_preserves_existing_raw_event(self):
-        """Events upstream already tagged (text, tool calls) must pass through untouched."""
-        agent = self._agent()
-        chunk = AIMessageChunk(content="hello", id="msg-1")
-        out = await self._emit(agent, self._chunk_event(self.TOP_NS, chunk))
-
-        assert out, "expected a text chunk to produce events"
-        # Upstream sets raw_event to the whole LangGraph event, not just its metadata.
-        assert all(ev.raw_event.get("event") == "on_chat_model_stream" for ev in out)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -949,11 +769,11 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
     start_chat_run = AsyncMock(return_value=SimpleNamespace(pk="run-pk"))
 
     with (
-        patch("codebase.context.set_runtime_ctx", _fallback_ctx),
+        patch("automation.agent.context.set_runtime_ctx", _fallback_ctx),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("chat.api.streaming.start_chat_run", new=start_chat_run),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
-        patch("sessions.services.areset_session_ref", side_effect=_capture_reset),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.areset_session_ref", side_effect=_capture_reset),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -969,53 +789,6 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
     assert start_chat_run.call_args.kwargs["ref"] == "dev"
 
 
-async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
-    """The real middleware in a real graph, through the real agent class: pins that the
-    dispatch survives AG-UI translation as a CUSTOM frame and that the producer goes through
-    the builder — a hand-rolled payload dict in the middleware fails here. Renames of the
-    shared constants are caught by the node test (the JS side hand-types the literals)."""
-
-    @dataclass
-    class Ctx:
-        pass
-
-    reply = AIMessage(
-        content="done",
-        usage_metadata={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
-        response_metadata={"model_name": "anthropic/claude-sonnet-4.6"},
-    )
-    agent = create_agent(
-        model=FakeMessagesListChatModel(responses=[reply]),
-        tools=[],
-        middleware=[ContextUsageMiddleware()],
-        context_schema=Ctx,
-        checkpointer=InMemorySaver(),
-    )
-    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=Ctx())
-    payload = RunAgentInput(
-        thread_id=str(uuid.uuid4()),
-        run_id=str(uuid.uuid4()),
-        state={},
-        messages=[{"id": "m1", "role": "user", "content": "hi"}],
-        tools=[],
-        context=[],
-        forwarded_props={},
-    )
-
-    frames = [
-        e
-        async for e in agui.run(payload)
-        if e is not None and e.type == EventType.CUSTOM and getattr(e, "name", "") == CONTEXT_USAGE_EVENT
-    ]
-
-    assert len(frames) == 1
-    assert frames[0].value == context_usage_payload(
-        model="anthropic/claude-sonnet-4.6",
-        usage={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
-        window=ResolvedWindow(1_000_000, "genai_prices"),
-    )
-
-
 @pytest.mark.django_db(transaction=True)
 async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
     """A setting ``_run_spec`` drops or renames is swallowed silently: the turn runs on defaults (every footer
@@ -1029,10 +802,10 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
 
     langsmith = MagicMock(return_value={})
     with (
-        patch("codebase.context.set_runtime_ctx", _capture_ctx),
+        patch("automation.agent.context.set_runtime_ctx", _capture_ctx),
         patch("automation.agent.utils.build_langsmith_config", langsmith),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -1053,14 +826,14 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
             pass
 
     _executor_stack.build_spec.assert_awaited_once_with("env-1")
-    keys = ("sandbox_spec", "acting_user_id", "acting_user_authenticated", "mcp_overrides", "references")
+    keys = ("sandbox_spec", "acting_user_id", "acting_user_authenticated", "references")
     assert {key: captured[key] for key in keys} == {
         "sandbox_spec": _executor_stack.build_spec.return_value,
         "acting_user_id": 7,
         "acting_user_authenticated": True,
-        "mcp_overrides": {"sentry": "off"},
         "references": refs,
     }
+    _executor_stack.build_servers.assert_called_once_with(7, {"sentry": "off"})
     run = _executor_stack.resolve.call_args.kwargs["run"]
     assert (run.agent_model, run.agent_thinking_level) == ("openrouter:z-ai/glm-5.2", "low")
     assert (langsmith.call_args.kwargs["trigger"], langsmith.call_args.kwargs["extra_metadata"]) == (
@@ -1075,7 +848,7 @@ async def test_chat_runs_on_the_resolved_recursion_limit(_executor_stack):
     with (
         patch.object(site_settings, "snapshot", return_value=site_snapshot(agent_recursion_limit=123)),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])) as agui,
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -1146,7 +919,7 @@ def _recorded_turn(
         _log("start")
         return SimpleNamespace(pk="run-pk")
 
-    async def _finalize(_run_pk, *, success, error_message="", **_kwargs):
+    async def _finalize(_run, *, success, error_message="", **_kwargs):
         _log("finalize", success, error_message)
 
     async def _persist(*, thread_id, current_ref, merge_request, published):
@@ -1163,17 +936,17 @@ def _recorded_turn(
     heartbeat_mock = heartbeat if isinstance(heartbeat, AsyncMock) else AsyncMock(return_value=heartbeat)
     compiled = graph or _graph(**(checkpoint or {}))
     with (
-        patch("codebase.context.set_runtime_ctx", runtime_ctx),
+        patch("automation.agent.context.set_runtime_ctx", runtime_ctx),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=compiled)),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agui_agent),
         patch("chat.api.streaming.start_chat_run", side_effect=_start),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_finalize),
-        patch("sessions.services.apersist_session_ref", side_effect=_persist),
+        patch("sessions.executor.run.apersist_session_ref", side_effect=_persist),
         patch("sessions.executor.run.PipelineWatch", _Watch),
         patch("chat.api.streaming.SessionLock.release", side_effect=_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=heartbeat_mock),
         patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
-        patch("chat.api.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=cancel)),
+        patch("sessions.live.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=cancel)),
     ):
         yield calls
 
@@ -1395,7 +1168,7 @@ class TestChatAfterRunMatrix:
                 handlers.append(handler)
                 yield handler
 
-        async def _finalize(_run_pk, *, usage, **_kwargs):
+        async def _finalize(_run, *, usage, **_kwargs):
             usages.append(usage)
 
         summary = MagicMock(return_value=MagicMock(to_dict=lambda: {"total_tokens": 12}))

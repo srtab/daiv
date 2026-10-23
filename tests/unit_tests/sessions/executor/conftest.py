@@ -3,17 +3,18 @@ from __future__ import annotations
 import io
 import tarfile
 import uuid
-from contextlib import asynccontextmanager, contextmanager, nullcontext
+from contextlib import asynccontextmanager, contextmanager
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from langchain_core.messages import HumanMessage
 from sessions.executor.lock import NoLock
+from sessions.executor.result import parse_agent_result
 from sessions.executor.spec import RunSpec
 
 from automation.agent.agent_settings import RunOverrides
-from automation.agent.results import parse_agent_result
+from automation.agent.workspace.session import SessionSeed
 from codebase.base import Scope
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import agent_settings, site_snapshot, stub_sandbox_spec
@@ -54,6 +55,9 @@ def empty_archive() -> bytes:
     return buffer.getvalue()
 
 
+SITE_URL = "https://daiv.test"
+
+
 @contextmanager
 def agent_stack(
     agent,
@@ -72,7 +76,8 @@ def agent_stack(
     agent to ``claude-4-7-opus`` at ``medium``), and ``site`` is the snapshot the run takes (the field defaults).
     ``checkpointed`` is the session thread's last checkpoint values (``None``: no checkpoint yet); a fresh container
     is seeded with an empty archive. ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed
-    to the clone.
+    to the clone. ``build_servers`` stubs ``build_runtime_servers``; the servers it returns are the ones handed to the
+    agent. ``build_absolute_url`` stubs the session links' URL builder, resolving against ``SITE_URL``.
     ``session_guard`` keeps the real cross-project session check, which reads the ``Session`` row.
     """
     last_checkpoint = None if checkpointed is None else SimpleNamespace(checkpoint={"channel_values": checkpointed})
@@ -84,6 +89,7 @@ def agent_stack(
         else disk_ctx(repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5)),
         checkpointer=SimpleNamespace(aget_tuple=AsyncMock(return_value=last_checkpoint)),
         armed=[],
+        live_calls=[],
         resolve=resolve or MagicMock(return_value=resolved_to("claude-4-7-opus", "fallback", thinking_level="medium")),
         site=site or site_snapshot(),
     )
@@ -104,7 +110,7 @@ def agent_stack(
     async def _persist_ref(**_kwargs):
         stack.events.append("ref synced")
 
-    async def _build_result(*_args, **kwargs):
+    def _build_result(**kwargs):
         stack.events.append("result built")
         return parse_agent_result(kwargs)
 
@@ -113,33 +119,60 @@ def agent_stack(
             stack.events.append("watch armed")
             await super().aarm_after_run(**kwargs)
 
+    async def _ainvoke_live(agent, graph_input, *, config, context, recursion_limit, run_relay):
+        stack.live_calls.append(
+            SimpleNamespace(run_relay=run_relay, recursion_limit=recursion_limit, graph_input=graph_input)
+        )
+        return await agent.ainvoke(graph_input, config=config, context=context)
+
+    async def _end_stream(run_relay):
+        stack.events.append("stream ended")
+
+    run_patches = {"PipelineWatch": _Watch}
+    if not session_guard:
+        run_patches["_refuse_cross_project_session"] = AsyncMock()
+
     with (
         stub_sandbox_spec() as build_spec,
-        patch("codebase.context.set_runtime_ctx", context or _set_runtime_ctx),
+        patch("sessions.live.publisher.ainvoke_live", _ainvoke_live),
+        patch("sessions.live.publisher.end_stream", _end_stream),
+        patch("core.redis.RedisConnections.configured", new_callable=PropertyMock, return_value=True) as configured,
+        patch(
+            "core.redis.redis_connections.build_async_client", return_value=MagicMock(aclose=AsyncMock())
+        ) as build_client,
+        patch("automation.agent.context.set_runtime_ctx", context or _set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer", _open_checkpointer),
         patch.object(site_settings, "snapshot", return_value=stack.site) as snapshot,
         patch("automation.agent.agent_settings.resolve_agent_settings", stack.resolve),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent,
+        patch("mcp_connectors.services.build_runtime_servers", return_value=[]) as build_servers,
         patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {}}) as langsmith,
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(side_effect=_build_result)) as build_result,
+        patch("sessions.executor.result.build_agent_result", side_effect=_build_result) as build_result,
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
-        patch("sessions.services.areset_session_ref", new=AsyncMock()) as reset,
-        patch("sessions.executor.run.PipelineWatch", _Watch),
-        nullcontext()
-        if session_guard
-        else patch("sessions.executor.run._refuse_cross_project_session", new=AsyncMock()) as guard,
-        patch("automation.agent.middlewares.sandbox._seed_archives", AsyncMock(return_value=(empty_archive(), None))),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
+        patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
+        patch.multiple("sessions.executor.run", **run_patches),
+        patch(
+            "sessions.executor.run.build_absolute_url", side_effect=lambda path: f"{SITE_URL}{path}"
+        ) as build_absolute_url,
+        patch(
+            "automation.agent.workspace.session._seed_archives",
+            AsyncMock(return_value=SessionSeed(empty_archive(), None, [])),
+        ),
     ):
         stack.build_spec = build_spec
+        stack.build_client = build_client
+        stack.configured = configured
         stack.snapshot = snapshot
         stack.create_agent = create_agent
+        stack.build_servers = build_servers
         stack.langsmith = langsmith
         stack.build_result = build_result
         stack.persist = persist
         stack.reset = reset
-        stack.guard = guard
+        stack.build_absolute_url = build_absolute_url
+        stack.guard = run_patches.get("_refuse_cross_project_session")
         yield stack
 
 
@@ -147,7 +180,7 @@ def publisher_through_workspace(created: list, *, publishes: MergeRequest):
     """A ``GitChangePublisher`` stand-in that pushes through the shell of whatever workspace it is handed."""
 
     class _Publisher:
-        def __init__(self, ctx, workspace, *, settings, thread_id):
+        def __init__(self, ctx, workspace, *, settings, session_links):
             self.workspace = workspace
             created.append(self)
 

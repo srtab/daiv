@@ -12,7 +12,7 @@ from django.utils.functional import cached_property
 from django.views import View
 from django.views.generic import ListView
 
-from accounts.mixins import AdminRequiredMixin
+from core.mixins import AdminRequiredMixin
 from core.utils import is_htmx
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment
@@ -98,7 +98,7 @@ class EnvFormView(LoginRequiredMixin, View):
             env = form.save()
         except ValidationError as err:
             # full_clean() inside save() raises core.exceptions.ValidationError,
-            # which is_valid() didn't catch; surface it as a non-field error.
+            # which is_valid() didn't catch; the form routes it to the matching field.
             form.add_error(None, err)
             return self._render(form, instance=instance)
         action = "updated" if instance else "created"

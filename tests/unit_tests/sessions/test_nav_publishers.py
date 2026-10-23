@@ -1,10 +1,10 @@
 """Every Run write that moves the running-runs badge must poke the nav readers.
 
 The badge is only as live as its pokes, and the ways a Run's status changes are not
-uniform: most go through ``save()`` (and so through ``post_save``), but the chat
-lifecycle and the stuck-run reaper write with ``aupdate``/``update``, which fire no
-signal at all. These tests cover both kinds, because a missed poke is invisible —
-the badge just sits on a stale number until the stream's next reconnect.
+uniform: a create goes through ``save()`` (and so through ``post_save``), but a finish and
+a sync's move to RUNNING are guarded ``update``s in ``RunManager``, which fire no signal
+and poke for themselves. These tests cover both kinds, because a missed poke is
+invisible — the badge just sits on a stale number until the stream's next reconnect.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 import pytest
-from sessions.locks import stale_cutoff
+from sessions.executor.lock import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 
@@ -76,22 +76,20 @@ class TestRunSavePokes:
 
 
 @pytest.mark.django_db(transaction=True)
-class TestWritesThatBypassSignals:
+class TestFinishesPoke:
     async def test_finalizing_a_chat_run_pokes(self, session):
-        """``finalize_chat_run`` uses ``aupdate``, so ``post_save`` never fires — and this
-        is the transition that takes the badge back down after a chat turn."""
+        """This is the transition that takes the badge back down after a chat turn."""
         from chat.api.streaming import finalize_chat_run
 
         run = await Run.objects.acreate(
             session=session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.CHAT, repo_id="daiv/api"
         )
-        with patch("core.ui_events.publisher.aruns_changed") as publish:
-            await finalize_chat_run(run.pk, success=True, usage=None, response_text="ok")
+        with patch("core.ui_events.publisher.runs_changed") as publish:
+            await finalize_chat_run(run, success=True, usage=None, response_text="ok")
         publish.assert_called_once()
 
     def test_reaping_orphaned_chat_runs_pokes(self, session):
-        """The reaper's bulk ``.update()`` fires no signal either, and it is what clears a
-        badge left counting a run whose worker was killed."""
+        """The reaper is what clears a badge left counting a run whose worker was killed."""
         Session.objects.filter(pk=session.pk).update(last_active_at=stale_cutoff() - timedelta(minutes=5))
         make_run(session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.CHAT)
         with patch("core.ui_events.publisher.runs_changed") as publish:
