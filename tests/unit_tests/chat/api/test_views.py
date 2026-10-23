@@ -87,7 +87,7 @@ def patched_streamer():
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
         patch("chat.api.views.ChatRunStreamer") as m_streamer_cls,
     ):
-        m_agent_cls.return_value = MagicMock(run=_empty_stream)
+        m_agent_cls.return_value = MagicMock(run=_empty_stream, graph_stream=None)
         m_streamer_cls.return_value = MagicMock(events=_empty_events)
         yield m_streamer_cls
 
@@ -392,7 +392,7 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(
     refreshed = await Session.objects.aget(thread_id="t-boom")
     assert refreshed.active_run_id is None
 
-    from chat.api.relay import RunRelay
+    from sessions.live.relay import RunRelay
 
     published = "".join(
         fields.get("data", "") for _id, fields in fake_redis.streams[RunRelay("t-boom", "r-1").events_key]
@@ -862,13 +862,36 @@ async def test_a_rejected_duplicate_run_does_not_rewrite_the_selection(
 
 
 async def _seed_run_events(fake_redis, thread_id, run_id, payloads, *, end=True):
-    from chat.api.relay import RunRelay
+    from sessions.live.relay import RunRelay
 
     run_relay = RunRelay(thread_id, run_id)
     for p in payloads:
         await run_relay.publish_event(p)
     if end:
         await run_relay.publish_end()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_serves_a_reader_of_the_sessions_repository(client: TestAsyncClient, authed, fake_redis):
+    from asgiref.sync import sync_to_async
+
+    from tests.unit_tests.sessions.conftest import grant_read_access
+
+    _, raw, user = authed
+    owner = await User.objects.acreate_user(username="stream-owner", email="so@example.com", password="x")  # noqa: S106
+    await Session.objects.acreate(
+        origin=SessionOrigin.API_JOB, thread_id="t-s0", user=owner, repo_id="group/project", ref="main"
+    )
+    await _seed_run_events(fake_redis, "t-s0", "r-1", ['{"type":"RUN_STARTED"}'])
+    url = "/chat/stream?thread_id=t-s0&run_id=r-1"
+
+    denied = await client.get(url, headers=_auth_headers(raw))
+    await sync_to_async(grant_read_access)(user, "group/project")
+    served = await client.get(url, headers=_auth_headers(raw))
+
+    assert denied.status_code == 404
+    assert served.status_code == 200
+    assert served["Content-Type"] == "text/event-stream"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1010,7 +1033,7 @@ async def test_stream_emits_error_frame_when_relay_read_fails(client: TestAsyncC
     broken = MagicMock()
     broken.xread = AsyncMock(side_effect=RuntimeError("redis down"))
 
-    with patch("chat.api.relay.get_redis", return_value=broken):
+    with patch("sessions.live.relay.get_redis", return_value=broken):
         response = await client.get("/chat/stream?thread_id=t-err&run_id=r-1", headers=_auth_headers(raw))
 
     body = response.content.decode()
@@ -1030,14 +1053,14 @@ async def test_stream_emits_keepalive_and_resumes_tail_across_reads(client: Test
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT, thread_id="t-live", user=user, repo_id="a/b", ref="main", active_run_id="r-1"
     )
-    from chat.api.relay import RunRelay
+    from sessions.live.relay import RunRelay
 
     key = RunRelay("t-live", "r-1").events_key
     scripted = _ScriptedRedis(
         key, {0: [("1-0", {"data": '{"n":1}'})], 2: [("2-0", {"data": '{"n":2}'}), ("3-0", {"end": "1"})]}
     )
 
-    with patch("chat.api.relay.get_redis", return_value=scripted):
+    with patch("sessions.live.relay.get_redis", return_value=scripted):
         response = await client.get("/chat/stream?thread_id=t-live&run_id=r-1", headers=_auth_headers(raw))
 
     body = response.content.decode()
@@ -1072,7 +1095,7 @@ async def test_stream_closes_without_end_frame_at_duration_cap(client: TestAsync
     )
 
     with (
-        patch("chat.api.relay.get_redis", return_value=_QuietSlowRedis()),
+        patch("sessions.live.relay.get_redis", return_value=_QuietSlowRedis()),
         patch("chat.api.views.STREAM_MAX_DURATION_S", 0.05),
     ):
         response = await client.get("/chat/stream?thread_id=t-cap&run_id=r-1", headers=_auth_headers(raw))
@@ -1184,7 +1207,7 @@ async def test_completion_no_resolvable_model_returns_400(client: TestAsyncClien
 
 @pytest.mark.django_db(transaction=True)
 async def test_cancel_sets_flag_and_reports_local_miss(client: TestAsyncClient, authed, fake_redis):
-    from chat.api.relay import RunRelay
+    from sessions.live.relay import RunRelay
 
     _, raw, user = authed
     await Session.objects.acreate(

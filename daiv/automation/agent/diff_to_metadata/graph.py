@@ -129,7 +129,7 @@ def create_diff_to_metadata_graph(
         # `emit-messages: False` silences the subagents' text frames so partial JSON
         # from the structured response never bleeds into the chat. ag_ui_langgraph
         # honors it for text only — its reasoning branch returns before the gate —
-        # so `chat.api.event_filter` applies the same flag to REASONING_* events.
+        # so `sessions.live.event_filter` applies the same flag to REASONING_* events.
         # We *do* let TOOL_CALL_* events through: the chat client recognizes the
         # `PullRequestMetadata` and `CommitMetadata` tool names and renders them as
         # inline progress chips ("Creating merge request…" / "Committing changes…")

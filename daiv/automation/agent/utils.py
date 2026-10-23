@@ -164,7 +164,7 @@ async def streamed_assistant_message(content: str, config: RunnableConfig | None
     ``on_chat_model_stream`` fires for it, and the chat's AG-UI translator has nothing to build
     ``TEXT_MESSAGE_*`` frames from. The reply then reaches the browser only inside the terminal
     ``MESSAGES_SNAPSHOT``, which ``chat-stream.js`` ignores, and the turn paints empty until the
-    page is reloaded from the checkpoint. This event is what ``chat/api/streaming.py`` translates
+    page is reloaded from the checkpoint. This event is what ``sessions/live/agui.py`` translates
     into those frames; every other transport ignores it.
 
     The frame and the returned message share an id, and that is load-bearing: ``_resumeRun``

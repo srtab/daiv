@@ -21,8 +21,7 @@ from ag_ui.core.events import (
     ToolCallResultEvent,
     ToolCallStartEvent,
 )
-
-from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
+from sessions.live.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 
 
 def _ev(klass, *, ns: str = "", chunk: dict | None = None, emit_messages: bool | None = None, **kwargs):

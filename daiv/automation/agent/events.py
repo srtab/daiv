@@ -3,7 +3,7 @@
 Each event's wire shape is defined here alone, so the two ends cannot drift: every consumer
 degrades a payload it cannot read to "no frames" (or "no update") rather than raising, so a key
 renamed on one side alone fails silently — empty turns for the assistant message, a frozen meter
-for context usage. The consumer half lives with each event: Python (``chat.api.streaming``,
+for context usage. The consumer half lives with each event: Python (``sessions.live.agui``,
 parsing through this module) for the assistant message, JS (``chat-stream.js``, whose node test
 drives the handler with payloads built here) for the context meter.
 """

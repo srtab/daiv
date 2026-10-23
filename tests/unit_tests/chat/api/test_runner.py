@@ -9,8 +9,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from ag_ui.core.events import CustomEvent, EventType
+from sessions.live import relay
 
-from chat.api import relay, runner
+from chat.api import runner
 
 
 def _stub_streamer(events_gen):
@@ -74,7 +75,7 @@ async def test_run_to_relay_closes_the_stream_when_a_publish_fails(fake_redis):
         finally:
             closed.append(True)
 
-    with patch("chat.api.runner._publish", new=AsyncMock(side_effect=RuntimeError("relay down"))):
+    with patch("chat.api.runner.publish_event", new=AsyncMock(side_effect=RuntimeError("relay down"))):
         await runner.run_to_relay(_stub_streamer(_events))
 
     assert closed == [True]
@@ -119,7 +120,7 @@ async def test_run_to_relay_swallows_publish_end_failure(fake_redis):
     async def _events():
         yield CustomEvent(type=EventType.CUSTOM, name="only", value=1)
 
-    with patch("chat.api.relay.RunRelay.publish_end", new=AsyncMock(side_effect=RuntimeError("redis down"))):
+    with patch("sessions.live.relay.RunRelay.publish_end", new=AsyncMock(side_effect=RuntimeError("redis down"))):
         # Must not raise despite the sentinel publish failing.
         await runner.run_to_relay(_stub_streamer(_events))
 

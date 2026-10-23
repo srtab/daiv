@@ -12,7 +12,7 @@ from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
-from tests.unit_tests.sessions.conftest import create_archive, make_artifact
+from tests.unit_tests.sessions.conftest import create_archive, grant_read_access, make_artifact
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -535,53 +535,8 @@ def test_detail_renders_session_live_flag(member_client, member_user):
 
 
 @pytest.mark.django_db
-def test_poll_transcript_only_for_background_runs(member_client, member_user):
-    """poll_transcript is True only for non-chat in-flight runs; chat runs manage themselves via AG-UI stream."""
-    # Case 1: in-flight CHAT run — poller must NOT engage (chat uses AG-UI stream).
-    session_chat = _create_session(user=member_user)
-    chat_run = _create_run(session_chat, trigger_type=SessionOrigin.CHAT, status=RunStatus.RUNNING)
-    session_chat.active_run_id = chat_run.id
-    session_chat.save(update_fields=["active_run_id"])
-
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_chat.thread_id}))
-
-    assert resp.context["poll_transcript"] is False, (
-        "A live CHAT run should not activate the transcript poller (it streams via AG-UI)"
-    )
-
-    # Case 2: in-flight background (API_JOB) run — poller MUST engage.
-    session_bg = _create_session(user=member_user)
-    bg_run = _create_run(session_bg, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING)
-    session_bg.active_run_id = bg_run.id
-    session_bg.save(update_fields=["active_run_id"])
-
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_bg.thread_id}))
-
-    assert resp.context["poll_transcript"] is True, (
-        "A live background (API_JOB) run should activate the transcript poller"
-    )
-
-    # Case 3: all runs are terminal — poller must NOT engage.
-    session_done = _create_session(user=member_user)
-    done_run = _create_run(session_done, trigger_type=SessionOrigin.API_JOB, status=RunStatus.SUCCESSFUL)
-    session_done.active_run_id = done_run.id
-    session_done.save(update_fields=["active_run_id"])
-
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_done.thread_id}))
-
-    assert resp.context["poll_transcript"] is False, "All-terminal runs should not activate the transcript poller"
-
-
-@pytest.mark.django_db
-def test_chat_active_run_id_only_for_chat_holders(member_client, member_user):
-    """The chat page rejoins the event relay only for chat-origin holders; a
-    background (API_JOB) holder must yield an empty chat_active_run_id so the JS
-    leaves live updates to the transcript poller instead of tailing a relay
-    stream that nothing publishes to."""
-    # Case 1: in-flight CHAT run — the AG-UI holder id must be exposed for resume.
+def test_any_live_holder_is_exposed_for_streaming(member_client, member_user):
+    """Every in-flight holder's id reaches the page; only a chat-only session is stoppable."""
     session_chat = _create_session(user=member_user)
     _create_run(session_chat, trigger_type=SessionOrigin.CHAT, status=RunStatus.RUNNING)
     session_chat.active_run_id = "agui-run-1"
@@ -590,9 +545,9 @@ def test_chat_active_run_id_only_for_chat_holders(member_client, member_user):
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_chat.thread_id}))
 
-    assert resp.context["chat_active_run_id"] == "agui-run-1"
+    assert resp.context["live_run_id"] == "agui-run-1"
+    assert resp.context["live_run_stoppable"] is True
 
-    # Case 2: in-flight background run — must be empty.
     session_bg = _create_session(user=member_user)
     bg_run = _create_run(session_bg, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING)
     session_bg.active_run_id = bg_run.id
@@ -601,9 +556,9 @@ def test_chat_active_run_id_only_for_chat_holders(member_client, member_user):
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_bg.thread_id}))
 
-    assert resp.context["chat_active_run_id"] == ""
+    assert resp.context["live_run_id"] == str(bg_run.id)
+    assert resp.context["live_run_stoppable"] is False
 
-    # Case 3: all runs terminal — must be empty (nothing to resume).
     session_done = _create_session(user=member_user)
     done_run = _create_run(session_done, trigger_type=SessionOrigin.CHAT, status=RunStatus.SUCCESSFUL)
     session_done.active_run_id = done_run.id
@@ -612,14 +567,32 @@ def test_chat_active_run_id_only_for_chat_holders(member_client, member_user):
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_done.thread_id}))
 
-    assert resp.context["chat_active_run_id"] == ""
+    assert resp.context["live_run_id"] == ""
+    assert resp.context["live_run_started_at"] == ""
 
 
 @pytest.mark.django_db
-def test_chat_active_run_started_at_seeds_the_working_timer(member_client, member_user):
+def test_only_the_sessions_owner_is_offered_stop(client, member_user, other_user):
+    """A repo reader streams the owner's chat turn, but the cancel endpoint only stops the owner's runs."""
+    session = _create_session(user=other_user, active_run_id="agui-run-1")
+    _create_run(session, trigger_type=SessionOrigin.CHAT, status=RunStatus.RUNNING)
+    grant_read_access(member_user, session.repo_id)
+    url = reverse("session_detail", kwargs={"thread_id": session.thread_id})
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        client.force_login(member_user)
+        reader = client.get(url)
+        client.force_login(other_user)
+        owner = client.get(url)
+
+    assert (reader.context["live_run_id"], reader.context["live_run_stoppable"]) == ("agui-run-1", False)
+    assert (owner.context["live_run_id"], owner.context["live_run_stoppable"]) == ("agui-run-1", True)
+
+
+@pytest.mark.django_db
+def test_live_run_started_at_seeds_the_working_timer(member_client, member_user):
     """The loader's elapsed timer counts from the run's server-side start, so the
-    resume path needs that timestamp; without a resumable chat holder there is
-    nothing to seed and the context value stays empty."""
+    resume path needs that timestamp."""
     started = timezone.now() - timedelta(minutes=3)
 
     session_chat = _create_session(user=member_user)
@@ -630,7 +603,7 @@ def test_chat_active_run_started_at_seeds_the_working_timer(member_client, membe
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_chat.thread_id}))
 
-    assert resp.context["chat_active_run_started_at"] == started.isoformat()
+    assert resp.context["live_run_started_at"] == started.isoformat()
 
     # A queued run has no started_at yet — created_at keeps the timer anchored.
     session_queued = _create_session(user=member_user)
@@ -641,18 +614,7 @@ def test_chat_active_run_started_at_seeds_the_working_timer(member_client, membe
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_queued.thread_id}))
 
-    assert resp.context["chat_active_run_started_at"] == queued_run.created_at.isoformat()
-
-    # Background holder: no relay stream to rejoin, so no timer to seed either.
-    session_bg = _create_session(user=member_user)
-    bg_run = _create_run(session_bg, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING, started_at=started)
-    session_bg.active_run_id = bg_run.id
-    session_bg.save(update_fields=["active_run_id"])
-
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_bg.thread_id}))
-
-    assert resp.context["chat_active_run_started_at"] == ""
+    assert resp.context["live_run_started_at"] == queued_run.created_at.isoformat()
 
 
 @pytest.mark.django_db

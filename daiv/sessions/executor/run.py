@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.session import SandboxSession
     from sessions.executor.spec import RunSpec
+    from sessions.live.relay import RunRelay
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -76,9 +77,9 @@ async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcom
     hooks = hooks or RunHooks()
     entered = False
     try:
-        async with _hold_slot(spec):
+        async with _hold_slot(spec) as holder_id:
             entered = True
-            return await _run_in_slot(spec, hooks)
+            return await _run_in_slot(spec, hooks, holder_id)
     except Exception as exc:
         if not entered:
             await _notify_failure(hooks, exc)
@@ -173,16 +174,48 @@ async def _supervised(
             logger.exception("executor: failed to close the stream for thread_id=%s", thread_id)
 
 
-async def _run_in_slot(spec: RunSpec, hooks: RunHooks) -> RunOutcome:
+async def _run_in_slot(spec: RunSpec, hooks: RunHooks, holder_id: str | None) -> RunOutcome:
     recovery = _Recovery()
-    try:
-        outcome = await _invoke(spec, hooks, recovery)
-    except Exception as exc:
-        await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
-        raise
-    if hooks.on_success is not None:
-        await hooks.on_success(outcome)
+    async with _live_relay(spec, holder_id) as run_relay:
+        try:
+            outcome = await _invoke(spec, hooks, recovery, run_relay)
+        except Exception as exc:
+            await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
+            raise
+        if hooks.on_success is not None:
+            await hooks.on_success(outcome)
     return outcome
+
+
+@asynccontextmanager
+async def _live_relay(spec: RunSpec, holder_id: str | None) -> AsyncGenerator[RunRelay | None]:
+    """The relay a session run streams to under its slot's holder id, ended once the run has settled; ``None`` for a
+    one-shot run, or with no Redis, which runs unpublished."""
+    from core.redis import SOCKET_TIMEOUT_S, redis_connections
+    from sessions.live.publisher import end_stream
+    from sessions.live.relay import RunRelay
+
+    thread_id = spec.thread_id
+    if thread_id is None or holder_id is None or not redis_connections.configured:
+        yield None
+        return
+    try:
+        client = redis_connections.build_async_client(socket_timeout=SOCKET_TIMEOUT_S)
+    except Exception:
+        logger.exception("executor: no run relay for thread_id=%s; the run carries on unpublished", thread_id)
+        client = None
+    if client is None:
+        yield None
+        return
+    run_relay = RunRelay(thread_id, holder_id, client=client)
+    try:
+        yield run_relay
+    finally:
+        await end_stream(run_relay)
+        try:
+            await client.aclose()
+        except Exception:
+            logger.exception("executor: failed to close the run relay client for thread_id=%s", thread_id)
 
 
 @dataclass
@@ -193,14 +226,12 @@ class _Recovery:
     snapshot: StateSnapshot | None = None
 
 
-async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> RunOutcome:
+async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery, run_relay: RunRelay | None) -> RunOutcome:
     from automation.agent.utils import extract_text_content
 
     async with _agent_run(spec, hooks) as run:
         try:
-            result = await run.agent.ainvoke(
-                {"messages": list(spec.input_messages)}, config=run.config, context=run.ctx
-            )
+            result = await _ainvoke(run, spec, run_relay)
         except Exception:
             await _recover(spec, run, recovery)
             raise
@@ -208,6 +239,23 @@ async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> RunOut
         if not messages:
             raise ValueError(f"Agent returned no messages for repo_id={spec.repo_id}")
         return await _after_run(spec, run, response_text=extract_text_content(messages[-1].content))
+
+
+async def _ainvoke(run: AgentRun, spec: RunSpec, run_relay: RunRelay | None) -> dict[str, Any]:
+    """Invoke the agent, streaming its events to ``run_relay`` when the run has one."""
+    from sessions.live.publisher import ainvoke_live
+
+    graph_input = {"messages": list(spec.input_messages)}
+    if run_relay is None:
+        return await run.agent.ainvoke(graph_input, config=run.config, context=run.ctx)
+    return await ainvoke_live(
+        run.agent,
+        graph_input,
+        config=run.config,
+        context=run.ctx,
+        recursion_limit=run.settings.recursion_limit,
+        run_relay=run_relay,
+    )
 
 
 async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
