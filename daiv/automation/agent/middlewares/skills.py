@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Annotated, NotRequired, override
 
 from deepagents.middleware.skills import SkillMetadata, SkillsState, SkillsStateUpdate
 from deepagents.middleware.skills import SkillsMiddleware as DeepAgentsSkillsMiddleware
+from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import PrivateStateAttr
 from langchain.tools import ToolRuntime, tool  # noqa: TC002
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
@@ -111,6 +112,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     """
 
     state_schema = DAIVSkillsState
+    # DAIV never sets ``pinned_skills``, so the inherited hook is a no-op that costs a superstep every turn.
+    before_model = AgentMiddleware.before_model
+    abefore_model = AgentMiddleware.abefore_model
 
     def __init__(
         self, *args, copy_global_skills: bool = True, provisioning_errors: Sequence[str] = (), **kwargs
