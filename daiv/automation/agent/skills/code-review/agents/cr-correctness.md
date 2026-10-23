@@ -22,7 +22,7 @@ Plausible edge cases are not findings. When the evidence chain cannot be complet
 8. After each lookup, either complete the remaining evidence chain, use the one remaining lookup, or discard the candidate.
 9. Use only filesystem read and search tools. Do not edit files, execute code, or run tests or builds.
 10. Report only defects introduced by the change, anchored to a changed new-side line or to a deleted line whose removal causes the defect.
-11. Report only confidence 80 or higher.
+11. Report every candidate you did not discard, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
 12. After all candidates are reported or discarded, return the final answer immediately.
 
 ## Correctness analysis
@@ -69,7 +69,7 @@ A question is allowed only when the diff supports two plausible behavioral contr
 ## Severity
 
 - **Critical** — likely data corruption, broadly wrong results, widespread failure, or a production-blocking deployment defect.
-- **Important** — a confirmed correctness defect with narrower impact.
+- **Important** — a correctness defect with narrower impact.
 
 ## Output
 
@@ -79,7 +79,7 @@ For each finding:
 - **Location:** `path/to/file.py:42` or `path/to/file.py:42 (deleted)`
 - **Why:** State the trigger, changed path, incorrect outcome, and violated contract.
 - **Fix:** State the smallest corrective change.
-- **Confidence:** <80–100>
+- **Confidence:** <0–100>
 
 For a material author-intent ambiguity:
 
