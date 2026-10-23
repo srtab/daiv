@@ -48,7 +48,6 @@ logger = logging.getLogger("daiv.sessions")
 
 STREAM_HEARTBEAT_INTERVAL_S = 5.0
 ARCHIVE_TIMEOUT_S = 30.0
-RELAY_PUBLISH_TIMEOUT_S = 5.0
 
 
 class RunStoppedError(Exception):
@@ -192,7 +191,7 @@ async def _run_in_slot(spec: RunSpec, hooks: RunHooks, holder_id: str | None) ->
 async def _live_relay(spec: RunSpec, holder_id: str | None) -> AsyncGenerator[RunRelay | None]:
     """The relay a session run streams to under its slot's holder id, ended once the run has settled; ``None`` for a
     one-shot run, or with no Redis, which runs unpublished."""
-    from core.redis import redis_connections
+    from core.redis import SOCKET_TIMEOUT_S, redis_connections
     from sessions.live.publisher import end_stream
     from sessions.live.relay import RunRelay
 
@@ -201,7 +200,7 @@ async def _live_relay(spec: RunSpec, holder_id: str | None) -> AsyncGenerator[Ru
         yield None
         return
     try:
-        client = redis_connections.build_async_client(socket_timeout=RELAY_PUBLISH_TIMEOUT_S)
+        client = redis_connections.build_async_client(socket_timeout=SOCKET_TIMEOUT_S)
     except Exception:
         logger.exception("executor: no run relay for thread_id=%s; the run carries on unpublished", thread_id)
         client = None

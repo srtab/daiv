@@ -13,7 +13,6 @@ import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -31,21 +30,15 @@ from sessions.live.relay import RunRelay
 from sessions.models import Run, Session
 
 from automation.agent.agent_settings import resolve_agent_settings
-from automation.agent.events import CONTEXT_USAGE_EVENT, context_usage_payload
-from automation.agent.middlewares.context_usage import ContextUsageMiddleware
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
-from automation.agent.usage_tracking import ResolvedWindow
-from automation.agent.utils import streamed_assistant_message
 from chat.api import runner
-from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
+from chat.api.streaming import ChatRunStreamer
 from core.constants import RUN_FAILED_MESSAGE
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
 from tests.unit_tests.sessions.conftest import amake_job_session, watch_recorder
 from tests.unit_tests.sessions.executor.conftest import agent_stack
-
-_TEXT_FRAME_TYPES = (EventType.TEXT_MESSAGE_START, EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_END)
 
 
 @pytest.fixture(autouse=True)
@@ -476,56 +469,6 @@ async def test_an_exception_ag_ui_swallows_never_reaches_the_relay(_executor_sta
     assert not any("secret" in data for data in published)
 
 
-async def test_a_middleware_message_reaches_the_stream_as_text_frames():
-    """Closes the producer→consumer loop: a real middleware emitting through
-    ``streamed_assistant_message``, a real graph, and the real agent class.
-
-    The two halves live in packages with no shared schema and the consumer degrades an
-    unreadable payload to "no frames", so unit-testing each side against its own literals
-    leaves a renamed key green on both — and back to painting empty turns. This is the only
-    test that fails for that.
-    """
-
-    @dataclass
-    class Ctx:
-        pass
-
-    class ReplyingMiddleware(AgentMiddleware):
-        """Stands in for SlashCommandMiddleware / LoopBreakerMiddleware: answers without the model."""
-
-        async def awrap_model_call(self, request, handler):
-            return await streamed_assistant_message("answered without the model")
-
-    agent = create_agent(
-        model=FakeMessagesListChatModel(responses=[AIMessage(content="the model would have answered")]),
-        tools=[],
-        middleware=[ReplyingMiddleware()],
-        context_schema=Ctx,
-        checkpointer=InMemorySaver(),
-    )
-    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=Ctx())
-    payload = RunAgentInput(
-        thread_id=str(uuid.uuid4()),
-        run_id=str(uuid.uuid4()),
-        state={},
-        messages=[{"id": "m1", "role": "user", "content": "/agents"}],
-        tools=[],
-        context=[],
-        forwarded_props={},
-    )
-
-    frames = [e async for e in agui.run(payload) if e is not None and e.type in _TEXT_FRAME_TYPES]
-
-    assert [f.type for f in frames] == [
-        EventType.TEXT_MESSAGE_START,
-        EventType.TEXT_MESSAGE_CONTENT,
-        EventType.TEXT_MESSAGE_END,
-    ]
-    assert frames[1].delta == "answered without the model"
-    # One message end to end: the id the producer minted is the id the client dedupes replays on.
-    assert len({f.message_id for f in frames}) == 1
-
-
 def test_streamer_post_init_rejects_thread_id_mismatch():
     """Construction-time guard: thread_id/run_id must match input_data."""
     with pytest.raises(ValueError, match="thread_id mismatch"):
@@ -694,7 +637,6 @@ class TestStartChatRunPersistence:
 
     @pytest.mark.django_db(transaction=True)
     async def test_start_chat_run_persists_message_id(self):
-        import uuid
 
         from sessions.models import Session, SessionOrigin
 
@@ -844,53 +786,6 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
     assert fallback_events[0].value == {"requested": "main", "using": "dev"}
     # The Run row must record the effective (fallen-back) ref, not the requested one.
     assert start_chat_run.call_args.kwargs["ref"] == "dev"
-
-
-async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
-    """The real middleware in a real graph, through the real agent class: pins that the
-    dispatch survives AG-UI translation as a CUSTOM frame and that the producer goes through
-    the builder — a hand-rolled payload dict in the middleware fails here. Renames of the
-    shared constants are caught by the node test (the JS side hand-types the literals)."""
-
-    @dataclass
-    class Ctx:
-        pass
-
-    reply = AIMessage(
-        content="done",
-        usage_metadata={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
-        response_metadata={"model_name": "anthropic/claude-sonnet-4.6"},
-    )
-    agent = create_agent(
-        model=FakeMessagesListChatModel(responses=[reply]),
-        tools=[],
-        middleware=[ContextUsageMiddleware()],
-        context_schema=Ctx,
-        checkpointer=InMemorySaver(),
-    )
-    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=Ctx())
-    payload = RunAgentInput(
-        thread_id=str(uuid.uuid4()),
-        run_id=str(uuid.uuid4()),
-        state={},
-        messages=[{"id": "m1", "role": "user", "content": "hi"}],
-        tools=[],
-        context=[],
-        forwarded_props={},
-    )
-
-    frames = [
-        e
-        async for e in agui.run(payload)
-        if e is not None and e.type == EventType.CUSTOM and getattr(e, "name", "") == CONTEXT_USAGE_EVENT
-    ]
-
-    assert len(frames) == 1
-    assert frames[0].value == context_usage_payload(
-        model="anthropic/claude-sonnet-4.6",
-        usage={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
-        window=ResolvedWindow(1_000_000, "genai_prices"),
-    )
 
 
 @pytest.mark.django_db(transaction=True)

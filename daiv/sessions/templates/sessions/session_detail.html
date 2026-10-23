@@ -40,6 +40,7 @@
 
   {% if is_in_flight %}
   <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}' })"
+       @daiv:live-run-ended.window="resume()"
        style="display:none" aria-hidden="true"></div>
   {% endif %}
 

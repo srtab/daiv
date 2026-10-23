@@ -772,12 +772,11 @@
       });
 
       if (this.resuming && this.thread && config.activeRunId) {
-        // Page loaded while a run is executing server-side: rejoin its event
-        // stream with a full replay, deduping anything already rendered from
-        // the checkpoint hydration. The clock counts from the server-reported
-        // start so a rejoined run doesn't restart at 0.
-        this.runStartedAt = Date.parse(config.activeRunStartedAt || "") || Date.now();
-        this._resumeRun(config.activeRunId);
+        this.followLiveRun({
+          id: config.activeRunId,
+          stoppable: this.runStoppable,
+          started_at: config.activeRunStartedAt,
+        });
       } else {
         this.resuming = false;
       }
@@ -802,6 +801,8 @@
 
     // ---------- Run stream (EventSource against the relay) -------------
 
+    // Rejoin a run executing server-side with a full replay; the clock counts from the
+    // server-reported start so a rejoined run doesn't restart at 0.
     followLiveRun({ id, stoppable, started_at }) {
       if (this.streaming) return;
       this.runStoppable = stoppable;
@@ -842,7 +843,6 @@
 
       const reason = await this._streamRun(this._activeRun, turn);
       this._finishTurn(turn, reason);
-      window.dispatchEvent(new CustomEvent("daiv:live-run-ended", { detail: { runId } }));
     },
 
     _streamRun(run, turn) {
@@ -953,6 +953,7 @@
         this._pushRunStatus("failed", REASON_ERRORS[reason]);
       }
       this.streaming = false;
+      const runId = this._activeRun?.runId;
       this._activeRun = null;
       this._replayDedup = null;
       this._lastFrameAt = 0;
@@ -960,6 +961,7 @@
       // sentinel, so refreshing here (never on RUN_FINISHED) reads this turn's totals.
       this._refreshSpend();
       this.scrollToBottom();
+      window.dispatchEvent(new CustomEvent("daiv:live-run-ended", { detail: { runId } }));
     },
 
     // ---------- Derived getters (right rail) ---------------------------
@@ -1522,7 +1524,6 @@
         this._pushRunStatus("failed", "Connection lost — please retry.");
       } finally {
         this._finishTurn(assistantTurn, reason);
-        window.dispatchEvent(new CustomEvent("daiv:live-run-ended", { detail: { runId: body.runId } }));
       }
     },
 

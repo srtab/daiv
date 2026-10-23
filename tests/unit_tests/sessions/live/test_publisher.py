@@ -55,6 +55,11 @@ def _agent(*replies: AIMessage, model: GenericFakeChatModel | None = None):
     )
 
 
+def _tool_agent(tools, *replies: AIMessage):
+    model = _ToolModel(messages=iter(replies), disable_streaming=True)
+    return create_agent(model=model, tools=tools, checkpointer=InMemorySaver(), context_schema=_Ctx)
+
+
 def _failing_agent(error: BaseException):
     class FailingModel(GenericFakeChatModel):
         async def _astream(self, *args, **kwargs):
@@ -94,15 +99,22 @@ def _two_tool_rounds(calls: list[str]):
         calls.append("ran")
         return "ok"
 
-    model = _ToolModel(
-        messages=iter([
-            AIMessage(content="", id="a1", tool_calls=[{"name": "slow", "args": {}, "id": "c1"}]),
-            AIMessage(content="", id="a2", tool_calls=[{"name": "slow", "args": {}, "id": "c2"}]),
-            AIMessage(content="done", id="a3"),
-        ]),
-        disable_streaming=True,
+    return _tool_agent(
+        [slow],
+        AIMessage(content="", id="a1", tool_calls=[{"name": "slow", "args": {}, "id": "c1"}]),
+        AIMessage(content="", id="a2", tool_calls=[{"name": "slow", "args": {}, "id": "c2"}]),
+        AIMessage(content="done", id="a3"),
     )
-    return create_agent(model=model, tools=[slow], checkpointer=InMemorySaver(), context_schema=_Ctx)
+
+
+async def _failing_at_the_first_tool(self, event, state):
+    if event.get("event") == "on_tool_start":
+        raise ValueError("adapter bug")
+    async for agui_event in _TRANSLATE(self, event, state):
+        yield agui_event
+
+
+_TRANSLATE = RuntimeContextLangGraphAGUIAgent._handle_single_event
 
 
 def _config(thread_id: str) -> dict:
@@ -223,26 +235,24 @@ async def test_it_streams_the_reply_token_by_token_to_the_relay():
     assert not any(entry.is_end for entry in entries)
 
 
-async def test_input_ids_already_in_the_checkpoint_append_like_ainvoke():
+@pytest.mark.parametrize(
+    ("checkpointed", "resend"),
+    [
+        (
+            [HumanMessage(id="issue-ctx", content="ctx")],
+            [HumanMessage(id="issue-ctx", content="ctx"), HumanMessage(id="n2", content="next")],
+        ),
+        # ag-ui would replay from before ``c1``, dropping ``a1``: a mention re-sent after the issue was edited.
+        (
+            [HumanMessage(id="ctx-1", content="issue v1"), HumanMessage(id="c1", content="fix it")],
+            [HumanMessage(id="ctx-2", content="issue v2"), HumanMessage(id="c1", content="fix it")],
+        ),
+    ],
+    ids=["checkpointed-ids-append", "checkpointed-last-message-never-forks"],
+)
+async def test_input_ids_already_in_the_checkpoint_run_like_ainvoke(checkpointed, resend):
     script = [AIMessage(content="first", id="a1"), AIMessage(content="second", id="a2")]
-    seed = {"messages": [HumanMessage(id="issue-ctx", content="ctx")]}
-    resend = [HumanMessage(id="issue-ctx", content="ctx"), HumanMessage(id="n2", content="next")]
-    live_agent, twin_agent = _agent(*script), _agent(*script)
-    await live_agent.ainvoke(seed, config=_config("t-live"), context=_Ctx())
-    await twin_agent.ainvoke(seed, config=_config("t-twin"), context=_Ctx())
-
-    live = await _live(live_agent, resend, _relay("t-live"))
-    twin = await twin_agent.ainvoke({"messages": resend}, config=_config("t-twin"), context=_Ctx())
-
-    assert [(m.type, m.id) for m in live["messages"]] == [(m.type, m.id) for m in twin["messages"]]
-    assert ("ai", "a1") in [(m.type, m.id) for m in live["messages"]]
-
-
-async def test_a_checkpointed_last_message_never_forks_the_thread():
-    """ag-ui would replay from before ``c1``, dropping ``a1``: a mention re-sent after the issue was edited."""
-    script = [AIMessage(content="first", id="a1"), AIMessage(content="second", id="a2")]
-    seed = {"messages": [HumanMessage(id="ctx-1", content="issue v1"), HumanMessage(id="c1", content="fix it")]}
-    resend = [HumanMessage(id="ctx-2", content="issue v2"), HumanMessage(id="c1", content="fix it")]
+    seed = {"messages": checkpointed}
     live_agent, twin_agent = _agent(*script), _agent(*script)
     await live_agent.ainvoke(seed, config=_config("t-live"), context=_Ctx())
     await twin_agent.ainvoke(seed, config=_config("t-twin"), context=_Ctx())
@@ -326,14 +336,11 @@ async def test_an_inner_failure_the_graph_recovers_from_does_not_fail_the_run():
             await RunnableLambda(fail).ainvoke(None)
         return "recovered"
 
-    model = _ToolModel(
-        messages=iter([
-            AIMessage(content="", id="a1", tool_calls=[{"name": "probe", "args": {}, "id": "call-1"}]),
-            AIMessage(content="done", id="a2"),
-        ]),
-        disable_streaming=True,
+    agent = _tool_agent(
+        [probe],
+        AIMessage(content="", id="a1", tool_calls=[{"name": "probe", "args": {}, "id": "call-1"}]),
+        AIMessage(content="done", id="a2"),
     )
-    agent = create_agent(model=model, tools=[probe], checkpointer=InMemorySaver(), context_schema=_Ctx)
 
     result = await _live(agent, [HumanMessage(content="hi")], _relay())
 
@@ -346,16 +353,9 @@ async def test_a_translation_failure_mid_run_still_returns_the_graphs_result(log
     the stream alive and the graph runs on, orphaned; a dropped one lets it be finalized, which cancels the graph."""
     calls: list[str] = []
     agent = _two_tool_rounds(calls)
-    translate = RuntimeContextLangGraphAGUIAgent._handle_single_event
-
-    async def failing_at_the_first_tool(self, event, state):
-        if event.get("event") == "on_tool_start":
-            raise ValueError("adapter bug")
-        async for agui_event in translate(self, event, state):
-            yield agui_event
 
     with (
-        patch.object(RuntimeContextLangGraphAGUIAgent, "_handle_single_event", failing_at_the_first_tool),
+        patch.object(RuntimeContextLangGraphAGUIAgent, "_handle_single_event", _failing_at_the_first_tool),
         patch.object(logging.getLogger("ag_ui_langgraph.agent"), "disabled", not log_kept),
     ):
         result = await _live(agent, [HumanMessage(content="hi")], _relay(client=_NetworkRedis()))
@@ -369,16 +369,9 @@ async def test_a_translation_failure_mid_run_still_returns_the_graphs_result(log
 
 async def test_a_translation_failure_the_graph_outlives_publishes_no_run_error():
     agent = _two_tool_rounds([])
-    translate = RuntimeContextLangGraphAGUIAgent._handle_single_event
-
-    async def failing_at_the_first_tool(self, event, state):
-        if event.get("event") == "on_tool_start":
-            raise ValueError("adapter bug")
-        async for agui_event in translate(self, event, state):
-            yield agui_event
 
     run_relay = _relay()
-    with patch.object(RuntimeContextLangGraphAGUIAgent, "_handle_single_event", failing_at_the_first_tool):
+    with patch.object(RuntimeContextLangGraphAGUIAgent, "_handle_single_event", _failing_at_the_first_tool):
         await _live(agent, [HumanMessage(content="hi")], run_relay)
 
     assert "RUN_ERROR" not in [e["type"] for e in _events(await _entries(run_relay))]
@@ -391,14 +384,11 @@ async def test_an_open_interrupt_does_not_stop_the_graph_running_its_input():
         return interrupt("which branch?")
 
     def agent():
-        model = _ToolModel(
-            messages=iter([
-                AIMessage(content="", id="a1", tool_calls=[{"name": "ask", "args": {}, "id": "c1"}]),
-                AIMessage(content="answered", id="a2"),
-            ]),
-            disable_streaming=True,
+        return _tool_agent(
+            [ask],
+            AIMessage(content="", id="a1", tool_calls=[{"name": "ask", "args": {}, "id": "c1"}]),
+            AIMessage(content="answered", id="a2"),
         )
-        return create_agent(model=model, tools=[ask], checkpointer=InMemorySaver(), context_schema=_Ctx)
 
     live_agent, twin_agent = agent(), agent()
     for graph, thread_id in ((live_agent, "t-live"), (twin_agent, "t-twin")):
@@ -427,14 +417,11 @@ async def test_a_cancelled_call_leaves_no_graph_running():
         tool_ends.append("finished")
         return "ok"
 
-    model = _ToolModel(
-        messages=iter([
-            AIMessage(content="", id="a1", tool_calls=[{"name": "slow", "args": {}, "id": "c1"}]),
-            AIMessage(content="done", id="a2"),
-        ]),
-        disable_streaming=True,
+    agent = _tool_agent(
+        [slow],
+        AIMessage(content="", id="a1", tool_calls=[{"name": "slow", "args": {}, "id": "c1"}]),
+        AIMessage(content="done", id="a2"),
     )
-    agent = create_agent(model=model, tools=[slow], checkpointer=InMemorySaver(), context_schema=_Ctx)
 
     class StallingRedis(FakeAsyncRedis):
         """Publishing the tool call hangs while the graph runs on into the tool."""

@@ -123,17 +123,14 @@ async def ainvoke_live(
         context=[],
         forwarded_props={},
     )
-    run_error = None
     withheld_error: RunErrorEvent | None = None
     token = _driving_live_run.set(outcome)
     try:
         async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(run_input))) as events:
             async for event in events:
-                if isinstance(event, RunErrorEvent):
-                    run_error = event.message
-                    if outcome.error is None:
-                        withheld_error = event
-                        continue
+                if isinstance(event, RunErrorEvent) and outcome.error is None:
+                    withheld_error = event
+                    continue
                 publishing = publishing and await _publish(
                     run_relay, publish_event(run_relay, sanitize_run_error(event))
                 )
@@ -152,7 +149,7 @@ async def ainvoke_live(
         raise LiveRunError(f"the graph run ended with {type(outcome.error).__name__}") from outcome.error
     if outcome.output is not None:
         return outcome.output
-    raise LiveRunError(run_error or "graph produced no result")
+    raise LiveRunError(withheld_error.message if withheld_error else "graph produced no result")
 
 
 async def close_graph_stream(stream: AsyncGenerator[Any], *, thread_id: str, run_id: str) -> None:
@@ -176,13 +173,6 @@ async def end_stream(run_relay: RunRelay) -> None:
 
 async def _publish(run_relay: RunRelay, operation: Awaitable[None]) -> bool:
     """Run one relay write; a failure ends the stream so its viewers go back to polling the run."""
-    if await _attempt(run_relay, operation):
-        return True
-    await end_stream(run_relay)
-    return False
-
-
-async def _attempt(run_relay: RunRelay, operation: Awaitable[None]) -> bool:
     try:
         await operation
     except Exception:
@@ -191,6 +181,7 @@ async def _attempt(run_relay: RunRelay, operation: Awaitable[None]) -> bool:
             run_relay.thread_id,
             run_relay.run_id,
         )
+        await end_stream(run_relay)
         return False
     return True
 
@@ -201,6 +192,9 @@ class _RootOutcome(AsyncCallbackHandler):
     The root is the run started with ``root_id`` as its run id; it can have a parent of its own, the caller's
     LangSmith trace or callbacks.
     """
+
+    run_inline = True
+    ignore_llm = ignore_chat_model = ignore_agent = ignore_retriever = ignore_retry = ignore_custom_event = True
 
     def __init__(self) -> None:
         self.root_id = uuid4()

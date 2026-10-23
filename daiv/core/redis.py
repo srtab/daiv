@@ -17,10 +17,11 @@ import redis
 import redis.asyncio as aioredis
 
 # Mirrors the cache pools' ``_REDIS_OPTIONS``. Connect is bounded on both clients; a read
-# deadline is bounded on the *sync* one only, since the async readers block on purpose
+# deadline is bounded on the *sync* one, and on an async one only when its caller never
+# blocks (the executor's run relay), since the async readers block on purpose
 # (``PubSub.get_message(timeout=20)``, the relay's ``xread(block=15000)``) and a socket
 # read deadline shorter than the wait they ask for would cut it short. The async client
-# therefore passes ``socket_timeout=None`` explicitly: redis-py 8.0 changed its default
+# therefore passes ``socket_timeout=None`` by default: redis-py 8.0 changed its default
 # from ``None`` to 5s, which would interrupt those waits.
 CONNECT_TIMEOUT_S = 5
 SOCKET_TIMEOUT_S = 5
@@ -82,8 +83,6 @@ class RedisConnections:
             self._url_or_raise(),
             decode_responses=True,
             socket_connect_timeout=CONNECT_TIMEOUT_S,
-            # redis-py 8.0 defaults ``socket_timeout`` to 5s, which would cut short the
-            # blocking reads below; keep it unbounded to preserve the wait they ask for.
             socket_timeout=socket_timeout,
         )
 

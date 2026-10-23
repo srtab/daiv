@@ -24,6 +24,20 @@ logger = logging.getLogger("daiv.sessions")
 # chat client through STATE_SNAPSHOT events.
 STREAMED_STATE_KEYS = ("merge_request", "diff_stats")
 
+_FILTERED_DATA = {"on_chat_model_stream": "chunk", "on_chat_model_end": "output"}
+
+
+def _filter_view(event: Any) -> Any:
+    """What ``SubagentEventFilter`` and copilotkit read of a LangGraph event: upstream would deep-convert the rest
+    (the run's state, the model's input) on every event, only for the relay to drop it."""
+    if not isinstance(event, dict):
+        return event
+    view = {key: event[key] for key in ("event", "name", "metadata") if key in event}
+    data, kept = event.get("data"), _FILTERED_DATA.get(event.get("event"))
+    if kept and isinstance(data, dict) and kept in data:
+        view["data"] = {kept: data[kept]}
+    return view
+
 
 class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
     """Inject the daiv RuntimeCtx dataclass into upstream's stream kwargs.
@@ -63,6 +77,13 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         if self._graph_input is not None:
             stream_kwargs["input"] = self._graph_input
         return stream_kwargs
+
+    def _dispatch_event(self, event: Any) -> Any:
+        if event.type == EventType.RAW:
+            event.event = _filter_view(event.event)
+        elif event.raw_event:
+            event.raw_event = _filter_view(event.raw_event)
+        return super()._dispatch_event(event)
 
     async def _handle_single_event(self, event: Any, state: dict[str, Any]) -> AsyncGenerator[Any]:
         """Stamp the source LangGraph event's provenance onto any AGUI event upstream

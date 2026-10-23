@@ -10,16 +10,14 @@ document.addEventListener("alpine:init", () => {
     // (endpoint 500s, auth expired) doesn't poll forever in the background.
     _maxFailures: 5,
     init() {
-      this._onEnded = () => {
-        this._start();
-        this.poll();
-      };
-      window.addEventListener("daiv:live-run-ended", this._onEnded);
       if (!liveRunId) this._start();
     },
     destroy() {
       this._stop();
-      window.removeEventListener("daiv:live-run-ended", this._onEnded);
+    },
+    resume() {
+      this._start();
+      this.poll();
     },
     _start() {
       if (!this._timer) this._timer = setInterval(() => this.poll(), 5000);

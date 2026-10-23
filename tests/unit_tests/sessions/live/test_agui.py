@@ -1,10 +1,23 @@
+import uuid
+from dataclasses import dataclass
+
 import pytest
-from ag_ui.core.events import EventType
-from langchain_core.messages import AIMessageChunk
+from ag_ui.core import RunAgentInput
+from ag_ui.core.events import EventType, RawEvent, ToolCallStartEvent
+from langchain.agents import create_agent
+from langchain.agents.middleware import AgentMiddleware
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langgraph.checkpoint.memory import InMemorySaver
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 
-from automation.agent.events import ASSISTANT_MESSAGE_EVENT
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
+from automation.agent.middlewares.context_usage import ContextUsageMiddleware
+from automation.agent.usage_tracking import ResolvedWindow
+from automation.agent.utils import streamed_assistant_message
+
+_TEXT_FRAME_TYPES = (EventType.TEXT_MESSAGE_START, EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_END)
 
 
 class _FakeGraph:
@@ -49,6 +62,63 @@ def test_graph_input_replaces_the_stream_input():
 
     assert stream_input(graph_input={"messages": ["ours"]}) == {"messages": ["ours"]}
     assert stream_input() == {"messages": ["ag-ui's"]}
+
+
+_METADATA = {"langgraph_checkpoint_ns": "tools:1|model:2", "emit-messages": True}
+
+
+@pytest.mark.parametrize(
+    ("event", "kept_data"),
+    [
+        (
+            RawEvent(
+                type=EventType.RAW,
+                event={"event": "on_chain_end", "metadata": _METADATA, "data": {"output": {"messages": ["state"]}}},
+            ),
+            None,
+        ),
+        (
+            RawEvent(
+                type=EventType.RAW,
+                event={
+                    "event": "on_chat_model_end",
+                    "metadata": _METADATA,
+                    "data": {"input": {"messages": ["prompt"]}, "output": AIMessage(content="", id="a1")},
+                },
+            ),
+            {"output"},
+        ),
+        (
+            ToolCallStartEvent(
+                type=EventType.TOOL_CALL_START,
+                tool_call_id="c1",
+                tool_call_name="ls",
+                raw_event={
+                    "event": "on_chat_model_stream",
+                    "metadata": _METADATA,
+                    "data": {"chunk": AIMessageChunk(content="", tool_call_chunks=[{"index": 1, "id": "c1"}])},
+                },
+            ),
+            {"chunk"},
+        ),
+    ],
+    ids=["chain-state", "model-call", "streamed-chunk"],
+)
+def test_only_what_the_filter_reads_is_dispatched(event, kept_data):
+    """The run's state and the model's input are deep-converted on every event otherwise, only to be dropped."""
+    agent = RuntimeContextLangGraphAGUIAgent(
+        name="DAIV", description="d", graph=_FakeGraph(), config={}, runtime_context=object()
+    )
+    source = event.event if event.type == EventType.RAW else event.raw_event
+
+    dispatched = agent._dispatch_event(event)
+
+    raw = dispatched.event if dispatched.type == EventType.RAW else dispatched.raw_event
+    assert raw["metadata"] == _METADATA
+    assert set(raw.get("data", {})) == (kept_data or set())
+    assert "data" in source
+    if dispatched.type == EventType.TOOL_CALL_START:
+        assert SubagentEventFilter._chunk_index(dispatched) == 1
 
 
 def _assistant_event(**data):
@@ -202,3 +272,100 @@ class TestReasoningProvenance:
         assert out, "expected a text chunk to produce events"
         # Upstream sets raw_event to the whole LangGraph event, not just its metadata.
         assert all(ev.raw_event.get("event") == "on_chat_model_stream" for ev in out)
+
+
+async def test_a_middleware_message_reaches_the_stream_as_text_frames():
+    """Closes the producer→consumer loop: a real middleware emitting through
+    ``streamed_assistant_message``, a real graph, and the real agent class.
+
+    The two halves live in packages with no shared schema and the consumer degrades an
+    unreadable payload to "no frames", so unit-testing each side against its own literals
+    leaves a renamed key green on both — and back to painting empty turns. This is the only
+    test that fails for that.
+    """
+
+    @dataclass
+    class Ctx:
+        pass
+
+    class ReplyingMiddleware(AgentMiddleware):
+        """Stands in for SlashCommandMiddleware / LoopBreakerMiddleware: answers without the model."""
+
+        async def awrap_model_call(self, request, handler):
+            return await streamed_assistant_message("answered without the model")
+
+    agent = create_agent(
+        model=FakeMessagesListChatModel(responses=[AIMessage(content="the model would have answered")]),
+        tools=[],
+        middleware=[ReplyingMiddleware()],
+        context_schema=Ctx,
+        checkpointer=InMemorySaver(),
+    )
+    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=Ctx())
+    payload = RunAgentInput(
+        thread_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        state={},
+        messages=[{"id": "m1", "role": "user", "content": "/agents"}],
+        tools=[],
+        context=[],
+        forwarded_props={},
+    )
+
+    frames = [e async for e in agui.run(payload) if e is not None and e.type in _TEXT_FRAME_TYPES]
+
+    assert [f.type for f in frames] == [
+        EventType.TEXT_MESSAGE_START,
+        EventType.TEXT_MESSAGE_CONTENT,
+        EventType.TEXT_MESSAGE_END,
+    ]
+    assert frames[1].delta == "answered without the model"
+    # One message end to end: the id the producer minted is the id the client dedupes replays on.
+    assert len({f.message_id for f in frames}) == 1
+
+
+async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
+    """The real middleware in a real graph, through the real agent class: pins that the
+    dispatch survives AG-UI translation as a CUSTOM frame and that the producer goes through
+    the builder — a hand-rolled payload dict in the middleware fails here. Renames of the
+    shared constants are caught by the node test (the JS side hand-types the literals)."""
+
+    @dataclass
+    class Ctx:
+        pass
+
+    reply = AIMessage(
+        content="done",
+        usage_metadata={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
+        response_metadata={"model_name": "anthropic/claude-sonnet-4.6"},
+    )
+    agent = create_agent(
+        model=FakeMessagesListChatModel(responses=[reply]),
+        tools=[],
+        middleware=[ContextUsageMiddleware()],
+        context_schema=Ctx,
+        checkpointer=InMemorySaver(),
+    )
+    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=Ctx())
+    payload = RunAgentInput(
+        thread_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        state={},
+        messages=[{"id": "m1", "role": "user", "content": "hi"}],
+        tools=[],
+        context=[],
+        forwarded_props={},
+    )
+
+    frames = [
+        e
+        async for e in agui.run(payload)
+        if e is not None and e.type == EventType.CUSTOM and getattr(e, "name", "") == CONTEXT_USAGE_EVENT
+    ]
+
+    assert len(frames) == 1
+    assert frames[0].value == context_usage_payload(
+        model="anthropic/claude-sonnet-4.6",
+        usage={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
+        window=ResolvedWindow(1_000_000, "genai_prices"),
+    )

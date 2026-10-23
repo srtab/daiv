@@ -33,6 +33,7 @@ from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import Scope
 from codebase.clients.base import GitEgressCredential
 from codebase.repo_config import RepositoryConfig
+from core.redis import SOCKET_TIMEOUT_S
 from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
     FakeSandboxClient,
@@ -187,7 +188,7 @@ async def test_the_worker_closes_the_redis_client_it_built(error):
             with pytest.raises(RuntimeError, match="boom"):
                 await execute_run(make_spec(lock=Held(holder_id="h-1")))
 
-    stack.build_client.assert_called_once_with(socket_timeout=5.0)
+    stack.build_client.assert_called_once_with(socket_timeout=SOCKET_TIMEOUT_S)
     stack.build_client.return_value.aclose.assert_awaited_once()
 
 

@@ -58,6 +58,7 @@ vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
 const sync = components.sessionSync(args);
 sync.init();
+listeners["daiv:live-run-ended"] = () => sync.resume();
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 for (const [action, value] of steps) {

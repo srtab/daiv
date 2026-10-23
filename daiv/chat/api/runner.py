@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 from ag_ui.core.events import EventType, RunErrorEvent
 from asgiref.sync import ThreadSensitiveContext
 from sessions.live import relay
-from sessions.live.publisher import publish_event
+from sessions.live.publisher import end_stream, publish_event
 
 from core.constants import CANCELLED_BY_USER_MESSAGE
 
@@ -83,10 +83,7 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
     except Exception:
         logger.exception("chat: run publisher failed for thread_id=%s run_id=%s", thread_id, run_id)
     finally:
-        try:
-            await run_relay.publish_end()
-        except Exception:
-            logger.exception("chat: failed to publish end sentinel for thread_id=%s run_id=%s", thread_id, run_id)
+        await end_stream(run_relay)
 
 
 class RunSupervisor:
