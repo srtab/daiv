@@ -346,6 +346,37 @@ async def test_session_turns_names_the_live_run(client, authed):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_session_turns_waits_until_the_run_runs(client, authed):
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=user
+    )
+    run = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.UI_JOB,
+        repo_id="group/project",
+        status=RunStatus.READY,
+        prompt="please fix X",
+    )
+    hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
+
+    with patch("sessions.api.views.ahydrate_thread", hydrated):
+        ready = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.RUNNING)
+        unclaimed = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+        await Session.objects.filter(pk=session.pk).aupdate(active_run_id=str(run.pk))
+        running = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert ready.json()["waiting_since"] == run.created_at.isoformat()
+    assert [t.get("pending") for t in ready.json()["turns"]] == [True]
+    assert unclaimed.json()["waiting_since"] == run.created_at.isoformat()
+    assert running.json()["waiting_since"] is None
+    assert [(t["segments"][0]["content"], t.get("pending")) for t in running.json()["turns"]] == [
+        ("please fix X", None)
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_session_turns_offers_stop_only_to_the_sessions_owner(client, authed):
     _key_obj, raw, owner = authed
     reader = await User.objects.acreate_user(username="reader-turns", email="reader-turns@example.com", password="x")  # noqa: S106

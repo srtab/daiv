@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import escapejs
 
 import pytest
 from sessions.executor.lock import STALE_RUN_MINUTES
@@ -309,10 +310,11 @@ def test_detail_expired_checkpoint_disables_composer(member_client, member_user)
 
 @pytest.mark.django_db
 def test_detail_missing_checkpoint_not_expired_while_run_in_flight(member_client, member_user):
-    """A just-submitted background run has no checkpoint yet; that must NOT render as
-    'expired'. Instead the in-flight working state + transcript polling take over."""
+    """A just-started background run has no checkpoint yet; that must NOT render as
+    'expired'. Instead its prompt shows while the live stream takes over."""
     session = _create_session(user=member_user, ref="")  # ref="" skips the MR-payload lookup
-    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
+    run = _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING, prompt="please fix X")
+    Session.objects.filter(pk=session.pk).update(active_run_id=str(run.pk))
 
     with patch("sessions.hydration.open_checkpointer") as cp_ctx:
         saver = MagicMock()
@@ -324,10 +326,25 @@ def test_detail_missing_checkpoint_not_expired_while_run_in_flight(member_client
     assert resp.status_code == 200
     assert resp.context["expired"] is False
     assert resp.context["is_in_flight"] is True
-    content = resp.content.decode()
-    # In-flight + no checkpoint renders the working state, not the expired banner.
-    assert "Agent is working" in content
-    assert "has expired" not in content
+    assert resp.context["waiting_since"] == ""
+    assert [t["role"] for t in resp.context["turns"]] == ["user"]
+    assert resp.context["turns"][0]["segments"][0]["content"] == "please fix X"
+    assert "pending" not in resp.context["turns"][0]
+    assert "has expired" not in resp.content.decode()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", [RunStatus.READY, RunStatus.QUEUED, RunStatus.RUNNING])
+def test_detail_run_not_started_shows_its_prompt_as_pending(member_client, member_user, status):
+    session = _create_session(user=member_user, ref="")
+    run = _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=status, prompt="please fix X")
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.context["waiting_since"] == run.created_at.isoformat()
+    assert [(t["segments"][0]["content"], t["pending"]) for t in resp.context["turns"]] == [("please fix X", True)]
+    assert f'waitingSince: "{escapejs(run.created_at.isoformat())}"' in resp.content.decode()
 
 
 @pytest.mark.django_db
@@ -461,12 +478,12 @@ def test_detail_missing_checkpoint_expired_when_last_run_succeeded(member_client
 def test_detail_missing_checkpoint_expired_when_run_stale(member_client, member_user):
     """A non-terminal run whose holder stopped heartbeating (crashed worker) past
     STALE_RUN_MINUTES is dead — it must fall through to 'expired', not pin the view
-    on a permanent 'working' spinner. Same setup as the in-flight test above, but a
+    on a permanent in-flight state. Same setup as the in-flight test above, but a
     stale ``last_active_at`` flips the outcome."""
     session = _create_session(
         user=member_user, ref="", last_active_at=timezone.now() - timedelta(minutes=STALE_RUN_MINUTES + 1)
     )
-    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING, prompt="please fix X")
 
     with patch("sessions.hydration.open_checkpointer") as cp_ctx:
         saver = MagicMock()
@@ -476,10 +493,10 @@ def test_detail_missing_checkpoint_expired_when_run_stale(member_client, member_
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
-    # Stale heartbeat => not in flight => expired banner, no working spinner.
+    # Stale heartbeat => not in flight => expired banner, the dead run's prompt not recovered.
     assert resp.context["is_in_flight"] is False
     assert resp.context["expired"] is True
-    assert "Agent is working" not in resp.content.decode()
+    assert resp.context["turns"] == []
 
 
 @pytest.mark.django_db
@@ -853,4 +870,3 @@ def test_detail_in_flight_run_on_an_expired_session_keeps_the_working_state(memb
 
     assert resp.context["expired"] is False
     assert len(resp.context["turns"]) == 1
-    assert "Agent is working" in resp.content.decode()
