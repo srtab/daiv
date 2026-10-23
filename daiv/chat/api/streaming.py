@@ -17,6 +17,7 @@ from sessions.executor.spec import RunHooks, RunSpec
 from sessions.live import relay
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import SubagentEventFilter
+from sessions.live.publisher import sanitize_run_error
 from sessions.models import Run, RunStatus, SessionOrigin, agent_result_field_updates, usage_field_updates
 
 from automation.agent.usage_tracking import build_usage_summary
@@ -274,10 +275,8 @@ class ChatRunStreamer:
                 if event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
                     turn.add_text(getattr(event, "delta", None))
                 elif event.type == EventType.RUN_ERROR:
-                    # Upstream's message can carry raw exception text: it streams live but never reaches
-                    # ``Run.error_message``, which the transcript renders verbatim on reload.
                     turn.error = RUN_FAILED_MESSAGE
-                yield event
+                yield sanitize_run_error(event)
         if turn.error is not None:
             raise _ReportedRunError
 

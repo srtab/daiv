@@ -9,6 +9,7 @@ here so these tests stay focused on the stream and slot invariants; the
 Run helpers are covered directly in ``tests/unit_tests/sessions/test_chat_runs.py``.
 """
 
+import json
 import uuid
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
@@ -20,11 +21,12 @@ from ag_ui.core import RunAgentInput
 from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentEvent
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel, GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
 from sessions.executor.result import parse_agent_result
+from sessions.live.relay import RunRelay
 from sessions.models import Run, Session
 
 from automation.agent.agent_settings import resolve_agent_settings
@@ -34,7 +36,9 @@ from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
 from automation.agent.usage_tracking import ResolvedWindow
 from automation.agent.utils import streamed_assistant_message
+from chat.api import runner
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
+from core.constants import RUN_FAILED_MESSAGE
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
 from tests.unit_tests.sessions.conftest import amake_job_session, watch_recorder
@@ -329,10 +333,9 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
     finalized FAILED, and a failed run must not pin the session ref.
 
     §F safety guarantee: the upstream RUN_ERROR event's ``.message`` can carry raw
-    exception text; it is fine to stream live (yielded to the client) but must never
-    be persisted to Run.error_message, which sessions.transcript renders verbatim in
-    the transcript on reload. The persisted reason is the same sanitized generic
-    constant used by the raised-exception path (parity with
+    exception text; it is neither streamed nor persisted to Run.error_message, which
+    sessions.transcript renders verbatim in the transcript on reload. Both carry the
+    same sanitized generic constant as the raised-exception path (parity with
     ``test_events_finalizes_failed_with_generic_message_when_agent_raises``).
     """
     from ag_ui.core.events import RunErrorEvent
@@ -368,9 +371,8 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
     # §F: raw event message must NOT be persisted to Run.error_message.
     assert finalize_calls[0]["error_message"] == RUN_FAILED_MESSAGE
     assert "boom in agent" not in finalize_calls[0]["error_message"]
-    # The live client still receives the original upstream message.
     run_error_events = [e for e in streamed_events if getattr(e, "type", None) == EventType.RUN_ERROR]
-    assert any(getattr(e, "message", "") == "boom in agent" for e in run_error_events)
+    assert [(e.message, e.code) for e in run_error_events] == [(RUN_FAILED_MESSAGE, "run_failed")]
     assert persist_calls == []
 
 
@@ -410,6 +412,34 @@ async def test_events_finalizes_failed_with_generic_message_when_agent_raises():
     assert finalize_calls[0]["error_message"] == "Run failed. Check server logs for details."
     assert "RuntimeError" not in finalize_calls[0]["error_message"]
     assert "kaboom-secret-internal-detail" not in finalize_calls[0]["error_message"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_an_exception_ag_ui_swallows_never_reaches_the_relay(_executor_stack, fake_redis):
+    """ag-ui turns a graph exception into a RUN_ERROR carrying its text, and repo readers can stream the run."""
+
+    class FailingModel(GenericFakeChatModel):
+        async def _astream(self, *args, **kwargs):
+            raise RuntimeError("secret /srv/internal")
+            yield
+
+        async def _agenerate(self, *args, **kwargs):
+            raise RuntimeError("secret /srv/internal")
+
+    _executor_stack.create_agent.return_value = create_agent(
+        model=FailingModel(messages=iter([])), tools=[], checkpointer=InMemorySaver()
+    )
+
+    with (
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        await runner.run_to_relay(_streamer())
+
+    published = [fields.get("data", "") for _id, fields in fake_redis.streams[RunRelay("t-stream", "r-1").events_key]]
+    errors = [json.loads(data) for data in published if '"RUN_ERROR"' in data]
+    assert [(e["message"], e["code"]) for e in errors] == [(RUN_FAILED_MESSAGE, "run_failed")]
+    assert not any("secret" in data for data in published)
 
 
 async def test_a_middleware_message_reaches_the_stream_as_text_frames():

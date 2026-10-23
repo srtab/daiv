@@ -53,6 +53,14 @@ class LiveRunError(Exception):
     """The live stream ended without the graph returning or raising: ag-ui failed around it, or never ran it."""
 
 
+def sanitize_run_error(event: BaseEvent) -> BaseEvent:
+    """``event``, with the generic RUN_ERROR in place of ag-ui's, whose message is the raw exception text: anyone who
+    can view the session can read its stream."""
+    if event.type == EventType.RUN_ERROR:
+        return RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
+    return event
+
+
 async def publish_event(run_relay: RunRelay, event: BaseEvent) -> None:
     """Serialize one AG-UI event to the relay, stamped with its emit time.
 
@@ -106,7 +114,7 @@ async def ainvoke_live(
             async for event in events:
                 if isinstance(event, RunErrorEvent):
                     run_error = event.message
-                    event = RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
+                event = sanitize_run_error(event)
                 publishing = publishing and await _attempt(run_relay, publish_event(run_relay, event))
     finally:
         _driving_live_run.reset(token)
