@@ -18,7 +18,7 @@ from .agui import RuntimeContextLangGraphAGUIAgent
 from .event_filter import SubagentEventFilter
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
+    from collections.abc import AsyncGenerator, Awaitable
     from uuid import UUID
 
     from ag_ui.core.events import BaseEvent
@@ -90,9 +90,11 @@ async def ainvoke_live(
     """Run ``agent`` as ``agent.ainvoke(graph_input, config=config, context=context)`` would, streaming its AG-UI
     events to ``run_relay`` as it goes.
 
-    The graph's own outcome decides the call: its output is returned and its exception re-raised as is. The relay is
-    best-effort: the first failure is logged and ends publishing for the run, which carries on. A RUN_ERROR is
-    published with the generic message, since viewers other than the run's owner can read the stream.
+    The graph's own outcome decides the call: its output is returned and its exception re-raised as is, though one
+    that is not an ``Exception`` (the graph's run cancelled under it) raises ``LiveRunError``. Translation and the relay
+    are best-effort: when ag-ui fails mid-run the graph still runs to its end, and the first relay failure is logged
+    and ends publishing for the run, which carries on. No graph run outlives the call. A RUN_ERROR is published with
+    the generic message, since viewers other than the run's owner can read the stream.
     """
     outcome = _RootOutcome()
     publishing = await _attempt(run_relay, run_relay.clear())
@@ -124,15 +126,33 @@ async def ainvoke_live(
                     run_error = event.message
                 event = sanitize_run_error(event)
                 publishing = publishing and await _attempt(run_relay, publish_event(run_relay, event))
+        if outcome.output is None and outcome.error is None and agui.graph_stream is not None:
+            async for _ in agui.graph_stream:
+                pass
     finally:
         _driving_live_run.reset(token)
+        if agui.graph_stream is not None:
+            await _close_graph_stream(agui.graph_stream, run_relay)
         if publishing:
             await _attempt(run_relay, run_relay.publish_end())
-    if outcome.error is not None:
+    if isinstance(outcome.error, Exception):
         raise outcome.error
+    if outcome.error is not None:
+        raise LiveRunError(f"the graph run ended with {type(outcome.error).__name__}") from outcome.error
     if outcome.output is not None:
         return outcome.output
     raise LiveRunError(run_error or "graph produced no result")
+
+
+async def _close_graph_stream(stream: AsyncGenerator[Any], run_relay: RunRelay) -> None:
+    """Close the graph's stream, cancelling a graph run still going; a failure is logged, never raised over how the
+    call ended."""
+    try:
+        await stream.aclose()
+    except Exception:
+        logger.exception(
+            "live: closing the graph run failed for thread_id=%s run_id=%s", run_relay.thread_id, run_relay.run_id
+        )
 
 
 async def _attempt(run_relay: RunRelay, operation: Awaitable[None]) -> bool:

@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import json
 import logging
@@ -9,7 +10,8 @@ from unittest.mock import patch
 import pytest
 from ag_ui.core.events import EventType, RawEvent, RunErrorEvent, TextMessageContentEvent
 from langchain.agents import create_agent
-from langchain_core.callbacks import AsyncCallbackManager
+from langchain.agents.middleware import AgentMiddleware
+from langchain_core.callbacks import AsyncCallbackHandler, AsyncCallbackManager
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
@@ -55,6 +57,44 @@ def _failing_agent(error: BaseException):
             raise error
 
     return _agent(model=FailingModel(messages=iter([])))
+
+
+class _NetworkRedis(FakeAsyncRedis):
+    """Writes wait on the network as Redis's do, so other tasks run while the relay publishes."""
+
+    async def delete(self, *keys):
+        await asyncio.sleep(0.005)
+        return await super().delete(*keys)
+
+    def pipeline(self, transaction=True):
+        pipeline = super().pipeline(transaction)
+        execute = pipeline.execute
+
+        async def _execute():
+            await asyncio.sleep(0.005)
+            return await execute()
+
+        pipeline.execute = _execute
+        return pipeline
+
+
+def _two_tool_rounds(calls: list[str]):
+    @tool
+    async def slow() -> str:
+        """Take a while."""
+        await asyncio.sleep(0.05)
+        calls.append("ran")
+        return "ok"
+
+    model = _ToolModel(
+        messages=iter([
+            AIMessage(content="", id="a1", tool_calls=[{"name": "slow", "args": {}, "id": "c1"}]),
+            AIMessage(content="", id="a2", tool_calls=[{"name": "slow", "args": {}, "id": "c2"}]),
+            AIMessage(content="done", id="a3"),
+        ]),
+        disable_streaming=True,
+    )
+    return create_agent(model=model, tools=[slow], checkpointer=InMemorySaver(), context_schema=_Ctx)
 
 
 def _config(thread_id: str) -> dict:
@@ -273,6 +313,109 @@ async def test_an_inner_failure_the_graph_recovers_from_does_not_fail_the_run():
     result = await _live(agent, [HumanMessage(content="hi")], _relay())
 
     assert [m.content for m in result["messages"][-2:]] == ["recovered", "done"]
+
+
+@pytest.mark.parametrize("log_kept", [True, False], ids=["log-kept", "log-dropped"])
+async def test_a_translation_failure_mid_run_still_returns_the_graphs_result(log_kept):
+    """ag-ui abandons the graph's stream when translating one of its events raises. A kept log record of that keeps
+    the stream alive and the graph runs on, orphaned; a dropped one lets it be finalized, which cancels the graph."""
+    calls: list[str] = []
+    agent = _two_tool_rounds(calls)
+    translate = RuntimeContextLangGraphAGUIAgent._handle_single_event
+
+    async def failing_at_the_first_tool(self, event, state):
+        if event.get("event") == "on_tool_start":
+            raise ValueError("adapter bug")
+        async for agui_event in translate(self, event, state):
+            yield agui_event
+
+    with (
+        patch.object(RuntimeContextLangGraphAGUIAgent, "_handle_single_event", failing_at_the_first_tool),
+        patch.object(logging.getLogger("ag_ui_langgraph.agent"), "disabled", not log_kept),
+    ):
+        result = await _live(agent, [HumanMessage(content="hi")], _relay(client=_NetworkRedis()))
+    checkpointed = (await agent.aget_state(_config("t-1"))).values["messages"]
+    await asyncio.sleep(0.2)
+
+    assert result["messages"][-1].content == "done"
+    assert calls == ["ran", "ran"]
+    assert (await agent.aget_state(_config("t-1"))).values["messages"] == checkpointed
+
+
+async def test_a_cancelled_call_leaves_no_graph_running():
+    tool_started, publish_stalled, tool_ends = asyncio.Event(), asyncio.Event(), []
+
+    @tool
+    async def slow() -> str:
+        """Take a while."""
+        tool_started.set()
+        try:
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            tool_ends.append("cancelled")
+            raise
+        tool_ends.append("finished")
+        return "ok"
+
+    model = _ToolModel(
+        messages=iter([
+            AIMessage(content="", id="a1", tool_calls=[{"name": "slow", "args": {}, "id": "c1"}]),
+            AIMessage(content="done", id="a2"),
+        ]),
+        disable_streaming=True,
+    )
+    agent = create_agent(model=model, tools=[slow], checkpointer=InMemorySaver(), context_schema=_Ctx)
+
+    class StallingRedis(FakeAsyncRedis):
+        """Publishing the tool call hangs while the graph runs on into the tool."""
+
+        async def xadd(self, key, fields, *args, **kwargs):
+            if "TOOL_CALL_START" in fields.get("data", "") and not publish_stalled.is_set():
+                publish_stalled.set()
+                await asyncio.sleep(10)
+            return await super().xadd(key, fields, *args, **kwargs)
+
+    call = asyncio.create_task(_live(agent, [HumanMessage(content="hi")], _relay(client=StallingRedis())))
+    await tool_started.wait()
+    await publish_stalled.wait()
+    call.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await call
+
+    assert tool_ends == ["cancelled"]
+
+
+async def test_a_root_error_that_is_not_an_exception_raises_live_run_error():
+    """Something other than the caller cancels the graph's run, as finalizing an abandoned stream does."""
+
+    class GraphRunTask(AsyncCallbackHandler):
+        run_inline = True
+        task: asyncio.Task | None = None
+
+        async def on_chain_start(self, *args, **kwargs):
+            self.task = self.task or asyncio.current_task()
+
+    graph_run = GraphRunTask()
+
+    class CancelsTheGraphRun(AgentMiddleware):
+        async def awrap_model_call(self, request, handler):
+            graph_run.task.cancel()
+            await asyncio.sleep(1)
+            return await handler(request)
+
+    agent = create_agent(
+        model=GenericFakeChatModel(messages=iter([AIMessage(content="never")])),
+        tools=[],
+        middleware=[CancelsTheGraphRun()],
+        checkpointer=InMemorySaver(),
+        context_schema=_Ctx,
+    )
+
+    with pytest.raises(LiveRunError) as raised:
+        await _live(agent, [HumanMessage(content="hi")], _relay(), callbacks=[graph_run])
+
+    assert isinstance(raised.value.__cause__, asyncio.CancelledError)
 
 
 async def test_a_dead_relay_never_fails_the_run(caplog):

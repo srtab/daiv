@@ -12,6 +12,10 @@ from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_mes
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+    from ag_ui.core import RunAgentInput
+    from ag_ui_langgraph.agent import PreparedStream
+    from langchain_core.runnables import RunnableConfig
+
     from automation.agent.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.chat")
@@ -29,12 +33,21 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
 
     With ``graph_input``, the graph runs on that input rather than the one upstream derives from
     ``RunAgentInput.messages``, which forks the thread when a message id is already checkpointed.
+
+    ``graph_stream`` is the graph's own event stream once upstream has prepared it. Upstream abandons it unclosed when
+    translating an event raises, so a caller can finish or close the graph run whatever upstream did.
     """
 
     def __init__(self, *, runtime_context: RuntimeCtx, graph_input: dict[str, Any] | None = None, **kwargs: Any):
         super().__init__(**kwargs)
         self._runtime_context = runtime_context
         self._graph_input = graph_input
+        self.graph_stream: AsyncGenerator[Any] | None = None
+
+    async def prepare_stream(self, input: RunAgentInput, agent_state: Any, config: RunnableConfig) -> PreparedStream:  # noqa: A002
+        prepared = await super().prepare_stream(input=input, agent_state=agent_state, config=config)
+        self.graph_stream = prepared["stream"]
+        return prepared
 
     def get_stream_kwargs(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         stream_kwargs = super().get_stream_kwargs(*args, **kwargs)
