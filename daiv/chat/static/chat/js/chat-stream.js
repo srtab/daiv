@@ -851,7 +851,7 @@
             console.error("chat: malformed SSE frame, skipping", err);
             return;
           }
-          // Server-stamped emit time (``chat.api.runner._publish``): a rejoining browser
+          // Server-stamped emit time (``sessions.live.publisher.publish_event``): a rejoining browser
           // replays the whole run at once, so its own clock measures every thought as 0ms.
           const at = evt.timestamp || Date.now();
           this._lastFrameAt = at;

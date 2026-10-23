@@ -1,6 +1,6 @@
 """Lazy, process-wide Redis clients.
 
-Every Redis feature that isn't the cache — the chat event relay (``chat.api.relay``)
+Every Redis feature that isn't the cache — the chat event relay (``sessions.live.relay``)
 and the UI event bus (``core.ui_events``) — resolves its client here, so "is there a
 bus", the connection options and the loop-binding contract have one definition each.
 

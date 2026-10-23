@@ -7,8 +7,8 @@ not exist. Assert it exactly.
 """
 
 import pytest
+from sessions.live.relay import RunRelay
 
-from chat.api.relay import RunRelay
 from core.redis import redis_connections
 
 

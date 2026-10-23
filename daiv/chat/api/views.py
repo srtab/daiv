@@ -12,6 +12,7 @@ from ninja.security import django_auth
 from sandbox_envs.selection import resolve_env_for_run
 from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_access, aresolve_environment
 from sessions.executor.lock import SessionLock, stale_cutoff
+from sessions.live import relay
 from sessions.models import Session
 from sessions.spend import build_session_spend
 
@@ -20,7 +21,7 @@ from automation.agent.validators import AgentOverrideError, ensure_agent_model_a
 from core.api.throttling import JobsRateThrottle
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 
-from . import relay, runner
+from . import runner
 from .streaming import ChatRunStreamer
 from .threads import ChatSessionService, _extract_last_user_message, _extract_last_user_message_id
 

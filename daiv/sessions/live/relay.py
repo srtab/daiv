@@ -1,6 +1,6 @@
 """Redis-Streams relay for chat run events.
 
-The chat run executor (``chat.api.runner``) publishes every AG-UI event here;
+Run events are published here by ``chat.api.runner`` and ``sessions.live.publisher``;
 SSE readers (``chat.api.views``) replay + tail the stream so a browser can
 rejoin an in-flight run after a refresh or connection drop.
 

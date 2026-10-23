@@ -20,7 +20,7 @@ pytestmark = requires_node
 
 # Chronological relay frames for a run whose first model call is already checkpointed
 # (message ``msg-1``, tool ``tc-1``) and whose second is still in flight. ``timestamp`` is
-# the server stamp ``chat.api.runner._publish`` adds: thought "a" spans 1100→4000ms,
+# the server stamp ``sessions.live.publisher.publish_event`` adds: thought "a" spans 1100→4000ms,
 # thought "b" 9100→16100ms.
 REPLAY_FRAMES = [
     {"type": "RUN_STARTED", "timestamp": 1000},
