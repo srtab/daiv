@@ -311,6 +311,15 @@ async def test_a_chat_only_session_is_stoppable():
     assert (await _live_run(session)).stoppable is True
 
 
+async def test_a_job_queued_behind_a_chat_turn_leaves_the_turn_stoppable():
+    session, chat_run = await _holder_session(trigger_type=SessionOrigin.CHAT, active_run_id="agui-1")
+    await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.API_JOB, repo_id="owner/repo", status=RunStatus.QUEUED
+    )
+
+    assert await _live_run(session) == LiveRun(id="agui-1", stoppable=True, started_at=chat_run.started_at)
+
+
 @pytest.mark.parametrize("stale", [False, True])
 async def test_no_live_run_without_a_holder_or_with_a_stale_heartbeat(stale):
     fields = {"active_run_id": "42", "last_active_at": stale_cutoff() - timedelta(minutes=1)} if stale else {}

@@ -42,9 +42,12 @@ async def session_turns(request: HttpRequest, thread_id: str):
     if not hydrated.messages:
         turns += await sync_to_async(artifact_turns)(runs)
     live = live_run(session, runs)
+    stoppable = bool(
+        live and live.stoppable and await Session.objects.by_owner(request.auth).filter(pk=session.pk).aexists()  # ty: ignore[unresolved-attribute]
+    )
     return {
         "turns": turns,
         "active": session_in_flight(session, runs),
         "expired": hydrated.expired,
-        "live_run": {"id": live.id, "stoppable": live.stoppable} if live else None,
+        "live_run": {"id": live.id, "stoppable": stoppable} if live else None,
     }

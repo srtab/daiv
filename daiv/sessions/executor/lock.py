@@ -43,7 +43,8 @@ def session_in_flight(session: Session, runs: Iterable[Run]) -> bool:
 @dataclass(frozen=True)
 class LiveRun:
     """The run a session page can stream: ``id`` is the slot holder's relay id, ``stoppable`` is whether the
-    cancel endpoint can stop it (chat runs only), ``started_at`` seeds the page's working timer."""
+    cancel endpoint can stop it (chat runs only, and only for the session's owner, which the views check),
+    ``started_at`` seeds the page's working timer."""
 
     id: str
     stoppable: bool
@@ -51,14 +52,18 @@ class LiveRun:
 
 
 def live_run(session: Session, runs: Sequence[Run]) -> LiveRun | None:
-    """The in-flight run holding ``session``'s slot, or ``None`` when nothing is in flight or no holder is recorded."""
+    """The in-flight run holding ``session``'s slot, or ``None`` when nothing is in flight or no holder is recorded.
+
+    The holder is the RUNNING run, not one queued behind it; the last unfinished run stands in until one starts.
+    """
     if not session.active_run_id or not session_in_flight(session, runs):
         return None
     non_terminal = [run for run in runs if run.status not in RunStatus.terminal()]
-    latest = non_terminal[-1]
+    holders = [run for run in non_terminal if run.status == RunStatus.RUNNING] or non_terminal[-1:]
+    latest = holders[-1]
     return LiveRun(
         id=session.active_run_id,
-        stoppable=all(run.trigger_type == SessionOrigin.CHAT for run in non_terminal),
+        stoppable=all(run.trigger_type == SessionOrigin.CHAT for run in holders),
         started_at=latest.started_at or latest.created_at,
     )
 

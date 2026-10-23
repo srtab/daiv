@@ -358,7 +358,9 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         live = live_run(session, runs)
         ctx["live_run_id"] = live.id if live else ""
         ctx["live_run_started_at"] = live.started_at.isoformat() if live else ""
-        ctx["live_run_stoppable"] = live.stoppable if live else False
+        ctx["live_run_stoppable"] = bool(
+            live and live.stoppable and Session.objects.by_owner(self.request.user).filter(pk=session.pk).exists()
+        )
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
 
         return ctx

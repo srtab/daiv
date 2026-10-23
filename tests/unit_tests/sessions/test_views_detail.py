@@ -12,7 +12,7 @@ from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
-from tests.unit_tests.sessions.conftest import create_archive, make_artifact
+from tests.unit_tests.sessions.conftest import create_archive, grant_read_access, make_artifact
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -569,6 +569,24 @@ def test_any_live_holder_is_exposed_for_streaming(member_client, member_user):
 
     assert resp.context["live_run_id"] == ""
     assert resp.context["live_run_started_at"] == ""
+
+
+@pytest.mark.django_db
+def test_only_the_sessions_owner_is_offered_stop(client, member_user, other_user):
+    """A repo reader streams the owner's chat turn, but the cancel endpoint only stops the owner's runs."""
+    session = _create_session(user=other_user, active_run_id="agui-run-1")
+    _create_run(session, trigger_type=SessionOrigin.CHAT, status=RunStatus.RUNNING)
+    grant_read_access(member_user, session.repo_id)
+    url = reverse("session_detail", kwargs={"thread_id": session.thread_id})
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        client.force_login(member_user)
+        reader = client.get(url)
+        client.force_login(other_user)
+        owner = client.get(url)
+
+    assert (reader.context["live_run_id"], reader.context["live_run_stoppable"]) == ("agui-run-1", False)
+    assert (owner.context["live_run_id"], owner.context["live_run_stoppable"]) == ("agui-run-1", True)
 
 
 @pytest.mark.django_db

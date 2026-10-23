@@ -339,3 +339,30 @@ async def test_session_turns_names_the_live_run(client, authed):
 
     assert idle.json()["live_run"] is None
     assert live.json()["live_run"] == {"id": "42", "stoppable": False}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_offers_stop_only_to_the_sessions_owner(client, authed):
+    _key_obj, raw, owner = authed
+    reader = await User.objects.acreate_user(username="reader-turns", email="reader-turns@example.com", password="x")  # noqa: S106
+    _reader_key, reader_raw = await APIKey.objects.create_key(user=reader, name="Reader")
+    await sync_to_async(grant_read_access)(reader, "group/project")
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.CHAT,
+        repo_id="group/project",
+        ref="main",
+        user=owner,
+        active_run_id="agui-1",
+    )
+    await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.CHAT, repo_id="group/project", status=RunStatus.RUNNING
+    )
+    hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
+
+    with patch("sessions.api.views.ahydrate_thread", hydrated):
+        as_reader = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(reader_raw))
+        as_owner = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert as_reader.json()["live_run"] == {"id": "agui-1", "stoppable": False}
+    assert as_owner.json()["live_run"] == {"id": "agui-1", "stoppable": True}
