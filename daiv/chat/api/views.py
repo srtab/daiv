@@ -12,6 +12,7 @@ from ninja.security import django_auth
 from sandbox_envs.selection import resolve_env_for_run
 from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_access, aresolve_environment
 from sessions.executor.lock import SessionLock, stale_cutoff
+from sessions.live import relay
 from sessions.models import Session
 from sessions.spend import build_session_spend
 
@@ -20,7 +21,7 @@ from automation.agent.validators import AgentOverrideError, ensure_agent_model_a
 from core.api.throttling import JobsRateThrottle
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 
-from . import relay, runner
+from . import runner
 from .streaming import ChatRunStreamer
 from .threads import ChatSessionService, _extract_last_user_message, _extract_last_user_message_id
 
@@ -97,7 +98,7 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
 
 @chat_router.get("/stream", url_name="chat_run_stream")
 async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
-    """Resumable SSE stream of a chat run's AG-UI events.
+    """Resumable SSE stream of a session run's AG-UI events, whatever started the run (chat, job, webhook or schedule).
 
     Replays from the start (or from the ``Last-Event-ID`` header on browser
     reconnect) and tails live until the run's terminal sentinel. Authorization
@@ -105,7 +106,7 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     another thread reads an empty stream even if guessed.
     """
     user = request.auth  # ty: ignore[unresolved-attribute]
-    if not await Session.objects.by_owner(user).filter(thread_id=thread_id).aexists():
+    if not await sync_to_async(lambda: Session.objects.visible_to(user).filter(thread_id=thread_id).exists())():
         raise HttpError(404, "Thread not found")
     last_id = request.headers.get("Last-Event-ID") or "0-0"
     return sse_response(_run_event_frames(thread_id, run_id, last_id))

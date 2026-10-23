@@ -39,7 +39,8 @@
   {{ session_spend|json_script:"chat-session-spend" }}
 
   {% if session %}
-  <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', active: {{ poll_transcript|yesno:'true,false' }} })"
+  <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}', active: {{ is_in_flight|yesno:'true,false' }} })"
+       @daiv:live-run-ended.window="resume()"
        style="display:none" aria-hidden="true"></div>
   {% endif %}
 
@@ -86,11 +87,11 @@
          streamEndpoint: "{% url 'api:chat_run_stream' %}",
          cancelEndpoint: "{% url 'api:chat_run_cancel' %}",
          spendEndpoint: "{% url 'api:chat_session_spend' %}",
-         activeRunId: "{{ chat_active_run_id|default:''|escapejs }}",
-         activeRunStartedAt: "{{ chat_active_run_started_at|default:''|escapejs }}",
-         {# Covers both live holders — a chat run this tab rejoins via the relay, and a #}
-         {# background run the transcript poller follows — so the load-time scroll can #}
-         {# tell "still working" from "finished" without duplicating that logic in JS. #}
+         activeRunId: "{{ live_run_id|default:''|escapejs }}",
+         activeRunStartedAt: "{{ live_run_started_at|default:''|escapejs }}",
+         liveRunStoppable: {{ live_run_stoppable|yesno:"true,false" }},
+         {# Any run in flight, streamed from the relay or polled until it holds the slot, so the load-time #}
+         {# scroll can tell "still working" from "finished" without duplicating that logic in JS. #}
          sessionLive: {{ is_in_flight|yesno:"true,false" }},
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if session %}{
@@ -130,6 +131,8 @@
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
        @daiv:agent-changed.window="applyAgentSelection($event.detail)"
        @daiv:session-turns.window="applyPolledTurns($event.detail.turns)"
+       @daiv:session-live-run.window="followLiveRun($event.detail)"
+       @daiv:session-settled.window="holdReload($event)"
        x-cloak
        class="chat-shell">
 

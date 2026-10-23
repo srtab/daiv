@@ -10,6 +10,8 @@ checkpoint already painted.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from sessions.turns import build_turns
@@ -21,7 +23,7 @@ pytestmark = requires_node
 
 # Chronological relay frames for a run whose first model call is already checkpointed
 # (message ``msg-1``, tool ``tc-1``) and whose second is still in flight. ``timestamp`` is
-# the server stamp ``chat.api.runner._publish`` adds: thought "a" spans 1100→4000ms,
+# the server stamp ``sessions.live.publisher.publish_event`` adds: thought "a" spans 1100→4000ms,
 # thought "b" 9100→16100ms.
 REPLAY_FRAMES = [
     {"type": "RUN_STARTED", "timestamp": 1000},
@@ -139,27 +141,118 @@ def test_replayed_thoughts_are_timed_by_the_server_not_the_replay():
     assert thought["label"] == "Thought for 7s"
 
 
-POLL_BODY = """
-const chat = registry.chat({ endpoint: "/api/chat" });
+FOLLOW_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
+chat.turns = [];
+chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
 chat.$nextTick = (cb) => cb();
 chat.scrollToBottom = () => {};
-chat.turns = payload.live;
-chat.streaming = payload.streaming;
-chat.applyPolledTurns(payload.polled);
-process.stdout.write(JSON.stringify(chat.turns.map((t) => t.id)));
+
+chat.followLiveRun({ id: "r2", stoppable: false, started_at: "2026-10-23T10:00:00+00:00" });
+const url = opened.url;
+const runStoppable = chat.runStoppable;
+const runStartedAt = chat.runStartedAt;
+opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+await new Promise((resolve) => setTimeout(resolve, 0));
+
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended");
+process.stdout.write(JSON.stringify({ url, runStoppable, runStartedAt, ended: ended.map((e) => e.detail) }));
 """
 
+FOLLOW_PRELUDE = PRELUDE.replace("constructor() {", "constructor(url) { this.url = url;")
 
-@pytest.mark.parametrize(("streaming", "expected"), [(True, ["live-1"]), (False, ["srv-1", "srv-2"])])
-def test_a_polled_transcript_waits_for_the_live_stream_to_end(streaming, expected):
-    """A background run queued behind this tab's chat turn arms the poller mid-stream; its
-    checkpoint copy must not replace the turn the stream is still writing."""
-    live = [{"id": "live-1", "role": "user", "segments": [{"type": "text", "content": "hi"}]}]
-    polled = [
-        {"id": "srv-1", "role": "user", "segments": [{"type": "text", "content": "hi"}]},
-        {"id": "srv-2", "role": "assistant", "segments": [{"type": "text", "content": "ok"}]},
-    ]
 
-    ids = run_chat_stream(POLL_BODY, {"live": live, "polled": polled, "streaming": streaming})
+def _follow() -> dict:
+    return run_chat_stream(
+        FOLLOW_BODY, {}, prelude=FOLLOW_PRELUDE, extra_globals="EventSource: FakeEventSource, setTimeout,"
+    )
 
-    assert ids == expected
+
+def test_following_a_background_run_hides_stop():
+    result = _follow()
+
+    assert result["runStoppable"] is False
+    assert "run_id=r2" in result["url"]
+
+
+def test_a_followed_run_is_timed_from_its_server_start():
+    result = _follow()
+
+    assert result["runStartedAt"] == 1792749600000
+
+
+def test_a_rejoined_run_announces_its_end():
+    result = _follow()
+
+    assert result["ended"] == [{"runId": "r2"}]
+
+
+def test_polled_turns_do_not_replace_the_array_while_streaming():
+    body = """
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
+const original = [{ id: "placeholder", role: "assistant", segments: [], streaming: true }];
+chat.turns = original;
+chat.$nextTick = (cb) => cb();
+chat.streaming = true;
+chat.applyPolledTurns([{ id: "polled", role: "assistant", segments: [] }]);
+process.stdout.write(JSON.stringify({ same: chat.turns === original }));
+"""
+    result = run_chat_stream(body, {})
+
+    assert result == {"same": True}
+
+
+def test_a_run_started_here_announces_its_end():
+    body = """
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
+chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+chat.draftMessage = "hello";
+chat.$nextTick = (cb) => cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+
+const done = chat.submit();
+await new Promise((resolve) => setTimeout(resolve, 0));
+const streamingBeforeEnd = chat.streaming;
+opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+await done;
+
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended");
+process.stdout.write(JSON.stringify({ streamingBeforeEnd, ended: ended.length, hasRun: !!ended[0]?.detail.runId }));
+"""
+    result = run_chat_stream(
+        body,
+        {},
+        prelude=PRELUDE,
+        extra_globals="EventSource: FakeEventSource, setTimeout, fetch: async () => ({ ok: true }),",
+    )
+
+    assert result == {"streamingBeforeEnd": True, "ended": 1, "hasRun": True}
+
+
+def test_following_is_ignored_while_a_run_streams_here():
+    body = """
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
+chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+chat.streaming = true;
+chat.followLiveRun({ id: "r2", stoppable: false });
+process.stdout.write(JSON.stringify({ opened: opened !== null, runStoppable: chat.runStoppable }));
+"""
+    result = run_chat_stream(body, {}, prelude=PRELUDE, extra_globals="EventSource: FakeEventSource,")
+
+    assert result == {"opened": False, "runStoppable": True}
+
+
+@pytest.mark.parametrize(
+    ("state", "held"),
+    [({}, False), ({"draftMessage": "next prompt"}, True), ({"streaming": True}, True), ({"resuming": True}, True)],
+)
+def test_the_chat_holds_the_settled_reload_only_while_it_has_something_to_lose(state, held):
+    body = f"""
+const chat = registry.chat({{ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" }});
+Object.assign(chat, {json.dumps(state)});
+let prevented = false;
+chat.holdReload({{ preventDefault: () => {{ prevented = true; }} }});
+process.stdout.write(JSON.stringify({{ prevented }}));
+"""
+    assert run_chat_stream(body, {}) == {"prevented": held}

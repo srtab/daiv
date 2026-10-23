@@ -118,7 +118,7 @@ box (``_command_menu.html``).
           {% include "automation/_agent_picker.html" with variant="label" required=False providers=agent_picker_providers initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model default_model=agent_picker_default_model default_thinking=agent_picker_default_thinking %}
         </template>
 
-        <button type="button" x-show="(streaming || resuming)" x-cloak @click="stop()"
+        <button type="button" x-show="(streaming || resuming) && runStoppable" x-cloak @click="stop()"
                 class="composer-send composer-send--stop"
                 title="{% translate 'Stop' %}">
           {% icon "stop" "h-3.5 w-3.5" %}

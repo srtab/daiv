@@ -968,6 +968,15 @@ async def test_skill_runs_beside_another_tool_in_one_turn():
     assert _tool_result(result, "call_skill").content.endswith("Run this.")
 
 
+def test_adds_no_node_to_each_turn(tmp_path):
+    from deepagents.backends.filesystem import FilesystemBackend
+
+    middleware = SkillsMiddleware(backend=FilesystemBackend(root_dir=tmp_path, virtual_mode=True), sources=["/skills"])
+    graph = create_agent(model=_ToolModel(messages=iter([])), middleware=[middleware])
+
+    assert [name for name in graph.nodes if name.startswith("SkillsMiddleware.")] == ["SkillsMiddleware.before_agent"]
+
+
 WRITES: list[str] = []
 
 

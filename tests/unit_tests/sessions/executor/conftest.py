@@ -6,7 +6,7 @@ import uuid
 from contextlib import asynccontextmanager, contextmanager
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from langchain_core.messages import HumanMessage
 from sessions.executor.lock import NoLock
@@ -59,6 +59,30 @@ SITE_URL = "https://daiv.test"
 
 
 @contextmanager
+def _stub_live_relay(stack: SimpleNamespace):
+    """Stub the run relay ``execute_run`` streams to, recording each live invocation in ``stack.live_calls``."""
+
+    async def _ainvoke_live(agent, graph_input, *, config, context, recursion_limit, run_relay):
+        stack.live_calls.append(
+            SimpleNamespace(run_relay=run_relay, recursion_limit=recursion_limit, graph_input=graph_input)
+        )
+        return await agent.ainvoke(graph_input, config=config, context=context)
+
+    async def _end_stream(run_relay):
+        stack.events.append("stream ended")
+
+    with (
+        patch("sessions.live.publisher.ainvoke_live", _ainvoke_live),
+        patch("sessions.live.publisher.end_stream", _end_stream),
+        patch("core.redis.RedisConnections.configured", new_callable=PropertyMock, return_value=True) as configured,
+        patch(
+            "core.redis.redis_connections.build_async_client", return_value=MagicMock(aclose=AsyncMock())
+        ) as build_client,
+    ):
+        yield configured, build_client
+
+
+@contextmanager
 def agent_stack(
     agent, *, ctx=None, context=None, resolve=None, site: SiteSnapshot | None = None, checkpointed: dict | None = None
 ):
@@ -82,6 +106,7 @@ def agent_stack(
         else disk_ctx(repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5)),
         checkpointer=SimpleNamespace(aget_tuple=AsyncMock(return_value=last_checkpoint)),
         armed=[],
+        live_calls=[],
         resolve=resolve or MagicMock(return_value=resolved_to("claude-4-7-opus", "fallback", thinking_level="medium")),
         site=site or site_snapshot(),
     )
@@ -113,6 +138,7 @@ def agent_stack(
 
     with (
         stub_sandbox_spec() as build_spec,
+        _stub_live_relay(stack) as (configured, build_client),
         patch("automation.agent.context.set_runtime_ctx", context or _set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer", _open_checkpointer),
         patch.object(site_settings, "snapshot", return_value=stack.site) as snapshot,
@@ -136,6 +162,8 @@ def agent_stack(
         ),
     ):
         stack.build_spec = build_spec
+        stack.build_client = build_client
+        stack.configured = configured
         stack.snapshot = snapshot
         stack.create_agent = create_agent
         stack.build_servers = build_servers

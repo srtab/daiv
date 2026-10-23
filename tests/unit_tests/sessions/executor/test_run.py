@@ -1,9 +1,10 @@
 import asyncio
+import dataclasses
 import json
 import uuid
 from contextlib import asynccontextmanager, nullcontext
 from types import SimpleNamespace
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from django.contrib.sites.models import Site
 from django.urls import reverse
@@ -12,6 +13,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from redisvl.exceptions import RedisSearchError
 from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
@@ -31,6 +33,7 @@ from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import Scope
 from codebase.clients.base import GitEgressCredential
 from codebase.repo_config import RepositoryConfig
+from core.redis import SOCKET_TIMEOUT_S
 from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
     FakeSandboxClient,
@@ -40,7 +43,7 @@ from tests.unit_tests.conftest import (
     site_snapshot,
 )
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
-from tests.unit_tests.sessions.executor.conftest import SITE_URL, agent_stack, disk_ctx, make_spec
+from tests.unit_tests.sessions.executor.conftest import SITE_URL, agent_stack, disk_ctx, make_spec, resolved_to
 
 MR = {"merge_request_id": 7, "source_branch": "feat/published"}
 
@@ -120,6 +123,101 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
     assert agent.ainvoke.call_args.kwargs == {"config": stack.langsmith.return_value, "context": stack.ctx}
 
 
+async def test_a_session_run_streams_under_its_slots_holder_id():
+    agent = _agent()
+    spec = make_spec(lock=Held(holder_id="h-1"))
+    resolved = dataclasses.replace(resolved_to("claude-4-7-opus"), recursion_limit=7)
+
+    with agent_stack(agent, resolve=MagicMock(return_value=resolved)) as stack:
+        await execute_run(spec)
+
+    (call_,) = stack.live_calls
+    assert call_.run_relay.thread_id == spec.thread_id
+    assert call_.run_relay.run_id == "h-1"
+    assert call_.run_relay._client is stack.build_client.return_value
+    assert call_.recursion_limit == 7
+    assert call_.graph_input == {"messages": list(spec.input_messages)}
+    assert agent.ainvoke.call_args == call(
+        {"messages": list(spec.input_messages)}, config=stack.langsmith.return_value, context=stack.ctx
+    )
+
+
+async def test_a_one_shot_run_invokes_without_streaming():
+    agent = _agent()
+
+    with agent_stack(agent) as stack:
+        await execute_run(make_spec(thread_id=None, lock=NoLock()))
+
+    assert stack.live_calls == []
+    agent.ainvoke.assert_awaited_once()
+
+
+async def test_a_session_run_without_redis_runs_unpublished_and_quietly(caplog):
+    agent = _agent()
+
+    with agent_stack(agent) as stack, caplog.at_level("ERROR", logger="daiv.sessions"):
+        stack.configured.return_value = False
+        await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    stack.build_client.assert_not_called()
+    assert stack.live_calls == []
+    agent.ainvoke.assert_awaited_once()
+    assert caplog.records == []
+
+
+async def test_a_session_run_without_a_relay_still_runs():
+    agent = _agent()
+
+    with agent_stack(agent) as stack:
+        stack.build_client.side_effect = RuntimeError("requires Redis")
+        outcome = await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    assert stack.live_calls == []
+    agent.ainvoke.assert_awaited_once()
+    assert outcome.response_text == "done"
+
+
+@pytest.mark.parametrize("error", [None, RuntimeError("boom")])
+async def test_the_worker_closes_the_redis_client_it_built(error):
+    agent = _agent()
+    agent.ainvoke = AsyncMock(return_value={"messages": [MagicMock(content="done")]}, side_effect=error)
+
+    with agent_stack(agent) as stack:
+        if error is None:
+            await execute_run(make_spec(lock=Held(holder_id="h-1")))
+        else:
+            with pytest.raises(RuntimeError, match="boom"):
+                await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    stack.build_client.assert_called_once_with(socket_timeout=SOCKET_TIMEOUT_S)
+    stack.build_client.return_value.aclose.assert_awaited_once()
+
+
+async def test_a_failing_relay_close_does_not_fail_a_finished_run():
+    agent = _agent()
+
+    with agent_stack(agent) as stack:
+        stack.build_client.return_value.aclose.side_effect = RedisTimeoutError("Timed out closing connection")
+        outcome = await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    assert outcome.response_text == "done"
+
+
+async def test_a_failing_relay_close_does_not_mask_the_agents_error():
+    boom = RuntimeError("boom")
+    agent = _agent()
+    agent.ainvoke = AsyncMock(side_effect=boom)
+    on_failure = AsyncMock()
+
+    with agent_stack(agent) as stack:
+        stack.build_client.return_value.aclose.side_effect = RedisTimeoutError("Timed out closing connection")
+        with pytest.raises(RuntimeError) as raised:
+            await execute_run(make_spec(lock=Held(holder_id="h-1")), RunHooks(on_failure=on_failure))
+
+    assert raised.value is boom
+    assert on_failure.await_args.args[0] is boom
+
+
 async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     agent = _agent(state={"merge_request": None})
     on_success = AsyncMock()
@@ -178,6 +276,7 @@ async def test_the_steps_run_in_order_inside_the_slot():
         "result built",
         "context exited",
         "on_success holding run-1",
+        "stream ended",
     ]
     assert await active_holder(thread_id) is None
 
@@ -219,6 +318,7 @@ async def test_a_raising_agent_still_runs_every_finally_step():
         "context entered",
         "context exited",
         "on_failure agent blew up draft=False snapshot=None holding run-1",
+        "stream ended",
     ]
     assert heartbeat_cancelled == [True]
     assert await active_holder(thread_id) is None
@@ -262,7 +362,12 @@ async def test_a_stop_request_cancels_the_invoke_closes_the_context_and_reaches_
             await execute_run(spec, RunHooks(on_failure=_on_failure), should_stop=_should_stop)
 
     assert cancelled == [True]
-    assert stack.events == ["context entered", "context exited", "on_failure RunStoppedError holding run-1"]
+    assert stack.events == [
+        "context entered",
+        "context exited",
+        "on_failure RunStoppedError holding run-1",
+        "stream ended",
+    ]
     assert await active_holder(thread_id) is None
     recover.assert_not_awaited()
 

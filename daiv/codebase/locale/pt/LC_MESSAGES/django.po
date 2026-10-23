@@ -190,3 +190,12 @@ msgstr "Não foi possível carregar os repositórios."
 
 msgid "Could not load more repositories."
 msgstr "Não foi possível carregar mais repositórios."
+
+msgid "selected"
+msgstr "selecionados"
+
+msgid "Done"
+msgstr "Concluído"
+
+msgid "Selected:"
+msgstr "Selecionado:"

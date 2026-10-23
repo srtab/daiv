@@ -1,6 +1,6 @@
-"""Redis-Streams relay for chat run events.
+"""Redis-Streams relay for session run events.
 
-The chat run executor (``chat.api.runner``) publishes every AG-UI event here;
+Run events are published here by ``chat.api.runner`` and ``sessions.live.publisher``;
 SSE readers (``chat.api.views``) replay + tail the stream so a browser can
 rejoin an in-flight run after a refresh or connection drop.
 
@@ -10,9 +10,13 @@ Contract:
   embedded so reader authorization reduces to thread visibility.
 * Normal entries: ``{"data": <AG-UI event JSON (by_alias, exclude_none)>}``.
 * Terminal sentinel: ``{"end": "1"}`` — published on a best-effort basis by the
-  runner's ``finally`` (if Redis is down even that can fail, in which case readers
-  fall back to the liveness probe in ``_run_event_frames``), so readers can
-  usually distinguish "run finished" from "writer died".
+  writer once the run settles (``chat.api.runner``'s ``finally``, or the executor's
+  ``_live_relay`` for a background run, which also ends the stream when a publish
+  fails; if Redis is down even that can fail, in which case readers fall back to the
+  liveness probe in ``_run_event_frames``), so readers can usually distinguish "run
+  finished" from "writer died".
+* A background run clears its stream before its first publish (``clear``): its run
+  id can repeat, and a stale sentinel would end a new viewer's replay at once.
 * Cancel flag ``daiv:chat:run-cancel:{thread_id}:{run_id}`` — set by the cancel
   endpoint, checked by the executor's ``stream_run`` (``ChatRunStreamer`` passes it
   as ``should_stop``) at the next event boundary once the stream heartbeat interval
@@ -59,7 +63,7 @@ class StreamEntry(NamedTuple):
 
 
 class RunRelay:
-    """Relay operations for a single chat run, bound to ``(thread_id, run_id)``.
+    """Relay operations for a single session run, bound to ``(thread_id, run_id)``.
 
     Holds the run's event stream (publish + tail) and its cancel flag behind one
     object so a caller deals in ``RunRelay(thread_id, run_id).publish_event(...)``
@@ -123,6 +127,9 @@ class RunRelay:
 
     async def publish_end(self) -> None:
         await self._append({self.END_FIELD: "1"})
+
+    async def clear(self) -> None:
+        await self._redis.delete(self.events_key)
 
     async def read_events(self, last_id: str, *, block_ms: int, count: int = 100) -> list[StreamEntry]:
         """Block-read the next batch of entries after ``last_id``, parsed.

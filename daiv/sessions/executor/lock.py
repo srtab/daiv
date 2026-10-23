@@ -2,8 +2,9 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
+from operator import attrgetter
 from typing import TYPE_CHECKING
 
 from django.utils import timezone
@@ -13,6 +14,7 @@ from sessions.models import RunStatus, Session, SessionOrigin
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Iterable
 
+    from accounts.models import User
     from sessions.models import Run
 
 logger = logging.getLogger("daiv.sessions")
@@ -40,10 +42,53 @@ def session_in_flight(session: Session, runs: Iterable[Run]) -> bool:
     return any(run.status not in RunStatus.terminal() for run in runs) and session.last_active_at >= stale_cutoff()
 
 
+@dataclass(frozen=True)
+class LiveRun:
+    """The run a session page can stream: ``id`` is the slot holder's relay id, ``stoppable`` is whether the
+    cancel endpoint can stop it (chat runs only, and with ``live_run_for`` only for the session's owner),
+    ``started_at`` seeds the page's working timer."""
+
+    id: str
+    stoppable: bool
+    started_at: datetime
+
+
+def live_run(session: Session, runs: Iterable[Run]) -> LiveRun | None:
+    """The in-flight run holding ``session``'s slot, or ``None`` when nothing is in flight or no holder is recorded.
+
+    A task-backed run turns RUNNING when its task starts, before it waits for the slot, so the holder is the run the
+    holder id names (a job), else the RUNNING chat run (chat claims the slot before recording its run), else the oldest
+    RUNNING run; the last unfinished run stands in until one starts.
+    """
+    runs = sorted(runs, key=attrgetter("created_at"))
+    if not session.active_run_id or not session_in_flight(session, runs):
+        return None
+    non_terminal = [run for run in runs if run.status not in RunStatus.terminal()]
+    running = [run for run in non_terminal if run.status == RunStatus.RUNNING]
+    holder = (
+        next((run for run in running if str(run.pk) == session.active_run_id), None)
+        or next((run for run in running if run.trigger_type == SessionOrigin.CHAT), None)
+        or (running[0] if running else non_terminal[-1])
+    )
+    return LiveRun(
+        id=session.active_run_id,
+        stoppable=holder.trigger_type == SessionOrigin.CHAT,
+        started_at=holder.started_at or holder.created_at,
+    )
+
+
+def live_run_for(session: Session, runs: Iterable[Run], user: User) -> LiveRun | None:
+    """``live_run`` as ``user`` sees it: stoppable only for the session's owner, as the cancel endpoint allows."""
+    live = live_run(session, runs)
+    if live is not None and live.stoppable and not Session.objects.by_owner(user).filter(pk=session.pk).exists():
+        return replace(live, stoppable=False)
+    return live
+
+
 def background_in_flight(session: Session, runs: Iterable[Run]) -> bool:
     """Whether a live non-chat run (a job, a webhook, a CI fix, a delegation resume) keeps ``session`` in flight.
 
-    Only these need the detail page's transcript poller: a chat run streams to the tab that started it.
+    Only these wake a session page that rendered idle: a chat run streams to the tab that started it.
     """
     runs = list(runs)
     return session_in_flight(session, runs) and any(

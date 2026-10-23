@@ -9,7 +9,7 @@ from ninja.errors import HttpError
 from ninja.security import django_auth
 
 from accounts.api.security import AuthBearer
-from sessions.executor.lock import background_in_flight, session_in_flight
+from sessions.executor.lock import background_in_flight, live_run_for, session_in_flight
 from sessions.hydration import ahydrate_thread
 from sessions.models import Session
 from sessions.transcript import annotate_transcript, artifact_turns
@@ -33,17 +33,22 @@ async def _get_visible_session(user, thread_id: str) -> Session:
 
 @sessions_router.get("/{thread_id}/turns", response=dict, url_name="session_turns")
 async def session_turns(request: HttpRequest, thread_id: str):
-    """Re-hydrated transcript for live background runs (the detail page polls this
-    while a non-chat run holds the session slot, and asks ``background`` whether to start)."""
+    """Re-hydrated transcript of an in-flight session, which the detail page polls while no run streams to it.
+    ``live_run`` names the slot holder, so the page can stream that run from the relay instead; ``background``
+    tells a page that rendered idle whether a run that started since is one it should follow."""
     session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
     turns = annotate_transcript(build_turns(hydrated.messages), runs)
     if not hydrated.messages:
         turns += await sync_to_async(artifact_turns)(runs)
+    live = await sync_to_async(live_run_for)(session, runs, request.auth)  # ty: ignore[unresolved-attribute]
     return {
         "turns": turns,
         "active": session_in_flight(session, runs),
         "background": background_in_flight(session, runs),
         "expired": hydrated.expired,
+        "live_run": {"id": live.id, "stoppable": live.stoppable, "started_at": live.started_at.isoformat()}
+        if live
+        else None,
     }

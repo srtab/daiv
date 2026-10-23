@@ -382,6 +382,7 @@
     draftRef: "",
     streaming: false,
     resuming: !!config.activeRunId,
+    runStoppable: config.liveRunStoppable ?? true,
     _source: null,
     _activeRun: null,
     _replayDedup: null,
@@ -653,11 +654,11 @@
     },
 
     applyPolledTurns(turns) {
-      // Background (non-chat) runs — schedules, webhooks, UI jobs — execute
-      // detached and never publish to the chat relay, so there is no live stream
-      // to join. The detail page polls the turns endpoint instead and re-emits
-      // the WHOLE transcript here every few seconds. Reassigning ``turns`` re-runs
-      // every x-html/x-text binding (re-rendered markdown, re-highlighted code,
+      // While a stream is attached it owns ``turns``; swapping the array would detach
+      // the streaming placeholder and hide live output.
+      if (this.streaming || this.resuming) return;
+      // The poller re-emits the WHOLE transcript every few seconds. Reassigning ``turns``
+      // re-runs every x-html/x-text binding (re-rendered markdown, re-highlighted code,
       // repaint) even when nothing changed — the visible every-poll flicker. Skip
       // the swap when the transcript is byte-identical to what we already show, so
       // steady-state polls during a long-running tool are free; only a genuine
@@ -665,8 +666,6 @@
       // (annotate_transcript(build_turns(...))), so key order is stable and the
       // JSON compare is reliable. Alpine's keyed x-for reuses each turn's DOM node
       // on reassignment, so open tool <details> survive a real change too.
-      // A run queued behind this tab's chat turn arms the poller mid-stream; the stream owns the turns until it ends.
-      if (this.streaming || this.resuming) return;
       if (JSON.stringify(turns) === JSON.stringify(this.turns)) return;
       this.turns = turns;
       // Mirror the live-stream path (dispatch() scrolls after every event): follow
@@ -773,12 +772,11 @@
       });
 
       if (this.resuming && this.thread && config.activeRunId) {
-        // Page loaded while a run is executing server-side: rejoin its event
-        // stream with a full replay, deduping anything already rendered from
-        // the checkpoint hydration. The clock counts from the server-reported
-        // start so a rejoined run doesn't restart at 0.
-        this.runStartedAt = Date.parse(config.activeRunStartedAt || "") || Date.now();
-        this._resumeRun(config.activeRunId);
+        this.followLiveRun({
+          id: config.activeRunId,
+          stoppable: this.runStoppable,
+          started_at: config.activeRunStartedAt,
+        });
       } else {
         this.resuming = false;
       }
@@ -802,6 +800,21 @@
     },
 
     // ---------- Run stream (EventSource against the relay) -------------
+
+    // Rejoin a run executing server-side with a full replay; the clock counts from the
+    // server-reported start so a rejoined run doesn't restart at 0.
+    followLiveRun({ id, stoppable, started_at }) {
+      if (this.streaming) return;
+      this.runStoppable = stoppable;
+      this.resuming = true;
+      this.runStartedAt = Date.parse(started_at || "") || Date.now();
+      this._resumeRun(id);
+    },
+
+    // A reload once the session settles would drop an unsent draft or race a send that just started.
+    holdReload(event) {
+      if (this.streaming || this.resuming || this.draftMessage.trim()) event.preventDefault();
+    },
 
     async _resumeRun(runId) {
       // LangChain message ids (turn.id) and tool_call ids from the hydrated
@@ -853,7 +866,7 @@
             console.error("chat: malformed SSE frame, skipping", err);
             return;
           }
-          // Server-stamped emit time (``chat.api.runner._publish``): a rejoining browser
+          // Server-stamped emit time (``sessions.live.publisher.publish_event``): a rejoining browser
           // replays the whole run at once, so its own clock measures every thought as 0ms.
           const at = evt.timestamp || Date.now();
           this._lastFrameAt = at;
@@ -940,6 +953,7 @@
         this._pushRunStatus("failed", REASON_ERRORS[reason]);
       }
       this.streaming = false;
+      const runId = this._activeRun?.runId;
       this._activeRun = null;
       this._replayDedup = null;
       this._lastFrameAt = 0;
@@ -947,6 +961,7 @@
       // sentinel, so refreshing here (never on RUN_FINISHED) reads this turn's totals.
       this._refreshSpend();
       this.scrollToBottom();
+      window.dispatchEvent(new CustomEvent("daiv:live-run-ended", { detail: { runId } }));
     },
 
     // ---------- Derived getters (right rail) ---------------------------
@@ -1472,6 +1487,7 @@
       if (text === null) this.draftMessage = "";
       this.$nextTick(() => this.autosize());
       this.streaming = true;
+      this.runStoppable = true;
       this.runStartedAt = Date.now();
       this._activeRun = { threadId: this.thread.thread_id, runId: body.runId };
 

@@ -214,6 +214,14 @@ async def test_the_empty_reply_retry_runs_inside_the_reminder_middlewares():
     assert middleware.index(step_budget) < retry
 
 
+async def test_the_step_budget_is_bound_to_the_built_graph():
+    with patch.object(StepBudgetMiddleware, "bind", autospec=True) as bind:
+        built = await _build(_disk_workspace())
+    [step_budget] = [m for m in _middleware(built) if isinstance(m, StepBudgetMiddleware)]
+
+    bind.assert_called_once_with(step_budget, built.create_deep_agent.return_value)
+
+
 async def test_ask_user_is_enabled_by_default():
     built = await _build(_disk_workspace())
 

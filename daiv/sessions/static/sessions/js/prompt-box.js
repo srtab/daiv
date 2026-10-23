@@ -6,6 +6,8 @@
  * server-rendered into `#repo-picker-list` / `#branch-picker-list` and attach
  * back into this component's state via `@click="setRepo(...)"` / `setBranch(...)`
  * — Alpine's MutationObserver picks those directives up when HTMX swaps them in.
+ * Multi-repo additions keep the picker open. Successful repo results stay in the DOM
+ * across opens, preserving search and pagination; a failed request makes reopening retry.
  */
 document.addEventListener("alpine:init", () => {
     Alpine.data("promptBox", ({
@@ -28,6 +30,7 @@ document.addEventListener("alpine:init", () => {
         popover: null,
         editingIndex: null,
         repoLoading: false,
+        _repoNeedsRefresh: true,
         branchLoading: false,
         conflictIndex: null,
         _conflictTimer: null,
@@ -36,11 +39,17 @@ document.addEventListener("alpine:init", () => {
         init() {
             this._announceOpen = surfaceGroup.join(() => this.closePopover());
             this.$el.addEventListener("htmx:beforeRequest", (e) => {
-                if (e.target === this.$refs.repoSearch) this.repoLoading = true;
+                if (e.target === this.$refs.repoSearch) {
+                    this.repoLoading = true;
+                    this._repoNeedsRefresh = true;
+                }
                 if (e.target === this.$refs.branchSearch) this.branchLoading = true;
             });
             this.$el.addEventListener("htmx:afterSwap", (e) => {
-                if (e.target === this.$refs.repoPickerList) this.repoLoading = false;
+                if (e.target === this.$refs.repoPickerList) {
+                    this.repoLoading = false;
+                    this._repoNeedsRefresh = false;
+                }
                 if (e.target === this.$refs.branchPickerList) this.branchLoading = false;
             });
             for (const event of ["htmx:sendError", "htmx:responseError"]) {
@@ -51,12 +60,14 @@ document.addEventListener("alpine:init", () => {
         _requestFailed(target) {
             if (target === this.$refs.repoSearch) {
                 this.repoLoading = false;
+                this._repoNeedsRefresh = true;
                 pickerError.showIn(this.$refs.repoPickerList);
             } else if (target === this.$refs.branchSearch) {
                 this.branchLoading = false;
                 pickerError.showIn(this.$refs.branchPickerList);
             } else if (target?.matches?.("[data-picker-sentinel]")) {
                 // `intersect once` is already spent, so reopening the popover is the only retry.
+                this._repoNeedsRefresh = true;
                 target.replaceWith(pickerError.row(target));
             }
         },
@@ -81,12 +92,36 @@ document.addEventListener("alpine:init", () => {
             return this.conflictMessageTemplate.replace("__LABEL__", label);
         },
 
+        get isAddingRepos() {
+            return this.maxRepos > 1 && this.editingIndex === null;
+        },
+
+        isRepoSelected(slug) {
+            return this.repos.some((repo) => repo.slug === slug);
+        },
+
+        selectedBranches(slug, defaultLabel) {
+            return this.repos.filter((repo) => repo.slug === slug)
+                .map((repo) => repo.ref || defaultLabel).join(", ");
+        },
+
+        canSelectRepo(slug, defaultBranch) {
+            return (this.editingIndex !== null || this.repos.length < this.maxRepos) &&
+                this._findConflict(slug, defaultBranch || "", this.editingIndex, defaultBranch || "") === -1;
+        },
+
         openRepoPicker(index = null) {
             this.editingIndex = index;
-            this.repoLoading = true;
             this.popover = "repo";
             this._announceOpen();
-            this.$nextTick(() => this._refresh(this.$refs.repoSearch));
+            this.$nextTick(() => {
+                const input = this.$refs.repoSearch;
+                if (!input) return;
+                input.focus({ preventScroll: true });
+                if (!this._repoNeedsRefresh || this.repoLoading) return;
+                this.repoLoading = true;
+                window.htmx.trigger(input, "refresh");
+            });
         },
 
         openBranchPicker(index) {
@@ -126,16 +161,19 @@ document.addEventListener("alpine:init", () => {
 
         setRepo(slug, defaultBranch) {
             const ref = defaultBranch || "";
-            const conflict = this._findConflict(slug, ref, this.editingIndex);
+            const conflict = this._findConflict(slug, ref, this.editingIndex, ref);
             if (conflict !== -1) {
                 this._flagConflict(conflict);
-                this.closePopover();
+                if (!this.isAddingRepos) this.closePopover();
                 return;
             }
+            if (this.editingIndex === null && this.repos.length >= this.maxRepos) return;
+            const keepOpen = this.isAddingRepos;
             const entry = { slug, ref };
             if (this.editingIndex === null) this.repos.push(entry);
             else this.repos.splice(this.editingIndex, 1, entry);
-            this.closePopover();
+            if (keepOpen) this.$nextTick(() => this.$refs.repoSearch?.focus({ preventScroll: true }));
+            else this.closePopover();
             this._emitChange();
         },
 
@@ -166,9 +204,10 @@ document.addEventListener("alpine:init", () => {
             this._emitChange();
         },
 
-        _findConflict(slug, ref, skipIndex) {
+        _findConflict(slug, ref, skipIndex, defaultBranch = "") {
+            // Stored empty refs mean the default branch; repo rows tell us its actual name.
             return this.repos.findIndex(
-                (r, i) => i !== skipIndex && r.slug === slug && (r.ref || "") === (ref || ""),
+                (r, i) => i !== skipIndex && r.slug === slug && (r.ref || defaultBranch) === (ref || defaultBranch),
             );
         },
 

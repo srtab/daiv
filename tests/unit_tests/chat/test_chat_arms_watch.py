@@ -24,6 +24,8 @@ async def _drive(stream_events: list, *, checkpoint: dict) -> list[dict]:
     """Run a whole turn over a canned AG-UI event stream that ends on ``checkpoint``; return the watch-arm calls."""
 
     class _FakeAguiAgent:
+        graph_stream = None
+
         def __init__(self, **kwargs):
             pass
 
