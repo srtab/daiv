@@ -1062,10 +1062,10 @@ class TestShippedDetectorCharters:
         stems = {p.stem for p in CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")}
         assert stems == set(CODE_REVIEW_DETECTOR_NAMES)
 
-    def test_charters_carry_precision_gate_and_report_contract(self):
-        # The charters are self-contained, so the precision blocks live inside each file: the >=80
-        # gate, the severity subset for that dimension, the read-only and scope rules, and the report
-        # sentinels. Each charter now owns its own dimension-specific wording, so this is the only
+    def test_charters_carry_confidence_scoring_and_report_contract(self):
+        # The charters are self-contained, so the contract blocks live inside each file: the 0-100
+        # confidence score, the severity subset for that dimension, the read-only and scope rules, and the
+        # report sentinels. Each charter now owns its own dimension-specific wording, so this is the only
         # test standing between a charter edit and a detector whose output the orchestrator cannot
         # classify.
         from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
@@ -1080,9 +1080,11 @@ class TestShippedDetectorCharters:
 
         for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")):
             body = md.read_text(encoding="utf-8")
-            # Each charter names its own finding noun before the threshold clause, so only the
+            # Each charter names its own finding noun before the scoring clause, so only the
             # clause itself is common across the five.
-            assert "confidence 80 or higher." in body, f"{md.name} lost the >=80 reporting threshold sentence"
+            assert "with a confidence from 0 to 100. A later step filters by confidence" in body, (
+                f"{md.name} lost the report-every-finding confidence sentence"
+            )
             assert "## Severity" in body, f"{md.name} lost the severity rubric"
 
             present = {label for label in ("Critical", "Important", "Suggestion") if f"- **{label}**" in body}
@@ -1128,7 +1130,7 @@ class TestShippedDetectorCharters:
     def test_charters_share_the_lines_the_aggregator_keys_on(self):
         # Every charter section is dimension-specific prose now, so nothing is byte-identical
         # between them — but the aggregator still reads five reports on one scale. What has to stay
-        # common is the machine-readable surface: the 0-100/>=80 gate sentence, the entry headers,
+        # common is the machine-readable surface: the 0-100 confidence sentence, the entry headers,
         # the fields the orchestrator strips or sections on, and the two terminal sentinels it
         # classifies results by. Asserted as an intersection over all five so a charter rewrite that
         # rewords any of them for one dimension alone fails here instead of silently producing a
@@ -1142,13 +1144,16 @@ class TestShippedDetectorCharters:
         assert len(charters) == 5
         shared = set.intersection(*charters.values())
 
-        # The >=80 gate sentence is shared, but neither its step number nor its lead-in is:
+        # The confidence sentence is shared, but neither its step number nor its lead-in is:
         # cr-custom-rules carries an extra rule-source protocol step, and each charter names
-        # its own finding noun ("Report only regressions introduced by the change and
-        # confidence 80 or higher"). Assert the threshold clause, not the whole line.
-        gate = "confidence 80 or higher."
+        # its own finding noun ("Report every regression whose cost model is complete, with a
+        # confidence from 0 to 100. ..."). Assert the scoring clause, not the whole line.
+        scoring = (
+            "with a confidence from 0 to 100. A later step filters by confidence, "
+            "so do not withhold a finding because its confidence is low."
+        )
         for name, lines in charters.items():
-            assert any(line.endswith(gate) for line in lines), f"{name} lost the >=80 reporting threshold gate sentence"
+            assert any(line.endswith(scoring) for line in lines), f"{name} lost the confidence scoring sentence"
 
         for line in (
             # Section headings the charters are structured by.
@@ -1159,7 +1164,7 @@ class TestShippedDetectorCharters:
             "### <Severity>: <one-line title>",
             "### Question: <one-line subject>",
             # Fields the orchestrator strips (Confidence) or anchors on (Location).
-            "- **Confidence:** <80–100>",
+            "- **Confidence:** <0–100>",
             "- **Location:** `path/to/file.py:42` or `path/to/file.py:42 (deleted)`",
             "- **Location:** `path/to/file.py:42`",
             # The two terminal sentinels step 5 classifies a detector's result by, each with the
@@ -1183,6 +1188,19 @@ class TestShippedDetectorCharters:
             assert graded <= {"Critical", "Important", "Suggestion"}, (
                 f"{md.name} grades severities the orchestrator cannot order: {graded}"
             )
+
+    def test_only_the_orchestrator_filters_on_confidence(self):
+        # A detector-side cutoff on top of the orchestrator's makes literal models under-report.
+        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
+
+        for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")):
+            body = md.read_text(encoding="utf-8")
+            assert "80 or higher" not in body, f"{md.name} names a confidence cutoff; only SKILL.md step 5 may"
+            assert "<80–100>" not in body, f"{md.name} caps the reported confidence range"
+            assert "high-confidence" not in body, f"{md.name} gates a grade on confidence"
+
+        skill = (CODE_REVIEW_AGENTS_PATH.parent / "SKILL.md").read_text(encoding="utf-8")
+        assert "dropping findings with confidence below 80" in skill, "SKILL.md step 5 lost the confidence filter"
 
 
 class TestBuiltinCodeReviewDetectors:
