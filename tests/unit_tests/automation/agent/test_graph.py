@@ -214,6 +214,15 @@ async def test_the_empty_reply_retry_runs_inside_the_reminder_middlewares():
     assert middleware.index(step_budget) < retry
 
 
+async def test_the_step_budget_counts_the_built_graphs_supersteps_per_turn():
+    with patch("automation.agent.graph.supersteps_per_turn", return_value=4) as count:
+        built = await _build(_disk_workspace())
+    [step_budget] = [m for m in _middleware(built) if isinstance(m, StepBudgetMiddleware)]
+
+    count.assert_called_once_with(built.create_deep_agent.return_value)
+    assert step_budget.steps_per_turn == 4
+
+
 async def test_ask_user_is_enabled_by_default():
     built = await _build(_disk_workspace())
 

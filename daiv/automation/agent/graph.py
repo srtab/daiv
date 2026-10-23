@@ -42,7 +42,7 @@ from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMidd
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
-from automation.agent.middlewares.step_budget import StepBudgetMiddleware
+from automation.agent.middlewares.step_budget import StepBudgetMiddleware, supersteps_per_turn
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
@@ -256,6 +256,7 @@ async def create_daiv_agent(
     subagents.extend(custom_subagents)
 
     deferred_tools = deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools)
+    step_budget = StepBudgetMiddleware()
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         # Replaces the FilesystemMiddleware create_deep_agent would auto-add: 0.7 merges custom
@@ -295,7 +296,7 @@ async def create_daiv_agent(
         # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
         # and discard work — the failure mode StepBudget guards against.
         LoopBreakerMiddleware(terminal="finalize"),
-        StepBudgetMiddleware(),
+        step_budget,
         ContextUsageMiddleware(),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
@@ -334,9 +335,7 @@ async def create_daiv_agent(
         debug=debug,
         name="DAIV Agent",
     )
-    # recursion_limit counts graph supersteps, not model turns. With every per-turn
-    # middleware implemented via wrap_model_call (zero extra nodes), one model+tools cycle
-    # costs 2 supersteps, so the default 500 ≈ 250 tool-call turns. Registering a
-    # before_model/after_model hook adds a node to EVERY cycle and silently shrinks that
-    # budget (3 steps/turn ≈ 165 turns) — keep per-turn hooks out of the stack.
+    # recursion_limit counts supersteps, not turns: each before_model/after_model hook adds one to every
+    # turn on top of the model and tools nodes, so a new hook shrinks the turn budget.
+    step_budget.steps_per_turn = supersteps_per_turn(deep_agent)
     return deep_agent.with_config({"recursion_limit": settings.recursion_limit})

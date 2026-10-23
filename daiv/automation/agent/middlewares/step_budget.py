@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from langchain.agents.middleware import AgentMiddleware
 from langgraph.config import get_config
@@ -13,15 +13,15 @@ if TYPE_CHECKING:
 
     from langchain.agents.middleware import ModelRequest, ModelResponse
     from langchain.agents.middleware.types import ModelCallResult
+    from langgraph.pregel import Pregel
 
 logger = logging.getLogger("daiv.agent")
 
-# One model/tools cycle costs 2 supersteps as long as no per-turn hook middleware
-# (`before_model`/`after_model`) is registered — keep them out of the per-turn path.
-STEPS_PER_TURN = 2
+MODEL_AND_TOOLS_STEPS = 2
+PER_TURN_HOOKS = (".before_model", ".after_model")
 
-WARN_REMAINING_STEPS = 40
-FINALIZE_REMAINING_STEPS = 16
+WARN_REMAINING_TURNS = 20
+FINALIZE_REMAINING_TURNS = 8
 
 BUDGET_WARNING = (
     "<system-reminder>"
@@ -41,6 +41,12 @@ BUDGET_FINALIZE = (
 )
 
 type Band = Literal["warn", "finalize"]
+
+
+def supersteps_per_turn(graph: Pregel[Any, Any, Any, Any]) -> int:
+    """Supersteps one model/tools turn costs in ``graph``: the model and tools nodes plus one node per
+    ``before_model``/``after_model`` hook, which run on every turn."""
+    return MODEL_AND_TOOLS_STEPS + sum(name.endswith(PER_TURN_HOOKS) for name in graph.nodes)
 
 
 class StepBudgetMiddleware(AgentMiddleware):
@@ -69,14 +75,18 @@ class StepBudgetMiddleware(AgentMiddleware):
     there. ``create_daiv_agent`` binds per-run state (sandbox, checkpointer, context) into the
     middleware stack, so the agent — and this instance — is necessarily rebuilt per invocation;
     the baseline and the bands already sent thus reset each run without needing a graph node.
+
+    The bands are measured in turns. A turn costs ``steps_per_turn`` supersteps, which
+    ``create_daiv_agent`` sets from the built graph (see :func:`supersteps_per_turn`).
     """
 
     def __init__(
-        self, warn_remaining_steps: int = WARN_REMAINING_STEPS, finalize_remaining_steps: int = FINALIZE_REMAINING_STEPS
+        self, warn_remaining_turns: int = WARN_REMAINING_TURNS, finalize_remaining_turns: int = FINALIZE_REMAINING_TURNS
     ):
         super().__init__()
-        self.warn_remaining_steps = warn_remaining_steps
-        self.finalize_remaining_steps = finalize_remaining_steps
+        self.warn_remaining_turns = warn_remaining_turns
+        self.finalize_remaining_turns = finalize_remaining_turns
+        self.steps_per_turn = MODEL_AND_TOOLS_STEPS
         # Absolute ``langgraph_step`` this run started at, captured lazily on the first model
         # call; consumption is then measured relative to it (see class docstring).
         self._baseline_step: int | None = None
@@ -118,22 +128,23 @@ class StepBudgetMiddleware(AgentMiddleware):
             consumed = 0
 
         remaining = limit - consumed
+        turns = remaining // self.steps_per_turn
         band: Band
-        if remaining <= self.finalize_remaining_steps:
+        if turns <= self.finalize_remaining_turns:
             band, template = "finalize", BUDGET_FINALIZE
-        elif remaining <= self.warn_remaining_steps:
+        elif turns <= self.warn_remaining_turns:
             band, template = "warn", BUDGET_WARNING
         else:
             return None
         if band in self._sent_bands:
             return None
 
-        turns = max(remaining // STEPS_PER_TURN, 1)
         logger.info(
-            "Run has consumed %d of %d supersteps (%d remaining); injecting %s budget reminder.",
+            "Run has consumed %d of %d supersteps (%d remaining, %d per turn); injecting %s budget reminder.",
             consumed,
             limit,
             remaining,
+            self.steps_per_turn,
             band,
         )
-        return band, template.format(turns=turns)
+        return band, template.format(turns=max(turns, 1))

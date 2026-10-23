@@ -1,12 +1,13 @@
 from unittest.mock import patch
 
 import pytest
-from langchain.agents.middleware import ModelRequest
+from langchain.agents import create_agent
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, TodoListMiddleware
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 
-from automation.agent.middlewares.step_budget import StepBudgetMiddleware
+from automation.agent.middlewares.step_budget import StepBudgetMiddleware, supersteps_per_turn
 from automation.agent.synthetic import is_synthetic
 
 
@@ -27,15 +28,21 @@ def _patched_config(recursion_limit: int | None, step: int | None):
     return patch("automation.agent.middlewares.step_budget.get_config", return_value=_config(recursion_limit, step))
 
 
-def _middleware(baseline: int | None = 0) -> StepBudgetMiddleware:
+def _middleware(baseline: int | None = 0, steps_per_turn: int = 2) -> StepBudgetMiddleware:
     """A fresh middleware whose run started at ``baseline`` (default 0, i.e. a fresh thread).
 
     ``None`` leaves the baseline uncaptured so the next ``_budget_reminder`` call records it,
     mirroring the lazy capture on the first model call of a run.
     """
-    middleware = StepBudgetMiddleware(warn_remaining_steps=40, finalize_remaining_steps=16)
+    middleware = StepBudgetMiddleware(warn_remaining_turns=20, finalize_remaining_turns=8)
+    middleware.steps_per_turn = steps_per_turn
     middleware._baseline_step = baseline
     return middleware
+
+
+class _BeforeModelHook(AgentMiddleware):
+    async def abefore_model(self, state, runtime):
+        return None
 
 
 class TestStepBudgetMiddleware:
@@ -56,6 +63,20 @@ class TestStepBudgetMiddleware:
             band, text = _middleware()._budget_reminder()
         assert band == "finalize"
         assert "NOW" in text
+
+    def test_counts_turns_at_the_graph_superstep_cost(self):
+        # 60 supersteps left at 4 per turn is 15 turns: inside the warning band, which counting
+        # 2 per turn (30 turns) would miss.
+        with _patched_config(recursion_limit=500, step=440):
+            band, text = _middleware(steps_per_turn=4)._budget_reminder()
+        assert band == "warn"
+        assert "15 tool-call turns" in text
+
+    def test_finalize_band_is_measured_in_turns(self):
+        with _patched_config(recursion_limit=500, step=468):
+            band, text = _middleware(steps_per_turn=4)._budget_reminder()
+        assert band == "finalize"
+        assert "at most 8 tool-call turns" in text
 
     def test_no_reminder_without_recursion_limit_in_config(self):
         with _patched_config(recursion_limit=None, step=470):
@@ -181,3 +202,17 @@ class TestStepBudgetMiddleware:
             response = await middleware.awrap_model_call(_request(), handler)
 
         assert is_synthetic(response.result[0])
+
+
+class TestSuperstepsPerTurn:
+    def test_model_and_tools_only(self):
+        graph = create_agent(model=GenericFakeChatModel(messages=iter([])), tools=[])
+
+        assert supersteps_per_turn(graph) == 2
+
+    def test_each_model_hook_adds_a_superstep(self):
+        graph = create_agent(
+            model=GenericFakeChatModel(messages=iter([])), middleware=[TodoListMiddleware(), _BeforeModelHook()]
+        )
+
+        assert supersteps_per_turn(graph) == 4
