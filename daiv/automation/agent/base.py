@@ -25,43 +25,41 @@ if TYPE_CHECKING:
 CLAUDE_MAX_TOKENS = 16_384
 
 # Every thinking-capable Claude model, declared once: native Anthropic name, OpenRouter
-# slug, and whether it belongs to the adaptive-thinking generation. Both spellings are
+# slug, and the API rules that differ by generation. Both spellings are
 # spelled out rather than derived from each other — a future naming scheme would silently
 # mint a wrong slug. Names are matched as prefixes, so dated variants (e.g.
 # ``claude-opus-5-20260101``) are covered.
 _CLAUDE_MODELS = (
-    # (anthropic name, openrouter slug, adaptive thinking)
-    ("claude-sonnet-4-5", "anthropic/claude-sonnet-4.5", False),
-    ("claude-sonnet-4-6", "anthropic/claude-sonnet-4.6", False),
-    ("claude-sonnet-5", "anthropic/claude-sonnet-5", True),
-    ("claude-opus-4-5", "anthropic/claude-opus-4.5", False),
-    ("claude-opus-4-6", "anthropic/claude-opus-4.6", False),
-    ("claude-opus-4-7", "anthropic/claude-opus-4.7", True),
-    ("claude-opus-4-8", "anthropic/claude-opus-4.8", True),
-    ("claude-opus-5", "anthropic/claude-opus-5", True),
-    ("claude-haiku-4-5", "anthropic/claude-haiku-4.5", False),
-    ("claude-haiku-5", "anthropic/claude-haiku-5", True),
-    ("claude-fable-5", "anthropic/claude-fable-5", True),
+    # (anthropic name, openrouter slug, adaptive thinking, rejects sampling params, xhigh effort)
+    ("claude-sonnet-4-5", "anthropic/claude-sonnet-4.5", False, False, False),
+    ("claude-sonnet-4-6", "anthropic/claude-sonnet-4.6", True, False, False),
+    ("claude-sonnet-5", "anthropic/claude-sonnet-5", True, True, True),
+    ("claude-opus-4-5", "anthropic/claude-opus-4.5", False, False, False),
+    ("claude-opus-4-6", "anthropic/claude-opus-4.6", True, False, False),
+    ("claude-opus-4-7", "anthropic/claude-opus-4.7", True, True, True),
+    ("claude-opus-4-8", "anthropic/claude-opus-4.8", True, True, True),
+    ("claude-opus-5", "anthropic/claude-opus-5", True, True, True),
+    ("claude-haiku-4-5", "anthropic/claude-haiku-4.5", False, False, False),
+    ("claude-haiku-5", "anthropic/claude-haiku-5", True, True, True),
+    ("claude-fable-5", "anthropic/claude-fable-5", True, True, True),
 )
 
-CLAUDE_THINKING_MODELS = tuple(name for native, slug, _ in _CLAUDE_MODELS for name in (native, slug))
+CLAUDE_THINKING_MODELS = tuple(name for native, slug, *_ in _CLAUDE_MODELS for name in (native, slug))
 
-# Opus 4.7 and every later generation removed the manual extended-thinking config:
-# ``thinking={"type": "enabled", "budget_tokens": N}`` returns a 400
-# ("`thinking.type.enabled` is not supported for this model. Use `thinking.type.adaptive`
-# and `output_config.effort` to control thinking behavior."). Thinking depth is driven by
-# the effort level instead. Derived from the table so it cannot drift out of
-# ``CLAUDE_THINKING_MODELS``: the adaptive branch is only reachable for thinking-capable
-# models, so a model listed here but not there would silently get no thinking at all.
+# 4.6 deprecates ``budget_tokens`` in favour of adaptive thinking + ``output_config.effort``;
+# 4.7+ rejects it with a 400.
 CLAUDE_ADAPTIVE_THINKING_MODELS = tuple(
-    name for native, slug, adaptive in _CLAUDE_MODELS if adaptive for name in (native, slug)
+    name for native, slug, adaptive, _, _ in _CLAUDE_MODELS if adaptive for name in (native, slug)
 )
 
-# The same generation also removed the sampling parameters — sending ``temperature``
-# returns a 400 ``invalid_request_error``. Dropping sampling params and dropping manual
-# thinking are two distinct API rules that currently cover exactly the same models; if
-# they ever diverge, give this its own column in ``_CLAUDE_MODELS``.
-CLAUDE_NO_TEMPERATURE_MODELS = CLAUDE_ADAPTIVE_THINKING_MODELS
+CLAUDE_NO_TEMPERATURE_MODELS = tuple(
+    name for native, slug, _, no_sampling, _ in _CLAUDE_MODELS if no_sampling for name in (native, slug)
+)
+
+# Opus/Sonnet 4.6 accept ``max`` but not ``xhigh``, which arrived with Opus 4.7.
+CLAUDE_XHIGH_EFFORT_MODELS = tuple(
+    name for native, slug, _, _, xhigh in _CLAUDE_MODELS if xhigh for name in (native, slug)
+)
 
 OPENAI_GPT6_MODELS = ("gpt-6", "openai/gpt-6")
 
@@ -86,7 +84,7 @@ ANTHROPIC_STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
 
 
 # Shared by Anthropic's ``output_config.effort`` and OpenAI's ``reasoning_effort``: neither
-# accepts our ``minimal``, so it down-maps to ``low``. ``max`` is intentionally unused.
+# accepts our ``minimal``, so it down-maps to ``low``. ``max`` only stands in for ``xhigh``.
 _EFFORT_BY_LEVEL = {
     ThinkingLevel.MINIMAL: "low",
     ThinkingLevel.LOW: "low",
@@ -130,19 +128,22 @@ def _apply_anthropic_thinking(kw: dict, thinking_level: ThinkingLevel | None, mo
     # Keep the per-level output ceiling on both paths: with adaptive thinking there is no
     # client-side budget, so max_tokens is the only ceiling and thinking is billed against it.
     kw["max_tokens"] = max_tokens
+    # Anthropic requires temperature=1 while thinking; _apply_temperature_support strips it on 4.7+.
+    kw["temperature"] = 1
 
     if model_name.startswith(CLAUDE_ADAPTIVE_THINKING_MODELS):
-        # ``display`` must be requested explicitly: it defaults to "omitted" on these
+        # ``display`` must be requested explicitly: it defaults to "omitted" on 4.7+
         # models, which streams thinking blocks with empty text, so the reasoning never
         # reaches DAIV at all — live AG-UI events and reloaded transcripts alike end up
         # with nothing to show. ``effort`` is langchain-anthropic's shorthand for
         # ``output_config.effort`` and takes precedence over any output_config we or
         # with_structured_output pass, so it can't be clobbered by the ``format`` key.
         kw["thinking"] = {"type": "adaptive", "display": "summarized"}
-        kw["effort"] = _EFFORT_BY_LEVEL[thinking_level]
+        effort = _EFFORT_BY_LEVEL[thinking_level]
+        if effort == "xhigh" and not model_name.startswith(CLAUDE_XHIGH_EFFORT_MODELS):
+            effort = "max"
+        kw["effort"] = effort
     else:
-        # Anthropic requires temperature=1 when manual thinking is enabled.
-        kw["temperature"] = 1
         kw["thinking"] = {"type": "enabled", "budget_tokens": budget}
 
 
