@@ -61,7 +61,7 @@ box (``_command_menu.html``).
 
   <form @submit.prevent="submit()"
         class="chat-composer"
-        :class="{ 'chat-composer--sending': (streaming || resuming) }">
+        :class="{ 'chat-composer--sending': (streaming || resuming || waiting) }">
 
     <button type="button"
             class="chat-jump"
@@ -84,7 +84,7 @@ box (``_command_menu.html``).
               :aria-expanded="slashMenuOpen"
               :aria-activedescendant="slashMenuOpen ? 'chat-command-option-' + slashIndex : null"
               rows="1"
-              :disabled="(streaming || resuming)"
+              :disabled="(streaming || resuming || waiting)"
               placeholder="{% translate 'Describe the change, the bug, or what to explore…' %}"
               class="chat-composer__textarea"></textarea>
 

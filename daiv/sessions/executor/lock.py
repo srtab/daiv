@@ -42,6 +42,14 @@ def session_in_flight(session: Session, runs: Iterable[Run]) -> bool:
     return any(run.status not in RunStatus.terminal() for run in runs) and session.last_active_at >= stale_cutoff()
 
 
+def session_waiting_since(session: Session, runs: Iterable[Run]) -> datetime | None:
+    """When ``session``'s oldest waiting run was created, while it is in flight with no run started; else ``None``."""
+    runs = list(runs)
+    if not session_in_flight(session, runs) or any(run.status == RunStatus.RUNNING for run in runs):
+        return None
+    return min(run.created_at for run in runs if run.status in RunStatus.waiting())
+
+
 @dataclass(frozen=True)
 class LiveRun:
     """The run a session page can stream: ``id`` is the slot holder's relay id, ``stoppable`` is whether the

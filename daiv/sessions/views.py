@@ -37,7 +37,7 @@ from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
-from sessions.executor.lock import live_run_for, session_in_flight
+from sessions.executor.lock import live_run_for, session_in_flight, session_waiting_since
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
@@ -305,7 +305,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "turns": [],
                 "expired": False,
                 "watch_only": False,
-                "awaiting_transcript": False,
+                "waiting_since": "",
                 "active_run_id": "",
                 "live_run_id": "",
                 "live_run_started_at": "",
@@ -346,7 +346,8 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         # AND no failed run whose prompt/marker annotate_transcript could recover.
         ctx["expired"] = no_state and not turns
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
-        ctx["awaiting_transcript"] = is_in_flight and not turns
+        waiting_since = session_waiting_since(session, runs)
+        ctx["waiting_since"] = waiting_since.isoformat() if waiting_since else ""
         ctx["turns"] = turns if hydrated.messages else turns + artifact_turns(runs)
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request

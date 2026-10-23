@@ -159,6 +159,7 @@
     unrecorded: "{count} turns with unrecorded usage",
     cached: "cached",
     output: "output",
+    waiting: "Waiting in queue",
   };
 
   const formatBraces = (template, values) =>
@@ -382,6 +383,7 @@
     draftRef: "",
     streaming: false,
     resuming: !!config.activeRunId,
+    waitingSince: config.waitingSince || "",
     runStoppable: config.liveRunStoppable ?? true,
     _source: null,
     _activeRun: null,
@@ -653,7 +655,8 @@
       });
     },
 
-    applyPolledTurns(turns) {
+    applyPolledTurns(turns, waitingSince = "") {
+      this.waitingSince = waitingSince || "";
       // While a stream is attached it owns ``turns``; swapping the array would detach
       // the streaming placeholder and hide live output.
       if (this.streaming || this.resuming) return;
@@ -805,6 +808,7 @@
     // server-reported start so a rejoined run doesn't restart at 0.
     followLiveRun({ id, stoppable, started_at }) {
       if (this.streaming) return;
+      this.waitingSince = "";
       this.runStoppable = stoppable;
       this.resuming = true;
       this.runStartedAt = Date.parse(started_at || "") || Date.now();
@@ -966,7 +970,12 @@
 
     // ---------- Derived getters (right rail) ---------------------------
 
+    get waiting() {
+      return !!this.waitingSince;
+    },
+
     get runStatus() {
+      if (this.waiting) return { tone: "idle", label: this._labels.waiting };
       const last = this.turns[this.turns.length - 1];
       if (last?.role === "run_status") {
         return last.status === "aborted"
@@ -1391,7 +1400,7 @@
     // ---------- User actions ------------------------------------------
 
     canSend(text = this.draftMessage) {
-      if (!text.trim()) return false;
+      if (!text.trim() || this.waiting) return false;
       if (this.thread) return true;
       return !!(this.draftRepoId && this.draftRef);
     },
