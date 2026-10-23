@@ -81,6 +81,7 @@ def agent_stack(
         else disk_ctx(repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5)),
         checkpointer=SimpleNamespace(aget_tuple=AsyncMock(return_value=last_checkpoint)),
         armed=[],
+        live_calls=[],
         resolve=resolve or MagicMock(return_value=resolved_to("claude-4-7-opus", "fallback", thinking_level="medium")),
         site=site or site_snapshot(),
     )
@@ -110,8 +111,18 @@ def agent_stack(
             stack.events.append("watch armed")
             await super().aarm_after_run(**kwargs)
 
+    async def _ainvoke_live(agent, graph_input, *, config, context, recursion_limit, run_relay):
+        stack.live_calls.append(
+            SimpleNamespace(run_relay=run_relay, recursion_limit=recursion_limit, graph_input=graph_input)
+        )
+        return await agent.ainvoke(graph_input, config=config, context=context)
+
     with (
         stub_sandbox_spec() as build_spec,
+        patch("sessions.live.publisher.ainvoke_live", _ainvoke_live),
+        patch(
+            "core.redis.redis_connections.build_async_client", return_value=MagicMock(aclose=AsyncMock())
+        ) as build_client,
         patch("automation.agent.context.set_runtime_ctx", context or _set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer", _open_checkpointer),
         patch.object(site_settings, "snapshot", return_value=stack.site) as snapshot,
@@ -134,6 +145,7 @@ def agent_stack(
         ),
     ):
         stack.build_spec = build_spec
+        stack.build_client = build_client
         stack.snapshot = snapshot
         stack.create_agent = create_agent
         stack.build_servers = build_servers

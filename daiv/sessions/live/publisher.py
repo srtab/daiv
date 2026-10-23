@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -28,6 +29,18 @@ if TYPE_CHECKING:
     from .relay import RunRelay
 
 logger = logging.getLogger("daiv.sessions")
+
+_driving_live_run: contextvars.ContextVar[bool] = contextvars.ContextVar("driving_live_run", default=False)
+
+
+class _DropReraisedRunFailure(logging.Filter):
+    """ag-ui logs a failed run itself; ``ainvoke_live`` re-raises it to the executor, which reports it once."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not (_driving_live_run.get() and record.msg == "LangGraph run failed")
+
+
+logging.getLogger("ag_ui_langgraph.agent").addFilter(_DropReraisedRunFailure())
 
 
 class LiveRunError(Exception):
@@ -81,6 +94,7 @@ async def ainvoke_live(
         forwarded_props={},
     )
     run_error = None
+    token = _driving_live_run.set(True)
     try:
         async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(run_input))) as events:
             async for event in events:
@@ -89,6 +103,7 @@ async def ainvoke_live(
                     event = RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
                 publishing = publishing and await _attempt(run_relay, publish_event(run_relay, event))
     finally:
+        _driving_live_run.reset(token)
         if publishing:
             await _attempt(run_relay, run_relay.publish_end())
     if outcome.error is not None:

@@ -1,5 +1,6 @@
 import contextlib
 import json
+import logging
 import time
 from dataclasses import dataclass
 from unittest.mock import patch
@@ -218,3 +219,25 @@ async def test_a_reused_holder_id_starts_a_clean_stream():
     entries = await _entries(run_relay)
     assert not entries[0].is_end
     assert [entry.is_end for entry in entries].count(True) == 1
+
+
+async def test_ag_ui_does_not_report_a_failure_the_executor_reraises(caplog):
+    class FailingModel(GenericFakeChatModel):
+        async def _astream(self, *args, **kwargs):
+            raise RuntimeError("boom")
+            yield
+
+        async def _agenerate(self, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    with caplog.at_level("ERROR"), pytest.raises(RuntimeError, match="boom"):
+        await _live(_agent(model=FailingModel(messages=iter([]))), [HumanMessage(content="hi")], _relay())
+
+    assert [r for r in caplog.records if r.name == "ag_ui_langgraph.agent" and r.levelname == "ERROR"] == []
+
+
+def test_ag_ui_failure_log_still_reaches_chat(caplog):
+    with caplog.at_level("ERROR"):
+        logging.getLogger("ag_ui_langgraph.agent").error("LangGraph run failed")
+
+    assert [r.name for r in caplog.records] == ["ag_ui_langgraph.agent"]

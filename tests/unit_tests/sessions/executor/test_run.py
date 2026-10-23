@@ -119,6 +119,58 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
     assert agent.ainvoke.call_args.kwargs == {"config": stack.langsmith.return_value, "context": stack.ctx}
 
 
+async def test_a_session_run_streams_under_its_slots_holder_id():
+    agent = _agent()
+    spec = make_spec(lock=Held(holder_id="h-1"))
+
+    with agent_stack(agent) as stack:
+        await execute_run(spec)
+
+    (call,) = stack.live_calls
+    assert call.run_relay.thread_id == spec.thread_id
+    assert call.run_relay.run_id == "h-1"
+    assert call.recursion_limit == stack.resolve.return_value.recursion_limit
+    agent.ainvoke.assert_awaited_once()
+
+
+async def test_a_one_shot_run_invokes_without_streaming():
+    agent = _agent()
+
+    with agent_stack(agent) as stack:
+        await execute_run(make_spec(thread_id=None, lock=NoLock()))
+
+    assert stack.live_calls == []
+    agent.ainvoke.assert_awaited_once()
+
+
+async def test_a_session_run_without_a_relay_still_runs():
+    agent = _agent()
+
+    with agent_stack(agent) as stack:
+        stack.build_client.side_effect = RuntimeError("requires Redis")
+        outcome = await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    assert stack.live_calls == []
+    agent.ainvoke.assert_awaited_once()
+    assert outcome.response_text == "done"
+
+
+@pytest.mark.parametrize("error", [None, RuntimeError("boom")])
+async def test_the_worker_closes_the_redis_client_it_built(error):
+    agent = _agent()
+    agent.ainvoke = AsyncMock(return_value={"messages": [MagicMock(content="done")]}, side_effect=error)
+
+    with agent_stack(agent) as stack:
+        if error is None:
+            await execute_run(make_spec(lock=Held(holder_id="h-1")))
+        else:
+            with pytest.raises(RuntimeError, match="boom"):
+                await execute_run(make_spec(lock=Held(holder_id="h-1")))
+
+    stack.build_client.assert_called_once_with(socket_timeout=5.0)
+    stack.build_client.return_value.aclose.assert_awaited_once()
+
+
 async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     agent = _agent(state={"merge_request": None})
     on_success = AsyncMock()

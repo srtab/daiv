@@ -77,14 +77,14 @@ class RedisConnections:
             socket_timeout=SOCKET_TIMEOUT_S,
         )
 
-    def build_async_client(self) -> aioredis.Redis:
+    def build_async_client(self, *, socket_timeout: float | None = None) -> aioredis.Redis:
         return aioredis.Redis.from_url(
             self._url_or_raise(),
             decode_responses=True,
             socket_connect_timeout=CONNECT_TIMEOUT_S,
             # redis-py 8.0 defaults ``socket_timeout`` to 5s, which would cut short the
             # blocking reads below; keep it unbounded to preserve the wait they ask for.
-            socket_timeout=None,
+            socket_timeout=socket_timeout,
         )
 
 

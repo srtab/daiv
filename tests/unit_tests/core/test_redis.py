@@ -42,3 +42,8 @@ class TestRedisConnections:
         settings.DJANGO_REDIS_URL = "redis://localhost:6379/0"
         options = RedisConnections().async_client().connection_pool.connection_kwargs
         assert options.get("socket_timeout") is None
+
+    def test_a_caller_can_give_the_async_client_a_read_deadline(self, settings):
+        settings.DJANGO_REDIS_URL = "redis://localhost:6379/0"
+        options = RedisConnections().build_async_client(socket_timeout=5.0).connection_pool.connection_kwargs
+        assert options["socket_timeout"] == 5.0

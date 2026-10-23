@@ -28,7 +28,9 @@ step sits where it does:
    ``publish_artifact`` files land on the bound run. A session thread whose checkpoint expired is first seeded from its
    archive (``sessions.archive.arestore_thread``), unless the run resets it (``/clear``: ``resets_thread``, beside
    ``skips_sandbox``); a context that fails to restore fails the run there, as a setup error. The agent is then
-   invoked, or handed to ``stream_run``'s stream factory, whose events are yielded as they come. Between its events, at
+   invoked (a session run through ``sessions.live.publisher.ainvoke_live`` under its slot's holder id, so its page
+   streams it; a one-shot run plainly), or handed to ``stream_run``'s stream factory, whose events are yielded as
+   they come. Between its events, at
    most every ``run.STREAM_HEARTBEAT_INTERVAL_S``, a stream heartbeats its slot and asks ``should_stop``: a slot a stale
    takeover reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one
    closes the stream (the trigger's generator), abandoning the graph run inside it. If the agent or its stream raises (a
