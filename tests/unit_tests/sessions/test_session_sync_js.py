@@ -25,6 +25,8 @@ let now = 0;
 let timers = [];
 let nextId = 1;
 const responses = [];
+const pending = [];
+let hold = false;
 
 const sandbox = {
   document: { addEventListener: (name, cb) => { if (name === "alpine:init") cb(); } },
@@ -33,10 +35,11 @@ const sandbox = {
   setInterval: (fn, ms) => { const id = nextId++; timers.push({ id, fn, ms, at: now + ms }); return id; },
   clearInterval: (id) => { timers = timers.filter((t) => t.id !== id); },
   location: { reload: () => { reloads += 1; } },
-  fetch: async (url) => {
+  fetch: (url) => {
     fetches.push(url);
-    const body = responses.shift();
-    return { ok: true, status: 200, json: async () => body };
+    const reply = (body) => ({ ok: true, status: 200, json: async () => body });
+    if (!hold) return Promise.resolve(reply(responses.shift()));
+    return new Promise((resolve) => pending.push((body) => resolve(reply(body))));
   },
 };
 sandbox.window = sandbox;
@@ -56,6 +59,8 @@ sync.init();
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 for (const [action, value] of steps) {
   if (action === "respond") responses.push(value);
+  else if (action === "hold") hold = true;
+  else if (action === "release") pending[value[0]](value[1]);
   else if (action === "event") sandbox.dispatchEvent(new sandbox.CustomEvent(value, { detail: {} }));
   else if (action === "advance") {
     const end = now + value;
@@ -96,6 +101,18 @@ def test_a_new_holder_is_handed_to_the_chat():
     assert [e["type"] for e in result["events"]] == ["daiv:session-turns", "daiv:session-live-run"]
     assert result["events"][1]["detail"] == {"id": "r2", "stoppable": False}
     assert result["fetches"] == 1
+
+
+def test_a_poll_landing_after_the_handoff_is_dropped():
+    handoff = {"active": True, "live_run": {"id": "r2", "stoppable": True}, "turns": []}
+    late = {"active": True, "live_run": None, "turns": [{"id": "stale"}]}
+
+    result = _run(
+        {"liveRunId": ""},
+        [["hold", None], ["advance", 5000], ["advance", 5000], ["release", [1, handoff]], ["release", [0, late]]],
+    )
+
+    assert [e["type"] for e in result["events"]] == ["daiv:session-turns", "daiv:session-live-run"]
 
 
 def test_the_finished_run_is_not_followed_again():

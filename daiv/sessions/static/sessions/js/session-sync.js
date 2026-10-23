@@ -5,6 +5,7 @@ document.addEventListener("alpine:init", () => {
     _followed: liveRunId || "",
     _timer: null,
     _failures: 0,
+    _seq: 0,
     // Stop polling after this many consecutive failures so a persistent error
     // (endpoint 500s, auth expired) doesn't poll forever in the background.
     _maxFailures: 5,
@@ -24,6 +25,7 @@ document.addEventListener("alpine:init", () => {
       if (!this._timer) this._timer = setInterval(() => this.poll(), 5000);
     },
     _stop() {
+      this._seq += 1;
       if (this._timer) clearInterval(this._timer);
       this._timer = null;
     },
@@ -35,6 +37,7 @@ document.addEventListener("alpine:init", () => {
       }
     },
     async poll() {
+      const token = ++this._seq;
       try {
         const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
         if (!res.ok) {
@@ -42,6 +45,7 @@ document.addEventListener("alpine:init", () => {
           return;
         }
         const data = await res.json();
+        if (token !== this._seq) return;
         this._failures = 0;
         window.dispatchEvent(new CustomEvent("daiv:session-turns", { detail: data }));
         if (!data.active) {

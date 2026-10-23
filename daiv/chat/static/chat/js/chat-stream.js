@@ -654,11 +654,11 @@
     },
 
     applyPolledTurns(turns) {
-      // Background (non-chat) runs — schedules, webhooks, UI jobs — execute
-      // detached and never publish to the chat relay, so there is no live stream
-      // to join. The detail page polls the turns endpoint instead and re-emits
-      // the WHOLE transcript here every few seconds. Reassigning ``turns`` re-runs
-      // every x-html/x-text binding (re-rendered markdown, re-highlighted code,
+      // While a stream is attached it owns ``turns``; swapping the array would detach
+      // the streaming placeholder and hide live output.
+      if (this.streaming || this.resuming) return;
+      // The poller re-emits the WHOLE transcript every few seconds. Reassigning ``turns``
+      // re-runs every x-html/x-text binding (re-rendered markdown, re-highlighted code,
       // repaint) even when nothing changed — the visible every-poll flicker. Skip
       // the swap when the transcript is byte-identical to what we already show, so
       // steady-state polls during a long-running tool are free; only a genuine
@@ -1517,6 +1517,7 @@
         this._pushRunStatus("failed", "Connection lost — please retry.");
       } finally {
         this._finishTurn(assistantTurn, reason);
+        window.dispatchEvent(new CustomEvent("daiv:live-run-ended", { detail: { runId: body.runId } }));
       }
     },
 

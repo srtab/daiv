@@ -177,6 +177,49 @@ def test_a_rejoined_run_announces_its_end():
     assert result["ended"] == [{"runId": "r2"}]
 
 
+def test_polled_turns_do_not_replace_the_array_while_streaming():
+    body = """
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
+const original = [{ id: "placeholder", role: "assistant", segments: [], streaming: true }];
+chat.turns = original;
+chat.$nextTick = (cb) => cb();
+chat.streaming = true;
+chat.applyPolledTurns([{ id: "polled", role: "assistant", segments: [] }]);
+process.stdout.write(JSON.stringify({ same: chat.turns === original }));
+"""
+    result = run_chat_stream(body, {})
+
+    assert result == {"same": True}
+
+
+def test_a_run_started_here_announces_its_end():
+    body = """
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
+chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+chat.draftMessage = "hello";
+chat.$nextTick = (cb) => cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+
+const done = chat.submit();
+await new Promise((resolve) => setTimeout(resolve, 0));
+const streamingBeforeEnd = chat.streaming;
+opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+await done;
+
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended");
+process.stdout.write(JSON.stringify({ streamingBeforeEnd, ended: ended.length, hasRun: !!ended[0]?.detail.runId }));
+"""
+    result = run_chat_stream(
+        body,
+        {},
+        prelude=PRELUDE,
+        extra_globals="EventSource: FakeEventSource, setTimeout, fetch: async () => ({ ok: true }),",
+    )
+
+    assert result == {"streamingBeforeEnd": True, "ended": 1, "hasRun": True}
+
+
 def test_following_is_ignored_while_a_run_streams_here():
     body = """
 const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
