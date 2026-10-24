@@ -132,12 +132,14 @@ class FakeSandboxClient:
     ``close_session`` is idempotent, and ``update_egress`` 409s on a session started without egress.
 
     ``responses`` maps a command substring to ``(exit_code, output)``; the first match wins and
-    unmatched commands succeed with empty output, except git's ``MERGE_HEAD`` check, which finds no merge.
+    unmatched commands succeed with empty output, except git's ``MERGE_HEAD`` check, which finds no merge, and
+    ``rev-parse HEAD``, which prints a sha.
     """
 
     def __init__(self, responses: dict[str, tuple[int, str]] | None = None) -> None:
         self.responses = dict(responses or {})
         self.responses.setdefault("rev-parse -q --verify MERGE_HEAD", (1, ""))
+        self.responses.setdefault("rev-parse HEAD", (0, "f" * 40))
         self.sessions: dict[str, FakeSandboxSession] = {}
         self.calls: list[tuple[str, tuple]] = []
         self.commands: list[str] = []

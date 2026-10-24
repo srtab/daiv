@@ -31,7 +31,8 @@ class RepoStatus:
     diff: str
     """The branch's whole delta: the working tree against its merge-base with the base branch."""
     uncommitted_diff: str
-    """The working tree against ``HEAD``: what ``commit_all`` would commit."""
+    """The working tree against ``HEAD``: what ``commit_all`` would commit. Empty while a merge is pending, whose
+    commit takes git's merge subject."""
     remote_branches: list[str]
     has_unpushed: bool
 
@@ -201,10 +202,11 @@ class GitManager:
         """Collect everything the publisher needs in exactly two sandbox round-trips.
 
         Batch A: working-tree status, merge-base of ``origin/<base_branch>`` and ``HEAD``, untracked
-        file list, remote branch list, and — when ``mr_source_branch`` is given —
+        file list, remote branch list, ``HEAD``'s SHA, and — when ``mr_source_branch`` is given —
         ``origin/<mr_source_branch>..HEAD``. Batch B (always): the working-tree diff against the
         resolved merge-base SHA (or the branch tip when there is no common ancestor), the one against
-        ``HEAD``, plus one ``diff --no-index`` per untracked file. Replaces the previous is_dirty/get_diff/has_unpushed/
+        ``HEAD`` when that differs from the merge-base and no merge is pending, plus one
+        ``diff --no-index`` per untracked file. Replaces the previous is_dirty/get_diff/has_unpushed/
         remote_branches sequence (~5+U round-trips) with exactly 2. Diffing the merge-base (rather
         than the branch tip) yields the branch's own delta only; tip diffing sweeps unrelated commits
         in when the branch is stacked off a moving target.
@@ -217,6 +219,7 @@ class GitManager:
             ("merge-base", f"origin/{base_branch}", "HEAD", *([merge_head] if merge_head else [])),
             ("ls-files", "--others", "--exclude-standard"),
             ("ls-remote", "--heads", "origin"),
+            ("rev-parse", "HEAD"),
         ]
         log_idx = -1
         if mr_source_branch:
@@ -224,7 +227,7 @@ class GitManager:
             log_idx = len(batch_a) - 1
 
         res = await self._git_batch(batch_a)
-        status_res, mergebase_res, untracked_res, lsremote_res = res[0], res[1], res[2], res[3]
+        status_res, mergebase_res, untracked_res, lsremote_res, head_res = res[:5]
 
         # status/ls-files use the same exit-code discipline as before.
         self._require_ok(batch_a[0], status_res)
@@ -249,17 +252,23 @@ class GitManager:
         if lsremote_res.exit_code != 0:
             _raise_for_transport_failure(list(batch_a[3]), lsremote_res)
         self._require_ok(batch_a[3], lsremote_res)
+        head = self._sha_from(batch_a[4], self._require_ok(batch_a[4], head_res))
 
-        # Batch B: the working-tree diff against the resolved base and against HEAD, plus one diff --no-index per
-        # untracked file. The main diff depends on the merge-base from batch A, so batch B always runs.
+        # Batch B: the working-tree diff against the resolved base, against HEAD unless HEAD is that base or a merge is
+        # pending, and one diff --no-index per untracked file. It needs the merge-base from batch A, so it always runs.
         untracked = self._nonempty_lines(untracked_res.output)
-        diff_specs: list[tuple[str, ...]] = [("diff", base_ref), ("diff", "HEAD")]
+        diffs_head = merge_head is None and base_ref != head
+        diff_specs: list[tuple[str, ...]] = [("diff", base_ref), *([("diff", "HEAD")] if diffs_head else [])]
         diff_specs += [("diff", "--no-index", "/dev/null", f) for f in untracked]
-        base_diff_res, head_diff_res, *untracked_diff_res = await self._git_batch(diff_specs)
+        base_diff_res, *other_diff_res = await self._git_batch(diff_specs)
         self._require_ok(diff_specs[0], base_diff_res)
-        self._require_ok(diff_specs[1], head_diff_res)
-        diff = self._append_untracked(base_diff_res.output, untracked, untracked_diff_res)
-        uncommitted_diff = self._append_untracked(head_diff_res.output, untracked, untracked_diff_res)
+        head_diff_res = other_diff_res.pop(0) if diffs_head else None
+        diff = self._append_untracked(base_diff_res.output, untracked, other_diff_res)
+        if head_diff_res is not None:
+            self._require_ok(diff_specs[1], head_diff_res)
+            uncommitted_diff = self._append_untracked(head_diff_res.output, untracked, other_diff_res)
+        else:
+            uncommitted_diff = "" if merge_head else diff
 
         if log_idx >= 0:
             log_res = res[log_idx]
