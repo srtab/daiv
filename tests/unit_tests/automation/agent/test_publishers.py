@@ -42,6 +42,7 @@ def _fake_git_manager(
     *,
     dirty: bool = True,
     diff: str = "diff",
+    uncommitted_diff: str = "uncommitted diff",
     remote_branches=("main",),
     has_unpushed: bool = True,
     pending_merge: PendingMerge | None = None,
@@ -56,7 +57,11 @@ def _fake_git_manager(
     gm.pending_merge = AsyncMock(return_value=pending_merge)
     gm.status_snapshot = AsyncMock(
         return_value=RepoStatus(
-            dirty=dirty, diff=diff, remote_branches=list(remote_branches), has_unpushed=has_unpushed
+            dirty=dirty,
+            diff=diff,
+            uncommitted_diff=uncommitted_diff,
+            remote_branches=list(remote_branches),
+            has_unpushed=has_unpushed,
         )
     )
     gm.commit_all = AsyncMock()
@@ -747,7 +752,8 @@ class TestPublishThroughTheWorkspace:
         gm = _fake_git_manager()
         gm.status_snapshot = AsyncMock(
             side_effect=lambda **_kw: (
-                order.append("snapshot") or RepoStatus(dirty=False, diff="", remote_branches=[], has_unpushed=False)
+                order.append("snapshot")
+                or RepoStatus(dirty=False, diff="", uncommitted_diff="", remote_branches=[], has_unpushed=False)
             )
         )
 
@@ -1079,7 +1085,9 @@ class TestPublishSuggestsContextFile:
 
             # Second call: clean tree, no diff versus base → publish short-circuits, and the
             # outcome carries no fallback source.
-            gm.status_snapshot.return_value = RepoStatus(dirty=False, diff="", remote_branches=[], has_unpushed=False)
+            gm.status_snapshot.return_value = RepoStatus(
+                dirty=False, diff="", uncommitted_diff="", remote_branches=[], has_unpushed=False
+            )
             second = await publisher.publish(merge_request=None)
             assert second.protected_branch_fallback_source is None
 
@@ -1203,6 +1211,21 @@ class TestPublishDecision:
         meta.assert_called_once()  # proceeded past the clean short-circuit
         gm.push_head_to.assert_awaited_once_with("feat/x", integrate_on_reject=True, skip_ci=False)
         assert outcome == PublishOutcome(merge_request=mr, published=True, diff_stats=_LOCAL_STATS)
+
+    async def test_commit_message_describes_only_the_uncommitted_work(self):
+        """A later turn's commit must not be named after the earlier commits already on the branch."""
+        publisher = _make_publisher()
+        gm = _fake_git_manager(diff="whole branch", uncommitted_diff="this turn")
+        _use_git_manager(publisher, gm)
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()) as meta,
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            await publisher.publish(merge_request=None)
+
+        assert meta.call_args.kwargs["commit_message_diff"] == "this turn"
+        assert meta.call_args.kwargs["pr_metadata_diff"] == "whole branch"
 
     async def test_diffs_against_default_branch_when_no_mr(self, monkeypatch):
         publisher = _make_publisher()

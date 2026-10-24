@@ -202,7 +202,7 @@ class GitChangePublisher:
         pr_metadata_diff = (
             snapshot.diff if merge_request is None or (merge_request.draft and as_draft is False) else None
         )
-        commit_message_diff = snapshot.diff if dirty and pending_merge is None else None
+        commit_message_diff = snapshot.uncommitted_diff if dirty and pending_merge is None else None
         changes_metadata = (
             await self._diff_to_metadata(
                 pr_metadata_diff=pr_metadata_diff, commit_message_diff=commit_message_diff, agent_summary=agent_summary

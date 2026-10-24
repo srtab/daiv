@@ -29,6 +29,9 @@ class RepoStatus:
 
     dirty: bool
     diff: str
+    """The branch's whole delta: the working tree against its merge-base with the base branch."""
+    uncommitted_diff: str
+    """The working tree against ``HEAD``: what ``commit_all`` would commit."""
     remote_branches: list[str]
     has_unpushed: bool
 
@@ -200,8 +203,8 @@ class GitManager:
         Batch A: working-tree status, merge-base of ``origin/<base_branch>`` and ``HEAD``, untracked
         file list, remote branch list, and — when ``mr_source_branch`` is given —
         ``origin/<mr_source_branch>..HEAD``. Batch B (always): the working-tree diff against the
-        resolved merge-base SHA (or the branch tip when there is no common ancestor), plus one
-        ``diff --no-index`` per untracked file. Replaces the previous is_dirty/get_diff/has_unpushed/
+        resolved merge-base SHA (or the branch tip when there is no common ancestor), the one against
+        ``HEAD``, plus one ``diff --no-index`` per untracked file. Replaces the previous is_dirty/get_diff/has_unpushed/
         remote_branches sequence (~5+U round-trips) with exactly 2. Diffing the merge-base (rather
         than the branch tip) yields the branch's own delta only; tip diffing sweeps unrelated commits
         in when the branch is stacked off a moving target.
@@ -247,14 +250,16 @@ class GitManager:
             _raise_for_transport_failure(list(batch_a[3]), lsremote_res)
         self._require_ok(batch_a[3], lsremote_res)
 
-        # Batch B: the working-tree diff against the resolved base, plus one diff --no-index per
+        # Batch B: the working-tree diff against the resolved base and against HEAD, plus one diff --no-index per
         # untracked file. The main diff depends on the merge-base from batch A, so batch B always runs.
         untracked = self._nonempty_lines(untracked_res.output)
-        diff_specs: list[tuple[str, ...]] = [("diff", base_ref)]
+        diff_specs: list[tuple[str, ...]] = [("diff", base_ref), ("diff", "HEAD")]
         diff_specs += [("diff", "--no-index", "/dev/null", f) for f in untracked]
-        batch_b = await self._git_batch(diff_specs)
-        self._require_ok(diff_specs[0], batch_b[0])
-        diff = self._append_untracked(batch_b[0].output, untracked, batch_b[1:])
+        base_diff_res, head_diff_res, *untracked_diff_res = await self._git_batch(diff_specs)
+        self._require_ok(diff_specs[0], base_diff_res)
+        self._require_ok(diff_specs[1], head_diff_res)
+        diff = self._append_untracked(base_diff_res.output, untracked, untracked_diff_res)
+        uncommitted_diff = self._append_untracked(head_diff_res.output, untracked, untracked_diff_res)
 
         if log_idx >= 0:
             log_res = res[log_idx]
@@ -274,6 +279,7 @@ class GitManager:
         return RepoStatus(
             dirty=bool(status_res.output.strip()),
             diff=diff,
+            uncommitted_diff=uncommitted_diff,
             remote_branches=self._parse_remote_branches(lsremote_res.output),
             has_unpushed=has_unpushed,
         )
