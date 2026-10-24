@@ -390,13 +390,22 @@ def test_is_push_stale_error_text_matches_each_marker(output: str, expected: boo
 # ---------------------------------------------------------------------------
 
 
-_HEAD_SHA = "a" * 40
-
-
 def _resp(*outputs_and_codes):
     return RunCommandsResponse(
         results=[RunCommandResult(command="git", exit_code=code, output=out) for out, code in outputs_and_codes]
     )
+
+
+def _batch_a(
+    *,
+    status: str = "",
+    merge_base: tuple[str, int] = ("mb123\n", 0),
+    untracked: str = "",
+    log: tuple[str, int] | None = None,
+) -> list[tuple[str, int]]:
+    """Batch A's results in command order: status, merge-base, ls-files, ls-remote, rev-parse HEAD, then the MR log."""
+    outputs = [(status, 0), merge_base, (untracked, 0), ("abc\trefs/heads/main\n", 0), (FakeSandboxClient.HEAD_SHA, 0)]
+    return [*outputs, log] if log else outputs
 
 
 def _backend_for(client) -> SandboxFileBackend:
@@ -407,10 +416,9 @@ async def test_status_snapshot_diffs_against_merge_base_in_batch_b() -> None:
     client = MagicMock()
     client.run_commands = AsyncMock(
         side_effect=[
-            # batch A: status, merge-base -> SHA, ls-files, ls-remote, rev-parse HEAD, log
-            _resp(("", 0), ("mb123\n", 0), ("", 0), ("abc\trefs/heads/main\n", 0), (_HEAD_SHA, 0), ("", 0)),
-            # batch B: the working-tree diff against the merge-base SHA, then against HEAD
-            _resp(("", 0), ("", 0)),
+            _resp(*_batch_a(log=("", 0))),
+            # batch B: the working-tree diff against the merge-base SHA
+            _resp(("", 0)),
         ]
     )
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
@@ -422,18 +430,12 @@ async def test_status_snapshot_diffs_against_merge_base_in_batch_b() -> None:
     assert any("merge-base origin/main HEAD" in c for c in batch_a.commands)
     batch_b = client.run_commands.await_args_list[1].args[1]
     assert "diff mb123" in batch_b.commands[0]
-    assert "diff HEAD" in batch_b.commands[1]
 
 
 async def test_status_snapshot_falls_back_to_tip_when_no_merge_base(caplog) -> None:
     """A merge-base exit 1 (unrelated histories) falls back to diffing origin/<base> tip, with a warning."""
     client = MagicMock()
-    client.run_commands = AsyncMock(
-        side_effect=[
-            _resp(("", 0), ("", 1), ("", 0), ("abc\trefs/heads/main\n", 0), (_HEAD_SHA, 0)),
-            _resp(("", 0), ("", 0)),
-        ]
-    )
+    client.run_commands = AsyncMock(side_effect=[_resp(*_batch_a(merge_base=("", 1))), _resp(("", 0))])
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
     with caplog.at_level(logging.WARNING, logger="daiv.tools"):
         snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
@@ -446,12 +448,7 @@ async def test_status_snapshot_falls_back_to_tip_when_no_merge_base(caplog) -> N
 async def test_status_snapshot_falls_back_to_tip_on_empty_merge_base_output() -> None:
     """merge-base exit 0 but no SHA (anomalous) falls back to the tip rather than an empty ref."""
     client = MagicMock()
-    client.run_commands = AsyncMock(
-        side_effect=[
-            _resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), (_HEAD_SHA, 0)),
-            _resp(("", 0), ("", 0)),
-        ]
-    )
+    client.run_commands = AsyncMock(side_effect=[_resp(*_batch_a(merge_base=("", 0))), _resp(("", 0))])
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert snap.diff == ""
@@ -463,11 +460,7 @@ async def test_status_snapshot_raises_on_merge_base_hard_failure() -> None:
     """A merge-base failure that is NOT "no common ancestor" (exit 128, bad/missing ref) must surface
     rather than be mislabeled as unrelated histories and swept into the tip fallback."""
     client = MagicMock()
-    client.run_commands = AsyncMock(
-        return_value=_resp(
-            ("", 0), ("fatal: Not a valid object name", 128), ("", 0), ("abc\trefs/heads/main\n", 0), (_HEAD_SHA, 0)
-        )
-    )
+    client.run_commands = AsyncMock(return_value=_resp(*_batch_a(merge_base=("fatal: Not a valid object name", 128))))
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
     with pytest.raises(GitCommandError) as exc_info:
         await gm.status_snapshot(base_branch="main", mr_source_branch=None)
@@ -479,12 +472,7 @@ async def test_status_snapshot_raises_on_merge_base_hard_failure() -> None:
 async def test_status_snapshot_raises_when_batch_b_main_diff_fails() -> None:
     """The main working-tree diff moved to batch B; a non-zero exit there must still raise."""
     client = MagicMock()
-    client.run_commands = AsyncMock(
-        side_effect=[
-            _resp(("", 0), ("mb123\n", 0), ("", 0), ("abc\trefs/heads/main\n", 0), (_HEAD_SHA, 0)),
-            _resp(("fatal: bad object", 128), ("", 0)),
-        ]
-    )
+    client.run_commands = AsyncMock(side_effect=[_resp(*_batch_a()), _resp(("fatal: bad object", 128))])
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
     with pytest.raises(GitCommandError) as exc_info:
         await gm.status_snapshot(base_branch="main", mr_source_branch=None)
@@ -496,7 +484,7 @@ async def test_status_snapshot_folds_untracked_into_batch_b() -> None:
     client = MagicMock()
     client.run_commands = AsyncMock(
         side_effect=[
-            _resp(("?? new.py\n", 0), ("mb123\n", 0), ("new.py\n", 0), ("abc\trefs/heads/main\n", 0), (_HEAD_SHA, 0)),
+            _resp(*_batch_a(status="?? new.py\n", untracked="new.py\n")),
             _resp(("", 0), ("", 0), ("+++ b/new.py\n+hello\n", 1)),  # diff <mb>, diff HEAD, diff --no-index new.py
         ]
     )
@@ -506,17 +494,11 @@ async def test_status_snapshot_folds_untracked_into_batch_b() -> None:
     assert "new.py" in snap.diff
     assert "new.py" in snap.uncommitted_diff
     assert client.run_commands.await_count == 2
+    assert "diff HEAD" in client.run_commands.await_args_list[1].args[1].commands[1]
 
 
 async def test_status_snapshot_raises_when_batch_b_head_diff_fails() -> None:
-    client = MagicMock()
-    client.run_commands = AsyncMock(
-        side_effect=[
-            _resp(("", 0), ("mb123\n", 0), ("", 0), ("abc\trefs/heads/main\n", 0), (_HEAD_SHA, 0)),
-            _resp(("", 0), ("fatal: bad object", 128)),
-        ]
-    )
-    gm = GitManager(SandboxGitRunner(_backend_for(client)))
+    gm, _ = _sandbox_manager({"status --porcelain": (0, " M a.py\n"), "diff HEAD": (128, "fatal: bad object")})
     with pytest.raises(GitCommandError) as exc_info:
         await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert "diff HEAD" in str(exc_info.value)
@@ -536,33 +518,27 @@ async def test_status_snapshot_uncommitted_diff_leaves_out_the_branchs_earlier_c
 
 
 async def test_status_snapshot_reuses_the_merge_base_diff_when_head_is_the_merge_base() -> None:
-    client = MagicMock()
-    client.run_commands = AsyncMock(
-        side_effect=[
-            _resp((" M a.py\n", 0), (f"{_HEAD_SHA}\n", 0), ("", 0), ("abc\trefs/heads/main\n", 0), (_HEAD_SHA, 0)),
-            _resp(("+++ b/a.py\n", 0)),
-        ]
-    )
-    gm = GitManager(SandboxGitRunner(_backend_for(client)))
+    head = FakeSandboxClient.HEAD_SHA
+    gm, client = _sandbox_manager({
+        "status --porcelain": (0, " M a.py\n"),
+        "merge-base": (0, f"{head}\n"),
+        f"diff {head}": (0, "+++ b/a.py\n"),
+    })
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert snap.uncommitted_diff == snap.diff == "+++ b/a.py\n"
-    batch_b = client.run_commands.await_args_list[1].args[1].commands
-    assert len(batch_b) == 1
-    assert f"diff {_HEAD_SHA}" in batch_b[0]
+    assert not client.ran("diff HEAD")
 
 
-async def test_status_snapshot_skips_the_head_diff_while_a_merge_is_pending() -> None:
-    client = MagicMock()
-    client.run_commands = AsyncMock(
-        side_effect=[
-            _resp((" M a.py\n", 0), ("mb123\n", 0), ("", 0), ("abc\trefs/heads/main\n", 0), (_HEAD_SHA, 0)),
-            _resp(("+++ b/a.py\n", 0)),
-        ]
-    )
-    gm = GitManager(SandboxGitRunner(_backend_for(client)))
-    snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None, merge_head="b" * 40)
-    assert (snap.diff, snap.uncommitted_diff) == ("+++ b/a.py\n", "")
-    assert len(client.run_commands.await_args_list[1].args[1].commands) == 1
+@pytest.mark.parametrize(
+    "status,merge_head,expected", [("", None, ""), (" M a.py\n", "b" * 40, None)], ids=["clean tree", "pending merge"]
+)
+async def test_status_snapshot_skips_the_head_diff_nobody_reads(
+    status: str, merge_head: str | None, expected: str | None
+) -> None:
+    gm, client = _sandbox_manager({"status --porcelain": (0, status), "merge-base": (0, "mb123\n")})
+    snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None, merge_head=merge_head)
+    assert snap.uncommitted_diff == expected
+    assert not client.ran("diff HEAD")
 
 
 # An empty (hunkless) untracked file sorted before a real one — the fold ordering that made the old
@@ -630,7 +606,7 @@ def test_append_untracked_with_empty_base_has_no_leading_blank_line() -> None:
 async def test_status_snapshot_raises_on_batch_a_command_failure(failing_index: int, command_fragment: str) -> None:
     # A non-zero exit from any *gated* batch-A query must raise rather than parse to a misleading
     # empty value. (merge-base at index 1 is intentionally tolerant and excluded here.)
-    outputs = [("", 0), ("mb123\n", 0), ("", 0), ("abc\trefs/heads/main\n", 0), (_HEAD_SHA, 0)]
+    outputs = _batch_a()
     outputs[failing_index] = ("boom", 128)
     client = MagicMock()
     client.run_commands = AsyncMock(return_value=_resp(*outputs))
@@ -644,16 +620,8 @@ async def test_status_snapshot_raises_on_batch_a_command_failure(failing_index: 
 
 async def test_status_snapshot_has_unpushed_true_when_log_has_output() -> None:
     # mr_source_branch present and `git log origin/<src>..HEAD` returns commits -> has_unpushed True.
-    # Batch A: status, merge-base, ls-files, ls-remote, rev-parse HEAD, log. Batch B: diff <merge-base>, diff HEAD.
     client = MagicMock()
-    client.run_commands = AsyncMock(
-        side_effect=[
-            _resp(
-                ("", 0), ("mb123\n", 0), ("", 0), ("abc\trefs/heads/main\n", 0), (_HEAD_SHA, 0), ("abc123 commit\n", 0)
-            ),
-            _resp(("", 0), ("", 0)),
-        ]
-    )
+    client.run_commands = AsyncMock(side_effect=[_resp(*_batch_a(log=("abc123 commit\n", 0))), _resp(("", 0))])
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
     assert snap.has_unpushed is True
@@ -663,19 +631,7 @@ async def test_status_snapshot_treats_log_failure_as_unpushed() -> None:
     # A non-zero `git log origin/<src>..HEAD` (e.g. an unknown upstream ref) is treated as "all
     # unpushed" rather than raising, mirroring has_unpushed().
     client = MagicMock()
-    client.run_commands = AsyncMock(
-        side_effect=[
-            _resp(
-                ("", 0),
-                ("mb123\n", 0),
-                ("", 0),
-                ("abc\trefs/heads/main\n", 0),
-                (_HEAD_SHA, 0),
-                ("fatal: bad revision", 128),
-            ),
-            _resp(("", 0), ("", 0)),
-        ]
-    )
+    client.run_commands = AsyncMock(side_effect=[_resp(*_batch_a(log=("fatal: bad revision", 128))), _resp(("", 0))])
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
     assert snap.has_unpushed is True
@@ -837,7 +793,7 @@ async def test_status_snapshot_of_a_pending_merge_leaves_the_merged_branch_out_o
 
     assert "mine.txt" in snap.diff
     assert "theirs.txt" not in snap.diff
-    assert snap.uncommitted_diff == ""
+    assert snap.uncommitted_diff is None
 
 
 async def test_integrating_a_rejected_push_keeps_the_merged_branch_commits(tmp_path: Path) -> None:

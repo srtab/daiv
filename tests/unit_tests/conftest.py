@@ -133,13 +133,15 @@ class FakeSandboxClient:
 
     ``responses`` maps a command substring to ``(exit_code, output)``; the first match wins and
     unmatched commands succeed with empty output, except git's ``MERGE_HEAD`` check, which finds no merge, and
-    ``rev-parse HEAD``, which prints a sha.
+    ``rev-parse HEAD``, which prints ``HEAD_SHA``.
     """
+
+    HEAD_SHA = "f" * 40
 
     def __init__(self, responses: dict[str, tuple[int, str]] | None = None) -> None:
         self.responses = dict(responses or {})
         self.responses.setdefault("rev-parse -q --verify MERGE_HEAD", (1, ""))
-        self.responses.setdefault("rev-parse HEAD", (0, "f" * 40))
+        self.responses.setdefault("rev-parse HEAD", (0, self.HEAD_SHA))
         self.sessions: dict[str, FakeSandboxSession] = {}
         self.calls: list[tuple[str, tuple]] = []
         self.commands: list[str] = []
