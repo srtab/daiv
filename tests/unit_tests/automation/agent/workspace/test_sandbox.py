@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from deepagents.backends.composite import CompositeBackend
+from deepagents.backends.protocol import FileDownloadResponse, FileUploadResponse
+from plugins.runtime import ResolvedPlugin
 
 from automation.agent.constants import WORKSPACE_PATH
 from automation.agent.workspace.git_runners import SandboxGitRunner
@@ -94,3 +96,77 @@ async def test_a_sandbox_download_is_capped_inside_the_container():
     (command,) = client.run_commands.call_args.args[1].commands
     assert "-gt 1234 ]" in command
     assert response.error == DOWNLOAD_TOO_LARGE
+
+
+def _plugin(tmp_path, name, files, commit="c1"):
+    root = tmp_path / name
+    for relpath, text in files.items():
+        (root / relpath).parent.mkdir(parents=True, exist_ok=True)
+        (root / relpath).write_text(text)
+    return ResolvedPlugin(name=name, commit=commit, host_root=root, skills=(), agents=())
+
+
+def _plugin_workspace(manifest: bytes | None):
+    workspace = SandboxWorkspace(acquired_session(AsyncMock(), "sid"))
+    workspace.bash = AsyncMock(spec=SandboxFileBackend)
+    workspace.bash.adownload_files.return_value = [
+        FileDownloadResponse(path="m", content=manifest)
+        if manifest is not None
+        else FileDownloadResponse(path="m", error="file_not_found")
+    ]
+    workspace.bash.aupload_files.side_effect = lambda files: [FileUploadResponse(path=p) for p, _ in files]
+    return workspace
+
+
+async def test_sandbox_provision_skips_when_manifest_matches(tmp_path):
+    workspace = _plugin_workspace(b"a@c1\nb@c1")
+
+    errors = await workspace.provision_plugins([
+        _plugin(tmp_path, "b", {"x.md": "x"}),
+        _plugin(tmp_path, "a", {"x.md": "x"}),
+    ])
+
+    assert errors == []
+    workspace.bash.run_commands.assert_not_awaited()
+    workspace.bash.aupload_files.assert_not_awaited()
+
+
+async def test_sandbox_provision_replaces_on_user_change(tmp_path):
+    workspace = _plugin_workspace(b"other@c9")
+    plugin = _plugin(tmp_path, "acme", {"skills/s/SKILL.md": "s", "bin/run.sh": "#!/bin/sh"})
+    (plugin.host_root / "bin/run.sh").chmod(0o755)
+
+    errors = await workspace.provision_plugins([plugin])
+
+    assert errors == []
+    commands = [call.args[0] for call in workspace.bash.run_commands.await_args_list]
+    assert commands[0] == ["rm -rf /workspace/plugins"]
+    assert commands[1] == ["chmod +x /workspace/plugins/acme/bin/run.sh"]
+    uploads = [path for call in workspace.bash.aupload_files.await_args_list for path, _ in call.args[0]]
+    assert uploads == [
+        "/workspace/plugins/acme/bin/run.sh",
+        "/workspace/plugins/acme/skills/s/SKILL.md",
+        "/workspace/plugins/.daiv-manifest",
+    ]
+    assert workspace.bash.aupload_files.await_args_list[-1].args[0][0][1] == b"acme@c1"
+
+
+async def test_sandbox_provision_withholds_manifest_after_upload_error(tmp_path):
+    workspace = _plugin_workspace(None)
+    workspace.bash.aupload_files.side_effect = lambda files: [
+        FileUploadResponse(path=p, error="boom") for p, _ in files
+    ]
+
+    errors = await workspace.provision_plugins([_plugin(tmp_path, "acme", {"a.md": "a"})])
+
+    assert errors == ["Plugin file /workspace/plugins/acme/a.md could not be provisioned: boom"]
+    assert workspace.bash.aupload_files.await_count == 1
+
+
+async def test_sandbox_provision_noop_when_not_ready(tmp_path):
+    workspace = SandboxWorkspace(SandboxSession(FakeSandboxClient.opened(), sandbox_spec()))
+    workspace.bash = AsyncMock(spec=SandboxFileBackend)
+
+    assert await workspace.provision_plugins([_plugin(tmp_path, "acme", {"a.md": "a"})]) == []
+
+    assert workspace.bash.mock_calls == []

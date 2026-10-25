@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
     from deepagents.backends.protocol import BackendProtocol, FileDownloadResponse
     from deepagents.middleware.filesystem import FilesystemPermission
+    from plugins.runtime import ResolvedPlugin
 
     from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
@@ -74,4 +75,9 @@ class Workspace(Protocol):
         """Read one ``/workspace`` file to copy it out of the run. A sandbox refuses a file over ``max_bytes`` with
         ``DOWNLOAD_TOO_LARGE`` before it crosses the wire; a disk read is local and returns the file whole, leaving the
         limit to the caller."""
+        ...
+
+    async def provision_plugins(self, plugins: Sequence[ResolvedPlugin]) -> list[str]:
+        """Make the files of this turn's ``plugins`` (and only those) readable under ``/workspace/plugins/<name>``,
+        returning what could not be provisioned, worded for the agent. A no-op while the workspace is not ready."""
         ...

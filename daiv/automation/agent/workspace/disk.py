@@ -10,7 +10,10 @@ from automation.agent.workspace.git_manager import GitManager
 from automation.agent.workspace.git_runners import LocalGitRunner
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from deepagents.backends.protocol import FileDownloadResponse
+    from plugins.runtime import ResolvedPlugin
 
     from automation.agent.context import RuntimeCtx
 
@@ -33,7 +36,8 @@ class DiskWorkspace:
 
     def __init__(self, ctx: RuntimeCtx) -> None:
         self._ctx = ctx
-        self.backend = build_disk_workspace_backend(Path(ctx.gitrepo.working_dir))
+        self._clone_dir = Path(ctx.gitrepo.working_dir)
+        self.backend = build_disk_workspace_backend(self._clone_dir)
         self.git = GitManager(LocalGitRunner(ctx.gitrepo))
 
     async def authenticated_git(self) -> GitManager:
@@ -45,3 +49,9 @@ class DiskWorkspace:
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         (response,) = await self.backend.adownload_files([path])
         return response
+
+    async def provision_plugins(self, plugins: Sequence[ResolvedPlugin]) -> list[str]:
+        self.backend = build_disk_workspace_backend(
+            self._clone_dir, plugin_roots={plugin.name: plugin.host_root for plugin in plugins}
+        )
+        return []

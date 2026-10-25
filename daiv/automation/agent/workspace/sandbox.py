@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import logging
+import os
+import shlex
 from typing import TYPE_CHECKING
 
 from deepagents.backends.composite import CompositeBackend
+from skills.constants import PLUGINS_PATH
 
 from automation.agent.constants import WORKSPACE_PATH
 from automation.agent.workspace.git_manager import GitManager
@@ -11,11 +14,16 @@ from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from deepagents.backends.protocol import FileDownloadResponse
+    from plugins.runtime import ResolvedPlugin
 
     from automation.agent.workspace.session import SandboxSession
 
 logger = logging.getLogger("daiv.tools")
+
+PLUGINS_MANIFEST_PATH = f"{PLUGINS_PATH}/.daiv-manifest"
 
 
 class SandboxWorkspace:
@@ -68,3 +76,39 @@ class SandboxWorkspace:
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         (response,) = await self.bash.adownload_files([path], max_bytes=max_bytes)
         return response
+
+    async def provision_plugins(self, plugins: Sequence[ResolvedPlugin]) -> list[str]:
+        """Replace ``/workspace/plugins`` with the files of ``plugins``, unless the manifest left there by the last
+        provisioning already names exactly them."""
+        if not self.is_ready:
+            return []
+        manifest = "\n".join(sorted(f"{plugin.name}@{plugin.commit}" for plugin in plugins))
+        (current,) = await self.bash.adownload_files([PLUGINS_MANIFEST_PATH])
+        if current.error is None and current.content == manifest.encode():
+            return []
+
+        await self.bash.run_commands([f"rm -rf {PLUGINS_PATH}"], fail_fast=True)
+        errors: list[str] = []
+        executables: list[str] = []
+        for plugin in plugins:
+            uploads: list[tuple[str, bytes]] = []
+            for host_file in sorted(plugin.host_root.rglob("*")):
+                if host_file.is_symlink() or not host_file.is_file():
+                    continue
+                target = f"{plugin.workspace_root}/{host_file.relative_to(plugin.host_root).as_posix()}"
+                uploads.append((target, host_file.read_bytes()))
+                if os.access(host_file, os.X_OK):
+                    executables.append(target)
+            errors.extend(
+                f"Plugin file {response.path} could not be provisioned: {response.error}"
+                for response in await self.bash.aupload_files(uploads)
+                if response.error
+            )
+        if executables:
+            await self.bash.run_commands(
+                ["chmod +x " + " ".join(shlex.quote(path) for path in executables)], fail_fast=False
+            )
+        if errors:
+            return errors
+        (written,) = await self.bash.aupload_files([(PLUGINS_MANIFEST_PATH, manifest.encode())])
+        return [f"The plugins could not be provisioned: {written.error}"] if written.error else []

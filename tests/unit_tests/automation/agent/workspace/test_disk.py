@@ -2,6 +2,7 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
+from plugins.runtime import ResolvedPlugin
 
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.workspace.disk import DiskWorkspace
@@ -128,3 +129,52 @@ async def test_a_directory_downloads_as_an_error(tmp_path):
 
     assert response.content is None
     assert response.error is not None
+
+
+def _plugin(tmp_path, name, files):
+    root = tmp_path / "revisions" / name
+    for relpath, text in files.items():
+        (root / relpath).parent.mkdir(parents=True, exist_ok=True)
+        (root / relpath).write_text(text)
+    return ResolvedPlugin(name=name, commit="c1", host_root=root, skills=(), agents=())
+
+
+async def test_disk_plugin_route_reads_plugin_file(tmp_path):
+    clone = tmp_path / "repo"
+    clone.mkdir()
+    workspace = DiskWorkspace(_ctx(clone))
+
+    errors = await workspace.provision_plugins([_plugin(tmp_path, "acme", {"skills/x/SKILL.md": "hi\n"})])
+
+    [response] = await workspace.backend.adownload_files(["/workspace/plugins/acme/skills/x/SKILL.md"])
+    assert (errors, response.content) == ([], b"hi\n")
+
+
+async def test_disk_plugin_route_refuses_write(tmp_path):
+    clone = tmp_path / "repo"
+    clone.mkdir()
+    workspace = DiskWorkspace(_ctx(clone))
+    plugin = _plugin(tmp_path, "acme", {"a.md": "hi\n"})
+    await workspace.provision_plugins([plugin])
+
+    write = await workspace.backend.awrite("/workspace/plugins/acme/new.md", "x")
+    edit = await workspace.backend.aedit("/workspace/plugins/acme/a.md", "hi", "yo")
+
+    assert write.error and "read-only" in write.error
+    assert edit.error and "read-only" in edit.error
+    assert not (plugin.host_root / "new.md").exists()
+    assert (plugin.host_root / "a.md").read_text() == "hi\n"
+
+
+async def test_disk_only_given_plugins_are_routed(tmp_path):
+    clone = tmp_path / "repo"
+    clone.mkdir()
+    workspace = DiskWorkspace(_ctx(clone))
+    mine = _plugin(tmp_path, "mine", {"a.md": "mine\n"})
+    _plugin(tmp_path, "theirs", {"a.md": "theirs\n"})
+
+    await workspace.provision_plugins([mine])
+
+    [theirs] = await workspace.backend.adownload_files(["/workspace/plugins/theirs/a.md"])
+    assert theirs.content is None
+    assert theirs.error
