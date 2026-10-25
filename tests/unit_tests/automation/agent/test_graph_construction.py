@@ -123,15 +123,6 @@ def test_parent_stack_includes_loop_breaker_with_finalize_terminal():
     )
 
 
-def test_loop_breaker_registered_before_prompt_caching():
-    # The injected reminder must be visible to AnthropicPromptCachingMiddleware, so the breaker is
-    # registered before it (same rationale as StepBudgetMiddleware).
-    src = inspect.getsource(graph_module)
-    breaker = src.index("LoopBreakerMiddleware(")
-    caching = src.index("AnthropicPromptCachingMiddleware(")
-    assert breaker < caching, "LoopBreakerMiddleware must be registered before AnthropicPromptCachingMiddleware"
-
-
 def test_repository_memory_middleware_registered_after_dynamic_prompt():
     # RepositoryMemoryMiddleware appends to the system prompt, so it must be registered AFTER
     # dynamic_daiv_system_prompt — otherwise it would append to a half-built prompt. rindex targets
@@ -236,6 +227,7 @@ async def _construct(
         bound_config=deep_agent.return_value.with_config.call_args.args[0],
         settings=settings,
         git_middleware=mocks["GitMiddleware"],
+        caching=mocks["AnthropicPromptCachingMiddleware"].return_value,
     )
 
 
@@ -331,11 +323,22 @@ def _verification(middleware: list) -> list[VerificationMiddleware]:
     return [m for m in middleware if isinstance(m, VerificationMiddleware)]
 
 
+async def test_loop_breaker_registered_before_prompt_caching():
+    # The injected reminder must be visible to AnthropicPromptCachingMiddleware, so the breaker is
+    # registered before it (same rationale as StepBudgetMiddleware).
+    built = await _construct()
+
+    [breaker] = [m for m in built.middleware if isinstance(m, LoopBreakerMiddleware)]
+    assert built.middleware.index(breaker) < built.middleware.index(built.caching)
+
+
 async def test_verification_middleware_sits_before_loop_breaker():
     built = await _construct(bash=True, auto_commit_changes=True)
 
     [verification] = _verification(built.middleware)
-    assert isinstance(built.middleware[built.middleware.index(verification) + 1], LoopBreakerMiddleware)
+    breaker = built.middleware[built.middleware.index(verification) + 1]
+    assert isinstance(breaker, LoopBreakerMiddleware)
+    assert verification._loop_breaker is breaker
 
 
 async def test_verification_middleware_absent_without_bash():

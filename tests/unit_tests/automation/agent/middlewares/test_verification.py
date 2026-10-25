@@ -5,12 +5,14 @@ from dataclasses import dataclass, field
 from unittest.mock import Mock
 
 import httpx
+import pytest
 from langchain.agents.middleware import ExtendedModelResponse, ModelRequest
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from automation.agent.constants import REPO_PATH
+from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.verification import VerificationMiddleware
 from automation.agent.synthetic import is_synthetic
@@ -99,13 +101,24 @@ def _scripted(*replies: AIMessage):
 
 
 def _middleware(
-    repo: FakeRepo, commands: tuple[str, ...] = ("make test",), *, finalizing: bool = False
+    repo: FakeRepo, commands: tuple[str, ...] = ("make test",), *, finalizing: bool = False, terminated: bool = False
 ) -> VerificationMiddleware:
     step_budget = Mock(spec=StepBudgetMiddleware)
     step_budget.is_finalizing.return_value = finalizing
+    loop_breaker = LoopBreakerMiddleware(terminal="finalize")
+    loop_breaker.terminated = terminated
     return VerificationMiddleware(
-        workspace=FakeWorkspace(git=repo, bash=repo), commands=commands, step_budget=step_budget
+        workspace=FakeWorkspace(git=repo, bash=repo),
+        commands=commands,
+        step_budget=step_budget,
+        loop_breaker=loop_breaker,
     )
+
+
+async def _fails_on_reminder(request: ModelRequest) -> ModelResponse:
+    if is_synthetic(request.messages[-1]):
+        raise RuntimeError("provider down")
+    return ModelResponse(result=[_final()])
 
 
 def _outcome(result) -> dict:
@@ -255,6 +268,36 @@ async def test_finalizing_budget_records_failure_without_reminder():
     assert len(seen) == 1
 
 
+async def test_loop_broken_run_records_failure_without_reminder():
+    repo = FakeRepo(failing={"make test"})
+    reply = _final("I stopped because I called the same tool repeatedly")
+    handler, seen = _scripted(reply)
+
+    result = await _middleware(repo, terminated=True).awrap_model_call(_request(), handler)
+
+    outcome = _outcome(result)
+    assert outcome["status"] == "failed"
+    assert outcome["rounds"] == 0
+    assert result.model_response.result == [reply]
+    assert len(seen) == 1
+
+
+async def test_failed_reminder_call_keeps_the_round_for_the_retry():
+    repo = FakeRepo(failing={"make test"})
+    middleware = _middleware(repo)
+    with pytest.raises(RuntimeError):
+        await middleware.awrap_model_call(_request(), _fails_on_reminder)
+
+    handler, seen = _scripted(_final(), _final())
+    result = await middleware.awrap_model_call(_request(), handler)
+
+    assert "You have 2 fix round(s) left" in seen[1].messages[-1].content
+    outcome = _outcome(result)
+    assert outcome["status"] == "failed"
+    assert outcome["rounds"] == 1
+    assert repo.stashes == 1
+
+
 async def test_checks_unavailable_records_not_verified():
     repo = FakeRepo(error=httpx.ConnectError("down"))
     reply = _final()
@@ -310,6 +353,28 @@ async def test_without_commands_reminds_once_when_no_check_ran():
     assert "did not run any test" in reminder.content
     assert len(seen) == 2
     assert _outcome(result) == {"status": "not_configured", "commands": [], "rounds": 0, "suspicious_paths": []}
+
+
+async def test_without_commands_no_reminder_after_loop_breaker_ended_the_run():
+    reply = _final()
+    handler, seen = _scripted(reply)
+
+    result = await _middleware(FakeRepo(), (), terminated=True).awrap_model_call(_request(_edited_history()), handler)
+
+    assert result.model_response.result == [reply]
+    assert _outcome(result)["status"] == "not_configured"
+    assert len(seen) == 1
+
+
+async def test_without_commands_failed_reminder_call_keeps_the_reminder_for_the_retry():
+    middleware = _middleware(FakeRepo(), ())
+    with pytest.raises(RuntimeError):
+        await middleware.awrap_model_call(_request(_edited_history()), _fails_on_reminder)
+
+    handler, seen = _scripted(_final(), _final())
+    await middleware.awrap_model_call(_request(_edited_history()), handler)
+
+    assert "did not run any test" in seen[1].messages[-1].content
 
 
 async def test_without_commands_no_reminder_after_passing_check():

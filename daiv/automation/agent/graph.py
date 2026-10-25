@@ -259,13 +259,18 @@ async def create_daiv_agent(
 
     deferred_tools = deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools)
     step_budget = StepBudgetMiddleware()
+    # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
+    # and discard work — the failure mode StepBudget guards against.
+    loop_breaker = LoopBreakerMiddleware(terminal="finalize")
     verification: list[AgentMiddleware[Any, Any, Any]] = []
     if settings.features.verification and auto_commit_changes and bash_tool_enabled:
         before_publish = resolve_before_publish(
             repo=ctx.config, sandbox_default=ctx.sandbox.before_publish if ctx.sandbox else None
         )
         verification.append(
-            VerificationMiddleware(workspace=workspace, commands=before_publish, step_budget=step_budget)
+            VerificationMiddleware(
+                workspace=workspace, commands=before_publish, step_budget=step_budget, loop_breaker=loop_breaker
+            )
         )
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
@@ -304,9 +309,7 @@ async def create_daiv_agent(
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
         *verification,
-        # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
-        # and discard work — the failure mode StepBudget guards against.
-        LoopBreakerMiddleware(terminal="finalize"),
+        loop_breaker,
         step_budget,
         ContextUsageMiddleware(),
         AnthropicPromptCachingMiddleware(),

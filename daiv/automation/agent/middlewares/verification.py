@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from langchain_core.messages import AnyMessage, BaseMessage
     from langgraph.runtime import Runtime
 
+    from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
     from automation.agent.middlewares.step_budget import StepBudgetMiddleware
     from automation.agent.verification.outcome import CommandOutcome, VerificationStatus
     from automation.agent.workspace.base import Workspace
@@ -106,9 +107,10 @@ class VerificationMiddleware(AgentMiddleware):
     With ``before_publish`` commands, the system prompt lists them, and each time the agent stops with something to
     publish DAIV runs them in the sandbox. A command that fails is re-run once on the starting code; one that already
     failed there is reported, not sent back. The other failures, and any file the checks themselves changed, go back to
-    the agent as a reminder, for at most ``MAX_FIX_ROUNDS`` rounds and none once the step budget is finalizing. A tree
-    the checks already ran on is not checked again. Without commands, the agent gets one reminder when it edited files
-    and ran no check after its last edit, or the last one failed.
+    the agent as a reminder, for at most ``MAX_FIX_ROUNDS`` rounds. A tree the checks already ran on is not checked
+    again. Without commands, the agent gets one reminder when it edited files and ran no check after its last edit, or
+    the last one failed. No reminder is sent once the step budget is finalizing or ``LoopBreakerMiddleware`` has ended
+    the run: the outcome is still recorded.
 
     The outcome is recorded in the ``verification`` state key for the publish and the run executor. Like
     ``LoopBreakerMiddleware`` this lives in ``awrap_model_call``, so it adds no graph node per turn; each reminder is
@@ -118,11 +120,19 @@ class VerificationMiddleware(AgentMiddleware):
         workspace: The run's workspace; its ``bash`` runs the checks and its ``git`` reads the tree.
         commands: The ``before_publish`` commands; empty when the repository declares none.
         step_budget: The run's step budget, asked whether a fix round still fits.
+        loop_breaker: The run's loop breaker, whose terminal stop must not be reopened.
     """
 
     state_schema = VerificationState
 
-    def __init__(self, *, workspace: Workspace, commands: tuple[str, ...], step_budget: StepBudgetMiddleware) -> None:
+    def __init__(
+        self,
+        *,
+        workspace: Workspace,
+        commands: tuple[str, ...],
+        step_budget: StepBudgetMiddleware,
+        loop_breaker: LoopBreakerMiddleware,
+    ) -> None:
         super().__init__()
         if workspace.bash is None:
             raise ValueError("VerificationMiddleware needs a workspace with a shell")
@@ -130,6 +140,7 @@ class VerificationMiddleware(AgentMiddleware):
         self._bash: SandboxFileBackend = workspace.bash
         self._commands = commands
         self._step_budget = step_budget
+        self._loop_breaker = loop_breaker
         self._reset()
 
     def _reset(self) -> None:
@@ -165,8 +176,21 @@ class VerificationMiddleware(AgentMiddleware):
                 return ExtendedModelResponse(model_response=response, command=Command(update={"verification": outcome}))
             message = synthetic_message(reminder, kind="verification")
             reply = await handler(request.override(messages=[*history, message]))
+            self._count_reminder(outcome)
             response = replace(reply, result=[*response.result, message, *reply.result])
         return response
+
+    def _may_remind(self) -> bool:
+        return not self._loop_breaker.terminated and not self._step_budget.is_finalizing()
+
+    def _count_reminder(self, outcome: VerificationOutcome) -> None:
+        """Record a reminder the agent got. Called only once the call carrying it returned, so a call retried after a
+        model error (``ModelFallbackMiddleware``) sends the same reminder again."""
+        if self._commands:
+            self._rounds = outcome["rounds"]
+            self._last_outcome = outcome
+        else:
+            self._fallback_sent = True
 
     async def _verify(self, changed: list[str]) -> tuple[VerificationOutcome, str | None]:
         """The outcome of the checks on the current tree, and the reminder to send when the agent gets another round."""
@@ -198,19 +222,18 @@ class VerificationMiddleware(AgentMiddleware):
             return outcome, None
 
         failures = [result for result in results if not result.passed and result.command not in already_failing]
-        reminder = None
-        if (failures or changed_by_checks) and self._rounds < MAX_FIX_ROUNDS and not self._step_budget.is_finalizing():
-            reminder = failure_reminder(failures, changed_by_checks, rounds_left=MAX_FIX_ROUNDS - self._rounds)
-            self._rounds += 1
+        failed = bool(failures or changed_by_checks)
+        remind = failed and self._rounds < MAX_FIX_ROUNDS and self._may_remind()
         outcome = _outcome(
-            "failed" if failures or changed_by_checks else "passed",
+            "failed" if failed else "passed",
             commands=command_outcomes(results, already_failing),
             changed=changed,
             fingerprint=fingerprint,
-            rounds=self._rounds,
+            rounds=self._rounds + 1 if remind else self._rounds,
         )
-        self._last_outcome = outcome
-        return outcome, reminder
+        if not remind:
+            return outcome, None
+        return outcome, failure_reminder(failures, changed_by_checks, rounds_left=MAX_FIX_ROUNDS - self._rounds)
 
     async def _already_failing(self, failing: Sequence[str]) -> frozenset[str]:
         """Which of the ``failing`` commands also fail on the starting code, re-checking each at most once per run."""
@@ -224,9 +247,8 @@ class VerificationMiddleware(AgentMiddleware):
         """The ``not_configured`` outcome, and the run's one reminder when no passing check followed the last edit."""
         reminder = None
         finding = checks_after_last_edit(messages)
-        if finding.verdict != "checked" and not self._fallback_sent and not self._step_budget.is_finalizing():
+        if finding.verdict != "checked" and not self._fallback_sent and self._may_remind():
             reminder = fallback_reminder(finding, changed)
-            self._fallback_sent = True
         outcome = VerificationOutcome(
             status="not_configured", commands=[], rounds=0, suspicious_paths=suspicious_paths(changed)
         )
