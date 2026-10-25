@@ -47,6 +47,8 @@ async def run_checks(bash: SandboxFileBackend, commands: Sequence[str]) -> list[
         )
     except httpx.HTTPError as exc:
         raise ChecksUnavailableError(f"the sandbox could not be reached to run the checks ({exc})") from exc
+    if len(response.results) != len(commands):
+        raise ChecksUnavailableError("the sandbox returned an unexpected number of results")
     return [
         CheckResult(command=command, exit_code=result.exit_code, output_tail=result.output[-OUTPUT_TAIL_CHARS:])
         for command, result in zip(commands, response.results, strict=True)

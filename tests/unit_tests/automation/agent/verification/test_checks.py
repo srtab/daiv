@@ -117,3 +117,9 @@ async def test_failing_before_change_never_pops_when_nothing_was_stashed(fake_ba
 async def test_tree_fingerprint_changes_with_diff(fake_git):
     fake_git.diffs = ["one", "two"]
     assert await tree_fingerprint(fake_git) != await tree_fingerprint(fake_git)
+
+
+async def test_run_checks_raises_unavailable_when_result_count_differs(fake_bash):
+    fake_bash.results = [RunCommandResult(command="cd /workspace/repo && make lint", output="", exit_code=0)]
+    with pytest.raises(ChecksUnavailableError):
+        await run_checks(fake_bash, ["make lint", "make test"])
