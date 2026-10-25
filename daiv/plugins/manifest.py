@@ -254,15 +254,34 @@ def _read_skills(plugin_dir: Path, manifest: dict) -> tuple[list[ItemRef], list[
     return skills, skipped
 
 
-def _read_commands(plugin_dir: Path, skill_names: set[str]) -> tuple[list[ItemRef], list[Skipped]]:
+def _md_files(plugin_dir: Path, bases: list[Path], *, pattern: str | None) -> list[Path]:
+    """The ``.md`` files at ``bases`` inside the plugin; a directory is globbed with ``pattern``, or skipped if None."""
+    found: dict[Path, None] = {}
+    for base in bases:
+        if not _inside(plugin_dir, base):
+            continue
+        if base.is_dir():
+            paths = sorted(base.glob(pattern)) if pattern else []
+        else:
+            paths = [base] if base.suffix == ".md" else []
+        found.update(dict.fromkeys(path for path in paths if path.is_file() and _inside(plugin_dir, path)))
+    return list(found)
+
+
+def _component_bases(plugin_dir: Path, manifest: dict, key: str) -> list[Path] | None:
+    """The plugin.json paths that replace the default ``key`` directory, or None when it doesn't set ``key``."""
+    if manifest.get(key) is None:
+        return None
+    return [plugin_dir / ref for ref in _as_list(manifest[key]) if isinstance(ref, str)]
+
+
+def _read_commands(plugin_dir: Path, manifest: dict, skill_names: set[str]) -> tuple[list[ItemRef], list[Skipped]]:
     commands: list[ItemRef] = []
     skipped: list[Skipped] = []
-    commands_dir = plugin_dir / "commands"
-    if not commands_dir.is_dir():
-        return commands, skipped
-    for path in sorted(commands_dir.rglob("*.md")):
-        if not path.is_file() or not _inside(plugin_dir, path):
-            continue
+    if isinstance(manifest.get("commands"), dict):
+        skipped.append(Skipped("command", "plugin.json object form not supported"))
+    bases = _component_bases(plugin_dir, manifest, "commands")
+    for path in _md_files(plugin_dir, [plugin_dir / "commands"] if bases is None else bases, pattern="**/*.md"):
         stem = path.stem
         try:
             meta, body = _parse_markdown(path)
@@ -282,15 +301,16 @@ def _read_commands(plugin_dir: Path, skill_names: set[str]) -> tuple[list[ItemRe
     return commands, skipped
 
 
-def _read_agents(plugin_dir: Path) -> tuple[list[ItemRef], list[Skipped]]:
+def _read_agents(plugin_dir: Path, manifest: dict) -> tuple[list[ItemRef], list[Skipped]]:
     agents: list[ItemRef] = []
     skipped: list[Skipped] = []
-    agents_dir = plugin_dir / "agents"
-    if not agents_dir.is_dir():
-        return agents, skipped
-    for path in sorted(agents_dir.glob("*.md")):
-        if not path.is_file() or not _inside(plugin_dir, path):
-            continue
+    bases = _component_bases(plugin_dir, manifest, "agents")
+    paths = (
+        _md_files(plugin_dir, [plugin_dir / "agents"], pattern="*.md")
+        if bases is None
+        else _md_files(plugin_dir, bases, pattern=None)
+    )
+    for path in paths:
         try:
             meta, _ = _parse_markdown(path)
         except ValueError as e:
@@ -401,8 +421,8 @@ def read_plugin(root: Path, plugin_path: str, *, fallback_name: str) -> PluginCo
         raise ManifestError(f"Invalid plugin name '{name}'.")
 
     skills, skipped = _read_skills(plugin_dir, manifest)
-    commands, command_skipped = _read_commands(plugin_dir, {skill.name for skill in skills})
-    agents, agent_skipped = _read_agents(plugin_dir)
+    commands, command_skipped = _read_commands(plugin_dir, manifest, {skill.name for skill in skills})
+    agents, agent_skipped = _read_agents(plugin_dir, manifest)
     skipped += command_skipped + agent_skipped + _read_skipped_components(plugin_dir, manifest)
 
     return PluginContents(

@@ -295,6 +295,62 @@ class TestReadPlugin:
         assert contents.commands[0].description == "c" * 1024
         assert contents.agents[0].description == "a" * 1024
 
+    def test_custom_command_paths_replace_default_directory(self, tmp_path):
+        make_tree(
+            tmp_path,
+            {
+                ".claude-plugin/plugin.json": json.dumps({"name": "p", "commands": ["./extra/cmds/", "./one.md"]}),
+                "extra/cmds/a.md": "Run a\n",
+                "extra/cmds/sub/b.md": "Run b\n",
+                "extra/cmds/notes.txt": "x",
+                "one.md": "Run one\n",
+                "commands/default.md": "Run default\n",
+            },
+        )
+        commands = {c.name: c.path for c in read_plugin(tmp_path, "", fallback_name="p").commands}
+        assert commands == {"a": "extra/cmds/a.md", "b": "extra/cmds/sub/b.md", "one": "one.md"}
+
+    def test_custom_command_path_as_string(self, tmp_path):
+        make_tree(
+            tmp_path,
+            {".claude-plugin/plugin.json": json.dumps({"name": "p", "commands": "./cmds"}), "cmds/go.md": "Go\n"},
+        )
+        assert [c.name for c in read_plugin(tmp_path, "", fallback_name="p").commands] == ["go"]
+
+    def test_custom_agent_paths_replace_default_directory(self, tmp_path):
+        agent = "---\nname: {name}\ndescription: d\n---\nP\n"
+        make_tree(
+            tmp_path,
+            {
+                ".claude-plugin/plugin.json": json.dumps({"name": "p", "agents": ["./custom/rev.md", "./more/"]}),
+                "custom/rev.md": agent.format(name="rev"),
+                "more/dir-agent.md": agent.format(name="dir-agent"),
+                "agents/default.md": agent.format(name="default"),
+            },
+        )
+        agents = {a.name: a.path for a in read_plugin(tmp_path, "", fallback_name="p").agents}
+        assert agents == {"rev": "custom/rev.md"}
+
+    def test_custom_component_paths_outside_plugin_ignored(self, tmp_path):
+        manifest = {"name": "p", "commands": ["../outside", "/etc"], "agents": "../outside/a.md"}
+        make_tree(
+            tmp_path,
+            {
+                "pl/.claude-plugin/plugin.json": json.dumps(manifest),
+                "outside/c.md": "Run c\n",
+                "outside/a.md": "---\nname: a\ndescription: d\n---\nP\n",
+            },
+        )
+        contents = read_plugin(tmp_path, "pl", fallback_name="p")
+        assert (contents.commands, contents.agents) == ((), ())
+
+    def test_commands_object_form_recorded_as_skipped(self, tmp_path):
+        manifest = {"name": "p", "commands": {"about": {"content": "Explain."}}}
+        make_tree(tmp_path, {".claude-plugin/plugin.json": json.dumps(manifest), "commands/default.md": "Run\n"})
+        contents = read_plugin(tmp_path, "", fallback_name="p")
+        assert contents.commands == ()
+        assert Skipped("command", "plugin.json object form not supported") in contents.skipped
+
     def test_name_falls_back(self, tmp_path):
         make_tree(tmp_path, {"skills/a/SKILL.md": SKILL.format(name="a", desc="d")})
         assert read_plugin(tmp_path, "", fallback_name="from-entry").name == "from-entry"
