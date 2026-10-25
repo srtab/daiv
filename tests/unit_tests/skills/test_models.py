@@ -27,4 +27,4 @@ def test_skill_invocation_persists_and_defaults_timestamps():
 
 
 def test_skill_invocation_source_choices():
-    assert set(SkillInvocation.Source.values) == {"builtin", "global", "repo"}
+    assert set(SkillInvocation.Source.values) == {"builtin", "global", "repo", "plugin"}

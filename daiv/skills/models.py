@@ -47,6 +47,7 @@ class SkillInvocation(TimeStampedModel):
         BUILTIN = "builtin", _("Built-in")
         GLOBAL = "global", _("Custom global")
         REPO = "repo", _("Per-repo")
+        PLUGIN = "plugin", _("Plugin")
 
     name = models.SlugField(_("name"), max_length=80, validators=[RegexValidator(regex=SKILL_NAME_RE)])
     source = models.CharField(_("source"), max_length=16, choices=Source.choices)

@@ -310,3 +310,11 @@ async def test_record_invocation_swallows_none_config(caplog):
         await record_invocation(name="anything", skill_path="/workspace/skills/anything/SKILL.md", runtime=rt)
     assert await SkillInvocation.objects.acount() == 0
     assert any("Failed to record skill invocation" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_classify_source_plugin():
+    assert (
+        await _classify_source("devkit:commit", "/workspace/plugins/devkit/skills/commit/SKILL.md")
+        == SkillInvocation.Source.PLUGIN
+    )
