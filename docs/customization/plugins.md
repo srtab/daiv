@@ -12,7 +12,13 @@ A plugin is a repository (or a folder inside one) with a `.claude-plugin/plugin.
 | Commands (`commands/*.md`) | A skill named `<plugin>:<command>`, used like a skill |
 | Agents (`agents/*.md`) | A subagent named `<plugin>:<agent>` the agent can delegate to |
 
-DAIV skips everything else: hooks, MCP servers (`.mcp.json` or `mcpServers`), output styles and LSP servers. A skipped part never runs. The plugin's page lists what was skipped, and so does any skill, command or agent that DAIV can't read (for example, one without a description or with an invalid name).
+Custom paths in `plugin.json` are honoured as in Claude Code: `skills` adds folders to `skills/`, while `commands` (`.md` files or folders) and `agents` (`.md` files) replace the default `commands/` and `agents/` folders. Paths must stay inside the plugin.
+
+An agent runs on the model its `model` field names when that is a DAIV model (`provider:model`). A Claude Code alias (`sonnet`, `opus`, `haiku` or `inherit`), or a model DAIV can't use, runs the agent on the session's model instead. An agent's `tools` list isn't applied.
+
+DAIV skips everything else: hooks, MCP servers (`.mcp.json` or `mcpServers`), output styles and LSP servers. A skipped part never runs. The plugin's page lists what was skipped, and so does any skill, command or agent that DAIV can't read (for example, one without a description or with an invalid name), an agent model alias that isn't used, and an agent `tools` list.
+
+Descriptions longer than 1024 characters and versions longer than 64 are truncated.
 
 !!! note
     A marketplace entry is installable only when its `source` is a path inside the same repository (`./...`). Entries that point to another repository or a package are shown as unsupported.
@@ -26,7 +32,7 @@ Plugin, skill, command and agent names use lowercase letters, digits and hyphens
 3. Pick the plugins to install, and choose who gets them.
 4. Confirm.
 
-DAIV fetches the repository's default branch and records the commit it installed. Links must use `https`, carry no credentials, query string or port, and point to the repository itself rather than a page inside it. SSH links (`git@host:...`) are rejected.
+DAIV fetches the repository's default branch and records the commit it installed. Links must use `https`, carry no credentials, query string or port, point to the repository itself rather than a page inside it, and be at most 500 characters long. SSH links (`git@host:...`) are rejected.
 
 A repository is limited to 200 MB, and a plugin to 1000 files, 50 MB in total and 5 MB per file. You can change these limits with the [`PLUGINS_*` variables](../reference/env-variables.md#plugins).
 
@@ -61,7 +67,7 @@ If you lose access to a repository on the platform, your personal plugin from it
 
 DAIV checks every plugin hourly and installs every new commit on the repository's default branch. It doesn't wait for a version bump. Use **Update now** on a plugin's page to check right away.
 
-- **A failed update keeps the last good commit.** If the new commit can't be fetched or read, the plugin keeps running on the previous one and shows **Update failed** with the reason. DAIV doesn't retry a commit it couldn't fetch or read until the repository has a newer one; **Update now** retries it. Other failures, such as the repository being unreachable or you losing access, are retried at the next hourly check.
+- **A failed update keeps the last good commit.** If the new commit can't be fetched or read, the plugin keeps running on the previous one and shows **Update failed** with the reason. DAIV doesn't retry a commit it couldn't fetch or read until the repository has a newer one; **Update now** retries it. Other failures, such as the repository being unreachable or you losing access, also show **Update failed** with the reason and are retried at the next hourly check.
 - **Auto-update** is on by default. Turn it off to freeze a plugin at its installed commit; it still gets its access checked hourly.
 - **Active** turns a plugin off without removing it. An inactive plugin isn't loaded in anyone's runs (for a global plugin, in nobody's), but it keeps updating.
 
