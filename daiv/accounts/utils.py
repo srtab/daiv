@@ -53,7 +53,7 @@ async def resolve_user(provider: str, uid: int, *, username: str = "", email: st
 
 
 async def resolve_linked_user(provider: str, uid: int) -> User | None:
-    """The DAIV user linked to a git platform account by ``SocialAccount(provider, uid)`` only.
+    """The active DAIV user linked to a git platform account by ``SocialAccount(provider, uid)`` only.
 
     Unlike :func:`resolve_user` it never matches by username or email, so it cannot attribute work to a
     look-alike account.
@@ -61,7 +61,9 @@ async def resolve_linked_user(provider: str, uid: int) -> User | None:
     from allauth.socialaccount.models import SocialAccount
 
     try:
-        social = await SocialAccount.objects.select_related("user").aget(provider=provider, uid=str(uid))
+        social = await SocialAccount.objects.select_related("user").aget(
+            provider=provider, uid=str(uid), user__is_active=True
+        )
     except SocialAccount.DoesNotExist:
         return None
     except Exception:

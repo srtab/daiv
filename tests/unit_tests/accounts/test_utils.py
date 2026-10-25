@@ -189,3 +189,14 @@ async def test_resolve_linked_user_by_social_account(user):
 @pytest.mark.django_db(transaction=True)
 async def test_resolve_linked_user_ignores_username_match(user):
     assert await resolve_linked_user("gitlab", 99999) is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_resolve_linked_user_ignores_inactive_user(user):
+    from allauth.socialaccount.models import SocialAccount
+
+    await SocialAccount.objects.acreate(user=user, provider="gitlab", uid="12345")
+    user.is_active = False
+    await user.asave(update_fields=["is_active"])
+
+    assert await resolve_linked_user("gitlab", 12345) is None
