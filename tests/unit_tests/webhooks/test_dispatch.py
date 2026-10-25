@@ -67,6 +67,7 @@ def steps():
         patch("webhooks.dispatch.address_mr_comments_task", steps.address_mr_comments_task),
         patch("webhooks.dispatch.create_run", steps.create_run),
         patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+        patch("webhooks.dispatch.resolve_linked_user", new=AsyncMock(return_value=None)),
         patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
     ):
         yield steps
@@ -166,6 +167,16 @@ async def test_the_task_and_the_run_share_the_entitys_thread(steps, dispatch, ta
     expected = compute_thread_id(repo_slug="group/repo", scope=scope, entity_iid=7)
     assert getattr(steps, task).get_or_enqueue.call_args.kwargs["thread_id"] == expected
     assert steps.create_run.call_args.kwargs["thread_id"] == expected
+
+
+@each_run_kind
+@pytest.mark.parametrize(("linked", "expected"), [(Mock(pk=42), 42), (None, None)], ids=["linked", "unlinked"])
+async def test_start_run_passes_triggering_user_id(steps, dispatch, task, scope, linked, expected):
+    with patch("webhooks.dispatch.resolve_linked_user", new=AsyncMock(return_value=linked)) as resolve_linked:
+        await dispatch(steps)
+
+    resolve_linked.assert_awaited_once_with(GitPlatform.GITLAB, 2)
+    assert getattr(steps, task).get_or_enqueue.call_args.kwargs["triggering_user_id"] == expected
 
 
 @each_run_kind

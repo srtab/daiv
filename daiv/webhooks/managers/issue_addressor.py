@@ -107,6 +107,7 @@ class IssueAddressorManager(BaseManager):
         ref: str | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
+        triggering_user_id: int | None = None,
     ) -> AgentResult:
         """
         Address the issue.
@@ -134,13 +135,25 @@ class IssueAddressorManager(BaseManager):
         )
 
         try:
-            return await manager._address_issue(ref=ref, sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max)
+            return await manager._address_issue(
+                ref=ref,
+                sandbox_env_id=sandbox_env_id,
+                run_id=run_id,
+                use_max=use_max,
+                triggering_user_id=triggering_user_id,
+            )
         except Exception:
             manager._add_unable_to_address_issue_note()
             raise
 
     async def _address_issue(
-        self, *, ref: str | None, sandbox_env_id: str | None, run_id: str | None, use_max: bool
+        self,
+        *,
+        ref: str | None,
+        sandbox_env_id: str | None,
+        run_id: str | None,
+        use_max: bool,
+        triggering_user_id: int | None,
     ) -> AgentResult:
         issue_message = issue_context_message(self.issue)
         prompt_message, triggered_by = self._input_message(issue_message_id=issue_message.id)
@@ -157,6 +170,7 @@ class IssueAddressorManager(BaseManager):
                 fallback_ref_on_missing=True,
                 use_max=use_max,
                 sandbox_env_id=sandbox_env_id,
+                triggering_user_id=triggering_user_id,
                 run_id=run_id,
                 persist_ref=True,
                 arm_watch=True,

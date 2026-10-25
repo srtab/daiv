@@ -82,6 +82,15 @@ async def _address(**kwargs):
     )
 
 
+async def test_review_addressor_sets_triggering_not_acting_user(mention):
+    with patch("webhooks.managers.review_addressor.execute_run", new=AsyncMock()) as execute_run:
+        await _address(triggering_user_id=42)
+
+    spec = execute_run.await_args.args[0]
+    assert spec.triggering_user_id == 42
+    assert spec.acting_user_id is None
+
+
 class TestReviewAfterRunMatrix:
     @pytest.mark.django_db(transaction=True)
     async def test_it_waits_while_another_holder_has_the_session_slot(self, mention):

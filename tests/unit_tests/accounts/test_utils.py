@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from accounts.models import User
-from accounts.utils import aget_platform_identity, resolve_user
+from accounts.utils import aget_platform_identity, resolve_linked_user, resolve_user
 from codebase.base import GitPlatform
 
 
@@ -172,3 +172,20 @@ async def test_get_platform_identity_orders_the_link_lookup():
         await aget_platform_identity(user_id=1, provider=GitPlatform.GITLAB)
 
     queryset.order_by.assert_called_once_with("pk")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_resolve_linked_user_by_social_account(user):
+    from allauth.socialaccount.models import SocialAccount
+
+    await SocialAccount.objects.acreate(user=user, provider="gitlab", uid="12345")
+
+    result = await resolve_linked_user("gitlab", 12345)
+
+    assert result is not None
+    assert result.pk == user.pk
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_resolve_linked_user_ignores_username_match(user):
+    assert await resolve_linked_user("gitlab", 99999) is None

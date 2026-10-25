@@ -120,6 +120,15 @@ def _mention(client: MagicMock, *, note_id: int = 11, username: str = "bob", bod
     return {"mention_comment_id": "c-1", "mention_note_id": note_id}
 
 
+async def test_issue_addressor_sets_triggering_not_acting_user(stub_base_init):
+    with patch("webhooks.managers.issue_addressor.execute_run", new=AsyncMock()) as execute_run:
+        await _address(triggering_user_id=42)
+
+    spec = execute_run.await_args.args[0]
+    assert spec.triggering_user_id == 42
+    assert spec.acting_user_id is None
+
+
 class TestUseMaxRoutesToMaxModel:
     """Lock the webhook → ``use_max`` → ``site_settings.agent_max_*`` contract, checked at the ``create_daiv_agent``
     boundary with the real model resolution."""

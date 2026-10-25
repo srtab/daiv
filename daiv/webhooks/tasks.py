@@ -59,6 +59,7 @@ async def address_issue_task(
     mention_comment_id: str | None = None,
     mention_note_id: int | None = None,
     sandbox_environment_id: str | None = None,
+    triggering_user_id: int | None = None,
 ) -> AgentResult:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
@@ -73,6 +74,8 @@ async def address_issue_task(
         mention_note_id (int | None): The note that mentioned DAIV, which the run answers; with ``repo_id`` and the
             iid, the run's dedup key, so each reply in one GitLab discussion gets its own run.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
+        triggering_user_id (int | None): The DAIV user linked to the author's platform account, for plugin loading
+            only; ``None``: none linked, or the task row predates the field.
     """
     from webhooks.managers.issue_addressor import IssueAddressorManager
 
@@ -91,6 +94,7 @@ async def address_issue_task(
         sandbox_env_id=sandbox_environment_id,
         run_id=await aget_task_run_id(context.task_result.id),
         use_max=use_max,
+        triggering_user_id=triggering_user_id,
     )
 
 
@@ -108,6 +112,7 @@ async def address_mr_comments_task(
     use_max: bool,
     mention_note_id: int | None = None,
     sandbox_environment_id: str | None = None,
+    triggering_user_id: int | None = None,
 ) -> AgentResult:
     """
     Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -122,6 +127,8 @@ async def address_mr_comments_task(
         mention_note_id (int | None): The note that mentioned DAIV, which the run answers; with ``repo_id`` and the
             iid, the run's dedup key, so each reply in one GitLab discussion gets its own run.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
+        triggering_user_id (int | None): The DAIV user linked to the author's platform account, for plugin loading
+            only; ``None``: none linked, or the task row predates the field.
     """
     from webhooks.managers.review_addressor import CommentsAddressorManager
 
@@ -148,6 +155,7 @@ async def address_mr_comments_task(
             sandbox_env_id=sandbox_environment_id,
             run_id=await aget_task_run_id(context.task_result.id),
             use_max=use_max,
+            triggering_user_id=triggering_user_id,
         )
     except CloneRefNotFoundError:
         response = (
