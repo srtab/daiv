@@ -14,13 +14,14 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from codebase.clients.base import RepoClient
+from core.constants import GIT_PROXY_CA_ENV
 
 from .conf import settings
 
 logger = logging.getLogger("daiv.plugins")
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-SAFE_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE")
+INHERITED_ENV = ("PATH", *GIT_PROXY_CA_ENV)
 GIT_SAFETY_ARGS = ("-c", "http.followRedirects=false", "-c", "core.symlinks=false")
 NOT_REACHABLE = "This host is not reachable from DAIV."
 
@@ -42,7 +43,10 @@ def parse_repo_url(raw: str) -> RepoLocation:
     if re.match(r"^[\w.-]+@[\w.-]+:", raw):
         raise FetchError("Use the repository's https link.")
 
-    parts = urlsplit(raw)
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        raise FetchError("The repository link is not valid.") from None
     if parts.scheme.lower() != "https":
         raise FetchError("Only https repository links are supported.")
     if "@" in parts.netloc:
@@ -89,14 +93,17 @@ def materialize(location: RepoLocation) -> tuple[str, Path]:
     tmp_root.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(dir=tmp_root))
     try:
-        _git(["clone", "--depth", "1", "--single-branch", "--no-tags", "--", location.url, str(work)], env)
+        clone = ["clone", "--depth", "1", "--single-branch", "--no-tags", "--no-checkout", "--", location.url]
+        _git([*clone, str(work)], env)
+        if _blob_bytes(work, env) > settings.MAX_REPO_BYTES:
+            raise FetchError(f"Repository is larger than {settings.MAX_REPO_BYTES // (1024 * 1024)} MB.")
+
+        _git(["-C", str(work), "checkout", "--force", "--quiet", "HEAD"], env)
         commit = _git(["-C", str(work), "rev-parse", "HEAD"], env).strip()
         if not SHA_RE.match(commit):
             raise FetchError("Could not read the repository's current commit.")
 
         shutil.rmtree(work / ".git", ignore_errors=True)
-        if _tree_bytes(work) > settings.MAX_REPO_BYTES:
-            raise FetchError(f"Repository is larger than {settings.MAX_REPO_BYTES // (1024 * 1024)} MB.")
 
         target = revision_dir(location, commit)
         if not target.exists():
@@ -134,21 +141,16 @@ def prune_revisions(keep: set[Path], *, older_than: timedelta = timedelta(days=1
 def _git_env(location: RepoLocation) -> dict[str, str]:
     credentials: dict[str, str] = {}
     if location.on_platform:
-        client = RepoClient.create_instance()
-        try:
-            repository = client.get_repository(location.slug)
-        except Exception:
-            logger.warning("Could not look up platform repository %s", location.slug, exc_info=True)
-            raise FetchError("DAIV can't read this repository.") from None
-        auth = client.get_git_auth_env(repository)
-        if auth is not None:
-            credentials = auth.as_env()
+        credentials = _platform_credentials(location.slug)
     else:
         _ensure_public_host(location.host)
 
-    env = {key: os.environ[key] for key in SAFE_ENV_KEYS if key in os.environ}
+    home = settings.DATA_PATH / "tmp" / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    env = {key: os.environ[key] for key in INHERITED_ENV if key in os.environ}
     env.update(credentials)
     env.update({
+        "HOME": str(home),
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_ALLOW_PROTOCOL": "https",
         "GIT_CONFIG_NOSYSTEM": "1",
@@ -157,10 +159,23 @@ def _git_env(location: RepoLocation) -> dict[str, str]:
     return env
 
 
+def _platform_credentials(slug: str) -> dict[str, str]:
+    client = RepoClient.create_instance()
+    try:
+        repository = client.get_repository(slug)
+        if client.repository_visibility(slug) == "public":
+            return {}
+        auth = client.get_git_auth_env(repository)
+    except Exception:
+        logger.warning("Could not resolve platform access for %s", slug, exc_info=True)
+        raise FetchError("DAIV can't read this repository.") from None
+    return auth.as_env() if auth is not None else {}
+
+
 def _ensure_public_host(host: str) -> None:
     try:
         infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
-    except OSError:
+    except OSError, UnicodeError:
         raise FetchError(NOT_REACHABLE) from None
     addresses = {info[4][0] for info in infos}
     if not addresses:
@@ -180,7 +195,8 @@ def _git(args: list[str], env: dict[str, str]) -> str:
             ["git", *GIT_SAFETY_ARGS, *args],  # noqa: S607
             check=True,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
             timeout=settings.GIT_TIMEOUT_SECONDS,
         )
@@ -193,5 +209,10 @@ def _git(args: list[str], env: dict[str, str]) -> str:
     return result.stdout
 
 
-def _tree_bytes(root: Path) -> int:
-    return sum(path.lstat().st_size for path in root.rglob("*") if not path.is_dir() or path.is_symlink())
+def _blob_bytes(work: Path, env: dict[str, str]) -> int:
+    total = 0
+    for line in _git(["-C", str(work), "ls-tree", "-r", "-l", "HEAD"], env).splitlines():
+        meta = line.split("\t", 1)[0].split()
+        if len(meta) == 4 and meta[3].isdigit():
+            total += int(meta[3])
+    return total

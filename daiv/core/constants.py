@@ -10,6 +10,21 @@ BOT_MAX_LABEL = "daiv-max"
 BOT_AUTO_LABEL = "daiv-auto"
 BOT_LABELS = (BOT_LABEL, BOT_AUTO_LABEL, BOT_MAX_LABEL)
 
+GIT_PROXY_CA_ENV = (
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "all_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
+    "GIT_SSL_CAINFO",
+    "GIT_SSL_CAPATH",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+)
+
 
 def has_bot_label(label_names: Iterable[str], among: Collection[str] = BOT_LABELS) -> bool:
     """Whether any of ``label_names`` is one of the bot labels in ``among``, ignoring case."""

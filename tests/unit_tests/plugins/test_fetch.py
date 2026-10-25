@@ -50,13 +50,19 @@ def _completed(stdout: str = "") -> subprocess.CompletedProcess:
 
 def _fake_git(files: dict[str, str] | None = None, head: str = SHA):
     calls = []
+    tree = files or {"plugin.txt": "x"}
 
     def run(args, **kwargs):
         calls.append((args, kwargs))
         if "clone" in args:
-            target = pathlib.Path(args[-1])
-            (target / ".git").mkdir(exist_ok=True, parents=True)
-            for rel, content in (files or {"plugin.txt": "x"}).items():
+            (pathlib.Path(args[-1]) / ".git").mkdir(exist_ok=True, parents=True)
+            return _completed()
+        if "ls-tree" in args:
+            rows = [f"100644 blob {'b' * 40} {len(c):>7}\t{rel}" for rel, c in tree.items()]
+            return _completed("\n".join(rows) + "\n")
+        if "checkout" in args:
+            target = pathlib.Path(args[args.index("-C") + 1])
+            for rel, content in tree.items():
                 (target / rel).parent.mkdir(exist_ok=True, parents=True)
                 (target / rel).write_text(content)
             return _completed()
@@ -67,6 +73,12 @@ def _fake_git(files: dict[str, str] | None = None, head: str = SHA):
         raise AssertionError(args)
 
     return run, calls
+
+
+def _subcommands(calls):
+    return [
+        next(a for a in args if a in {"clone", "ls-tree", "checkout", "rev-parse", "ls-remote"}) for args, _ in calls
+    ]
 
 
 def _location(on_platform=True, host="git.example.com", slug="group/sub/project"):
@@ -193,7 +205,7 @@ def test_git_args_disable_redirects_and_symlinks(client, data_path):
         resolve_head(_location())
         materialize(_location())
 
-    assert len(calls) == 3
+    assert _subcommands(calls) == ["ls-remote", "clone", "ls-tree", "checkout", "rev-parse"]
     for args, kwargs in calls:
         joined = " ".join(args)
         assert "http.followRedirects=false" in joined
@@ -202,7 +214,7 @@ def test_git_args_disable_redirects_and_symlinks(client, data_path):
         assert kwargs["env"]["GIT_TERMINAL_PROMPT"] == "0"
         assert kwargs["timeout"] == settings.GIT_TIMEOUT_SECONDS
     clone_args = next(args for args, _ in calls if "clone" in args)
-    for flag in ("--depth", "--single-branch", "--no-tags"):
+    for flag in ("--depth", "--single-branch", "--no-tags", "--no-checkout"):
         assert flag in clone_args
 
 
@@ -232,7 +244,7 @@ def test_materialize_moves_into_revision_dir_and_drops_git(client, data_path):
     assert path == data_path / "revisions" / path.parent.name / SHA
     assert (path / "skills/a/SKILL.md").read_text() == "hi"
     assert not (path / ".git").exists()
-    assert list((data_path / "tmp").iterdir()) == []
+    assert [p for p in (data_path / "tmp").iterdir() if p.name != "home"] == []
 
 
 def test_materialize_existing_revision_reused(client, data_path):
@@ -249,13 +261,13 @@ def test_materialize_existing_revision_reused(client, data_path):
     assert (commit, path) == (SHA, existing)
     assert (existing / "marker").read_text() == "keep"
     assert not (existing / "new.txt").exists()
-    assert list((data_path / "tmp").iterdir()) == []
+    assert [p for p in (data_path / "tmp").iterdir() if p.name != "home"] == []
 
 
 def test_oversized_repo_rejected_and_cleaned(client, data_path, monkeypatch):
     client.get_git_auth_env.return_value = None
     monkeypatch.setattr(settings, "MAX_REPO_BYTES", 10)
-    run, _ = _fake_git({"big.bin": "x" * 100})
+    run, calls = _fake_git({"big.bin": "x" * 100})
     location = _location()
 
     with (
@@ -264,8 +276,9 @@ def test_oversized_repo_rejected_and_cleaned(client, data_path, monkeypatch):
     ):
         materialize(location)
 
-    assert list((data_path / "tmp").iterdir()) == []
-    assert not revision_dir(location, SHA).exists()
+    assert not (data_path / "revisions").exists()
+    assert "checkout" not in _subcommands(calls)
+    assert [p for p in (data_path / "tmp").iterdir() if p.name != "home"] == []
 
 
 def test_materialize_rejects_malformed_head(client, data_path):
@@ -275,7 +288,7 @@ def test_materialize_rejects_malformed_head(client, data_path):
     with patch("plugins.fetch.subprocess.run", side_effect=run), pytest.raises(FetchError):
         materialize(_location())
 
-    assert list((data_path / "tmp").iterdir()) == []
+    assert [p for p in (data_path / "tmp").iterdir() if p.name != "home"] == []
 
 
 def test_prune_keeps_referenced_and_recent(data_path):
@@ -298,3 +311,66 @@ def test_prune_keeps_referenced_and_recent(data_path):
 
 def test_prune_without_revisions_dir(data_path):
     assert prune_revisions(set()) == 0
+
+
+def test_public_on_platform_repo_runs_anonymously(client):
+    client.repository_visibility.return_value = "public"
+    run, calls = _fake_git()
+
+    with patch("plugins.fetch.subprocess.run", side_effect=run):
+        resolve_head(_location())
+
+    client.get_git_auth_env.assert_not_called()
+    assert "GIT_CONFIG_VALUE_0" not in calls[0][1]["env"]
+
+
+def test_private_on_platform_credential_failure_is_fetch_error(client):
+    client.repository_visibility.return_value = "private"
+    client.get_git_auth_env.side_effect = RuntimeError("not installed")
+
+    with pytest.raises(FetchError, match="DAIV can't read this repository."):
+        resolve_head(_location())
+
+
+@pytest.mark.parametrize("raw", ["https://[abc/a/b", "https://[notip]/a/b", "https://ex\uff03ample.com/a/b"])
+def test_parse_rejects_unparseable_urls(client, raw):
+    with pytest.raises(FetchError):
+        parse_repo_url(raw)
+
+
+def test_overlong_host_label_rejected(client, public_dns):
+    public_dns.side_effect = UnicodeError("label too long")
+
+    with pytest.raises(FetchError, match="This host is not reachable from DAIV."):
+        resolve_head(_location(on_platform=False, host="a" * 70 + ".example.org"))
+
+
+def test_git_output_decoded_leniently(client):
+    client.get_git_auth_env.return_value = None
+    run, calls = _fake_git()
+
+    with patch("plugins.fetch.subprocess.run", side_effect=run):
+        resolve_head(_location())
+
+    assert calls[0][1]["encoding"] == "utf-8"
+    assert calls[0][1]["errors"] == "replace"
+
+
+def test_git_env_does_not_inherit_ambient_git_config(client, monkeypatch, data_path):
+    client.get_git_auth_env.return_value = None
+    monkeypatch.setenv("GIT_SSL_NO_VERIFY", "1")
+    monkeypatch.setenv("GIT_ASKPASS", "/bin/evil")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("https_proxy", "http://proxy:3128")
+    run, calls = _fake_git()
+
+    with patch("plugins.fetch.subprocess.run", side_effect=run):
+        resolve_head(_location())
+
+    env = calls[0][1]["env"]
+    assert "GIT_SSL_NO_VERIFY" not in env
+    assert "GIT_ASKPASS" not in env
+    assert "GIT_CONFIG_COUNT" not in env
+    assert env["https_proxy"] == "http://proxy:3128"
+    assert env["HOME"] != os.environ.get("HOME")
+    assert env["HOME"].startswith(str(data_path))
