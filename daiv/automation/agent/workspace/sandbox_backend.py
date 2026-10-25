@@ -256,7 +256,9 @@ class SandboxFileBackend(BackendProtocol):
             raise RuntimeError("SandboxFileBackend is not bound to a sandbox session")
         return self._session.client, session_id
 
-    async def run_commands(self, commands: list[str], *, fail_fast: bool) -> RunCommandsResponse:
+    async def run_commands(
+        self, commands: list[str], *, fail_fast: bool, timeout: int | None = None
+    ) -> RunCommandsResponse:
         """Run shell commands in the bound session's workspace.
 
         The run's command-execution handle (used by the ``bash`` tool and ``SandboxGitRunner``). A thin
@@ -268,7 +270,9 @@ class SandboxFileBackend(BackendProtocol):
         protocol would activate deepagents' always-registered, ungated ``execute`` tool.
         """
         client, session_id = self._require_bound()
-        return await client.run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=fail_fast))
+        return await client.run_commands(
+            session_id, RunCommandsRequest(commands=commands, fail_fast=fail_fast, timeout=timeout)
+        )
 
     # -- path mapping -------------------------------------------------------
     # The sandbox is authoritative and the agent addresses files by their sandbox-absolute path

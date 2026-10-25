@@ -29,6 +29,11 @@ class StartSessionRequest(BaseModel):
 class RunCommandsRequest(BaseModel):
     commands: list[str] = Field(description="The commands to run in the session.")
     fail_fast: bool = Field(default=True, description="Whether to fail fast if any command fails.")
+    timeout: int | None = Field(
+        default=None,
+        ge=0,
+        description="Maximum execution time in seconds for each command; None uses the server default.",
+    )
 
 
 class RunCommandResult(BaseModel):
