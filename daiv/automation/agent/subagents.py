@@ -542,15 +542,22 @@ def _compile_workspace_subagent(
     web_fetch_enabled: bool,
     fallback_models: list[BaseChatModel] | None,
     mcp_tools: list[BaseTool] | None,
+    invalid_model_uses_default: bool = False,
 ) -> CompiledSubAgent | None:
-    """Compile one workspace-defined subagent on the general-purpose stack; None if its ``model_spec`` is invalid."""
+    """Compile one workspace-defined subagent on the general-purpose stack.
+
+    A ``model_spec`` that doesn't resolve skips the subagent (None), or compiles it on ``model`` when
+    ``invalid_model_uses_default`` is set.
+    """
     subagent_model = model
     if model_spec:
         try:
             subagent_model = get_model(model=model_spec)
         except Exception:
-            logger.warning("Skipping %s: invalid model '%s'", source, model_spec)
-            return None
+            if not invalid_model_uses_default:
+                logger.warning("Skipping %s: invalid model '%s'", source, model_spec)
+                return None
+            logger.warning("%s: model '%s' doesn't resolve; using the run's model", source, model_spec)
 
     middleware = _build_general_purpose_middleware(
         subagent_model, workspace, runtime, web_search_enabled, web_fetch_enabled, fallback_models, mcp_tools=mcp_tools
@@ -686,8 +693,9 @@ async def load_plugin_subagents(
 
     The name and description are the ref's, verbatim (the ``task`` tool description lists them and a
     later step strips that exact entry); the file supplies the system-prompt body, and ``ref.model``
-    picks the model. Other Claude Code frontmatter (``tools``, ``color``) has no equivalent here.
-    An unreadable or invalid file, or a bad model, skips just that agent.
+    picks the model when it is a DAIV model spec. A model that doesn't resolve (for example a Claude
+    Code alias such as ``sonnet``) runs the agent on the run's model. Other Claude Code frontmatter
+    (``tools``, ``color``) has no equivalent here. An unreadable or invalid file skips just that agent.
     """
     subagents: list[CompiledSubAgent] = []
     if not workspace.is_ready or not agents:
@@ -724,6 +732,7 @@ async def load_plugin_subagents(
             web_fetch_enabled=web_fetch_enabled,
             fallback_models=fallback_models,
             mcp_tools=mcp_tools,
+            invalid_model_uses_default=True,
         )
         if compiled is not None:
             subagents.append(compiled)

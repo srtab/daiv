@@ -194,7 +194,7 @@ class TestReadPlugin:
             {
                 "agents/rev.md": (
                     "---\nname: rev\ndescription: |-\n  Use for review.\n  <example>\n  user: hi\n"
-                    "  </example>\nmodel: sonnet\n---\nPrompt\n"
+                    "  </example>\nmodel: openrouter:z-ai/glm-5\n---\nPrompt\n"
                 ),
                 "agents/plain.md": "---\nname: plain\ndescription: Plain\n---\nPrompt\n",
                 "agents/nodesc.md": "---\nname: nodesc\n---\nPrompt\n",
@@ -202,11 +202,44 @@ class TestReadPlugin:
         )
         contents = read_plugin(tmp_path, "", fallback_name="p")
         by_name = {a.name: a for a in contents.agents}
-        assert by_name["rev"].model == "sonnet"
+        assert by_name["rev"].model == "openrouter:z-ai/glm-5"
         assert by_name["rev"].description == description
         assert by_name["plain"].model is None
         assert "nodesc" not in by_name
         assert Skipped("agent", "nodesc.md: missing name or description") in contents.skipped
+
+    def test_agent_claude_code_model_alias_not_stored_and_recorded(self, tmp_path):
+        make_tree(
+            tmp_path,
+            {
+                "agents/a.md": "---\nname: a\ndescription: d\nmodel: sonnet\n---\nP\n",
+                "agents/b.md": "---\nname: b\ndescription: d\nmodel: Inherit\n---\nP\n",
+                "agents/c.md": "---\nname: c\ndescription: d\nmodel: openrouter:z-ai/glm-5\n---\nP\n",
+            },
+        )
+        contents = read_plugin(tmp_path, "", fallback_name="p")
+        models = [(a.name, a.model) for a in contents.agents]
+        assert models == [("a", None), ("b", None), ("c", "openrouter:z-ai/glm-5")]
+        assert [s for s in contents.skipped if s.component == "agent"] == [
+            Skipped("agent", "a: model 'sonnet' not used"),
+            Skipped("agent", "b: model 'Inherit' not used"),
+        ]
+
+    def test_agent_tools_list_recorded_not_fatal(self, tmp_path):
+        make_tree(
+            tmp_path,
+            {
+                "agents/a.md": "---\nname: a\ndescription: d\ntools: Read, Grep\n---\nP\n",
+                "agents/b.md": "---\nname: b\ndescription: d\ntools:\n  - Read\n---\nP\n",
+                "agents/c.md": "---\nname: c\ndescription: d\n---\nP\n",
+            },
+        )
+        contents = read_plugin(tmp_path, "", fallback_name="p")
+        assert [a.name for a in contents.agents] == ["a", "b", "c"]
+        assert [s for s in contents.skipped if s.component == "agent"] == [
+            Skipped("agent", "a: tools list not applied"),
+            Skipped("agent", "b: tools list not applied"),
+        ]
 
     def test_hooks_and_mcp_recorded_as_skipped(self, tmp_path):
         make_tree(

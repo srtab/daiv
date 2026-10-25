@@ -14,6 +14,7 @@ MANIFEST_DIR = ".claude-plugin"
 COMPONENT_DIRS = ("skills", "commands", "agents")
 UNSUPPORTED_SOURCE_REASON = "Source outside this repository is not supported yet."
 LONG_PATH_REASON = "The plugin's path in this repository is too long."
+CLAUDE_MODEL_ALIASES = frozenset({"sonnet", "opus", "haiku", "inherit"})
 
 
 class ManifestError(Exception):
@@ -303,9 +304,13 @@ def _read_agents(plugin_dir: Path) -> tuple[list[ItemRef], list[Skipped]]:
         if not PLUGIN_NAME_RE.match(name):
             skipped.append(Skipped("agent", f"{name}: invalid name"))
             continue
-        agents.append(
-            ItemRef(name, description, path.relative_to(plugin_dir).as_posix(), _text(meta.get("model")) or None)
-        )
+        model = _text(meta.get("model"))
+        if model.lower() in CLAUDE_MODEL_ALIASES:
+            skipped.append(Skipped("agent", f"{name}: model '{model}' not used"))
+            model = ""
+        if meta.get("tools"):
+            skipped.append(Skipped("agent", f"{name}: tools list not applied"))
+        agents.append(ItemRef(name, description, path.relative_to(plugin_dir).as_posix(), model or None))
     return agents, skipped
 
 
