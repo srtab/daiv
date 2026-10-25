@@ -188,6 +188,18 @@ def test_install_unknown_path_rejected(admin_user, fetch, client):
 
 
 @pytest.mark.django_db
+def test_install_root_plugin_listed_beside_external_entry(admin_user, fetch, client):
+    root = PluginCandidate(name="demo", plugin_path="", description="", version="", supported=True, reason="")
+    external = PluginCandidate(name="ext", plugin_path="", description="", version="", supported=False, reason="no")
+
+    with patch("plugins.services.inspect_repo", return_value=RepoInspection("m", (root, external))):
+        (plugin,) = install(raw_url=URL, commit=SHA, plugin_paths=[""], scope=Plugin.Scope.GLOBAL, user=admin_user)
+
+    assert plugin.plugin_path == ""
+    fetch.read_plugin.assert_called_once_with(revision_path(URL, SHA), "", fallback_name="demo")
+
+
+@pytest.mark.django_db
 def test_install_manifest_error_becomes_install_error(admin_user, fetch, client):
     fetch.read_plugin.side_effect = ManifestError("bad")
 

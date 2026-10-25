@@ -113,11 +113,11 @@ def install(*, raw_url: str, commit: str, plugin_paths: list[str], scope: Plugin
         commit, root = _materialize(location)
 
     try:
-        candidates = {candidate.plugin_path: candidate for candidate in inspect_repo(root).candidates}
+        candidates = {c.plugin_path: c for c in inspect_repo(root).candidates if c.supported}
         contents: list[tuple[str, PluginContents]] = []
         for plugin_path in plugin_paths:
             candidate = candidates.get(plugin_path)
-            if candidate is None or not candidate.supported:
+            if candidate is None:
                 raise InstallError(f"'{plugin_path}' is not an installable plugin in this repository.")
             contents.append((plugin_path, read_plugin(root, plugin_path, fallback_name=candidate.name)))
     except ManifestError as exc:
