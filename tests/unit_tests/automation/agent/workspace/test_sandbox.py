@@ -115,6 +115,9 @@ def _plugin_workspace(manifest: bytes | None):
         else FileDownloadResponse(path="m", error="file_not_found")
     ]
     workspace.bash.aupload_files.side_effect = lambda files: [FileUploadResponse(path=p) for p, _ in files]
+    workspace.bash.run_commands.return_value = RunCommandsResponse(
+        results=[RunCommandResult(command="c", output="", exit_code=0)]
+    )
     return workspace
 
 
@@ -149,6 +152,8 @@ async def test_sandbox_provision_replaces_on_user_change(tmp_path):
         "/workspace/plugins/.daiv-manifest",
     ]
     assert workspace.bash.aupload_files.await_args_list[-1].args[0][0][1] == b"acme@c1"
+    order = [c[0] for c in workspace.bash.mock_calls if c[0] in {"run_commands", "aupload_files"}]
+    assert order == ["run_commands", "aupload_files", "run_commands", "aupload_files"]
 
 
 async def test_sandbox_provision_withholds_manifest_after_upload_error(tmp_path):
@@ -170,3 +175,21 @@ async def test_sandbox_provision_noop_when_not_ready(tmp_path):
     assert await workspace.provision_plugins([_plugin(tmp_path, "acme", {"a.md": "a"})]) == []
 
     assert workspace.bash.mock_calls == []
+
+
+@pytest.mark.parametrize(("failing_call", "uploads"), [(0, 0), (1, 1)], ids=["rm", "chmod"])
+async def test_sandbox_provision_withholds_manifest_when_a_command_fails(tmp_path, failing_call, uploads):
+    workspace = _plugin_workspace(b"old@c0")
+    plugin = _plugin(tmp_path, "acme", {"run.sh": "#!/bin/sh"})
+    (plugin.host_root / "run.sh").chmod(0o755)
+    ok = RunCommandsResponse(results=[RunCommandResult(command="c", output="", exit_code=0)])
+    bad = RunCommandsResponse(results=[RunCommandResult(command="c", output="", exit_code=1)])
+    workspace.bash.run_commands.side_effect = [bad if i == failing_call else ok for i in range(2)]
+
+    errors = await workspace.provision_plugins([plugin])
+
+    assert len(errors) == 1
+    assert errors[0].startswith("The plugins could not be provisioned")
+    uploaded = [path for call in workspace.bash.aupload_files.await_args_list for path, _ in call.args[0]]
+    assert "/workspace/plugins/.daiv-manifest" not in uploaded
+    assert workspace.bash.aupload_files.await_count == uploads

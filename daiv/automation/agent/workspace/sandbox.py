@@ -87,7 +87,9 @@ class SandboxWorkspace:
         if current.error is None and current.content == manifest.encode():
             return []
 
-        await self.bash.run_commands([f"rm -rf {PLUGINS_PATH}"], fail_fast=True)
+        removal = await self.bash.run_commands([f"rm -rf {PLUGINS_PATH}"], fail_fast=True)
+        if any(result.exit_code != 0 for result in removal.results) or not removal.results:
+            return ["The plugins could not be provisioned: the previous plugin files could not be removed"]
         errors: list[str] = []
         executables: list[str] = []
         for plugin in plugins:
@@ -105,9 +107,11 @@ class SandboxWorkspace:
                 if response.error
             )
         if executables:
-            await self.bash.run_commands(
+            chmod = await self.bash.run_commands(
                 ["chmod +x " + " ".join(shlex.quote(path) for path in executables)], fail_fast=False
             )
+            if any(result.exit_code != 0 for result in chmod.results) or not chmod.results:
+                errors.append("The plugins could not be provisioned: their scripts could not be made executable")
         if errors:
             return errors
         (written,) = await self.bash.aupload_files([(PLUGINS_MANIFEST_PATH, manifest.encode())])
