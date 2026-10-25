@@ -9,12 +9,12 @@ Saving it through ``ModelResponse.result`` keeps it ahead of the reply; a ``Comm
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from automation.agent.synthetic import synthetic_message
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
 
     from langchain.agents.middleware import ModelRequest
     from langchain.agents.middleware.types import ModelResponse
@@ -27,9 +27,14 @@ def persist_reminder(response: ModelResponse, reminder: HumanMessage) -> ModelRe
 
 
 async def call_with_reminder(
-    request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]], text: str, *, kind: str
+    request: ModelRequest,
+    handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    text: str,
+    *,
+    kind: str,
+    data: Mapping[str, Any] | None = None,
 ) -> ModelResponse:
     """Send ``request`` with ``text`` appended as a synthetic reminder and save that reminder ahead of the reply."""
-    reminder = synthetic_message(text, kind=kind)
+    reminder = synthetic_message(text, kind=kind, data=data)
     response = await handler(request.override(messages=[*request.messages, reminder]))
     return persist_reminder(response, reminder)
