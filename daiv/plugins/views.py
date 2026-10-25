@@ -11,8 +11,12 @@ from django.utils.translation import ngettext
 from django.views import View
 from django.views.generic import TemplateView
 
+from codebase.clients import RepoClient
 from core.mixins import AdminRequiredMixin
-from plugins.manifest import PluginContents
+from plugins import services
+from plugins.fetch import revision_dir
+from plugins.forms import InstallForm, RepoURLForm
+from plugins.manifest import ManifestError, PluginContents, read_plugin
 from plugins.models import Plugin, PluginOptOut
 from plugins.tasks import update_plugin_task
 
@@ -223,3 +227,110 @@ class PluginDeleteView(LoginRequiredMixin, View):
         plugin.delete()
         messages.success(request, _("Plugin '%(name)s' removed.") % {"name": name})
         return redirect(url)
+
+
+MAX_PICKER_SKILLS = 3
+
+
+def _git_host() -> str:
+    try:
+        return RepoClient.create_instance().git_host()
+    except Exception:
+        return ""
+
+
+def _picker_rows(location, commit, candidates) -> list[dict]:
+    rows = []
+    for candidate in candidates:
+        row = {
+            "candidate": candidate,
+            "selectable": candidate.supported,
+            "reason": candidate.reason,
+            "skills": [],
+            "more": 0,
+        }
+        if candidate.supported:
+            try:
+                contents = read_plugin(
+                    revision_dir(location, commit), candidate.plugin_path, fallback_name=candidate.name
+                )
+            except ManifestError as exc:
+                row["selectable"], row["reason"] = False, str(exc)
+            else:
+                names = [f"{contents.name}:{item.name}" for item in contents.skills]
+                row["skills"], row["more"] = names[:MAX_PICKER_SKILLS], max(len(names) - MAX_PICKER_SKILLS, 0)
+        rows.append(row)
+    return rows
+
+
+class PluginAddView(LoginRequiredMixin, View):
+    http_method_names = ["get", "post"]
+
+    def get(self, request):
+        return self._render_url_step(request, RepoURLForm())
+
+    def post(self, request):
+        if request.POST.get("step") == "install":
+            return self._install(request)
+        form = RepoURLForm(request.POST)
+        if not form.is_valid():
+            return self._render_url_step(request, form)
+        return self._inspect(request, form.cleaned_data["url"])
+
+    def _render_url_step(self, request, form, *, error=""):
+        return render(request, "plugins/add.html", {"url_form": form, "git_host": _git_host(), "error": error})
+
+    def _inspect(self, request, url):
+        try:
+            location, commit, inspection = services.inspect_url(url, user=request.user)
+        except services.InstallError as exc:
+            return self._render_url_step(request, RepoURLForm({"url": url}), error=str(exc))
+        form = InstallForm(
+            initial={"url": url, "commit": commit, "scope": Plugin.Scope.USER},
+            candidates=inspection.candidates,
+            user=request.user,
+        )
+        return self._render_picker(request, form, location, commit, inspection, url)
+
+    def _render_picker(self, request, form, location, commit, inspection, url, *, error=""):
+        rows = _picker_rows(location, commit, inspection.candidates)
+        selected = set(request.POST.getlist("plugin_paths")) if form.is_bound else set()
+        for row in rows:
+            row["checked"] = row["candidate"].plugin_path in selected
+        return render(
+            request,
+            "plugins/add.html",
+            {
+                "url_form": RepoURLForm({"url": url}),
+                "git_host": _git_host(),
+                "form": form,
+                "rows": rows,
+                "marketplace_name": inspection.marketplace_name,
+                "error": error,
+            },
+        )
+
+    def _install(self, request):
+        url = request.POST.get("url", "")
+        try:
+            location, commit, inspection = services.inspect_url(url, user=request.user)
+        except services.InstallError as exc:
+            return self._render_url_step(request, RepoURLForm({"url": url}), error=str(exc))
+        form = InstallForm(request.POST, candidates=inspection.candidates, user=request.user)
+        if not form.is_valid():
+            return self._render_picker(request, form, location, commit, inspection, url)
+        data = form.cleaned_data
+        try:
+            plugins = services.install(
+                raw_url=data["url"],
+                commit=data["commit"],
+                plugin_paths=data["plugin_paths"],
+                scope=Plugin.Scope(data["scope"]),
+                user=request.user,
+            )
+        except services.InstallError as exc:
+            return self._render_picker(request, form, location, commit, inspection, url, error=str(exc))
+        messages.success(
+            request, ngettext("Installed %(n)d plugin.", "Installed %(n)d plugins.", len(plugins)) % {"n": len(plugins)}
+        )
+        return redirect(reverse("plugins:list"))

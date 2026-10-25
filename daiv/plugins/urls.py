@@ -1,6 +1,7 @@
 from django.urls import path
 
 from plugins.views import (
+    PluginAddView,
     PluginDeleteView,
     PluginDetailView,
     PluginGlobalListView,
@@ -15,6 +16,7 @@ app_name = "plugins"
 
 urlpatterns = [
     path("", PluginListView.as_view(), name="list"),
+    path("add/", PluginAddView.as_view(), name="add"),
     path("global/", PluginGlobalListView.as_view(), name="global_list"),
     path("<int:pk>/", PluginDetailView.as_view(), name="detail"),
     path("<int:pk>/active/", PluginSetActiveView.as_view(), name="set_active"),

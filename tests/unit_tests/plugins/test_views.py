@@ -271,3 +271,202 @@ def test_member_detail_of_global_plugin_highlights_plugins_section(client, membe
     resp = client.get(reverse("plugins:detail", args=[plugin.pk]))
 
     assert resp.context["nav_active_section"] == "plugins"
+
+
+def _inspection(*candidates):
+    from plugins.manifest import RepoInspection
+
+    return RepoInspection(marketplace_name="market", candidates=tuple(candidates))
+
+
+def _cand(name="devkit", path="plugins/devkit", supported=True, reason=""):
+    from plugins.manifest import PluginCandidate
+
+    return PluginCandidate(
+        name=name, plugin_path=path, description=f"{name} desc", version="0.6.0", supported=supported, reason=reason
+    )
+
+
+def _contents(name="devkit", skills=("a", "b", "c", "d", "e")):
+    from plugins.manifest import ItemRef
+
+    return PluginContents(
+        name=name,
+        description="",
+        version="0.6.0",
+        skills=tuple(ItemRef(name=s, description="", path=f"skills/{s}/SKILL.md") for s in skills),
+        commands=(),
+        agents=(),
+        skipped=(),
+    )
+
+
+def _location():
+    from plugins.fetch import RepoLocation
+
+    return RepoLocation(url="https://github.com/a/b", host="github.com", on_platform=False, slug="a/b")
+
+
+def test_add_get_shows_url_form_and_hint(client, member_user):
+    client.force_login(member_user)
+
+    with patch("plugins.views.RepoClient.create_instance") as create:
+        create.return_value.git_host.return_value = "git.example.com"
+        html = client.get(reverse("plugins:add")).content.decode()
+
+    assert "Repository link" in html
+    assert "private repos only from" in html
+    assert "git.example.com" in html
+
+
+def test_add_get_renders_hint_without_host_when_client_fails(client, member_user):
+    client.force_login(member_user)
+
+    with patch("plugins.views.RepoClient.create_instance", side_effect=RuntimeError):
+        response = client.get(reverse("plugins:add"))
+
+    assert response.status_code == 200
+    assert "Public repos from any host" in response.content.decode()
+
+
+def test_add_inspect_renders_candidates(client, member_user):
+    client.force_login(member_user)
+    inspection = _inspection(_cand(), _cand(name="management", path="plugins/management"))
+
+    with (
+        patch("plugins.services.inspect_url", return_value=(_location(), SHA, inspection)),
+        patch("plugins.views.read_plugin", side_effect=lambda root, path, fallback_name: _contents(fallback_name)),
+    ):
+        html = client.post(
+            reverse("plugins:add"), {"step": "inspect", "url": "https://github.com/a/b"}
+        ).content.decode()
+
+    assert "devkit:a" in html
+    assert "devkit:c" in html
+    assert "devkit:d" not in html
+    assert "+2 more" in html
+    assert "management" in html
+    assert 'value="plugins/devkit"' in html
+    assert f'value="{SHA}"' in html
+    assert "Everyone" not in html
+
+
+def test_add_inspect_offers_everyone_to_admin(client, admin_user):
+    client.force_login(admin_user)
+
+    with (
+        patch("plugins.services.inspect_url", return_value=(_location(), SHA, _inspection(_cand()))),
+        patch("plugins.views.read_plugin", return_value=_contents()),
+    ):
+        html = client.post(
+            reverse("plugins:add"), {"step": "inspect", "url": "https://github.com/a/b"}
+        ).content.decode()
+
+    assert "Everyone" in html
+
+
+def test_add_inspect_shows_fetch_error_message(client, member_user):
+    from plugins.services import InstallError
+
+    client.force_login(member_user)
+
+    with patch("plugins.services.inspect_url", side_effect=InstallError("DAIV can't read this repository.")):
+        response = client.post(reverse("plugins:add"), {"step": "inspect", "url": "https://github.com/a/b"})
+
+    assert response.status_code == 200
+    assert "DAIV can&#x27;t read this repository." in response.content.decode()
+
+
+def test_add_unsupported_candidate_not_selectable(client, member_user):
+    from plugins.manifest import ManifestError
+
+    client.force_login(member_user)
+    inspection = _inspection(
+        _cand(name="hooky", path="plugins/hooky", supported=False, reason="Only hooks"),
+        _cand(name="broken", path="plugins/broken"),
+        _cand(),
+    )
+
+    def read(root, path, fallback_name):
+        if fallback_name == "broken":
+            raise ManifestError("bad manifest")
+        return _contents(fallback_name)
+
+    with (
+        patch("plugins.services.inspect_url", return_value=(_location(), SHA, inspection)),
+        patch("plugins.views.read_plugin", side_effect=read),
+    ):
+        html = client.post(
+            reverse("plugins:add"), {"step": "inspect", "url": "https://github.com/a/b"}
+        ).content.decode()
+
+    assert "Only hooks" in html
+    assert "bad manifest" in html
+    assert 'value="plugins/hooky"' not in html
+    assert 'value="plugins/broken"' not in html
+    assert 'value="plugins/devkit"' in html
+
+
+def _install_post(**overrides):
+    return {
+        "step": "install",
+        "url": "https://github.com/a/b",
+        "commit": SHA,
+        "plugin_paths": ["plugins/devkit"],
+        "scope": "user",
+        **overrides,
+    }
+
+
+def test_add_install_creates_plugins_and_redirects(client, member_user):
+    client.force_login(member_user)
+
+    with (
+        patch("plugins.services.inspect_url", return_value=(_location(), SHA, _inspection(_cand()))),
+        patch("plugins.services.install", return_value=[make_plugin(name="devkit", user=member_user)]) as install,
+    ):
+        response = client.post(reverse("plugins:add"), _install_post())
+
+    assert response.status_code == 302
+    assert response.url == reverse("plugins:list")
+    install.assert_called_once_with(
+        raw_url="https://github.com/a/b",
+        commit=SHA,
+        plugin_paths=["plugins/devkit"],
+        scope=Plugin.Scope.USER,
+        user=member_user,
+    )
+
+
+def test_add_install_error_is_shown(client, member_user):
+    from plugins.services import InstallError
+
+    client.force_login(member_user)
+
+    with (
+        patch("plugins.services.inspect_url", return_value=(_location(), SHA, _inspection(_cand()))),
+        patch("plugins.views.read_plugin", return_value=_contents()),
+        patch("plugins.services.install", side_effect=InstallError("A plugin named devkit is already installed.")),
+    ):
+        response = client.post(reverse("plugins:add"), _install_post())
+
+    assert response.status_code == 200
+    assert "already installed" in response.content.decode()
+
+
+def test_member_posting_global_scope_rejected(client, member_user):
+    client.force_login(member_user)
+
+    with (
+        patch("plugins.services.inspect_url", return_value=(_location(), SHA, _inspection(_cand()))),
+        patch("plugins.views.read_plugin", return_value=_contents()),
+        patch("plugins.services.install") as install,
+    ):
+        response = client.post(reverse("plugins:add"), _install_post(scope="global"))
+
+    assert response.status_code == 200
+    install.assert_not_called()
+
+
+def test_add_requires_login(client):
+    assert client.get(reverse("plugins:add")).status_code == 302
