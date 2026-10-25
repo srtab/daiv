@@ -280,6 +280,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
     # Deferred so importing this module never loads the agent stack.
     from langgraph.checkpoint.memory import InMemorySaver
     from mcp_connectors.services import build_runtime_servers
+    from plugins.services import resolve_plugins_for_user
     from sandbox_envs.services import build_sandbox_spec
 
     from automation.agent.agent_settings import resolve_agent_settings
@@ -336,6 +337,9 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
             session_links = _session_links(spec, settings)
             if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
+            plugin_user_id = spec.acting_user_id if spec.acting_user_id is not None else spec.triggering_user_id
+            plugins = await sync_to_async(resolve_plugins_for_user)(plugin_user_id)
+            plugin_errors = await workspace.provision_plugins(plugins)
             agent = await create_daiv_agent(
                 settings=settings,
                 ctx=ctx,
@@ -345,6 +349,8 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 artifact_store=RunArtifactStore(),
                 mcp_servers=await sync_to_async(build_runtime_servers)(spec.acting_user_id, spec.mcp_overrides),
                 session_links=session_links,
+                plugins=plugins,
+                plugin_errors=plugin_errors,
                 **spec.agent_options,
             )
             config = build_langsmith_config(

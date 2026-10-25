@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import tarfile
 import uuid
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
@@ -70,7 +70,8 @@ def agent_stack(
     ``checkpointed`` is the session thread's last checkpoint values (``None``: no checkpoint yet); a fresh container
     is seeded with an empty archive. ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed
     to the clone. ``build_servers`` stubs ``build_runtime_servers``; the servers it returns are the ones handed to the
-    agent. ``build_absolute_url`` stubs the session links' URL builder, resolving against ``SITE_URL``.
+    agent. ``resolve_plugins`` stubs ``resolve_plugins_for_user`` (no plugins by default). ``build_absolute_url`` stubs
+    the session links' URL builder, resolving against ``SITE_URL``.
     """
     last_checkpoint = None if checkpointed is None else SimpleNamespace(checkpoint={"channel_values": checkpointed})
     stack = SimpleNamespace(
@@ -121,6 +122,7 @@ def agent_stack(
         stack.events.append("stream ended")
 
     with (
+        ExitStack() as more,
         stub_sandbox_spec() as build_spec,
         patch("sessions.live.publisher.ainvoke_live", _ainvoke_live),
         patch("sessions.live.publisher.end_stream", _end_stream),
@@ -136,8 +138,6 @@ def agent_stack(
         patch("mcp_connectors.services.build_runtime_servers", return_value=[]) as build_servers,
         patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {}}) as langsmith,
         patch("sessions.executor.result.build_agent_result", side_effect=_build_result) as build_result,
-        patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
-        patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.PipelineWatch", _Watch),
@@ -149,12 +149,18 @@ def agent_stack(
             AsyncMock(return_value=SessionSeed(empty_archive(), None, [])),
         ),
     ):
+        more.enter_context(
+            patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict))
+        )
+        more.enter_context(patch("automation.agent.usage_tracking.track_usage_metadata"))
+        resolve_plugins = more.enter_context(patch("plugins.services.resolve_plugins_for_user", return_value=[]))
         stack.build_spec = build_spec
         stack.build_client = build_client
         stack.configured = configured
         stack.snapshot = snapshot
         stack.create_agent = create_agent
         stack.build_servers = build_servers
+        stack.resolve_plugins = resolve_plugins
         stack.langsmith = langsmith
         stack.build_result = build_result
         stack.persist = persist

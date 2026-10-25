@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,21 +10,25 @@ from deepagents.backends import StateBackend
 from deepagents.middleware.memory import MemoryMiddleware
 from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from plugins.runtime import PluginAgentRef, PluginSkillRef, ResolvedPlugin
 
 from automation.agent.artifacts import FETCH_ARTIFACT_TOOL_NAME, PUBLISH_ARTIFACT_TOOL_NAME
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
+from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware, InlineToolDefinitionsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import DAIVFilesystemMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import build_agents_memory_middleware
+from automation.agent.middlewares.plugins import PLUGINS_KIND, PluginsMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
+from automation.agent.synthetic import synthetic_data, synthetic_kind, synthetic_message
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
@@ -37,6 +42,7 @@ def _patches() -> dict[str, tuple[str, dict]]:
         "create_general_purpose": ("create_general_purpose_subagent", {}),
         "create_explore": ("create_explore_subagent", {}),
         "load_custom": ("load_custom_subagents", {"new": AsyncMock(return_value=[])}),
+        "load_plugin": ("load_plugin_subagents", {"new": AsyncMock(return_value=[])}),
         "create_deep_agent": ("create_deep_agent", {}),
         "get_model": ("get_model", {}),
         "skills_middleware": ("SkillsMiddleware", {}),
@@ -48,15 +54,27 @@ def _patches() -> dict[str, tuple[str, dict]]:
     }
 
 
-async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
+async def _build(
+    workspace, *, deferred: bool = False, custom_subagents=(), plugin_subagents=(), **agent_kwargs
+) -> SimpleNamespace:
     """Build the agent over ``workspace`` with its collaborators stubbed and return the stubs. The context's spec has a
-    base image, so a disk workspace shows the mode is the workspace's, not the context's."""
+    base image, so a disk workspace shows the mode is the workspace's, not the context's. ``custom_subagents`` and
+    ``plugin_subagents`` are what the repo and plugin subagent loaders return."""
     with ExitStack() as stack:
         mocks = {
             name: stack.enter_context(patch(f"automation.agent.graph.{target}", **kwargs))
             for name, (target, kwargs) in _patches().items()
         }
-        stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
+        mocks["load_custom"].return_value = list(custom_subagents)
+        mocks["load_plugin"].return_value = list(plugin_subagents)
+        stack.enter_context(
+            patch(
+                "automation.agent.middlewares.deferred_tools.deferred_settings",
+                ENABLED=deferred,
+                TOP_K_DEFAULT=5,
+                TOP_K_MAX=10,
+            )
+        )
         site = site_snapshot(
             agent_recursion_limit=50,
             agent_model_name="m",
@@ -254,3 +272,120 @@ async def test_system_prompt_names_the_ref_recorded_on_the_repo_handle():
 
     assert "You are on branch `feature-x`" in seen[0]
     assert "https://gitlab.test/group/repo/-/blob/feature-x/" in seen[0]
+
+
+def _plugin(name: str, *, skills=(), agents=()) -> ResolvedPlugin:
+    root = f"/workspace/plugins/{name}"
+    return ResolvedPlugin(
+        name=name,
+        commit="c1",
+        host_root=Path("/unused"),
+        skills=tuple(PluginSkillRef(f"{name}:{s}", f"{s} skill", f"{root}/skills/{s}/SKILL.md", root) for s in skills),
+        agents=tuple(PluginAgentRef(f"{name}:{a}", f"{a} agent", f"{root}/agents/{a}.md", None) for a in agents),
+    )
+
+
+def _subagent(name: str, description: str = "an agent") -> dict:
+    return {"name": name, "description": description, "runnable": MagicMock()}
+
+
+async def _announced(built: SimpleNamespace, messages=None) -> dict | None:
+    """What the built agent's ``PluginsMiddleware`` tells the model on a call with ``messages``: the data of the
+    reminder it adds, or ``None`` when it adds none."""
+    [plugins] = [m for m in _middleware(built) if isinstance(m, PluginsMiddleware)]
+    sent: list[ModelRequest] = []
+
+    async def handler(request: ModelRequest) -> ModelResponse:
+        sent.append(request)
+        return ModelResponse(result=[AIMessage(content="ok")])
+
+    request = ModelRequest(
+        model=MagicMock(),
+        messages=messages or [HumanMessage(content="hi")],
+        system_message=SystemMessage(content="sys"),
+        tools=[],
+    )
+    await plugins.awrap_model_call(request, handler)
+    last = sent[0].messages[-1]
+    return synthetic_data(last) if synthetic_kind(last) == PLUGINS_KIND else None
+
+
+async def test_graph_includes_plugins_middleware_before_deferred_tools():
+    built = await _build(_disk_workspace(), deferred=True, plugins=[_plugin("acme", skills=["commit"])])
+
+    middleware = _middleware(built)
+    [plugins] = [m for m in middleware if isinstance(m, PluginsMiddleware)]
+    [deferred] = [m for m in middleware if isinstance(m, DeferredToolsMiddleware)]
+    [inline] = [m for m in middleware if isinstance(m, InlineToolDefinitionsMiddleware)]
+    position = middleware.index(plugins)
+    assert middleware[position - 1] is built.skills_middleware.return_value
+    assert middleware.index(built.summarization.return_value) < position
+    assert position < middleware.index(deferred)
+    assert position < middleware.index(built.prompt_caching_middleware.return_value)
+    assert position < middleware.index(inline)
+
+
+async def test_graph_registers_plugin_subagents():
+    """Only the plugin agents that compiled are registered and announced: ``task`` would refuse the rest."""
+    workspace = _disk_workspace()
+    acme = _plugin("acme", agents=["broken", "reviewer"])
+    broken, reviewer = acme.agents
+    compiled = _subagent(reviewer.name, reviewer.description)
+
+    built = await _build(workspace, plugins=[acme], plugin_subagents=[compiled])
+
+    load = built.load_plugin.await_args.kwargs
+    assert (load["workspace"], load["agents"]) == (workspace, [broken, reviewer])
+    assert built.create_deep_agent.call_args.kwargs["subagents"][-1] is compiled
+    assert (await _announced(built))["agents"] == {"acme:reviewer": "reviewer agent"}
+
+
+async def test_a_plugin_agent_named_like_a_repo_subagent_is_dropped(caplog):
+    repo_agent = _subagent("acme:reviewer", "the repo's own")
+
+    with caplog.at_level("WARNING", logger="daiv.agent"):
+        built = await _build(
+            _disk_workspace(), plugins=[_plugin("acme", agents=["reviewer"])], custom_subagents=[repo_agent]
+        )
+
+    subagents = built.create_deep_agent.call_args.kwargs["subagents"]
+    assert [s for s in subagents if s["name"] == "acme:reviewer"] == [repo_agent]
+    assert built.load_plugin.await_args.kwargs["agents"] == []
+    assert await _announced(built) is None
+    assert "acme:reviewer" in caplog.text
+
+
+async def test_graph_builds_plugin_skills_from_the_runs_plugins():
+    """A plugin removed between turns is gone from the next build, so its skill is refused there."""
+    workspace = _disk_workspace()
+    tools = _plugin("tools", skills=["lint"])
+
+    first = await _build(workspace, plugins=[_plugin("acme", skills=["commit"]), tools])
+    second = await _build(workspace, plugins=[tools])
+
+    assert set(first.skills_middleware.call_args.kwargs["plugin_skills"]) == {"acme:commit", "tools:lint"}
+    assert second.skills_middleware.call_args.kwargs["plugin_skills"] == {"tools:lint": tools.skills[0]}
+    assert (await _announced(second))["skills"] == {"tools:lint": "lint skill"}
+
+
+async def test_plugin_provisioning_errors_join_the_skills_provisioning_errors():
+    workspace = _disk_workspace()
+    workspace.skills_provisioning_errors = ("Global skill x could not be seeded",)
+
+    built = await _build(workspace, plugin_errors=["Plugin file a.md could not be provisioned: denied"])
+
+    assert built.skills_middleware.call_args.kwargs["provisioning_errors"] == [
+        "Global skill x could not be seeded",
+        "Plugin file a.md could not be provisioned: denied",
+    ]
+
+
+async def test_a_turn_without_plugins_still_retracts_the_announced_ones():
+    built = await _build(_disk_workspace())
+    earlier = synthetic_message(
+        "<plugins>...</plugins>", kind=PLUGINS_KIND, data={"skills": {"acme:commit": "commit skill"}, "agents": {}}
+    )
+
+    announced = await _announced(built, messages=[HumanMessage(content="hi"), earlier, HumanMessage(content="again")])
+
+    assert announced == {"skills": {}, "agents": {}}

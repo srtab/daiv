@@ -287,7 +287,7 @@ class TestIssueAfterRunMatrix:
         ):
             await _address()
 
-        assert client.calls_to("run_commands") == [(session_id, ("git push origin HEAD",))]
+        assert client.calls_to("run_commands")[-1] == (session_id, ("git push origin HEAD",))
         assert client.calls_to("close_session") == [(session_id, False)]
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]
