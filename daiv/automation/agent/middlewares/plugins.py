@@ -2,8 +2,10 @@
 
 The system prompt and the tools array must stay byte-identical between turns, so plugin skills and agents reach
 the model only as a persisted reminder (see ``reminders``). The reminder carries the announced set as data; a
-later model call compares it with the turn's set and sends a new reminder only when they differ. The plugin
-agents are compiled into the ``task`` tool, so their lines are stripped from its description before each call.
+later model call compares it with the turn's set and sends a new reminder only when they differ, or when the turn's
+plugin files could not all be provisioned: those errors go into the turn's first reminder, never into the system
+prompt. The plugin agents are compiled into the ``task`` tool, so their lines are stripped from its description before
+each call.
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ def _entries(items: Mapping[str, str]) -> list[str]:
     return [f"- {name}: {description}" for name, description in sorted(items.items())]
 
 
-def _reminder_text(announced: Announced, current: Announced) -> str:
+def _reminder_text(announced: Announced, current: Announced, errors: Sequence[str] = ()) -> str:
     changed = {
         kind: {name: desc for name, desc in current[kind].items() if announced[kind].get(name) != desc}
         for kind in current
@@ -61,6 +63,8 @@ def _reminder_text(announced: Announced, current: Announced) -> str:
         lines += ["Plugin agents (call with the `task` tool, subagent_type = name):", *_entries(changed["agents"])]
     if removed:
         lines.append(f"No longer available: {', '.join(removed)}")
+    if errors:
+        lines += ["Plugin provisioning problems this turn:", *(f"- {error}" for error in errors)]
     lines.append("</plugins>")
     return "\n".join(lines)
 
@@ -75,11 +79,15 @@ def _strip_agents(description: str, agents: Sequence[PluginAgentRef]) -> str:
 
 
 class PluginsMiddleware(AgentMiddleware):
-    """Tell the model about the turn's plugin skills and agents through reminders only."""
+    """Tell the model about the turn's plugin skills and agents, and what provisioning their files left out
+    (``errors``), through reminders only. Built per run, so the errors are reported once per turn."""
 
-    def __init__(self, skills: Sequence[PluginSkillRef], agents: Sequence[PluginAgentRef]) -> None:
+    def __init__(
+        self, skills: Sequence[PluginSkillRef], agents: Sequence[PluginAgentRef], errors: Sequence[str] = ()
+    ) -> None:
         super().__init__()
         self._agents = list(agents)
+        self._errors = list(errors)
         self._current: Announced = {
             "skills": {skill.name: skill.description for skill in skills},
             "agents": {agent.name: agent.description for agent in agents},
@@ -100,8 +108,11 @@ class PluginsMiddleware(AgentMiddleware):
             request = request.override(tools=self._without_plugin_agents(request.tools))
 
         announced = _announced(request.messages)
-        if announced == self._current:
+        errors = self._errors
+        if announced == self._current and not errors:
             return await handler(request)
-        return await call_with_reminder(
-            request, handler, _reminder_text(announced, self._current), kind=PLUGINS_KIND, data=self._current
+        response = await call_with_reminder(
+            request, handler, _reminder_text(announced, self._current, errors), kind=PLUGINS_KIND, data=self._current
         )
+        self._errors = []
+        return response

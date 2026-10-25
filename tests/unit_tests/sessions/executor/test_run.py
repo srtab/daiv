@@ -707,16 +707,56 @@ async def test_a_sandbox_run_provisions_plugins_once_its_container_is_acquired(t
     assert provisioned == [(True, [plugin])]
 
 
-async def test_plugin_provisioning_errors_reach_the_agent():
+async def test_plugin_provisioning_errors_reach_the_agent(caplog):
     errors = ["Plugin file /workspace/plugins/acme/a.md could not be provisioned: denied"]
 
     with (
         agent_stack(_agent()) as stack,
         patch.object(DiskWorkspace, "provision_plugins", AsyncMock(return_value=errors)),
+        caplog.at_level("WARNING", logger="daiv.sessions"),
     ):
         await execute_run(make_spec())
 
     assert stack.create_agent.await_args.kwargs["plugin_errors"] == errors
+    assert errors[0] in caplog.text
+
+
+async def test_a_plugin_resolution_failure_runs_the_turn_without_plugins(caplog):
+    """The workspace is still cleared, so a reused container keeps no earlier user's plugin files."""
+    provision = AsyncMock(return_value=[])
+
+    with (
+        agent_stack(_agent()) as stack,
+        patch.object(DiskWorkspace, "provision_plugins", provision),
+        caplog.at_level("ERROR", logger="daiv.sessions"),
+    ):
+        stack.resolve_plugins.side_effect = RuntimeError("database is down")
+        outcome = await execute_run(make_spec(acting_user_id=7))
+
+    assert outcome.response_text == "done"
+    assert stack.create_agent.await_args.kwargs["plugins"] == ()
+    assert stack.create_agent.await_args.kwargs["plugin_errors"] == ()
+    provision.assert_awaited_once_with(())
+    assert "database is down" in caplog.text
+
+
+async def test_a_plugin_provisioning_failure_runs_the_turn_without_plugins(tmp_path, caplog):
+    plugin = _plugin(tmp_path)
+    provision = AsyncMock(side_effect=RuntimeError("sandbox unreachable"))
+
+    with (
+        agent_stack(_agent()) as stack,
+        patch.object(DiskWorkspace, "provision_plugins", provision),
+        caplog.at_level("ERROR", logger="daiv.sessions"),
+    ):
+        stack.resolve_plugins.return_value = [plugin]
+        outcome = await execute_run(make_spec())
+
+    assert outcome.response_text == "done"
+    assert stack.create_agent.await_args.kwargs["plugins"] == ()
+    assert stack.create_agent.await_args.kwargs["plugin_errors"] == ()
+    assert provision.await_args_list == [call([plugin]), call(())]
+    assert "sandbox unreachable" in caplog.text
 
 
 @pytest.mark.parametrize(("use_max", "extra"), [(True, {"use_max": True}), (False, {})], ids=["max", "default"])

@@ -156,6 +156,18 @@ async def test_sandbox_provision_replaces_on_user_change(tmp_path):
     assert order == ["run_commands", "aupload_files", "run_commands", "aupload_files"]
 
 
+async def test_sandbox_provision_clears_the_previous_users_plugins_for_a_turn_without_any():
+    workspace = _plugin_workspace(b"acme@c1")
+
+    errors = await workspace.provision_plugins([])
+
+    assert errors == []
+    assert [c.args[0] for c in workspace.bash.run_commands.await_args_list] == [["rm -rf /workspace/plugins"]]
+    assert [c.args[0] for c in workspace.bash.aupload_files.await_args_list] == [
+        [("/workspace/plugins/.daiv-manifest", b"")]
+    ]
+
+
 async def test_sandbox_provision_withholds_manifest_after_upload_error(tmp_path):
     workspace = _plugin_workspace(None)
     workspace.bash.aupload_files.side_effect = lambda files: [

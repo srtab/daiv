@@ -289,9 +289,8 @@ def _subagent(name: str, description: str = "an agent") -> dict:
     return {"name": name, "description": description, "runnable": MagicMock()}
 
 
-async def _announced(built: SimpleNamespace, messages=None) -> dict | None:
-    """What the built agent's ``PluginsMiddleware`` tells the model on a call with ``messages``: the data of the
-    reminder it adds, or ``None`` when it adds none."""
+async def _plugins_reminder(built: SimpleNamespace, messages=None) -> HumanMessage | None:
+    """The reminder the built agent's ``PluginsMiddleware`` adds to a model call with ``messages``, or ``None``."""
     [plugins] = [m for m in _middleware(built) if isinstance(m, PluginsMiddleware)]
     sent: list[ModelRequest] = []
 
@@ -307,7 +306,13 @@ async def _announced(built: SimpleNamespace, messages=None) -> dict | None:
     )
     await plugins.awrap_model_call(request, handler)
     last = sent[0].messages[-1]
-    return synthetic_data(last) if synthetic_kind(last) == PLUGINS_KIND else None
+    return last if synthetic_kind(last) == PLUGINS_KIND else None
+
+
+async def _announced(built: SimpleNamespace, messages=None) -> dict | None:
+    """The data of the plugins reminder the built agent adds to a model call with ``messages``, or ``None``."""
+    reminder = await _plugins_reminder(built, messages)
+    return None if reminder is None else synthetic_data(reminder)
 
 
 async def test_graph_includes_plugins_middleware_before_deferred_tools():
@@ -368,16 +373,16 @@ async def test_graph_builds_plugin_skills_from_the_runs_plugins():
     assert (await _announced(second))["skills"] == {"tools:lint": "lint skill"}
 
 
-async def test_plugin_provisioning_errors_join_the_skills_provisioning_errors():
+async def test_plugin_provisioning_errors_reach_the_reminder_not_the_system_prompt():
+    """``SkillsMiddleware`` renders its provisioning errors into the system prompt, which plugins must not change."""
     workspace = _disk_workspace()
     workspace.skills_provisioning_errors = ("Global skill x could not be seeded",)
+    error = "Plugin file /workspace/plugins/acme/a.md could not be provisioned: denied"
 
-    built = await _build(workspace, plugin_errors=["Plugin file a.md could not be provisioned: denied"])
+    built = await _build(workspace, plugin_errors=[error])
 
-    assert built.skills_middleware.call_args.kwargs["provisioning_errors"] == [
-        "Global skill x could not be seeded",
-        "Plugin file a.md could not be provisioned: denied",
-    ]
+    assert built.skills_middleware.call_args.kwargs["provisioning_errors"] == ("Global skill x could not be seeded",)
+    assert error in (await _plugins_reminder(built)).content
 
 
 async def test_a_turn_without_plugins_still_retracts_the_announced_ones():

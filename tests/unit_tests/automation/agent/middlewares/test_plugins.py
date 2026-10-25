@@ -113,6 +113,34 @@ async def test_no_reminder_when_unchanged():
     assert _reminders(response) == []
 
 
+async def test_errors_are_reported_when_the_announced_set_is_unchanged():
+    _, first = await _run(PluginsMiddleware([_skill("dev:commit")], []), _request())
+    error = "Plugin file /workspace/plugins/dev/a.md could not be provisioned: boom"
+    middleware = PluginsMiddleware([_skill("dev:commit")], [], errors=[error])
+
+    sent, response = await _run(middleware, _request([HumanMessage(content="hi"), *first.result]))
+
+    reminder = sent.messages[-1]
+    assert reminder.content == f"<plugins>\nPlugin provisioning problems this turn:\n- {error}\n</plugins>"
+    assert synthetic_data(reminder) == synthetic_data(first.result[0])
+    assert response.result[0] is reminder
+
+
+async def test_errors_are_reported_once_per_turn():
+    middleware = PluginsMiddleware([_skill("dev:commit")], [], errors=["boom"])
+    _, first = await _run(middleware, _request())
+    assert first.result[0].content.endswith(
+        "- dev:commit: does it\nPlugin provisioning problems this turn:\n- boom\n</plugins>"
+    )
+
+    sent, response = await _run(
+        middleware, _request([HumanMessage(content="hi"), *first.result, AIMessage(content="x")])
+    )
+
+    assert len(sent.messages) == 4
+    assert _reminders(response) == []
+
+
 async def test_user_change_announces_diff():
     _, first = await _run(PluginsMiddleware([_skill("dev:commit")], []), _request())
     middleware = PluginsMiddleware([_skill("dev:commit"), _skill("dev:amend")], [_agent("dev:rev")])

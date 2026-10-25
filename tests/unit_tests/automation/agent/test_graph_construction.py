@@ -70,7 +70,7 @@ def test_skills_middleware_copies_global_skills_unless_the_workspace_provisions_
     src = inspect.getsource(graph_module)
     skills_call = _balanced_call_args(src, "SkillsMiddleware(")
     assert "copy_global_skills=not workspace.provisions_skills" in skills_call
-    assert "provisioning_errors=[*workspace.skills_provisioning_errors, *plugin_errors]" in skills_call
+    assert "provisioning_errors=workspace.skills_provisioning_errors" in skills_call
 
 
 def test_slash_command_middleware_receives_subagents():

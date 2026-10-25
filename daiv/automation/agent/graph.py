@@ -218,7 +218,7 @@ async def create_daiv_agent(
         session_links: What builds the run's session links, from the run executor, for the publish to put in the commit
             and the merge request; ``None`` publishes without them.
         plugins: The turn's plugins, resolved by the run executor for the turn's user and provisioned in ``workspace``.
-        plugin_errors: What provisioning ``plugins`` left out, worded for the agent; reported with the skills' own.
+        plugin_errors: What provisioning ``plugins`` left out, worded for the agent; sent in the turn's plugin reminder.
 
     Returns:
         The DAIV agent.
@@ -318,7 +318,7 @@ async def create_daiv_agent(
             backend=backend,
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
             copy_global_skills=not workspace.provisions_skills,
-            provisioning_errors=[*workspace.skills_provisioning_errors, *plugin_errors],
+            provisioning_errors=workspace.skills_provisioning_errors,
             plugin_skills=plugin_skills,
         ),
         # After summarization, so it re-announces on the compacted view; before the deferred-tools, prompt-caching and
@@ -326,6 +326,7 @@ async def create_daiv_agent(
         PluginsMiddleware(
             skills=list(plugin_skills.values()),
             agents=[agent for agent in plugin_agents if agent.name in compiled_plugin_agents],
+            errors=plugin_errors,
         ),
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
