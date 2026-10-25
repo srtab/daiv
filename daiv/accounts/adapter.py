@@ -168,7 +168,7 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             provider = GitPlatform(account.provider)
         except ValueError:
             return
-        if provider not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
+        if provider not in credentials.OAUTH_CAPABLE_PLATFORMS:
             return
 
         # An empty scope list means the platform did not report one (the signup detour drops the

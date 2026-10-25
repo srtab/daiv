@@ -315,7 +315,7 @@ People manage their own at **Account → Git authorisation** (`/accounts/git-aut
 |---|---|
 | Stored | One row per person per platform host, in DAIV's own database |
 | Encryption | Fernet, using `DAIV_ENCRYPTION_KEY`, the same key that protects every other stored secret |
-| In memory | Cached briefly in Redis, keyed on the **identity**, never on the conversation |
+| In memory | Decrypted for each call that spends it, never cached |
 | Never | In agent state, in a LangGraph checkpoint, in a log record, in a tool result or in a Sentry event |
 
 DAIV does **not** use allauth's own `SocialToken` table: it stores tokens in plaintext, has no revocation state, and is recreated on every login.

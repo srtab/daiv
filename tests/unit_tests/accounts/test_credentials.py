@@ -242,7 +242,7 @@ class TestRefresh:
 class TestRevoke:
     async def test_revoke_clears_both_secrets(self, person):
         credential = await _credential_async(person)
-        changed = await credentials.arevoke(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
+        changed = await sync_to_async(credentials.revoke)(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
         assert changed is True
 
         reloaded = await PlatformCredential.objects.aget(pk=credential.pk)
@@ -250,23 +250,16 @@ class TestRevoke:
         assert reloaded.access_token is None
         assert reloaded.refresh_token is None
 
-    async def test_revoke_drops_the_cached_token(self, person):
-        await _credential_async(person)
-        await credentials.aresolve_access_token(acting_user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
-        key = credentials.token_cache_key(person.pk, GitPlatform.GITLAB, HOST)
-        assert await cache.aget(key) == "tok-live"
-
-        await credentials.arevoke(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
-        assert await cache.aget(key) is None
-
     async def test_revoke_on_a_missing_row_reports_no_change(self, person):
-        assert await credentials.arevoke(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST) is False
+        assert (
+            await sync_to_async(credentials.revoke)(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST) is False
+        )
 
 
 class TestStatusNeverLeaksTheSecret:
     async def test_status_reports_state_expiry_and_scopes(self, person):
         credential = await _credential_async(person)
-        status = await credentials.astatus(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
+        status = await sync_to_async(credentials.status)(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
         assert status.connected is True
         assert status.state == CredentialState.CONNECTED
         assert status.expires_at == credential.expires_at
@@ -274,27 +267,16 @@ class TestStatusNeverLeaksTheSecret:
         assert "tok-live" not in repr(status)
 
     async def test_status_without_a_credential(self, person):
-        status = await credentials.astatus(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
+        status = await sync_to_async(credentials.status)(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
         assert status.connected is False
         assert status.state is None
 
 
-class TestCacheKeyIsIdentityDerived:
-    """A resumed thread whose acting person differs must not read the previous person's token,
-    so the cache key may never carry the thread."""
-
-    def test_key_is_derived_from_the_identity_not_the_thread(self):
-        key = credentials.token_cache_key(7, GitPlatform.GITLAB, HOST)
-        assert key == f"{credentials.TOKEN_CACHE_PREFIX}:7:gitlab:{HOST}"
-
-    def test_two_identities_get_different_keys(self):
-        assert credentials.token_cache_key(1, GitPlatform.GITLAB, HOST) != credentials.token_cache_key(
-            2, GitPlatform.GITLAB, HOST
-        )
+class TestTokensAreIdentityDerived:
+    """A resumed thread whose acting person differs must not read the previous person's token."""
 
     async def test_two_identities_on_one_thread_never_share_a_token(self, db):
-        """The tool call carries a ``thread_id`` but the cache does not: resolving for a second
-        person on the same thread returns that person's own token, never the first's."""
+        """Resolving for a second person on the same thread returns that person's own token, never the first's."""
         first = await User.objects.acreate_user(username="first", email="first@test.com", password="pw")  # noqa: S106
         second = await User.objects.acreate_user(username="second", email="second@test.com", password="pw")  # noqa: S106
         await _credential_async(first, access_token="tok-first", platform_uid="1")  # noqa: S106
@@ -309,12 +291,6 @@ class TestCacheKeyIsIdentityDerived:
 
         assert first_result.token == "tok-first"  # noqa: S105
         assert second_result.token == "tok-second"  # noqa: S105
-
-    async def test_cache_ttl_never_outlives_the_token(self, person):
-        await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=400))
-        await credentials.aresolve_access_token(acting_user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
-        # 400s of life minus the 300s refresh margin leaves 100s of cacheable life.
-        assert await cache.aget(credentials.token_cache_key(person.pk, GitPlatform.GITLAB, HOST)) == "tok-live"
 
 
 class TestNoSecretInRepr:
@@ -365,7 +341,7 @@ class TestPreExistingNarrowAuthorisation:
 
     async def test_the_status_page_flags_the_narrow_grant(self, person):
         await _credential_async(person, scopes=["read_user"])
-        status = await credentials.astatus(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
+        status = await sync_to_async(credentials.status)(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
         assert status.connected is True
         assert status.permits_cross_project is False
 
@@ -467,21 +443,6 @@ class TestStore:
         assert credential.expires_at is None
         assert credential.state == CredentialState.EXPIRED
         assert credential._access_token_encrypted is None
-
-    def test_store_drops_a_stale_cached_token(self, person):
-        key = credentials.token_cache_key(person.pk, GitPlatform.GITLAB, HOST)
-        cache.set(key, "tok-stale", timeout=300)
-
-        credentials.store(
-            user_id=person.pk,
-            provider=GitPlatform.GITLAB,
-            host=HOST,
-            platform_uid="77",
-            access_token="tok-fresh",  # noqa: S106
-            scopes=["api"],
-        )
-
-        assert cache.get(key) is None
 
 
 class TestRefreshFailuresAreClassified:
@@ -594,7 +555,7 @@ class TestARefreshNeverUndoesAChangeThatLandedMidFlight:
         credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
 
         async def _revoked_while_in_flight(cred, refresh_token):
-            await credentials.arevoke(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
+            await sync_to_async(credentials.revoke)(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
             return {"access_token": "tok-late", "refresh_token": "refresh-late", "expires_in": 7200}
 
         with patch("accounts.credentials._arequest_refresh", side_effect=_revoked_while_in_flight):
@@ -613,7 +574,7 @@ class TestARefreshNeverUndoesAChangeThatLandedMidFlight:
         credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
 
         async def _revoked_while_in_flight(cred, refresh_token):
-            await credentials.arevoke(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
+            await sync_to_async(credentials.revoke)(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
             return credentials.RefreshFailure.TERMINAL
 
         with patch("accounts.credentials._arequest_refresh", side_effect=_revoked_while_in_flight):
@@ -629,7 +590,7 @@ class TestARefreshNeverUndoesAChangeThatLandedMidFlight:
         await _credential_async(person, scopes=["read_api"], expires_at=timezone.now() + timedelta(seconds=60))
 
         async def _reauthorised_while_in_flight(cred, refresh_token):
-            await credentials.astore(
+            await sync_to_async(credentials.store)(
                 user_id=person.pk,
                 provider=GitPlatform.GITLAB,
                 host=HOST,
@@ -843,7 +804,6 @@ class TestRenewingARejectedToken:
 
     async def test_a_token_another_call_already_replaced_is_not_renewed_again(self, person):
         await _credential_async(person)
-        await cache.aset(credentials.token_cache_key(person.pk, GitPlatform.GITLAB, HOST), "stale", 60)
 
         with patch("accounts.credentials._arequest_refresh") as request:
             reason = await credentials.arenew_rejected_token(
@@ -854,7 +814,6 @@ class TestRenewingARejectedToken:
 
         assert reason is None
         request.assert_not_called()
-        assert await cache.aget(credentials.token_cache_key(person.pk, GitPlatform.GITLAB, HOST)) is None
 
     async def test_a_grant_without_a_refresh_token_is_left_for_the_person(self, person):
         credential = await _credential_async(person, refresh_token=None, expires_at=None)

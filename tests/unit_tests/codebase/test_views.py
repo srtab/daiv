@@ -5,6 +5,7 @@ from django.urls import reverse
 import pytest
 
 from codebase.models import CrossProjectAccessRecord
+from core.constants import CrossProjectOutcome
 
 pytestmark = pytest.mark.django_db
 
@@ -20,21 +21,21 @@ def records(admin_user, member_user):
             acting_user=member_user,
             provider="gitlab",
             target_repo_id="other-group/reachable",
-            outcome=CrossProjectAccessRecord.Outcome.ALLOWED,
+            outcome=CrossProjectOutcome.ALLOWED,
         ),
         CrossProjectAccessRecord(
             thread_id=THREAD,
             acting_user=member_user,
             provider="gitlab",
             target_repo_id="secret-group/denied",
-            outcome=CrossProjectAccessRecord.Outcome.DENIED_NO_ACCESS,
+            outcome=CrossProjectOutcome.DENIED_NO_ACCESS,
         ),
         CrossProjectAccessRecord(
             thread_id="another-thread",
             acting_user=admin_user,
             provider="gitlab",
             target_repo_id="unrelated/repo",
-            outcome=CrossProjectAccessRecord.Outcome.ALLOWED,
+            outcome=CrossProjectOutcome.ALLOWED,
         ),
     ])
 

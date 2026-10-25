@@ -4,10 +4,8 @@ The only module permitted to decrypt :attr:`accounts.models.PlatformCredential.a
 Every other caller asks here and receives either a usable token or a typed
 :class:`CredentialReason`.
 
-Six invariants this module exists to keep:
+Five invariants this module exists to keep:
 
-* the token cache is keyed on the **identity**, never the thread — a resumed thread whose acting
-  person differs must not read the previous person's token;
 * a refresh writes access token, refresh token and expiry in **one transaction**, because GitLab
   rotates the refresh token on every use;
 * refresh happens at the point of use, within :data:`REFRESH_MARGIN_SECONDS` of expiry, not once
@@ -58,7 +56,6 @@ REFRESH_MARGIN_SECONDS = 300
 plus retries, narrow enough not to refresh on every call."""
 
 TOKEN_CACHE_PREFIX = "platform_credential_token"  # noqa: S105
-TOKEN_CACHE_MAX_TTL_SECONDS = 300
 REFRESH_TIMEOUT_SECONDS = 15
 REFRESH_LOCK_SECONDS = 30
 """How long one refresh may hold a grant's lock, and how long another waits for it. Above
@@ -181,11 +178,6 @@ def auth_hosts(provider: GitPlatform | str) -> frozenset[str]:
     return frozenset(name for name in names if name)
 
 
-def token_cache_key(user_id: int, provider: GitPlatform | str, host: str) -> str:
-    """Identity-derived cache key. Deliberately carries no ``thread_id``."""
-    return f"{TOKEN_CACHE_PREFIX}:{user_id}:{GitPlatform(provider).value}:{host}"
-
-
 def scopes_permit_cross_project(provider: GitPlatform | str, scopes: Sequence[str]) -> bool:
     """Whether a recorded grant is wide enough to reach another project.
 
@@ -227,7 +219,7 @@ async def aresolve_access_token(
     if platform_uid is not None and not await _awebhook_runs_enabled():
         return ResolvedCredential(reason=CredentialReason.WEBHOOK_RUNS_DISABLED)
 
-    from accounts.models import CredentialState, PlatformCredential
+    from accounts.models import PlatformCredential
 
     host = host or platform_host(provider)
     provider_value = GitPlatform(provider).value
@@ -245,19 +237,12 @@ async def aresolve_access_token(
     credential = candidates[0]
     owner_id = credential.user_id
 
-    if credential.state != CredentialState.CONNECTED:
-        revoked = credential.state == CredentialState.REVOKED
-        return ResolvedCredential(
-            reason=CredentialReason.REVOKED if revoked else CredentialReason.EXPIRED, user_id=owner_id
-        )
+    if (dead := _dead_reason(credential.state)) is not None:
+        return ResolvedCredential(reason=dead, user_id=owner_id)
 
     scopes = _as_scopes(credential.scopes)
     if not scopes_permit_cross_project(provider, scopes):
         return ResolvedCredential(reason=CredentialReason.INSUFFICIENT_SCOPE, scopes=scopes, user_id=owner_id)
-
-    cache_key = token_cache_key(owner_id, provider_value, host)
-    if access_token := await cache.aget(cache_key):
-        return ResolvedCredential(token=access_token, scopes=scopes, user_id=owner_id)
 
     if _needs_refresh(credential):
         refreshed = await _arefresh(credential)
@@ -280,8 +265,6 @@ async def aresolve_access_token(
     if not token:
         return ResolvedCredential(reason=CredentialReason.EXPIRED, user_id=owner_id)
 
-    if (ttl := _cache_ttl_seconds(credential)) > 0:
-        await cache.aset(cache_key, token, timeout=ttl)
     return ResolvedCredential(token=token, scopes=scopes, user_id=owner_id)
 
 
@@ -395,18 +378,21 @@ def store(
         with transaction.atomic():
             credential = _write()
 
-    cache.delete(token_cache_key(user_id, provider, host))
     return credential
 
 
 def revoke(*, user_id: int, provider: GitPlatform | str, host: str | None = None) -> bool:
     """Withdraw a grant: clear both secrets and mark it ``revoked``. Returns whether a row changed."""
-    return _transition(user_id=user_id, provider=provider, host=host, state=_state().REVOKED)
+    from accounts.models import CredentialState
+
+    return _transition(user_id=user_id, provider=provider, host=host, state=CredentialState.REVOKED)
 
 
 def expire(*, user_id: int, provider: GitPlatform | str, host: str | None = None) -> bool:
     """Mark a grant unusable because renewal failed. Same shape as :func:`revoke`, different cause."""
-    return _transition(user_id=user_id, provider=provider, host=host, state=_state().EXPIRED)
+    from accounts.models import CredentialState
+
+    return _transition(user_id=user_id, provider=provider, host=host, state=CredentialState.EXPIRED)
 
 
 def clear_revoked(*, user_id: int, provider: GitPlatform | str, host: str | None = None) -> bool:
@@ -423,22 +409,7 @@ def clear_revoked(*, user_id: int, provider: GitPlatform | str, host: str | None
     return bool(deleted)
 
 
-def invalidate_cached_token(*, user_id: int, provider: GitPlatform | str, host: str | None = None) -> None:
-    """Drop the cached token without touching the stored grant.
-
-    A platform rejecting a token mid-call is not proof the grant is gone — only the refresh
-    endpoint can say that. Dropping the cache makes the next call re-resolve, which refreshes or
-    refuses on the platform's own word instead of on a guess about CLI prose.
-    """
-    for credential in _rows_for(user_id, provider, host).only("host"):
-        cache.delete(token_cache_key(user_id, provider, credential.host))
-
-
-astatus = sync_to_async(status)
-arevoke = sync_to_async(revoke)
 aexpire = sync_to_async(expire)
-astore = sync_to_async(store)
-ainvalidate_cached_token = sync_to_async(invalidate_cached_token)
 
 
 async def arenew_rejected_token(*, user_id: int, provider: GitPlatform | str, token: str) -> CredentialReason | None:
@@ -447,15 +418,12 @@ async def arenew_rejected_token(*, user_id: int, provider: GitPlatform | str, to
     The refresh endpoint, not the rejection, decides whether the grant is dead. A grant with no refresh
     token cannot be renewed here, so it is left in place and :attr:`CredentialReason.REJECTED` returned.
     """
-    from accounts.models import CredentialState
-
-    await ainvalidate_cached_token(user_id=user_id, provider=provider)
     host = platform_host(provider)
     credential = await _rows_for(user_id, provider, host).afirst()
     if credential is None:
         return CredentialReason.NO_CREDENTIAL
-    if credential.state != CredentialState.CONNECTED:
-        return CredentialReason.REVOKED if credential.state == CredentialState.REVOKED else CredentialReason.EXPIRED
+    if (dead := _dead_reason(credential.state)) is not None:
+        return dead
     try:
         access_token = credential.access_token
     except DecryptionError:
@@ -474,10 +442,13 @@ async def arenew_rejected_token(*, user_id: int, provider: GitPlatform | str, to
     return refreshed if isinstance(refreshed, CredentialReason) else None
 
 
-def _state():
+def _dead_reason(state: str) -> CredentialReason | None:
+    """Why a grant in ``state`` cannot be used, or ``None`` while it is connected."""
     from accounts.models import CredentialState
 
-    return CredentialState
+    if state == CredentialState.CONNECTED:
+        return None
+    return CredentialReason.REVOKED if state == CredentialState.REVOKED else CredentialReason.EXPIRED
 
 
 def _as_scopes(value: Any) -> tuple[str, ...]:
@@ -502,14 +473,6 @@ def _needs_refresh(credential) -> bool:
     return credential.expires_at - timezone.now() <= timedelta(seconds=REFRESH_MARGIN_SECONDS)
 
 
-def _cache_ttl_seconds(credential) -> int:
-    """TTL bounded by the token's own life, so a cache hit is never a stale token."""
-    if credential.expires_at is None:
-        return TOKEN_CACHE_MAX_TTL_SECONDS
-    remaining = (credential.expires_at - timezone.now()).total_seconds() - REFRESH_MARGIN_SECONDS
-    return int(min(TOKEN_CACHE_MAX_TTL_SECONDS, max(0, remaining)))
-
-
 def _clear_secrets(credential, state: str) -> None:
     """Strip both secrets from a locked row and set ``state``. The only place a grant dies."""
     credential.access_token = None
@@ -530,13 +493,9 @@ def _transition(*, user_id: int, provider: GitPlatform | str, host: str | None, 
     """
     changed = False
     with transaction.atomic():
-        hosts = []
         for credential in _rows_for(user_id, provider, host).select_for_update():
             _clear_secrets(credential, state)
-            hosts.append(credential.host)
             changed = True
-        # on_commit, not inline: a Redis error must not roll back the revocation itself.
-        transaction.on_commit(lambda: [cache.delete(token_cache_key(user_id, provider, each)) for each in hosts])
     return changed
 
 
@@ -665,11 +624,9 @@ def _superseded(credential, seen_modified):
     ``None`` means the row is untouched and the refresh may write; otherwise the newer connected
     row, or the reason the grant is dead.
     """
-    from accounts.models import CredentialState
-
-    if credential.state == CredentialState.CONNECTED:
-        return credential if credential.modified != seen_modified else None
-    return CredentialReason.REVOKED if credential.state == CredentialState.REVOKED else CredentialReason.EXPIRED
+    if (dead := _dead_reason(credential.state)) is not None:
+        return dead
+    return credential if credential.modified != seen_modified else None
 
 
 def _expire_unless_renewed(pk: int, *, seen_modified):
@@ -688,7 +645,6 @@ def _expire_unless_renewed(pk: int, *, seen_modified):
         if (superseded := _superseded(credential, seen_modified)) is not None:
             return superseded
         _clear_secrets(credential, CredentialState.EXPIRED)
-    cache.delete(token_cache_key(credential.user_id, credential.provider, credential.host))
     return CredentialReason.EXPIRED
 
 
@@ -716,7 +672,6 @@ def _persist_refresh(pk: int, *, seen_modified, access_token: str, refresh_token
                 "modified",
             ]
         )
-    cache.delete(token_cache_key(credential.user_id, credential.provider, credential.host))
     return credential
 
 

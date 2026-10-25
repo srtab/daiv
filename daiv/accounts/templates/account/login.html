@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n icon_tags socialaccount static %}
+{% load consent_tags i18n icon_tags socialaccount static %}
 
 {% block title %}Sign in — DAIV{% endblock %}
 
@@ -89,6 +89,7 @@
             </a>
             {% endif %}
             {% endfor %}
+            {% social_consent_platform as socialaccount_platform %}
             {% if socialaccount_platform %}
             <p class="mt-3 text-center text-[12px] font-light leading-relaxed tracking-wide text-gray-400">
                 {% blocktranslate trimmed with platform=socialaccount_platform %}

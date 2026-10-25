@@ -5,10 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from automation.agent.middlewares.git_platform.cross_project import (
-    REFUSAL_DISABLED,
-    REFUSAL_INLINE_DISCUSSION_CROSS_PROJECT,
-)
+from automation.agent.middlewares.git_platform.cross_project import REFUSAL_INLINE_DISCUSSION_CROSS_PROJECT
 from automation.agent.middlewares.git_platform.gitlab import REFUSAL_FILE_ARGUMENT, run_gitlab_subcommand
 from codebase.base import GitPlatform
 from core.constants import CrossProjectOutcome
@@ -243,7 +240,7 @@ class TestIdentitySelection:
     async def test_an_empty_project_uses_the_service_token(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            await run_gl("project-issue list", runtime, project="", cross_project_enabled=True)
+            await run_gl("project-issue list", runtime, project="")
         envs = mocks.create_proc.call_args.kwargs["env"]
         assert envs["GITLAB_PRIVATE_TOKEN"] == "service-token"  # noqa: S105
         assert mocks.create_proc.call_args.args[-1] == ATTACHED
@@ -252,14 +249,14 @@ class TestIdentitySelection:
     async def test_a_self_referential_project_uses_the_service_token(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            await run_gl("project-issue list", runtime, project=ATTACHED, cross_project_enabled=True)
+            await run_gl("project-issue list", runtime, project=ATTACHED)
         assert mocks.create_proc.call_args.kwargs["env"]["GITLAB_PRIVATE_TOKEN"] == "service-token"  # noqa: S105
         mocks.resolve.assert_not_called()
 
     async def test_another_project_uses_the_persons_token(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
+            await run_gl("project-issue list", runtime, project=OTHER)
         args = mocks.create_proc.call_args.args
         envs = mocks.create_proc.call_args.kwargs["env"]
         # A person's grant is an OAuth token: GitLab resolves PRIVATE-TOKEN against personal
@@ -271,24 +268,16 @@ class TestIdentitySelection:
 
 
 class TestAttachedProjectIsUnchanged:
-    """An empty ``project``, or the capability off, leaves the attached-project path as it was."""
+    """An empty ``project`` leaves the attached-project path as it was."""
 
-    @pytest.mark.parametrize("enabled", [True, False])
-    async def test_the_attached_path_is_identical_either_way(self, enabled):
+    async def test_the_attached_path_is_unchanged(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl("project-issue list", runtime, project="", cross_project_enabled=enabled)
+            result = await run_gl("project-issue list", runtime, project="")
         assert result == "ok"
         assert mocks.create_proc.call_args.args[-2:] == ("--project-id", ATTACHED)
         assert mocks.create_proc.call_args.kwargs["env"]["GITLAB_PRIVATE_TOKEN"] == "service-token"  # noqa: S105
         mocks.record.assert_not_called()
-
-    async def test_a_cross_project_call_is_refused_when_the_capability_is_off(self):
-        runtime = cross_project_runtime(GitPlatform.GITLAB)
-        with patched_cross_project() as mocks:
-            result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=False)
-        assert result == REFUSAL_DISABLED.format(attached=ATTACHED)
-        mocks.create_proc.assert_not_called()
 
 
 class TestCrossProjectInlineDiscussionIsRefused:
@@ -305,7 +294,7 @@ class TestCrossProjectInlineDiscussionIsRefused:
             subcommand = (
                 f"project-merge-request-discussion create --mr-iid 1 --body \"x\" {flag} '{json.dumps(VALID_POSITION)}'"
             )
-            result = await run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl(subcommand, runtime, project=OTHER)
         assert result == REFUSAL_INLINE_DISCUSSION_CROSS_PROJECT.format(attached=ATTACHED, project=OTHER)
         inline_mock.assert_not_called()
         mocks.resolve.assert_not_called()

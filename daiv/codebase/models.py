@@ -216,7 +216,6 @@ class CrossProjectAccessRecord(models.Model):
     It records that a project was reached, never what was in it: no token and no fetched content.
     """
 
-    Outcome = CrossProjectOutcome
     OUTCOME_CHOICES = CROSS_PROJECT_OUTCOME_CHOICES
 
     occurred_at = models.DateTimeField(_("occurred at"), auto_now_add=True, db_index=True)

@@ -100,6 +100,8 @@ def restrict_session_to_cross_project_fetchers(sender: type, instance: Any, crea
             "Cross-project fetch in thread_id=%s names no acting user; only admins will see the session.",
             instance.thread_id,
         )
+    if Session.objects.filter(pk=instance.thread_id, cross_project_user_ids__contains=[user_id]).exists():
+        return
     with transaction.atomic():
         session = (
             Session.objects.select_for_update().only("cross_project_user_ids").filter(pk=instance.thread_id).first()

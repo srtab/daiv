@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import functools
 import logging
 import re
@@ -11,7 +12,7 @@ from urllib.parse import urlparse
 
 from accounts.credentials import CredentialReason, arenew_rejected_token, aresolve_access_token, platform_host
 from codebase.base import GitPlatform
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER, has_bot_label
 from core.constants import CrossProjectOutcome as _Outcome
 
 if TYPE_CHECKING:
@@ -133,7 +134,6 @@ REFUSAL_UNCHECKED_FLAG_CROSS_PROJECT = (
     "error: '{flag}' is not a flag this tool can check outside the current project. Spell each flag out in full, "
     "as '{command} --help' lists it."
 )
-REFUSAL_NO_ACTING_IDENTITY = "error: Could not establish the requesting user's identity for {project}."
 REFUSAL_BOT_LABEL_CROSS_PROJECT = (
     f"error: '{BOT_LABEL}', '{BOT_AUTO_LABEL}' and '{BOT_MAX_LABEL}' start a DAIV run, so they cannot be added "
     "outside {attached}. On {project} they would launch a run as the person who requested this one; leave them off, "
@@ -273,7 +273,6 @@ _LABEL_FLAGS: dict[GitPlatform, frozenset[str]] = {
     GitPlatform.GITLAB: frozenset({"--labels"}),
     GitPlatform.GITHUB: frozenset({"--label", "--add-label"}),
 }
-_BOT_LABELS = frozenset(label.lower() for label in (BOT_LABEL, BOT_AUTO_LABEL, BOT_MAX_LABEL))
 
 _BODY_FLAGS: dict[GitPlatform, frozenset[str]] = {
     GitPlatform.GITLAB: frozenset({"--body", "--description", "--note"}),
@@ -552,11 +551,10 @@ def _names_a_bot_label(value: str) -> bool:
     whatever the CLI (``str.strip()`` per item), the quote handling or the platform trims cannot turn a refused
     name into an accepted one.
     """
-    for label in unicodedata.normalize("NFKC", value).split(","):
-        core = "".join(char for char in label if char.isprintable() and not char.isspace() and char not in "\"'")
-        if core.lower() in _BOT_LABELS:
-            return True
-    return False
+    return has_bot_label(
+        "".join(char for char in label if char.isprintable() and not char.isspace() and char not in "\"'")
+        for label in unicodedata.normalize("NFKC", value).split(",")
+    )
 
 
 def _has_quick_action_line(value: str) -> bool:
@@ -580,6 +578,8 @@ def _cross_project_policy_refusal(
         uses = _flag_uses(provider, resource, action, args)
     except _UncheckedFlagError as exc:
         return REFUSAL_UNCHECKED_FLAG_CROSS_PROJECT.format(flag=exc.args[0], command=f"{resource} {action}")
+    if action not in _FLAG_CHECKED_ACTIONS:
+        return None
     names = {use.name for use in uses}
     if resource == "project-merge-request-discussion" and action == "create" and "--position" in names:
         # The inline path goes through RepoClient, which holds the service token.
@@ -589,19 +589,15 @@ def _cross_project_policy_refusal(
         denied_flags |= CROSS_PROJECT_DENIED_UPDATE_FLAGS[provider]
     denied_flags |= CROSS_PROJECT_DENIED_COMMAND_FLAGS.get((provider, resource, action), frozenset())
     denied = next((use.name for use in uses if use.name in denied_flags), None)
-    if denied is not None and action in _FLAG_CHECKED_ACTIONS:
+    if denied is not None:
         return REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
             action=f"{resource} {action} {denied}", attached=attached, project=project
         )
-    if action in _FLAG_CHECKED_ACTIONS and any(
-        use.name in _LABEL_FLAGS[provider] and _names_a_bot_label(use.value or "") for use in uses
-    ):
+    if any(use.name in _LABEL_FLAGS[provider] and _names_a_bot_label(use.value or "") for use in uses):
         return REFUSAL_BOT_LABEL_CROSS_PROJECT.format(attached=attached, project=project)
     # GitLab runs these lines as the person, past every denied verb and flag above.
-    if (
-        provider == GitPlatform.GITLAB
-        and action in _FLAG_CHECKED_ACTIONS
-        and any(use.name in _BODY_FLAGS[provider] and _has_quick_action_line(use.value or "") for use in uses)
+    if provider == GitPlatform.GITLAB and any(
+        use.name in _BODY_FLAGS[provider] and _has_quick_action_line(use.value or "") for use in uses
     ):
         return REFUSAL_QUICK_ACTION_CROSS_PROJECT.format(attached=attached, project=project)
     if names & _UNMARKABLE_BODY_FLAGS[provider]:
@@ -732,9 +728,7 @@ def _credential_owner(ctx: RuntimeCtx) -> _CredentialOwner:
 
 def _signed_in_user_id(ctx: RuntimeCtx) -> int | None:
     """The sign-in an attempt is attributed to: only when it is the identity ``_credential_owner`` spends."""
-    if ctx.acting_platform_uid is not None or not ctx.acting_user_authenticated:
-        return None
-    return ctx.acting_user_id
+    return _credential_owner(ctx).get("acting_user_id")
 
 
 async def record_refused_before_decision(
@@ -765,12 +759,11 @@ async def decide_target(
     runtime: ToolRuntime[RuntimeCtx],
     *,
     provider: GitPlatform,
-    cross_project_enabled: bool,
 ) -> TargetDecision:
     """Pick the project and the identity for one call, and record the attempt when it crosses out.
 
-    Every pre-flight refusal — bad path, capability off, denied verb or flag, body from a file,
-    unusable credential — is decided and audited here, so a new caller cannot inherit the audit
+    Every pre-flight refusal — bad path, denied verb or flag, body from a file, unusable credential or
+    capability off — is decided and audited here, so a new caller cannot inherit the audit
     row without the policy gate. Execution-time failures are classified and audited by
     ``_cross_project_failure``; between them, no refusal path is the runner's to remember.
     """
@@ -798,23 +791,10 @@ async def decide_target(
 
     signed_in_user_id = _signed_in_user_id(runtime.context)
 
-    if not cross_project_enabled:
-        logger.warning(
-            "[git-platform] Refused cross-project %s access to %s: the capability is disabled.", provider.value, target
-        )
-        await _record_cross_project_access(
-            runtime,
-            provider=provider,
-            target_repo_id=target,
-            outcome=_Outcome.DENIED_DISABLED,
-            acting_user_id=signed_in_user_id,
-        )
-        return TargetDecision(refusal=REFUSAL_DISABLED.format(attached=attached))
-
     # Before ``aresolve_access_token``: resolving first would spend a GitLab refresh-token
-    # rotation on a call that can never run.
-    if policy_refusal := _cross_project_policy_refusal(
-        resource, action, args, provider=provider, attached=attached, project=target
+    # rotation on a call that can never run. Off the loop: the first GitLab check builds the CLI's parser.
+    if policy_refusal := await asyncio.to_thread(
+        _cross_project_policy_refusal, resource, action, args, provider=provider, attached=attached, project=target
     ):
         logger.warning(
             "[git-platform] Refused cross-project %s '%s %s' against %s by policy.",
@@ -836,19 +816,6 @@ async def decide_target(
     # The resolver names no owner when it found no grant; a sign-in it searched by still knows whose attempt it was.
     acting_user_id = resolved.user_id if resolved.user_id is not None else signed_in_user_id
     if resolved.ok:
-        if not resolved.token:
-            # A branch rather than an ``or``: substituting the service token here would run the
-            # call against another project under DAIV's own identity.
-            logger.error(
-                "[git-platform] Cross-project %s decision for %s carried no token; refusing rather "
-                "than falling back to the service identity.",
-                provider.value,
-                target,
-            )
-            await _record_cross_project_access(
-                runtime, provider=provider, target_repo_id=target, outcome=_Outcome.ERROR, acting_user_id=acting_user_id
-            )
-            return TargetDecision(refusal=REFUSAL_NO_ACTING_IDENTITY.format(project=target))
         return TargetDecision(target=target, token=resolved.token, acting_user_id=acting_user_id)
 
     person = await _acting_person_label(acting_user_id)
@@ -871,12 +838,13 @@ async def decide_target(
     return TargetDecision(refusal=credential_refusal)
 
 
-def _classified_failure(stderr_text: str) -> bool:
-    """Whether stderr names a rejected credential or a denied project, which outranks any output."""
+def _rejected_credential(stderr_text: str) -> bool:
+    return bool(_PLATFORM_UNAUTHORIZED_RE.search(stderr_text))
+
+
+def _platform_denied(stderr_text: str) -> bool:
     lowered = stderr_text.lower()
-    return bool(_PLATFORM_UNAUTHORIZED_RE.search(stderr_text)) or any(
-        marker in lowered for marker in _PLATFORM_DENIED_MARKERS
-    )
+    return any(marker in lowered for marker in _PLATFORM_DENIED_MARKERS)
 
 
 async def _cross_project_failure(
@@ -896,7 +864,6 @@ async def _cross_project_failure(
     exist" from "you may not see it", mirroring the platform, so the tool cannot be used as an
     existence oracle for private projects.
     """
-    lowered = stderr_text.lower()
     person = await _acting_person_label(acting_user_id)
 
     async def refuse(message: str, outcome: str) -> str:
@@ -910,7 +877,7 @@ async def _cross_project_failure(
         )
         return message
 
-    if _PLATFORM_UNAUTHORIZED_RE.search(stderr_text):
+    if _rejected_credential(stderr_text):
         logger.warning(
             "[git-platform] %s rejected the credential for user_id=%s against %s (exit %s).",
             provider.value,
@@ -937,7 +904,7 @@ async def _cross_project_failure(
         )
         return await refuse(message, outcome)
 
-    if any(marker in lowered for marker in _PLATFORM_DENIED_MARKERS):
+    if _platform_denied(stderr_text):
         logger.warning(
             "[git-platform] %s denied user_id=%s access to %s (exit %s).",
             provider.value,
@@ -1003,7 +970,8 @@ class CrossProjectOutcomes:
         return f"error: Failed to execute the {self.display_name} command against {self._target}."
 
     async def on_failure(self, returncode: int, stderr: str, stdout: str) -> str:
-        if stdout and not _classified_failure(stderr):
+        # A rejected credential or a denied project outranks any output.
+        if stdout and not (_rejected_credential(stderr) or _platform_denied(stderr)):
             # ``gh pr checks`` exits 1 or 8 with its answer on stdout; it is fetched content, released like a success.
             if withheld := await self.on_success():
                 return withheld

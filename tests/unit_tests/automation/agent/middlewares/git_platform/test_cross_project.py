@@ -90,7 +90,7 @@ class TestProjectValidation:
     async def test_a_rejected_project_never_spawns_a_subprocess(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl("project-issue list", runtime, project="--oops", cross_project_enabled=True)
+            result = await run_gl("project-issue list", runtime, project="--oops")
         assert result == REFUSAL_PROJECT_IS_A_FLAG
         mocks.create_proc.assert_not_called()
         mocks.resolve.assert_not_called()
@@ -142,9 +142,7 @@ class TestExistingLimitsApplyCrossProject:
     async def test_disallowed_gitlab_subcommand_is_refused_identically(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(
-                "project-variable delete --key SECRET", runtime, project=OTHER, cross_project_enabled=True
-            )
+            result = await run_gl("project-variable delete --key SECRET", runtime, project=OTHER)
         assert result == "error: The subcommand 'project-variable' is not allowed by policy."
         mocks.create_proc.assert_not_called()
         mocks.resolve.assert_not_called()
@@ -161,13 +159,7 @@ class TestExistingLimitsApplyCrossProject:
         backend = recording_backend()
         with patched_cross_project(stdout=b'[{"iid": 1}]\n'):
             result = await run_gitlab_subcommand(
-                "project-merge-request list",
-                runtime,
-                "simplified",
-                True,
-                backend=backend,
-                project=OTHER,
-                cross_project_enabled=True,
+                "project-merge-request list", runtime, "simplified", True, backend=backend, project=OTHER
             )
         path, _content = backend.awrite.call_args.args
         assert path == "/workspace/large_tool_results/c-xproj"
@@ -194,7 +186,7 @@ class TestRefusalVocabulary:
     async def test_each_reason_gets_its_own_string(self, reason, expected):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project(resolved=ResolvedCredential(reason=reason)) as mocks:
-            result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl("project-issue list", runtime, project=OTHER)
         assert result.startswith("error: ")
         assert result == expected
         mocks.create_proc.assert_not_called()
@@ -203,7 +195,7 @@ class TestRefusalVocabulary:
         """The tool must not become an existence oracle for private projects."""
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project(returncode=1, stderr=b"404: 404 Project Not Found"):
-            result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl("project-issue list", runtime, project=OTHER)
         assert result == REFUSAL_PLATFORM_DENIED.format(project=OTHER, person="Ada", provider="gitlab")
         assert "may not have access" in result
         assert "may not exist" in result
@@ -213,7 +205,7 @@ class TestRefusalVocabulary:
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         secret = "glpat-SECRETVALUE and secret-group/secret-repo"  # noqa: S105
         with patched_cross_project(returncode=1, stderr=secret.encode()):
-            result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl("project-issue list", runtime, project=OTHER)
         assert "glpat-SECRETVALUE" not in result
         assert "secret-group/secret-repo" not in result
         assert result.startswith("error: ")
@@ -221,7 +213,7 @@ class TestRefusalVocabulary:
     async def test_attached_project_failures_still_report_stderr(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project(returncode=1, stderr=b"boom"):
-            result = await run_gl("project-issue list", runtime, project="", cross_project_enabled=True)
+            result = await run_gl("project-issue list", runtime, project="")
         assert "boom" in result
 
 
@@ -235,7 +227,7 @@ async def _call_cross_project(runtime, resolve, record=None):
         patch(f"{CROSS_PROJECT}._record_cross_project_access", record or AsyncMock()),
         patch(f"{CROSS_PROJECT}._acting_person_label", AsyncMock(return_value="Alice")),
     ):
-        return await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
+        return await run_gl("project-issue list", runtime, project=OTHER)
 
 
 async def test_signed_in_run_resolves_by_user_id():
@@ -265,7 +257,7 @@ async def test_a_policy_refusal_beside_a_platform_uid_names_no_sign_in():
     record = AsyncMock()
     runtime = cross_project_runtime(GitPlatform.GITLAB, acting_user_id=7, acting_platform_uid="4242")
     with patch(f"{CROSS_PROJECT}._record_cross_project_access", record):
-        await run_gl("project-branch create --branch x --ref main", runtime, project=OTHER, cross_project_enabled=True)
+        await run_gl("project-branch create --branch x --ref main", runtime, project=OTHER)
     assert record.await_args.kwargs["acting_user_id"] is None
 
 
@@ -312,7 +304,7 @@ async def test_an_unauthenticated_user_id_is_never_recorded():
     record = AsyncMock()
     runtime = cross_project_runtime(GitPlatform.GITLAB, acting_user_id=7, acting_user_authenticated=False)
     with patch(f"{CROSS_PROJECT}._record_cross_project_access", record):
-        await run_gl("project-branch create --branch x --ref main", runtime, project=OTHER, cross_project_enabled=True)
+        await run_gl("project-branch create --branch x --ref main", runtime, project=OTHER)
     assert record.await_args.kwargs["acting_user_id"] is None
 
 
@@ -334,7 +326,7 @@ class TestPlatformFailureClassificationIsAnchored:
     async def test_an_ordinary_not_found_does_not_touch_the_grant(self, stderr):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project(returncode=1, stderr=stderr) as mocks:
-            result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl("project-issue list", runtime, project=OTHER)
 
         mocks.renew.assert_not_awaited()
         assert result != REFUSAL_CREDENTIAL_RENEWED.format(person="Ada", provider="gitlab")
@@ -348,7 +340,7 @@ class TestPlatformFailureClassificationIsAnchored:
         """The refresh endpoint, not the CLI's prose, decides whether the grant is dead."""
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project(returncode=1, stderr=stderr) as mocks:
-            result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl("project-issue list", runtime, project=OTHER)
 
         mocks.renew.assert_awaited_once_with(user_id=7, provider=GitPlatform.GITLAB, token="person-token")  # noqa: S106
         assert result == REFUSAL_CREDENTIAL_RENEWED.format(person="Ada", provider="gitlab")
@@ -365,7 +357,7 @@ class TestPlatformFailureClassificationIsAnchored:
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project(returncode=1, stderr=b"401 Unauthorized") as mocks:
             mocks.renew.return_value = reason
-            result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl("project-issue list", runtime, project=OTHER)
 
         assert result == expected
 
@@ -375,7 +367,7 @@ class TestPlatformFailureClassificationIsAnchored:
         with patched_cross_project(returncode=1, stderr=b"401 Unauthorized glpat-PERSONTOKEN") as mocks:
             mocks.renew.side_effect = ConnectionError("cache down")
             with caplog.at_level("DEBUG"):
-                result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
+                result = await run_gl("project-issue list", runtime, project=OTHER)
 
         assert result == REFUSAL_REFRESH_FAILED.format(person="Ada", provider="gitlab")
         assert all(record.exc_info is None for record in caplog.records)
@@ -405,7 +397,7 @@ class TestDestructiveSubcommandsAreRefusedCrossProject:
     async def test_gitlab_destructive_verbs_are_refused(self, subcommand):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl(subcommand, runtime, project=OTHER)
 
         mocks.create_proc.assert_not_called()
         resource, action = subcommand.split()[:2]
@@ -444,19 +436,14 @@ class TestDestructiveSubcommandsAreRefusedCrossProject:
         """Nothing about the attached project changes: it still runs under DAIV's own identity."""
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            await run_gl(subcommand, runtime, project="", cross_project_enabled=True)
+            await run_gl(subcommand, runtime, project="")
 
         mocks.create_proc.assert_called_once()
 
     async def test_reads_and_comments_still_cross(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            await run_gl(
-                'project-issue-note create --issue-iid 1 --body "hi"',
-                runtime,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            await run_gl('project-issue-note create --issue-iid 1 --body "hi"', runtime, project=OTHER)
 
         mocks.create_proc.assert_called_once()
 
@@ -485,7 +472,7 @@ class TestGitLabFlagSpellings:
     async def test_an_abbreviated_denied_flag_is_refused(self, subcommand, flag):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl(subcommand, runtime, project=OTHER)
 
         resource, action = subcommand.split()[:2]
         assert result == REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
@@ -500,7 +487,7 @@ class TestGitLabFlagSpellings:
     async def test_a_read_filter_sharing_a_denied_name_still_crosses(self, subcommand):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl(subcommand, runtime, project=OTHER)
 
         assert result == "ok"
         assert mocks.create_proc.call_args.args[1 : 1 + len(subcommand.split())] == tuple(subcommand.split())
@@ -516,7 +503,7 @@ class TestGitLabFlagSpellings:
     async def test_an_abbreviated_body_flag_is_marked(self, subcommand):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            await run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+            await run_gl(subcommand, runtime, project=OTHER)
 
         assert marked(mocks.create_proc.call_args.args, "hello")
 
@@ -525,10 +512,7 @@ class TestGitLabFlagSpellings:
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
             await run_gl(
-                'project-issue create --title t --description "one" --description "two"',
-                runtime,
-                project=OTHER,
-                cross_project_enabled=True,
+                'project-issue create --title t --description "one" --description "two"', runtime, project=OTHER
             )
 
         argv = mocks.create_proc.call_args.args
@@ -538,9 +522,7 @@ class TestGitLabFlagSpellings:
     async def test_an_unknown_or_ambiguous_option_is_refused_before_any_credential(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(
-                "project-issue update --iid 1 --assignee 3", runtime, project=OTHER, cross_project_enabled=True
-            )
+            result = await run_gl("project-issue update --iid 1 --assignee 3", runtime, project=OTHER)
 
         assert result == REFUSAL_UNCHECKED_FLAG_CROSS_PROJECT.format(flag="--assignee", command="project-issue update")
         mocks.resolve.assert_not_called()
@@ -558,7 +540,7 @@ class TestGitLabFlagSpellings:
         """python-gitlab reads ``@path`` from the worker's disk, where ``/proc/self/environ`` holds the token."""
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl(subcommand, runtime, project=OTHER)
 
         assert result == REFUSAL_FILE_ARGUMENT
         mocks.resolve.assert_not_called()
@@ -567,12 +549,7 @@ class TestGitLabFlagSpellings:
     async def test_an_escaped_at_sign_still_crosses(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            await run_gl(
-                'project-issue-note create --issue-iid 1 --body "@@alice please look"',
-                runtime,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            await run_gl('project-issue-note create --issue-iid 1 --body "@@alice please look"', runtime, project=OTHER)
 
         assert marked(mocks.create_proc.call_args.args, "@@alice please look")
 
@@ -719,7 +696,7 @@ class TestBotLabelsAreNotAddedCrossProject:
     async def test_gitlab_refuses_a_bot_label_before_any_credential(self, subcommand):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl(subcommand, runtime, project=OTHER)
 
         self._assert_refused_without_spending(result, mocks)
 
@@ -736,12 +713,7 @@ class TestBotLabelsAreNotAddedCrossProject:
         """python-gitlab ``strip()``s every label, so ``daiv`` plus any Unicode whitespace is still ``daiv``."""
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(
-                f"project-issue update --iid 1 --labels 'bug,{label}'",
-                runtime,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await run_gl(f"project-issue update --iid 1 --labels 'bug,{label}'", runtime, project=OTHER)
 
         self._assert_refused_without_spending(result, mocks)
 
@@ -758,12 +730,7 @@ class TestBotLabelsAreNotAddedCrossProject:
     async def test_a_padded_label_that_is_not_a_bot_label_still_crosses(self, label):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(
-                f"project-issue update --iid 1 --labels 'bug,{label}'",
-                runtime,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await run_gl(f"project-issue update --iid 1 --labels 'bug,{label}'", runtime, project=OTHER)
 
         assert result == "ok"
         assert f"bug,{label}" in mocks.create_proc.call_args.args
@@ -788,9 +755,7 @@ class TestBotLabelsAreNotAddedCrossProject:
     async def test_gitlab_has_no_add_labels_flag_to_slip_past(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(
-                "project-issue update --iid 1 --add-labels daiv", runtime, project=OTHER, cross_project_enabled=True
-            )
+            result = await run_gl("project-issue update --iid 1 --add-labels daiv", runtime, project=OTHER)
 
         assert result == REFUSAL_UNCHECKED_FLAG_CROSS_PROJECT.format(
             flag="--add-labels", command="project-issue update"
@@ -811,7 +776,7 @@ class TestBotLabelsAreNotAddedCrossProject:
     async def test_gitlab_other_labels_and_label_filters_still_cross(self, subcommand):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl(subcommand, runtime, project=OTHER)
 
         assert result == "ok"
         assert subcommand.split()[-1] in mocks.create_proc.call_args.args
@@ -840,9 +805,7 @@ class TestBotLabelsAreNotAddedCrossProject:
     async def test_the_attached_project_keeps_the_label_on_gitlab(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(
-                "project-issue update --iid 1 --labels daiv", runtime, project="", cross_project_enabled=True
-            )
+            result = await run_gl("project-issue update --iid 1 --labels daiv", runtime, project="")
 
         assert result == "ok"
         assert mocks.create_proc.call_args.args[:6] == ("gitlab", "project-issue", "update", "--iid", "1", "--labels")
@@ -853,13 +816,7 @@ class TestBotLabelsAreNotAddedCrossProject:
         runtime = cross_project_runtime(GitPlatform.GITHUB)
         with patched_cross_project() as mocks:
             decision = await decide_target(
-                "issue",
-                "edit",
-                ["1", "--add-label", "daiv"],
-                "",
-                runtime,
-                provider=GitPlatform.GITHUB,
-                cross_project_enabled=True,
+                "issue", "edit", ["1", "--add-label", "daiv"], "", runtime, provider=GitPlatform.GITHUB
             )
 
         assert decision == TargetDecision()
@@ -884,7 +841,7 @@ class TestGitLabQuickActionsAreRefusedCrossProject:
     async def test_a_quick_action_line_is_refused_before_any_credential(self, build, body):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(build(body), runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl(build(body), runtime, project=OTHER)
 
         assert result == REFUSAL_QUICK_ACTION_CROSS_PROJECT.format(attached=ATTACHED, project=OTHER)
         mocks.resolve.assert_not_called()
@@ -907,7 +864,7 @@ class TestGitLabQuickActionsAreRefusedCrossProject:
     async def test_every_spelling_of_a_body_flag_is_checked(self, subcommand):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl(subcommand, runtime, project=OTHER)
 
         assert result == REFUSAL_QUICK_ACTION_CROSS_PROJECT.format(attached=ATTACHED, project=OTHER)
         mocks.resolve.assert_not_called()
@@ -918,7 +875,7 @@ class TestGitLabQuickActionsAreRefusedCrossProject:
     async def test_a_slash_inside_a_line_still_crosses_marked(self, build, body):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(build(body), runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl(build(body), runtime, project=OTHER)
 
         assert result == "ok"
         assert marked(mocks.create_proc.call_args.args, body)
@@ -926,9 +883,7 @@ class TestGitLabQuickActionsAreRefusedCrossProject:
     async def test_a_slash_in_a_flag_that_is_not_a_body_still_crosses(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(
-                'project-issue list --search "/close"', runtime, project=OTHER, cross_project_enabled=True
-            )
+            result = await run_gl('project-issue list --search "/close"', runtime, project=OTHER)
 
         assert result == "ok"
         mocks.create_proc.assert_called_once()
@@ -936,7 +891,7 @@ class TestGitLabQuickActionsAreRefusedCrossProject:
     async def test_the_attached_project_keeps_quick_actions(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(self._note("/close"), runtime, project="", cross_project_enabled=True)
+            result = await run_gl(self._note("/close"), runtime, project="")
 
         assert result == "ok"
         assert "/close" in mocks.create_proc.call_args.args
@@ -966,7 +921,6 @@ async def _run_gl_audited(
     stderr=b"",
     subcommand="project-issue list",
     side_effect=None,
-    cross_project_enabled=True,
 ):
     """``(result, create_proc, resolve)`` with the real audit writer. ``resolved=None`` leaves the
     resolve mock unconfigured, for the tests asserting no credential was spent."""
@@ -985,13 +939,7 @@ async def _run_gl_audited(
         if side_effect is not None:
             create_proc.side_effect = side_effect
         result = await run_gitlab_subcommand(
-            subcommand,
-            runtime,
-            "simplified",
-            False,
-            backend=recording_backend(),
-            project=project,
-            cross_project_enabled=cross_project_enabled,
+            subcommand, runtime, "simplified", False, backend=recording_backend(), project=project
         )
     return result, create_proc, resolve
 
@@ -1022,7 +970,7 @@ class TestNoFallbackToTheServiceIdentity:
 
         records = [r async for r in CrossProjectAccessRecord.objects.filter(target_repo_id=DENIED)]
         assert len(records) == 1
-        assert records[0].outcome != CrossProjectAccessRecord.Outcome.ALLOWED
+        assert records[0].outcome != CrossProjectOutcome.ALLOWED
         # The row names the person the run acts for, never DAIV itself, and survives their deletion.
         assert records[0].acting_user_id == member_user.pk
         assert records[0].acting_user_label
@@ -1043,7 +991,7 @@ class TestNoFallbackToTheServiceIdentity:
         assert "GITLAB_PRIVATE_TOKEN" not in create_proc.call_args.kwargs["env"]
 
         outcomes = [r.outcome async for r in CrossProjectAccessRecord.objects.filter(target_repo_id=DENIED)]
-        assert outcomes == [CrossProjectAccessRecord.Outcome.DENIED_NO_ACCESS]
+        assert outcomes == [CrossProjectOutcome.DENIED_NO_ACCESS]
         assert (
             await CrossProjectAccessRecord.objects.filter(target_repo_id=DENIED, acting_user_id=member_user.pk).acount()
             == 1
@@ -1125,7 +1073,7 @@ class TestThePersonsTokenNeverEntersState:
 
         assert result == "ok"
         record = await CrossProjectAccessRecord.objects.aget(target_repo_id="other/repo")
-        assert record.outcome == CrossProjectAccessRecord.Outcome.ALLOWED
+        assert record.outcome == CrossProjectOutcome.ALLOWED
         assert record.acting_user_id == member_user.pk
         assert record.thread_id == "t-xproj"
         assert "person-token" not in str(record.__dict__)
@@ -1163,7 +1111,7 @@ class TestNoTokenReachesALogRecord:
                 return_value=ResolvedCredential(token="glpat-PERSONTOKEN"),  # noqa: S106
             ),
         ):
-            result = await run_gl("project-issue list", runtime, project=DENIED, cross_project_enabled=True)
+            result = await run_gl("project-issue list", runtime, project=DENIED)
 
         assert result.startswith("error: ")
         assert "glpat-PERSONTOKEN" not in result
@@ -1185,7 +1133,7 @@ class TestEveryAttemptLeavesARow:
 
         assert "timed out" in result
         outcomes = [r.outcome async for r in CrossProjectAccessRecord.objects.filter(target_repo_id=DENIED)]
-        assert outcomes == [CrossProjectAccessRecord.Outcome.ERROR]
+        assert outcomes == [CrossProjectOutcome.ERROR]
 
     async def test_a_failure_to_launch_is_recorded(self, member_user):
         runtime = cross_project_runtime(GitPlatform.GITLAB, acting_user_id=member_user.pk)
@@ -1199,7 +1147,7 @@ class TestEveryAttemptLeavesARow:
         assert result.startswith("error: ")
         assert "spawn failed" not in result
         outcomes = [r.outcome async for r in CrossProjectAccessRecord.objects.filter(target_repo_id=DENIED)]
-        assert outcomes == [CrossProjectAccessRecord.Outcome.ERROR]
+        assert outcomes == [CrossProjectOutcome.ERROR]
 
     async def test_a_disallowed_subcommand_is_recorded(self, member_user):
         """The allow-list runs before the target decision, so its refusals need their own row."""
@@ -1214,16 +1162,18 @@ class TestEveryAttemptLeavesARow:
         assert "not allowed by policy" in result
         create_proc.assert_not_called()
         outcomes = [r.outcome async for r in CrossProjectAccessRecord.objects.filter(target_repo_id=DENIED)]
-        assert outcomes == [CrossProjectAccessRecord.Outcome.DENIED_POLICY]
+        assert outcomes == [CrossProjectOutcome.DENIED_POLICY]
 
     async def test_the_capability_being_off_is_recorded_as_such(self, member_user):
         runtime = cross_project_runtime(GitPlatform.GITLAB, acting_user_id=member_user.pk)
-        result, create_proc, _ = await _run_gl_audited(runtime, project=DENIED, cross_project_enabled=False)
+        result, create_proc, _ = await _run_gl_audited(
+            runtime, project=DENIED, resolved=ResolvedCredential(reason=CredentialReason.DISABLED)
+        )
 
         assert "not enabled" in result
         create_proc.assert_not_called()
         outcomes = [r.outcome async for r in CrossProjectAccessRecord.objects.filter(target_repo_id=DENIED)]
-        assert outcomes == [CrossProjectAccessRecord.Outcome.DENIED_DISABLED]
+        assert outcomes == [CrossProjectOutcome.DENIED_DISABLED]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1256,7 +1206,7 @@ class TestPolicyRefusalsSpendNothing:
         create_proc.assert_not_called()
         resolve.assert_not_called()
         outcomes = [r.outcome async for r in CrossProjectAccessRecord.objects.filter(target_repo_id=DENIED)]
-        assert outcomes == [CrossProjectAccessRecord.Outcome.DENIED_POLICY]
+        assert outcomes == [CrossProjectOutcome.DENIED_POLICY]
 
     async def test_the_same_verbs_still_work_on_the_attached_project(self, member_user):
         runtime = cross_project_runtime(GitPlatform.GITLAB, acting_user_id=member_user.pk)
@@ -1352,14 +1302,14 @@ class TestWebhookRunAttribution:
         ):
             credential_settings.cross_project_access_enabled = True
             credential_settings.cross_project_webhook_runs_enabled = True
-            result = await run_gl("project-issue list", runtime, project=DENIED, cross_project_enabled=True)
+            result = await run_gl("project-issue list", runtime, project=DENIED)
 
         create_proc.assert_not_called()
         assert result == REFUSAL_NO_CREDENTIAL.format(person="The requesting user", provider="gitlab")
         record = await CrossProjectAccessRecord.objects.aget(target_repo_id=DENIED)
         assert record.acting_user_id is None
         assert record.acting_user_label == "The requesting user"
-        assert record.outcome == CrossProjectAccessRecord.Outcome.DENIED_NO_CREDENTIAL
+        assert record.outcome == CrossProjectOutcome.DENIED_NO_CREDENTIAL
 
 
 class TestGitLabConfidentialityStaysPut:
@@ -1371,9 +1321,7 @@ class TestGitLabConfidentialityStaysPut:
     async def test_an_update_naming_it_in_any_spelling_is_refused(self, flag):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(
-                f"project-issue update --iid 1 {flag}", runtime, project=OTHER, cross_project_enabled=True
-            )
+            result = await run_gl(f"project-issue update --iid 1 {flag}", runtime, project=OTHER)
 
         assert result == REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
             action="project-issue update --confidential", attached=ATTACHED, project=OTHER
@@ -1386,10 +1334,7 @@ class TestGitLabConfidentialityStaysPut:
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
             result = await run_gl(
-                "project-issue create --title t --description d --confidential true",
-                runtime,
-                project=OTHER,
-                cross_project_enabled=True,
+                "project-issue create --title t --description d --confidential true", runtime, project=OTHER
             )
 
         assert result == "ok"
@@ -1398,9 +1343,7 @@ class TestGitLabConfidentialityStaysPut:
     async def test_the_attached_project_keeps_it(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(
-                "project-issue update --iid 1 --confidential false", runtime, project="", cross_project_enabled=True
-            )
+            result = await run_gl("project-issue update --iid 1 --confidential false", runtime, project="")
 
         assert result == "ok"
         mocks.resolve.assert_not_called()
@@ -1476,7 +1419,7 @@ class TestCrossProjectCreationAndTimeResets:
     async def test_gitlab_refuses_them(self, subcommand):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project() as mocks:
-            result = await run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+            result = await run_gl(subcommand, runtime, project=OTHER)
 
         resource, action = subcommand.split()[:2]
         assert result == REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
@@ -1496,9 +1439,7 @@ class TestCrossProjectCreationAndTimeResets:
     async def test_the_attached_project_keeps_them(self):
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project():
-            result = await run_gl(
-                "project-issue reset-spent-time --iid 1", runtime, project="", cross_project_enabled=True
-            )
+            result = await run_gl("project-issue reset-spent-time --iid 1", runtime, project="")
 
         assert result == "ok"
 
@@ -1605,7 +1546,7 @@ class TestAnUnrecordedFetchIsWithheld:
         runtime = cross_project_runtime(platform)
         with patched_cross_project(stdout=TARGET_CONTENT.encode()) as mocks:
             mocks.record.return_value = False
-            result = await run(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+            result = await run(subcommand, runtime, project=OTHER)
 
         assert result == REFUSAL_UNRECORDED_CROSS_PROJECT.format(project=OTHER)
         assert TARGET_CONTENT not in result

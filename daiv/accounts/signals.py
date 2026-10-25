@@ -21,11 +21,10 @@ def capture_platform_credential(sender, request, user, sociallogin=None, **kwarg
 
     session = getattr(request, "session", None)
     requested_by = session.pop(REAUTHORISE_SESSION_KEY, None) if session is not None else None
-    capture = getattr(get_adapter(), "capture_platform_credential", None)
-    if capture is None:
-        return
     try:
-        capture(sociallogin, reauthorise=requested_by is not None and requested_by == getattr(user, "pk", None))
+        get_adapter().capture_platform_credential(
+            sociallogin, reauthorise=requested_by is not None and requested_by == getattr(user, "pk", None)
+        )
     except Exception as exc:
         # No exc_info or message: Sentry would attach this frame's locals, and the text can echo a token.
         logger.error(

@@ -3,17 +3,14 @@ from unittest.mock import MagicMock, patch
 
 from django.db.models import Q
 from django.test import TestCase
-from django.utils import timezone
 
 import pytest
-from allauth.socialaccount.models import SocialAccount
 from asgiref.sync import sync_to_async
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.signal_defs import run_finished
 
-from codebase.models import RepositoryAccess
 from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import grant_read_access, make_artifact
 
 
 def _create_run(*, status: str = RunStatus.RUNNING, trigger_type: str = SessionOrigin.PIPELINE_WEBHOOK) -> Run:
@@ -172,18 +169,6 @@ def _run(session: Session, **kwargs) -> Run:
     return Run.objects.create(session=session, **(defaults | kwargs))
 
 
-def _grant_read_access(user, repo_id: str) -> None:
-    SocialAccount.objects.get_or_create(user=user, provider="gitlab", uid=str(user.pk))
-    RepositoryAccess.objects.create(
-        provider="gitlab",
-        uid=str(user.pk),
-        username=user.username,
-        repo_id=repo_id,
-        access_level="read",
-        synced_at=timezone.now(),
-    )
-
-
 def _subscribed_schedule(owner, subscriber):
     from schedules.models import Frequency, ScheduledJob
 
@@ -211,7 +196,7 @@ def shared_session(fetcher, other_user):
     session = _session(origin=SessionOrigin.ISSUE_WEBHOOK)
     _run(session, user=fetcher)
     _run(session, user=other_user)
-    _grant_read_access(other_user, session.repo_id)
+    grant_read_access(other_user, session.repo_id)
     return session
 
 
@@ -290,22 +275,18 @@ class TestRunAndArtifactVisibility:
         assert run not in Run.objects.visible_to(other_user)
 
 
-def _own_results(user):
-    return Run.objects.filter(Run.objects.results_visible_q(user), user=user)
-
-
 @pytest.mark.django_db
 class TestRequesterResults:
     def test_a_requester_reads_their_own_runs_of_an_unrestricted_session(self, other_user):
         run = _run(_session(), user=other_user, trigger_type=SessionOrigin.API_JOB)
 
-        assert list(_own_results(other_user)) == [run]
+        assert list(Run.objects.results_for(other_user)) == [run]
 
     def test_a_restricted_session_hides_the_requesters_earlier_run(self, shared_session, fetcher, other_user):
         Session.objects.filter(pk=shared_session.pk).update(cross_project_user_ids=[fetcher.pk])
 
-        assert not _own_results(other_user).exists()
-        assert _own_results(fetcher).count() == 1
+        assert not Run.objects.results_for(other_user).exists()
+        assert Run.objects.results_for(fetcher).count() == 1
 
     def test_the_run_refused_at_start_stays_readable_to_its_requester(self, shared_session, fetcher, other_user):
         Session.objects.filter(pk=shared_session.pk).update(cross_project_user_ids=[fetcher.pk])
@@ -317,10 +298,10 @@ class TestRequesterResults:
             error_message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE,
         )
 
-        assert list(_own_results(other_user)) == [refused]
+        assert list(Run.objects.results_for(other_user)) == [refused]
 
     def test_an_admin_reads_only_their_own_runs_as_before(self, shared_session, fetcher, admin_user):
         Session.objects.filter(pk=shared_session.pk).update(cross_project_user_ids=[fetcher.pk])
         own = _run(_session(), user=admin_user, trigger_type=SessionOrigin.API_JOB)
 
-        assert list(_own_results(admin_user)) == [own]
+        assert list(Run.objects.results_for(admin_user)) == [own]

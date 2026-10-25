@@ -110,9 +110,7 @@ async def get_job_status(request: HttpRequest, job_id: str):
         return 404, {"detail": "Job not found"}
 
     try:
-        run = await Run.objects.select_related("task_result").aget(
-            Run.objects.results_visible_q(request.auth), id=run_uuid, user=request.auth
-        )
+        run = await Run.objects.results_for(request.auth).select_related("task_result").aget(id=run_uuid)
     except Run.DoesNotExist:
         return 404, {"detail": "Job not found"}
 

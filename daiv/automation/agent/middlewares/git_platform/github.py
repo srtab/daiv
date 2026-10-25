@@ -209,15 +209,7 @@ async def run_github_subcommand(
         return args
 
     resource, action, rest = args[0], args[1], args[2:]
-    decision = await decide_target(
-        resource,
-        action,
-        rest,
-        project,
-        runtime,
-        provider=GitPlatform.GITHUB,
-        cross_project_enabled=cross_project_enabled,
-    )
+    decision = await decide_target(resource, action, rest, project, runtime, provider=GitPlatform.GITHUB)
     if decision.refusal is not None:
         # The refusal is the whole answer: retrying under the service identity is the leak this prevents.
         return decision.refusal

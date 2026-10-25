@@ -135,16 +135,7 @@ def marked(argv, text):
     return [arg for arg in argv if text in arg and arg.endswith(f"\n\n{CROSS_PROJECT_CONTENT_MARKER}")]
 
 
-async def run_gl(
-    subcommand,
-    runtime,
-    *,
-    output_mode="simplified",
-    to_file=False,
-    backend=None,
-    project="",
-    cross_project_enabled=False,
-):
+async def run_gl(subcommand, runtime, *, output_mode="simplified", to_file=False, backend=None, project=""):
     return await run_gitlab_subcommand(
         subcommand,
         runtime,
@@ -152,7 +143,6 @@ async def run_gl(
         to_file,
         backend=backend if backend is not None else recording_backend(),
         project=project,
-        cross_project_enabled=cross_project_enabled,
     )
 
 

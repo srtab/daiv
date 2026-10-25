@@ -162,13 +162,7 @@ class GitPlatformMiddleware(AgentMiddleware):
             output_to_file: GitLabOutputToFileArg = False,
         ) -> str:
             return await run_gitlab_subcommand(
-                subcommand,
-                runtime,
-                output_mode,
-                output_to_file,
-                backend=backend,
-                project=project,
-                cross_project_enabled=True,
+                subcommand, runtime, output_mode, output_to_file, backend=backend, project=project
             )
 
         return gitlab_cross_project

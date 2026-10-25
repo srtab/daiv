@@ -8,7 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from django_extensions.db.models import TimeStampedModel
 
 from accounts.managers import APIKeyManager
-from codebase.base import GitPlatform
+from codebase.models import PlatformType
 from core.models import EncryptedFieldDescriptor
 
 
@@ -58,11 +58,6 @@ class APIKey(TimeStampedModel):
         return f"{self.name} ({self.user})"
 
 
-_CREDENTIAL_PROVIDERS = (GitPlatform.GITLAB, GitPlatform.GITHUB)
-_CREDENTIAL_PROVIDER_LABELS = {GitPlatform.GITLAB: _("GitLab"), GitPlatform.GITHUB: _("GitHub")}
-CREDENTIAL_PROVIDER_CHOICES = [(p.value, _CREDENTIAL_PROVIDER_LABELS[p]) for p in _CREDENTIAL_PROVIDERS]
-
-
 class CredentialState(models.TextChoices):
     CONNECTED = "connected", _("Connected")
     EXPIRED = "expired", _("Expired")
@@ -77,7 +72,7 @@ class PlatformCredential(TimeStampedModel):
     """
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="platform_credentials")
-    provider = models.CharField(_("provider"), max_length=10, choices=CREDENTIAL_PROVIDER_CHOICES)
+    provider = models.CharField(_("provider"), max_length=10, choices=PlatformType.choices)
     host = models.CharField(_("host"), max_length=255)
     platform_uid = models.CharField(_("platform user ID"), max_length=191)
     _access_token_encrypted = models.TextField(_("access token"), null=True, blank=True)  # noqa: DJ001

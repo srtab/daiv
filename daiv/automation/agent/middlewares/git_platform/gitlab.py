@@ -225,7 +225,6 @@ async def run_gitlab_subcommand(
     *,
     backend: BackendProtocol,
     project: str = "",
-    cross_project_enabled: bool = False,
 ) -> str:
     """Run a `python-gitlab` CLI subcommand on behalf of the ``gitlab`` tool.
 
@@ -243,15 +242,7 @@ async def run_gitlab_subcommand(
         return args
 
     resource, action, rest = args[0], args[1], args[2:]
-    decision = await decide_target(
-        resource,
-        action,
-        rest,
-        project,
-        runtime,
-        provider=GitPlatform.GITLAB,
-        cross_project_enabled=cross_project_enabled,
-    )
+    decision = await decide_target(resource, action, rest, project, runtime, provider=GitPlatform.GITLAB)
     if decision.refusal is not None:
         # The refusal is the whole answer: retrying under the service identity is the leak this prevents.
         return decision.refusal

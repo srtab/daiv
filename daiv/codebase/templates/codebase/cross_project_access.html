@@ -49,11 +49,11 @@
                 </div>
             </div>
             {% if record.outcome == 'allowed' %}
-            <span class="audit-badge audit-badge--allowed">{{ record.get_outcome_display }}</span>
+            <span class="status-badge status-badge-success shrink-0">{{ record.get_outcome_display }}</span>
             {% elif record.outcome == 'error' %}
-            <span class="audit-badge audit-badge--error">{{ record.get_outcome_display }}</span>
+            <span class="status-badge status-badge-failed shrink-0">{{ record.get_outcome_display }}</span>
             {% else %}
-            <span class="audit-badge audit-badge--denied">{{ record.get_outcome_display }}</span>
+            <span class="status-badge status-badge-queued shrink-0">{{ record.get_outcome_display }}</span>
             {% endif %}
         </div>
         {% endfor %}

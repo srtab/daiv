@@ -144,15 +144,18 @@ class RunManager(models.Manager["Run"]):
         readable = self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))
         return self.filter(readable & _cross_project_q(user, "session__")).distinct()
 
-    def results_visible_q(self, user: User) -> models.Q:
-        """Narrows ``user``'s own runs to those the job APIs may hand back to them.
+    def results_for(self, user: User) -> models.QuerySet[Run]:
+        """``user``'s own runs that the job APIs may hand back to them.
 
         A session holding another person's cross-project results keeps its runs from everyone but admins and those
         people, except a run refused at start, which holds nothing but the refusal.
         """
+        runs = self.filter(user=user)
         if user.is_admin:
-            return models.Q()
-        return _cross_project_q(user, "session__") | models.Q(error_message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+            return runs
+        return runs.filter(
+            _cross_project_q(user, "session__") | models.Q(error_message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+        )
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)

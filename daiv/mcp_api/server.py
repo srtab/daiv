@@ -368,9 +368,7 @@ async def _poll_batch_until_complete(
         elapsed += POLL_INTERVAL
 
         try:
-            async for row in Run.objects.filter(
-                Run.objects.results_visible_q(mcp_user), id__in=list(outstanding), user=mcp_user
-            ):
+            async for row in Run.objects.results_for(mcp_user).filter(id__in=list(outstanding)):
                 results_by_id[str(row.id)] = row
                 if row.status in TERMINAL_STATUSES:
                     outstanding.discard(row.id)
@@ -392,7 +390,7 @@ async def _poll_job_until_complete(job_id: str, mcp_user: object) -> str:
         elapsed += POLL_INTERVAL
 
         try:
-            last = await Run.objects.aget(Run.objects.results_visible_q(mcp_user), id=job_uuid, user=mcp_user)
+            last = await Run.objects.results_for(mcp_user).aget(id=job_uuid)
         except Run.DoesNotExist:
             logger.debug("Job %s not yet available, retrying (%.0fs elapsed)", job_id, elapsed)
             continue
@@ -448,7 +446,7 @@ async def get_job_status(
         return json.dumps({"error": "Invalid job_id format."})
 
     try:
-        run = await Run.objects.aget(Run.objects.results_visible_q(mcp_user), id=run_uuid, user=mcp_user)
+        run = await Run.objects.results_for(mcp_user).aget(id=run_uuid)
     except Run.DoesNotExist:
         if wait:
             return await _poll_job_until_complete(job_id, mcp_user)
