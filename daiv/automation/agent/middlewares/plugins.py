@@ -8,6 +8,7 @@ agents are compiled into the ``task`` tool, so their lines are stripped from its
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
     from langchain.agents.middleware import ModelRequest, ModelResponse
     from langchain.agents.middleware.types import ModelCallResult
     from plugins.runtime import PluginAgentRef, PluginSkillRef
+
+logger = logging.getLogger("daiv.agent")
 
 PLUGINS_KIND = "plugins"
 TASK_TOOL_NAME = "task"
@@ -66,6 +69,8 @@ def _strip_agents(description: str, agents: Sequence[PluginAgentRef]) -> str:
     for agent in agents:
         entry = re.escape(f"- {agent.name}: {agent.description}")
         description = re.sub(rf"(?:^|\n){entry}(?=\n|$)", "", description, count=1)
+        if f"- {agent.name}: " in description:
+            logger.warning("Plugin agent %s is still listed in the task tool description after stripping", agent.name)
     return description
 
 

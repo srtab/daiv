@@ -1,7 +1,11 @@
+import pytest
+from deepagents.backends import StateBackend
+from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain.agents.middleware import ModelRequest
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import StructuredTool
 from plugins.runtime import PluginAgentRef, PluginSkillRef
 
@@ -204,3 +208,36 @@ async def test_system_prompt_and_tools_identical_across_plugin_changes():
 
     assert first.system_message.content == second.system_message.content
     assert [(t.name, t.description) for t in first.tools] == [(t.name, t.description) for t in second.tools]
+
+
+def _real_task_tool(agents: list[PluginAgentRef], *, position: str = "last") -> StructuredTool:
+    base = [
+        CompiledSubAgent(name="general-purpose", description="Does anything", runnable=RunnableLambda(lambda x: x)),
+        CompiledSubAgent(name="explorer", description="Reads code", runnable=RunnableLambda(lambda x: x)),
+    ]
+    plugin = [
+        CompiledSubAgent(name=a.name, description=a.description, runnable=RunnableLambda(lambda x: x)) for a in agents
+    ]
+    specs = {"first": [*plugin, *base], "middle": [base[0], *plugin, base[1]], "last": [*base, *plugin]}[position]
+    middleware = SubAgentMiddleware(backend=StateBackend(), subagents=specs)
+    return middleware.tools[0]
+
+
+@pytest.mark.parametrize("position", ["first", "middle", "last"])
+async def test_strip_matches_real_deepagents_task_description(position):
+    agents = [_agent("dev:rev", "reviews\n  with care\n\nand more"), _agent("dev:fix", "fixes")]
+    baseline = _real_task_tool([]).description
+
+    request = _request(tools=[_real_task_tool(agents, position=position)])
+    sent, _ = await _run(PluginsMiddleware([], agents), request)
+
+    assert sent.tools[0].description == baseline
+
+
+async def test_warns_when_a_plugin_agent_line_survives_the_strip(caplog):
+    tool = _tool("task", "Agents:\n- dev:rev: [changed format] reviews")
+
+    with caplog.at_level("WARNING", logger="daiv.agent"):
+        await _run(PluginsMiddleware([], [_agent("dev:rev", "reviews")]), _request(tools=[tool]))
+
+    assert "dev:rev" in caplog.text
