@@ -25,6 +25,7 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 INHERITED_ENV = ("PATH", *GIT_PROXY_CA_ENV)
 GIT_SAFETY_ARGS = ("-c", "http.followRedirects=false", "-c", "core.symlinks=false")
 NOT_REACHABLE = "This host is not reachable from DAIV."
+CLONE_POLL_SECONDS = 0.5
 
 
 class FetchError(Exception):
@@ -101,10 +102,9 @@ def materialize(location: RepoLocation) -> tuple[str, Path]:
     tmp_root.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(dir=tmp_root))
     try:
-        clone = ["clone", "--depth", "1", "--single-branch", "--no-tags", "--no-checkout", "--", location.url]
-        _git([*clone, str(work)], env)
+        _clone(location, work, env)
         if _blob_bytes(work, env) > settings.MAX_REPO_BYTES:
-            raise FetchError(f"Repository is larger than {settings.MAX_REPO_BYTES // (1024 * 1024)} MB.")
+            raise FetchError(_too_large())
 
         _git(["-C", str(work), "checkout", "--force", "--quiet", "HEAD"], env)
         commit = _git(["-C", str(work), "rev-parse", "HEAD"], env).strip()
@@ -147,16 +147,15 @@ def prune_revisions(keep: set[Path], *, older_than: timedelta = timedelta(days=1
 
 
 def _git_env(location: RepoLocation) -> dict[str, str]:
-    credentials: dict[str, str] = {}
     if location.on_platform:
-        credentials = _platform_credentials(location.slug)
+        config = _platform_credentials(location.slug)
     else:
-        _ensure_public_host(location.host)
+        config = _pinned_resolve(location.host, _ensure_public_host(location.host))
 
     home = settings.DATA_PATH / "tmp" / "home"
     home.mkdir(parents=True, exist_ok=True)
     env = {key: os.environ[key] for key in INHERITED_ENV if key in os.environ}
-    env.update(credentials)
+    env.update(config)
     env.update({
         "HOME": str(home),
         "GIT_TERMINAL_PROMPT": "0",
@@ -180,21 +179,80 @@ def _platform_credentials(slug: str) -> dict[str, str]:
     return auth.as_env() if auth is not None else {}
 
 
-def _ensure_public_host(host: str) -> None:
+def _ensure_public_host(host: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """The host's addresses, all of them global; anything else is refused."""
     try:
         infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
     except OSError, UnicodeError:
         raise FetchError(NOT_REACHABLE) from None
-    addresses = {info[4][0] for info in infos}
+    addresses = []
+    for raw in sorted({str(info[4][0]) for info in infos}):
+        try:
+            address = ipaddress.ip_address(raw.split("%", 1)[0])
+        except ValueError:
+            raise FetchError(NOT_REACHABLE) from None
+        if not address.is_global:
+            raise FetchError(NOT_REACHABLE)
+        addresses.append(address)
     if not addresses:
         raise FetchError(NOT_REACHABLE)
-    for address in addresses:
-        try:
-            is_global = ipaddress.ip_address(address.split("%", 1)[0]).is_global
-        except ValueError:
-            is_global = False
-        if not is_global:
-            raise FetchError(NOT_REACHABLE)
+    return addresses
+
+
+def _pinned_resolve(host: str, addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address]) -> dict[str, str]:
+    """Git config that makes curl connect only to the vetted ``addresses``, so a second DNS answer can't redirect it."""
+    entries = ",".join(f"[{address}]" if address.version == 6 else str(address) for address in addresses)
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.curloptResolve",
+        "GIT_CONFIG_VALUE_0": f"{host}:443:{entries}",
+    }
+
+
+def _too_large() -> str:
+    return f"Repository is larger than {settings.MAX_REPO_BYTES // (1024 * 1024)} MB."
+
+
+def _clone(location: RepoLocation, work: Path, env: dict[str, str]) -> None:
+    """Shallow-clone ``location`` into ``work``, killing git once what it has written passes ``MAX_REPO_BYTES``."""
+    args = ["clone", "--depth", "1", "--single-branch", "--no-tags", "--no-checkout", "--", location.url, str(work)]
+    deadline = time.monotonic() + settings.GIT_TIMEOUT_SECONDS
+    with subprocess.Popen(  # noqa: S603
+        ["git", *GIT_SAFETY_ARGS, *args],  # noqa: S607
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    ) as process:
+        while True:
+            try:
+                _, stderr = process.communicate(timeout=CLONE_POLL_SECONDS)
+                break
+            except subprocess.TimeoutExpired:
+                if _dir_bytes(work) > settings.MAX_REPO_BYTES:
+                    process.kill()
+                    process.communicate()
+                    raise FetchError(_too_large()) from None
+                if time.monotonic() > deadline:
+                    process.kill()
+                    process.communicate()
+                    logger.warning("git clone timed out")
+                    raise FetchError("Fetching this repository timed out.") from None
+    if process.returncode != 0:
+        logger.warning("git clone failed: %s", stderr)
+        raise FetchError("DAIV could not fetch this repository.")
+
+
+def _dir_bytes(path: Path) -> int:
+    total = 0
+    for dirpath, _, filenames in path.walk():
+        for filename in filenames:
+            try:
+                total += (dirpath / filename).lstat().st_size
+            except FileNotFoundError:
+                continue
+    return total
 
 
 def _git(args: list[str], env: dict[str, str]) -> str:

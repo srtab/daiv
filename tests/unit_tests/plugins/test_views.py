@@ -476,13 +476,14 @@ def test_add_install_creates_plugins_and_redirects(client, member_user):
     client.force_login(member_user)
 
     with (
-        patch("plugins.services.inspect_url", return_value=(_location(), SHA, _inspection(_cand()))),
+        patch("plugins.services.inspect_url", return_value=(_location(), SHA, _inspection(_cand()))) as inspect,
         patch("plugins.services.install", return_value=[make_plugin(name="devkit", user=member_user)]) as install,
     ):
         response = client.post(reverse("plugins:add"), _install_post())
 
     assert response.status_code == 302
     assert response.url == reverse("plugins:list")
+    inspect.assert_called_once_with("https://github.com/a/b", user=member_user, commit=SHA)
     install.assert_called_once_with(
         raw_url="https://github.com/a/b",
         commit=SHA,

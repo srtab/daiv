@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -131,7 +132,12 @@ def _normalise_source(source: Any) -> str | None:
     return "/".join(parts)
 
 
-def inspect_repo(root: Path) -> RepoInspection:
+def _repo_name(repo_slug: str) -> str:
+    """The repository's last path segment, as a plugin name: Claude Code names a nameless plugin after its directory."""
+    return re.sub(r"[^a-z0-9]+", "-", repo_slug.rsplit("/", 1)[-1].lower()).strip("-")[:63]
+
+
+def inspect_repo(root: Path, *, repo_slug: str) -> RepoInspection:
     manifest_dir = root / MANIFEST_DIR
     marketplace = _read_json_object(manifest_dir / "marketplace.json")
     has_marketplace = (manifest_dir / "marketplace.json").is_file()
@@ -144,7 +150,7 @@ def inspect_repo(root: Path) -> RepoInspection:
     if not has_marketplace:
         manifest = _read_json_object(manifest_dir / "plugin.json")
         candidate = PluginCandidate(
-            name=_text(manifest.get("name")) or root.name,
+            name=_text(manifest.get("name")) or _repo_name(repo_slug),
             plugin_path="",
             description=_description(manifest.get("description")),
             version=_version(manifest.get("version")),
@@ -250,6 +256,9 @@ def _read_skills(plugin_dir: Path, manifest: dict) -> tuple[list[ItemRef], list[
         if not PLUGIN_NAME_RE.match(name):
             skipped.append(Skipped("skill", f"{name}: invalid name"))
             continue
+        if any(skill.name == name for skill in skills):
+            skipped.append(Skipped("skill", f"{name}: duplicate name"))
+            continue
         skills.append(ItemRef(name, description, (skill_dir / "SKILL.md").relative_to(plugin_dir).as_posix()))
     return skills, skipped
 
@@ -294,6 +303,9 @@ def _read_commands(plugin_dir: Path, manifest: dict, skill_names: set[str]) -> t
         if stem in skill_names:
             skipped.append(Skipped("command", f"{stem}: same name as a skill"))
             continue
+        if any(command.name == stem for command in commands):
+            skipped.append(Skipped("command", f"{stem}: duplicate name"))
+            continue
         description = _description(meta.get("description"))
         if not description:
             description = _description(next((line for line in body.splitlines() if line.strip()), ""))
@@ -323,6 +335,9 @@ def _read_agents(plugin_dir: Path, manifest: dict) -> tuple[list[ItemRef], list[
             continue
         if not PLUGIN_NAME_RE.match(name):
             skipped.append(Skipped("agent", f"{name}: invalid name"))
+            continue
+        if any(agent.name == name for agent in agents):
+            skipped.append(Skipped("agent", f"{name}: duplicate name"))
             continue
         model = _text(meta.get("model"))
         if model.lower() in CLAUDE_MODEL_ALIASES:

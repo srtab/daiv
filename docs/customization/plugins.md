@@ -16,14 +16,14 @@ Custom paths in `plugin.json` are honoured as in Claude Code: `skills` adds fold
 
 An agent runs on the model its `model` field names when that is a DAIV model (`provider:model`). A Claude Code alias (`sonnet`, `opus`, `haiku` or `inherit`), or a model DAIV can't use, runs the agent on the session's model instead. An agent's `tools` list isn't applied.
 
-DAIV skips everything else: hooks, MCP servers (`.mcp.json` or `mcpServers`), output styles and LSP servers. A skipped part never runs. The plugin's page lists what was skipped, and so does any skill, command or agent that DAIV can't read (for example, one without a description or with an invalid name), an agent model alias that isn't used, and an agent `tools` list.
+DAIV skips everything else: hooks, MCP servers (`.mcp.json` or `mcpServers`), output styles and LSP servers. A skipped part never runs. The plugin's page lists what was skipped, and so does any skill, command or agent that DAIV can't read (for example, one without a description or with an invalid name), an agent model alias that isn't used, and an agent `tools` list. When two skills, two commands or two agents share a name, DAIV keeps the first and lists the other as skipped.
 
 Descriptions longer than 1024 characters and versions longer than 64 are truncated.
 
 !!! note
     A marketplace entry is installable only when its `source` is a path inside the same repository (`./...`). Entries that point to another repository or a package are shown as unsupported.
 
-Plugin, skill, command and agent names use lowercase letters, digits and hyphens. Plugin items are always addressed with the `<plugin>:` prefix, so they never replace a built-in or repository skill or subagent.
+Plugin, skill, command and agent names use lowercase letters, digits and hyphens. A plugin whose `plugin.json` sets no `name` takes its marketplace entry's name, or else the repository's name (`My_Plugin` becomes `my-plugin`). Plugin items are always addressed with the `<plugin>:` prefix, so they never replace a built-in or repository skill or subagent.
 
 ## Install a plugin
 
@@ -34,7 +34,7 @@ Plugin, skill, command and agent names use lowercase letters, digits and hyphens
 
 DAIV fetches the repository's default branch and records the commit it installed. Links must use `https`, carry no credentials, query string or port, point to the repository itself rather than a page inside it, and be at most 500 characters long. SSH links (`git@host:...`) are rejected.
 
-A repository is limited to 200 MB, and a plugin to 1000 files, 50 MB in total and 5 MB per file. You can change these limits with the [`PLUGINS_*` variables](../reference/env-variables.md#plugins).
+A repository is limited to 200 MB (DAIV stops downloading one as soon as it passes that size), and a plugin to 1000 files, 50 MB in total and 5 MB per file. You can change these limits with the [`PLUGINS_*` variables](../reference/env-variables.md#plugins).
 
 ## Global and personal plugins
 
@@ -52,7 +52,7 @@ Admins manage global plugins from **Global plugins** in the sidebar. Any user ca
 
 Where a plugin is installed from decides which repository DAIV can reach:
 
-- **Public repositories on any host.** DAIV fetches them anonymously. The host must be reachable from DAIV over the public internet; hosts that resolve to private addresses are refused. This includes public repositories on DAIV's own GitLab or GitHub.
+- **Public repositories on any host.** DAIV fetches them anonymously. The host must be reachable from DAIV over the public internet; hosts that resolve to private addresses are refused, and `git` connects only to the addresses DAIV checked. This includes public repositories on DAIV's own GitLab or GitHub.
 - **Private and internal repositories on DAIV's own platform.** DAIV fetches them with its own credentials. A personal install requires that you can read the repository on the platform, which DAIV checks when you install and again on every update. An admin installing a global plugin skips that check.
 - **Private repositories elsewhere** are not supported.
 

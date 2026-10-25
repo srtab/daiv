@@ -378,7 +378,7 @@ The main agent used for issue addressing, pull request assistance, and all inter
 | `PLUGINS_DATA_PATH` | Where plugin files are stored. Must be shared by the web and worker containers | `~/data/plugins` |
 | `PLUGINS_UPDATE_CRON` | Cron schedule of the update check | `0 * * * *` |
 | `PLUGINS_GIT_TIMEOUT_SECONDS` | Timeout of each `git` command | `120` |
-| `PLUGINS_MAX_REPO_BYTES` | Maximum size of a repository's files, in bytes | `209715200` (200 MiB) |
+| `PLUGINS_MAX_REPO_BYTES` | Maximum size of a repository's download and of its files, in bytes | `209715200` (200 MiB) |
 | `PLUGINS_MAX_PLUGIN_FILES` | Maximum number of files in one plugin | `1000` |
 | `PLUGINS_MAX_PLUGIN_BYTES` | Maximum total size of one plugin, in bytes | `52428800` (50 MiB) |
 | `PLUGINS_MAX_FILE_BYTES` | Maximum size of one file in a plugin, in bytes | `5242880` (5 MiB) |

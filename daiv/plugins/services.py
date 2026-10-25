@@ -79,20 +79,29 @@ def _parse(raw_url: str) -> RepoLocation:
         raise InstallError(str(exc)) from exc
 
 
-def _materialize(location: RepoLocation) -> tuple[str, Path]:
+def _revision(location: RepoLocation, commit: str = "") -> tuple[str, Path]:
+    """The files of ``commit`` (default: the remote HEAD), cloned only when they aren't on disk yet; a clone always
+    takes the remote HEAD, so the commit returned can differ from the one asked for."""
     try:
+        commit = commit or resolve_head(location)
+        root = revision_path(location.url, commit)
+        if root.is_dir():
+            os.utime(root)
+            return commit, root
         return materialize(location)
     except FetchError as exc:
         raise InstallError(str(exc)) from exc
 
 
-def inspect_url(raw_url: str, *, user) -> tuple[RepoLocation, str, RepoInspection]:
+def inspect_url(raw_url: str, *, user, commit: str = "") -> tuple[RepoLocation, str, RepoInspection]:
+    """Read the plugins in the repository at ``raw_url``: at ``commit`` when it is a commit already on disk (the one
+    the user picked from), else at the remote HEAD."""
     location = _parse(raw_url)
     if not user.is_admin:
         _require_read_access(user, location)
-    commit, root = _materialize(location)
+    commit, root = _revision(location, commit if SHA_RE.match(commit) else "")
     try:
-        return location, commit, inspect_repo(root)
+        return location, commit, inspect_repo(root, repo_slug=location.slug)
     except ManifestError as exc:
         raise InstallError(str(exc)) from exc
 
@@ -108,12 +117,10 @@ def install(*, raw_url: str, commit: str, plugin_paths: list[str], scope: Plugin
     if not is_global:
         _require_read_access(user, location)
 
-    root = revision_path(location.url, commit)
-    if not root.is_dir():
-        commit, root = _materialize(location)
+    commit, root = _revision(location, commit)
 
     try:
-        candidates = {c.plugin_path: c for c in inspect_repo(root).candidates if c.supported}
+        candidates = {c.plugin_path: c for c in inspect_repo(root, repo_slug=location.slug).candidates if c.supported}
         contents: list[tuple[str, PluginContents]] = []
         for plugin_path in plugin_paths:
             candidate = candidates.get(plugin_path)
@@ -254,7 +261,11 @@ def update_all() -> None:
     for repo_url, group in groupby(plugins, key=attrgetter("repo_url")):
         group = list(group)
         auto = [plugin for plugin in group if plugin.auto_update]
-        head = _resolve_once(repo_url, auto)
+        try:
+            head = _resolve_once(repo_url, auto)
+        except Exception:
+            logger.exception("Could not resolve the head of %s", repo_url)
+            head = None
         for plugin in group:
             try:
                 if plugin.auto_update and head is not None:

@@ -314,7 +314,9 @@ class PluginAddView(LoginRequiredMixin, View):
     def _install(self, request):
         url = request.POST.get("url", "")
         try:
-            location, commit, inspection = services.inspect_url(url, user=request.user)
+            location, commit, inspection = services.inspect_url(
+                url, user=request.user, commit=request.POST.get("commit", "")
+            )
         except services.InstallError as exc:
             return self._render_url_step(request, RepoURLForm({"url": url}), error=str(exc))
         form = InstallForm(request.POST, candidates=inspection.candidates, user=request.user)

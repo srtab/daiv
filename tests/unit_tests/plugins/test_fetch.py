@@ -2,6 +2,7 @@ import os
 import pathlib
 import subprocess  # noqa: S404
 import time
+from contextlib import contextmanager
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
@@ -75,6 +76,37 @@ def _fake_git(files: dict[str, str] | None = None, head: str = SHA):
     return run, calls
 
 
+class _FakePopen:
+    def __init__(self, run, args, **kwargs):
+        result = run(args, **kwargs)
+        self.returncode, self._output = result.returncode, (result.stdout, result.stderr)
+        self.killed = False
+
+    def communicate(self, timeout=None):
+        return self._output
+
+    def kill(self):
+        self.killed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+@contextmanager
+def _patched_git(run=None, popen=None):
+    def start(args, **kwargs):
+        return popen(args, **kwargs) if popen else _FakePopen(run, args, **kwargs)
+
+    with (
+        patch("plugins.fetch.subprocess.run", side_effect=run),
+        patch("plugins.fetch.subprocess.Popen", side_effect=start),
+    ):
+        yield
+
+
 def _subcommands(calls):
     return [
         next(a for a in args if a in {"clone", "ls-tree", "checkout", "rev-parse", "ls-remote"}) for args, _ in calls
@@ -142,10 +174,7 @@ def test_private_ip_host_rejected(client, data_path, public_dns):
     public_dns.return_value = [(2, 1, 6, "", ("93.184.216.34", 0)), (2, 1, 6, "", ("10.0.0.5", 0))]
     run, calls = _fake_git()
 
-    with (
-        patch("plugins.fetch.subprocess.run", side_effect=run),
-        pytest.raises(FetchError, match="This host is not reachable from DAIV."),
-    ):
+    with _patched_git(run), pytest.raises(FetchError, match="This host is not reachable from DAIV."):
         resolve_head(_location(on_platform=False, host="evil.example.org"))
 
     assert calls == []
@@ -158,16 +187,18 @@ def test_unresolvable_off_platform_host_rejected(client, public_dns):
         resolve_head(_location(on_platform=False, host="nowhere.example.org"))
 
 
-def test_off_platform_git_gets_no_credentials(client):
+def test_off_platform_git_gets_no_credentials_and_pins_vetted_addresses(client, public_dns):
+    public_dns.return_value = [*PUBLIC_ADDR, (10, 1, 6, "", ("2606:4700::1111", 0, 0, 0))]
     run, calls = _fake_git()
 
-    with patch("plugins.fetch.subprocess.run", side_effect=run):
+    with _patched_git(run):
         assert resolve_head(_location(on_platform=False, host="github.com", slug="a/b")) == SHA
 
     client.get_git_auth_env.assert_not_called()
     client.get_repository.assert_not_called()
     env = calls[0][1]["env"]
-    assert not any(key.startswith("GIT_CONFIG_KEY") or key == "GIT_CONFIG_VALUE_0" for key in env)
+    assert (env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"]) == ("1", "http.curloptResolve")
+    assert env["GIT_CONFIG_VALUE_0"] == "github.com:443:[2606:4700::1111],93.184.216.34"
 
 
 def test_on_platform_git_gets_auth_env(client):
@@ -177,7 +208,7 @@ def test_on_platform_git_gets_auth_env(client):
     client.get_git_auth_env.return_value = auth
     run, calls = _fake_git()
 
-    with patch("plugins.fetch.subprocess.run", side_effect=run):
+    with _patched_git(run):
         resolve_head(_location())
 
     client.get_repository.assert_called_once_with("group/sub/project")
@@ -190,7 +221,7 @@ def test_on_platform_without_credential_runs_unauthenticated(client):
     client.get_git_auth_env.return_value = None
     run, calls = _fake_git()
 
-    with patch("plugins.fetch.subprocess.run", side_effect=run):
+    with _patched_git(run):
         resolve_head(_location())
 
     env = calls[0][1]["env"]
@@ -209,7 +240,7 @@ def test_git_args_disable_redirects_and_symlinks(client, data_path):
     client.get_git_auth_env.return_value = None
     run, calls = _fake_git()
 
-    with patch("plugins.fetch.subprocess.run", side_effect=run):
+    with _patched_git(run):
         resolve_head(_location())
         materialize(_location())
 
@@ -220,7 +251,8 @@ def test_git_args_disable_redirects_and_symlinks(client, data_path):
         assert "core.symlinks=false" in joined
         assert kwargs["env"]["GIT_ALLOW_PROTOCOL"] == "https"
         assert kwargs["env"]["GIT_TERMINAL_PROMPT"] == "0"
-        assert kwargs["timeout"] == settings.GIT_TIMEOUT_SECONDS
+        if "clone" not in args:
+            assert kwargs["timeout"] == settings.GIT_TIMEOUT_SECONDS
     clone_args = next(args for args, _ in calls if "clone" in args)
     for flag in ("--depth", "--single-branch", "--no-tags", "--no-checkout"):
         assert flag in clone_args
@@ -244,7 +276,7 @@ def test_materialize_moves_into_revision_dir_and_drops_git(client, data_path):
     run, _ = _fake_git({"skills/a/SKILL.md": "hi"})
     location = _location()
 
-    with patch("plugins.fetch.subprocess.run", side_effect=run):
+    with _patched_git(run):
         commit, path = materialize(location)
 
     assert commit == SHA
@@ -263,7 +295,7 @@ def test_materialize_existing_revision_reused(client, data_path):
     (existing / "marker").write_text("keep")
     run, _ = _fake_git({"new.txt": "new"})
 
-    with patch("plugins.fetch.subprocess.run", side_effect=run):
+    with _patched_git(run):
         commit, path = materialize(location)
 
     assert (commit, path) == (SHA, existing)
@@ -278,10 +310,7 @@ def test_oversized_repo_rejected_and_cleaned(client, data_path, monkeypatch):
     run, calls = _fake_git({"big.bin": "x" * 100})
     location = _location()
 
-    with (
-        patch("plugins.fetch.subprocess.run", side_effect=run),
-        pytest.raises(FetchError, match="Repository is larger than"),
-    ):
+    with _patched_git(run), pytest.raises(FetchError, match="Repository is larger than"):
         materialize(location)
 
     assert not (data_path / "revisions").exists()
@@ -289,11 +318,76 @@ def test_oversized_repo_rejected_and_cleaned(client, data_path, monkeypatch):
     assert [p for p in (data_path / "tmp").iterdir() if p.name != "home"] == []
 
 
+class _StalledClone:
+    """A clone that never finishes on its own, writing ``chunk`` bytes of pack per poll."""
+
+    def __init__(self, chunk):
+        self.chunk, self.killed, self.returncode = chunk, False, None
+
+    def __call__(self, args, **kwargs):
+        self.pack = pathlib.Path(args[-1]) / ".git" / "objects" / "pack" / "tmp_pack_1"
+        return self
+
+    def communicate(self, timeout=None):
+        if self.killed:
+            return "", ""
+        self.pack.parent.mkdir(parents=True, exist_ok=True)
+        with self.pack.open("ab") as pack:
+            pack.write(b"x" * self.chunk)
+        raise subprocess.TimeoutExpired("git", timeout)
+
+    def kill(self):
+        self.killed, self.returncode = True, -9
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_clone_killed_once_its_download_passes_the_cap(client, data_path, monkeypatch):
+    client.get_git_auth_env.return_value = None
+    monkeypatch.setattr(settings, "MAX_REPO_BYTES", 10)
+    clone = _StalledClone(chunk=100)
+    run, calls = _fake_git()
+
+    with _patched_git(run, popen=clone), pytest.raises(FetchError, match="Repository is larger than"):
+        materialize(_location())
+
+    assert clone.killed
+    assert calls == []
+    assert [p for p in (data_path / "tmp").iterdir() if p.name != "home"] == []
+
+
+def test_clone_killed_at_the_timeout(client, data_path, monkeypatch):
+    client.get_git_auth_env.return_value = None
+    monkeypatch.setattr(settings, "GIT_TIMEOUT_SECONDS", 0)
+    clone = _StalledClone(chunk=0)
+
+    with _patched_git(popen=clone), pytest.raises(FetchError, match="Fetching this repository timed out."):
+        materialize(_location())
+
+    assert clone.killed
+
+
+def test_failed_clone_hides_stderr(client, data_path):
+    client.get_git_auth_env.return_value = None
+
+    def run(args, **kwargs):
+        return subprocess.CompletedProcess(args=args, returncode=128, stdout="", stderr="fatal: secret detail")
+
+    with _patched_git(run), pytest.raises(FetchError) as exc_info:
+        materialize(_location())
+
+    assert "secret detail" not in str(exc_info.value)
+
+
 def test_materialize_rejects_malformed_head(client, data_path):
     client.get_git_auth_env.return_value = None
     run, _ = _fake_git(head="not-a-sha")
 
-    with patch("plugins.fetch.subprocess.run", side_effect=run), pytest.raises(FetchError):
+    with _patched_git(run), pytest.raises(FetchError):
         materialize(_location())
 
     assert [p for p in (data_path / "tmp").iterdir() if p.name != "home"] == []
@@ -325,7 +419,7 @@ def test_public_on_platform_repo_runs_anonymously(client):
     client.repository_visibility.return_value = "public"
     run, calls = _fake_git()
 
-    with patch("plugins.fetch.subprocess.run", side_effect=run):
+    with _patched_git(run):
         resolve_head(_location())
 
     client.get_git_auth_env.assert_not_called()
@@ -357,7 +451,7 @@ def test_git_output_decoded_leniently(client):
     client.get_git_auth_env.return_value = None
     run, calls = _fake_git()
 
-    with patch("plugins.fetch.subprocess.run", side_effect=run):
+    with _patched_git(run):
         resolve_head(_location())
 
     assert calls[0][1]["encoding"] == "utf-8"
@@ -372,7 +466,7 @@ def test_git_env_does_not_inherit_ambient_git_config(client, monkeypatch, data_p
     monkeypatch.setenv("https_proxy", "http://proxy:3128")
     run, calls = _fake_git()
 
-    with patch("plugins.fetch.subprocess.run", side_effect=run):
+    with _patched_git(run):
         resolve_head(_location())
 
     env = calls[0][1]["env"]

@@ -23,7 +23,7 @@ class TestInspectRepo:
                 "skills/a/SKILL.md": SKILL.format(name="a", desc="d"),
             },
         )
-        inspection = inspect_repo(tmp_path)
+        inspection = inspect_repo(tmp_path, repo_slug="acme/repo")
         assert inspection.marketplace_name == "mkt"
         assert len(inspection.candidates) == 1
         candidate = inspection.candidates[0]
@@ -44,7 +44,7 @@ class TestInspectRepo:
                 "management/commands/c.md": "Do it\n",
             },
         )
-        candidates = inspect_repo(tmp_path).candidates
+        candidates = inspect_repo(tmp_path, repo_slug="acme/repo").candidates
         assert [(c.name, c.plugin_path, c.supported) for c in candidates] == [
             ("devkit", "devkit", True),
             ("management", "management", True),
@@ -61,22 +61,28 @@ class TestInspectRepo:
                 )
             },
         )
-        for candidate in inspect_repo(tmp_path).candidates:
+        for candidate in inspect_repo(tmp_path, repo_slug="acme/repo").candidates:
             assert candidate.supported is False
             assert candidate.reason == "Source outside this repository is not supported yet."
 
     def test_dotdot_source_unsupported(self, tmp_path):
         make_tree(tmp_path, {".claude-plugin/marketplace.json": marketplace({"name": "x", "source": "./../x"})})
-        candidate = inspect_repo(tmp_path).candidates[0]
+        candidate = inspect_repo(tmp_path, repo_slug="acme/repo").candidates[0]
         assert candidate.supported is False
         assert candidate.reason
 
     def test_bare_plugin_without_manifests(self, tmp_path):
         make_tree(tmp_path, {"skills/a/SKILL.md": SKILL.format(name="a", desc="d")})
-        candidates = inspect_repo(tmp_path).candidates
+        candidates = inspect_repo(tmp_path, repo_slug="acme/repo").candidates
         assert len(candidates) == 1
+        assert candidates[0].name == "repo"
         assert candidates[0].plugin_path == ""
         assert candidates[0].supported is True
+
+    def test_nameless_plugin_named_after_the_repository(self, tmp_path):
+        make_tree(tmp_path, {".claude-plugin/plugin.json": "{}"})
+        (candidate,) = inspect_repo(tmp_path, repo_slug="Group/My_Plugin.Kit").candidates
+        assert candidate.name == "my-plugin-kit"
 
     def test_long_candidate_description_and_version_are_capped(self, tmp_path):
         make_tree(
@@ -89,14 +95,14 @@ class TestInspectRepo:
                 "b/.claude-plugin/plugin.json": json.dumps({"description": "e" * 2000, "version": "2" * 100}),
             },
         )
-        a, b = inspect_repo(tmp_path).candidates
+        a, b = inspect_repo(tmp_path, repo_slug="acme/repo").candidates
         assert (a.description, a.version) == ("d" * 1024, "1" * 64)
         assert (b.description, b.version) == ("e" * 1024, "2" * 64)
 
     def test_long_single_plugin_description_and_version_are_capped(self, tmp_path):
         manifest = {"name": "p", "description": "d" * 2000, "version": "1" * 100}
         make_tree(tmp_path, {".claude-plugin/plugin.json": json.dumps(manifest)})
-        candidate = inspect_repo(tmp_path).candidates[0]
+        candidate = inspect_repo(tmp_path, repo_slug="acme/repo").candidates[0]
         assert (len(candidate.description), len(candidate.version)) == (1024, 64)
 
     def test_overlong_plugin_path_unsupported(self, tmp_path):
@@ -109,7 +115,7 @@ class TestInspectRepo:
                 )
             },
         )
-        long, fits = inspect_repo(tmp_path).candidates
+        long, fits = inspect_repo(tmp_path, repo_slug="acme/repo").candidates
         assert long.supported is False
         assert long.reason == "The plugin's path in this repository is too long."
         assert fits.supported is True
@@ -117,7 +123,7 @@ class TestInspectRepo:
     def test_not_a_plugin_raises(self, tmp_path):
         make_tree(tmp_path, {"README.md": "hi"})
         with pytest.raises(ManifestError, match="This repository is not a Claude Code plugin or marketplace."):
-            inspect_repo(tmp_path)
+            inspect_repo(tmp_path, repo_slug="acme/repo")
 
 
 class TestReadPlugin:
@@ -171,6 +177,25 @@ class TestReadPlugin:
         contents = read_plugin(tmp_path, "", fallback_name="p")
         assert contents.commands == ()
         assert Skipped("command", "foo: same name as a skill") in contents.skipped
+
+    def test_duplicate_item_names_keep_the_first(self, tmp_path):
+        make_tree(
+            tmp_path,
+            {
+                "skills/one/SKILL.md": SKILL.format(name="dup", desc="first"),
+                "skills/two/SKILL.md": SKILL.format(name="dup", desc="second"),
+                "commands/a/deploy.md": "First\n",
+                "commands/b/deploy.md": "Second\n",
+                "agents/a.md": "---\nname: rev\ndescription: first\n---\nP\n",
+                "agents/b.md": "---\nname: rev\ndescription: second\n---\nP\n",
+            },
+        )
+        contents = read_plugin(tmp_path, "", fallback_name="p")
+        assert [(s.name, s.description) for s in contents.skills] == [("dup", "first")]
+        assert [(c.name, c.path) for c in contents.commands] == [("deploy", "commands/a/deploy.md")]
+        assert [(a.name, a.description) for a in contents.agents] == [("rev", "first")]
+        for component, name in (("skill", "dup"), ("command", "deploy"), ("agent", "rev")):
+            assert Skipped(component, f"{name}: duplicate name") in contents.skipped
 
     def test_invalid_item_names_skipped(self, tmp_path):
         make_tree(

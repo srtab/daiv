@@ -111,6 +111,36 @@ def test_inspect_public_repo_needs_no_check(member_user, fetch, client, identity
 
 
 @pytest.mark.django_db
+def test_inspect_reuses_the_remote_heads_revision_on_disk(admin_user, fetch, client):
+    revision_path(URL, SHA).mkdir(parents=True)
+
+    _, commit, _ = inspect_url(URL, user=admin_user)
+
+    assert commit == SHA
+    fetch.resolve_head.assert_called_once()
+    fetch.materialize.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_inspect_at_a_picked_commit_on_disk_skips_the_remote(admin_user, fetch, client):
+    revision_path(URL, SHA2).mkdir(parents=True)
+
+    _, commit, _ = inspect_url(URL, user=admin_user, commit=SHA2)
+
+    assert commit == SHA2
+    fetch.resolve_head.assert_not_called()
+    fetch.materialize.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_inspect_ignores_a_malformed_commit(admin_user, fetch, client):
+    _, commit, _ = inspect_url(URL, user=admin_user, commit="../..")
+
+    assert commit == SHA
+    fetch.resolve_head.assert_called_once()
+
+
+@pytest.mark.django_db
 def test_inspect_admin_skips_read_check(admin_user, fetch, client, identity):
     inspect_url(URL, user=admin_user)
 
@@ -419,6 +449,23 @@ def test_update_all_head_failure_records_error_for_each_plugin(fetch, client, da
 
     one.refresh_from_db()
     assert one.last_error == "down"
+
+
+@pytest.mark.django_db
+def test_update_all_carries_on_after_an_unexpected_head_error(fetch, client, data_path):
+    broken = make_plugin(name="broken")
+    other = make_plugin(name="other", repo_url=OFFSITE)
+    fetch.resolve_head.side_effect = [RuntimeError("boom"), SHA2]
+    fetch.materialize.side_effect = lambda location: (SHA2, revision_path(location.url, SHA2))
+
+    with patch("plugins.services.prune_revisions") as prune:
+        update_all()
+
+    broken.refresh_from_db()
+    other.refresh_from_db()
+    assert (broken.installed_commit, broken.last_checked_at is not None) == (SHA, True)
+    assert other.installed_commit == SHA2
+    prune.assert_called_once()
 
 
 def installed_tree(plugin, subdir=""):
