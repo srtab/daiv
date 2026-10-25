@@ -59,6 +59,7 @@ async def address_issue_task(
     mention_comment_id: str | None = None,
     mention_note_id: int | None = None,
     sandbox_environment_id: str | None = None,
+    acting_platform_uid: str | None = None,
 ) -> AgentResult:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
@@ -73,6 +74,7 @@ async def address_issue_task(
         mention_note_id (int | None): The note that mentioned DAIV, which the run answers; with ``repo_id`` and the
             iid, the run's dedup key, so each reply in one GitLab discussion gets its own run.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
+        acting_platform_uid (str | None): The platform user id that triggered the event.
     """
     from webhooks.managers.issue_addressor import IssueAddressorManager
 
@@ -89,6 +91,7 @@ async def address_issue_task(
         ref=session_ref or None,
         thread_id=thread_id,
         sandbox_env_id=sandbox_environment_id,
+        acting_platform_uid=acting_platform_uid,
         run_id=await aget_task_run_id(context.task_result.id),
         use_max=use_max,
     )
@@ -108,6 +111,7 @@ async def address_mr_comments_task(
     use_max: bool,
     mention_note_id: int | None = None,
     sandbox_environment_id: str | None = None,
+    acting_platform_uid: str | None = None,
 ) -> AgentResult:
     """
     Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -122,6 +126,7 @@ async def address_mr_comments_task(
         mention_note_id (int | None): The note that mentioned DAIV, which the run answers; with ``repo_id`` and the
             iid, the run's dedup key, so each reply in one GitLab discussion gets its own run.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
+        acting_platform_uid (str | None): The platform user id that triggered the event.
     """
     from webhooks.managers.review_addressor import CommentsAddressorManager
 
@@ -146,6 +151,7 @@ async def address_mr_comments_task(
             mention_note_id=mention_note_id,
             thread_id=thread_id,
             sandbox_env_id=sandbox_environment_id,
+            acting_platform_uid=acting_platform_uid,
             run_id=await aget_task_run_id(context.task_result.id),
             use_max=use_max,
         )

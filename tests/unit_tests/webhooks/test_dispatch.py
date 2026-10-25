@@ -180,6 +180,13 @@ async def test_the_task_and_the_run_get_the_repos_sandbox_env(steps, dispatch, t
 
 
 @each_run_kind
+async def test_the_task_acts_as_the_platform_user_who_triggered_it(steps, dispatch, task, scope):
+    await dispatch(steps)
+
+    assert getattr(steps, task).get_or_enqueue.call_args.kwargs["acting_platform_uid"] == str(AUTHOR.uid)
+
+
+@each_run_kind
 @pytest.mark.parametrize("use_max", [True, False])
 async def test_the_task_runs_in_the_max_mode_whose_model_the_run_records(steps, dispatch, task, scope, use_max):
     await dispatch(steps, use_max=use_max)

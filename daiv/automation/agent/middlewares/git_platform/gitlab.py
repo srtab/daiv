@@ -10,8 +10,15 @@ from automation.agent.middlewares.git_platform.cli import (
     AllowCommands,
     CliInvocation,
     PlatformCli,
+    PolicyRefusal,
     check_subcommand,
     run_cli,
+)
+from automation.agent.middlewares.git_platform.cross_project import (
+    CrossProjectOutcomes,
+    decide_target,
+    mark_cross_project_body,
+    record_refused_before_decision,
 )
 from codebase.base import GitPlatform
 from codebase.clients.utils import clean_job_logs
@@ -31,6 +38,11 @@ logger = logging.getLogger("daiv.tools")
 GITLAB_REQUESTS_TIMEOUT = 15
 GITLAB_PER_PAGE = "5"
 GITLAB_TOOL_NAME = "gitlab"
+
+REFUSAL_FILE_ARGUMENT = (
+    "error: A value starting with '@' is read from a file, which this tool does not allow. Pass the text itself, "
+    "writing a literal leading '@' as '@@'."
+)
 
 
 GITLAB_CLI_ALLOW_COMMANDS: AllowCommands = {
@@ -130,6 +142,12 @@ GITLAB_CLI = PlatformCli(
 )
 
 
+def _reads_a_file(arg: str) -> bool:
+    """python-gitlab replaces any value starting with ``@`` by that file's content; ``@@`` escapes it."""
+    value = arg.partition("=")[2] if arg.startswith("--") else arg
+    return value.startswith("@") and not value.startswith("@@")
+
+
 def _parse_gitlab_flag(args: list[str], flag: str) -> str | None:
     """
     Extract a single flag value from a shlex-split args list.
@@ -167,6 +185,8 @@ async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime
         return "error: --mr-iid is required for inline discussion creation"
     if not body:
         return "error: --body is required for inline discussion creation"
+    if body.startswith("@@"):
+        body = body[1:]
     if not position_str:
         return "error: --position is required for inline discussion creation"
 
@@ -204,15 +224,38 @@ async def run_gitlab_subcommand(
     to_file: bool,
     *,
     backend: BackendProtocol,
+    project: str = "",
 ) -> str:
-    """Run a `python-gitlab` CLI subcommand on behalf of the ``gitlab`` tool, scoped to the run's project."""
+    """Run a `python-gitlab` CLI subcommand on behalf of the ``gitlab`` tool.
+
+    ``project`` empty (or equal to the attached repository) is the unchanged path: the attached project under the
+    deployment's service token. Any other project is executed with the acting person's own credential, and is refused
+    rather than falling back.
+    """
     args = check_subcommand(GITLAB_CLI, subcommand)
+    # The CLI runs with the service token in its environment, so a file read could publish it from any project.
+    if not isinstance(args, str) and any(_reads_a_file(arg) for arg in args[2:]):
+        args = PolicyRefusal(REFUSAL_FILE_ARGUMENT)
+    if isinstance(args, PolicyRefusal):
+        await record_refused_before_decision(runtime, provider=GitPlatform.GITLAB, project=project)
     if isinstance(args, str):
         return args
 
     resource, action, rest = args[0], args[1], args[2:]
+    decision = await decide_target(resource, action, rest, project, runtime, provider=GitPlatform.GITLAB)
+    if decision.refusal is not None:
+        # The refusal is the whole answer: retrying under the service identity is the leak this prevents.
+        return decision.refusal
+
+    # The inline path goes through RepoClient, which holds the service token, so it never runs cross-project (the
+    # policy gate refuses it first).
     has_position = any(arg == "--position" or arg.startswith("--position=") for arg in rest)
-    if resource == "project-merge-request-discussion" and action == "create" and has_position:
+    if (
+        not decision.is_cross_project
+        and resource == "project-merge-request-discussion"
+        and action == "create"
+        and has_position
+    ):
         return await _create_gitlab_inline_discussion(rest, runtime)
 
     is_job_trace = resource == "project-job" and action == "trace"
@@ -224,16 +267,29 @@ async def run_gitlab_subcommand(
     else:
         output_flags = []
 
+    if decision.is_cross_project:
+        # GitLab checks PRIVATE-TOKEN against personal access tokens only and 401s an OAuth grant, so the person's
+        # token goes out as a bearer; python-gitlab refuses both token kinds at once.
+        token_env = {"GITLAB_OAUTH_TOKEN": decision.token or ""}
+        args = mark_cross_project_body(args, provider=GitPlatform.GITLAB)
+        outcomes = CrossProjectOutcomes(
+            runtime=runtime, provider=GitPlatform.GITLAB, display_name=GITLAB_CLI.display_name, decision=decision
+        )
+    else:
+        token_env = {"GITLAB_PRIVATE_TOKEN": settings.GITLAB_AUTH_TOKEN.get_secret_value()}
+        outcomes = None
+
     project_flag = "--id" if resource == "project" else "--project-id"
     invocation = CliInvocation(
-        args=[*output_flags, *args, project_flag, runtime.context.repository.slug],
+        args=[*output_flags, *args, project_flag, decision.target or runtime.context.repository.slug],
         env={
             "GITLAB_TIMEOUT": str(GITLAB_REQUESTS_TIMEOUT),
-            "GITLAB_PRIVATE_TOKEN": settings.GITLAB_AUTH_TOKEN.get_secret_value(),
+            **token_env,
             "GITLAB_URL": settings.GITLAB_URL.encoded_string(),
             "GITLAB_PER_PAGE": GITLAB_PER_PAGE,
             "GITLAB_USER_AGENT": USER_AGENT,
         },
         postprocess=partial(clean_job_logs, git_platform=GitPlatform.GITLAB) if is_job_trace else None,
+        outcomes=outcomes,
     )
     return await run_cli(GITLAB_CLI, invocation, runtime, to_file=to_file, backend=backend)

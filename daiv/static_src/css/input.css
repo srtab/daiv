@@ -3334,3 +3334,27 @@ html {
       border border-white/[0.08] bg-white/[0.03];
   }
 }
+
+/* -- Cross-project access log ---------------------------------------------- */
+
+@layer components {
+  .audit-row {
+    @apply flex items-center justify-between gap-4 border-b border-white/[0.06]
+      px-6 py-4 last:border-b-0;
+  }
+  .audit-row__meta {
+    @apply mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-400;
+  }
+  .audit-repo { @apply font-mono text-[13px] text-white; }
+}
+
+/* -- Git authorisation (per-person OAuth grant) ---------------------------- */
+
+@layer components {
+  .credential-panel {
+    @apply rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6;
+  }
+  .credential-scope {
+    @apply inline-flex items-center rounded-md bg-white/[0.05] px-2 py-0.5 font-mono text-xs text-gray-300;
+  }
+}

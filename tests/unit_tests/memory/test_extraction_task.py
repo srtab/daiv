@@ -4,6 +4,7 @@ import pytest
 from memory.models import MemoryObservation, ObservationStatus
 from memory.schemas import ExtractedObservation
 from memory.tasks import extract_observations_task
+from sessions.models import Session
 
 from tests.unit_tests.memory.extraction_helpers import (
     TRANSCRIPT,
@@ -132,6 +133,46 @@ async def test_extraction_propagates_llm_failure_without_partial_writes():
         patch("memory.extraction.build_structured_llm", return_value=failing_llm),
         patch("memory.extraction.site_settings", _site_settings()),
         pytest.raises(RuntimeError),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await extract_observations_task.func(str(run.pk))
+
+    assert await MemoryObservation.objects.acount() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extraction_skips_a_session_that_gained_cross_project_results_after_the_run():
+    """Checked at extraction time: a later run in the thread may have fetched another project since this one ended."""
+    run = await _create_run()
+    await Session.objects.filter(pk=run.session_id).aupdate(cross_project_user_ids=[7])
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.extraction.build_structured_llm") as build,
+        patch("memory.extraction.site_settings", _site_settings()),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await extract_observations_task.func(str(run.pk))
+
+    build.assert_not_called()
+    assert await MemoryObservation.objects.acount() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extraction_drops_what_it_found_when_the_session_gained_cross_project_results_meanwhile():
+    """The transcript is read after the check, and a fetch is recorded before it reaches the checkpoint."""
+    run = await _create_run()
+    extracted = [ExtractedObservation(category="pitfall", content="the other project's deploy key lives in vault")]
+
+    async def _extract_while_another_run_fetches(_run):
+        await Session.objects.filter(pk=run.session_id).aupdate(cross_project_user_ids=[7])
+        return extracted
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.extraction.extract_observations", _extract_while_another_run_fetches),
+        patch("memory.tasks.site_settings", _site_settings()),
     ):
         cfg.get_config.return_value = _enabled_config()
         await extract_observations_task.func(str(run.pk))

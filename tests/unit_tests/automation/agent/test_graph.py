@@ -4,6 +4,7 @@ from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from deepagents import create_deep_agent
 from deepagents.backends import StateBackend
 from deepagents.middleware.memory import MemoryMiddleware
@@ -11,6 +12,7 @@ from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage
 
+from automation.agent.agent_settings import RunOverrides
 from automation.agent.artifacts import FETCH_ARTIFACT_TOOL_NAME, PUBLISH_ARTIFACT_TOOL_NAME
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
@@ -48,7 +50,7 @@ def _patches() -> dict[str, tuple[str, dict]]:
     }
 
 
-async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
+async def _build(workspace, *, run: RunOverrides | None = None, **agent_kwargs) -> SimpleNamespace:
     """Build the agent over ``workspace`` with its collaborators stubbed and return the stubs. The context's spec has a
     base image, so a disk workspace shows the mode is the workspace's, not the context's."""
     with ExitStack() as stack:
@@ -64,14 +66,16 @@ async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
             agent_thinking_level=None,
             web_fetch_enabled=False,
             web_search_enabled=False,
+            cross_project_access_enabled=True,
         )
+        settings = agent_settings(site=site, run=run)
         ctx = MagicMock()
         ctx.sandbox = sandbox_spec()
         ctx.config.context_file_name = "AGENTS.md"
         await create_daiv_agent(
-            settings=agent_settings(site=site), ctx=ctx, workspace=workspace, auto_commit_changes=False, **agent_kwargs
+            settings=settings, ctx=ctx, workspace=workspace, auto_commit_changes=False, **agent_kwargs
         )
-    return SimpleNamespace(**mocks)
+    return SimpleNamespace(**mocks, settings=settings)
 
 
 def _disk_workspace() -> DiskWorkspace:
@@ -148,6 +152,16 @@ async def test_without_an_artifact_store_the_agent_has_no_artifact_tools():
     assert not any(isinstance(m, ArtifactsMiddleware) for m in _middleware(built))
     assert PUBLISH_ARTIFACT_TOOL_NAME not in tools
     assert FETCH_ARTIFACT_TOOL_NAME not in tools
+
+
+@pytest.mark.parametrize("allowed", [True, False])
+async def test_the_agent_and_its_subagents_share_the_runs_cross_project_switch(allowed):
+    built = await _build(_disk_workspace(), run=RunOverrides(cross_project_allowed=allowed))
+
+    assert built.settings.cross_project_enabled is allowed
+    assert built.git_platform_middleware.call_args.kwargs["cross_project_enabled"] is allowed
+    assert built.create_general_purpose.call_args.kwargs["cross_project_enabled"] is allowed
+    assert built.load_custom.await_args.kwargs["cross_project_enabled"] is allowed
 
 
 async def test_memory_files_load_with_daivs_guidelines_not_deepagents():

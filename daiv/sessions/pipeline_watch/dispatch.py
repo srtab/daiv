@@ -76,7 +76,11 @@ class FixRunDispatcher:
             agent_thinking_level=agent_thinking_level,
             status=RunStatus.READY,
         )
-        failure = await aenqueue_run(run, log_context="pipeline_watch")
+        failure = await aenqueue_run(
+            run,
+            log_context="pipeline_watch",
+            acting_user_authenticated=session.origin in SessionOrigin.daiv_authenticated(),
+        )
         if failure is not None and not failure.task_enqueued:
             # The claim already charged the attempt and moved the watch to FIXING, but no task will run: refund both
             # so the watch stays live instead of waiting out the stale sweep.

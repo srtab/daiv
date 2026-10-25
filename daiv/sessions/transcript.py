@@ -49,7 +49,7 @@ def _marker(run: Run) -> dict[str, Any] | None:
         # persisted distinguishes them from a genuine failure except these shared messages.
         aborted = run.error_message in (CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE)
     else:
-        message = RUN_FAILED_MESSAGE
+        message = run.public_error(RUN_FAILED_MESSAGE)
         aborted = False
     status: RunStatusValue = "aborted" if aborted else "failed"
     return {"id": f"run-status-{run.id}", "role": "run_status", "status": status, "message": message}

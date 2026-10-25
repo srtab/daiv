@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from sessions.executor.run import execute_run
+from sessions.executor.run import CrossProjectSessionRefusedError, execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 
 from automation.agent.utils import repo_relative_text
@@ -49,6 +49,7 @@ class CommentsAddressorManager(BaseManager):
         use_max: bool,
         mention_note_id: int | None = None,
         sandbox_env_id: str | None = None,
+        acting_platform_uid: str | None = None,
         run_id: str | None = None,
     ) -> AgentResult:
         """
@@ -62,6 +63,7 @@ class CommentsAddressorManager(BaseManager):
             use_max: The max mode the callback decided.
             mention_note_id: The note that mentioned the bot, which the run answers.
             sandbox_env_id: The sandbox environment the callback selected.
+            acting_platform_uid: The platform user id that triggered this run.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
 
         Returns:
@@ -74,6 +76,7 @@ class CommentsAddressorManager(BaseManager):
             mention_comment_id=mention_comment_id,
             mention_note_id=mention_note_id,
             thread_id=thread_id,
+            acting_platform_uid=acting_platform_uid,
         )
 
         try:
@@ -100,6 +103,7 @@ class CommentsAddressorManager(BaseManager):
                 merge_request=self.merge_request,
                 use_max=use_max,
                 sandbox_env_id=sandbox_env_id,
+                acting_platform_uid=self.acting_platform_uid,
                 run_id=run_id,
                 recover_draft=True,
                 extra_metadata={
@@ -125,6 +129,10 @@ class CommentsAddressorManager(BaseManager):
 
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
         if isinstance(exc, CloneRefNotFoundError):
+            return
+        if isinstance(exc, CrossProjectSessionRefusedError):
+            if self._claim_unable_note():
+                self._leave_comment(str(exc), reply_to_id=self.reply_to_id)
             return
         if isinstance(exc, AgentConfigurationError):
             logger.warning("review_addressor: %s", exc)

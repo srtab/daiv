@@ -444,3 +444,10 @@ class TestTelegramForm:
         group = SiteConfiguration.get_group_by_key("telegram")
         form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance(), group=group)
         assert set(form.fields) == {"telegram_enabled", "telegram_bot_token"}
+
+
+def test_cross_project_group_fields_are_bound_to_the_form():
+    group = next(g for g in SiteConfiguration.get_field_groups() if g.key == "cross_project")
+    assert group.toggle_field == "cross_project_access_enabled"
+    assert set(group.fields) == {"cross_project_access_enabled", "cross_project_webhook_runs_enabled"}
+    assert set(group.fields) <= set(SiteConfigurationForm.Meta.fields)

@@ -221,11 +221,12 @@ async def amake_watched_session(
     user: User | None = None,
     sandbox_environment=None,
     last_active_at=None,
+    origin: str = SessionOrigin.MR_WEBHOOK,
 ) -> Session:
     """A session with the watch armed — the starting row for every watch test."""
     return await Session.objects.acreate(
         thread_id=thread_id,
-        origin=SessionOrigin.MR_WEBHOOK,
+        origin=origin,
         repo_id=repo_id,
         ref=ref,
         merge_request_iid=merge_request_iid,

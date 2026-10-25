@@ -74,3 +74,9 @@ msgstr "Abrir navegação"
 
 msgid "Artifacts"
 msgstr "Artefactos"
+
+msgid "Git authorisation"
+msgstr "Autorização Git"
+
+msgid "Cross-project access"
+msgstr "Acesso entre projetos"

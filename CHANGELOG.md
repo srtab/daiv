@@ -63,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Cross-project access: the agent can read, comment on and edit issues and merge requests in other projects as the person a run acts for (off by default). A conversation that fetched from another project is then visible to, and continued by, only that person and admins.
 - Expired sessions now resume instead of silently starting over. DAIV archives each session's conversation in the database when a run ends: a session whose checkpoint expired keeps its transcript, and the next message — or `@daiv` mention on its issue or merge request — resumes from the archive. If the archive can't be restored, the run fails instead of starting without it. `/clear` now starts a new context and keeps the earlier conversation in the session's history. **Upgrade note:** run `python manage.py archive_sessions` once after migrating, so sessions still in Redis are archived before their checkpoints expire.
 - `python manage.py export_session_archives <dir>` writes each archived session's transcript and run metadata as JSON, for analysis beyond LangSmith's retention.
 - The agent can now merge a branch into the one it works on and resolve the conflicts, for example when you ask it to resolve a merge request's conflicts with its target branch. It runs `git merge --no-commit --no-ff`, edits the conflicted files, and DAIV commits the result as a merge commit at the end of the turn, with git's merge subject and the files that conflicted. If a conflicted file still contains conflict markers, DAIV commits and pushes nothing and says so in its reply. Rebasing is still unsupported.
@@ -113,6 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed the GitHub `gh` tool reaching repositories other than the one a run is attached to. `gh` takes the repository from an issue or pull request URL rather than from `--repo`, so a URL naming another repository ran there under DAIV's GitHub App token. Such a URL, or an `owner/repo#N` reference, is now refused, and the agent passes the number instead.
 - Fixed the session page letting you send a message while the session's run was still waiting to start, which started a chat turn ahead of the queued job. The composer now stays locked until the run starts, a chat turn sent meanwhile, from another tab or the API, gets a `409`, and the page shows the run's prompt as pending with a "Waiting in queue" line in place of the boxed queue card.
 - Fixed concurrent GitHub API calls able to send each other's request: the GitHub client is shared by the whole process, and PyGithub kept each request on the shared connection between building and sending it, so two calls at once, such as two webhooks, could both send the same request and one of them act on the other's response.
 - Fixed the Jobs API and MCP `get_job_status` cutting a job's `result` at 2,000 characters. It now returns the agent's whole last response.

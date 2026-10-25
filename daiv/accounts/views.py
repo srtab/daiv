@@ -7,16 +7,20 @@ from django.db import IntegrityError
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
+from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
 from django_filters.views import FilterView
 
+from accounts import credentials
 from accounts.emails import send_welcome_email
 from accounts.filters import UserFilter
 from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
 from accounts.models import APIKey, User
+from codebase.conf import settings as codebase_settings
 from core.mixins import AdminRequiredMixin, BreadcrumbMixin
+from core.site_settings import site_settings
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +126,58 @@ class APIKeyRevokeView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 # User management views (admin only)
 # ---------------------------------------------------------------------------
+
+
+class PlatformCredentialView(LoginRequiredMixin, TemplateView):
+    """The person's git platform authorisation: state, expiry and granted scopes, never the token."""
+
+    template_name = "accounts/platform_credential.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        provider = codebase_settings.CLIENT
+        context["provider"] = provider.value
+        context["supported"] = provider in credentials.OAUTH_CAPABLE_PLATFORMS
+        context["cross_project_enabled"] = bool(site_settings.cross_project_access_enabled)
+        if context["supported"]:
+            context["status"] = credentials.status(user_id=self.request.user.pk, provider=provider)
+            context["connect_url"] = reverse(f"{provider.value}_login")
+        return context
+
+
+class PlatformCredentialRevokeView(LoginRequiredMixin, View):
+    """Disconnect: clear both secrets and mark the grant revoked. Only ever one's own."""
+
+    def post(self, request):
+        provider = codebase_settings.CLIENT
+        if provider not in credentials.OAUTH_CAPABLE_PLATFORMS:
+            messages.error(request, _("This deployment has no git platform authorisation to disconnect."))
+            return redirect("platform_credential")
+
+        if credentials.revoke(user_id=request.user.pk, provider=provider):
+            messages.success(request, _("Disconnected your %(provider)s authorisation.") % {"provider": provider.value})
+        else:
+            messages.info(
+                request, _("There was no %(provider)s authorisation to disconnect.") % {"provider": provider.value}
+            )
+        return redirect("platform_credential")
+
+
+class PlatformCredentialReconnectView(LoginRequiredMixin, View):
+    """Start the OAuth flow as an explicit re-authorisation.
+
+    ``credentials.store`` never resurrects a revoked row, so this POST is the only way back: the sign-in that
+    completes the flow clears the revoked grant first (``accounts.signals``). An abandoned flow leaves it revoked.
+    """
+
+    def post(self, request):
+        provider = codebase_settings.CLIENT
+        if provider not in credentials.OAUTH_CAPABLE_PLATFORMS:
+            messages.error(request, _("This deployment has no git platform authorisation to grant."))
+            return redirect("platform_credential")
+
+        request.session[credentials.REAUTHORISE_SESSION_KEY] = request.user.pk
+        return redirect(f"{provider.value}_login")
 
 
 class UserListView(AdminRequiredMixin, FilterView):

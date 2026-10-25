@@ -309,7 +309,7 @@ async def submit_job(
 
 async def _build_job_response_dict(run: Run) -> dict:
     """Build a dict response from a Run (shared by single + batch paths)."""
-    error = "Job execution failed." if run.status == RunStatus.FAILED else None
+    error = run.public_error("Job execution failed.") if run.status == RunStatus.FAILED else None
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     result = await sync_to_async(lambda: run.response_text)()
     return {
@@ -368,7 +368,7 @@ async def _poll_batch_until_complete(
         elapsed += POLL_INTERVAL
 
         try:
-            async for row in Run.objects.filter(id__in=list(outstanding), user=mcp_user):
+            async for row in Run.objects.results_for(mcp_user).filter(id__in=list(outstanding)):
                 results_by_id[str(row.id)] = row
                 if row.status in TERMINAL_STATUSES:
                     outstanding.discard(row.id)
@@ -390,7 +390,7 @@ async def _poll_job_until_complete(job_id: str, mcp_user: object) -> str:
         elapsed += POLL_INTERVAL
 
         try:
-            last = await Run.objects.aget(id=job_uuid, user=mcp_user)
+            last = await Run.objects.results_for(mcp_user).aget(id=job_uuid)
         except Run.DoesNotExist:
             logger.debug("Job %s not yet available, retrying (%.0fs elapsed)", job_id, elapsed)
             continue
@@ -446,7 +446,7 @@ async def get_job_status(
         return json.dumps({"error": "Invalid job_id format."})
 
     try:
-        run = await Run.objects.aget(id=run_uuid, user=mcp_user)
+        run = await Run.objects.results_for(mcp_user).aget(id=run_uuid)
     except Run.DoesNotExist:
         if wait:
             return await _poll_job_until_complete(job_id, mcp_user)

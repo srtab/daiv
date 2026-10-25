@@ -360,6 +360,9 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["live_run_stoppable"] = bool(live and live.stoppable)
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
 
+        # ``get_queryset`` authorised before the reads above; a fetch that restricted the session since must not render.
+        if not Session.objects.cross_project_visible_to(self.request.user).filter(pk=session.pk).exists():
+            raise Http404
         return ctx
 
 

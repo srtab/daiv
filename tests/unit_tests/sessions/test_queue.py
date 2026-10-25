@@ -29,11 +29,15 @@ def _emits(spy: MagicMock) -> list[tuple[str, bool, bool]]:
 @pytest.mark.django_db(transaction=True)
 class TestAenqueueRun:
     @pytest.mark.parametrize(
-        ("trigger_type", "ask_user_enabled"),
-        [(SessionOrigin.API_JOB, True), (SessionOrigin.SCHEDULE, False), (SessionOrigin.PIPELINE_WEBHOOK, False)],
+        ("trigger_type", "ask_user_enabled", "authenticated"),
+        [
+            (SessionOrigin.API_JOB, True, True),
+            (SessionOrigin.SCHEDULE, False, True),
+            (SessionOrigin.PIPELINE_WEBHOOK, False, False),
+        ],
     )
     async def test_the_task_kwargs_come_from_the_row(
-        self, create_db_task_result, member_user, trigger_type, ask_user_enabled
+        self, create_db_task_result, member_user, trigger_type, ask_user_enabled, authenticated
     ):
         env = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="ci", base_image="python:3.14")
         run = await sync_to_async(make_run)(
@@ -62,10 +66,23 @@ class TestAenqueueRun:
             "sandbox_environment_id": str(env.id),
             "run_id": str(run.pk),
             "user_id": member_user.pk,
+            "acting_user_authenticated": authenticated,
             "ask_user_enabled": ask_user_enabled,
         }
         await run.arefresh_from_db()
         assert run.task_result_id == task.id
+
+    async def test_the_caller_can_vouch_for_the_acting_user(self, create_db_task_result):
+        run = await sync_to_async(make_run)(
+            session_id=str(uuid.uuid4()), status=RunStatus.READY, trigger_type=SessionOrigin.PIPELINE_WEBHOOK
+        )
+        task = await sync_to_async(create_db_task_result)(status="READY")
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
+            await aenqueue_run(run, log_context="test", acting_user_authenticated=True)
+
+        assert mock_task.aenqueue.call_args.kwargs["acting_user_authenticated"] is True
 
     async def test_blank_row_fields_reach_the_task_as_none(self, create_db_task_result):
         run = await sync_to_async(make_run)(session_id=str(uuid.uuid4()), status=RunStatus.READY)

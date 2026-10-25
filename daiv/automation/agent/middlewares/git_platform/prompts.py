@@ -4,6 +4,7 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 
 from automation.agent.middlewares.git_platform.github import GITHUB_TOOL_NAME
 from automation.agent.middlewares.git_platform.gitlab import GITLAB_TOOL_NAME
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
 GITLAB_TOOL_DESCRIPTION = """\
 Use this tool to inspect the configured GitLab project through the python-gitlab CLI.
@@ -25,6 +26,7 @@ This tool is best for retrieving the current state of:
 - Do NOT include the `gitlab` prefix in `subcommand`
 - Do NOT pass `--project-id` (the project is injected automatically)
 - Do NOT pass `--output` (set automatically from `output_mode`, or forced to json when output_to_file is true)
+- Do NOT start a value with `@`: python-gitlab would read it from a file, so the call is refused. Write a literal leading `@`, such as a mention, as `@@`
 - Prefer IID-based lookup when available (for example `--iid` for issues and merge requests)
 
 **Default behavior:**
@@ -110,6 +112,7 @@ This tool is best for retrieving the current state of:
 **Hard rules:**
 - Do NOT include the `gh` prefix in `subcommand`
 - Do NOT pass `--repo` or `-R` (the repository is injected automatically)
+- Do NOT widen a search with `repo:`, `org:` or `user:` qualifiers or `--owner`, in `search` or in `--search`: the call is refused
 - Keep listings small and targeted
 
 **Default behavior:**
@@ -152,13 +155,38 @@ This tool is best for retrieving the current state of:
 - When the output is long, extract only the decisive facts needed for the next step"""  # noqa: E501
 
 
+CROSS_PROJECT_TOOL_DESCRIPTION = f"""
+
+**Targeting another project (`project`):**
+- Leave `project` empty — the default — to target the current project. That is the right choice for almost every call, and it behaves exactly as described above.
+- Set `project` to a project path (for example `group/name`) to query a different project. The call is then made **as the person who requested this run**, so it returns only what that person can see.
+- A project that person cannot access is refused with a stated reason. It is never silently empty, and it is never retried under DAIV's own identity — so an empty-looking answer is a real empty result, not a hidden permission failure.
+- Pass a project path, not a flag and not a URL with a different host. On GitHub, name an issue or pull request by its number: an issue or pull request URL, or `owner/repo#N`, naming another repository is refused.
+- Reads cross, and so do these writes: creating an issue; adding a note, comment, discussion, reply, emoji reaction, issue link or draft note; editing a draft note; logging time spent or an estimate; reordering an issue; and editing an issue's or merge/pull request's title (except a GitLab merge request's), description, labels and the other fields not refused below.
+- Refused outside the current project: deleting anything; creating a merge request or pull request; moving an issue; editing an existing note, discussion or comment; resetting time spent or an estimate; creating or editing labels, snippets, branches, tags or releases; running, retrying, cancelling or playing pipelines, jobs or workflows; closing, reopening, locking or unlocking an issue or PR, `issue develop`, and reviewing a PR; changing state, assignees (though `issue create --assignee` crosses on GitHub), the target or base branch, or the discussion lock; on GitLab, a merge request's title (dropping its `Draft:` prefix marks it ready) and resolving merge request threads (`--merge-request-to-resolve-discussions-of`, `--discussion-to-resolve`); on GitHub, setting a milestone; on a GitLab update, `--confidential`; adding `{BOT_LABEL}`, `{BOT_AUTO_LABEL}` or `{BOT_MAX_LABEL}` as a label; a GitHub body read from a file (`--body-file`, `--template`, `--recover`); a GitLab body line starting with `/`, which is a quick action; an inline merge request diff comment (use a regular note); and a flag the tool cannot recognise (on GitLab an unknown or ambiguous `--option`, on GitHub any unknown flag on a write).
+- The timeout and the automatic saving of oversized results are unchanged."""  # noqa: E501
+
+PROJECT_ARG_DESCRIPTION = (
+    "Project to target, as a project path such as 'group/name'. Leave empty (the default) to "
+    "target the current project, which is what almost every call wants. Naming a different "
+    "project runs that call as the person who requested this run: it returns only what they can "
+    "see, and is refused outright — not silently empty — if they cannot see it. Some subcommands "
+    "they *can* perform are still refused there by policy; see the tool description."
+)
+
+
 GIT_PLATFORM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
     f"""\
 ## Git Platform Tools
 
 Use the available Git platform tool early whenever platform state can change what you should do.
 
+{{{{^cross_project}}}}
 Scope: All operations are scoped to the CURRENT project only. You cannot access files, pipelines, or metadata from other projects. If you need cross-project information, ask the user to provide it.
+{{{{/cross_project}}}}
+{{{{#cross_project}}}}
+Scope: By default every operation targets the CURRENT project, under DAIV's own identity. You may also set the tool's `project` argument to read or act on another project — that call is made as the person who requested this run and sees only what they can see. Files, pipelines and metadata of the current project are always reachable; another project is reachable only through that argument, only if that person has access, and not for the subcommands the tool description lists as refused there. Never treat a cross-project refusal as a reason to retry the same call against the current project under DAIV's identity.
+{{{{/cross_project}}}}
 
 **Core policy:**
 - If the user references an issue, PR/MR, pipeline, workflow, job, check, CI failure, review comment, or platform artifact, inspect it before editing code. An issue already in the latest `<issue>` block of the conversation counts as inspected; fetch it only for its comments or when its description was cut.

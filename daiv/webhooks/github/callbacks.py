@@ -12,7 +12,7 @@ from codebase.clients.base import Emoji
 from codebase.clients.github.client import github_conclusion_to_status
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import note_mentions_daiv
-from core.constants import has_bot_label, has_max_label
+from core.constants import CROSS_PROJECT_CONTENT_MARKER, has_bot_label, has_max_label
 from webhooks.callbacks import BaseCallback
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
@@ -57,6 +57,7 @@ class IssueCallback(GitHubCallback):
             self._repo_config.issue_addressing.enabled
             and self.issue.state == "open"
             and self.action in ["opened", "reopened", "labeled"]
+            and CROSS_PROJECT_CONTENT_MARKER not in (self.issue.body or "")
         ):
             return False
 
@@ -123,6 +124,7 @@ class IssueCommentCallback(GitHubCallback):
             self.action not in ["created", "edited"]
             or self.issue.state != "open"
             or self.comment.user.id == self._client.current_user.id
+            or CROSS_PROJECT_CONTENT_MARKER in self.comment.body
         ):
             return False
 
