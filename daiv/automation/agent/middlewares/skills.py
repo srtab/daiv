@@ -55,7 +55,7 @@ SKILLS_TOOL_DESCRIPTION = """Execute a skill within the main conversation.
 Usage notes:
   - Use this tool with the skill name and optional arguments
   - If the skill does not exist, the tool will return an error.
-  - Only use skills listed in <available_skills>.
+  - Only use skills listed in <available_skills> or announced in a <plugins> reminder.
 
 Examples:
   - `skill: "pdf"` - invoke the pdf skill
@@ -82,7 +82,7 @@ SKILLS_SYSTEM_PROMPT = f"""\
 
 **Important:**
 - When a skill in <available_skills> matches the request, call the `{SKILLS_TOOL_NAME}` tool before other work on it. Naming a skill in text without calling the tool does nothing.
-- Only use skills listed in <available_skills> below, but creation is possible
+- Only use skills listed in <available_skills> below or announced in a <plugins> reminder (named `<plugin>:<skill>`), but creation is possible
 - Do not invoke a skill that is already running.
 
 **Skill assets:** Each skill lives at `<location>/<skill-name>/` under one of the locations below. The bash working directory is the repository checkout, **not** the skill's root, so a SKILL.md reference to `scripts/foo.py` is `<location>/<skill-name>/scripts/foo.py` (per-repo skills resolve under their `.agents/skills` / `.claude/skills` / `.cursor/skills` source root, not under the bash CWD). Invoke by absolute path; do not probe the bash CWD for skill assets.

@@ -49,7 +49,8 @@ class SkillInvocation(TimeStampedModel):
         REPO = "repo", _("Per-repo")
         PLUGIN = "plugin", _("Plugin")
 
-    name = models.SlugField(_("name"), max_length=80, validators=[RegexValidator(regex=SKILL_NAME_RE)])
+    # Fits a plugin skill's "<plugin>:<skill>" name, up to 63 characters on each side.
+    name = models.CharField(_("name"), max_length=128)
     source = models.CharField(_("source"), max_length=16, choices=Source.choices)
     repo_slug = models.CharField(_("repository"), max_length=255)
     thread_id = models.UUIDField(_("thread id"))
