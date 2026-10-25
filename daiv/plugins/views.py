@@ -82,7 +82,7 @@ def _decorate(plugins, *, opted_out_ids=frozenset()):
 
 
 def _pin_nav_section(request, plugin: Plugin) -> None:
-    if plugin.scope == Plugin.Scope.GLOBAL:
+    if plugin.scope == Plugin.Scope.GLOBAL and request.user.is_admin:
         request.nav_view_name = "plugins:global_list"
 
 

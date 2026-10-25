@@ -262,3 +262,12 @@ def test_admin_detail_of_global_plugin_highlights_global_section(client, admin_u
     resp = client.get(reverse("plugins:detail", args=[plugin.pk]))
 
     assert resp.context["nav_active_section"] == "plugins_global"
+
+
+def test_member_detail_of_global_plugin_highlights_plugins_section(client, member_user):
+    plugin = make_plugin(scope=Plugin.Scope.GLOBAL)
+    client.force_login(member_user)
+
+    resp = client.get(reverse("plugins:detail", args=[plugin.pk]))
+
+    assert resp.context["nav_active_section"] == "plugins"
