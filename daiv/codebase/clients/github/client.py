@@ -5,11 +5,12 @@ import tempfile
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+from urllib.parse import urlparse
 
 from git import GitCommandError, Repo
 from github import Consts, Github, GithubIntegration, Installation
-from github.GithubException import GithubException
+from github.GithubException import GithubException, UnknownObjectException
 
 from codebase.base import (
     GitPlatform,
@@ -40,6 +41,8 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.clients")
+
+_READABLE_PERMISSIONS = frozenset({"admin", "maintain", "write", "triage", "read"})
 
 EMOJI_MAP = {Emoji.THUMBSUP: "+1", Emoji.EYES: "eyes"}
 
@@ -185,6 +188,24 @@ class GitHubClient(RepoClient):
                 continue
             members.append(RepoMember(uid=str(collaborator.id), username=collaborator.login, access_level=level))
         return self._dedupe_members(members)
+
+    def git_host(self) -> str:
+        host = urlparse(self.client.requester.base_url).hostname or ""
+        return "github.com" if host == "api.github.com" else host
+
+    def repository_visibility(self, repo_id: str) -> Literal["public", "internal", "private"]:
+        return "private" if self.client.get_repo(repo_id).private else "public"
+
+    def user_can_read(self, repo_id: str, *, uid: int | None, username: str | None) -> bool:
+        repo = self.client.get_repo(repo_id)
+        if not repo.private:
+            return True
+        if username is None:
+            return False
+        try:
+            return repo.get_collaborator_permission(username) in _READABLE_PERMISSIONS
+        except UnknownObjectException:
+            return False
 
     def is_branch_protected(self, repo_id: str, branch: str) -> bool:
         """

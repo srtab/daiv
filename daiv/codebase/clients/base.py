@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 from asgiref.sync import sync_to_async
@@ -219,6 +219,32 @@ class RepoClient(abc.ABC):
             if existing is None or member.access_level == RepoAccessLevel.WRITE:
                 deduped[member.uid] = member
         return list(deduped.values())
+
+    @abc.abstractmethod
+    def git_host(self) -> str:
+        """Return the hostname of the platform this client talks to, e.g. ``github.com``."""
+        pass
+
+    @abc.abstractmethod
+    def repository_visibility(self, repo_id: str) -> Literal["public", "internal", "private"]:
+        """Return the repository's visibility on the platform."""
+        pass
+
+    @abc.abstractmethod
+    def user_can_read(self, repo_id: str, *, uid: int | None, username: str | None) -> bool:
+        """
+        Live check that a platform user can read the repository.
+
+        Public repositories are readable by anyone and internal ones by any signed-in platform
+        user. A private repository needs at least Reporter (GitLab) or read (GitHub) access.
+        Transient platform errors propagate; only "no such member" counts as no access.
+
+        Args:
+            repo_id: The repository ID.
+            uid: The user's platform id, or ``None`` when the user has no linked platform account.
+            username: The user's platform login, or ``None`` when the user has no linked platform account.
+        """
+        pass
 
     @abc.abstractmethod
     def is_branch_protected(self, repo_id: str, branch: str) -> bool:

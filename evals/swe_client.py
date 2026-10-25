@@ -6,7 +6,7 @@ import tempfile
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from git import Repo
 
@@ -99,6 +99,17 @@ class SWERepoClient(RepoClient):
     def list_repository_members(self, repo_id: str) -> list[RepoMember]:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support listing repository members")
+
+    def git_host(self) -> str:
+        return self.repo_host
+
+    def repository_visibility(self, repo_id: str) -> Literal["public", "internal", "private"]:
+        """SWE repos are public OSS repositories."""
+        return "public"
+
+    def user_can_read(self, repo_id: str, *, uid: int | None, username: str | None) -> bool:
+        """SWE repos are public OSS repositories."""
+        return True
 
     def is_branch_protected(self, repo_id: str, branch: str) -> bool:
         """SWE sandbox repos have no remote branch protection."""
