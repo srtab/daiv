@@ -71,6 +71,7 @@ class Features:
     suggest_context_file: bool
     session_link: bool
     slash_commands: bool
+    verification: bool
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,7 @@ def resolve_features(*, site: SiteSnapshot, repo: RepositoryConfig) -> Features:
         suggest_context_file=repo.suggest_context_file and site.suggest_context_file_enabled,
         session_link=repo.session_link and site.session_link_enabled,
         slash_commands=repo.slash_commands.enabled,
+        verification=site.verification_enabled,
     )
 
 
@@ -129,6 +131,13 @@ def resolve_pipeline_watch_max_attempts(*, site: SiteSnapshot, repo: RepositoryC
     """Row 12's attempt cap."""
     site_cap = site.pipeline_watch_max_attempts
     return min(_repo_value(repo.pipeline_watch, "max_attempts", site_cap), site_cap)
+
+
+def resolve_before_publish(*, repo: RepositoryConfig, sandbox_default: tuple[str, ...] | None) -> tuple[str, ...]:
+    """The commands to verify a run with: the repo's own list (an empty one included), else the sandbox's."""
+    if repo.hooks.before_publish is not None:
+        return repo.hooks.before_publish
+    return sandbox_default or ()
 
 
 def _resolve_agent(*, site: SiteSnapshot, repo_agent: AgentModelConfig, run: RunOverrides) -> ModelChain:

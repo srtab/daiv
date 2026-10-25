@@ -444,3 +444,8 @@ class TestTelegramForm:
         group = SiteConfiguration.get_group_by_key("telegram")
         form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance(), group=group)
         assert set(form.fields) == {"telegram_enabled", "telegram_bot_token"}
+
+
+@pytest.mark.django_db
+def test_site_configuration_form_includes_verification_enabled():
+    assert "verification_enabled" in SiteConfigurationForm().fields
