@@ -95,7 +95,7 @@ WORKDIR /home/daiv
 RUN chmod +x entrypoint start-app start-worker start-crontask \
   && python -m compileall app \
   && django-admin compilemessages --ignore=.venv/**/locale \
-  && mkdir -p data/media data/static \
+  && mkdir -p data/media data/plugins data/static \
   # Build Tailwind CSS
   && ARCH=$(dpkg --print-architecture | sed 's/amd64/x64/' | sed 's/arm64/arm64/') \
   && curl -sfLO "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-${ARCH}" \

@@ -50,6 +50,8 @@ Where a plugin is installed from decides which repository DAIV can reach:
 - **Private and internal repositories on DAIV's own platform.** DAIV fetches them with its own credentials. A personal install requires that you can read the repository on the platform, which DAIV checks when you install and again on every update. An admin installing a global plugin skips that check.
 - **Private repositories elsewhere** are not supported.
 
+Repository links with an explicit port are rejected, so a git platform served on a non-default port (or a local `http` development GitLab) can't install plugins from that platform. Public repositories on other `https` hosts still work.
+
 !!! warning
     For a private plugin repository, DAIV's bot account must be able to read it. If it can't, the install and every later update fail with "DAIV can't read this repository."
 
@@ -59,12 +61,12 @@ If you lose access to a repository on the platform, your personal plugin from it
 
 DAIV checks every plugin hourly and installs every new commit on the repository's default branch. It doesn't wait for a version bump. Use **Update now** on a plugin's page to check right away.
 
-- **A failed update keeps the last good commit.** If the new commit can't be fetched or read, the plugin keeps running on the previous one, shows **Update failed** with the reason, and isn't retried until the repository has another new commit. **Update now** retries it.
+- **A failed update keeps the last good commit.** If the new commit can't be fetched or read, the plugin keeps running on the previous one and shows **Update failed** with the reason. DAIV doesn't retry a commit it couldn't fetch or read until the repository has a newer one; **Update now** retries it. Other failures, such as the repository being unreachable or you losing access, are retried at the next hourly check.
 - **Auto-update** is on by default. Turn it off to freeze a plugin at its installed commit; it still gets its access checked hourly.
 - **Active** turns a plugin off without removing it. An inactive plugin isn't loaded in anyone's runs (for a global plugin, in nobody's), but it keeps updating.
 
 !!! note
-    A plugin with auto-update off whose files were lost, for example because the data volume was replaced, stays unloaded until someone clicks **Update now**. A plugin with auto-update on is restored by the next hourly check.
+    A plugin with auto-update off whose files were lost, for example because the data volume was replaced, stays unloaded until someone clicks **Update now**. A plugin with auto-update on is restored by the next hourly check, unless its last update also failed.
 
 ## In your runs
 
