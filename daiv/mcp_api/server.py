@@ -28,7 +28,6 @@ from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 from codebase.authorization import asearch_viewable_repositories
 from core.conf import settings as core_settings
-from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for MCPServer
 from daiv import __version__
 from mcp_api.auth import DjangoTokenVerifier, get_current_user
@@ -310,10 +309,7 @@ async def submit_job(
 
 async def _build_job_response_dict(run: Run) -> dict:
     """Build a dict response from a Run (shared by single + batch paths)."""
-    error = None
-    if run.status == RunStatus.FAILED:
-        refused = run.error_message == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
-        error = CROSS_PROJECT_SESSION_REFUSED_MESSAGE if refused else "Job execution failed."
+    error = run.public_error("Job execution failed.") if run.status == RunStatus.FAILED else None
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     result = await sync_to_async(lambda: run.response_text)()
     return {

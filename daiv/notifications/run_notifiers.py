@@ -129,10 +129,7 @@ def _who_may_read(recipients: dict[int, object], run) -> dict[int, object]:
 
     sessions = Run.objects.by_batch(run.batch_id).values("session_id") if run.batch_id else [run.session_id]
     restricted = list(
-        Session.objects
-        .filter(pk__in=sessions)
-        .exclude(cross_project_user_ids=[])
-        .values_list("cross_project_user_ids", flat=True)
+        Session.objects.filter(pk__in=sessions).holding_cross_project().values_list("cross_project_user_ids", flat=True)
     )
     return {
         pk: user

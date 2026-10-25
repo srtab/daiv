@@ -403,3 +403,8 @@ class TestRestrictSessionToCrossProjectFetchers:
 
         session.refresh_from_db()
         assert session.cross_project_user_ids == []
+
+    def test_an_allowed_fetch_naming_no_thread_raises(self, member_user):
+        """The record's writer withholds the result when this raises; a quiet return would release it unrestricted."""
+        with pytest.raises(ValueError, match="must name its thread"):
+            self._record(thread_id="", acting_user=member_user)

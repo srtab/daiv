@@ -23,7 +23,11 @@ Six invariants this module exists to keep:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
+import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -44,7 +48,7 @@ from core.site_settings import site_settings
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import AsyncGenerator, Iterable, Sequence
 
 logger = logging.getLogger("daiv.accounts")
 
@@ -56,6 +60,12 @@ plus retries, narrow enough not to refresh on every call."""
 TOKEN_CACHE_PREFIX = "platform_credential_token"  # noqa: S105
 TOKEN_CACHE_MAX_TTL_SECONDS = 300
 REFRESH_TIMEOUT_SECONDS = 15
+REFRESH_LOCK_SECONDS = 30
+"""How long one refresh may hold a grant's lock, and how long another waits for it. Above
+:data:`REFRESH_TIMEOUT_SECONDS`, so a lock outlives the request it guards."""
+
+REAUTHORISE_SESSION_KEY = "platform_credential_reauthorise"
+"""Set by the Authorise button to the person's pk; the sign-in that completes the flow consumes it."""
 
 GITLAB_CROSS_PROJECT_SCOPES = ("api", "read_api")
 """Either reads another project; only ``api`` can also write there, which GitLab enforces. A grant
@@ -75,6 +85,8 @@ class CredentialReason(StrEnum):
     INSUFFICIENT_SCOPE = "insufficient_scope"
     REFRESH_FAILED = "refresh_failed"
     UNREADABLE = "unreadable"
+    REJECTED = "rejected"
+    """The platform refused a token that carries no refresh token, so only the person can replace it."""
 
 
 class RefreshFailure(StrEnum):
@@ -89,9 +101,10 @@ class RefreshFailure(StrEnum):
     TRANSIENT = "transient"
 
 
-TERMINAL_OAUTH_ERRORS = frozenset({"invalid_grant"})
-"""RFC 6749's one unambiguous "this refresh token is dead" code. Everything else — including
-``invalid_request`` and ``server_error`` — can be our bug or the platform's, so it is transient."""
+TERMINAL_OAUTH_ERRORS = frozenset({"invalid_grant", "bad_refresh_token"})
+"""The codes that unambiguously say "this refresh token is dead": RFC 6749's ``invalid_grant`` (GitLab) and
+GitHub's ``bad_refresh_token``. Everything else — including ``invalid_request`` and ``server_error`` — can be
+our bug or the platform's, so it is transient."""
 
 
 @dataclass(frozen=True, repr=False)
@@ -143,25 +156,29 @@ def platform_host(provider: GitPlatform | str) -> str:
 
 
 def _gitlab_auth_base() -> str:
-    """The GitLab origin allauth mints against. One expression, because ``auth_host`` and the
-    refresh endpoint disagreeing about it is how a token reaches the wrong host."""
+    """The GitLab origin allauth exchanges and refreshes tokens against: the server-side route when one is set."""
     return str(site_settings.auth_gitlab_server_url or site_settings.auth_gitlab_url or "")
 
 
-def auth_host(provider: GitPlatform | str) -> str | None:
-    """The platform origin the OAuth grant is actually minted against, or ``None`` for GitHub.
+def _hostname(url: Any) -> str | None:
+    url = str(url or "")
+    if not url:
+        return None
+    return urlparse(url if "://" in url else f"https://{url}").hostname
+
+
+def auth_hosts(provider: GitPlatform | str) -> frozenset[str]:
+    """The hosts the OAuth grant is minted by, empty for GitHub or when sign-in names no GitLab.
 
     ``platform_host`` derives from the *codebase* URL while allauth mints the token against
     ``auth_gitlab_url``. Nothing else compares them, so a deployment that sets one and not the
-    other would send a gitlab.com token to its internal host.
+    other would send a gitlab.com token to its internal host. ``auth_gitlab_server_url`` is the same
+    GitLab reached over an internal route, so the codebase URL may name either.
     """
     if GitPlatform(provider) != GitPlatform.GITLAB:
-        return None
-    base = _gitlab_auth_base()
-    if not base:
-        return None
-    parsed = urlparse(base if "://" in base else f"https://{base}")
-    return parsed.hostname
+        return frozenset()
+    names = (_hostname(site_settings.auth_gitlab_url), _hostname(site_settings.auth_gitlab_server_url))
+    return frozenset(name for name in names if name)
 
 
 def token_cache_key(user_id: int, provider: GitPlatform | str, host: str) -> str:
@@ -321,13 +338,13 @@ def store(
 
     provider_value = GitPlatform(provider).value
 
-    if (minted_against := auth_host(provider)) is not None and minted_against != host:
+    if (minted_by := auth_hosts(provider)) and host not in minted_by:
         logger.error(
             "Refusing to store the %s credential for user_id=%s: it was issued by %s but this "
             "deployment talks to %s. Align ALLAUTH_GITLAB_URL with CODEBASE_GITLAB_URL.",
             provider_value,
             user_id,
-            minted_against,
+            " / ".join(sorted(minted_by)),
             host,
         )
         return None
@@ -341,7 +358,7 @@ def store(
         )
         return existing
 
-    # The model rejects an expiring grant without a refresh token, so store it as already expired.
+    # The model rejects an expiring grant without a refresh token, so store it expired, holding no secret.
     state = CredentialState.CONNECTED
     if expires_at is not None and not refresh_token:
         logger.error(
@@ -362,7 +379,7 @@ def store(
             .first()
         ) or PlatformCredential(user_id=user_id, provider=provider_value, host=host)
         credential.platform_uid = str(platform_uid)
-        credential.access_token = access_token
+        credential.access_token = access_token if state == CredentialState.CONNECTED else None
         credential.refresh_token = refresh_token
         credential.expires_at = expires_at
         credential.scopes = list(scopes)
@@ -422,6 +439,39 @@ arevoke = sync_to_async(revoke)
 aexpire = sync_to_async(expire)
 astore = sync_to_async(store)
 ainvalidate_cached_token = sync_to_async(invalidate_cached_token)
+
+
+async def arenew_rejected_token(*, user_id: int, provider: GitPlatform | str, token: str) -> CredentialReason | None:
+    """Renew a grant after the platform rejected ``token``: ``None`` once the stored token is no longer ``token``.
+
+    The refresh endpoint, not the rejection, decides whether the grant is dead. A grant with no refresh
+    token cannot be renewed here, so it is left in place and :attr:`CredentialReason.REJECTED` returned.
+    """
+    from accounts.models import CredentialState
+
+    await ainvalidate_cached_token(user_id=user_id, provider=provider)
+    host = platform_host(provider)
+    credential = await _rows_for(user_id, provider, host).afirst()
+    if credential is None:
+        return CredentialReason.NO_CREDENTIAL
+    if credential.state != CredentialState.CONNECTED:
+        return CredentialReason.REVOKED if credential.state == CredentialState.REVOKED else CredentialReason.EXPIRED
+    try:
+        access_token = credential.access_token
+    except DecryptionError:
+        logger.error(
+            "The %s grant for user_id=%s cannot be decrypted; expiring it. DAIV_ENCRYPTION_KEY may have rotated.",
+            credential.provider,
+            user_id,
+        )
+        await aexpire(user_id=user_id, provider=provider, host=host)
+        return CredentialReason.UNREADABLE
+    if access_token != token:
+        return None
+    if credential._refresh_token_encrypted is None:
+        return CredentialReason.REJECTED
+    refreshed = await _arefresh(credential)
+    return refreshed if isinstance(refreshed, CredentialReason) else None
 
 
 def _state():
@@ -509,13 +559,55 @@ def _oauth_client() -> dict[str, str] | None:
     return {"client_id": client_id, "client_secret": client_secret}
 
 
+@asynccontextmanager
+async def _refresh_lock(pk: int) -> AsyncGenerator[bool]:
+    """Hold one grant's refresh lock across workers; yields ``False`` when it could not be had in time.
+
+    Both platforms rotate the refresh token on use and refuse the loser of two parallel refreshes as a
+    dead grant, so refreshes of one grant run one at a time.
+    """
+    key = f"{TOKEN_CACHE_PREFIX}:refresh:{pk}"
+    owner = uuid.uuid4().hex
+    deadline = time.monotonic() + REFRESH_LOCK_SECONDS
+    while not await cache.aadd(key, owner, timeout=REFRESH_LOCK_SECONDS):
+        if time.monotonic() >= deadline:
+            yield False
+            return
+        await asyncio.sleep(0.1)
+    try:
+        yield True
+    finally:
+        if await cache.aget(key) == owner:
+            await cache.adelete(key)
+
+
 async def _arefresh(credential):
     """Renew a credential in one transaction, or return the reason it could not be renewed.
 
-    GitLab rotates the refresh token on every use, so a partial write leaves a credential that can
-    never renew again — access token, refresh token and expiry go together or not at all.
+    Both platforms rotate the refresh token on every use, so a partial write leaves a credential that can
+    never renew again — access token, refresh token and expiry go together or not at all. A refresh that
+    finds the row changed while it waited for the lock returns the newer row instead of renewing again.
     """
+    from accounts.models import PlatformCredential
+
     seen_modified = credential.modified
+    async with _refresh_lock(credential.pk) as locked:
+        if not locked:
+            logger.warning(
+                "Another refresh of the %s grant for user_id=%s held its lock too long; leaving the grant in place.",
+                credential.provider,
+                credential.user_id,
+            )
+            return CredentialReason.REFRESH_FAILED
+        current = await PlatformCredential.objects.filter(pk=credential.pk).afirst()
+        if current is None:
+            return CredentialReason.NO_CREDENTIAL
+        if (superseded := _superseded(current, seen_modified)) is not None:
+            return superseded
+        return await _arefresh_locked(current, seen_modified)
+
+
+async def _arefresh_locked(credential, seen_modified):
     try:
         refresh_token = credential.refresh_token
     except DecryptionError:

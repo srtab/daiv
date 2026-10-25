@@ -164,9 +164,10 @@ class PlatformCredentialRevokeView(LoginRequiredMixin, View):
 
 
 class PlatformCredentialReconnectView(LoginRequiredMixin, View):
-    """Clear a revoked grant, then start the OAuth flow.
+    """Start the OAuth flow as an explicit re-authorisation.
 
-    ``credentials.store`` never resurrects a revoked row, so this POST is the only way back.
+    ``credentials.store`` never resurrects a revoked row, so this POST is the only way back: the sign-in that
+    completes the flow clears the revoked grant first (``accounts.signals``). An abandoned flow leaves it revoked.
     """
 
     def post(self, request):
@@ -175,7 +176,7 @@ class PlatformCredentialReconnectView(LoginRequiredMixin, View):
             messages.error(request, _("This deployment has no git platform authorisation to grant."))
             return redirect("platform_credential")
 
-        credentials.clear_revoked(user_id=request.user.pk, provider=provider)
+        request.session[credentials.REAUTHORISE_SESSION_KEY] = request.user.pk
         return redirect(f"{provider.value}_login")
 
 

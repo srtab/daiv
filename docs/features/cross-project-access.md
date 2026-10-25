@@ -26,6 +26,11 @@ The `project` value must be a project path on the platform DAIV is configured fo
 !!! note "One `gh` check applies with the switch off too"
     `gh` takes the repository from an issue or pull request URL rather than from `--repo`, so `gh issue view https://github.com/acme/other/issues/1` would reach `acme/other` under DAIV's own GitHub App token. On every call, whether or not this feature is on, `gh` refuses an issue or pull request URL, or an `owner/repo#N` reference, that names a repository other than the call's target. The agent is told to pass the number instead and, with the switch on, to set `project`. A URL that names the target itself on the configured host, compared without regard to case, still works. GitLab is unaffected: python-gitlab takes every value as a `--flag`, and none of its commands accepts a positional argument.
 
+    For the same reason `gh` refuses, on every call, a search that names its own scope: a `repo:`, `org:` or `user:` qualifier in `gh search ...` or in the `--search` of `issue list` and `pr list`, or `--owner`. GitHub combines those with the `--repo` the tool sets, so they would search other repositories too.
+
+!!! note "GitLab values read from a file are refused on every project"
+    python-gitlab replaces a value starting with `@` with the content of the file it names, and the CLI runs with a token in its environment. So `gitlab` refuses any such value, on the attached project too. A body that has to start with a mention is written `@@name`, which posts as `@name`.
+
 ### Refusals, not silence
 
 A project the person cannot reach is **refused with a stated reason**. It is never returned as an empty result, and never retried under DAIV's own identity. Each cause gets its own message, so the reader learns which thing is wrong:
@@ -38,7 +43,7 @@ A project the person cannot reach is **refused with a stated reason**. It is nev
 | Not authorised | The person has not authorised DAIV; the message points at their account settings |
 | Expired or revoked | The authorisation is gone and must be granted again |
 | Insufficient scope | The authorisation is narrower than the operation needs |
-| Rejected by the platform | The platform refused the token for this call. DAIV drops its cached copy and tries again on the next call; if it keeps failing, the person re-authorises |
+| Rejected by the platform | The platform refused the token for this call. DAIV renews the authorisation at once through the platform's refresh endpoint and tells the agent to retry. If the platform refuses the renewal, the authorisation expires; if it has no refresh token (a non-expiring GitHub token), the person re-authorises |
 | Renewal failed | The platform did not answer the renewal. The authorisation is intact; retry shortly |
 | Unreadable | The stored authorisation can no longer be decrypted (see [Where the credential lives](#where-the-credential-lives)) and was cleared |
 | Not accessible | The project is not accessible to the person. This is deliberately ambiguous between "does not exist" and "you may not see it", so the tool cannot be used to probe for private projects |
@@ -83,10 +88,10 @@ DAIV_GITLAB_OAUTH_SCOPE="read_user read_api"
     GitLab refuses any authorisation that asks for more than the Application grants. Tick `api` (or `read_api`) on the existing Application under **Admin Area → Applications**, or set `DAIV_GITLAB_OAUTH_SCOPE` to what it already grants, **before** you turn the switch on. Otherwise the next GitLab sign-in fails with *"The requested scope is invalid, unknown, or malformed."* for everyone. Email login-by-code is unaffected.
 
 !!! warning "`ALLAUTH_GITLAB_URL` and `CODEBASE_GITLAB_URL` must name the same GitLab"
-    The token is minted against the sign-in GitLab (`ALLAUTH_GITLAB_SERVER_URL` when set, otherwise `ALLAUTH_GITLAB_URL`) and spent against `CODEBASE_GITLAB_URL`. If the hosts differ, DAIV logs an error and does not store the credential, rather than send one instance's token to another.
+    The token is minted by the sign-in GitLab and spent against `CODEBASE_GITLAB_URL`. The host of `CODEBASE_GITLAB_URL` must be the host of `ALLAUTH_GITLAB_URL` or, when it is set, of `ALLAUTH_GITLAB_SERVER_URL`, the internal route to the same GitLab. Otherwise DAIV logs an error and does not store the credential, rather than send one instance's token to another.
 
 !!! note "Short-lived tokens, with rotation"
-    GitLab access tokens expire (2 hours by default) and GitLab **rotates the refresh token on every use**. DAIV renews at the point of use, within five minutes of expiry, and writes the new access token, refresh token and expiry in one transaction. Only GitLab refusing the grant itself (`invalid_grant`) marks the authorisation expired. A timeout, a 5xx or an unreadable answer leaves it in place and fails just that call, so a momentary outage does not cost the person a re-authorisation.
+    GitLab access tokens expire (2 hours by default) and GitLab **rotates the refresh token on every use**. DAIV renews at the point of use, within five minutes of expiry, and writes the new access token, refresh token and expiry in one transaction. Only GitLab refusing the grant itself (`invalid_grant`) marks the authorisation expired. A timeout, a 5xx or an unreadable answer leaves it in place and fails just that call, so a momentary outage does not cost the person a re-authorisation. Renewals of one person's authorisation run one at a time across workers, because the platform refuses the second of two parallel renewals as if the authorisation were dead.
 
 ### GitHub
 
@@ -110,7 +115,7 @@ GitHub Apps **ignore the OAuth `scope` parameter** entirely. A user-to-server to
 | Actions | Read |
 | Metadata | Read |
 
-Both "Expire user authorization tokens" settings work. Enabled gives 8-hour tokens plus refresh tokens; disabled gives non-expiring tokens and renewal is a no-op. Renewal posts to the host `CODEBASE_GITHUB_URL` names, so a GitHub Enterprise deployment renews against its own server rather than github.com.
+Both "Expire user authorization tokens" settings work. Enabled gives 8-hour tokens plus refresh tokens, and GitHub's `bad_refresh_token` answer expires the authorisation as `invalid_grant` does on GitLab; disabled gives non-expiring tokens and renewal is a no-op. Renewal posts to the host `CODEBASE_GITHUB_URL` names, so a GitHub Enterprise deployment renews against its own server rather than github.com.
 
 On GitHub Enterprise Server the calls go to that host too. `gh` reads `--repo owner/name` as github.com unless told otherwise, so each cross-project call sets `GH_HOST` to the `CODEBASE_GITHUB_URL` host and passes the person's token as `GH_ENTERPRISE_TOKEN`, the variable `gh` reads for any host other than github.com. On github.com it stays `GH_TOKEN`.
 
@@ -188,12 +193,12 @@ Every refusal is recorded in the [audit log](#audit-log) as **Denied — not per
 | | GitLab | GitHub |
 |---|---|---|
 | Creates | issues (a confidential one included), notes, discussions and discussion notes (issues, merge requests, snippets), issue links, award emoji, merge request draft notes | issues, comments |
-| Edits an issue or merge/pull request with `update` or `edit` | title, description, labels, milestone (`--milestone-id`) and, on merge requests, reviewers (`--reviewer-ids`); on issues also `--due-date`; on merge requests also `--squash`, `--remove-source-branch` and `--allow-maintainer-to-push` | title, body, labels (`--add-label`, `--remove-label`) and projects (`--add-project`, `--remove-project`); on pull requests also reviewers (`--add-reviewer`, `--remove-reviewer`) |
+| Edits an issue or merge/pull request with `update` or `edit` | title (issues only), description, labels, milestone (`--milestone-id`) and, on merge requests, reviewers (`--reviewer-ids`); on issues also `--due-date`; on merge requests also `--squash`, `--remove-source-branch` and `--allow-maintainer-to-push` | title, body, labels (`--add-label`, `--remove-label`) and projects (`--add-project`, `--remove-project`); on pull requests also reviewers (`--add-reviewer`, `--remove-reviewer`) |
 | Sets people when creating | none | `--assignee` on `issue create` |
 | Other writes | `time-estimate` and `add-spent-time` on issues and merge requests, `project-issue reorder`, `project-merge-request-draft-note update` | none |
 
 !!! warning "Edits can rewrite what somebody else wrote"
-    Nothing refuses an edit to the title or description of an issue or merge request, including one somebody else wrote. The person's own permissions on the platform are the only check on these edits. Weigh that before you enable [webhook-triggered runs](#webhook-triggered-runs).
+    Nothing refuses an edit to an issue's title, or to the description of an issue or merge request, including one somebody else wrote. The person's own permissions on the platform are the only check on these edits. Weigh that before you enable [webhook-triggered runs](#webhook-triggered-runs).
 
 ### Refused subcommands
 
@@ -219,6 +224,8 @@ Every refusal is recorded in the [audit log](#audit-log) as **Denied — not per
 | GitLab | `--target-branch` | repoint a merge request |
 | GitLab | `--assignee-id`, `--assignee-ids` | assign |
 | GitLab | `--to-project-id` | relocate an issue (only `project-issue move` takes it, and that is refused outright) |
+| GitLab | `--merge-request-to-resolve-discussions-of`, `--discussion-to-resolve` | resolve a merge request's threads (`project-issue create` takes them), which can meet an "all threads resolved" rule and release an auto-merge |
+| GitLab | `--title`, on `project-merge-request update` only | dropping a `Draft:` prefix marks the merge request ready to merge. An issue's title still crosses |
 | GitLab | `--confidential`, on `update` only | turn a confidential issue into one everyone who can see the project can read. Creating a confidential issue still crosses |
 | GitHub | `--base` | repoint a pull request |
 | GitHub | `--milestone`, `--remove-milestone` | change the milestone |
@@ -233,7 +240,6 @@ Every other flag the policy recognises on those commands crosses, as listed abov
 |---|---|
 | Adding `daiv`, `daiv-max` or `daiv-auto` as a label (GitLab `--labels`; GitHub `--label`, `--add-label`) on `create`, `update` or `edit` | The label would start a run in that project, if DAIV watches it, as the person who requested this one. The match ignores case, whitespace and quotes. Other labels are fine |
 | GitLab quick actions: a body line starting with `/` in `--body`, `--description` or `--note` | GitLab runs `/close`, `/merge`, `/assign`, `/label` and the rest as the person, past every refusal above. A line that merely begins with a slash, such as a file path, is refused too; the agent rewrites it |
-| GitLab values read from a file: any argument starting with `@` | python-gitlab replaces `@path` with that file's content. A body that has to start with a mention is written `@@name`, which posts as `@name` |
 | GitHub bodies taken from a file or a template: `--body-file` (`-F`), `--template` (`-T`), `--recover` | The body has to be passed as `--body` text, because the [loop marker](#content-daiv-publishes-in-another-project) cannot be appended to a file the person named |
 | Inline merge request diff comments (GitLab `project-merge-request-discussion create --position`) | The inline path goes through DAIV's own platform client, which holds the service token, the one identity a cross-project call may not use. A regular merge request note works |
 | A flag DAIV cannot identify: on GitLab an unknown or ambiguous option, on any cross-project call; on GitHub, on the writes that cross (`issue create`, `issue edit`, `issue comment`, `pr edit`, `pr comment`), any flag missing from the table DAIV keeps of `gh` 2.45's own `--help` | DAIV does not guess what a value means. `gh` is installed unpinned, so a newer release can add a flag that writes in a way nobody checked; until the table lists it, it is refused. The agent spells each flag as `--help` lists it |
@@ -299,7 +305,7 @@ Records are pruned after `CODEBASE_CROSS_PROJECT_RECORD_RETENTION_DAYS` days, **
 People manage their own at **Account → Git authorisation** (`/accounts/git-authorisation/`). The page shows the state (Connected, Expired, Revoked or Not authorised), the platform host, when the current token expires, and the scopes the platform actually granted. It offers **Authorise** (**Re-authorise** while connected) and **Disconnect**, which clears the stored secrets immediately.
 
 !!! note "Disconnect is local, and it sticks"
-    Disconnecting clears what DAIV stored and stays in effect across later sign-ins. Only pressing **Authorise** on that page again restores it. It does not withdraw the authorisation on the git platform: to do that, remove DAIV from the authorised applications in the platform's own settings.
+    Disconnecting clears what DAIV stored and stays in effect across later sign-ins. Only pressing **Authorise** on that page again, and completing the platform's consent, restores it; backing out of the consent screen leaves it disconnected. It does not withdraw the authorisation on the git platform: to do that, remove DAIV from the authorised applications in the platform's own settings.
 
 ---
 

@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from automation.agent.middlewares.file_system import write_tool_result_to_file
@@ -49,7 +49,7 @@ class CliOutcomes(Protocol):
 
     async def on_launch_error(self) -> str: ...
 
-    async def on_failure(self, returncode: int, stderr: str) -> str: ...
+    async def on_failure(self, returncode: int, stderr: str, stdout: str) -> str: ...
 
     async def on_success(self) -> str | None:
         """``None`` lets the output through; a string withholds it and is reported instead."""
@@ -62,7 +62,8 @@ class CliInvocation:
     to do to a successful output before the model reads it, and who reports its outcome instead of the defaults."""
 
     args: list[str]
-    env: dict[str, str]
+    # Out of the repr: it is a live local across ``run_cli``'s ``logger.exception`` and carries the token.
+    env: dict[str, str] = field(repr=False)
     postprocess: Callable[[str], str] | None = None
     outcomes: CliOutcomes | None = None
 
@@ -126,11 +127,15 @@ def _is_allowed_cli_command(resource: str, action: str, allow_commands: AllowCom
     return False, f"error: The action '{action}' for subcommand '{resource}' is not allowed by policy."
 
 
+def _decode(output: bytes) -> str:
+    return output.decode("utf-8", errors="replace").strip()
+
+
 def _cli_failure_message(platform: str, returncode: int, stdout: bytes, stderr: bytes) -> str:
     """Report a failed CLI call with its stdout too: some commands exit non-zero with the answer on stdout
     (``gh pr checks`` exits 1 when a check failed and prints the checks table)."""
-    message = f"error: {platform} command failed (exit code {returncode}). Details: {stderr.decode('utf-8').strip()}"
-    if output := stdout.decode("utf-8").strip():
+    message = f"error: {platform} command failed (exit code {returncode}). Details: {_decode(stderr)}"
+    if output := _decode(stdout):
         message += f"\nOutput:\n{output}"
     return message
 
@@ -217,13 +222,13 @@ async def run_cli(
 
     if process.returncode != 0:
         if outcomes:
-            return await outcomes.on_failure(process.returncode, stderr.decode("utf-8").strip())
+            return await outcomes.on_failure(process.returncode, _decode(stderr), _decode(stdout))
         return _cli_failure_message(cli.display_name, process.returncode, stdout, stderr)
 
     if outcomes and (withheld := await outcomes.on_success()) is not None:
         return withheld
 
-    output = stdout.decode("utf-8").strip()
+    output = _decode(stdout)
     if not output:
         # Failures returned above, so "no file was written" means a genuinely empty result, not a failed command.
         empty = "(empty result — command succeeded with no output, e.g. an empty list or no matches)"

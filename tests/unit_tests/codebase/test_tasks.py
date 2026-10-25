@@ -274,7 +274,9 @@ class TestRecordMergeMetricsTask:
 class TestPruneCrossProjectAccessRecords:
     @staticmethod
     def _record(repo_id: str, age_days: int) -> CrossProjectAccessRecord:
-        record = CrossProjectAccessRecord.objects.create(provider="gitlab", target_repo_id=repo_id, outcome="allowed")
+        record = CrossProjectAccessRecord.objects.create(
+            provider="gitlab", target_repo_id=repo_id, outcome="denied_policy"
+        )
         CrossProjectAccessRecord.objects.filter(pk=record.pk).update(
             occurred_at=timezone.now() - timedelta(days=age_days)
         )

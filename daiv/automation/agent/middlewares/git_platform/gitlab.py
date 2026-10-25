@@ -39,6 +39,11 @@ GITLAB_REQUESTS_TIMEOUT = 15
 GITLAB_PER_PAGE = "5"
 GITLAB_TOOL_NAME = "gitlab"
 
+REFUSAL_FILE_ARGUMENT = (
+    "error: A value starting with '@' is read from a file, which this tool does not allow. Pass the text itself, "
+    "writing a literal leading '@' as '@@'."
+)
+
 
 GITLAB_CLI_ALLOW_COMMANDS: AllowCommands = {
     # Typical issue workflow
@@ -137,6 +142,12 @@ GITLAB_CLI = PlatformCli(
 )
 
 
+def _reads_a_file(arg: str) -> bool:
+    """python-gitlab replaces any value starting with ``@`` by that file's content; ``@@`` escapes it."""
+    value = arg.partition("=")[2] if arg.startswith("--") else arg
+    return value.startswith("@") and not value.startswith("@@")
+
+
 def _parse_gitlab_flag(args: list[str], flag: str) -> str | None:
     """
     Extract a single flag value from a shlex-split args list.
@@ -174,6 +185,8 @@ async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime
         return "error: --mr-iid is required for inline discussion creation"
     if not body:
         return "error: --body is required for inline discussion creation"
+    if body.startswith("@@"):
+        body = body[1:]
     if not position_str:
         return "error: --position is required for inline discussion creation"
 
@@ -221,6 +234,9 @@ async def run_gitlab_subcommand(
     rather than falling back.
     """
     args = check_subcommand(GITLAB_CLI, subcommand)
+    # The CLI runs with the service token in its environment, so a file read could publish it from any project.
+    if not isinstance(args, str) and any(_reads_a_file(arg) for arg in args[2:]):
+        args = PolicyRefusal(REFUSAL_FILE_ARGUMENT)
     if isinstance(args, PolicyRefusal):
         await record_refused_before_decision(runtime, provider=GitPlatform.GITLAB, project=project)
     if isinstance(args, str):

@@ -9,6 +9,7 @@ from django.urls import NoReverseMatch, reverse
 import pytest
 from allauth.mfa.models import Authenticator
 
+from accounts.credentials import REAUTHORISE_SESSION_KEY
 from accounts.models import APIKey, CredentialState, PlatformCredential, Role, User
 from codebase.base import GitPlatform
 
@@ -601,7 +602,8 @@ class TestPlatformCredentialViews:
     def test_anonymous_users_are_redirected_to_login(self, client):
         assert client.get(reverse("platform_credential")).status_code == 302
 
-    def test_reconnect_clears_a_revoked_grant_then_restarts_oauth(self, member_client, member_user):
+    def test_reconnect_restarts_oauth_and_leaves_the_revocation_to_the_callback(self, member_client, member_user):
+        """An abandoned flow must leave the grant revoked, so only the completed sign-in clears it."""
         PlatformCredential.objects.create(
             user=member_user,
             provider=GitPlatform.GITLAB.value,
@@ -614,7 +616,8 @@ class TestPlatformCredentialViews:
 
         assert response.status_code == 302
         assert response.url == reverse("gitlab_login")
-        assert not PlatformCredential.objects.filter(state=CredentialState.REVOKED).exists()
+        assert PlatformCredential.objects.filter(state=CredentialState.REVOKED).exists()
+        assert member_client.session[REAUTHORISE_SESSION_KEY] == member_user.pk
 
     def test_a_person_cannot_reconnect_over_someone_elses_revoked_grant(self, member_client, admin_user):
         other = PlatformCredential.objects.create(

@@ -324,7 +324,7 @@ class TestCrossProjectRecordPruneInSync:
 
     def test_sync_prunes_expired_records(self, mock_repo_client):
         self._members(mock_repo_client)
-        old = CrossProjectAccessRecord.objects.create(provider="gitlab", target_repo_id="g/a", outcome="allowed")
+        old = CrossProjectAccessRecord.objects.create(provider="gitlab", target_repo_id="g/a", outcome="denied_policy")
         CrossProjectAccessRecord.objects.filter(pk=old.pk).update(occurred_at=timezone.now() - timedelta(days=365))
 
         sync_repository_access_cron_task.func()

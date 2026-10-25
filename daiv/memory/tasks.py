@@ -139,7 +139,7 @@ async def extract_observations_task(run_id: str) -> None:
             "extract_observations_task: run %s has no session_id (violates thread_id contract), skipping", run_id
         )
         return
-    restricted = Session.objects.filter(pk=run.session_id).exclude(cross_project_user_ids=[])
+    restricted = Session.objects.filter(pk=run.session_id).holding_cross_project()
     if await restricted.aexists():
         logger.info("extract_observations_task: run %s's session holds cross-project results, skipping", run_id)
         return

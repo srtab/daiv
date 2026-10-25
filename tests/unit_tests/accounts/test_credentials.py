@@ -466,6 +466,7 @@ class TestStore:
         credential = PlatformCredential.objects.get(user=person, provider="github")
         assert credential.expires_at is None
         assert credential.state == CredentialState.EXPIRED
+        assert credential._access_token_encrypted is None
 
     def test_store_drops_a_stale_cached_token(self, person):
         key = credentials.token_cache_key(person.pk, GitPlatform.GITLAB, HOST)
@@ -520,6 +521,7 @@ class TestRefreshFailuresAreClassified:
             (400, {"error": "invalid_grant"}, "TERMINAL"),
             (401, {"error": "invalid_grant"}, "TERMINAL"),
             (200, {"error": "invalid_grant"}, "TERMINAL"),
+            (200, {"error": "bad_refresh_token"}, "TERMINAL"),
             (200, {"error": "temporarily_unavailable"}, "TRANSIENT"),
         ],
     )
@@ -758,7 +760,7 @@ class TestHostMismatch:
     ``auth_gitlab_url``; nothing else compares them."""
 
     def test_a_grant_minted_elsewhere_is_not_stored(self, person, settings):
-        with patch("accounts.credentials.auth_host", return_value="gitlab.com"):
+        with patch("accounts.credentials.auth_hosts", return_value=frozenset({"gitlab.com"})):
             result = credentials.store(
                 user_id=person.pk,
                 provider=GitPlatform.GITLAB,
@@ -772,7 +774,7 @@ class TestHostMismatch:
         assert not PlatformCredential.objects.filter(user=person).exists()
 
     def test_matching_hosts_store_normally(self, person):
-        with patch("accounts.credentials.auth_host", return_value=HOST):
+        with patch("accounts.credentials.auth_hosts", return_value=frozenset({HOST})):
             credentials.store(
                 user_id=person.pk,
                 provider=GitPlatform.GITLAB,
@@ -783,3 +785,114 @@ class TestHostMismatch:
             )
 
         assert PlatformCredential.objects.get(user=person).access_token == "tok"  # noqa: S105
+
+
+class TestRefreshesOfOneGrantRunOneAtATime:
+    """Both platforms rotate the refresh token on use, so a second parallel refresh is refused as a dead grant."""
+
+    async def test_a_refresh_that_waited_for_the_lock_uses_the_renewed_row(self, person):
+        credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
+        read_before_the_winner = await PlatformCredential.objects.aget(pk=credential.pk)
+        await sync_to_async(credentials._persist_refresh)(
+            credential.pk,
+            seen_modified=credential.modified,
+            access_token="tok-winner",  # noqa: S106
+            refresh_token="refresh-winner",  # noqa: S106
+            expires_at=timezone.now() + timedelta(hours=2),
+            scopes=["api"],
+        )
+
+        with patch("accounts.credentials._arequest_refresh") as request:
+            result = await credentials._arefresh(read_before_the_winner)
+
+        request.assert_not_called()
+        assert result.access_token == "tok-winner"  # noqa: S105
+        assert await cache.aget(f"{credentials.TOKEN_CACHE_PREFIX}:refresh:{credential.pk}") is None
+
+    async def test_a_lock_held_too_long_fails_transiently_without_a_request(self, person):
+        credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
+        await cache.aset(f"{credentials.TOKEN_CACHE_PREFIX}:refresh:{credential.pk}", "another-worker", 60)
+
+        with (
+            patch("accounts.credentials.REFRESH_LOCK_SECONDS", 0),
+            patch("accounts.credentials._arequest_refresh") as request,
+        ):
+            result = await credentials._arefresh(credential)
+
+        assert result is CredentialReason.REFRESH_FAILED
+        request.assert_not_called()
+
+
+class TestRenewingARejectedToken:
+    """A 401 is renewed through the refresh endpoint, whose answer alone decides whether the grant is dead."""
+
+    async def test_the_rejected_token_is_refreshed_although_it_has_not_expired(self, person):
+        credential = await _credential_async(person)
+        renewed = {"access_token": "tok-late", "refresh_token": "refresh-late", "expires_in": 7200}
+
+        with patch("accounts.credentials._arequest_refresh", return_value=renewed):
+            reason = await credentials.arenew_rejected_token(
+                user_id=person.pk,
+                provider=GitPlatform.GITLAB,
+                token="tok-live",  # noqa: S106
+            )
+
+        assert reason is None
+        reloaded = await PlatformCredential.objects.aget(pk=credential.pk)
+        assert reloaded.access_token == "tok-late"  # noqa: S105
+
+    async def test_a_token_another_call_already_replaced_is_not_renewed_again(self, person):
+        await _credential_async(person)
+        await cache.aset(credentials.token_cache_key(person.pk, GitPlatform.GITLAB, HOST), "stale", 60)
+
+        with patch("accounts.credentials._arequest_refresh") as request:
+            reason = await credentials.arenew_rejected_token(
+                user_id=person.pk,
+                provider=GitPlatform.GITLAB,
+                token="an-older-token",  # noqa: S106
+            )
+
+        assert reason is None
+        request.assert_not_called()
+        assert await cache.aget(credentials.token_cache_key(person.pk, GitPlatform.GITLAB, HOST)) is None
+
+    async def test_a_grant_without_a_refresh_token_is_left_for_the_person(self, person):
+        credential = await _credential_async(person, refresh_token=None, expires_at=None)
+
+        reason = await credentials.arenew_rejected_token(
+            user_id=person.pk,
+            provider=GitPlatform.GITLAB,
+            token="tok-live",  # noqa: S106
+        )
+
+        assert reason is CredentialReason.REJECTED
+        reloaded = await PlatformCredential.objects.aget(pk=credential.pk)
+        assert reloaded.state == CredentialState.CONNECTED
+
+    async def test_the_platform_refusing_the_renewal_expires_the_grant(self, person):
+        await _credential_async(person)
+
+        with patch("accounts.credentials._arequest_refresh", return_value=credentials.RefreshFailure.TERMINAL):
+            reason = await credentials.arenew_rejected_token(
+                user_id=person.pk,
+                provider=GitPlatform.GITLAB,
+                token="tok-live",  # noqa: S106
+            )
+
+        assert reason is CredentialReason.EXPIRED
+
+
+class TestTheInternalGitLabRouteIsTheSameGitLab:
+    def test_a_grant_is_stored_under_either_sign_in_host(self, person, _capability_on):
+        _capability_on.auth_gitlab_server_url = "http://gitlab-internal:80"
+
+        assert credentials.auth_hosts(GitPlatform.GITLAB) == frozenset({"gitlab.com", "gitlab-internal"})
+        stored = credentials.store(
+            user_id=person.pk,
+            provider=GitPlatform.GITLAB,
+            host="gitlab.com",
+            platform_uid="77",
+            access_token="tok",  # noqa: S106
+            scopes=["api"],
+        )
+        assert stored is not None

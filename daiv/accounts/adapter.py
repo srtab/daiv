@@ -146,11 +146,12 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         logger.info("Social signup denied for unregistered email %s via %s", email, provider)
         return False
 
-    def capture_platform_credential(self, sociallogin) -> None:
+    def capture_platform_credential(self, sociallogin, *, reauthorise: bool = False) -> None:
         """Store the person's OAuth grant so the agent can act as them beyond the attached project.
 
         Called from ``accounts.signals`` on every social login, new or returning. A failure here
-        only leaves cross-project access unauthorised; it never breaks sign-in.
+        only leaves cross-project access unauthorised; it never breaks sign-in. ``reauthorise`` is the
+        person's own Authorise flow completing, the one sign-in that replaces a revoked grant.
         """
         if not site_settings.cross_project_access_enabled:
             return
@@ -174,6 +175,8 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         # raw response); never substitute the requested scopes, which is a different claim.
         granted = (getattr(token, TOKEN_RESPONSE_ATTR, None) or {}).get("scope")
         try:
+            if reauthorise:
+                credentials.clear_revoked(user_id=user.pk, provider=provider)
             credentials.store(
                 user_id=user.pk,
                 provider=provider,

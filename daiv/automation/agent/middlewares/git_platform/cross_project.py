@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict
 from urllib.parse import urlparse
 
-from accounts.credentials import CredentialReason, ainvalidate_cached_token, aresolve_access_token, platform_host
+from accounts.credentials import CredentialReason, arenew_rejected_token, aresolve_access_token, platform_host
 from codebase.base import GitPlatform
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER
 from core.constants import CrossProjectOutcome as _Outcome
@@ -85,9 +85,13 @@ REFUSAL_REVOKED = (
     "error: {person}'s {provider} authorisation was revoked. They need to re-authorise from their "
     "DAIV account settings."
 )
+REFUSAL_CREDENTIAL_RENEWED = (
+    "error: {provider} rejected {person}'s authorisation for this call, so it has been renewed. Retry the call; if "
+    "it keeps failing they need to re-authorise from their DAIV account settings."
+)
 REFUSAL_CREDENTIAL_REJECTED = (
-    "error: {provider} rejected {person}'s authorisation for this call. It will be renewed on the "
-    "next attempt; if it keeps failing they need to re-authorise from their DAIV account settings."
+    "error: {provider} rejected {person}'s authorisation, and it cannot be renewed automatically. They need to "
+    "re-authorise from their DAIV account settings."
 )
 REFUSAL_REFRESH_FAILED = (
     "error: {person}'s {provider} authorisation could not be renewed just now — {provider} did not "
@@ -124,10 +128,6 @@ REFUSAL_INLINE_DISCUSSION_CROSS_PROJECT = (
 REFUSAL_BODY_FILE_CROSS_PROJECT = (
     "error: Outside the current project a body must be passed as text with --body; it cannot come from a file, a "
     "template or commit messages."
-)
-REFUSAL_FILE_ARGUMENT_CROSS_PROJECT = (
-    "error: A value starting with '@' is read from a file, which is only allowed on the current project. Pass the "
-    "text itself, writing a literal leading '@' as '@@'."
 )
 REFUSAL_UNCHECKED_FLAG_CROSS_PROJECT = (
     "error: '{flag}' is not a flag this tool can check outside the current project. Spell each flag out in full, "
@@ -189,6 +189,7 @@ _REFUSAL_BY_REASON: dict[CredentialReason, tuple[str, str]] = {
     CredentialReason.WEBHOOK_RUNS_DISABLED: (REFUSAL_WEBHOOK_RUNS_DISABLED, _Outcome.DENIED_DISABLED),
     CredentialReason.REFRESH_FAILED: (REFUSAL_REFRESH_FAILED, _Outcome.ERROR),
     CredentialReason.UNREADABLE: (REFUSAL_UNREADABLE, _Outcome.ERROR),
+    CredentialReason.REJECTED: (REFUSAL_CREDENTIAL_REJECTED, _Outcome.DENIED_NO_CREDENTIAL),
 }
 assert set(_REFUSAL_BY_REASON) == set(CredentialReason), "every refusal reason needs a message and an outcome"
 
@@ -232,7 +233,8 @@ CROSS_PROJECT_DENIED_ACTIONS: dict[GitPlatform, dict[str, frozenset[str]]] = {
 }
 
 # ``update`` stays reachable cross-project, since editing a description is a write the agent exists to make,
-# so the flags that turn a write into closing, locking, relocating, reassigning or repointing are refused instead.
+# so the flags that turn a write into closing, locking, relocating, reassigning, repointing or resolving merge
+# request threads are refused instead.
 CROSS_PROJECT_DENIED_FLAGS: dict[GitPlatform, frozenset[str]] = {
     GitPlatform.GITLAB: frozenset({
         "--state-event",
@@ -241,6 +243,8 @@ CROSS_PROJECT_DENIED_FLAGS: dict[GitPlatform, frozenset[str]] = {
         "--assignee-ids",
         "--assignee-id",
         "--discussion-locked",
+        "--merge-request-to-resolve-discussions-of",
+        "--discussion-to-resolve",
     }),
     GitPlatform.GITHUB: frozenset({
         "--add-assignee",
@@ -256,6 +260,10 @@ CROSS_PROJECT_DENIED_FLAGS: dict[GitPlatform, frozenset[str]] = {
 CROSS_PROJECT_DENIED_UPDATE_FLAGS: dict[GitPlatform, frozenset[str]] = {
     GitPlatform.GITLAB: frozenset({"--confidential"}),
     GitPlatform.GITHUB: frozenset(),
+}
+# Dropping a ``Draft:`` prefix from a merge request's title marks it ready to merge.
+CROSS_PROJECT_DENIED_COMMAND_FLAGS: dict[tuple[GitPlatform, str, str], frozenset[str]] = {
+    (GitPlatform.GITLAB, "project-merge-request", "update"): frozenset({"--title"})
 }
 # Read filters share these names (``project-merge-request list --target-branch``), so only writes are checked.
 _FLAG_CHECKED_ACTIONS = frozenset({"create", "update", "edit", "comment"})
@@ -537,12 +545,6 @@ def _flag_uses(provider: GitPlatform, resource: str, action: str, args: list[str
     return _github_flag_uses(resource, action, args)
 
 
-def _reads_a_file(arg: str) -> bool:
-    """python-gitlab replaces any value starting with ``@`` by that file's content; ``@@`` escapes it."""
-    value = arg.partition("=")[2] if arg.startswith("--") else arg
-    return value.startswith("@") and not value.startswith("@@")
-
-
 def _names_a_bot_label(value: str) -> bool:
     """Whether a comma-separated label list names a bot label.
 
@@ -585,6 +587,7 @@ def _cross_project_policy_refusal(
     denied_flags = CROSS_PROJECT_DENIED_FLAGS[provider]
     if action == "update":
         denied_flags |= CROSS_PROJECT_DENIED_UPDATE_FLAGS[provider]
+    denied_flags |= CROSS_PROJECT_DENIED_COMMAND_FLAGS.get((provider, resource, action), frozenset())
     denied = next((use.name for use in uses if use.name in denied_flags), None)
     if denied is not None and action in _FLAG_CHECKED_ACTIONS:
         return REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
@@ -603,8 +606,6 @@ def _cross_project_policy_refusal(
         return REFUSAL_QUICK_ACTION_CROSS_PROJECT.format(attached=attached, project=project)
     if names & _UNMARKABLE_BODY_FLAGS[provider]:
         return REFUSAL_BODY_FILE_CROSS_PROJECT
-    if provider == GitPlatform.GITLAB and any(_reads_a_file(arg) for arg in args):
-        return REFUSAL_FILE_ARGUMENT_CROSS_PROJECT
     return None
 
 
@@ -630,7 +631,8 @@ def _validate_project(project: str, attached: str, provider: GitPlatform) -> tup
         candidate = parsed.path.strip("/")
         if not candidate:
             return None, REFUSAL_PROJECT_NOT_A_PATH
-    if candidate == attached:
+    # Both platforms resolve project paths without regard to case.
+    if candidate.lower() == attached.lower():
         return None, None
     shape = _GITHUB_REPOSITORY if provider == GitPlatform.GITHUB else _GITLAB_PROJECT_PATH
     if not shape.fullmatch(candidate) or any(segment in {".", ".."} for segment in candidate.split("/")):
@@ -869,6 +871,14 @@ async def decide_target(
     return TargetDecision(refusal=credential_refusal)
 
 
+def _classified_failure(stderr_text: str) -> bool:
+    """Whether stderr names a rejected credential or a denied project, which outranks any output."""
+    lowered = stderr_text.lower()
+    return bool(_PLATFORM_UNAUTHORIZED_RE.search(stderr_text)) or any(
+        marker in lowered for marker in _PLATFORM_DENIED_MARKERS
+    )
+
+
 async def _cross_project_failure(
     stderr_text: str,
     runtime: ToolRuntime[RuntimeCtx],
@@ -901,16 +911,6 @@ async def _cross_project_failure(
         return message
 
     if _PLATFORM_UNAUTHORIZED_RE.search(stderr_text):
-        # Drop the cached token but leave the stored grant: only the refresh endpoint can say a grant
-        # is dead, and a misread of CLI prose must not cost the person a re-authorisation.
-        if acting_user_id:
-            try:
-                await ainvalidate_cached_token(user_id=acting_user_id, provider=provider)
-            except Exception as exc:
-                # No exc_info: Sentry would attach this frame's locals, and stderr can echo the token.
-                logger.error(
-                    "[git-platform] Failed to drop the cached %s token (%s)", provider.value, type(exc).__name__
-                )
         logger.warning(
             "[git-platform] %s rejected the credential for user_id=%s against %s (exit %s).",
             provider.value,
@@ -918,9 +918,24 @@ async def _cross_project_failure(
             project,
             returncode,
         )
-        return await refuse(
-            REFUSAL_CREDENTIAL_REJECTED.format(person=person, provider=provider.value), _Outcome.DENIED_NO_ACCESS
+        # The refresh endpoint, not this classification of CLI prose, decides whether the grant is dead.
+        reason = CredentialReason.REFRESH_FAILED
+        if acting_user_id and token:
+            try:
+                reason = await arenew_rejected_token(user_id=acting_user_id, provider=provider, token=token)
+            except Exception as exc:
+                # No exc_info: Sentry would attach this frame's locals, and stderr can echo the token.
+                logger.error(
+                    "[git-platform] Failed to renew the rejected %s token (%s)", provider.value, type(exc).__name__
+                )
+        if reason is None:
+            return await refuse(
+                REFUSAL_CREDENTIAL_RENEWED.format(person=person, provider=provider.value), _Outcome.DENIED_NO_ACCESS
+            )
+        message, outcome = _credential_refusal(
+            reason, attached=runtime.context.repository.slug, project=project, provider=provider, person=person
         )
+        return await refuse(message, outcome)
 
     if any(marker in lowered for marker in _PLATFORM_DENIED_MARKERS):
         logger.warning(
@@ -987,7 +1002,12 @@ class CrossProjectOutcomes:
         # An exception raised around a subprocess carrying a person's token is not a safe string to hand back.
         return f"error: Failed to execute the {self.display_name} command against {self._target}."
 
-    async def on_failure(self, returncode: int, stderr: str) -> str:
+    async def on_failure(self, returncode: int, stderr: str, stdout: str) -> str:
+        if stdout and not _classified_failure(stderr):
+            # ``gh pr checks`` exits 1 or 8 with its answer on stdout; it is fetched content, released like a success.
+            if withheld := await self.on_success():
+                return withheld
+            return f"error: {self.display_name} command exited with code {returncode}.\nOutput:\n{stdout}"
         return await _cross_project_failure(
             stderr,
             self.runtime,

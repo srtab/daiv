@@ -85,11 +85,15 @@ def restrict_session_to_cross_project_fetchers(sender: type, instance: Any, crea
     """Add the person whose grant fetched another project's content to the session's ``cross_project_user_ids``.
 
     Errors propagate on purpose, so whoever writes the record learns the session could not be restricted. A
-    thread with no session row raises too: a session created over it later would start unrestricted. One-shot
-    runs, the only sessionless threads, get no cross-project access (``sessions.executor.run._agent_run``).
+    thread with no session row raises too: a session created over it later would start unrestricted. So does a
+    record with no thread at all, since nothing could be restricted. One-shot runs, the only sessionless threads,
+    get no cross-project access (``sessions.executor.run._agent_run``).
     """
-    if not created or instance.outcome != CrossProjectOutcome.ALLOWED or not instance.thread_id:
+    if not created or instance.outcome != CrossProjectOutcome.ALLOWED:
         return
+    if not instance.thread_id:
+        logger.error("Cross-project fetch pk=%s names no thread, so no session can be restricted.", instance.pk)
+        raise ValueError("An allowed cross-project access record must name its thread.")
     user_id = instance.acting_user_id
     if user_id is None:
         logger.error(

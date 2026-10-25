@@ -6,7 +6,11 @@ import pytest
 from langgraph.types import Command
 
 from automation.agent.middlewares.git_platform.cli import _is_allowed_cli_command
-from automation.agent.middlewares.git_platform.github import GITHUB_CLI_ALLOW_COMMANDS, run_github_subcommand
+from automation.agent.middlewares.git_platform.github import (
+    GITHUB_CLI_ALLOW_COMMANDS,
+    REFUSAL_SEARCH_SCOPE,
+    run_github_subcommand,
+)
 from codebase.base import GitPlatform
 from tests.unit_tests.automation.agent.middlewares.git_platform.conftest import (
     OTHER,
@@ -271,3 +275,34 @@ class TestGitHubEnterpriseHost:
 
         env = mocks.create_proc.call_args.kwargs["env"]
         assert set(env) == {"PATH", "HOME", "GIT_TERMINAL_PROMPT", "NO_COLOR", "GH_TOKEN", "GH_PAGER"}
+
+
+@patch("automation.agent.middlewares.git_platform.github.cache.lock", new=MagicMock())
+class TestASearchCannotWidenBeyondItsRepository:
+    """GitHub ORs a search's scope qualifiers with the ``--repo`` the tool appends."""
+
+    @pytest.mark.parametrize(
+        ("subcommand", "qualifier"),
+        [
+            ('search issues "repo:acme/private secret"', "repo:acme/private secret"),
+            ("search code token org:acme", "org:acme"),
+            ("search prs --owner acme fix", "--owner"),
+            ('issue list --search "bug USER:someone"', "bug USER:someone"),
+            ("pr list -S=repo:acme/x", "repo:acme/x"),
+        ],
+    )
+    async def test_a_scope_qualifier_is_refused_before_the_cli_runs(self, subcommand, qualifier):
+        runtime = github_runtime(thread_id="search", state=dict(CACHED_TOKEN))
+        with cli_process(stdout=b"[]\n") as create_proc:
+            result = await _run_gh(subcommand, runtime)
+
+        assert result == REFUSAL_SEARCH_SCOPE.format(qualifier=qualifier)
+        create_proc.assert_not_called()
+
+    @pytest.mark.parametrize("subcommand", ['search issues "label:bug crash"', 'issue list --search "is:open bug"'])
+    async def test_a_search_within_the_repository_runs(self, subcommand):
+        runtime = github_runtime(thread_id="search", state=dict(CACHED_TOKEN))
+        with cli_process(stdout=b"[]\n") as create_proc:
+            await _run_gh(subcommand, runtime)
+
+        create_proc.assert_called_once()

@@ -115,7 +115,7 @@ async def test_outcomes_report_a_failure_instead_of_its_stderr():
         result = await _run(GITLAB_CLI, CliInvocation(args=["project-issue", "list"], env={}, outcomes=outcomes))
 
     assert result == "failed"
-    outcomes.on_failure.assert_awaited_once_with(1, "secret")
+    outcomes.on_failure.assert_awaited_once_with(1, "secret", "out")
 
 
 @pytest.mark.parametrize(("withheld", "expected"), [(None, "out"), ("withheld", "withheld")])
@@ -137,3 +137,10 @@ async def test_outcomes_report_a_launch_error_without_its_details():
         result = await _run(GITLAB_CLI, CliInvocation(args=["project-issue", "list"], env={}, outcomes=outcomes))
 
     assert result == "launch failed"
+
+
+def test_an_invocation_repr_never_shows_its_environment():
+    """``run_cli``'s ``logger.exception`` sends this local to Sentry as its repr; its environment holds the token."""
+    invocation = CliInvocation(args=["issue", "list"], env={"GH_TOKEN": "person-token"})  # noqa: S106
+
+    assert "person-token" not in repr(invocation)

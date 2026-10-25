@@ -4,6 +4,7 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 
 from automation.agent.middlewares.git_platform.github import GITHUB_TOOL_NAME
 from automation.agent.middlewares.git_platform.gitlab import GITLAB_TOOL_NAME
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
 GITLAB_TOOL_DESCRIPTION = """\
 Use this tool to inspect the configured GitLab project through the python-gitlab CLI.
@@ -25,6 +26,7 @@ This tool is best for retrieving the current state of:
 - Do NOT include the `gitlab` prefix in `subcommand`
 - Do NOT pass `--project-id` (the project is injected automatically)
 - Do NOT pass `--output` (set automatically from `output_mode`, or forced to json when output_to_file is true)
+- Do NOT start a value with `@`: python-gitlab would read it from a file, so the call is refused. Write a literal leading `@`, such as a mention, as `@@`
 - Prefer IID-based lookup when available (for example `--iid` for issues and merge requests)
 
 **Default behavior:**
@@ -110,6 +112,7 @@ This tool is best for retrieving the current state of:
 **Hard rules:**
 - Do NOT include the `gh` prefix in `subcommand`
 - Do NOT pass `--repo` or `-R` (the repository is injected automatically)
+- Do NOT widen a search with `repo:`, `org:` or `user:` qualifiers or `--owner`, in `search` or in `--search`: the call is refused
 - Keep listings small and targeted
 
 **Default behavior:**
@@ -152,15 +155,15 @@ This tool is best for retrieving the current state of:
 - When the output is long, extract only the decisive facts needed for the next step"""  # noqa: E501
 
 
-CROSS_PROJECT_TOOL_DESCRIPTION = """
+CROSS_PROJECT_TOOL_DESCRIPTION = f"""
 
 **Targeting another project (`project`):**
 - Leave `project` empty — the default — to target the current project. That is the right choice for almost every call, and it behaves exactly as described above.
 - Set `project` to a project path (for example `group/name`) to query a different project. The call is then made **as the person who requested this run**, so it returns only what that person can see.
 - A project that person cannot access is refused with a stated reason. It is never silently empty, and it is never retried under DAIV's own identity — so an empty-looking answer is a real empty result, not a hidden permission failure.
 - Pass a project path, not a flag and not a URL with a different host. On GitHub, name an issue or pull request by its number: an issue or pull request URL, or `owner/repo#N`, naming another repository is refused.
-- Reads cross, and so do these writes: creating an issue; adding a note, comment, discussion, reply, emoji reaction, issue link or draft note; editing a draft note; logging time spent or an estimate; reordering an issue; and editing an issue's or merge/pull request's title, description, labels and the other fields not refused below.
-- Refused outside the current project: deleting anything; creating a merge request or pull request; moving an issue; editing an existing note, discussion or comment; resetting time spent or an estimate; creating or editing labels, snippets, branches, tags or releases; running, retrying, cancelling or playing pipelines, jobs or workflows; closing, reopening, locking or unlocking an issue or PR, `issue develop`, and reviewing a PR; changing state, assignees (though `issue create --assignee` crosses on GitHub), the target or base branch, or the discussion lock; on GitHub, setting a milestone; on a GitLab update, `--confidential`; adding `daiv`, `daiv-auto` or `daiv-max` as a label; a value read from a file (a GitLab value starting with `@`, GitHub `--body-file`, `--template`, `--recover`); a GitLab body line starting with `/`, which is a quick action; an inline merge request diff comment (use a regular note); and a flag the tool cannot recognise (on GitLab an unknown or ambiguous `--option`, on GitHub any unknown flag on a write).
+- Reads cross, and so do these writes: creating an issue; adding a note, comment, discussion, reply, emoji reaction, issue link or draft note; editing a draft note; logging time spent or an estimate; reordering an issue; and editing an issue's or merge/pull request's title (except a GitLab merge request's), description, labels and the other fields not refused below.
+- Refused outside the current project: deleting anything; creating a merge request or pull request; moving an issue; editing an existing note, discussion or comment; resetting time spent or an estimate; creating or editing labels, snippets, branches, tags or releases; running, retrying, cancelling or playing pipelines, jobs or workflows; closing, reopening, locking or unlocking an issue or PR, `issue develop`, and reviewing a PR; changing state, assignees (though `issue create --assignee` crosses on GitHub), the target or base branch, or the discussion lock; on GitLab, a merge request's title (dropping its `Draft:` prefix marks it ready) and resolving merge request threads (`--merge-request-to-resolve-discussions-of`, `--discussion-to-resolve`); on GitHub, setting a milestone; on a GitLab update, `--confidential`; adding `{BOT_LABEL}`, `{BOT_AUTO_LABEL}` or `{BOT_MAX_LABEL}` as a label; a GitHub body read from a file (`--body-file`, `--template`, `--recover`); a GitLab body line starting with `/`, which is a quick action; an inline merge request diff comment (use a regular note); and a flag the tool cannot recognise (on GitLab an unknown or ambiguous `--option`, on GitHub any unknown flag on a write).
 - The timeout and the automatic saving of oversized results are unchanged."""  # noqa: E501
 
 PROJECT_ARG_DESCRIPTION = (

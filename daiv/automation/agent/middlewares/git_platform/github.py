@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -43,6 +44,13 @@ GITHUB_TOOL_NAME = "gh"
 
 # Acquired with blocking=True, so without an expiry a dead holder blocks token fetches forever.
 GITHUB_TOKEN_LOCK_TIMEOUT = 60
+
+REFUSAL_SEARCH_SCOPE = (
+    "error: '{qualifier}' widens the search beyond one repository: GitHub combines repo:, org: and user: qualifiers, "
+    "and --owner, with the repository this tool sets, so other repositories would be searched too. Remove it, and set "
+    "the `project` argument to search another repository where that argument is offered."
+)
+_SEARCH_SCOPE_QUALIFIER = re.compile(r"(?:^|[\s(])-?(?:repo|org|user):", re.IGNORECASE)
 
 
 GITHUB_CLI_ALLOW_COMMANDS: AllowCommands = {
@@ -100,6 +108,36 @@ GITHUB_CLI = PlatformCli(
         "error: The repository and hostname are automatically set. Do not pass --repo, -R, or --hostname."
     ),
 )
+
+
+def _search_values(args: list[str]) -> list[str]:
+    """The ``--search``/``-S`` values of an ``issue list`` or ``pr list``."""
+    values = []
+    for index, arg in enumerate(args):
+        if arg in {"--search", "-S"} and index + 1 < len(args):
+            values.append(args[index + 1])
+        elif arg.startswith("--search="):
+            values.append(arg.partition("=")[2])
+        elif arg.startswith("-S") and len(arg) > 2:
+            values.append(arg[2:].removeprefix("="))
+    return values
+
+
+def search_scope_widener(resource: str, action: str, args: list[str]) -> str | None:
+    """The first ``repo:``, ``org:`` or ``user:`` qualifier, or ``--owner``, in a gh search.
+
+    GitHub ORs these with the ``--repo`` the tool appends, so they reach repositories the call does not target.
+    """
+    if resource == "search":
+        values = args
+    elif resource in {"issue", "pr"} and action == "list":
+        values = _search_values(args)
+    else:
+        return None
+    for value in values:
+        if value == "--owner" or value.startswith("--owner=") or _SEARCH_SCOPE_QUALIFIER.search(value):
+            return value
+    return None
 
 
 def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str, dict[str, str | float] | None]:
@@ -163,6 +201,8 @@ async def run_github_subcommand(
     rather than falling back.
     """
     args = check_subcommand(GITHUB_CLI, subcommand)
+    if not isinstance(args, str) and (widener := search_scope_widener(args[0], args[1], args[2:])):
+        args = PolicyRefusal(REFUSAL_SEARCH_SCOPE.format(qualifier=widener))
     if isinstance(args, PolicyRefusal):
         await record_refused_before_decision(runtime, provider=GitPlatform.GITHUB, project=project)
     if isinstance(args, str):

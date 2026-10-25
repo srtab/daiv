@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.references import ExternalRef, refs_from_stored  # noqa: TC001
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.executor.result import parse_agent_result
@@ -396,6 +397,15 @@ class Run(models.Model):
         if self.started_at and self.finished_at:
             return (self.finished_at - self.started_at).total_seconds()
         return None
+
+    def public_error(self, generic: str) -> str:
+        """The failure a caller may show for a non-chat run: the cross-project refusal as written, else ``generic``.
+
+        Non-chat runs store raw exception text and tracebacks in ``error_message``, which is never shown.
+        """
+        if self.error_message == CROSS_PROJECT_SESSION_REFUSED_MESSAGE:
+            return CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        return generic
 
     @property
     def response_text(self) -> str:

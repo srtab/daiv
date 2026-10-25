@@ -11,10 +11,10 @@ from automation.agent.middlewares.git_platform.cross_project import (
     REFUSAL_BODY_FILE_CROSS_PROJECT,
     REFUSAL_BOT_LABEL_CROSS_PROJECT,
     REFUSAL_CREDENTIAL_REJECTED,
+    REFUSAL_CREDENTIAL_RENEWED,
     REFUSAL_DESTRUCTIVE_CROSS_PROJECT,
     REFUSAL_DISABLED,
     REFUSAL_EXPIRED,
-    REFUSAL_FILE_ARGUMENT_CROSS_PROJECT,
     REFUSAL_FOREIGN_REFERENCE,
     REFUSAL_FOREIGN_REFERENCE_UNAVAILABLE,
     REFUSAL_INSUFFICIENT_SCOPE,
@@ -25,6 +25,7 @@ from automation.agent.middlewares.git_platform.cross_project import (
     REFUSAL_PROJECT_NOT_A_PATH,
     REFUSAL_PROJECT_NOT_OWNER_REPO,
     REFUSAL_QUICK_ACTION_CROSS_PROJECT,
+    REFUSAL_REFRESH_FAILED,
     REFUSAL_REVOKED,
     REFUSAL_UNCHECKED_FLAG_CROSS_PROJECT,
     REFUSAL_UNRECORDED_CROSS_PROJECT,
@@ -35,7 +36,7 @@ from automation.agent.middlewares.git_platform.cross_project import (
     _validate_project,
     decide_target,
 )
-from automation.agent.middlewares.git_platform.gitlab import run_gitlab_subcommand
+from automation.agent.middlewares.git_platform.gitlab import REFUSAL_FILE_ARGUMENT, run_gitlab_subcommand
 from codebase.base import GitPlatform
 from codebase.models import CrossProjectAccessRecord
 from core.constants import CROSS_PROJECT_CONTENT_MARKER, CrossProjectOutcome
@@ -64,6 +65,10 @@ class TestProjectValidation:
 
     def test_equal_to_attached_takes_the_attached_path(self):
         assert _validate_project(ATTACHED, ATTACHED, GitPlatform.GITLAB) == (None, None)
+
+    @pytest.mark.parametrize("provider", [GitPlatform.GITLAB, GitPlatform.GITHUB])
+    def test_the_attached_project_in_other_case_takes_the_attached_path(self, provider):
+        assert _validate_project(ATTACHED.upper(), ATTACHED, provider) == (None, None)
 
     def test_leading_dash_is_flag_confusion(self):
         assert _validate_project("--project-id=99", ATTACHED, GitPlatform.GITLAB) == (None, REFUSAL_PROJECT_IS_A_FLAG)
@@ -331,33 +336,48 @@ class TestPlatformFailureClassificationIsAnchored:
         with patched_cross_project(returncode=1, stderr=stderr) as mocks:
             result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
 
-        mocks.invalidate.assert_not_awaited()
-        assert result != REFUSAL_CREDENTIAL_REJECTED.format(person="Ada", provider="gitlab")
+        mocks.renew.assert_not_awaited()
+        assert result != REFUSAL_CREDENTIAL_RENEWED.format(person="Ada", provider="gitlab")
 
     @pytest.mark.parametrize(
         "stderr",
         [b"401 Unauthorized", b"HTTP 401: Bad credentials", b"error: invalid_token", b"401: Unauthorized"],
         ids=["gitlab", "gh", "invalid-token", "gitlab-colon"],
     )
-    async def test_a_real_auth_failure_drops_the_cached_token_without_revoking(self, stderr):
-        """The stored grant is authoritative only via the refresh endpoint. Dropping the cached
-        token makes the next call re-resolve, which refreshes or refuses on the platform's word."""
+    async def test_a_real_auth_failure_renews_the_rejected_token(self, stderr):
+        """The refresh endpoint, not the CLI's prose, decides whether the grant is dead."""
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project(returncode=1, stderr=stderr) as mocks:
             result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
 
-        mocks.invalidate.assert_awaited_once()
-        assert result == REFUSAL_CREDENTIAL_REJECTED.format(person="Ada", provider="gitlab")
+        mocks.renew.assert_awaited_once_with(user_id=7, provider=GitPlatform.GITLAB, token="person-token")  # noqa: S106
+        assert result == REFUSAL_CREDENTIAL_RENEWED.format(person="Ada", provider="gitlab")
 
-    async def test_a_failed_cache_drop_still_refuses_and_logs_no_traceback(self, caplog):
+    @pytest.mark.parametrize(
+        ("reason", "expected"),
+        [
+            (CredentialReason.REJECTED, REFUSAL_CREDENTIAL_REJECTED.format(person="Ada", provider="gitlab")),
+            (CredentialReason.EXPIRED, REFUSAL_EXPIRED.format(person="Ada", provider="gitlab")),
+            (CredentialReason.REFRESH_FAILED, REFUSAL_REFRESH_FAILED.format(person="Ada", provider="gitlab")),
+        ],
+    )
+    async def test_a_rejection_that_could_not_be_renewed_says_why(self, reason, expected):
+        runtime = cross_project_runtime(GitPlatform.GITLAB)
+        with patched_cross_project(returncode=1, stderr=b"401 Unauthorized") as mocks:
+            mocks.renew.return_value = reason
+            result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == expected
+
+    async def test_a_failed_renewal_still_refuses_and_logs_no_traceback(self, caplog):
         """A traceback carries this frame's locals to Sentry, and stderr can echo the person's token."""
         runtime = cross_project_runtime(GitPlatform.GITLAB)
         with patched_cross_project(returncode=1, stderr=b"401 Unauthorized glpat-PERSONTOKEN") as mocks:
-            mocks.invalidate.side_effect = ConnectionError("cache down")
+            mocks.renew.side_effect = ConnectionError("cache down")
             with caplog.at_level("DEBUG"):
                 result = await run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
 
-        assert result == REFUSAL_CREDENTIAL_REJECTED.format(person="Ada", provider="gitlab")
+        assert result == REFUSAL_REFRESH_FAILED.format(person="Ada", provider="gitlab")
         assert all(record.exc_info is None for record in caplog.records)
         assert "glpat-PERSONTOKEN" not in caplog.text
 
@@ -454,6 +474,12 @@ class TestGitLabFlagSpellings:
             ("project-merge-request update --iid 1 --target-br main", "--target-branch"),
             ("project-merge-request update --iid 1 --assignee-id 3", "--assignee-id"),
             ("project-issue update --iid 1 --discussion-l true", "--discussion-locked"),
+            (
+                "project-issue create --title x --merge-request-to-resolve-discussions-of 7",
+                "--merge-request-to-resolve-discussions-of",
+            ),
+            ("project-issue create --title x --discussion-to-resolve abc", "--discussion-to-resolve"),
+            ("project-merge-request update --iid 1 --title Ready", "--title"),
         ],
     )
     async def test_an_abbreviated_denied_flag_is_refused(self, subcommand, flag):
@@ -534,7 +560,7 @@ class TestGitLabFlagSpellings:
         with patched_cross_project() as mocks:
             result = await run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
 
-        assert result == REFUSAL_FILE_ARGUMENT_CROSS_PROJECT
+        assert result == REFUSAL_FILE_ARGUMENT
         mocks.resolve.assert_not_called()
         mocks.create_proc.assert_not_called()
 
@@ -951,7 +977,7 @@ async def _run_gl_audited(
         patch("automation.agent.middlewares.git_platform.cli.asyncio.create_subprocess_exec") as create_proc,
         patch("automation.agent.middlewares.git_platform.gitlab.settings", service_settings()),
         patch(f"{CROSS_PROJECT}.aresolve_access_token") as resolve,
-        patch(f"{CROSS_PROJECT}.ainvalidate_cached_token", AsyncMock(return_value=None)),
+        patch(f"{CROSS_PROJECT}.arenew_rejected_token", AsyncMock(return_value=None)),
     ):
         create_proc.return_value = proc
         if resolved is not None:
@@ -1054,7 +1080,7 @@ class TestNoTargetContentSurvivesADenial:
                 f"{CROSS_PROJECT}.aresolve_access_token",
                 return_value=ResolvedCredential(token="person-token"),  # noqa: S106
             ),
-            patch(f"{CROSS_PROJECT}.ainvalidate_cached_token", AsyncMock(return_value=None)),
+            patch(f"{CROSS_PROJECT}.arenew_rejected_token", AsyncMock(return_value=None)),
         ):
             create_proc.return_value = proc
             result = await run_gh("issue list", runtime, project=DENIED, cross_project_enabled=True)
@@ -1612,3 +1638,23 @@ class TestAnUnrecordedFetchIsWithheld:
             )
 
         assert recorded is False
+
+
+class TestAnAnswerOnStdoutOfAFailedCallIsReleasedLikeASuccess:
+    """``gh pr checks`` exits 1 when a check failed and 8 while one is pending, with the answer on stdout."""
+
+    async def test_the_checks_table_comes_back_and_the_fetch_is_recorded(self):
+        runtime = cross_project_runtime(GitPlatform.GITHUB)
+        with patched_cross_project(returncode=1, stdout=b"lint\tfail\n") as mocks:
+            result = await run_gh("pr checks 12", runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == "error: GitHub command exited with code 1.\nOutput:\nlint\tfail"
+        assert mocks.record.call_args.kwargs["outcome"] == CrossProjectOutcome.ALLOWED
+
+    async def test_it_is_withheld_when_the_fetch_could_not_be_recorded(self):
+        runtime = cross_project_runtime(GitPlatform.GITHUB)
+        with patched_cross_project(returncode=8, stdout=b"lint\tpending\n") as mocks:
+            mocks.record.return_value = False
+            result = await run_gh("pr checks 12", runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == REFUSAL_UNRECORDED_CROSS_PROJECT.format(project=OTHER)

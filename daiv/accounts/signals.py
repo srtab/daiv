@@ -9,16 +9,23 @@ logger = logging.getLogger(__name__)
 
 @receiver(user_logged_in)
 def capture_platform_credential(sender, request, user, sociallogin=None, **kwargs) -> None:
-    """Hand a social login's grant to the adapter; ``user_logged_in`` fires for new and returning users alike."""
+    """Hand a social login's grant to the adapter; ``user_logged_in`` fires for new and returning users alike.
+
+    The sign-in that completes the person's own Authorise flow is a re-authorisation, which may replace a revoked grant.
+    """
     if sociallogin is None:
         return
     from allauth.socialaccount.adapter import get_adapter
 
+    from accounts.credentials import REAUTHORISE_SESSION_KEY
+
+    session = getattr(request, "session", None)
+    requested_by = session.pop(REAUTHORISE_SESSION_KEY, None) if session is not None else None
     capture = getattr(get_adapter(), "capture_platform_credential", None)
     if capture is None:
         return
     try:
-        capture(sociallogin)
+        capture(sociallogin, reauthorise=requested_by is not None and requested_by == getattr(user, "pk", None))
     except Exception as exc:
         # No exc_info or message: Sentry would attach this frame's locals, and the text can echo a token.
         logger.error(

@@ -122,15 +122,13 @@ def patched_cross_project(*, resolved=None, returncode=0, stdout=b"ok\n", stderr
         patch("automation.agent.middlewares.git_platform.gitlab.settings", service_settings()),
         patch(f"{CROSS_PROJECT}.aresolve_access_token") as resolve_mock,
         patch(f"{CROSS_PROJECT}._record_cross_project_access") as record_mock,
-        patch(f"{CROSS_PROJECT}.ainvalidate_cached_token") as invalidate_mock,
+        patch(f"{CROSS_PROJECT}.arenew_rejected_token") as renew_mock,
         patch(f"{CROSS_PROJECT}._acting_person_label", AsyncMock(return_value="Ada")),
     ):
         resolve_mock.return_value = resolved if resolved is not None else ResolvedCredential(token="person-token")  # noqa: S106
         record_mock.return_value = True
-        invalidate_mock.return_value = None
-        yield SimpleNamespace(
-            create_proc=create_proc, resolve=resolve_mock, record=record_mock, invalidate=invalidate_mock
-        )
+        renew_mock.return_value = None
+        yield SimpleNamespace(create_proc=create_proc, resolve=resolve_mock, record=record_mock, renew=renew_mock)
 
 
 def marked(argv, text):

@@ -4,7 +4,6 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
-from types import SimpleNamespace
 
 from django.contrib.sites.models import Site
 from django.utils import timezone
@@ -39,7 +38,7 @@ def _run(
     created_at=None,
     finished_at=None,
 ):
-    return SimpleNamespace(
+    return Run(
         id=rid,
         status=status,
         message_id=message_id,

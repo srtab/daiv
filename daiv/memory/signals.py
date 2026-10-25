@@ -36,7 +36,7 @@ def capture_run_observations(sender: type, run: Any, **kwargs: Any) -> None:
             return
         if not run.session_id:
             return
-        if Session.objects.filter(pk=run.session_id).exclude(cross_project_user_ids=[]).exists():
+        if Session.objects.filter(pk=run.session_id).holding_cross_project().exists():
             return
         extract_observations_task.enqueue(str(run.pk))
     except Exception:
