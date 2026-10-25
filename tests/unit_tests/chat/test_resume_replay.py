@@ -202,6 +202,27 @@ process.stdout.write(JSON.stringify({ same: chat.turns === original }));
     assert result == {"same": True}
 
 
+def test_a_waiting_session_locks_the_composer_until_a_poll_says_the_run_started():
+    body = """
+const chat = registry.chat({
+  endpoint: "/api/chat", streamEndpoint: "/api/chat/stream", waitingSince: "2026-10-23T10:00:00+00:00",
+});
+chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+chat.$nextTick = (cb) => cb();
+chat.scrollToBottom = () => {};
+chat.draftMessage = "next prompt";
+const waiting = { label: chat.runStatus.label, canSend: chat.canSend() };
+chat.applyPolledTurns([{ id: "run-1", role: "user", segments: [{ type: "text", content: "fix X" }] }], null);
+process.stdout.write(JSON.stringify({ waiting, started: { waiting: chat.waiting, canSend: chat.canSend() } }));
+"""
+    result = run_chat_stream(body, {})
+
+    assert result == {
+        "waiting": {"label": "Waiting in queue", "canSend": False},
+        "started": {"waiting": False, "canSend": True},
+    }
+
+
 def test_a_run_started_here_announces_its_end():
     body = """
 const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });

@@ -8,6 +8,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from daiv.api import api
+from tests.unit_tests.sessions.conftest import active_holder
 
 
 @pytest.fixture
@@ -425,6 +426,23 @@ async def test_concurrent_run_returns_409(client: TestAsyncClient, authed):
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
     assert response.status_code == 409
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_sent_while_a_run_waits_to_start_returns_409(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.UI_JOB, thread_id="t-waiting", user=user, repo_id="a/b", ref="main"
+    )
+    await Run.objects.acreate(session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="a/b", status=RunStatus.READY)
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-waiting"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 409
+    assert await active_holder("t-waiting") is None
     await user.adelete()
 
 

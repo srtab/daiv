@@ -11,6 +11,7 @@ from django.utils import timezone
 import pytest
 from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
+from sessions.executor.lock import LiveRun, SessionActivity
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.transcript import annotate_transcript, artifact_turns
 from sessions.turns import build_turns
@@ -47,6 +48,12 @@ def _run(
         trigger_type=trigger_type,
         created_at=created_at,
         finished_at=finished_at,
+    )
+
+
+def _holding(holder):
+    return SessionActivity(
+        in_flight=True, holder=holder, live=LiveRun(id="holder-1", stoppable=False, started_at=CREATED_AT)
     )
 
 
@@ -181,7 +188,7 @@ def test_a_background_run_refused_for_a_shared_session_shows_why():
 
 def test_synthetic_turns_marker_only_when_no_prompt():
     """_synthetic_turns with prompt="" and unmatched message_id → result is exactly [marker],
-    no synthetic user turn. Tests the ``if run.prompt`` branch in ``_synthetic_turns``."""
+    no synthetic user turn. Tests the ``if not run.prompt`` branch in ``_prompt_turns``."""
     runs = [_run("r1", message_id="missing-id", status=RunStatus.FAILED, error_message=RUN_FAILED_MESSAGE, prompt="")]
     result = annotate_transcript([], runs)
     assert len(result) == 1
@@ -245,20 +252,55 @@ def test_empty_transcript_recovers_every_failed_run():
     assert result[2]["segments"][0]["content"] == "second ask"
 
 
-def test_unmatched_message_id_logs_only_for_non_failed_runs(caplog):
-    # A FAILED run reaching synthetic recovery is the designed path (pre-checkpoint failure)
-    # → silent, no log noise. A non-failed run whose message_id matches nothing is anomalous
-    # (a successful run should own a checkpointed turn) → warn so a correlation bug is visible.
+def test_slot_holder_not_checkpointed_yet_shows_its_prompt_without_a_marker():
+    holder = _run("r1", status=RunStatus.RUNNING, prompt="please fix X", trigger_type=SessionOrigin.UI_JOB)
+    assert annotate_transcript([], [holder], _holding(holder)) == [
+        {"id": "run-r1", "role": "user", "segments": [{"type": "text", "content": "please fix X"}]}
+    ]
+
+
+@pytest.mark.parametrize("status", [RunStatus.READY, RunStatus.QUEUED, RunStatus.RUNNING])
+def test_run_not_started_shows_its_prompt_as_pending(status):
+    run = _run("r1", status=status, prompt="please fix X", trigger_type=SessionOrigin.UI_JOB)
+    assert annotate_transcript([], [run], SessionActivity(in_flight=True, waiting=(run,))) == [
+        {"id": "run-r1", "role": "user", "segments": [{"type": "text", "content": "please fix X"}], "pending": True}
+    ]
+
+
+@pytest.mark.parametrize("status", [RunStatus.READY, RunStatus.QUEUED, RunStatus.RUNNING])
+def test_unfinished_run_of_a_session_no_longer_in_flight_contributes_nothing(status):
+    runs = [_run("r1", status=status, prompt="please fix X", trigger_type=SessionOrigin.UI_JOB)]
+    assert annotate_transcript([], runs) == []
+
+
+@pytest.mark.parametrize("status", [RunStatus.QUEUED, RunStatus.RUNNING])
+def test_run_behind_the_holder_stays_hidden_and_owns_no_turn(status):
+    behind = _run("r1", status=status, prompt="second ask", trigger_type=SessionOrigin.API_JOB)
+    holder = _run("r2", status=RunStatus.RUNNING, trigger_type=SessionOrigin.MR_WEBHOOK, created_at=CREATED_AT)
+    turns = [_user("h1"), _assistant("a1")]
+
+    result = annotate_transcript(turns, [behind, holder], _holding(holder))
+
+    assert [t["id"] for t in result] == ["h1", "a1"]
+    assert result[0]["sent_at"] == CREATED_AT.isoformat()
+
+
+def test_unmatched_message_id_logs_only_for_finished_runs(caplog):
+    # A FAILED or RUNNING run reaching synthetic recovery is the designed path (turn not
+    # checkpointed, or not yet) → silent. A finished run whose message_id matches nothing is
+    # anomalous (it should own a checkpointed turn) → warn so a correlation bug is visible.
     turns = [_user("h1"), _assistant("a1")]
     failed = _run("rf", message_id="gone", status=RunStatus.FAILED, error_message="e", prompt="p")
+    running = _run("rr", message_id="pending", status=RunStatus.RUNNING, prompt="p")
     with caplog.at_level(logging.WARNING, logger="daiv.sessions"):
         annotate_transcript(turns, [failed])
+        annotate_transcript(turns, [running])
     assert not caplog.records
 
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="daiv.sessions"):
         result = annotate_transcript(turns, [_run("rs", message_id="gone", status=RunStatus.SUCCESSFUL)])
-    assert [t["id"] for t in result] == ["h1", "a1"]  # non-failed run contributes nothing
+    assert [t["id"] for t in result] == ["h1", "a1"]  # finished run contributes nothing
     assert any("no matching" in r.message and "gone" in r.getMessage() for r in caplog.records)
 
 

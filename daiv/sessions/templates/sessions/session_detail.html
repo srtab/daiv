@@ -77,6 +77,7 @@
   {% translate "{count} turns with unrecorded usage" as unrecorded_label %}
   {% translate "cached" as cached_word %}
   {% translate "output" as output_word %}
+  {% translate "Waiting in queue" as waiting_word %}
 
   <div x-data='chat({
          endpoint: "{% url 'api:completions' %}",
@@ -89,6 +90,7 @@
          {# Any run in flight, streamed from the relay or polled until it holds the slot, so the load-time #}
          {# scroll can tell "still working" from "finished" without duplicating that logic in JS. #}
          sessionLive: {{ is_in_flight|yesno:"true,false" }},
+         waitingSince: "{{ waiting_since|default:''|escapejs }}",
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if session %}{
            thread_id: "{{ session.thread_id|escapejs }}",
@@ -120,13 +122,14 @@
            turns: "{{ turns_label|escapejs }}",
            unrecorded: "{{ unrecorded_label|escapejs }}",
            cached: "{{ cached_word|escapejs }}",
-           output: "{{ output_word|escapejs }}"
+           output: "{{ output_word|escapejs }}",
+           waiting: "{{ waiting_word|escapejs }}"
          }
        })'
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
        @daiv:agent-changed.window="applyAgentSelection($event.detail)"
-       @daiv:session-turns.window="applyPolledTurns($event.detail.turns)"
+       @daiv:session-turns.window="applyPolledTurns($event.detail.turns, $event.detail.waiting_since)"
        @daiv:session-live-run.window="followLiveRun($event.detail)"
        @daiv:session-settled.window="holdReload($event)"
        x-cloak
@@ -169,39 +172,6 @@
           </div>
         </template>
 
-        {# Queued / running state: background run started but no checkpoint yet. #}
-        {% if awaiting_transcript %}
-          {% with latest_run=runs|last %}
-            {% if latest_run.status == "QUEUED" %}
-              <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-                <div class="mt-4 flex flex-col items-center justify-center rounded-xl bg-black/20 px-6 py-10 text-center"
-                     role="status" aria-live="polite">
-                  <div class="h-9 w-9 rounded-full border-[3px] border-amber-400/20"
-                       style="border-top-color: rgb(251 191 36 / 0.7);"></div>
-                  <span class="sr-only">{% translate "Job is queued" %}</span>
-                  <p class="mt-3 text-[15px] font-medium text-gray-200">{% translate "Waiting in queue" %}</p>
-                  <p class="mt-1 text-sm text-gray-400">{% translate "This job will start shortly." %}</p>
-                </div>
-              </div>
-            {% else %}
-              <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-                <div class="mt-4 flex flex-col items-center justify-center rounded-xl bg-black/20 px-6 py-10 text-center"
-                     role="status" aria-live="polite">
-                  <div class="h-9 w-9 animate-spin rounded-full border-[3px] border-blue-400/20 border-t-blue-400"></div>
-                  <span class="sr-only">{% translate "Agent is still running" %}</span>
-                  <p class="mt-3 text-[15px] font-medium text-gray-200">{% translate "Agent is working" %}</p>
-                  <p class="mt-1 text-sm text-gray-400">{% translate "This page refreshes automatically when the run finishes." %}</p>
-                  {% if latest_run.started_at %}
-                    <p class="mt-3 font-mono text-sm text-blue-300"
-                       x-data="elapsed('{{ latest_run.started_at|date:"c" }}')"
-                       x-text="'⏱ ' + label + ' elapsed'">⏱ elapsed</p>
-                  {% endif %}
-                </div>
-              </div>
-            {% endif %}
-          {% endwith %}
-        {% endif %}
-
         {# Turns #}
         <template x-for="(turn, ti) in turns" :key="turn.id">
           <template x-if="isTurnVisible(turn, ti === turns.length - 1)">
@@ -216,7 +186,7 @@
                 </div>
               </template>
               <template x-if="turn.role !== 'run_status'">
-                <article class="chat-turn" :class="{ [`chat-turn--${turn.role}`]: true }" :data-role="turn.role">
+                <article class="chat-turn" :class="{ [`chat-turn--${turn.role}`]: true, 'chat-turn--pending': turn.pending }" :data-role="turn.role">
                   <div class="chat-turn__body">
                     <template x-for="(seg, si) in visibleSegments(turn)" :key="si">
                       <div class="chat-segment" :class="`chat-segment--${seg.type}`">
@@ -387,7 +357,10 @@
                           <span class="sr-only">{% translate "Copy failed" %}</span>
                         </span>
                       </button>
-                      <template x-if="turn.sent_at || turn.received_at">
+                      <template x-if="turn.pending">
+                        <span class="chat-turn__pending">{% icon "clock" "h-3 w-3" %}{% translate "Pending" %}</span>
+                      </template>
+                      <template x-if="!turn.pending && (turn.sent_at || turn.received_at)">
                         <time class="chat-turn__time"
                               :datetime="turn.sent_at || turn.received_at"
                               :title="absoluteTime(turn.sent_at || turn.received_at)"
@@ -401,12 +374,13 @@
           </template>
         </template>
 
-        <div class="chat-thinking" x-show="streaming || resuming" x-transition.opacity aria-live="polite">
+        <div class="chat-thinking" :class="{ 'chat-thinking--waiting': waiting }"
+             x-show="streaming || resuming || waiting" x-transition.opacity aria-live="polite">
           <span class="chat-thinking__dot"></span>
           {# aria-hidden: the region is live, and a per-second timer would make it announce nonstop. #}
           <span class="chat-thinking__timer"
                 x-data="elapsed"
-                x-effect="track(runStartedAt)"
+                x-effect="track(waiting ? waitingSince : runStartedAt)"
                 x-text="label"
                 aria-hidden="true"></span>
           <span x-text="runStatus.label"></span>

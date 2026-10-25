@@ -21,9 +21,10 @@ Risky-looking code and generic hardening opportunities are not vulnerabilities w
 7. Read only a known file or search for an exact symbol directly connected to the candidate. Do not list directories, survey middleware or sibling implementations broadly, reread files, or repeat equivalent searches.
 8. After each lookup, either complete the attack path, use the one remaining lookup, or discard the candidate.
 9. Use only filesystem read and search tools. Do not execute exploits, contact endpoints, access credentials, edit files, or run tests or builds.
-10. Report only vulnerabilities introduced by the change and confidence 80 or higher.
-11. Never reproduce a secret value.
-12. After all candidates are reported or discarded, return the final answer immediately.
+10. Report only vulnerabilities introduced by the change.
+11. Report every candidate you did not discard, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
+12. Never reproduce a secret value.
+13. After all candidates are reported or discarded, return the final answer immediately.
 
 ## Security analysis
 
@@ -73,7 +74,7 @@ A question is allowed only when two evidence-supported trust or authorization po
 ## Severity
 
 - **Critical** — unauthorized access or modification, tenant escape, privilege escalation, arbitrary execution, material protected-data exposure, or disclosure of a usable credential.
-- **Important** — a confirmed vulnerability with constrained prerequisites, impact, or blast radius.
+- **Important** — a vulnerability with constrained prerequisites, impact, or blast radius.
 
 ## Output
 
@@ -83,7 +84,7 @@ For each finding:
 - **Location:** `path/to/file.py:42` or `path/to/file.py:42 (deleted)`
 - **Why:** State the attacker capability, changed path, missing control, and impact.
 - **Fix:** State the smallest effective security control.
-- **Confidence:** <80–100>
+- **Confidence:** <0–100>
 
 For a material author-intent ambiguity:
 

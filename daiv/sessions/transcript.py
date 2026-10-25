@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 from sessions.artifacts import published_tool_result
+from sessions.executor.lock import SessionActivity
 from sessions.models import RunArtifact, RunStatus, SessionOrigin
 from sessions.turns import tool_call_segment
 
@@ -69,31 +70,44 @@ def _stamp_run_times(seg_turns: list[dict[str, Any]], run: Run) -> None:
         seg_turns[-1]["received_at"] = run.finished_at.isoformat()
 
 
+def _prompt_turns(run: Run, *, pending: bool = False) -> list[dict[str, Any]]:
+    """``run``'s prompt as a user turn, flagged ``pending`` while the run waits to start; none without a prompt."""
+    if not run.prompt:
+        return []
+    user_turn = {"id": f"run-{run.id}", "role": "user", "segments": [{"type": "text", "content": run.prompt}]}
+    if run.created_at is not None:
+        user_turn["sent_at"] = run.created_at.isoformat()
+    if pending:
+        user_turn["pending"] = True
+    return [user_turn]
+
+
 def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     """A run that produced no visible user turn. Recover a FAILED run's prompt as a
     user turn plus its marker; a non-failed run with no turn contributes nothing."""
     marker = _marker(run)
-    if marker is None:
-        return []
-    out: list[dict[str, Any]] = []
-    if run.prompt:
-        user_turn = {"id": f"run-{run.id}", "role": "user", "segments": [{"type": "text", "content": run.prompt}]}
-        if run.created_at is not None:
-            user_turn["sent_at"] = run.created_at.isoformat()
-        out.append(user_turn)
-    out.append(marker)
-    return out
+    return [] if marker is None else [*_prompt_turns(run), marker]
 
 
-def annotate_transcript(turns: list[dict[str, Any]], runs: list[Run]) -> list[dict[str, Any]]:
+def _unstarted(run: Run, activity: SessionActivity) -> bool:
+    """Whether ``run`` has not executed yet, so it owns no checkpointed turn: never picked up, or behind the slot's
+    holder."""
+    return run.status in (RunStatus.READY, RunStatus.QUEUED) or activity.behind_holder(run)
+
+
+def annotate_transcript(
+    turns: list[dict[str, Any]], runs: list[Run], activity: SessionActivity | None = None
+) -> list[dict[str, Any]]:
     """Splice run-status markers into ``turns`` at run boundaries.
 
     ``runs`` must be chronologically ordered. Runs are serial per session
     (SessionLock), so run *k* owns every turn from its user turn up to the next
     user turn. Matching is by ``message_id`` (chat runs) with a chronological
     ordinal fallback (background/legacy runs). A run whose ``message_id`` never
-    reached the checkpoint is recovered via ``_synthetic_turns``.
+    reached the checkpoint is recovered via ``_synthetic_turns``. ``activity`` says which unfinished runs have not
+    started, so they own no turn, and which of them show their prompt as pending; it defaults to nothing in flight.
     """
+    activity = activity or SessionActivity()
     # Segment the transcript at user-turn boundaries. Leading non-user turns (rare)
     # bucket into an anonymous head segment so nothing is dropped.
     segments: list[dict[str, Any]] = []
@@ -106,6 +120,11 @@ def annotate_transcript(turns: list[dict[str, Any]], runs: list[Run]) -> list[di
     result: list[dict[str, Any]] = []
     cursor = 0  # index of the next unconsumed segment (ordinal fallback + skip-flushing)
     for run in runs:
+        if run in activity.waiting:
+            result.extend(_prompt_turns(run, pending=True))
+            continue
+        if _unstarted(run, activity):
+            continue
         mid = run.message_id or ""
         matched = None
         if mid:
@@ -117,12 +136,9 @@ def annotate_transcript(turns: list[dict[str, Any]], runs: list[Run]) -> list[di
             matched = cursor  # ordinal
 
         if matched is None:
-            # No owning segment: pre-checkpoint failure (unmatched mid) or ran out of segments.
-            # A FAILED run reaching here is the designed recovery path (its turn never
-            # checkpointed); a non-failed run with a set message_id that matches nothing is
-            # anomalous (a successful run should own a checkpointed turn) — log it so a
-            # correlation regression is observable rather than a silently dropped turn.
-            if mid and run.status != RunStatus.FAILED:
+            # A FAILED run's or the holder's turn never checkpointed (or not yet); a finished run's message_id
+            # should match one, so warn to keep a correlation regression visible.
+            if mid and run.status in RunStatus.terminal() - {RunStatus.FAILED}:
                 logger.warning(
                     "annotate_transcript: run %s (status=%s) has message_id=%r but no matching "
                     "transcript segment; contributing no marker",
@@ -130,7 +146,7 @@ def annotate_transcript(turns: list[dict[str, Any]], runs: list[Run]) -> list[di
                     run.status,
                     mid,
                 )
-            result.extend(_synthetic_turns(run))
+            result.extend(_prompt_turns(run) if run == activity.holder else _synthetic_turns(run))
             continue
 
         # Flush any segments with no owning run (defensive; keeps ordering intact).

@@ -21,9 +21,10 @@ An alternative design is not a finding. Report only structures that create a con
 7. Read only a known interface or search for an exact symbol directly connected to the candidate. Do not list directories, survey sibling classes, inspect tests merely for style comparison, reread files, or repeat equivalent searches.
 8. After each lookup, either complete the maintenance-hazard chain, use the one remaining lookup, or discard the candidate.
 9. Use only filesystem read and search tools. Do not edit files, execute code, or run tests or builds.
-10. Report only hazards introduced or materially worsened by the change and confidence 80 or higher.
-11. Use **Suggestion** by default. Structural findings are never Critical.
-12. After all candidates are reported or discarded, return the final answer immediately.
+10. Report only hazards introduced or materially worsened by the change.
+11. Report every candidate you did not discard, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
+12. Use **Suggestion** by default. Structural findings are never Critical.
+13. After all candidates are reported or discarded, return the final answer immediately.
 
 ## Structural analysis
 
@@ -75,7 +76,7 @@ A question is allowed only when the diff supports two plausible ownership, invar
 ## Severity
 
 - **Important** — the change makes an established contract or invariant unenforceable, creates duplicated authority, or permits authoritative representations to diverge.
-- **Suggestion** — a high-confidence maintainability hazard with a small, concrete fix.
+- **Suggestion** — a concrete maintainability hazard with a small fix.
 
 ## Output
 
@@ -85,7 +86,7 @@ For each finding:
 - **Location:** `path/to/file.py:42` or `path/to/file.py:42 (deleted)`
 - **Why:** State the established boundary, the conflict, and the concrete maintenance hazard.
 - **Fix:** State the smallest structural improvement.
-- **Confidence:** <80–100>
+- **Confidence:** <0–100>
 
 For a material author-intent ambiguity:
 
