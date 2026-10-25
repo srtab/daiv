@@ -1,3 +1,4 @@
+import logging
 import os
 from unittest.mock import MagicMock, patch
 
@@ -546,7 +547,7 @@ def test_check_does_not_revert_concurrent_deactivation(fetch, client, data_path)
 
 
 @pytest.mark.django_db(transaction=True)
-def test_update_all_carries_on_after_plugin_deleted_mid_run(fetch, client, data_path):
+def test_update_all_carries_on_after_plugin_deleted_mid_run(fetch, client, data_path, caplog):
     gone = make_plugin(name="gone")
     kept = make_plugin(name="kept", plugin_path="kept")
     revision_path(URL, SHA).mkdir(parents=True)
@@ -558,8 +559,11 @@ def test_update_all_carries_on_after_plugin_deleted_mid_run(fetch, client, data_
     fetch.resolve_head.side_effect = resolve
     fetch.materialize.side_effect = lambda location: (SHA2, revision_path(location.url, SHA2))
 
-    update_all()
+    with caplog.at_level(logging.INFO, logger="daiv.plugins"):
+        update_all()
 
     kept.refresh_from_db()
     assert kept.installed_commit == SHA2
     assert not Plugin.objects.filter(pk=gone.pk).exists()
+    assert [r.levelno for r in caplog.records if r.args == (gone.pk,)] == [logging.INFO]
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]

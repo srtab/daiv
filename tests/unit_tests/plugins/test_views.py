@@ -317,6 +317,15 @@ def test_member_detail_of_global_plugin_highlights_plugins_section(client, membe
     assert resp.context["nav_active_section"] == "plugins"
 
 
+def test_add_page_highlights_plugins_section(client, member_user):
+    client.force_login(member_user)
+
+    with patch("plugins.views.RepoClient.create_instance"):
+        resp = client.get(reverse("plugins:add"))
+
+    assert resp.context["nav_active_section"] == "plugins"
+
+
 def _inspection(*candidates):
     from plugins.manifest import RepoInspection
 

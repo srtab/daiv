@@ -261,6 +261,8 @@ def update_all() -> None:
                     check_and_update(plugin, head=head)
                 else:
                     check_access(plugin)
+            except Plugin.NotUpdated:
+                logger.info("Plugin %s was removed during the update run", plugin.pk)
             except Exception:
                 logger.exception("Plugin %s update failed", plugin.pk)
 
