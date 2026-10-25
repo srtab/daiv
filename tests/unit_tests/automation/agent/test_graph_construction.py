@@ -13,8 +13,10 @@ from automation.agent import graph as graph_module
 from automation.agent import subagents as subagents_module
 from automation.agent.agent_settings import RunOverrides
 from automation.agent.graph import create_daiv_agent
+from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
+from automation.agent.middlewares.verification import VerificationMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from codebase.repo_config import RepositoryConfig
@@ -173,12 +175,19 @@ _SITE = {
 
 
 async def _construct(
-    *, site: dict | None = None, run: dict | None = None, slash_commands: bool = True, memory: bool = True
+    *,
+    site: dict | None = None,
+    run: dict | None = None,
+    slash_commands: bool = True,
+    memory: bool = True,
+    bash: bool = False,
+    auto_commit_changes: bool = False,
 ):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
     ``site`` overrides site values, ``run`` is what the run asks for (``RunOverrides`` fields), and ``slash_commands``
-    and ``memory`` are the repo's switches. The builder gets them resolved, as the executor hands them over.
+    and ``memory`` are the repo's switches. The builder gets them resolved, as the executor hands them over. ``bash``
+    gives the workspace a shell, and the repo declares ``make test`` as its ``before_publish`` check.
     """
     settings = agent_settings(
         site=site_snapshot(**(_SITE | (site or {}))),
@@ -191,6 +200,7 @@ async def _construct(
         "create_deep_agent": {},
         "get_model": {},
         "SkillsMiddleware": {},
+        "SandboxMiddleware": {},
         "GitMiddleware": {},
         "GitPlatformMiddleware": {},
         "AnthropicPromptCachingMiddleware": {},
@@ -204,9 +214,15 @@ async def _construct(
         explore_models = stack.enter_context(patch("automation.agent.subagents.get_model"))
         stack.enter_context(patch("automation.agent.subagents.create_agent"))
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
-        ctx = MagicMock()
+        ctx = MagicMock(sandbox=None)
         ctx.config.context_file_name = "AGENTS.md"
-        await create_daiv_agent(settings=settings, ctx=ctx, workspace=FakeWorkspace(), auto_commit_changes=False)
+        ctx.config.hooks.before_publish = ("make test",)
+        await create_daiv_agent(
+            settings=settings,
+            ctx=ctx,
+            workspace=FakeWorkspace(bash=MagicMock() if bash else None),
+            auto_commit_changes=auto_commit_changes,
+        )
 
     deep_agent = mocks["create_deep_agent"]
     return SimpleNamespace(
@@ -309,3 +325,32 @@ async def test_the_git_middleware_gets_the_runs_settings():
     built = await _construct()
 
     assert built.git_middleware.call_args.kwargs["settings"] is built.settings
+
+
+def _verification(middleware: list) -> list[VerificationMiddleware]:
+    return [m for m in middleware if isinstance(m, VerificationMiddleware)]
+
+
+async def test_verification_middleware_sits_before_loop_breaker():
+    built = await _construct(bash=True, auto_commit_changes=True)
+
+    [verification] = _verification(built.middleware)
+    assert isinstance(built.middleware[built.middleware.index(verification) + 1], LoopBreakerMiddleware)
+
+
+async def test_verification_middleware_absent_without_bash():
+    built = await _construct(bash=False, auto_commit_changes=True)
+
+    assert _verification(built.middleware) == []
+
+
+async def test_verification_middleware_absent_when_site_switch_off():
+    built = await _construct(site={"verification_enabled": False}, bash=True, auto_commit_changes=True)
+
+    assert _verification(built.middleware) == []
+
+
+async def test_verification_middleware_absent_without_auto_commit():
+    built = await _construct(bash=True, auto_commit_changes=False)
+
+    assert _verification(built.middleware) == []

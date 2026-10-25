@@ -14,6 +14,7 @@ from langchain.agents.middleware import (
 )
 from skills.constants import SKILLS_PATH
 
+from automation.agent.agent_settings import resolve_before_publish
 from automation.agent.base import get_model
 from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
 from automation.agent.context import RuntimeCtx
@@ -44,6 +45,7 @@ from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
+from automation.agent.middlewares.verification import VerificationMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
@@ -257,6 +259,14 @@ async def create_daiv_agent(
 
     deferred_tools = deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools)
     step_budget = StepBudgetMiddleware()
+    verification: list[AgentMiddleware[Any, Any, Any]] = []
+    if settings.features.verification and auto_commit_changes and bash_tool_enabled:
+        before_publish = resolve_before_publish(
+            repo=ctx.config, sandbox_default=ctx.sandbox.before_publish if ctx.sandbox else None
+        )
+        verification.append(
+            VerificationMiddleware(workspace=workspace, commands=before_publish, step_budget=step_budget)
+        )
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         # Replaces the FilesystemMiddleware create_deep_agent would auto-add: 0.7 merges custom
@@ -293,6 +303,7 @@ async def create_daiv_agent(
         *([AskUserQuestionMiddleware()] if ask_user_enabled else []),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
+        *verification,
         # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
         # and discard work — the failure mode StepBudget guards against.
         LoopBreakerMiddleware(terminal="finalize"),
