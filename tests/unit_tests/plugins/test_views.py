@@ -365,11 +365,12 @@ def test_add_get_shows_url_form_and_hint(client, member_user):
 
     with patch("plugins.views.RepoClient.create_instance") as create:
         create.return_value.git_host.return_value = "git.example.com"
-        html = client.get(reverse("plugins:add")).content.decode()
+        response = client.get(reverse("plugins:add"))
 
+    html = response.content.decode()
     assert "Repository link" in html
-    assert "private repos only from" in html
-    assert "git.example.com" in html
+    assert response.context["git_host"] == "git.example.com"
+    assert "private repos only from git.example.com, and only ones you can see there." in html
 
 
 def test_add_get_renders_hint_without_host_when_client_fails(client, member_user):
