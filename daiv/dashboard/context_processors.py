@@ -68,6 +68,8 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     # they are omitted; ``delete`` stays because its GET renders a confirmation page.
     "mcp_servers": {"mcp_connectors:list", "mcp_connectors:create", "mcp_connectors:edit", "mcp_connectors:delete"},
     "mcp_servers_global": {"mcp_connectors:global_list", "mcp_connectors:global_create"},
+    "plugins": {"plugins:list", "plugins:detail", "plugins:delete"},
+    "plugins_global": {"plugins:global_list"},
 }
 
 

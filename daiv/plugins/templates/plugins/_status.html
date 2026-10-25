@@ -1,0 +1,7 @@
+{% load i18n %}
+{% comment %}Status badge and detail for a decorated plugin. Param: `plugin`.{% endcomment %}
+<span class="status-badge {{ plugin.status_class }}">{{ plugin.status_label }}</span>
+{% if plugin.status_detail %}<span class="text-xs text-gray-500">{{ plugin.status_detail }}</span>{% endif %}
+{% if plugin.last_checked_at %}
+<span class="text-xs text-gray-500">{% blocktranslate with when=plugin.last_checked_at|timesince %}checked {{ when }} ago{% endblocktranslate %}</span>
+{% endif %}

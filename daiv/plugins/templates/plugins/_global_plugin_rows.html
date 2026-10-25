@@ -1,0 +1,33 @@
+{% load i18n %}
+{% comment %}Admin rows for global plugins. Param: `plugins` (each carrying `opt_out_count`).{% endcomment %}
+<div class="mt-3">
+{% if plugins %}
+<div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+    {% for plugin in plugins %}
+    <div class="plugin-row {% if not plugin.is_active %}plugin-row--off{% endif %}">
+        {% translate "Active for everyone" as active_label %}
+        {% include "plugins/_switch.html" with action=plugin.active_url field="active" checked=plugin.is_active label=active_label %}
+        <div class="plugin-row__main">
+            <a href="{% url 'plugins:detail' plugin.pk %}"
+               class="text-[15px] font-medium text-white hover:text-violet-300">{{ plugin.name }}</a>
+            <div class="plugin-mono mt-1 truncate">{{ plugin.source_display }}</div>
+            <div class="mt-1 text-sm text-gray-400">
+                {% if plugin.version %}{{ plugin.version }} {% endif %}<span class="plugin-mono">{{ plugin.short_commit }}</span>
+                {% if plugin.contents_summary %}· {{ plugin.contents_summary }}{% endif %}
+            </div>
+        </div>
+        <div class="w-32 shrink-0 text-sm text-gray-400">
+            {% if plugin.opt_out_count %}
+            {% blocktranslate count counter=plugin.opt_out_count %}Turned off by {{ counter }} user{% plural %}Turned off by {{ counter }} users{% endblocktranslate %}
+            {% else %}{% translate "Turned off by nobody" %}{% endif %}
+        </div>
+        <div class="plugin-row__status">{% include "plugins/_status.html" with plugin=plugin %}</div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+    <p class="text-[15px] text-gray-400">{% translate "No global plugins installed." %}</p>
+</div>
+{% endif %}
+</div>

@@ -1,0 +1,96 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{{ plugin.name }} — {% translate "Plugins" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-4xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="text-2xl font-bold tracking-tight">
+            {{ plugin.name }}{% if plugin.version %} <span class="text-base font-normal text-gray-500">{{ plugin.version }}</span>{% endif %}
+        </h1>
+        {% if plugin.description %}<p class="mt-1.5 text-[15px] font-light text-gray-400">{{ plugin.description }}</p>{% endif %}
+    </div>
+    {% if can_manage %}
+    <div class="page-header__actions">
+        <form method="post" action="{% url 'plugins:update_now' plugin.pk %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="detail">
+            <button type="submit" class="btn-secondary">{% translate "Update now" %}</button>
+        </form>
+        <a href="{% url 'plugins:delete' plugin.pk %}" class="btn-danger-outline">{% translate "Remove" %}</a>
+    </div>
+    {% endif %}
+</div>
+
+{% if plugin.access_lost_at %}
+<div class="plugin-callout plugin-callout--error animate-fade-up">
+    <strong>{% translate "You can no longer read this repository on the platform." %}</strong>
+    {% translate "Runs no longer load this plugin until access is restored." %}
+</div>
+{% elif plugin.failed_commit %}
+<div class="plugin-callout plugin-callout--error animate-fade-up">
+    {% blocktranslate with failed=plugin.failed_commit|slice:":7" good=plugin.short_commit %}<strong>Update to {{ failed }} failed.</strong> Runs keep using {{ good }} until a later commit passes.{% endblocktranslate %}
+    {% if plugin.last_error %}<div class="plugin-mono mt-1">{{ plugin.last_error }}</div>{% endif %}
+</div>
+{% endif %}
+
+<dl class="animate-fade-up mt-8 grid grid-cols-[10rem_1fr] items-center gap-x-4 gap-y-4 text-sm" style="animation-delay: 100ms">
+    <dt class="text-gray-500">{% translate "Source" %}</dt>
+    <dd class="plugin-mono">{{ plugin.source_display }} · {% translate "default branch" %}</dd>
+
+    <dt class="text-gray-500">{% translate "Installed commit" %}</dt>
+    <dd class="plugin-mono">{{ plugin.short_commit }}</dd>
+
+    <dt class="text-gray-500">{% translate "Last checked" %}</dt>
+    <dd>{% if plugin.last_checked_at %}{% blocktranslate with when=plugin.last_checked_at|timesince %}{{ when }} ago{% endblocktranslate %}{% else %}{% translate "never" %}{% endif %}</dd>
+
+    <dt class="text-gray-500">{% translate "Status" %}</dt>
+    <dd class="flex flex-wrap items-center gap-2">{% include "plugins/_status.html" with plugin=plugin %}</dd>
+
+    {% if is_global %}
+    <dt class="text-gray-500">{% translate "Use in my runs" %}</dt>
+    <dd>
+        {% translate "Use in my runs" as use_label %}
+        {% include "plugins/_switch.html" with action=plugin.use_url field="use" checked=plugin.use_checked disabled=plugin.use_locked label=use_label next="detail" %}
+    </dd>
+    {% endif %}
+
+    {% if can_manage %}
+    <dt class="text-gray-500">{% if is_global %}{% translate "Active for everyone" %}{% else %}{% translate "Active" %}{% endif %}</dt>
+    <dd>
+        {% translate "Active" as active_label %}
+        {% include "plugins/_switch.html" with action=plugin.active_url field="active" checked=plugin.is_active label=active_label next="detail" %}
+    </dd>
+
+    <dt class="text-gray-500">{% translate "Auto-update" %}</dt>
+    <dd class="flex items-center gap-3">
+        {% translate "Auto-update" as auto_label %}
+        {% include "plugins/_switch.html" with action=plugin.auto_update_url field="auto_update" checked=plugin.auto_update label=auto_label next="detail" %}
+        <span class="text-xs text-gray-500">{% translate "checks hourly, installs every new commit" %}</span>
+    </dd>
+    {% endif %}
+</dl>
+
+{% for title, items in groups %}
+{% if items %}
+<section class="animate-fade-up mt-8">
+    <h2 class="text-lg font-semibold">{{ title }} ({{ items|length }})</h2>
+    <div class="mt-2 flex flex-wrap gap-1.5">
+        {% for item in items %}<span class="plugin-chip" {% if item.description %}title="{{ item.description }}"{% endif %}>{{ plugin.name }}:{{ item.name }}</span>{% endfor %}
+    </div>
+</section>
+{% endif %}
+{% endfor %}
+
+{% if skipped %}
+<div class="plugin-callout plugin-callout--note">
+    <strong>{% translate "Not used by DAIV" %}</strong>
+    <ul class="mt-1 list-disc pl-5">
+        {% for item in skipped %}<li>{{ item.component }} — <span class="plugin-mono">{{ item.detail }}</span></li>{% endfor %}
+    </ul>
+</div>
+{% endif %}
+{% endblock app_content %}

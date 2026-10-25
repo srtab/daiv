@@ -79,6 +79,12 @@
       <span class="sidebar__collapsible">{% translate "MCP servers" %}</span>
     </a>
 
+    <a href="{% url 'plugins:list' %}"
+       class="sidebar__nav-item {% nav_active 'plugins' %}">
+      {% icon "cube" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Plugins" %}</span>
+    </a>
+
     <a href="{% url 'memory:list' %}"
        class="sidebar__nav-item {% nav_active 'memory' %}">
       {% icon "cpu-chip" "h-4 w-4 shrink-0" %}
@@ -120,6 +126,12 @@
        class="sidebar__nav-item {% nav_active 'mcp_servers_global' %}">
       {% icon "puzzle-piece" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Global MCP servers" %}</span>
+    </a>
+
+    <a href="{% url 'plugins:global_list' %}"
+       class="sidebar__nav-item {% nav_active 'plugins_global' %}">
+      {% icon "cube" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Global plugins" %}</span>
     </a>
 
     {% endif %}

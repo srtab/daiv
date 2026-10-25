@@ -1,0 +1,35 @@
+{% load i18n %}
+{% comment %}Rows for the personal and read-only global sections. Params: `plugins`,
+   `empty_message`, `kind` ("personal" or "global"). A global row's switch is the
+   viewer's own "Use in my runs", locked while an admin has the plugin off.{% endcomment %}
+<div class="mt-3">
+{% if plugins %}
+<div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+    {% for plugin in plugins %}
+    <div class="plugin-row {% if not plugin.is_active or plugin.opted_out %}plugin-row--off{% endif %}">
+        {% if kind == "global" %}
+        {% translate "Use in my runs" as use_label %}
+        {% include "plugins/_switch.html" with action=plugin.use_url field="use" checked=plugin.use_checked disabled=plugin.use_locked label=use_label %}
+        {% else %}
+        {% translate "Active" as active_label %}
+        {% include "plugins/_switch.html" with action=plugin.active_url field="active" checked=plugin.is_active label=active_label %}
+        {% endif %}
+        <div class="plugin-row__main">
+            <a href="{% url 'plugins:detail' plugin.pk %}"
+               class="text-[15px] font-medium text-white hover:text-violet-300">{{ plugin.name }}</a>
+            <div class="plugin-mono mt-1 truncate">{{ plugin.source_display }}</div>
+            <div class="mt-1 text-sm text-gray-400">
+                {% if plugin.version %}{{ plugin.version }} {% endif %}<span class="plugin-mono">{{ plugin.short_commit }}</span>
+                {% if plugin.contents_summary %}· {{ plugin.contents_summary }}{% endif %}
+            </div>
+        </div>
+        <div class="plugin-row__status">{% include "plugins/_status.html" with plugin=plugin %}</div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+    <p class="text-[15px] text-gray-400">{{ empty_message }}</p>
+</div>
+{% endif %}
+</div>

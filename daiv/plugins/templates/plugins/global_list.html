@@ -1,0 +1,21 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Global plugins" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-6xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "Global plugins" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% translate "Plugins installed for everyone. Turning one off here turns it off in every run." %}
+        </p>
+    </div>
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    {% include "plugins/_global_plugin_rows.html" with plugins=global_plugins %}
+</section>
+{% endblock app_content %}

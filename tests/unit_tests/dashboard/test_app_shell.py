@@ -82,3 +82,11 @@ def test_no_template_loads_a_font_from_a_cdn():
     ]
 
     assert not offenders, "templates loading a font CDN: " + ", ".join(offenders)
+
+
+def test_sidebar_has_plugins_items():
+    sidebar = SIDEBAR_TEMPLATE.read_text(encoding="utf-8")
+    admin_start = sidebar.index("user.is_admin")
+
+    assert "plugins:list" in sidebar[:admin_start]
+    assert "plugins:global_list" in sidebar[admin_start:]
