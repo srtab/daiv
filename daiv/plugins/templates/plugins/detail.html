@@ -35,6 +35,10 @@
     {% blocktranslate with failed=plugin.failed_commit|slice:":7" good=plugin.short_commit %}<strong>Update to {{ failed }} failed.</strong> Runs keep using {{ good }} until a later commit passes.{% endblocktranslate %}
     {% if plugin.last_error %}<div class="plugin-mono mt-1">{{ plugin.last_error }}</div>{% endif %}
 </div>
+{% elif plugin.last_error %}
+<div class="plugin-callout plugin-callout--error animate-fade-up">
+    {% blocktranslate with reason=check_error good=plugin.short_commit %}<strong>The last update check failed:</strong> {{ reason }}. Runs keep using {{ good }}.{% endblocktranslate %}
+</div>
 {% endif %}
 
 <dl class="animate-fade-up mt-8 grid grid-cols-[10rem_1fr] items-center gap-x-4 gap-y-4 text-sm" style="animation-delay: 100ms">

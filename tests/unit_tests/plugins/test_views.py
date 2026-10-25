@@ -107,7 +107,9 @@ def test_detail_access_lost_banner_says_runs_no_longer_load_it(client, member_us
     ("kwargs", "label"),
     [
         ({"is_active": False}, "Inactive"),
+        ({"is_active": False, "last_error": "down"}, "Inactive"),
         ({"failed_commit": "a" * 40}, "Update failed"),
+        ({"last_error": "down"}, "Update failed"),
         ({"access_lost_at": timezone.now()}, "Update failed"),
         ({}, "Up to date"),
     ],
@@ -117,6 +119,48 @@ def test_list_status_labels(client, member_user, kwargs, label):
     client.force_login(member_user)
 
     assert label in client.get(reverse("plugins:list")).content.decode()
+
+
+def test_list_shows_check_failure_without_commit_and_its_reason(client, member_user):
+    make_plugin(user=member_user, last_error="Fetching this repository timed out.")
+    client.force_login(member_user)
+
+    html = client.get(reverse("plugins:list")).content.decode()
+
+    assert "Update failed" in html
+    assert "Fetching this repository timed out." in html
+    assert "Up to date" not in html
+
+
+def test_global_list_shows_check_failure_without_commit(client, admin_user):
+    make_plugin(scope=Plugin.Scope.GLOBAL, last_error="Fetching this repository timed out.")
+    client.force_login(admin_user)
+
+    html = client.get(reverse("plugins:global_list")).content.decode()
+
+    assert "Update failed" in html
+    assert "Fetching this repository timed out." in html
+
+
+def test_detail_check_failure_without_commit_banner(client, member_user):
+    plugin = make_plugin(user=member_user, last_error="Fetching this repository timed out.")
+    client.force_login(member_user)
+
+    html = client.get(reverse("plugins:detail", args=[plugin.pk])).content.decode()
+
+    assert "The last update check failed:" in html
+    assert "Fetching this repository timed out. Runs keep using bb92a77." in html
+    assert "Up to date" not in html
+
+
+def test_detail_access_lost_banner_wins_over_check_failure(client, member_user):
+    plugin = make_plugin(user=member_user, access_lost_at=timezone.now(), last_error="DAIV can't read this repository.")
+    client.force_login(member_user)
+
+    html = client.get(reverse("plugins:detail", args=[plugin.pk])).content.decode()
+
+    assert "no longer load" in html
+    assert "The last update check failed" not in html
 
 
 def test_list_global_status_off_for_everyone_and_off_for_you(client, member_user):

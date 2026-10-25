@@ -63,7 +63,7 @@ def _status(plugin: Plugin, *, opted_out: bool) -> tuple[str, str, str]:
         return _("Off for you"), "status-badge-pending", _("still on for others")
     if plugin.access_lost_at:
         return _("Update failed"), "status-badge-failed", ACCESS_LOST_REASON
-    if plugin.failed_commit:
+    if plugin.failed_commit or plugin.last_error:
         return _("Update failed"), "status-badge-failed", plugin.last_error
     return _("Up to date"), "status-badge-success", ""
 
@@ -155,6 +155,7 @@ class PluginDetailView(LoginRequiredMixin, View):
                 "skipped": contents.skipped if contents else (),
                 "can_manage": can_manage,
                 "is_global": plugin.scope == Plugin.Scope.GLOBAL,
+                "check_error": plugin.last_error.rstrip("."),
             },
         )
 
