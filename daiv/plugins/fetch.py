@@ -73,9 +73,13 @@ def parse_repo_url(raw: str) -> RepoLocation:
     return RepoLocation(url=f"https://{host}/{slug}.git", host=host, on_platform=on_platform, slug=slug)
 
 
-def revision_dir(location: RepoLocation, commit: str) -> Path:
-    digest = hashlib.sha256(location.url.encode()).hexdigest()[:16]
+def revision_path(url: str, commit: str) -> Path:
+    digest = hashlib.sha256(url.encode()).hexdigest()[:16]
     return settings.DATA_PATH / "revisions" / digest / commit
+
+
+def revision_dir(location: RepoLocation, commit: str) -> Path:
+    return revision_path(location.url, commit)
 
 
 def resolve_head(location: RepoLocation) -> str:
