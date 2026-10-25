@@ -490,3 +490,76 @@ def test_resolved_paths_are_workspace_absolute_and_qualified(data_path):
         "/workspace/plugins/devkit/agents/reviewer.md",
         "sonnet",
     )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("force", [False, True])
+def test_lost_access_fails_check_and_never_fetches(member_user, fetch, client, identity, data_path, force):
+    plugin = make_plugin(member_user, version="1")
+    before = Plugin.objects.get(pk=plugin.pk).contents
+    revision_path(URL, SHA).mkdir(parents=True)
+    fetch.resolve_head.return_value = SHA2
+    client.user_can_read.return_value = False
+
+    check_and_update(plugin, force=force)
+
+    plugin.refresh_from_db()
+    assert (plugin.installed_commit, plugin.version, plugin.contents) == (SHA, "1", before)
+    assert plugin.access_lost_at is not None
+    assert plugin.last_error
+    assert plugin.failed_commit == ""
+    fetch.resolve_head.assert_not_called()
+    fetch.materialize.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_unchanged_head_clears_stale_failure(fetch, client, data_path):
+    plugin = make_plugin(failed_commit=SHA2, last_error="old")
+    revision_path(URL, SHA).mkdir(parents=True)
+
+    check_and_update(plugin)
+
+    plugin.refresh_from_db()
+    assert (plugin.failed_commit, plugin.last_error) == ("", "")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_check_does_not_resurrect_deleted_plugin(fetch, client, data_path):
+    stale = make_plugin()
+    Plugin.objects.filter(pk=stale.pk).delete()
+
+    with pytest.raises(Plugin.NotUpdated):
+        check_and_update(stale)
+
+    assert not Plugin.objects.exists()
+
+
+@pytest.mark.django_db
+def test_check_does_not_revert_concurrent_deactivation(fetch, client, data_path):
+    stale = make_plugin()
+    revision_path(URL, SHA).mkdir(parents=True)
+    Plugin.objects.filter(pk=stale.pk).update(is_active=False)
+
+    check_and_update(stale)
+
+    assert Plugin.objects.get(pk=stale.pk).is_active is False
+
+
+@pytest.mark.django_db(transaction=True)
+def test_update_all_carries_on_after_plugin_deleted_mid_run(fetch, client, data_path):
+    gone = make_plugin(name="gone")
+    kept = make_plugin(name="kept", plugin_path="kept")
+    revision_path(URL, SHA).mkdir(parents=True)
+
+    def resolve(location):
+        Plugin.objects.filter(pk=gone.pk).delete()
+        return SHA2
+
+    fetch.resolve_head.side_effect = resolve
+    fetch.materialize.side_effect = lambda location: (SHA2, revision_path(location.url, SHA2))
+
+    update_all()
+
+    kept.refresh_from_db()
+    assert kept.installed_commit == SHA2
+    assert not Plugin.objects.filter(pk=gone.pk).exists()

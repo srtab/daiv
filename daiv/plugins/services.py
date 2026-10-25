@@ -32,6 +32,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.plugins")
 
+OWNED_FIELDS = (
+    "last_checked_at",
+    "access_lost_at",
+    "installed_commit",
+    "contents",
+    "version",
+    "description",
+    "last_error",
+    "failed_commit",
+)
 NO_ACCESS = "DAIV can't read this repository."
 
 
@@ -182,7 +192,7 @@ def check_and_update(plugin: Plugin, *, force: bool = False, head: str | None = 
     try:
         _update(plugin, force=force, head=head)
     finally:
-        plugin.save()
+        plugin.save(update_fields=[*OWNED_FIELDS, "modified"])
 
 
 def _update(plugin: Plugin, *, force: bool, head: str | None) -> None:
@@ -194,6 +204,9 @@ def _update(plugin: Plugin, *, force: bool, head: str | None) -> None:
 
     if _needs_access_check(plugin, location):
         _refresh_access(plugin, location)
+        if plugin.access_lost_at is not None:
+            _record_failure(plugin, NO_ACCESS)
+            return
 
     try:
         head = head or resolve_head(location)
@@ -203,6 +216,8 @@ def _update(plugin: Plugin, *, force: bool, head: str | None) -> None:
 
     installed_dir = revision_path(location.url, plugin.installed_commit)
     if head == plugin.installed_commit and installed_dir.is_dir():
+        plugin.last_error = ""
+        plugin.failed_commit = ""
         return
     if head == plugin.failed_commit and not force:
         return
@@ -262,7 +277,10 @@ def _resolve_once(repo_url: str, auto: list[Plugin]) -> str | None:
         for plugin in auto:
             _record_failure(plugin, str(exc))
             plugin.last_checked_at = timezone.now()
-            plugin.save(update_fields=["last_error", "last_checked_at", "modified"])
+            try:
+                plugin.save(update_fields=["last_error", "last_checked_at", "modified"])
+            except Plugin.NotUpdated:
+                logger.warning("Plugin %s vanished during update", plugin.pk)
         return None
 
 
