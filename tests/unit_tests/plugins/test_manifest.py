@@ -112,7 +112,7 @@ class TestReadPlugin:
     def test_skill_item_ref(self, tmp_path):
         make_tree(tmp_path, {"pl/skills/dir-name/SKILL.md": "---\ndescription: hello\n---\nBody\n"})
         contents = read_plugin(tmp_path, "pl", fallback_name="p")
-        assert contents.skills == (ItemRef(name="dir-name", description="hello", path="skills/dir-name"),)
+        assert contents.skills == (ItemRef(name="dir-name", description="hello", path="skills/dir-name/SKILL.md"),)
 
     def test_command_description_falls_back_to_first_line(self, tmp_path):
         make_tree(
@@ -135,6 +135,21 @@ class TestReadPlugin:
         contents = read_plugin(tmp_path, "", fallback_name="p")
         assert contents.commands == ()
         assert Skipped("command", "foo: same name as a skill") in contents.skipped
+
+    def test_invalid_item_names_skipped(self, tmp_path):
+        make_tree(
+            tmp_path,
+            {
+                "skills/dir/SKILL.md": SKILL.format(name="Bad Skill", desc="d"),
+                "agents/a.md": "---\nname: Bad_Agent\ndescription: d\n---\nP\n",
+                "commands/Bad_Cmd.md": "Run\n",
+            },
+        )
+        contents = read_plugin(tmp_path, "", fallback_name="p")
+        assert (contents.skills, contents.agents, contents.commands) == ((), (), ())
+        assert Skipped("skill", "Bad Skill: invalid name") in contents.skipped
+        assert Skipped("agent", "Bad_Agent: invalid name") in contents.skipped
+        assert Skipped("command", "Bad_Cmd: invalid name") in contents.skipped
 
     def test_agent_model_read(self, tmp_path):
         description = "Use for review.\n<example>\nuser: hi\n</example>"
@@ -243,7 +258,7 @@ class TestReadPlugin:
             name="p",
             description="d",
             version="1",
-            skills=(ItemRef("s", "sd", "skills/s"),),
+            skills=(ItemRef("s", "sd", "skills/s/SKILL.md"),),
             commands=(ItemRef("c", "cd", "commands/c.md"),),
             agents=(ItemRef("a", "ad", "agents/a.md", model="opus"),),
             skipped=(Skipped("hooks", "Stop"),),

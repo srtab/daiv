@@ -237,9 +237,9 @@ def _read_skills(plugin_dir: Path, manifest: dict) -> tuple[list[ItemRef], list[
             continue
         name = _text(meta.get("name")) or skill_dir.name
         if not PLUGIN_NAME_RE.match(name):
-            skipped.append(Skipped("skill", f"{skill_dir.name}: invalid name"))
+            skipped.append(Skipped("skill", f"{name}: invalid name"))
             continue
-        skills.append(ItemRef(name, description, skill_dir.relative_to(plugin_dir).as_posix()))
+        skills.append(ItemRef(name, description, (skill_dir / "SKILL.md").relative_to(plugin_dir).as_posix()))
     return skills, skipped
 
 
@@ -257,6 +257,9 @@ def _read_commands(plugin_dir: Path, skill_names: set[str]) -> tuple[list[ItemRe
             meta, body = _parse_markdown(path)
         except ValueError as e:
             skipped.append(Skipped("command", f"{stem}: {e}"))
+            continue
+        if not PLUGIN_NAME_RE.match(stem):
+            skipped.append(Skipped("command", f"{stem}: invalid name"))
             continue
         if stem in skill_names:
             skipped.append(Skipped("command", f"{stem}: same name as a skill"))
@@ -288,7 +291,7 @@ def _read_agents(plugin_dir: Path) -> tuple[list[ItemRef], list[Skipped]]:
             skipped.append(Skipped("agent", f"{path.name}: missing name or description"))
             continue
         if not PLUGIN_NAME_RE.match(name):
-            skipped.append(Skipped("agent", f"{path.name}: invalid name"))
+            skipped.append(Skipped("agent", f"{name}: invalid name"))
             continue
         agents.append(
             ItemRef(name, description, path.relative_to(plugin_dir).as_posix(), _text(meta.get("model")) or None)
