@@ -47,3 +47,9 @@ def test_update_plugin_task_ignores_plugin_deleted_during_check():
 
     with patch("plugins.tasks.check_and_update", side_effect=Plugin.NotUpdated("deleted")):
         update_plugin_task.func(plugin.pk)
+
+
+def test_update_plugin_task_dedups_only_unfinished_runs():
+    assert update_plugin_task.dedup is True
+    assert update_plugin_task.dedup_on == ("plugin_id",)
+    assert update_plugin_task.dedup_successful is False

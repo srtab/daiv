@@ -16,7 +16,7 @@ def update_plugins_cron_task():
     update_all()
 
 
-@task(dedup=True, dedup_on=("plugin_id",))
+@task(dedup=True, dedup_on=("plugin_id",), dedup_successful=False)
 def update_plugin_task(plugin_id: int):
     try:
         check_and_update(Plugin.objects.get(pk=plugin_id), force=True)
