@@ -125,6 +125,14 @@ def test_parse_rejects_tree_page_url(client, raw):
         parse_repo_url(raw)
 
 
+def test_parse_rejects_url_longer_than_the_stored_limit(client):
+    fits = parse_repo_url(f"https://git.example.com/group/{'p' * 466}")
+    assert len(fits.url) == 500
+
+    with pytest.raises(FetchError, match="The repository link is too long."):
+        parse_repo_url(f"https://git.example.com/group/{'p' * 467}")
+
+
 def test_on_platform_detected_by_host(client):
     assert parse_repo_url("https://git.example.com/group/project").on_platform is True
     assert parse_repo_url("https://other.example.org/group/project").on_platform is False

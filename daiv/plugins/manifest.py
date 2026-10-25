@@ -8,12 +8,12 @@ import yaml
 from skills.constants import FRONTMATTER_RE
 
 from plugins.conf import settings
-from plugins.constants import PLUGIN_NAME_RE
+from plugins.constants import MAX_DESCRIPTION_CHARS, MAX_PLUGIN_PATH_CHARS, MAX_VERSION_CHARS, PLUGIN_NAME_RE
 
 MANIFEST_DIR = ".claude-plugin"
 COMPONENT_DIRS = ("skills", "commands", "agents")
-MAX_DESCRIPTION_CHARS = 1024
 UNSUPPORTED_SOURCE_REASON = "Source outside this repository is not supported yet."
+LONG_PATH_REASON = "The plugin's path in this repository is too long."
 
 
 class ManifestError(Exception):
@@ -96,6 +96,14 @@ def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _description(value: Any) -> str:
+    return _text(value)[:MAX_DESCRIPTION_CHARS]
+
+
+def _version(value: Any) -> str:
+    return _text(value)[:MAX_VERSION_CHARS]
+
+
 def _parse_markdown(path: Path) -> tuple[dict, str]:
     """Return (frontmatter, body); raises ValueError on undecodable text or invalid YAML."""
     try:
@@ -137,8 +145,8 @@ def inspect_repo(root: Path) -> RepoInspection:
         candidate = PluginCandidate(
             name=_text(manifest.get("name")) or root.name,
             plugin_path="",
-            description=_text(manifest.get("description")),
-            version=_text(manifest.get("version")),
+            description=_description(manifest.get("description")),
+            version=_version(manifest.get("version")),
             supported=True,
             reason="",
         )
@@ -155,11 +163,13 @@ def inspect_repo(root: Path) -> RepoInspection:
 
 def _candidate_from_entry(root: Path, entry: dict) -> PluginCandidate:
     name = _text(entry.get("name"))
-    description = _text(entry.get("description"))
-    version = _text(entry.get("version"))
+    description = _description(entry.get("description"))
+    version = _version(entry.get("version"))
     plugin_path = _normalise_source(entry.get("source"))
     if plugin_path is None:
         return PluginCandidate(name, "", description, version, False, UNSUPPORTED_SOURCE_REASON)
+    if len(plugin_path) > MAX_PLUGIN_PATH_CHARS:
+        return PluginCandidate(name, plugin_path, description, version, False, LONG_PATH_REASON)
 
     try:
         manifest = _read_json_object(root / plugin_path / MANIFEST_DIR / "plugin.json")
@@ -168,8 +178,8 @@ def _candidate_from_entry(root: Path, entry: dict) -> PluginCandidate:
     return PluginCandidate(
         name=_text(manifest.get("name")) or name,
         plugin_path=plugin_path,
-        description=description or _text(manifest.get("description")),
-        version=version or _text(manifest.get("version")),
+        description=description or _description(manifest.get("description")),
+        version=version or _version(manifest.get("version")),
         supported=True,
         reason="",
     )
@@ -231,7 +241,7 @@ def _read_skills(plugin_dir: Path, manifest: dict) -> tuple[list[ItemRef], list[
         except ValueError as e:
             skipped.append(Skipped("skill", f"{skill_dir.name}: {e}"))
             continue
-        description = _text(meta.get("description"))
+        description = _description(meta.get("description"))
         if not description:
             skipped.append(Skipped("skill", f"{skill_dir.name}: no description"))
             continue
@@ -264,10 +274,10 @@ def _read_commands(plugin_dir: Path, skill_names: set[str]) -> tuple[list[ItemRe
         if stem in skill_names:
             skipped.append(Skipped("command", f"{stem}: same name as a skill"))
             continue
-        description = _text(meta.get("description"))
+        description = _description(meta.get("description"))
         if not description:
-            description = next((line.strip() for line in body.splitlines() if line.strip()), "")
-        commands.append(ItemRef(stem, description[:MAX_DESCRIPTION_CHARS], path.relative_to(plugin_dir).as_posix()))
+            description = _description(next((line for line in body.splitlines() if line.strip()), ""))
+        commands.append(ItemRef(stem, description, path.relative_to(plugin_dir).as_posix()))
     return commands, skipped
 
 
@@ -286,7 +296,7 @@ def _read_agents(plugin_dir: Path) -> tuple[list[ItemRef], list[Skipped]]:
             skipped.append(Skipped("agent", f"{path.name}: {e}"))
             continue
         name = _text(meta.get("name"))
-        description = _text(meta.get("description"))
+        description = _description(meta.get("description"))
         if not name or not description:
             skipped.append(Skipped("agent", f"{path.name}: missing name or description"))
             continue
@@ -392,8 +402,8 @@ def read_plugin(root: Path, plugin_path: str, *, fallback_name: str) -> PluginCo
 
     return PluginContents(
         name=name,
-        description=_text(manifest.get("description")),
-        version=_text(manifest.get("version")),
+        description=_description(manifest.get("description")),
+        version=_version(manifest.get("version")),
         skills=tuple(skills),
         commands=tuple(commands),
         agents=tuple(agents),

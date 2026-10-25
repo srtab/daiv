@@ -78,6 +78,42 @@ class TestInspectRepo:
         assert candidates[0].plugin_path == ""
         assert candidates[0].supported is True
 
+    def test_long_candidate_description_and_version_are_capped(self, tmp_path):
+        make_tree(
+            tmp_path,
+            {
+                ".claude-plugin/marketplace.json": marketplace(
+                    {"name": "a", "source": "./a", "description": "d" * 2000, "version": "1" * 100},
+                    {"name": "b", "source": "./b"},
+                ),
+                "b/.claude-plugin/plugin.json": json.dumps({"description": "e" * 2000, "version": "2" * 100}),
+            },
+        )
+        a, b = inspect_repo(tmp_path).candidates
+        assert (a.description, a.version) == ("d" * 1024, "1" * 64)
+        assert (b.description, b.version) == ("e" * 1024, "2" * 64)
+
+    def test_long_single_plugin_description_and_version_are_capped(self, tmp_path):
+        manifest = {"name": "p", "description": "d" * 2000, "version": "1" * 100}
+        make_tree(tmp_path, {".claude-plugin/plugin.json": json.dumps(manifest)})
+        candidate = inspect_repo(tmp_path).candidates[0]
+        assert (len(candidate.description), len(candidate.version)) == (1024, 64)
+
+    def test_overlong_plugin_path_unsupported(self, tmp_path):
+        long_path = "p" * 256
+        make_tree(
+            tmp_path,
+            {
+                ".claude-plugin/marketplace.json": marketplace(
+                    {"name": "long", "source": f"./{long_path}"}, {"name": "fits", "source": f"./{'q' * 255}"}
+                )
+            },
+        )
+        long, fits = inspect_repo(tmp_path).candidates
+        assert long.supported is False
+        assert long.reason == "The plugin's path in this repository is too long."
+        assert fits.supported is True
+
     def test_not_a_plugin_raises(self, tmp_path):
         make_tree(tmp_path, {"README.md": "hi"})
         with pytest.raises(ManifestError, match="This repository is not a Claude Code plugin or marketplace."):
@@ -208,6 +244,23 @@ class TestReadPlugin:
         contents = read_plugin(tmp_path, "", fallback_name="x")
         assert sorted(s.name for s in contents.skills) == ["one", "two"]
         assert contents.name == "p"
+
+    def test_long_descriptions_and_version_are_capped(self, tmp_path):
+        manifest = {"name": "p", "description": "d" * 2000, "version": "1" * 100}
+        make_tree(
+            tmp_path,
+            {
+                ".claude-plugin/plugin.json": json.dumps(manifest),
+                "skills/s/SKILL.md": SKILL.format(name="s", desc="s" * 2000),
+                "commands/c.md": f"---\ndescription: {'c' * 2000}\n---\nBody\n",
+                "agents/a.md": f"---\nname: a\ndescription: {'a' * 2000}\n---\nPrompt\n",
+            },
+        )
+        contents = read_plugin(tmp_path, "", fallback_name="p")
+        assert (contents.description, contents.version) == ("d" * 1024, "1" * 64)
+        assert contents.skills[0].description == "s" * 1024
+        assert contents.commands[0].description == "c" * 1024
+        assert contents.agents[0].description == "a" * 1024
 
     def test_name_falls_back(self, tmp_path):
         make_tree(tmp_path, {"skills/a/SKILL.md": SKILL.format(name="a", desc="d")})

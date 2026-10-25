@@ -17,6 +17,7 @@ from codebase.clients.base import RepoClient
 from core.constants import GIT_PROXY_CA_ENV
 
 from .conf import settings
+from .constants import MAX_REPO_URL_CHARS
 
 logger = logging.getLogger("daiv.plugins")
 
@@ -69,8 +70,11 @@ def parse_repo_url(raw: str) -> RepoLocation:
         raise FetchError("The repository link must look like https://host/group/project.")
 
     slug = "/".join(segments)
+    url = f"https://{host}/{slug}.git"
+    if len(url) > MAX_REPO_URL_CHARS:
+        raise FetchError("The repository link is too long.")
     on_platform = host == RepoClient.create_instance().git_host()
-    return RepoLocation(url=f"https://{host}/{slug}.git", host=host, on_platform=on_platform, slug=slug)
+    return RepoLocation(url=url, host=host, on_platform=on_platform, slug=slug)
 
 
 def revision_path(url: str, commit: str) -> Path:

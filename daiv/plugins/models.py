@@ -10,7 +10,13 @@ from django.utils.translation import gettext_lazy as _
 
 from django_extensions.db.models import TimeStampedModel
 
-from plugins.constants import PLUGIN_NAME_RE
+from plugins.constants import (
+    MAX_DESCRIPTION_CHARS,
+    MAX_PLUGIN_PATH_CHARS,
+    MAX_REPO_URL_CHARS,
+    MAX_VERSION_CHARS,
+    PLUGIN_NAME_RE,
+)
 
 
 class PluginQuerySet(models.QuerySet):
@@ -58,10 +64,10 @@ class Plugin(TimeStampedModel):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     name = models.SlugField(_("name"), max_length=80, validators=[RegexValidator(regex=PLUGIN_NAME_RE)])
-    repo_url = models.CharField(_("repository URL"), max_length=500)
-    plugin_path = models.CharField(_("plugin path"), max_length=255, blank=True, default="")
-    description = models.CharField(_("description"), max_length=1024, blank=True, default="")
-    version = models.CharField(_("version"), max_length=64, blank=True, default="")
+    repo_url = models.CharField(_("repository URL"), max_length=MAX_REPO_URL_CHARS)
+    plugin_path = models.CharField(_("plugin path"), max_length=MAX_PLUGIN_PATH_CHARS, blank=True, default="")
+    description = models.CharField(_("description"), max_length=MAX_DESCRIPTION_CHARS, blank=True, default="")
+    version = models.CharField(_("version"), max_length=MAX_VERSION_CHARS, blank=True, default="")
     installed_commit = models.CharField(_("installed commit"), max_length=40)
     contents = models.JSONField(_("contents"), default=dict, blank=True)
     is_active = models.BooleanField(_("active"), default=True)
