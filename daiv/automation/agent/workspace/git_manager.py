@@ -305,6 +305,20 @@ class GitManager:
         await self._git("add", "-A")
         await self._git("commit", "-m", message)
 
+    async def stash_all(self, message: str) -> bool:
+        """Stash tracked and untracked changes. ``False`` when there was nothing to stash."""
+        result = await self._git("stash", "push", "--include-untracked", "-m", message)
+        return "No local changes to save" not in result.output
+
+    async def restore_stash(self) -> None:
+        """Discard whatever is in the tree and pop the newest stash back, index included.
+
+        A failed pop raises and leaves the stash entry in place.
+        """
+        await self._git("reset", "--hard", "HEAD")
+        await self._git("clean", "-fd")
+        await self._git("stash", "pop", "--index")
+
     async def head_sha(self) -> str:
         """The full sha of the current ``HEAD``.
 

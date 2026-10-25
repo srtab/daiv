@@ -1011,3 +1011,35 @@ async def test_head_sha_refuses_output_that_is_not_a_sha() -> None:
     gm, _ = _sandbox_manager({"rev-parse HEAD": (0, "HEAD\n")})
     with pytest.raises(GitCommandError):
         await gm.head_sha()
+
+
+# ---------------------------------------------------------------------------
+# stash_all / restore_stash
+# ---------------------------------------------------------------------------
+
+
+async def test_stash_all_returns_true_when_changes_stashed() -> None:
+    gm, client = _sandbox_manager({"stash push": (0, "Saved working directory and index state On main: m")})
+    assert await gm.stash_all("m") is True
+    assert client.ran("stash push --include-untracked -m m")
+
+
+async def test_stash_all_returns_false_when_clean() -> None:
+    gm, _ = _sandbox_manager({"stash push": (0, "No local changes to save")})
+    assert await gm.stash_all("m") is False
+
+
+async def test_restore_stash_runs_reset_clean_pop_in_order() -> None:
+    gm, client = _sandbox_manager()
+    await gm.restore_stash()
+    assert [c.removeprefix("git -C /workspace/repo ") for c in client.commands] == [
+        "reset --hard HEAD",
+        "clean -fd",
+        "stash pop --index",
+    ]
+
+
+async def test_restore_stash_raises_when_pop_fails() -> None:
+    gm, _ = _sandbox_manager({"stash pop": (1, "CONFLICT")})
+    with pytest.raises(GitCommandError):
+        await gm.restore_stash()
