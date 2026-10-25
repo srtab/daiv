@@ -32,7 +32,7 @@ def contents(name="demo", version="1", skills=(), commands=(), agents=()):
 
 
 def inspection(name="demo", path="."):
-    candidate = PluginCandidate(name=name, plugin_path=path, description="", version="", supported=True, reason="")
+    candidate = PluginCandidate(name=name, plugin_path=path, description="", version="", reason="")
     return RepoInspection(marketplace_name="m", candidates=(candidate,))
 
 
@@ -45,7 +45,6 @@ def data_path(tmp_path, monkeypatch):
 @pytest.fixture
 def client():
     client = MagicMock()
-    client.repository_visibility.return_value = "private"
     client.user_can_read.return_value = True
     with patch("plugins.services.RepoClient.create_instance", return_value=client):
         yield client
@@ -97,17 +96,6 @@ def test_inspect_private_platform_repo_denied_for_non_reader(member_user, fetch,
 
     fetch.materialize.assert_not_called()
     client.user_can_read.assert_called_once_with("group/repo", uid=7, username="mem")
-
-
-@pytest.mark.django_db
-def test_inspect_public_repo_needs_no_check(member_user, fetch, client, identity):
-    client.repository_visibility.return_value = "public"
-
-    location, commit, found = inspect_url(URL, user=member_user)
-
-    assert (location, commit) == (PLATFORM, SHA)
-    assert found.candidates
-    client.user_can_read.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -219,8 +207,8 @@ def test_install_unknown_path_rejected(admin_user, fetch, client):
 
 @pytest.mark.django_db
 def test_install_root_plugin_listed_beside_external_entry(admin_user, fetch, client):
-    root = PluginCandidate(name="demo", plugin_path="", description="", version="", supported=True, reason="")
-    external = PluginCandidate(name="ext", plugin_path="", description="", version="", supported=False, reason="no")
+    root = PluginCandidate(name="demo", plugin_path="", description="", version="", reason="")
+    external = PluginCandidate(name="ext", plugin_path="", description="", version="", reason="no")
 
     with patch("plugins.services.inspect_repo", return_value=RepoInspection("m", (root, external))):
         (plugin,) = install(raw_url=URL, commit=SHA, plugin_paths=[""], scope=Plugin.Scope.GLOBAL, user=admin_user)

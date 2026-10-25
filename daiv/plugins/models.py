@@ -17,6 +17,7 @@ from plugins.constants import (
     MAX_VERSION_CHARS,
     PLUGIN_NAME_RE,
 )
+from plugins.manifest import PluginContents
 
 
 class PluginQuerySet(models.QuerySet):
@@ -39,13 +40,11 @@ class PluginQuerySet(models.QuerySet):
 
     def manageable_get(self, user, pk):
         plugin = get_object_or_404(self, pk=pk)
-        if plugin.scope == Plugin.Scope.GLOBAL:
-            if not user.is_admin:
-                raise PermissionDenied("Admin required for global plugins")
+        if plugin.can_manage(user):
             return plugin
-        if plugin.user_id != user.id and not user.is_admin:
-            raise Http404("Not found")
-        return plugin
+        if plugin.scope == Plugin.Scope.GLOBAL:
+            raise PermissionDenied("Admin required for global plugins")
+        raise Http404("Not found")
 
     def loadable(self):
         return self.filter(is_active=True, access_lost_at__isnull=True).exclude(installed_commit="")
@@ -99,6 +98,15 @@ class Plugin(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.name
+
+    def can_manage(self, user) -> bool:
+        return user.is_admin or self.user_id == user.id
+
+    def parsed_contents(self) -> PluginContents | None:
+        try:
+            return PluginContents.from_json(self.contents)
+        except KeyError, TypeError:
+            return None
 
 
 class PluginOptOut(TimeStampedModel):

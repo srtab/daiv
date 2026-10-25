@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from plugins.runtime import ResolvedPlugin
 
     from automation.agent.workspace.session import SandboxSession
+    from core.sandbox.schemas import RunCommandsResponse
 
 logger = logging.getLogger("daiv.tools")
 
@@ -60,6 +61,10 @@ def _fingerprint(files: Iterable[PluginFile]) -> str:
 
 def _read_uploads(files: Sequence[PluginFile]) -> list[tuple[str, bytes]]:
     return [(file.target, file.host_path.read_bytes()) for file in files]
+
+
+def _succeeded(response: RunCommandsResponse) -> bool:
+    return bool(response.results) and all(result.exit_code == 0 for result in response.results)
 
 
 class SandboxWorkspace:
@@ -125,7 +130,7 @@ class SandboxWorkspace:
             return []
 
         removal = await self.bash.run_commands([f"rm -rf {PLUGINS_PATH}"], fail_fast=True)
-        if any(result.exit_code != 0 for result in removal.results) or not removal.results:
+        if not _succeeded(removal):
             return ["The plugins could not be provisioned: the previous plugin files could not be removed"]
         errors: list[str] = []
         for listing in listings:
@@ -141,7 +146,7 @@ class SandboxWorkspace:
             chmod = await self.bash.run_commands(
                 ["chmod +x " + " ".join(shlex.quote(path) for path in executables)], fail_fast=False
             )
-            if any(result.exit_code != 0 for result in chmod.results) or not chmod.results:
+            if not _succeeded(chmod):
                 errors.append("The plugins could not be provisioned: their scripts could not be made executable")
         return errors
 

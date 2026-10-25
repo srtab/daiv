@@ -1,6 +1,6 @@
 {% load i18n %}
 {% comment %}One-field POST switch. Params: `action` (URL), `field` (POST name), `checked`,
-   `label` (accessible name), optional `disabled` and `next` ("detail" or "list").
+   `label` (accessible name), optional `disabled` and `next` ("detail").
    The hidden "off" is overridden by the checkbox's "on" when it is checked.{% endcomment %}
 <form method="post" action="{{ action }}" x-data @change="$el.submit()">
     {% csrf_token %}

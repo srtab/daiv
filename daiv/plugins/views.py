@@ -14,20 +14,13 @@ from django.views.generic import TemplateView
 from codebase.clients import RepoClient
 from core.mixins import AdminRequiredMixin
 from plugins import services
-from plugins.fetch import revision_dir
+from plugins.fetch import revision_path
 from plugins.forms import InstallForm, RepoURLForm
 from plugins.manifest import ManifestError, PluginContents, read_plugin
 from plugins.models import Plugin, PluginOptOut
 from plugins.tasks import update_plugin_task
 
 ACCESS_LOST_REASON = _("You can no longer read this repository on the platform.")
-
-
-def _contents(plugin: Plugin) -> PluginContents | None:
-    try:
-        return PluginContents.from_json(plugin.contents)
-    except KeyError, TypeError:
-        return None
 
 
 def _summary(contents: PluginContents | None) -> str:
@@ -72,7 +65,7 @@ def _decorate(plugins, *, opted_out_ids=frozenset()):
     for plugin in plugins:
         plugin.source_display = _source(plugin)
         plugin.short_commit = plugin.installed_commit[:7]
-        plugin.contents_summary = _summary(_contents(plugin))
+        plugin.contents_summary = _summary(plugin.parsed_contents())
         plugin.status_label, plugin.status_class, plugin.status_detail = _status(
             plugin, opted_out=plugin.pk in opted_out_ids
         )
@@ -94,12 +87,15 @@ def _list_url_for(plugin: Plugin) -> str:
     return reverse("plugins:global_list" if plugin.scope == Plugin.Scope.GLOBAL else "plugins:list")
 
 
-def _after_action(request, plugin: Plugin) -> str:
+def _after_action(request, plugin: Plugin, *, default: str | None = None) -> str:
     if request.POST.get("next") == "detail":
         return reverse("plugins:detail", args=[plugin.pk])
-    if request.POST.get("next") == "list":
-        return reverse("plugins:list")
-    return _list_url_for(plugin)
+    return default or _list_url_for(plugin)
+
+
+def _switch_value(request, param: str) -> bool | None:
+    """The on/off a ``_switch.html`` form posted for ``param``, or None when it posted anything else."""
+    return {"on": True, "off": False}.get(request.POST.get(param))
 
 
 class PluginListView(LoginRequiredMixin, TemplateView):
@@ -136,7 +132,7 @@ class PluginDetailView(LoginRequiredMixin, View):
                 PluginOptOut.objects.filter(user=request.user, plugin=plugin).values_list("plugin_id", flat=True)
             ),
         )
-        contents = _contents(plugin)
+        contents = plugin.parsed_contents()
         groups = []
         if contents:
             groups = [
@@ -144,8 +140,6 @@ class PluginDetailView(LoginRequiredMixin, View):
                 (_("Commands"), contents.commands),
                 (_("Agents"), contents.agents),
             ]
-        can_manage = plugin.scope == Plugin.Scope.USER and (plugin.user_id == request.user.id or request.user.is_admin)
-        can_manage = can_manage or (plugin.scope == Plugin.Scope.GLOBAL and request.user.is_admin)
         return render(
             request,
             "plugins/detail.html",
@@ -153,7 +147,7 @@ class PluginDetailView(LoginRequiredMixin, View):
                 "plugin": plugin,
                 "groups": groups,
                 "skipped": contents.skipped if contents else (),
-                "can_manage": can_manage,
+                "can_manage": plugin.can_manage(request.user),
                 "is_global": plugin.scope == Plugin.Scope.GLOBAL,
                 "check_error": plugin.last_error.rstrip("."),
             },
@@ -167,10 +161,10 @@ class _ToggleView(LoginRequiredMixin, View):
 
     def post(self, request, pk):
         plugin = Plugin.objects.manageable_get(request.user, pk)
-        value = request.POST.get(self.param)
-        if value not in {"on", "off"}:
+        value = _switch_value(request, self.param)
+        if value is None:
             return HttpResponseBadRequest("invalid value")
-        setattr(plugin, self.field, value == "on")
+        setattr(plugin, self.field, value)
         plugin.save(update_fields=[self.field, "modified"])
         return redirect(_after_action(request, plugin))
 
@@ -200,18 +194,14 @@ class PluginSetOptOutView(LoginRequiredMixin, View):
 
     def post(self, request, pk):
         plugin = Plugin.objects.scoped_get(request.user, pk)
-        value = request.POST.get("use")
-        if plugin.scope != Plugin.Scope.GLOBAL or value not in {"on", "off"}:
+        use = _switch_value(request, "use")
+        if plugin.scope != Plugin.Scope.GLOBAL or use is None:
             return HttpResponseBadRequest("invalid request")
-        if value == "off":
-            PluginOptOut.objects.get_or_create(user=request.user, plugin=plugin)
-        else:
+        if use:
             PluginOptOut.objects.filter(user=request.user, plugin=plugin).delete()
-        return redirect(
-            reverse("plugins:detail", args=[plugin.pk])
-            if request.POST.get("next") == "detail"
-            else reverse("plugins:list")
-        )
+        else:
+            PluginOptOut.objects.get_or_create(user=request.user, plugin=plugin)
+        return redirect(_after_action(request, plugin, default=reverse("plugins:list")))
 
 
 class PluginDeleteView(LoginRequiredMixin, View):
@@ -253,7 +243,7 @@ def _picker_rows(location, commit, candidates) -> list[dict]:
         if candidate.supported:
             try:
                 contents = read_plugin(
-                    revision_dir(location, commit), candidate.plugin_path, fallback_name=candidate.name
+                    revision_path(location.url, commit), candidate.plugin_path, fallback_name=candidate.name
                 )
             except ManifestError as exc:
                 row["selectable"], row["reason"] = False, str(exc)

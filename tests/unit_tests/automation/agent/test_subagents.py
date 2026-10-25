@@ -1027,7 +1027,7 @@ class TestPluginSubagents:
             )
 
         assert [s["name"] for s in result] == ["p:good"]
-        assert "p:gone" in caplog.text
+        assert "/plugins/p/agents/gone.md" in caplog.text
 
     async def test_plugin_agents_empty_when_workspace_not_ready(self, runtime):
         from plugins.runtime import PluginAgentRef

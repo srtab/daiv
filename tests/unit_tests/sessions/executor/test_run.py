@@ -12,7 +12,6 @@ from django.urls import reverse
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
-from plugins.runtime import ResolvedPlugin
 from redis.exceptions import RedisError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 from redisvl.exceptions import RedisSearchError
@@ -43,6 +42,7 @@ from tests.unit_tests.conftest import (
     sandbox_spec,
     site_snapshot,
 )
+from tests.unit_tests.plugins.helpers import resolved_plugin
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 from tests.unit_tests.sessions.executor.conftest import SITE_URL, agent_stack, disk_ctx, make_spec, resolved_to
 
@@ -629,17 +629,8 @@ async def test_it_hands_the_webhook_context_to_the_clone():
     assert stack.context_kwargs["fallback_ref_on_missing"] is True
 
 
-def _plugin(tmp_path, name: str = "acme", files: dict[str, str] | None = None) -> ResolvedPlugin:
-    host_root = tmp_path / name
-    host_root.mkdir()
-    for relpath, text in (files or {}).items():
-        (host_root / relpath).parent.mkdir(parents=True, exist_ok=True)
-        (host_root / relpath).write_text(text)
-    return ResolvedPlugin(name=name, commit="c1", host_root=host_root, skills=(), agents=())
-
-
 async def test_run_resolves_plugins_for_acting_user(tmp_path):
-    plugin = _plugin(tmp_path)
+    plugin = resolved_plugin(tmp_path)
 
     with agent_stack(_agent()) as stack:
         stack.resolve_plugins.return_value = [plugin]
@@ -668,7 +659,7 @@ async def test_webhook_run_resolves_plugins_for_triggering_user_without_acting_u
 
 
 async def test_run_provisions_before_building_agent(tmp_path):
-    plugin = _plugin(tmp_path, files={"skills/x/SKILL.md": "hi\n"})
+    plugin = resolved_plugin(tmp_path, files={"skills/x/SKILL.md": "hi\n"})
     read_at_build = []
 
     with agent_stack(_agent()) as stack:
@@ -690,7 +681,7 @@ async def test_run_provisions_before_building_agent(tmp_path):
 
 async def test_a_sandbox_run_provisions_plugins_once_its_container_is_acquired(tmp_path):
     """Provisioning an unacquired sandbox is a no-op, so the files would never reach the container."""
-    plugin = _plugin(tmp_path)
+    plugin = resolved_plugin(tmp_path)
     provisioned = []
 
     async def _provision(workspace, plugins):
@@ -741,7 +732,7 @@ async def test_a_plugin_resolution_failure_runs_the_turn_without_plugins(caplog)
 
 
 async def test_a_plugin_provisioning_failure_runs_the_turn_without_plugins(tmp_path, caplog):
-    plugin = _plugin(tmp_path)
+    plugin = resolved_plugin(tmp_path)
     provision = AsyncMock(side_effect=RuntimeError("sandbox unreachable"))
 
     with (

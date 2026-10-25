@@ -7,7 +7,6 @@ import httpx
 import pytest
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.protocol import FileUploadResponse
-from plugins.runtime import ResolvedPlugin
 from skills.constants import PLUGINS_PATH
 
 from automation.agent.constants import WORKSPACE_PATH
@@ -23,6 +22,7 @@ from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, Sandb
 from automation.agent.workspace.session import SandboxSession
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import FakeSandboxClient, acquired_session, sandbox_spec
+from tests.unit_tests.plugins.helpers import resolved_plugin
 
 
 def test_the_files_the_shell_and_git_all_reach_the_one_session():
@@ -108,14 +108,6 @@ async def test_a_sandbox_download_is_capped_inside_the_container():
     assert response.error == DOWNLOAD_TOO_LARGE
 
 
-def _plugin(tmp_path, name, files, commit="c1"):
-    root = tmp_path / name
-    for relpath, text in files.items():
-        (root / relpath).parent.mkdir(parents=True, exist_ok=True)
-        (root / relpath).write_text(text)
-    return ResolvedPlugin(name=name, commit=commit, host_root=root, skills=(), agents=())
-
-
 def _result(output="", exit_code=0):
     return RunCommandsResponse(results=[RunCommandResult(command="c", output=output, exit_code=exit_code)])
 
@@ -160,8 +152,8 @@ async def test_sandbox_provision_skips_when_the_files_already_match(tmp_path):
     sandbox = _PluginSandbox({"/workspace/plugins/a/x.md": b"x", "/workspace/plugins/b/y.md": b"y"})
 
     errors = await _plugin_workspace(sandbox).provision_plugins([
-        _plugin(tmp_path, "b", {"y.md": "y"}),
-        _plugin(tmp_path, "a", {"x.md": "x"}),
+        resolved_plugin(tmp_path, "b", {"y.md": "y"}),
+        resolved_plugin(tmp_path, "a", {"x.md": "x"}),
     ])
 
     assert errors == []
@@ -171,7 +163,7 @@ async def test_sandbox_provision_skips_when_the_files_already_match(tmp_path):
 
 async def test_sandbox_provision_replaces_another_users_plugins(tmp_path):
     sandbox = _PluginSandbox({"/workspace/plugins/other/x.md": b"x"})
-    plugin = _plugin(tmp_path, "acme", {"skills/s/SKILL.md": "s", "bin/run.sh": "#!/bin/sh"})
+    plugin = resolved_plugin(tmp_path, "acme", {"skills/s/SKILL.md": "s", "bin/run.sh": "#!/bin/sh"})
     (plugin.host_root / "bin/run.sh").chmod(0o755)
 
     errors = await _plugin_workspace(sandbox).provision_plugins([plugin])
@@ -191,7 +183,9 @@ async def test_sandbox_provision_replaces_another_users_plugins(tmp_path):
 async def test_sandbox_provision_restores_a_file_changed_in_an_earlier_turn(tmp_path):
     sandbox = _PluginSandbox({"/workspace/plugins/acme/SKILL.md": b"injected"})
 
-    errors = await _plugin_workspace(sandbox).provision_plugins([_plugin(tmp_path, "acme", {"SKILL.md": "real"})])
+    errors = await _plugin_workspace(sandbox).provision_plugins([
+        resolved_plugin(tmp_path, "acme", {"SKILL.md": "real"})
+    ])
 
     assert errors == []
     assert sandbox.files == {"/workspace/plugins/acme/SKILL.md": b"real"}
@@ -217,7 +211,7 @@ async def test_sandbox_provision_without_plugins_on_a_clean_sandbox_only_checks(
 async def test_sandbox_provision_reprovisions_when_the_fingerprint_fails(tmp_path):
     sandbox = _PluginSandbox({"/workspace/plugins/acme/a.md": b"a"}, failing=("find ",))
 
-    errors = await _plugin_workspace(sandbox).provision_plugins([_plugin(tmp_path, "acme", {"a.md": "a"})])
+    errors = await _plugin_workspace(sandbox).provision_plugins([resolved_plugin(tmp_path, "acme", {"a.md": "a"})])
 
     assert errors == []
     assert sandbox.uploads == ["/workspace/plugins/acme/a.md"]
@@ -231,7 +225,7 @@ async def test_sandbox_provision_reports_upload_errors(tmp_path):
 
     sandbox.aupload_files = failing_upload
 
-    errors = await _plugin_workspace(sandbox).provision_plugins([_plugin(tmp_path, "acme", {"a.md": "a"})])
+    errors = await _plugin_workspace(sandbox).provision_plugins([resolved_plugin(tmp_path, "acme", {"a.md": "a"})])
 
     assert errors == ["Plugin file /workspace/plugins/acme/a.md could not be provisioned: boom"]
 
@@ -240,7 +234,7 @@ async def test_sandbox_provision_noop_when_not_ready(tmp_path):
     workspace = SandboxWorkspace(SandboxSession(FakeSandboxClient.opened(), sandbox_spec()))
     workspace.bash = AsyncMock(spec=SandboxFileBackend)
 
-    assert await workspace.provision_plugins([_plugin(tmp_path, "acme", {"a.md": "a"})]) == []
+    assert await workspace.provision_plugins([resolved_plugin(tmp_path, "acme", {"a.md": "a"})]) == []
 
     assert workspace.bash.mock_calls == []
 
@@ -248,7 +242,7 @@ async def test_sandbox_provision_noop_when_not_ready(tmp_path):
 @pytest.mark.parametrize("failing", ["rm ", "chmod "])
 async def test_sandbox_provision_reports_a_failed_command(tmp_path, failing):
     sandbox = _PluginSandbox({"/workspace/plugins/old/x.md": b"x"}, failing=(failing,))
-    plugin = _plugin(tmp_path, "acme", {"run.sh": "#!/bin/sh"})
+    plugin = resolved_plugin(tmp_path, "acme", {"run.sh": "#!/bin/sh"})
     (plugin.host_root / "run.sh").chmod(0o755)
 
     errors = await _plugin_workspace(sandbox).provision_plugins([plugin])
@@ -258,7 +252,7 @@ async def test_sandbox_provision_reports_a_failed_command(tmp_path, failing):
 
 
 def test_fingerprint_matches_what_the_container_command_prints(tmp_path):
-    plugin = _plugin(tmp_path / "host", "acme", {"b.md": "same", "a.md": "same", "sub/c.sh": "#!/bin/sh"})
+    plugin = resolved_plugin(tmp_path / "host", "acme", {"b.md": "same", "a.md": "same", "sub/c.sh": "#!/bin/sh"})
     mounted = tmp_path / "workspace" / "plugins"
     shutil.copytree(plugin.host_root, mounted / "acme")
 

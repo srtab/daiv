@@ -7,6 +7,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def plugin_workspace_root(name: str) -> str:
+    return f"{PLUGINS_PATH}/{name}"
+
+
 @dataclass(frozen=True)
 class PluginSkillRef:
     name: str
@@ -26,11 +30,10 @@ class PluginAgentRef:
 @dataclass(frozen=True)
 class ResolvedPlugin:
     name: str
-    commit: str
     host_root: Path
     skills: tuple[PluginSkillRef, ...]
     agents: tuple[PluginAgentRef, ...]
 
     @property
     def workspace_root(self) -> str:
-        return f"{PLUGINS_PATH}/{self.name}"
+        return plugin_workspace_root(self.name)

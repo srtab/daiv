@@ -92,14 +92,19 @@ class PluginsMiddleware(AgentMiddleware):
             "skills": {skill.name: skill.description for skill in skills},
             "agents": {agent.name: agent.description for agent in agents},
         }
+        self._stripped_task: tuple[BaseTool, BaseTool] | None = None
 
     def _without_plugin_agents(self, tools: Sequence[Any]) -> list[Any]:
-        stripped = []
-        for tool in tools:
-            if isinstance(tool, BaseTool) and tool.name == TASK_TOOL_NAME:
-                tool = tool.model_copy(update={"description": _strip_agents(tool.description, self._agents)})
-            stripped.append(tool)
-        return stripped
+        return [
+            self._strip_task(tool) if isinstance(tool, BaseTool) and tool.name == TASK_TOOL_NAME else tool
+            for tool in tools
+        ]
+
+    def _strip_task(self, task: BaseTool) -> BaseTool:
+        if self._stripped_task is None or self._stripped_task[0] is not task:
+            stripped = task.model_copy(update={"description": _strip_agents(task.description, self._agents)})
+            self._stripped_task = (task, stripped)
+        return self._stripped_task[1]
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]

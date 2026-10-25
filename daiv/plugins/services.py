@@ -14,6 +14,7 @@ from codebase.clients.base import RepoClient
 from codebase.conf import settings as codebase_settings
 
 from .fetch import (
+    NO_ACCESS,
     SHA_RE,
     FetchError,
     RepoLocation,
@@ -25,7 +26,7 @@ from .fetch import (
 )
 from .manifest import ManifestError, PluginContents, RepoInspection, inspect_repo, read_plugin
 from .models import Plugin
-from .runtime import PluginAgentRef, PluginSkillRef, ResolvedPlugin
+from .runtime import PluginAgentRef, PluginSkillRef, ResolvedPlugin, plugin_workspace_root
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -42,15 +43,10 @@ OWNED_FIELDS = (
     "last_error",
     "failed_commit",
 )
-NO_ACCESS = "DAIV can't read this repository."
 
 
 class InstallError(Exception):
     """A failure to install a plugin, with a message safe to show to the user."""
-
-
-def _is_public(location: RepoLocation) -> bool:
-    return RepoClient.create_instance().repository_visibility(location.slug) == "public"
 
 
 def _user_can_read(user_id: int, location: RepoLocation) -> bool:
@@ -64,7 +60,7 @@ def _require_read_access(user, location: RepoLocation) -> None:
     if not location.on_platform:
         return
     try:
-        allowed = _is_public(location) or _user_can_read(user.id, location)
+        allowed = _user_can_read(user.id, location)
     except Exception:
         logger.warning("Could not verify read access to %s", location.slug, exc_info=True)
         raise InstallError(NO_ACCESS) from None
@@ -79,16 +75,20 @@ def _parse(raw_url: str) -> RepoLocation:
         raise InstallError(str(exc)) from exc
 
 
+def _checkout(location: RepoLocation, commit: str) -> tuple[str, Path]:
+    """The files of ``commit``, cloned only when they aren't on disk yet (a reused copy is touched so
+    ``prune_revisions`` keeps it); a clone always takes the remote HEAD, so the commit returned can differ."""
+    root = revision_path(location.url, commit)
+    if root.is_dir():
+        os.utime(root)
+        return commit, root
+    return materialize(location)
+
+
 def _revision(location: RepoLocation, commit: str = "") -> tuple[str, Path]:
-    """The files of ``commit`` (default: the remote HEAD), cloned only when they aren't on disk yet; a clone always
-    takes the remote HEAD, so the commit returned can differ from the one asked for."""
+    """The files of ``commit``, or of the remote HEAD when it is empty."""
     try:
-        commit = commit or resolve_head(location)
-        root = revision_path(location.url, commit)
-        if root.is_dir():
-            os.utime(root)
-            return commit, root
-        return materialize(location)
+        return _checkout(location, commit or resolve_head(location))
     except FetchError as exc:
         raise InstallError(str(exc)) from exc
 
@@ -166,7 +166,7 @@ def _needs_access_check(plugin: Plugin, location: RepoLocation) -> bool:
 
 def _refresh_access(plugin: Plugin, location: RepoLocation) -> None:
     try:
-        allowed = True if _is_public(location) else _user_can_read(plugin.user_id, location)
+        allowed = _user_can_read(plugin.user_id, location)
     except Exception:
         logger.warning("Could not re-check access for plugin %s", plugin.pk, exc_info=True)
         return
@@ -229,13 +229,8 @@ def _update(plugin: Plugin, *, force: bool, head: str | None) -> None:
     if head == plugin.failed_commit and not force:
         return
 
-    target = revision_path(location.url, head)
     try:
-        if target.is_dir():
-            os.utime(target)
-            commit, root = head, target
-        else:
-            commit, root = materialize(location)
+        commit, root = _checkout(location, head)
     except FetchError as exc:
         _record_failure(plugin, str(exc), head)
         return
@@ -323,16 +318,12 @@ def _resolve(plugin: Plugin) -> ResolvedPlugin | None:
     if not host_root.is_dir():
         logger.warning("Plugin %s is missing its files at %s", plugin.pk, host_root)
         return None
-    try:
-        contents = PluginContents.from_json(plugin.contents)
-    except KeyError, TypeError:
+    contents = plugin.parsed_contents()
+    if contents is None:
         logger.warning("Plugin %s has unreadable contents", plugin.pk)
         return None
 
-    resolved = ResolvedPlugin(
-        name=plugin.name, commit=plugin.installed_commit, host_root=host_root, skills=(), agents=()
-    )
-    root = resolved.workspace_root
+    root = plugin_workspace_root(plugin.name)
     skills = sorted(
         (
             PluginSkillRef(f"{plugin.name}:{ref.name}", ref.description, f"{root}/{ref.path}", root)
@@ -347,10 +338,4 @@ def _resolve(plugin: Plugin) -> ResolvedPlugin | None:
         ),
         key=attrgetter("name"),
     )
-    return ResolvedPlugin(
-        name=plugin.name,
-        commit=plugin.installed_commit,
-        host_root=host_root,
-        skills=tuple(skills),
-        agents=tuple(agents),
-    )
+    return ResolvedPlugin(name=plugin.name, host_root=host_root, skills=tuple(skills), agents=tuple(agents))

@@ -28,8 +28,11 @@ class PluginCandidate:
     plugin_path: str
     description: str
     version: str
-    supported: bool
     reason: str
+
+    @property
+    def supported(self) -> bool:
+        return not self.reason
 
 
 @dataclass(frozen=True)
@@ -154,7 +157,6 @@ def inspect_repo(root: Path, *, repo_slug: str) -> RepoInspection:
             plugin_path="",
             description=_description(manifest.get("description")),
             version=_version(manifest.get("version")),
-            supported=True,
             reason="",
         )
         return RepoInspection(marketplace_name="", candidates=(candidate,))
@@ -174,9 +176,9 @@ def _candidate_from_entry(root: Path, entry: dict) -> PluginCandidate:
     version = _version(entry.get("version"))
     plugin_path = _normalise_source(entry.get("source"))
     if plugin_path is None:
-        return PluginCandidate(name, "", description, version, False, UNSUPPORTED_SOURCE_REASON)
+        return PluginCandidate(name, "", description, version, UNSUPPORTED_SOURCE_REASON)
     if len(plugin_path) > MAX_PLUGIN_PATH_CHARS:
-        return PluginCandidate(name, plugin_path, description, version, False, LONG_PATH_REASON)
+        return PluginCandidate(name, plugin_path, description, version, LONG_PATH_REASON)
 
     try:
         manifest = _read_json_object(root / plugin_path / MANIFEST_DIR / "plugin.json")
@@ -187,7 +189,6 @@ def _candidate_from_entry(root: Path, entry: dict) -> PluginCandidate:
         plugin_path=plugin_path,
         description=description or _description(manifest.get("description")),
         version=version or _version(manifest.get("version")),
-        supported=True,
         reason="",
     )
 
@@ -239,6 +240,14 @@ def _skill_dirs(plugin_dir: Path, manifest: dict) -> list[Path]:
     return list(found)
 
 
+def _name_problem(name: str, taken: list[ItemRef]) -> str | None:
+    if not PLUGIN_NAME_RE.match(name):
+        return "invalid name"
+    if any(item.name == name for item in taken):
+        return "duplicate name"
+    return None
+
+
 def _read_skills(plugin_dir: Path, manifest: dict) -> tuple[list[ItemRef], list[Skipped]]:
     skills: list[ItemRef] = []
     skipped: list[Skipped] = []
@@ -253,11 +262,8 @@ def _read_skills(plugin_dir: Path, manifest: dict) -> tuple[list[ItemRef], list[
             skipped.append(Skipped("skill", f"{skill_dir.name}: no description"))
             continue
         name = _text(meta.get("name")) or skill_dir.name
-        if not PLUGIN_NAME_RE.match(name):
-            skipped.append(Skipped("skill", f"{name}: invalid name"))
-            continue
-        if any(skill.name == name for skill in skills):
-            skipped.append(Skipped("skill", f"{name}: duplicate name"))
+        if problem := _name_problem(name, skills):
+            skipped.append(Skipped("skill", f"{name}: {problem}"))
             continue
         skills.append(ItemRef(name, description, (skill_dir / "SKILL.md").relative_to(plugin_dir).as_posix()))
     return skills, skipped
@@ -297,14 +303,11 @@ def _read_commands(plugin_dir: Path, manifest: dict, skill_names: set[str]) -> t
         except ValueError as e:
             skipped.append(Skipped("command", f"{stem}: {e}"))
             continue
-        if not PLUGIN_NAME_RE.match(stem):
-            skipped.append(Skipped("command", f"{stem}: invalid name"))
-            continue
-        if stem in skill_names:
-            skipped.append(Skipped("command", f"{stem}: same name as a skill"))
-            continue
-        if any(command.name == stem for command in commands):
-            skipped.append(Skipped("command", f"{stem}: duplicate name"))
+        problem = _name_problem(stem, commands)
+        if problem is None and stem in skill_names:
+            problem = "same name as a skill"
+        if problem:
+            skipped.append(Skipped("command", f"{stem}: {problem}"))
             continue
         description = _description(meta.get("description"))
         if not description:
@@ -333,11 +336,8 @@ def _read_agents(plugin_dir: Path, manifest: dict) -> tuple[list[ItemRef], list[
         if not name or not description:
             skipped.append(Skipped("agent", f"{path.name}: missing name or description"))
             continue
-        if not PLUGIN_NAME_RE.match(name):
-            skipped.append(Skipped("agent", f"{name}: invalid name"))
-            continue
-        if any(agent.name == name for agent in agents):
-            skipped.append(Skipped("agent", f"{name}: duplicate name"))
+        if problem := _name_problem(name, agents):
+            skipped.append(Skipped("agent", f"{name}: {problem}"))
             continue
         model = _text(meta.get("model"))
         if model.lower() in CLAUDE_MODEL_ALIASES:

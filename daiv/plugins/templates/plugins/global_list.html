@@ -16,6 +16,7 @@
 </div>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 100ms">
-    {% include "plugins/_global_plugin_rows.html" with plugins=global_plugins %}
+    {% translate "No global plugins installed." as global_empty %}
+    {% include "plugins/_plugin_rows.html" with plugins=global_plugins empty_message=global_empty kind="admin" %}
 </section>
 {% endblock app_content %}

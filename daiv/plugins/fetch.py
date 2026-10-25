@@ -13,7 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from codebase.clients.base import RepoClient
+from codebase.clients.base import GIT_NO_PROMPT_ENV, RepoClient
 from core.constants import GIT_PROXY_CA_ENV
 
 from .conf import settings
@@ -25,6 +25,7 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 INHERITED_ENV = ("PATH", *GIT_PROXY_CA_ENV)
 GIT_SAFETY_ARGS = ("-c", "http.followRedirects=false", "-c", "core.symlinks=false")
 NOT_REACHABLE = "This host is not reachable from DAIV."
+NO_ACCESS = "DAIV can't read this repository."
 CLONE_POLL_SECONDS = 0.5
 
 
@@ -83,10 +84,6 @@ def revision_path(url: str, commit: str) -> Path:
     return settings.DATA_PATH / "revisions" / digest / commit
 
 
-def revision_dir(location: RepoLocation, commit: str) -> Path:
-    return revision_path(location.url, commit)
-
-
 def resolve_head(location: RepoLocation) -> str:
     env = _git_env(location)
     output = _git(["ls-remote", location.url, "HEAD"], env)
@@ -113,7 +110,7 @@ def materialize(location: RepoLocation) -> tuple[str, Path]:
 
         shutil.rmtree(work / ".git", ignore_errors=True)
 
-        target = revision_dir(location, commit)
+        target = revision_path(location.url, commit)
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             try:
@@ -157,8 +154,8 @@ def _git_env(location: RepoLocation) -> dict[str, str]:
     env = {key: os.environ[key] for key in INHERITED_ENV if key in os.environ}
     env.update(config)
     env.update({
+        **GIT_NO_PROMPT_ENV,
         "HOME": str(home),
-        "GIT_TERMINAL_PROMPT": "0",
         "GIT_ALLOW_PROTOCOL": "https",
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": os.devnull,
@@ -169,13 +166,12 @@ def _git_env(location: RepoLocation) -> dict[str, str]:
 def _platform_credentials(slug: str) -> dict[str, str]:
     client = RepoClient.create_instance()
     try:
-        repository = client.get_repository(slug)
         if client.repository_visibility(slug) == "public":
             return {}
-        auth = client.get_git_auth_env(repository)
+        auth = client.get_git_auth_env(client.get_repository(slug))
     except Exception:
         logger.warning("Could not resolve platform access for %s", slug, exc_info=True)
-        raise FetchError("DAIV can't read this repository.") from None
+        raise FetchError(NO_ACCESS) from None
     return auth.as_env() if auth is not None else {}
 
 

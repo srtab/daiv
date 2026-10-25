@@ -278,7 +278,6 @@ def _plugin(name: str, *, skills=(), agents=()) -> ResolvedPlugin:
     root = f"/workspace/plugins/{name}"
     return ResolvedPlugin(
         name=name,
-        commit="c1",
         host_root=Path("/unused"),
         skills=tuple(PluginSkillRef(f"{name}:{s}", f"{s} skill", f"{root}/skills/{s}/SKILL.md", root) for s in skills),
         agents=tuple(PluginAgentRef(f"{name}:{a}", f"{a} agent", f"{root}/agents/{a}.md", None) for a in agents),

@@ -332,12 +332,10 @@ def _inspection(*candidates):
     return RepoInspection(marketplace_name="market", candidates=tuple(candidates))
 
 
-def _cand(name="devkit", path="plugins/devkit", supported=True, reason=""):
+def _cand(name="devkit", path="plugins/devkit", reason=""):
     from plugins.manifest import PluginCandidate
 
-    return PluginCandidate(
-        name=name, plugin_path=path, description=f"{name} desc", version="0.6.0", supported=supported, reason=reason
-    )
+    return PluginCandidate(name=name, plugin_path=path, description=f"{name} desc", version="0.6.0", reason=reason)
 
 
 def _contents(name="devkit", skills=("a", "b", "c", "d", "e")):
@@ -436,7 +434,7 @@ def test_add_unsupported_candidate_not_selectable(client, member_user):
 
     client.force_login(member_user)
     inspection = _inspection(
-        _cand(name="hooky", path="plugins/hooky", supported=False, reason="Only hooks"),
+        _cand(name="hooky", path="plugins/hooky", reason="Only hooks"),
         _cand(name="broken", path="plugins/broken"),
         _cand(),
     )

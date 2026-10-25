@@ -15,7 +15,7 @@ from plugins.fetch import (
     parse_repo_url,
     prune_revisions,
     resolve_head,
-    revision_dir,
+    revision_path,
 )
 from pydantic import SecretStr
 
@@ -271,7 +271,7 @@ def test_git_failures_become_fetch_error_without_stderr(client, error):
     assert "secret detail" not in str(exc_info.value)
 
 
-def test_materialize_moves_into_revision_dir_and_drops_git(client, data_path):
+def test_materialize_moves_into_revision_path_and_drops_git(client, data_path):
     client.get_git_auth_env.return_value = None
     run, _ = _fake_git({"skills/a/SKILL.md": "hi"})
     location = _location()
@@ -280,7 +280,7 @@ def test_materialize_moves_into_revision_dir_and_drops_git(client, data_path):
         commit, path = materialize(location)
 
     assert commit == SHA
-    assert path == revision_dir(location, SHA)
+    assert path == revision_path(location.url, SHA)
     assert path == data_path / "revisions" / path.parent.name / SHA
     assert (path / "skills/a/SKILL.md").read_text() == "hi"
     assert not (path / ".git").exists()
@@ -290,7 +290,7 @@ def test_materialize_moves_into_revision_dir_and_drops_git(client, data_path):
 def test_materialize_existing_revision_reused(client, data_path):
     client.get_git_auth_env.return_value = None
     location = _location()
-    existing = revision_dir(location, SHA)
+    existing = revision_path(location.url, SHA)
     existing.mkdir(parents=True)
     (existing / "marker").write_text("keep")
     run, _ = _fake_git({"new.txt": "new"})
@@ -471,7 +471,7 @@ def test_git_env_does_not_inherit_ambient_git_config(client, monkeypatch, data_p
 
     env = calls[0][1]["env"]
     assert "GIT_SSL_NO_VERIFY" not in env
-    assert "GIT_ASKPASS" not in env
+    assert env["GIT_ASKPASS"] == ""
     assert "GIT_CONFIG_COUNT" not in env
     assert env["https_proxy"] == "http://proxy:3128"
     assert env["HOME"] != os.environ.get("HOME")

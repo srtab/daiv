@@ -434,6 +434,6 @@ class TestReadPlugin:
         assert PluginContents.from_json(payload) == contents
 
     def test_candidate_is_frozen(self):
-        candidate = PluginCandidate("a", "", "", "", True, "")
+        candidate = PluginCandidate("a", "", "", "", "")
         with pytest.raises(AttributeError):
             candidate.name = "b"

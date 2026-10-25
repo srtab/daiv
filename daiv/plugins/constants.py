@@ -1,6 +1,6 @@
-import re
+from skills.constants import SKILL_NAME_RE
 
-PLUGIN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+PLUGIN_NAME_RE = SKILL_NAME_RE
 MAX_REPO_URL_CHARS = 500
 MAX_PLUGIN_PATH_CHARS = 255
 MAX_DESCRIPTION_CHARS = 1024

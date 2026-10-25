@@ -8,9 +8,7 @@ SHA = "bb92a77c0ffee0123456789abcdef0123456789a"
 
 
 def _candidate(name="devkit", path="plugins/devkit", supported=True):
-    return PluginCandidate(
-        name=name, plugin_path=path, description="d", version="1", supported=supported, reason="" if supported else "no"
-    )
+    return PluginCandidate(name=name, plugin_path=path, description="d", version="1", reason="" if supported else "no")
 
 
 def _form(user, data=None, candidates=None):
