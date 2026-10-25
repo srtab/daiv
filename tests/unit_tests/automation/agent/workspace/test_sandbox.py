@@ -1,14 +1,24 @@
+import hashlib
+import shutil
+import subprocess  # noqa: S404
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from deepagents.backends.composite import CompositeBackend
-from deepagents.backends.protocol import FileDownloadResponse, FileUploadResponse
+from deepagents.backends.protocol import FileUploadResponse
 from plugins.runtime import ResolvedPlugin
+from skills.constants import PLUGINS_PATH
 
 from automation.agent.constants import WORKSPACE_PATH
 from automation.agent.workspace.git_runners import SandboxGitRunner
-from automation.agent.workspace.sandbox import SandboxWorkspace
+from automation.agent.workspace.sandbox import (
+    PLUGINS_FINGERPRINT_COMMAND,
+    PluginFile,
+    SandboxWorkspace,
+    _fingerprint,
+    _plugin_files,
+)
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
@@ -106,78 +116,124 @@ def _plugin(tmp_path, name, files, commit="c1"):
     return ResolvedPlugin(name=name, commit=commit, host_root=root, skills=(), agents=())
 
 
-def _plugin_workspace(manifest: bytes | None):
+def _result(output="", exit_code=0):
+    return RunCommandsResponse(results=[RunCommandResult(command="c", output=output, exit_code=exit_code)])
+
+
+class _PluginSandbox:
+    """The container side of plugin provisioning: its ``/workspace/plugins`` files, the commands run on them and the
+    uploads, with commands starting with a ``failing`` prefix exiting 1."""
+
+    def __init__(self, files=None, failing=()):
+        self.files = dict(files or {})
+        self.failing = failing
+        self.commands = []
+        self.uploads = []
+
+    async def run_commands(self, commands, *, fail_fast):
+        (command,) = commands
+        self.commands.append(command)
+        if self.failing and command.startswith(self.failing):
+            return _result(exit_code=1)
+        if command == PLUGINS_FINGERPRINT_COMMAND:
+            listed = [
+                PluginFile(None, path, hashlib.sha256(data).hexdigest(), False) for path, data in self.files.items()
+            ]
+            return _result(f"{_fingerprint(listed)}  -\n")
+        if command.startswith("rm -rf "):
+            self.files.clear()
+        return _result()
+
+    async def aupload_files(self, files):
+        self.uploads.extend(path for path, _ in files)
+        self.files.update(files)
+        return [FileUploadResponse(path=path) for path, _ in files]
+
+
+def _plugin_workspace(sandbox):
     workspace = SandboxWorkspace(acquired_session(AsyncMock(), "sid"))
-    workspace.bash = AsyncMock(spec=SandboxFileBackend)
-    workspace.bash.adownload_files.return_value = [
-        FileDownloadResponse(path="m", content=manifest)
-        if manifest is not None
-        else FileDownloadResponse(path="m", error="file_not_found")
-    ]
-    workspace.bash.aupload_files.side_effect = lambda files: [FileUploadResponse(path=p) for p, _ in files]
-    workspace.bash.run_commands.return_value = RunCommandsResponse(
-        results=[RunCommandResult(command="c", output="", exit_code=0)]
-    )
+    workspace.bash = sandbox
     return workspace
 
 
-async def test_sandbox_provision_skips_when_manifest_matches(tmp_path):
-    workspace = _plugin_workspace(b"a@c1\nb@c1")
+async def test_sandbox_provision_skips_when_the_files_already_match(tmp_path):
+    sandbox = _PluginSandbox({"/workspace/plugins/a/x.md": b"x", "/workspace/plugins/b/y.md": b"y"})
 
-    errors = await workspace.provision_plugins([
-        _plugin(tmp_path, "b", {"x.md": "x"}),
+    errors = await _plugin_workspace(sandbox).provision_plugins([
+        _plugin(tmp_path, "b", {"y.md": "y"}),
         _plugin(tmp_path, "a", {"x.md": "x"}),
     ])
 
     assert errors == []
-    workspace.bash.run_commands.assert_not_awaited()
-    workspace.bash.aupload_files.assert_not_awaited()
+    assert sandbox.commands == [PLUGINS_FINGERPRINT_COMMAND]
+    assert sandbox.uploads == []
 
 
-async def test_sandbox_provision_replaces_on_user_change(tmp_path):
-    workspace = _plugin_workspace(b"other@c9")
+async def test_sandbox_provision_replaces_another_users_plugins(tmp_path):
+    sandbox = _PluginSandbox({"/workspace/plugins/other/x.md": b"x"})
     plugin = _plugin(tmp_path, "acme", {"skills/s/SKILL.md": "s", "bin/run.sh": "#!/bin/sh"})
     (plugin.host_root / "bin/run.sh").chmod(0o755)
 
-    errors = await workspace.provision_plugins([plugin])
+    errors = await _plugin_workspace(sandbox).provision_plugins([plugin])
 
     assert errors == []
-    commands = [call.args[0] for call in workspace.bash.run_commands.await_args_list]
-    assert commands[0] == ["rm -rf /workspace/plugins"]
-    assert commands[1] == ["chmod +x /workspace/plugins/acme/bin/run.sh"]
-    uploads = [path for call in workspace.bash.aupload_files.await_args_list for path, _ in call.args[0]]
-    assert uploads == [
-        "/workspace/plugins/acme/bin/run.sh",
-        "/workspace/plugins/acme/skills/s/SKILL.md",
-        "/workspace/plugins/.daiv-manifest",
+    assert sandbox.commands == [
+        PLUGINS_FINGERPRINT_COMMAND,
+        "rm -rf /workspace/plugins",
+        "chmod +x /workspace/plugins/acme/bin/run.sh",
     ]
-    assert workspace.bash.aupload_files.await_args_list[-1].args[0][0][1] == b"acme@c1"
-    order = [c[0] for c in workspace.bash.mock_calls if c[0] in {"run_commands", "aupload_files"}]
-    assert order == ["run_commands", "aupload_files", "run_commands", "aupload_files"]
+    assert sandbox.files == {
+        "/workspace/plugins/acme/bin/run.sh": b"#!/bin/sh",
+        "/workspace/plugins/acme/skills/s/SKILL.md": b"s",
+    }
+
+
+async def test_sandbox_provision_restores_a_file_changed_in_an_earlier_turn(tmp_path):
+    sandbox = _PluginSandbox({"/workspace/plugins/acme/SKILL.md": b"injected"})
+
+    errors = await _plugin_workspace(sandbox).provision_plugins([_plugin(tmp_path, "acme", {"SKILL.md": "real"})])
+
+    assert errors == []
+    assert sandbox.files == {"/workspace/plugins/acme/SKILL.md": b"real"}
 
 
 async def test_sandbox_provision_clears_the_previous_users_plugins_for_a_turn_without_any():
-    workspace = _plugin_workspace(b"acme@c1")
+    sandbox = _PluginSandbox({"/workspace/plugins/acme/x.md": b"x"})
 
-    errors = await workspace.provision_plugins([])
+    assert await _plugin_workspace(sandbox).provision_plugins([]) == []
+
+    assert sandbox.commands == [PLUGINS_FINGERPRINT_COMMAND, "rm -rf /workspace/plugins"]
+    assert (sandbox.files, sandbox.uploads) == ({}, [])
+
+
+async def test_sandbox_provision_without_plugins_on_a_clean_sandbox_only_checks():
+    sandbox = _PluginSandbox()
+
+    assert await _plugin_workspace(sandbox).provision_plugins([]) == []
+
+    assert sandbox.commands == [PLUGINS_FINGERPRINT_COMMAND]
+
+
+async def test_sandbox_provision_reprovisions_when_the_fingerprint_fails(tmp_path):
+    sandbox = _PluginSandbox({"/workspace/plugins/acme/a.md": b"a"}, failing=("find ",))
+
+    errors = await _plugin_workspace(sandbox).provision_plugins([_plugin(tmp_path, "acme", {"a.md": "a"})])
 
     assert errors == []
-    assert [c.args[0] for c in workspace.bash.run_commands.await_args_list] == [["rm -rf /workspace/plugins"]]
-    assert [c.args[0] for c in workspace.bash.aupload_files.await_args_list] == [
-        [("/workspace/plugins/.daiv-manifest", b"")]
-    ]
+    assert sandbox.uploads == ["/workspace/plugins/acme/a.md"]
 
 
-async def test_sandbox_provision_withholds_manifest_after_upload_error(tmp_path):
-    workspace = _plugin_workspace(None)
-    workspace.bash.aupload_files.side_effect = lambda files: [
-        FileUploadResponse(path=p, error="boom") for p, _ in files
-    ]
+async def test_sandbox_provision_reports_upload_errors(tmp_path):
+    sandbox = _PluginSandbox()
 
-    errors = await workspace.provision_plugins([_plugin(tmp_path, "acme", {"a.md": "a"})])
+    async def failing_upload(files):
+        return [FileUploadResponse(path=path, error="boom") for path, _ in files]
+
+    sandbox.aupload_files = failing_upload
+
+    errors = await _plugin_workspace(sandbox).provision_plugins([_plugin(tmp_path, "acme", {"a.md": "a"})])
 
     assert errors == ["Plugin file /workspace/plugins/acme/a.md could not be provisioned: boom"]
-    assert workspace.bash.aupload_files.await_count == 1
 
 
 async def test_sandbox_provision_noop_when_not_ready(tmp_path):
@@ -189,19 +245,24 @@ async def test_sandbox_provision_noop_when_not_ready(tmp_path):
     assert workspace.bash.mock_calls == []
 
 
-@pytest.mark.parametrize(("failing_call", "uploads"), [(0, 0), (1, 1)], ids=["rm", "chmod"])
-async def test_sandbox_provision_withholds_manifest_when_a_command_fails(tmp_path, failing_call, uploads):
-    workspace = _plugin_workspace(b"old@c0")
+@pytest.mark.parametrize("failing", ["rm ", "chmod "])
+async def test_sandbox_provision_reports_a_failed_command(tmp_path, failing):
+    sandbox = _PluginSandbox({"/workspace/plugins/old/x.md": b"x"}, failing=(failing,))
     plugin = _plugin(tmp_path, "acme", {"run.sh": "#!/bin/sh"})
     (plugin.host_root / "run.sh").chmod(0o755)
-    ok = RunCommandsResponse(results=[RunCommandResult(command="c", output="", exit_code=0)])
-    bad = RunCommandsResponse(results=[RunCommandResult(command="c", output="", exit_code=1)])
-    workspace.bash.run_commands.side_effect = [bad if i == failing_call else ok for i in range(2)]
 
-    errors = await workspace.provision_plugins([plugin])
+    errors = await _plugin_workspace(sandbox).provision_plugins([plugin])
 
     assert len(errors) == 1
     assert errors[0].startswith("The plugins could not be provisioned")
-    uploaded = [path for call in workspace.bash.aupload_files.await_args_list for path, _ in call.args[0]]
-    assert "/workspace/plugins/.daiv-manifest" not in uploaded
-    assert workspace.bash.aupload_files.await_count == uploads
+
+
+def test_fingerprint_matches_what_the_container_command_prints(tmp_path):
+    plugin = _plugin(tmp_path / "host", "acme", {"b.md": "same", "a.md": "same", "sub/c.sh": "#!/bin/sh"})
+    mounted = tmp_path / "workspace" / "plugins"
+    shutil.copytree(plugin.host_root, mounted / "acme")
+
+    command = PLUGINS_FINGERPRINT_COMMAND.replace(PLUGINS_PATH, str(mounted))
+    printed = subprocess.run(["sh", "-c", command], capture_output=True, text=True, check=True).stdout  # noqa: S603, S607
+
+    assert printed.split()[0] == _fingerprint(_plugin_files(plugin.host_root, f"{mounted}/acme"))

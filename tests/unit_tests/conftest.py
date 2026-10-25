@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import io
 import json
 import os
@@ -27,7 +28,7 @@ from accounts.models import Role
 from accounts.models import User as AccountUser
 from automation.agent.agent_settings import AgentSettings, RunOverrides, resolve_agent_settings
 from automation.agent.artifacts import ArtifactError, ArtifactFile
-from automation.agent.workspace.sandbox import PLUGINS_MANIFEST_PATH
+from automation.agent.workspace.sandbox import PLUGINS_FINGERPRINT_COMMAND
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
@@ -42,8 +43,6 @@ from core.models import (
 )
 from core.sandbox.schemas import (
     EgressConfigRequest,
-    FsWriteRequest,
-    FsWriteResponse,
     RunCommandResult,
     RunCommandsRequest,
     RunCommandsResponse,
@@ -136,8 +135,7 @@ class FakeSandboxClient:
 
     ``responses`` maps a command substring to ``(exit_code, output)``; the first match wins and
     unmatched commands succeed with empty output, except git's ``MERGE_HEAD`` check, which finds no merge,
-    ``rev-parse HEAD``, which prints ``HEAD_SHA``, and reading the plugin manifest, which a fresh container lacks.
-    ``fs_write`` records the path it writes and succeeds.
+    ``rev-parse HEAD``, which prints ``HEAD_SHA``, and the plugin fingerprint, which finds no plugin files.
     """
 
     HEAD_SHA = "f" * 40
@@ -146,7 +144,7 @@ class FakeSandboxClient:
         self.responses = dict(responses or {})
         self.responses.setdefault("rev-parse -q --verify MERGE_HEAD", (1, ""))
         self.responses.setdefault("rev-parse HEAD", (0, self.HEAD_SHA))
-        self.responses.setdefault(PLUGINS_MANIFEST_PATH, (4, ""))
+        self.responses.setdefault(PLUGINS_FINGERPRINT_COMMAND, (0, f"{hashlib.sha256(b'').hexdigest()}  -"))
         self.sessions: dict[str, FakeSandboxSession] = {}
         self.calls: list[tuple[str, tuple]] = []
         self.commands: list[str] = []
@@ -261,11 +259,6 @@ class FakeSandboxClient:
         if session.request.egress is None:
             raise self._status_error("update_egress", 409, "Session has no egress proxy")
         session.egress = egress
-
-    async def fs_write(self, session_id: str, request: FsWriteRequest) -> FsWriteResponse:
-        self._record("fs_write", session_id, request.path)
-        self._require("fs_write", session_id).state = "running"
-        return FsWriteResponse()
 
     async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
         self._record("run_commands", session_id, tuple(request.commands))
