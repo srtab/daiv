@@ -32,7 +32,7 @@
             </div>
             <h2 class="text-[15px] font-semibold tracking-tight text-gray-300">Agent Activity</h2>
         </div>
-        <a href="{{ activity.activity_url }}" class="text-sm text-gray-400 transition-colors hover:text-gray-300">View all &rarr;</a>
+        <a href="{% url 'session_list' %}" class="text-sm text-gray-400 transition-colors hover:text-gray-300">View all &rarr;</a>
     </div>
 
     <div class="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-6">
@@ -67,7 +67,10 @@
         {% if activity.segments %}
         <div class="mt-6 border-t border-white/[0.04] pt-6">
             <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-                <p class="text-[13px] font-medium uppercase tracking-[0.15em] text-gray-500">Sessions by origin</p>
+                <a href="{{ activity.sessions_url }}" class="group flex items-baseline gap-2 transition-colors">
+                    <span class="text-[13px] font-medium uppercase tracking-[0.15em] text-gray-500 group-hover:text-gray-400">Sessions by origin</span>
+                    <span class="text-sm font-semibold tabular-nums text-white">{{ activity.sessions_total }}</span>
+                </a>
                 {% if activity.sessions_failed %}
                 <a href="{{ activity.sessions_failed_url }}" class="group flex items-center gap-2 transition-colors">
                     <span class="inline-block h-2.5 w-2.5 rounded-sm bg-red-500/40"></span>

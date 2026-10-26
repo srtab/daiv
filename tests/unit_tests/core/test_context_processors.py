@@ -50,3 +50,12 @@ def test_compute_with_malformed_build_date(monkeypatch):
 
     assert info["build_date"] is None
     assert info["sha_short"] == "5e4f0d0"
+
+
+def test_docs_deployment_url_does_not_depend_on_a_trailing_slash(monkeypatch):
+    monkeypatch.setattr("core.context_processors.DOCS_URL", "https://srtab.github.io/daiv/latest")
+
+    assert (
+        _compute_build_info()["docs_deployment_url"]
+        == "https://srtab.github.io/daiv/latest/getting-started/deployment/"
+    )

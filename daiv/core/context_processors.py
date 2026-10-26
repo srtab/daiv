@@ -16,6 +16,7 @@ def _compute_build_info() -> dict:
         "build_date": build_date,
         "commit_url": f"{REPO_URL}/commit/{GIT_SHA}" if GIT_SHA else None,
         "docs_url": DOCS_URL,
+        "docs_deployment_url": f"{DOCS_URL.rstrip('/')}/getting-started/deployment/",
     }
 
 

@@ -1,11 +1,11 @@
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q, Sum
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import urlencode
-from django.utils.timezone import localdate
+from django.utils.timezone import localdate, make_aware
 from django.views.generic import TemplateView
 
 from sessions.models import Run, RunStatus, Session, SessionOrigin
@@ -42,13 +42,14 @@ ORIGIN_SEGMENT_CSS = {
     SessionOrigin.API_JOB: "bg-emerald-500/50",
     SessionOrigin.UI_JOB: "bg-teal-500/40",
     SessionOrigin.CHAT: "bg-sky-500/40",
+    SessionOrigin.DELEGATED_JOB: "bg-fuchsia-500/40",
+    SessionOrigin.DELEGATION_RESUME: "bg-pink-500/40",
 }
-DEFAULT_SEGMENT_CSS = "bg-gray-500/30"
 
 
 def _session_list_url(cutoff_date: date | None, **filters: str) -> str:
-    """Session list URL across every visible session, limited to the dashboard period."""
-    params = {**filters, "scope": "all"}
+    """Session list URL limited to the dashboard period."""
+    params = dict(filters)
     if cutoff_date is not None:
         params["date_from"] = cutoff_date.isoformat()
     return f"{reverse('session_list')}?{urlencode(params)}"
@@ -135,39 +136,36 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "code_changes": code_changes_count,
             "code_changes_pct": _format_pct(code_changes_count, successful_count),
             "avg_duration_s": avg_duration.total_seconds() if avg_duration is not None else None,
-            "activity_url": _session_list_url(cutoff_date),
             **self._get_session_breakdown(cutoff_date, user),
         }
 
     def _get_session_breakdown(self, cutoff_date: date | None, user: User) -> dict:
         # Mirrors SessionListView's queryset and SessionFilter's ``date_from``/``trigger``/``status``
         # so each count equals the length of the list its link opens.
-        sessions = Session.objects.visible_to(user).without_watch_placeholders().with_latest_status()
+        sessions = Session.objects.visible_to(user).without_watch_placeholders()
         if cutoff_date is not None:
-            sessions = sessions.filter(last_active_at__date__gte=cutoff_date)
+            sessions = sessions.filter(last_active_at__gte=make_aware(datetime.combine(cutoff_date, time.min)))
 
-        stats = sessions.aggregate(
-            total=Count("pk", distinct=True),
-            failed=Count("pk", distinct=True, filter=Q(latest_run_status=RunStatus.FAILED)),
-            **{origin: Count("pk", distinct=True, filter=Q(origin=origin)) for origin in SessionOrigin.values},
-        )
+        origin_counts = dict(sessions.order_by().values_list("origin").annotate(n=Count("pk")))
+        failed = sessions.with_latest_status().filter(latest_run_status=RunStatus.FAILED).count()
 
-        total = stats["total"]
+        total = sum(origin_counts.values())
         segments = [
             {
                 "label": SessionOrigin(origin).label,
-                "value": stats[origin],
-                "pct": round(stats[origin] / total * 100, 1),
-                "css": ORIGIN_SEGMENT_CSS.get(origin, DEFAULT_SEGMENT_CSS),
+                "value": origin_counts[origin],
+                "pct": round(origin_counts[origin] / total * 100, 1),
+                "css": ORIGIN_SEGMENT_CSS[origin],
                 "url": _session_list_url(cutoff_date, trigger=origin),
             }
             for origin in SessionOrigin.values
-            if stats[origin] > 0
+            if origin_counts.get(origin)
         ]
         return {
             "sessions_total": total,
+            "sessions_url": _session_list_url(cutoff_date),
             "segments": segments,
-            "sessions_failed": stats["failed"],
+            "sessions_failed": failed,
             "sessions_failed_url": _session_list_url(cutoff_date, status=RunStatus.FAILED),
         }
 

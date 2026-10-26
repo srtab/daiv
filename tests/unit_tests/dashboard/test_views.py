@@ -76,7 +76,7 @@ class TestDashboardSessionBreakdown:
         for segment in activity["segments"]:
             assert _list_count(member_client, segment["url"]) == segment["value"], segment["label"]
         assert _list_count(member_client, activity["sessions_failed_url"]) == activity["sessions_failed"]
-        assert _list_count(member_client, activity["activity_url"]) == activity["sessions_total"] == 4
+        assert _list_count(member_client, activity["sessions_url"]) == activity["sessions_total"] == 4
 
     def test_a_session_counts_once_however_many_runs_it_holds(self, member_user, member_client):
         session = _make_session(member_user, SessionOrigin.MR_WEBHOOK)
@@ -93,13 +93,13 @@ class TestDashboardSessionBreakdown:
         assert [(s["label"], s["value"]) for s in activity["segments"]] == [("MR/PR Webhook", 1)]
         assert activity["sessions_failed"] == 1
 
-    def test_links_carry_the_period_and_every_visible_session(self, member_user, member_client):
+    def test_links_carry_the_period(self, member_user, member_client):
         _make_session(member_user, SessionOrigin.SCHEDULE)
 
         activity = member_client.get(reverse("dashboard"), {"period": "30d"}).context["activity"]
 
         date_from = (timezone.localdate() - timedelta(days=29)).isoformat()
-        expected = f"{reverse('session_list')}?trigger=schedule&scope=all&date_from={date_from}"
+        expected = f"{reverse('session_list')}?trigger=schedule&date_from={date_from}"
         assert activity["segments"][0]["url"] == expected
 
     def test_all_time_links_have_no_date(self, member_user, member_client):
@@ -107,4 +107,10 @@ class TestDashboardSessionBreakdown:
 
         activity = member_client.get(reverse("dashboard"), {"period": "all"}).context["activity"]
 
-        assert activity["segments"][0]["url"] == f"{reverse('session_list')}?trigger=schedule&scope=all"
+        assert activity["segments"][0]["url"] == f"{reverse('session_list')}?trigger=schedule"
+
+
+def test_every_origin_has_a_segment_colour():
+    from dashboard.views import ORIGIN_SEGMENT_CSS
+
+    assert set(ORIGIN_SEGMENT_CSS) == set(SessionOrigin)
