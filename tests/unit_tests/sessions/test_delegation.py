@@ -20,7 +20,7 @@ from sessions.delegation import (
     resume_stalled_batches,
 )
 from sessions.executor.lock import SessionLockTimeoutError
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
 from sessions.queue import LINK_FAILED_PREFIX
 
 from automation.agent.delegation import MAX_DELEGATED_TARGETS, Checkout, DelegatedTarget, DelegationError
@@ -564,6 +564,24 @@ class TestResumeCoordinator:
         continuation = Run.objects.get(continuation_of_batch_id=batch_id)
         assert continuation.status == RunStatus.FAILED
         assert continuation.error_message.startswith("access_denied: ")
+
+    def test_a_multi_repo_coordinator_checks_every_repository_before_it_resumes(
+        self, member_user, create_db_task_result
+    ):
+        coordinator = _coordinator(member_user)
+        SessionRepository.objects.create(session=coordinator, position=1, repo_id="acme/mod")
+        batch_id = uuid.uuid4()
+        leg = _leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
+
+        with (
+            patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["acme/mod"])) as check,
+            patch("sessions.queue.run_job_task") as mock_task,
+        ):
+            resume_coordinator(leg)
+
+        assert list(check.call_args.args[1]) == ["acme/coord", "acme/mod"]
+        mock_task.aenqueue.assert_not_called()
+        assert Run.objects.get(continuation_of_batch_id=batch_id).status == RunStatus.FAILED
 
     def test_a_denied_continuation_is_recorded_while_the_coordinator_is_busy_with_runs_queued(
         self, member_user, create_db_task_result
