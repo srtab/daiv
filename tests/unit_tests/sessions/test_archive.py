@@ -377,6 +377,7 @@ _RESET_CHANNELS = {
     "skills_load_errors",
     "skills_metadata",
     "structured_response",
+    "verification",
 }
 
 
