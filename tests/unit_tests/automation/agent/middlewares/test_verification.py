@@ -61,7 +61,7 @@ class FakeRepo:
             raise self.restore_error
         self.stashed = False
 
-    async def run_commands(self, commands, *, fail_fast, timeout=None) -> RunCommandsResponse:
+    async def run_commands(self, commands, *, fail_fast, timeout=None, http_timeout=None) -> RunCommandsResponse:
         if self.error is not None:
             raise self.error
         declared = [command.removeprefix(f"cd {REPO_PATH} && ") for command in commands]

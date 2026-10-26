@@ -257,21 +257,25 @@ class SandboxFileBackend(BackendProtocol):
         return self._session.client, session_id
 
     async def run_commands(
-        self, commands: list[str], *, fail_fast: bool, timeout: int | None = None
+        self, commands: list[str], *, fail_fast: bool, timeout: int | None = None, http_timeout: float | None = None
     ) -> RunCommandsResponse:
         """Run shell commands in the bound session's workspace.
 
         The run's command-execution handle (used by the ``bash`` tool and ``SandboxGitRunner``). A thin
         pass-through to ``DAIVSandboxClient.run_commands`` — it takes a *list* + ``fail_fast`` (not a single
-        command) so multi-command batches run in one round-trip. Like the other methods here it **raises** on
-        transport/HTTP errors; callers that need graceful degradation (the ``bash`` tool) wrap it.
+        command) so multi-command batches run in one round-trip. ``timeout`` is the sandbox's limit for each command
+        (``None``: its default) and ``http_timeout`` how long to wait for the response (``None``: the client's). Like
+        the other methods here it **raises** on transport/HTTP errors; callers that need graceful degradation (the
+        ``bash`` tool) wrap it.
 
         Intentionally NOT deepagents' ``SandboxBackendProtocol.aexecute``: implementing that
         protocol would activate deepagents' always-registered, ungated ``execute`` tool.
         """
         client, session_id = self._require_bound()
         return await client.run_commands(
-            session_id, RunCommandsRequest(commands=commands, fail_fast=fail_fast, timeout=timeout)
+            session_id,
+            RunCommandsRequest(commands=commands, fail_fast=fail_fast, timeout=timeout),
+            http_timeout=http_timeout,
         )
 
     # -- path mapping -------------------------------------------------------

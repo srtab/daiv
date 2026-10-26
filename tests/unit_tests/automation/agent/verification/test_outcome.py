@@ -186,20 +186,19 @@ def test_failure_reminder_lists_changed_paths_and_rounds_left():
 
 
 class _Bash:
+    """``exit_codes`` are handed out one per command, in order."""
+
     def __init__(self, exit_codes=(0,), error=None):
         self.exit_codes = list(exit_codes)
         self.error = error
         self.calls = 0
 
-    async def run_commands(self, commands, *, fail_fast, timeout=None):
+    async def run_commands(self, commands, *, fail_fast, timeout=None, http_timeout=None):
         self.calls += 1
         if self.error:
             raise self.error
         return RunCommandsResponse(
-            results=[
-                RunCommandResult(command=c, output="out", exit_code=code)
-                for c, code in zip(commands, self.exit_codes, strict=True)
-            ]
+            results=[RunCommandResult(command=c, output="out", exit_code=self.exit_codes.pop(0)) for c in commands]
         )
 
 

@@ -171,18 +171,25 @@ class DAIVSandboxClient:
         response.raise_for_status()
         return FsEditResponse.model_validate(response.json())
 
-    async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
+    async def run_commands(
+        self, session_id: str, request: RunCommandsRequest, *, http_timeout: float | None = None
+    ) -> RunCommandsResponse:
         """
         Run commands in the sandbox.
 
         Args:
             session_id (str): The session ID.
             request (RunCommandsRequest): The request to run the commands.
+            http_timeout (float | None): Seconds to wait for this request; ``None`` uses the client's timeout.
 
         Returns:
             RunCommandResponse: The response from running the commands.
         """
-        response = await self._client.post(f"session/{session_id}/", json=request.model_dump(mode="json"))
+        response = await self._client.post(
+            f"session/{session_id}/",
+            json=request.model_dump(mode="json"),
+            timeout=httpx.USE_CLIENT_DEFAULT if http_timeout is None else http_timeout,
+        )
         response.raise_for_status()
         return RunCommandsResponse.model_validate(response.json())
 

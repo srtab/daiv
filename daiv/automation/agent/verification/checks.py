@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import httpx
+from git import GitCommandError
 
 from automation.agent.constants import REPO_PATH
+from automation.agent.workspace.git_runners import SandboxGitProtocolError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -19,6 +21,8 @@ MAX_FIX_ROUNDS = 2
 CHECK_TIMEOUT_SECONDS = 600
 OUTPUT_TAIL_CHARS = 4_000
 TIMEOUT_EXIT_CODE = 124
+# Past the sandbox's own limit, so a check that runs out of time comes back as exit 124, not as a client timeout.
+_RESPONSE_GRACE_SECONDS = 60
 
 _DIFF_HEADER = re.compile(r"^diff --git ", re.MULTILINE)
 
@@ -43,26 +47,40 @@ class ChecksUnavailableError(Exception):
 
 
 async def run_checks(bash: SandboxFileBackend, commands: Sequence[str]) -> list[CheckResult]:
-    """Run every command from the repo root, none stopping the others, and return one result per command."""
+    """Run every command from the repo root, each in a request of its own so one that fails or times out never stops
+    the others, and return one result per command."""
+    return [await _run_check(bash, command) for command in commands]
+
+
+async def _run_check(bash: SandboxFileBackend, command: str) -> CheckResult:
     try:
         response = await bash.run_commands(
-            [f"cd {REPO_PATH} && {command}" for command in commands], fail_fast=False, timeout=CHECK_TIMEOUT_SECONDS
+            [f"cd {REPO_PATH} && {command}"],
+            fail_fast=False,
+            timeout=CHECK_TIMEOUT_SECONDS,
+            http_timeout=CHECK_TIMEOUT_SECONDS + _RESPONSE_GRACE_SECONDS,
         )
     except httpx.HTTPError as exc:
         raise ChecksUnavailableError(f"the sandbox could not be reached to run the checks ({exc})") from exc
-    if len(response.results) != len(commands):
-        raise ChecksUnavailableError("the sandbox returned an unexpected number of results")
-    return [
-        CheckResult(command=command, exit_code=result.exit_code, output_tail=result.output[-OUTPUT_TAIL_CHARS:])
-        for command, result in zip(commands, response.results, strict=True)
-    ]
+    if not response.results:
+        raise ChecksUnavailableError("the sandbox returned no result for a check")
+    result = response.results[0]
+    return CheckResult(command=command, exit_code=result.exit_code, output_tail=result.output[-OUTPUT_TAIL_CHARS:])
 
 
 async def failing_before_change(bash: SandboxFileBackend, git: GitManager, commands: Sequence[str]) -> frozenset[str]:
-    """The commands that already fail on the starting code, found by stashing the agent's changes and running them."""
+    """The commands that already fail on the starting code, found by stashing the agent's changes and running them.
+
+    Failing to set the changes aside leaves the tree as it was, so it is reported as the checks being unavailable;
+    failing to restore them raises.
+    """
     if await git.pending_merge() is not None:
         return frozenset()
-    if not await git.stash_all("daiv: pre-publish verification"):
+    try:
+        stashed = await git.stash_all("daiv: pre-publish verification")
+    except (GitCommandError, httpx.HTTPError, SandboxGitProtocolError) as exc:
+        raise ChecksUnavailableError("could not set the changes aside to re-check the starting code") from exc
+    if not stashed:
         # Nothing was stashed, so a pop would restore an older, unrelated stash.
         return frozenset(commands)
     try:

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from git import GitCommandError, Repo
 from unidiff import PatchSet
@@ -1043,3 +1044,63 @@ async def test_restore_stash_raises_when_pop_fails() -> None:
     gm, _ = _sandbox_manager({"stash pop": (1, "CONFLICT")})
     with pytest.raises(GitCommandError):
         await gm.restore_stash()
+
+
+class _BusyRunner:
+    """Answers ``busy`` calls with ``status`` before letting commands through, recording each attempt."""
+
+    def __init__(self, busy: int, status: int = 409) -> None:
+        self.busy = busy
+        self.status = status
+        self.attempts: list[tuple[str, ...]] = []
+
+    async def run(self, args: tuple[str, ...]) -> GitResult:
+        self.attempts.append(args)
+        if self.busy:
+            self.busy -= 1
+            request = httpx.Request("POST", "http://sandbox.test/session/sid/")
+            raise httpx.HTTPStatusError(
+                str(self.status), request=request, response=httpx.Response(self.status, request=request)
+            )
+        return GitResult(exit_code=0, output="")
+
+
+@pytest.fixture
+def no_backoff(monkeypatch) -> AsyncMock:
+    sleep = AsyncMock()
+    monkeypatch.setattr("automation.agent.workspace.git_manager.asyncio.sleep", sleep)
+    return sleep
+
+
+async def test_restore_stash_retries_a_step_the_sandbox_refused_as_busy(no_backoff) -> None:
+    runner = _BusyRunner(busy=2)
+
+    await GitManager(runner).restore_stash()
+
+    assert runner.attempts == [
+        ("reset", "--hard", "HEAD"),
+        ("reset", "--hard", "HEAD"),
+        ("reset", "--hard", "HEAD"),
+        ("clean", "-fd"),
+        ("stash", "pop", "--index"),
+    ]
+    assert no_backoff.await_count == 2
+
+
+async def test_restore_stash_gives_up_after_three_busy_answers(no_backoff) -> None:
+    runner = _BusyRunner(busy=3)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await GitManager(runner).restore_stash()
+
+    assert len(runner.attempts) == 3
+
+
+async def test_restore_stash_does_not_retry_other_sandbox_errors(no_backoff) -> None:
+    runner = _BusyRunner(busy=1, status=500)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await GitManager(runner).restore_stash()
+
+    assert len(runner.attempts) == 1
+    no_backoff.assert_not_awaited()

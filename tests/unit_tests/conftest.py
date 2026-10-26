@@ -257,7 +257,9 @@ class FakeSandboxClient:
             raise self._status_error("update_egress", 409, "Session has no egress proxy")
         session.egress = egress
 
-    async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
+    async def run_commands(
+        self, session_id: str, request: RunCommandsRequest, *, http_timeout: float | None = None
+    ) -> RunCommandsResponse:
         self._record("run_commands", session_id, tuple(request.commands))
         self._require("run_commands", session_id).state = "running"
         results: list[RunCommandResult] = []

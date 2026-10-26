@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import httpx
 from git import GitCommandError
 
 from codebase.utils import is_git_auth_error_text
@@ -19,6 +21,9 @@ logger = logging.getLogger("daiv.tools")
 
 
 _FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
+_SANDBOX_BUSY = 409
+_BUSY_ATTEMPTS = 3
+_BUSY_BACKOFF_SECONDS = 2.0
 # Only the opening and closing markers: a bare ``=======`` is also a setext heading underline.
 _CONFLICT_MARKER_PATTERN = r"^(<{7}|>{7})( |$)"
 
@@ -313,11 +318,24 @@ class GitManager:
     async def restore_stash(self) -> None:
         """Discard whatever is in the tree and pop the newest stash back, index included.
 
-        A failed pop raises and leaves the stash entry in place.
+        A step the sandbox turned away as busy (HTTP 409: it never ran) is run again, ``_BUSY_ATTEMPTS`` times in all.
+        Any other failure raises at once, and a failed pop leaves the stash entry in place.
         """
-        await self._git("reset", "--hard", "HEAD")
-        await self._git("clean", "-fd")
-        await self._git("stash", "pop", "--index")
+        for args in (("reset", "--hard", "HEAD"), ("clean", "-fd"), ("stash", "pop", "--index")):
+            await self._git_unless_busy(*args)
+
+    async def _git_unless_busy(self, *args: str) -> None:
+        for attempt in range(1, _BUSY_ATTEMPTS):
+            try:
+                await self._git(*args)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != _SANDBOX_BUSY:
+                    raise
+            else:
+                return
+            logger.warning("Sandbox busy for git %s; retrying (attempt %d)", " ".join(args), attempt)
+            await asyncio.sleep(_BUSY_BACKOFF_SECONDS * attempt)
+        await self._git(*args)
 
     async def head_sha(self) -> str:
         """The full sha of the current ``HEAD``.
