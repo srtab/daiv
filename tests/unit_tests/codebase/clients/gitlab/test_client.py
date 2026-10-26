@@ -1194,3 +1194,72 @@ class TestGitLabClient:
         """A budget shorter than GitLab's post-receive tail silently reverts to creating the pipeline
         on the previous commit — the exact bug this poll exists for."""
         assert sum(MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS) >= 60
+
+
+class TestGitLabPlatformHostAndReadCheck:
+    @pytest.fixture
+    def gitlab_client(self):
+        with patch("codebase.clients.gitlab.client.Gitlab", return_value=Mock()):
+            yield GitLabClient(auth_token="test-token", url="https://git.example.com:8443")  # noqa: S106
+
+    @staticmethod
+    def _project(gitlab_client, *, visibility, access_level=None, member_error=None):
+        project = Mock(visibility=visibility)
+        if member_error is not None:
+            project.members_all.get.side_effect = member_error
+        else:
+            project.members_all.get.return_value = Mock(access_level=access_level)
+        gitlab_client.client.projects.get.return_value = project
+        return project
+
+    def test_git_host(self, gitlab_client):
+        gitlab_client.client.url = "https://git.example.com:8443/"
+
+        assert gitlab_client.git_host() == "git.example.com"
+
+    def test_repository_visibility(self, gitlab_client):
+        self._project(gitlab_client, visibility="internal")
+
+        assert gitlab_client.repository_visibility("group/repo") == "internal"
+        gitlab_client.client.projects.get.assert_called_once_with("group/repo", lazy=False)
+
+    def test_user_can_read_public_without_identity_uid(self, gitlab_client):
+        project = self._project(gitlab_client, visibility="public")
+
+        assert gitlab_client.user_can_read("group/repo", uid=None, username=None) is True
+        project.members_all.get.assert_not_called()
+
+    @pytest.mark.parametrize(("uid", "expected"), [(None, False), (7, True)])
+    def test_user_can_read_internal_requires_uid(self, gitlab_client, uid, expected):
+        project = self._project(gitlab_client, visibility="internal")
+
+        assert gitlab_client.user_can_read("group/repo", uid=uid, username=None) is expected
+        project.members_all.get.assert_not_called()
+
+    def test_user_can_read_private_member_reporter(self, gitlab_client):
+        project = self._project(gitlab_client, visibility="private", access_level=20)
+
+        assert gitlab_client.user_can_read("group/repo", uid=7, username="u") is True
+        project.members_all.get.assert_called_once_with(7)
+
+    def test_user_can_read_private_guest_denied(self, gitlab_client):
+        self._project(gitlab_client, visibility="private", access_level=10)
+
+        assert gitlab_client.user_can_read("group/repo", uid=7, username="u") is False
+
+    def test_user_can_read_private_non_member_denied(self, gitlab_client):
+        self._project(gitlab_client, visibility="private", member_error=GitlabGetError("404 Not Found", 404))
+
+        assert gitlab_client.user_can_read("group/repo", uid=7, username="u") is False
+
+    def test_user_can_read_private_without_uid_denied(self, gitlab_client):
+        project = self._project(gitlab_client, visibility="private", access_level=40)
+
+        assert gitlab_client.user_can_read("group/repo", uid=None, username="u") is False
+        project.members_all.get.assert_not_called()
+
+    def test_user_can_read_private_propagates_transient_errors(self, gitlab_client):
+        self._project(gitlab_client, visibility="private", member_error=GitlabGetError("502 Bad Gateway", 502))
+
+        with pytest.raises(GitlabGetError):
+            gitlab_client.user_can_read("group/repo", uid=7, username="u")

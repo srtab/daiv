@@ -34,6 +34,8 @@ class RunSpec:
     ``web_search_enabled`` / ``web_fetch_enabled`` override the site's toggles (``None``: the site's).
     ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``.
     ``ask_user_enabled`` lets the agent stop to ask the user; a one-shot run never asks.
+    ``triggering_user_id`` is the DAIV user whose personal plugins load; unlike ``acting_user_id`` it switches on no
+    other per-user behaviour.
     ``sandbox_env_id`` is the environment the trigger selected (``None``: the GLOBAL default alone).
     """
 
@@ -52,6 +54,7 @@ class RunSpec:
     use_max: bool = False
     sandbox_env_id: str | None = None
     acting_user_id: int | None = None
+    triggering_user_id: int | None = None
     mcp_overrides: dict[str, str] = field(default_factory=dict)
     references: tuple[ExternalRef, ...] = ()
     run_id: str | None = None

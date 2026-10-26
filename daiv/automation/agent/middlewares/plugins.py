@@ -1,0 +1,123 @@
+"""Announce the turn's plugin skills and agents without touching the prompt-cache prefix.
+
+The system prompt and the tools array must stay byte-identical between turns, so plugin skills and agents reach
+the model only as a persisted reminder (see ``reminders``). The reminder carries the announced set as data; a
+later model call compares it with the turn's set and sends a new reminder only when they differ, or when the turn's
+plugin files could not all be provisioned: those errors go into the turn's first reminder, never into the system
+prompt. The plugin agents are compiled into the ``task`` tool, so their lines are stripped from its description before
+each call.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from typing import TYPE_CHECKING, Any
+
+from langchain.agents.middleware import AgentMiddleware
+from langchain_core.tools import BaseTool
+
+from automation.agent.middlewares.reminders import call_with_reminder
+from automation.agent.synthetic import synthetic_data, synthetic_kind
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
+
+    from langchain.agents.middleware import ModelRequest, ModelResponse
+    from langchain.agents.middleware.types import ModelCallResult
+    from plugins.runtime import PluginAgentRef, PluginSkillRef
+
+logger = logging.getLogger("daiv.agent")
+
+PLUGINS_KIND = "plugins"
+TASK_TOOL_NAME = "task"
+
+Announced = dict[str, dict[str, str]]
+
+
+def _announced(messages: Sequence[Any]) -> Announced:
+    for message in reversed(messages):
+        if synthetic_kind(message) == PLUGINS_KIND:
+            data = synthetic_data(message) or {}
+            return {"skills": dict(data.get("skills", {})), "agents": dict(data.get("agents", {}))}
+    return {"skills": {}, "agents": {}}
+
+
+def _entries(items: Mapping[str, str]) -> list[str]:
+    return [f"- {name}: {description}" for name, description in sorted(items.items())]
+
+
+def _reminder_text(announced: Announced, current: Announced, errors: Sequence[str] = ()) -> str:
+    changed = {
+        kind: {name: desc for name, desc in current[kind].items() if announced[kind].get(name) != desc}
+        for kind in current
+    }
+    removed = sorted(name for kind in announced for name in announced[kind] if name not in current[kind])
+
+    lines = ["<plugins>"]
+    if any(announced.values()) and any(changed.values()):
+        lines.append("Now available:")
+    if changed["skills"]:
+        lines += ["Plugin skills (call with the `skill` tool):", *_entries(changed["skills"])]
+    if changed["agents"]:
+        lines += ["Plugin agents (call with the `task` tool, subagent_type = name):", *_entries(changed["agents"])]
+    if removed:
+        lines.append(f"No longer available: {', '.join(removed)}")
+    if errors:
+        lines += ["Plugin provisioning problems this turn:", *(f"- {error}" for error in errors)]
+    lines.append("</plugins>")
+    return "\n".join(lines)
+
+
+def _strip_agents(description: str, agents: Sequence[PluginAgentRef]) -> str:
+    for agent in agents:
+        entry = re.escape(f"- {agent.name}: {agent.description}")
+        description = re.sub(rf"(?:^|\n){entry}(?=\n|$)", "", description, count=1)
+        if f"- {agent.name}: " in description:
+            logger.warning("Plugin agent %s is still listed in the task tool description after stripping", agent.name)
+    return description
+
+
+class PluginsMiddleware(AgentMiddleware):
+    """Tell the model about the turn's plugin skills and agents, and what provisioning their files left out
+    (``errors``), through reminders only. Built per run, so the errors are reported once per turn."""
+
+    def __init__(
+        self, skills: Sequence[PluginSkillRef], agents: Sequence[PluginAgentRef], errors: Sequence[str] = ()
+    ) -> None:
+        super().__init__()
+        self._agents = list(agents)
+        self._errors = list(errors)
+        self._current: Announced = {
+            "skills": {skill.name: skill.description for skill in skills},
+            "agents": {agent.name: agent.description for agent in agents},
+        }
+        self._stripped_task: tuple[BaseTool, BaseTool] | None = None
+
+    def _without_plugin_agents(self, tools: Sequence[Any]) -> list[Any]:
+        return [
+            self._strip_task(tool) if isinstance(tool, BaseTool) and tool.name == TASK_TOOL_NAME else tool
+            for tool in tools
+        ]
+
+    def _strip_task(self, task: BaseTool) -> BaseTool:
+        if self._stripped_task is None or self._stripped_task[0] is not task:
+            stripped = task.model_copy(update={"description": _strip_agents(task.description, self._agents)})
+            self._stripped_task = (task, stripped)
+        return self._stripped_task[1]
+
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelCallResult:
+        if self._agents:
+            request = request.override(tools=self._without_plugin_agents(request.tools))
+
+        announced = _announced(request.messages)
+        errors = self._errors
+        if announced == self._current and not errors:
+            return await handler(request)
+        response = await call_with_reminder(
+            request, handler, _reminder_text(announced, self._current, errors), kind=PLUGINS_KIND, data=self._current
+        )
+        self._errors = []
+        return response

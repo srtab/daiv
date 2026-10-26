@@ -638,6 +638,73 @@ class TestSkillsMiddleware:
         assert "(higher priority)" in content
 
 
+class TestPluginSkills:
+    SKILL_PATH = "/workspace/plugins/devkit/skills/commit/SKILL.md"
+
+    @classmethod
+    def _middleware(cls, content: bytes = b"---\nname: commit\n---\nCommit $1."):
+        from plugins.runtime import PluginSkillRef
+
+        backend = Mock()
+        backend.adownload_files = AsyncMock(return_value=[Mock(error=None, content=content)])
+        ref = PluginSkillRef(
+            name="devkit:commit", description="d", path=cls.SKILL_PATH, plugin_root="/workspace/plugins/devkit"
+        )
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"], plugin_skills={"devkit:commit": ref})
+        return middleware, backend
+
+    @staticmethod
+    def _runtime(skills_metadata=None):
+        runtime = Mock()
+        runtime.state = {"skills_metadata": skills_metadata or []}
+        runtime.tool_call_id = "call_1"
+        return runtime
+
+    async def test_plugin_skill_resolved_from_turn_plugins(self):
+        middleware, backend = self._middleware()
+        runtime = self._runtime()
+
+        with patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock) as record:
+            result = await middleware.tools[0].coroutine(skill="devkit:commit", runtime=runtime, skill_args="fix")
+
+        backend.adownload_files.assert_awaited_once_with([self.SKILL_PATH])
+        content = result.update["messages"][0].content
+        assert content.startswith("<skill_root>/workspace/plugins/devkit/skills/commit</skill_root>\n")
+        assert "Commit fix." in content
+        assert "active_skill_mode" not in result.update
+        assert record.await_args.kwargs["skill_path"] == self.SKILL_PATH
+        assert record.await_args.kwargs["name"] == "devkit:commit"
+
+    async def test_plugin_skill_unavailable_refused(self):
+        middleware, backend = self._middleware()
+        shadow = [{"name": "other:commit", "path": "/workspace/skills/x/SKILL.md"}]
+
+        result = await middleware.tools[0].coroutine(skill="other:commit", runtime=self._runtime(shadow))
+
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert result.content == "Skill 'other:commit' is not available in this turn."
+        backend.adownload_files.assert_not_awaited()
+
+    async def test_plugin_root_placeholder_substituted(self):
+        middleware, _ = self._middleware(b"Run ${CLAUDE_PLUGIN_ROOT}/scripts/x.sh")
+
+        with patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock):
+            result = await middleware.tools[0].coroutine(skill="devkit:commit", runtime=self._runtime())
+
+        assert result.update["messages"][0].content.endswith("Run /workspace/plugins/devkit/scripts/x.sh")
+
+    async def test_plugin_skill_not_added_to_skills_metadata(self):
+        middleware, _ = self._middleware()
+        runtime = self._runtime([{"name": "demo", "path": "/workspace/skills/demo/SKILL.md"}])
+
+        with patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock):
+            result = await middleware.tools[0].coroutine(skill="devkit:commit", runtime=runtime)
+
+        assert "skills_metadata" not in result.update
+        assert [s["name"] for s in runtime.state["skills_metadata"]] == ["demo"]
+
+
 class TestReadOnlyMode:
     """Tests for read-only skill mode enforcement at the tool-call layer.
 

@@ -2,7 +2,7 @@
 
 Skills are modular capabilities that extend DAIV's agent with specialized knowledge and workflows. Each skill is a directory containing a `SKILL.md` file with instructions the agent follows when the skill is triggered.
 
-DAIV ships with [built-in skills](../features/slash-commands.md#built-in-skills) (`/plan`, `/code-review`, `/security-audit`, `/init`, `/skill-creator`). You can also create your own.
+DAIV ships with [built-in skills](../features/slash-commands.md#built-in-skills) (`/plan`, `/code-review`, `/security-audit`, `/init`, `/skill-creator`). You can also create your own, or install ready-made skills from [plugins](plugins.md).
 
 ## How skills work
 

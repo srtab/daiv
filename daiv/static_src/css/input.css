@@ -3025,6 +3025,42 @@ html {
     @apply opacity-50 cursor-not-allowed;
   }
 
+  .plugin-row {
+    @apply flex flex-wrap items-center gap-4 border-b border-white/[0.06] px-6 py-4 last:border-b-0;
+  }
+
+  .plugin-row--off {
+    @apply opacity-60;
+  }
+
+  .plugin-row__main {
+    @apply min-w-0 grow basis-80;
+  }
+
+  .plugin-row__status {
+    @apply flex w-48 shrink-0 flex-col items-start gap-1;
+  }
+
+  .plugin-mono {
+    @apply font-mono text-xs text-gray-400;
+  }
+
+  .plugin-chip {
+    @apply inline-block rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11.5px] text-gray-300;
+  }
+
+  .plugin-callout {
+    @apply mt-6 rounded-lg border-l-[3px] px-4 py-3 text-sm;
+  }
+
+  .plugin-callout--error {
+    @apply border-red-500 bg-red-500/[0.07] text-red-200;
+  }
+
+  .plugin-callout--note {
+    @apply border-yellow-600 bg-yellow-600/[0.07] text-gray-300;
+  }
+
   .env-pill {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-medium text-[#e7e8ff];
     background-color: rgba(120, 120, 200, 0.18);

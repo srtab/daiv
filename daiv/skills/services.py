@@ -32,6 +32,7 @@ from skills.constants import (
     MAX_PER_FILE_BYTES,
     MAX_UNPACKED_BYTES,
     MAX_ZIP_BYTES,
+    PLUGINS_PATH,
     SKILL_NAME_RE,
     SKILLS_CACHE_PATH,
     SKILLS_PATH,
@@ -385,6 +386,8 @@ async def _classify_source(name: str, skill_path: str) -> SkillInvocation.Source
     a new skill location is introduced and not added here, the caller logs a
     warning.
     """
+    if skill_path.startswith(PLUGINS_PATH + "/"):
+        return SkillInvocation.Source.PLUGIN
     if skill_path.startswith(SKILLS_PATH + "/"):
         if await GlobalSkill.objects.filter(name=name).aexists():
             return SkillInvocation.Source.GLOBAL

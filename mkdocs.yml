@@ -96,6 +96,7 @@ plugins:
         Customization:
         - customization/repository-config.md: Per-repository configuration
         - customization/agent-skills.md: Creating custom agent skills
+        - customization/plugins.md: Installing Claude Code plugins from Git repositories
         - customization/mcp-tools.md: MCP tool integrations
         Reference:
         - reference/env-variables.md: Environment variables reference
@@ -160,6 +161,7 @@ nav:
   - Customization:
     - Repository Config: customization/repository-config.md
     - Agent Skills: customization/agent-skills.md
+    - Plugins: customization/plugins.md
     - MCP Tools: customization/mcp-tools.md
   - Reference:
     - Environment Variables: reference/env-variables.md

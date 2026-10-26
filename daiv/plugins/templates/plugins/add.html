@@ -1,0 +1,43 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Add plugin" %} — {% translate "Plugins" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-3xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "Add plugin" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% translate "Paste a repository link. DAIV reads it and lists the plugins it finds." %}
+        </p>
+    </div>
+</div>
+
+{% if error %}
+<div class="plugin-callout plugin-callout--error animate-fade-up">{{ error }}</div>
+{% endif %}
+
+<form method="post" class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 50ms">
+    {% csrf_token %}
+    <input type="hidden" name="step" value="inspect">
+    <label for="{{ url_form.url.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ url_form.url.label }}</label>
+    <div class="mt-1.5">{{ url_form.url }}</div>
+    {% for e in url_form.url.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+    <p class="mt-1.5 text-sm text-gray-500">
+        {% if git_host %}
+        {% blocktranslate with host=git_host %}Public repos from any host; private repos only from {{ host }}, and only ones you can see there.{% endblocktranslate %}
+        {% else %}
+        {% translate "Public repos from any host; private repos only from the platform DAIV is connected to, and only ones you can see there." %}
+        {% endif %}
+    </p>
+    <div class="mt-5">
+        <button type="submit" class="btn-secondary">{% translate "Inspect" %}</button>
+    </div>
+</form>
+
+{% if rows %}
+{% include "plugins/_picker.html" %}
+{% endif %}
+{% endblock app_content %}

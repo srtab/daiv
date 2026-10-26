@@ -100,6 +100,7 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
             thread_id="t-7",
             use_max=False,
             sandbox_environment_id="e",
+            triggering_user_id=42,
         )
 
     assert result == {"response": "done"}
@@ -112,6 +113,7 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         "sandbox_env_id": "e",
         "run_id": "run-1",
         "use_max": False,
+        "triggering_user_id": 42,
     }
     run_lookup.assert_awaited_once_with("tr-1")
 
@@ -142,6 +144,7 @@ class TestAddressIssueTaskRef:
                 thread_id="t-1",
                 use_max=False,
                 sandbox_environment_id="e",
+                triggering_user_id=42,
             )
 
         addressed.issue = client.get_issue.return_value
@@ -169,5 +172,6 @@ class TestAddressIssueTaskRef:
             "sandbox_env_id": "e",
             "run_id": "run-1",
             "use_max": False,
+            "triggering_user_id": 42,
         }
         run_lookup.assert_awaited_once_with("tr-1")

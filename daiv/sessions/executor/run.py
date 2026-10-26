@@ -28,13 +28,14 @@ from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import apersist_session_ref, areset_session_ref
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine, Sequence
     from contextlib import AbstractAsyncContextManager
 
     from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.types import StateSnapshot
+    from plugins.runtime import ResolvedPlugin
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
@@ -368,6 +369,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
             session_links = _session_links(spec, settings)
             if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
+            plugins, plugin_errors = await _provision_plugins(spec, workspace, thread_id)
             delegator = (
                 await adelegator_for(spec.thread_id)
                 if spec.thread_id is not None and settings.features.orchestration
@@ -382,6 +384,8 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 artifact_store=RunArtifactStore(),
                 mcp_servers=await sync_to_async(build_runtime_servers)(spec.acting_user_id, spec.mcp_overrides),
                 session_links=session_links,
+                plugins=plugins,
+                plugin_errors=plugin_errors,
                 delegator=delegator,
                 **spec.agent_options,
             )
@@ -424,6 +428,30 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
             finally:
                 await _record_measurements(run_id, ctx, workspace)
+
+
+async def _provision_plugins(
+    spec: RunSpec, workspace: Workspace, thread_id: str
+) -> tuple[Sequence[ResolvedPlugin], Sequence[str]]:
+    """The turn's plugins, provisioned into ``workspace``, and what provisioning left out. They are the acting user's,
+    or else the triggering user's (``spec.triggering_user_id``, which switches on nothing else). A failure costs the
+    turn its plugins, never the run: the workspace is then cleared, so it keeps no earlier user's plugin files."""
+    from plugins.services import resolve_plugins_for_user
+
+    user_id = spec.acting_user_id if spec.acting_user_id is not None else spec.triggering_user_id
+    try:
+        plugins = await sync_to_async(resolve_plugins_for_user)(user_id)
+        errors = await workspace.provision_plugins(plugins)
+    except Exception:
+        logger.exception("executor: could not load the plugins for thread_id=%s; running without them", thread_id)
+        try:
+            await workspace.provision_plugins(())
+        except Exception:
+            logger.exception("executor: could not clear the plugin files for thread_id=%s", thread_id)
+        return (), ()
+    if errors:
+        logger.warning("executor: plugins provisioned with errors for thread_id=%s: %s", thread_id, errors)
+    return plugins, errors
 
 
 def _build_workspace(ctx: RuntimeCtx) -> Workspace:

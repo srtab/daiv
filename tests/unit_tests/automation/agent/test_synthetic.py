@@ -1,6 +1,12 @@
 from langchain_core.messages import AIMessage, HumanMessage
 
-from automation.agent.synthetic import SYNTHETIC_KWARG, is_person_message, is_synthetic, synthetic_message
+from automation.agent.synthetic import (
+    SYNTHETIC_KWARG,
+    is_person_message,
+    is_synthetic,
+    synthetic_data,
+    synthetic_message,
+)
 from core.checkpointer import DAIVRedisSerializer
 
 
@@ -46,3 +52,11 @@ def test_only_unmarked_human_messages_are_person_messages():
     assert not is_person_message(synthetic_message("x", kind="step_budget"))
     assert not is_person_message(AIMessage(content="done"))
     assert not is_person_message({"role": "user", "content": "fix the bug"})
+
+
+def test_synthetic_data_round_trip():
+    message = synthetic_message("x", kind="plugins", data={"skills": {"a:b": "d"}})
+
+    assert synthetic_data(message) == {"skills": {"a:b": "d"}}
+    assert synthetic_data(synthetic_message("x", kind="plugins")) is None
+    assert synthetic_data(HumanMessage(content="hi")) is None

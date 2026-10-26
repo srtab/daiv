@@ -1,0 +1,32 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Plugins" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-6xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "Plugins" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% translate "Claude Code plugins add skills, commands and agents to your runs." %}
+        </p>
+    </div>
+    <a href="{% url 'plugins:add' %}" class="btn-primary">{% translate "Add plugin" %}</a>
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    <h2 class="text-lg font-semibold">{% translate "Your plugins" %}</h2>
+    <p class="mt-1 text-sm text-gray-500">{% translate "Load only in runs you trigger." %}</p>
+    {% translate "No plugins installed yet." as your_empty %}
+    {% include "plugins/_plugin_rows.html" with plugins=your_plugins empty_message=your_empty kind="personal" %}
+</section>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 150ms">
+    <h2 class="text-lg font-semibold">{% translate "Global plugins" %}</h2>
+    <p class="mt-1 text-sm text-gray-500">{% translate "Installed by an admin, load in every run unless you turn them off." %}</p>
+    {% translate "No global plugins installed." as global_empty %}
+    {% include "plugins/_plugin_rows.html" with plugins=global_plugins empty_message=global_empty kind="global" %}
+</section>
+{% endblock app_content %}

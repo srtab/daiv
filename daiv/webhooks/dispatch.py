@@ -22,7 +22,7 @@ from sessions.ids import compute_thread_id
 from sessions.models import SessionOrigin
 from sessions.services import create_run
 
-from accounts.utils import resolve_user
+from accounts.utils import resolve_linked_user, resolve_user
 from codebase.base import GitPlatform, Scope
 from codebase.clients.base import PLATFORM_ERRORS, Emoji
 from core.site_settings import site_settings
@@ -177,6 +177,8 @@ async def _start_run(
     sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
     agent_model, agent_thinking_level = _pinned_model(use_max)
     user = await resolve_user(author.provider, author.uid, username=author.username, email=author.email)
+    linked_user = await resolve_linked_user(author.provider, author.uid)
+    triggering_user_id = linked_user.pk if linked_user is not None else None
 
     @sync_to_async
     @transaction.atomic
@@ -186,6 +188,7 @@ async def _start_run(
             thread_id=thread_id,
             sandbox_environment_id=sandbox_environment_id,
             use_max=use_max,
+            triggering_user_id=triggering_user_id,
             **task_kwargs,
         )
         if created:

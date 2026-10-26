@@ -11,6 +11,7 @@ x-app-defaults: &x_app_default
   volumes:
     - ./data/static:/home/app/data/static
     - ./data/media:/home/app/data/media
+    - ./data/plugins:/home/app/data/plugins
     - .:/home/app/src
   depends_on:
     db:

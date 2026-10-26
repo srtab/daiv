@@ -310,3 +310,23 @@ async def test_record_invocation_swallows_none_config(caplog):
         await record_invocation(name="anything", skill_path="/workspace/skills/anything/SKILL.md", runtime=rt)
     assert await SkillInvocation.objects.acount() == 0
     assert any("Failed to record skill invocation" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_classify_source_plugin():
+    assert (
+        await _classify_source("devkit:commit", "/workspace/plugins/devkit/skills/commit/SKILL.md")
+        == SkillInvocation.Source.PLUGIN
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_record_invocation_keeps_a_longest_plugin_skill_name():
+    from skills.services import record_invocation
+
+    name = f"{'p' * 63}:{'s' * 63}"
+    assert len(name) <= SkillInvocation._meta.get_field("name").max_length
+    await record_invocation(name=name, skill_path=f"/workspace/plugins/{'p' * 63}/SKILL.md", runtime=_runtime())
+
+    row = await SkillInvocation.objects.aget()
+    assert (row.name, row.source) == (name, SkillInvocation.Source.PLUGIN)

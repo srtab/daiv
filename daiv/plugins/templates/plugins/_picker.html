@@ -1,0 +1,60 @@
+{% load i18n %}
+{% comment %}Plugin picker and install form. Params: `form`, `rows`, `marketplace_name`.{% endcomment %}
+<form method="post" class="animate-fade-up mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.02]" style="animation-delay: 100ms">
+    {% csrf_token %}
+    <input type="hidden" name="step" value="install">
+    {{ form.url }}
+    {{ form.commit }}
+    <div class="px-6 pt-5">
+        <h2 class="text-lg font-semibold">
+            {% blocktranslate count n=rows|length %}This repo has {{ n }} plugin{% plural %}This repo has {{ n }} plugins{% endblocktranslate %}
+        </h2>
+        {% if marketplace_name %}<p class="mt-1 text-sm text-gray-500">{% blocktranslate with name=marketplace_name %}Marketplace {{ name }}{% endblocktranslate %}</p>{% endif %}
+    </div>
+    {% for e in form.plugin_paths.errors %}<p class="mt-2 px-6 text-sm text-red-300">{{ e }}</p>{% endfor %}
+    <div class="mt-3">
+        {% for row in rows %}
+        <label class="plugin-row{% if not row.selectable %} plugin-row--off{% endif %}">
+            {% if row.selectable %}
+            <input type="checkbox" name="plugin_paths" value="{{ row.candidate.plugin_path }}"{% if row.checked or not form.is_bound %} checked{% endif %}>
+            {% else %}
+            <span class="w-4 shrink-0"></span>
+            {% endif %}
+            <div class="plugin-row__main">
+                <div>
+                    <span class="font-medium">{{ row.candidate.name }}</span>
+                    {% if row.candidate.version %}<span class="plugin-mono ml-1">{{ row.candidate.version }}</span>{% endif %}
+                </div>
+                {% if row.candidate.description %}<p class="mt-0.5 text-sm text-gray-400">{{ row.candidate.description }}</p>{% endif %}
+                {% if row.selectable %}
+                {% if row.skills %}
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                    {% for skill in row.skills %}<span class="plugin-chip">{{ skill }}</span>{% endfor %}
+                    {% if row.more %}<span class="plugin-chip">{% blocktranslate with n=row.more %}+{{ n }} more{% endblocktranslate %}</span>{% endif %}
+                </div>
+                {% endif %}
+                {% else %}
+                <p class="mt-1 text-sm text-red-300">{{ row.reason }}</p>
+                {% endif %}
+            </div>
+        </label>
+        {% endfor %}
+    </div>
+    <div class="border-t border-white/[0.06] px-6 py-5">
+        <fieldset>
+            <legend class="text-[15px] font-medium text-gray-400">{{ form.scope.label }}</legend>
+            <div class="mt-2 flex flex-wrap gap-5">
+                {% for value, label in form.scope.field.choices %}
+                <label class="inline-flex items-center gap-2 text-sm">
+                    <input type="radio" name="scope" value="{{ value }}"{% if form.scope.value|default:"user" == value %} checked{% endif %}>
+                    {{ label }}
+                </label>
+                {% endfor %}
+            </div>
+            {% for e in form.scope.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+        </fieldset>
+        <div class="mt-5">
+            <button type="submit" class="btn-primary">{% translate "Install" %}</button>
+        </div>
+    </div>
+</form>

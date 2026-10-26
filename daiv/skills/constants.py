@@ -8,6 +8,8 @@ BUILTIN_SKILLS_PATH = Path(__file__).resolve().parent.parent / "automation" / "a
 
 SKILLS_PATH = "/workspace/skills"
 
+PLUGINS_PATH = "/workspace/plugins"
+
 # Host directory behind ``SKILLS_PATH`` in disk mode. It can outlive a restart (``/tmp`` need not be a tmpfs), so only
 # ``SkillStorage`` invalidates it.
 SKILLS_CACHE_PATH = Path(tempfile.gettempdir()) / "daiv-skills"

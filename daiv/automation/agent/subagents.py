@@ -38,11 +38,13 @@ from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
     from deepagents.backends import BackendProtocol
     from langchain.chat_models import BaseChatModel
     from langchain_core.tools import BaseTool
+    from plugins.runtime import PluginAgentRef
 
     from automation.agent.agent_settings import ModelChain
     from automation.agent.context import RuntimeCtx
@@ -525,6 +527,54 @@ def _compile_subagent(
     return CompiledSubAgent(name=name, description=description, runnable=runnable)
 
 
+def _compile_workspace_subagent(
+    *,
+    model: BaseChatModel,
+    name: str,
+    description: str,
+    body: str,
+    workspace: Workspace,
+    runtime: RuntimeCtx,
+    working_directory: str,
+    web_search_enabled: bool,
+    web_fetch_enabled: bool,
+    fallback_models: list[BaseChatModel] | None,
+    mcp_tools: list[BaseTool] | None,
+) -> CompiledSubAgent:
+    """Compile one workspace-defined subagent on the general-purpose stack."""
+    middleware = _build_general_purpose_middleware(
+        model, workspace, runtime, web_search_enabled, web_fetch_enabled, fallback_models, mcp_tools=mcp_tools
+    )
+    return _compile_subagent(
+        name=name,
+        description=description,
+        model=model,
+        body=body,
+        middleware=middleware,
+        working_directory=working_directory,
+        tools=direct_mcp_tools(mcp_tools),
+    )
+
+
+async def _read_subagent_files(workspace: Workspace, paths: list[str]) -> dict[str, tuple[dict, str]]:
+    """The ``(frontmatter, body)`` of each definition at ``paths`` that reads, decodes and parses; the rest are
+    logged and left out."""
+    definitions: dict[str, tuple[dict, str]] = {}
+    responses = await workspace.backend.adownload_files(paths)
+    for path, response in zip(paths, responses, strict=True):
+        if response.error or response.content is None:
+            logger.warning("Could not read subagent definition %s; skipping", path)
+            continue
+        try:
+            content = response.content.decode("utf-8")
+        except UnicodeDecodeError as e:
+            logger.warning("Error decoding %s: %s", path, e)
+            continue
+        if (parsed := _parse_subagent_frontmatter(content, path)) is not None:
+            definitions[path] = parsed
+    return definitions
+
+
 async def load_custom_subagents(
     model: BaseChatModel,
     workspace: Workspace,
@@ -576,26 +626,7 @@ async def load_custom_subagents(
         if not md_files:
             continue
 
-        responses = await workspace.backend.adownload_files(md_files)
-
-        for file_path, response in zip(md_files, responses, strict=True):
-            if response.error:
-                continue
-            if response.content is None:
-                continue
-
-            try:
-                content = response.content.decode("utf-8")
-            except UnicodeDecodeError as e:
-                logger.warning("Error decoding %s: %s", file_path, e)
-                continue
-
-            parsed = _parse_subagent_frontmatter(content, file_path)
-            if parsed is None:
-                continue
-
-            frontmatter, body = parsed
-
+        for file_path, (frontmatter, body) in (await _read_subagent_files(workspace, md_files)).items():
             # These definitions come from the repository under review, so a name collision here
             # would let a repo shadow a built-in — swapping out `general-purpose` or a `cr-*`
             # detector for its own prompt. The builtin loaders compile reserved names on purpose,
@@ -607,34 +638,85 @@ async def load_custom_subagents(
                 continue
 
             subagent_model = model
-            if frontmatter_model := str(frontmatter.get("model", "")).strip():
+            if model_spec := str(frontmatter.get("model", "")).strip():
                 try:
-                    subagent_model = get_model(model=frontmatter_model)
+                    subagent_model = get_model(model=model_spec)
                 except Exception:
-                    logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
+                    logger.warning("Skipping %s: invalid model '%s'", file_path, model_spec)
                     continue
 
-            middleware = _build_general_purpose_middleware(
-                subagent_model,
-                workspace,
-                runtime,
-                web_search_enabled,
-                web_fetch_enabled,
-                fallback_models,
-                mcp_tools=mcp_tools,
-            )
             subagents.append(
-                _compile_subagent(
+                _compile_workspace_subagent(
+                    model=subagent_model,
                     name=frontmatter["name"],
                     description=frontmatter["description"],
-                    model=subagent_model,
                     body=body,
-                    middleware=middleware,
+                    workspace=workspace,
+                    runtime=runtime,
                     working_directory=working_directory,
-                    tools=direct_mcp_tools(mcp_tools),
+                    web_search_enabled=web_search_enabled,
+                    web_fetch_enabled=web_fetch_enabled,
+                    fallback_models=fallback_models,
+                    mcp_tools=mcp_tools,
                 )
             )
 
             logger.info("Loaded custom subagent '%s' from %s", frontmatter["name"], file_path)
+
+    return subagents
+
+
+async def load_plugin_subagents(
+    model: BaseChatModel,
+    workspace: Workspace,
+    runtime: RuntimeCtx,
+    agents: Sequence[PluginAgentRef],
+    working_directory: str,
+    web_search_enabled: bool = True,
+    web_fetch_enabled: bool = True,
+    fallback_models: list[BaseChatModel] | None = None,
+    mcp_tools: list[BaseTool] | None = None,
+) -> list[CompiledSubAgent]:
+    """Compile this turn's plugin agents into subagents named ``<plugin>:<agent>``.
+
+    The name and description are the ref's, verbatim (the ``task`` tool description lists them and a
+    later step strips that exact entry); the file supplies the system-prompt body, and ``ref.model``
+    picks the model when it is a DAIV model spec. A model that doesn't resolve (for example a Claude
+    Code alias such as ``sonnet``) runs the agent on the run's model. Other Claude Code frontmatter
+    (``tools``, ``color``) has no equivalent here. An unreadable or invalid file skips just that agent.
+    """
+    subagents: list[CompiledSubAgent] = []
+    if not workspace.is_ready or not agents:
+        return subagents
+
+    definitions = await _read_subagent_files(workspace, [ref.path for ref in agents])
+    for ref in agents:
+        if ref.path not in definitions:
+            continue
+        _, body = definitions[ref.path]
+
+        subagent_model = model
+        if ref.model:
+            try:
+                subagent_model = get_model(model=ref.model)
+            except Exception:
+                logger.warning("%s: model '%s' doesn't resolve; using the run's model", ref.path, ref.model)
+
+        subagents.append(
+            _compile_workspace_subagent(
+                model=subagent_model,
+                name=ref.name,
+                description=ref.description,
+                body=body,
+                workspace=workspace,
+                runtime=runtime,
+                working_directory=working_directory,
+                web_search_enabled=web_search_enabled,
+                web_fetch_enabled=web_fetch_enabled,
+                fallback_models=fallback_models,
+                mcp_tools=mcp_tools,
+            )
+        )
+        logger.info("Loaded plugin subagent '%s' from %s", ref.name, ref.path)
 
     return subagents

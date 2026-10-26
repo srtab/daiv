@@ -24,17 +24,19 @@ from automation.agent.synthetic import is_person_message
 from automation.agent.utils import extract_body_from_frontmatter
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
 
     from langchain.agents.middleware.types import ToolCallRequest
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
+    from plugins.runtime import PluginSkillRef
 
 
 logger = logging.getLogger("daiv.tools")
 
 SKILL_ARGUMENTS_PLACEHOLDER = "$ARGUMENTS"
 SKILL_MODE_READ_ONLY = "read-only"
+PLUGIN_ROOT_PLACEHOLDER = "${CLAUDE_PLUGIN_ROOT}"
 
 
 def _keep_read_only(old: str | None, new: str | None) -> str | None:
@@ -53,7 +55,7 @@ SKILLS_TOOL_DESCRIPTION = """Execute a skill within the main conversation.
 Usage notes:
   - Use this tool with the skill name and optional arguments
   - If the skill does not exist, the tool will return an error.
-  - Only use skills listed in <available_skills>.
+  - Only use skills listed in <available_skills> or announced in a <plugins> reminder.
 
 Examples:
   - `skill: "pdf"` - invoke the pdf skill
@@ -80,7 +82,7 @@ SKILLS_SYSTEM_PROMPT = f"""\
 
 **Important:**
 - When a skill in <available_skills> matches the request, call the `{SKILLS_TOOL_NAME}` tool before other work on it. Naming a skill in text without calling the tool does nothing.
-- Only use skills listed in <available_skills> below, but creation is possible
+- Only use skills listed in <available_skills> below or announced in a <plugins> reminder (named `<plugin>:<skill>`), but creation is possible
 - Do not invoke a skill that is already running.
 
 **Skill assets:** Each skill lives at `<location>/<skill-name>/` under one of the locations below. The bash working directory is the repository checkout, **not** the skill's root, so a SKILL.md reference to `scripts/foo.py` is `<location>/<skill-name>/scripts/foo.py` (per-repo skills resolve under their `.agents/skills` / `.claude/skills` / `.cursor/skills` source root, not under the bash CWD). Invoke by absolute path; do not probe the bash CWD for skill assets.
@@ -117,13 +119,19 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     abefore_model = AgentMiddleware.abefore_model
 
     def __init__(
-        self, *args, copy_global_skills: bool = True, provisioning_errors: Sequence[str] = (), **kwargs
+        self,
+        *args,
+        copy_global_skills: bool = True,
+        provisioning_errors: Sequence[str] = (),
+        plugin_skills: Mapping[str, PluginSkillRef] | None = None,
+        **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]
         self._copies_global_skills = copy_global_skills
         self._provisioning_errors = tuple(provisioning_errors)
+        self._plugin_skills = dict(plugin_skills or {})
 
     async def abefore_agent(
         self, state: DAIVSkillsState, runtime: Runtime[RuntimeCtx], config: RunnableConfig
@@ -296,15 +304,25 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             """
             Tool to execute a skill.
             """
-            available_skills = runtime.state["skills_metadata"]
+            plugin_ref: PluginSkillRef | None = None
+            if ":" in skill:
+                plugin_ref = self._plugin_skills.get(skill)
+                if plugin_ref is None:
+                    return ToolMessage(
+                        content=f"Skill '{skill}' is not available in this turn.",
+                        tool_call_id=runtime.tool_call_id,
+                        status="error",
+                    )
+                loaded_skill = {"name": skill, "path": plugin_ref.path}
+            else:
+                available_skills = runtime.state["skills_metadata"]
+                loaded_skill = next(
+                    (skill_metadata for skill_metadata in available_skills if skill_metadata["name"] == skill), None
+                )
 
-            loaded_skill = next(
-                (skill_metadata for skill_metadata in available_skills if skill_metadata["name"] == skill), None
-            )
-
-            if loaded_skill is None:
-                available_skills_names = [skill_metadata["name"] for skill_metadata in available_skills]
-                return f"error: Skill '{skill}' not found. Available skills: {', '.join(available_skills_names)}."
+                if loaded_skill is None:
+                    available_skills_names = [skill_metadata["name"] for skill_metadata in available_skills]
+                    return f"error: Skill '{skill}' not found. Available skills: {', '.join(available_skills_names)}."
 
             responses = await self._backend.adownload_files([loaded_skill["path"]])
             if responses[0].error:
@@ -330,6 +348,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     if SKILL_ARGUMENTS_PLACEHOLDER in body
                     else f"{body}\n\n{SKILL_ARGUMENTS_PLACEHOLDER}: {arg_str}"
                 )
+
+            if plugin_ref is not None:
+                body = body.replace(PLUGIN_ROOT_PLACEHOLDER, plugin_ref.plugin_root)
 
             # Skill names can collide between the global tree and per-repo .agents/skills/,
             # so inject the resolved root for relative references inside SKILL.md.

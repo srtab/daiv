@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import io
 import json
 import os
@@ -27,6 +28,7 @@ from accounts.models import Role
 from accounts.models import User as AccountUser
 from automation.agent.agent_settings import AgentSettings, RunOverrides, resolve_agent_settings
 from automation.agent.artifacts import ArtifactError, ArtifactFile
+from automation.agent.workspace.sandbox import PLUGINS_FINGERPRINT_COMMAND
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
@@ -132,8 +134,8 @@ class FakeSandboxClient:
     ``close_session`` is idempotent, and ``update_egress`` 409s on a session started without egress.
 
     ``responses`` maps a command substring to ``(exit_code, output)``; the first match wins and
-    unmatched commands succeed with empty output, except git's ``MERGE_HEAD`` check, which finds no merge, and
-    ``rev-parse HEAD``, which prints ``HEAD_SHA``.
+    unmatched commands succeed with empty output, except git's ``MERGE_HEAD`` check, which finds no merge,
+    ``rev-parse HEAD``, which prints ``HEAD_SHA``, and the plugin fingerprint, which finds no plugin files.
     """
 
     HEAD_SHA = "f" * 40
@@ -142,6 +144,7 @@ class FakeSandboxClient:
         self.responses = dict(responses or {})
         self.responses.setdefault("rev-parse -q --verify MERGE_HEAD", (1, ""))
         self.responses.setdefault("rev-parse HEAD", (0, self.HEAD_SHA))
+        self.responses.setdefault(PLUGINS_FINGERPRINT_COMMAND, (0, f"{hashlib.sha256(b'').hexdigest()}  -"))
         self.sessions: dict[str, FakeSandboxSession] = {}
         self.calls: list[tuple[str, tuple]] = []
         self.commands: list[str] = []
@@ -295,6 +298,9 @@ class FakeWorkspace:
     async def download_file(self, path: str, *, max_bytes: int) -> Any:
         (response,) = await self.backend.adownload_files([path])
         return response
+
+    async def provision_plugins(self, plugins: Any) -> list[str]:
+        return []
 
 
 @dataclass

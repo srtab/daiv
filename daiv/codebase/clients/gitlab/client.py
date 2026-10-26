@@ -7,7 +7,8 @@ import time
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
+from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -279,6 +280,27 @@ class GitLabClient(RepoClient):
                 continue
             members.append(RepoMember(uid=str(member.id), username=member.username, access_level=level))
         return self._dedupe_members(members)
+
+    def git_host(self) -> str:
+        return urlparse(self.client.url).hostname or ""
+
+    def repository_visibility(self, repo_id: str) -> Literal["public", "internal", "private"]:
+        return self.client.projects.get(repo_id, lazy=False).visibility
+
+    def user_can_read(self, repo_id: str, *, uid: int | None, username: str | None) -> bool:
+        project = self.client.projects.get(repo_id, lazy=False)
+        if project.visibility == "public":
+            return True
+        if uid is None:
+            return False
+        if project.visibility == "internal":
+            return True
+        try:
+            return project.members_all.get(uid).access_level >= AccessLevel.REPORTER
+        except GitlabGetError as e:
+            if e.response_code == 404:
+                return False
+            raise
 
     def is_branch_protected(self, repo_id: str, branch: str) -> bool:
         """

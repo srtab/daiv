@@ -23,8 +23,13 @@ step sits where it does:
 4. A sandbox run acquires its container (``automation.agent.workspace.session.acquire_sandbox``), reusing the warm one
    the thread's last checkpoint names when it can, so building the agent can read the repository's subagents from it;
    a builtin slash command that does not read the repository acquires none, as it never reaches the agent loop
-   (``automation.agent.middlewares.slash_commands.skips_sandbox``). The agent is then built over the run's workspace
-   (that sandbox session, or else the worker's clone) with a ``sessions.artifacts.RunArtifactStore``, so
+   (``automation.agent.middlewares.slash_commands.skips_sandbox``). The turn's plugins are resolved next, for the acting
+   user or else the triggering user (``spec.triggering_user_id``, set by webhook runs and read by nothing else), and
+   provisioned into the workspace (``Workspace.provision_plugins``), which on disk replaces the backend the agent reads
+   when it is built. What provisioning left out is logged and goes into the turn's plugins reminder, never the system
+   prompt. A failure to resolve or provision them is logged and costs the turn its plugins, never the run; the
+   workspace is then cleared, so it keeps no earlier user's plugin files. The agent is then built over the run's
+   workspace (that sandbox session, or else the worker's clone) with a ``sessions.artifacts.RunArtifactStore``, so
    ``publish_artifact`` files land on the bound run. A session thread whose checkpoint expired is first seeded from its
    archive (``sessions.archive.arestore_thread``), unless the run resets it (``/clear``: ``resets_thread``, beside
    ``skips_sandbox``); a context that fails to restore fails the run there, as a setup error. The agent is then

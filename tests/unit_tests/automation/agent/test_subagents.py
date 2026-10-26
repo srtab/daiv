@@ -34,6 +34,7 @@ from automation.agent.subagents import (
     create_explore_subagent,
     create_general_purpose_subagent,
     load_custom_subagents,
+    load_plugin_subagents,
 )
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
 from tests.unit_tests.conftest import (
@@ -908,6 +909,139 @@ class TestCustomSubagents:
         names = {s["name"] for s in result}
         assert "bad-model" not in names
         assert "good" in names
+
+
+class TestPluginSubagents:
+    @pytest.fixture
+    def runtime(self, tmp_path):
+        ctx = Mock()
+        ctx.gitrepo.working_dir = str(tmp_path / "repo")
+        return ctx
+
+    def _backend(self, tmp_path: Path, *files: tuple[str, str]):
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
+
+        for rel, text in files:
+            path = tmp_path / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        return DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+
+    async def test_plugin_agent_compiled_with_qualified_name(self, tmp_path: Path, runtime):
+        from plugins.runtime import PluginAgentRef
+
+        description = "Reviews code.\nUse after edits."
+        backend = self._backend(
+            tmp_path,
+            (
+                "plugins/devkit/agents/reviewer.md",
+                _make_subagent_md(name="reviewer", description="file text", body="You review code."),
+            ),
+        )
+        ref = PluginAgentRef("devkit:reviewer", description, "/plugins/devkit/agents/reviewer.md", None)
+
+        with patch("automation.agent.subagents.create_agent") as create_agent:
+            result = await load_plugin_subagents(
+                model=Mock(),
+                workspace=_workspace(backend, sandbox=True),
+                runtime=runtime,
+                agents=[ref],
+                working_directory="/workspace/repo/",
+            )
+
+        assert [(s["name"], s["description"]) for s in result] == [("devkit:reviewer", description)]
+        assert create_agent.call_args.kwargs["system_prompt"].startswith("You review code.")
+        assert create_agent.call_args.kwargs["name"] == "devkit:reviewer"
+
+    async def test_plugin_agent_unresolvable_model_runs_on_run_model(self, tmp_path: Path, runtime, caplog):
+        from plugins.runtime import PluginAgentRef
+
+        backend = self._backend(
+            tmp_path,
+            ("plugins/p/agents/alias.md", _make_subagent_md(name="alias", description="Alias")),
+            ("plugins/p/agents/bad.md", _make_subagent_md(name="bad", description="Bad")),
+            ("plugins/p/agents/good.md", _make_subagent_md(name="good", description="Good")),
+        )
+        refs = [
+            PluginAgentRef("p:alias", "Alias", "/plugins/p/agents/alias.md", "sonnet"),
+            PluginAgentRef("p:bad", "Bad", "/plugins/p/agents/bad.md", "totally-invalid-model"),
+            PluginAgentRef("p:good", "Good", "/plugins/p/agents/good.md", None),
+        ]
+        run_model = Mock()
+
+        with (
+            patch("automation.agent.subagents.get_model", side_effect=ValueError("unknown provider")),
+            patch("automation.agent.subagents.create_agent") as create_agent,
+            caplog.at_level(logging.WARNING, logger="daiv.agent"),
+        ):
+            result = await load_plugin_subagents(
+                model=run_model,
+                workspace=_workspace(backend, sandbox=True),
+                runtime=runtime,
+                agents=refs,
+                working_directory="/workspace/repo/",
+            )
+
+        assert [s["name"] for s in result] == ["p:alias", "p:bad", "p:good"]
+        assert [call.kwargs["model"] for call in create_agent.call_args_list] == [run_model] * 3
+        assert "sonnet" in caplog.text
+        assert "totally-invalid-model" in caplog.text
+
+    async def test_plugin_agent_valid_model_spec_used(self, tmp_path: Path, runtime):
+        from plugins.runtime import PluginAgentRef
+
+        backend = self._backend(tmp_path, ("plugins/p/agents/a.md", _make_subagent_md(name="a", description="A")))
+        spec_model = Mock()
+
+        with (
+            patch("automation.agent.subagents.get_model", return_value=spec_model) as get_model,
+            patch("automation.agent.subagents.create_agent") as create_agent,
+        ):
+            await load_plugin_subagents(
+                model=Mock(),
+                workspace=_workspace(backend, sandbox=True),
+                runtime=runtime,
+                agents=[PluginAgentRef("p:a", "A", "/plugins/p/agents/a.md", "openrouter:z-ai/glm-5")],
+                working_directory="/workspace/repo/",
+            )
+
+        get_model.assert_called_once_with(model="openrouter:z-ai/glm-5")
+        assert create_agent.call_args.kwargs["model"] is spec_model
+
+    async def test_plugin_agent_unreadable_file_skipped(self, tmp_path: Path, runtime, caplog):
+        from plugins.runtime import PluginAgentRef
+
+        backend = self._backend(tmp_path, ("plugins/p/agents/good.md", _make_subagent_md(name="good", description="G")))
+        refs = [
+            PluginAgentRef("p:gone", "Gone", "/plugins/p/agents/gone.md", None),
+            PluginAgentRef("p:good", "G", "/plugins/p/agents/good.md", None),
+        ]
+
+        with caplog.at_level(logging.WARNING, logger="daiv.agent"):
+            result = await load_plugin_subagents(
+                model=Mock(),
+                workspace=_workspace(backend, sandbox=True),
+                runtime=runtime,
+                agents=refs,
+                working_directory="/workspace/repo/",
+            )
+
+        assert [s["name"] for s in result] == ["p:good"]
+        assert "/plugins/p/agents/gone.md" in caplog.text
+
+    async def test_plugin_agents_empty_when_workspace_not_ready(self, runtime):
+        from plugins.runtime import PluginAgentRef
+
+        workspace = FakeWorkspace(backend=Mock(spec=BackendProtocol), is_ready=False)
+        result = await load_plugin_subagents(
+            model=Mock(),
+            workspace=workspace,
+            runtime=runtime,
+            agents=[PluginAgentRef("p:a", "A", "/plugins/p/agents/a.md", None)],
+            working_directory="/workspace/repo/",
+        )
+
+        assert result == []
 
 
 def _explore_permissions(*, sandbox: bool) -> list:

@@ -40,6 +40,7 @@ from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware, build_agents_memory_middleware
+from automation.agent.middlewares.plugins import PluginsMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.skills import SkillsMiddleware
@@ -56,6 +57,7 @@ from automation.agent.subagents import (
     create_general_purpose_subagent,
     load_builtin_code_review_detectors,
     load_custom_subagents,
+    load_plugin_subagents,
 )
 from codebase.base import GitPlatform
 from core.constants import BOT_NAME
@@ -65,6 +67,7 @@ if TYPE_CHECKING:
 
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
+    from plugins.runtime import PluginAgentRef, ResolvedPlugin
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.artifacts import ArtifactStore
@@ -163,6 +166,20 @@ def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
     return cast("str", WRITE_TODOS_SYSTEM_PROMPT.format(bash_tool_enabled=bash_tool_enabled).content)
 
 
+def _unclaimed_plugin_agents(plugins: Sequence[ResolvedPlugin], subagents: Sequence[Any]) -> list[PluginAgentRef]:
+    """The agents of ``plugins`` whose name no subagent (nor an earlier plugin agent) already has. deepagents refuses
+    duplicate subagent names, so a clash drops the plugin agent with a warning instead of failing every run."""
+    taken = {subagent["name"] for subagent in subagents}
+    unclaimed: list[PluginAgentRef] = []
+    for agent in (agent for plugin in plugins for agent in plugin.agents):
+        if agent.name in taken:
+            logger.warning("Plugin agent %s is not loaded: another subagent already has that name", agent.name)
+            continue
+        taken.add(agent.name)
+        unclaimed.append(agent)
+    return unclaimed
+
+
 async def create_daiv_agent(
     *,
     settings: AgentSettings,
@@ -179,6 +196,8 @@ async def create_daiv_agent(
     middleware: list[AgentMiddleware] | None = None,
     ask_user_enabled: bool = True,
     session_links: SessionLinksResolver | None = None,
+    plugins: Sequence[ResolvedPlugin] = (),
+    plugin_errors: Sequence[str] = (),
     delegator: JobDelegator | None = None,
     fork_branch: bool = False,
 ):
@@ -204,6 +223,8 @@ async def create_daiv_agent(
         ask_user_enabled: Whether the agent may stop to ask the user; off when nobody can answer during the run.
         session_links: What builds the run's session links, from the run executor, for the publish to put in the commit
             and the merge request; ``None`` publishes without them.
+        plugins: The turn's plugins, resolved by the run executor for the turn's user and provisioned in ``workspace``.
+        plugin_errors: What provisioning ``plugins`` left out, worded for the agent; sent in the turn's plugin reminder.
         delegator: What starts ``delegate_jobs`` sub-jobs, from the run executor unless the repository turns
             orchestration off; ``None`` binds no ``delegate_jobs`` tool.
         fork_branch: Whether the run publishes to a new branch and merge request even when the checked-out branch
@@ -265,6 +286,22 @@ async def create_daiv_agent(
     )
     subagents.extend(custom_subagents)
 
+    plugin_agents = _unclaimed_plugin_agents(plugins, subagents)
+    plugin_subagents = await load_plugin_subagents(
+        model=model,
+        workspace=workspace,
+        runtime=ctx,
+        agents=plugin_agents,
+        working_directory=working_directory,
+        web_search_enabled=settings.web_search_enabled,
+        web_fetch_enabled=settings.web_fetch_enabled,
+        fallback_models=fallback_models,
+        mcp_tools=mcp_tools,
+    )
+    subagents.extend(plugin_subagents)
+    compiled_plugin_agents = {subagent["name"] for subagent in plugin_subagents}
+    plugin_skills = {skill.name: skill for plugin in plugins for skill in plugin.skills}
+
     deferred_tools = deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools)
     step_budget = StepBudgetMiddleware()
 
@@ -292,6 +329,14 @@ async def create_daiv_agent(
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
             copy_global_skills=not workspace.provisions_skills,
             provisioning_errors=workspace.skills_provisioning_errors,
+            plugin_skills=plugin_skills,
+        ),
+        # After summarization, so it re-announces on the compacted view; before the deferred-tools, prompt-caching and
+        # inline-definition middlewares, which must see the reminder it appends.
+        PluginsMiddleware(
+            skills=list(plugin_skills.values()),
+            agents=[agent for agent in plugin_agents if agent.name in compiled_plugin_agents],
+            errors=plugin_errors,
         ),
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),

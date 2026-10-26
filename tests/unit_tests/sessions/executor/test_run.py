@@ -42,6 +42,7 @@ from tests.unit_tests.conftest import (
     sandbox_spec,
     site_snapshot,
 )
+from tests.unit_tests.plugins.helpers import resolved_plugin
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 from tests.unit_tests.sessions.executor.conftest import SITE_URL, agent_stack, disk_ctx, make_spec, resolved_to
 
@@ -108,6 +109,8 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         artifact_store=ANY,
         mcp_servers=stack.build_servers.return_value,
         session_links=ANY,
+        plugins=[],
+        plugin_errors=[],
         delegator=ANY,
     )
     stack.langsmith.assert_called_once_with(
@@ -719,6 +722,127 @@ async def test_it_hands_the_webhook_context_to_the_clone():
     assert stack.context_kwargs["fallback_ref_on_missing"] is True
 
 
+async def test_run_resolves_plugins_for_acting_user(tmp_path):
+    plugin = resolved_plugin(tmp_path)
+
+    with agent_stack(_agent()) as stack:
+        stack.resolve_plugins.return_value = [plugin]
+        await execute_run(make_spec(acting_user_id=7, triggering_user_id=9))
+
+    stack.resolve_plugins.assert_called_once_with(7)
+    assert stack.create_agent.await_args.kwargs["plugins"] == [plugin]
+    assert stack.create_agent.await_args.kwargs["plugin_errors"] == []
+
+
+async def test_webhook_run_resolves_plugins_for_triggering_user_without_acting_user():
+    """The triggering user picks the plugins only: personal MCP servers, the assignee and the watch stay unowned."""
+    spec = make_spec(triggering_user_id=9, arm_watch=True, run_id="run-1")
+
+    with (
+        agent_stack(_agent(state={"merge_request": MR, "published": True})) as stack,
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+    ):
+        await execute_run(spec)
+
+    stack.resolve_plugins.assert_called_once_with(9)
+    assert stack.build_servers.call_args.args[0] is None
+    assert stack.context_kwargs["acting_user_id"] is None
+    assert [watch["user_id"] for watch in stack.armed] == [None]
+
+
+async def test_run_provisions_before_building_agent(tmp_path):
+    plugin = resolved_plugin(tmp_path, files={"skills/x/SKILL.md": "hi\n"})
+    read_at_build = []
+
+    with agent_stack(_agent()) as stack:
+        stack.ctx.gitrepo.working_dir = str(tmp_path / "repo")
+        stack.resolve_plugins.return_value = [plugin]
+        agent = stack.create_agent.return_value
+
+        async def _build(**kwargs):
+            paths = ["/workspace/plugins/acme/skills/x/SKILL.md"]
+            [response] = await kwargs["workspace"].backend.adownload_files(paths)
+            read_at_build.append(response.content)
+            return agent
+
+        stack.create_agent.side_effect = _build
+        await execute_run(make_spec())
+
+    assert read_at_build == [b"hi\n"]
+
+
+async def test_a_sandbox_run_provisions_plugins_once_its_container_is_acquired(tmp_path):
+    """Provisioning an unacquired sandbox is a no-op, so the files would never reach the container."""
+    plugin = resolved_plugin(tmp_path)
+    provisioned = []
+
+    async def _provision(workspace, plugins):
+        provisioned.append((workspace.session.is_acquired, plugins))
+        return []
+
+    with (
+        agent_stack(_agent(), ctx=_sandbox_ctx(FakeSandboxClient.opened())) as stack,
+        patch.object(SandboxWorkspace, "provision_plugins", _provision),
+    ):
+        stack.resolve_plugins.return_value = [plugin]
+        await execute_run(make_spec())
+
+    assert provisioned == [(True, [plugin])]
+
+
+async def test_plugin_provisioning_errors_reach_the_agent(caplog):
+    errors = ["Plugin file /workspace/plugins/acme/a.md could not be provisioned: denied"]
+
+    with (
+        agent_stack(_agent()) as stack,
+        patch.object(DiskWorkspace, "provision_plugins", AsyncMock(return_value=errors)),
+        caplog.at_level("WARNING", logger="daiv.sessions"),
+    ):
+        await execute_run(make_spec())
+
+    assert stack.create_agent.await_args.kwargs["plugin_errors"] == errors
+    assert errors[0] in caplog.text
+
+
+async def test_a_plugin_resolution_failure_runs_the_turn_without_plugins(caplog):
+    """The workspace is still cleared, so a reused container keeps no earlier user's plugin files."""
+    provision = AsyncMock(return_value=[])
+
+    with (
+        agent_stack(_agent()) as stack,
+        patch.object(DiskWorkspace, "provision_plugins", provision),
+        caplog.at_level("ERROR", logger="daiv.sessions"),
+    ):
+        stack.resolve_plugins.side_effect = RuntimeError("database is down")
+        outcome = await execute_run(make_spec(acting_user_id=7))
+
+    assert outcome.response_text == "done"
+    assert stack.create_agent.await_args.kwargs["plugins"] == ()
+    assert stack.create_agent.await_args.kwargs["plugin_errors"] == ()
+    provision.assert_awaited_once_with(())
+    assert "database is down" in caplog.text
+
+
+async def test_a_plugin_provisioning_failure_runs_the_turn_without_plugins(tmp_path, caplog):
+    plugin = resolved_plugin(tmp_path)
+    provision = AsyncMock(side_effect=RuntimeError("sandbox unreachable"))
+
+    with (
+        agent_stack(_agent()) as stack,
+        patch.object(DiskWorkspace, "provision_plugins", provision),
+        caplog.at_level("ERROR", logger="daiv.sessions"),
+    ):
+        stack.resolve_plugins.return_value = [plugin]
+        outcome = await execute_run(make_spec())
+
+    assert outcome.response_text == "done"
+    assert stack.create_agent.await_args.kwargs["plugins"] == ()
+    assert stack.create_agent.await_args.kwargs["plugin_errors"] == ()
+    assert provision.await_args_list == [call([plugin]), call(())]
+    assert "sandbox unreachable" in caplog.text
+
+
 @pytest.mark.parametrize(("use_max", "extra"), [(True, {"use_max": True}), (False, {})], ids=["max", "default"])
 async def test_use_max_reaches_model_resolution_only_when_set(use_max, extra):
     with agent_stack(_agent()) as stack:
@@ -763,6 +887,8 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
         artifact_store=ANY,
         mcp_servers=[],
         session_links=ANY,
+        plugins=[],
+        plugin_errors=[],
         delegator=ANY,
         capture_patch=True,
     )

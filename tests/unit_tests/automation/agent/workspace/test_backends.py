@@ -274,6 +274,15 @@ class TestWorkspaceFencePermissions:
             ):
                 assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "allow", (op, path)
 
+    def test_allows_reading_but_not_writing_plugins(self):
+        for path in (
+            "/workspace/plugins",
+            "/workspace/plugins/acme/skills/x/SKILL.md",
+            "/workspace/plugins/acme/.hidden",
+        ):
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", path) == "allow", path
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "write", path) == "deny", path
+
     def test_denies_git_metadata(self):
         for op in ("read", "write"):
             for path in (

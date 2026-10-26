@@ -298,7 +298,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
 
         ctx.update(composer_mcp_context(self.request.user, session.mcp_overrides if session is not None else {}))
 
-        ctx["slash_command_rows"] = composer_command_rows()
+        ctx["slash_command_rows"] = composer_command_rows(self.request.user)
 
         if session is None:
             ctx.update({

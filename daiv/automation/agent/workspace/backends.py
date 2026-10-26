@@ -13,7 +13,7 @@ import wcmatch.glob as wcglob
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import DEFAULT_GREP_TIMEOUT, FilesystemBackend
 from deepagents.backends.protocol import DeleteResult, EditResult, GrepMatch, GrepResult, WriteResult
-from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
+from skills.constants import PLUGINS_PATH, SKILLS_CACHE_PATH, SKILLS_PATH
 
 from automation.agent.constants import REPO_PATH, TMP_PATH, WORKSPACE_PATH
 
@@ -21,6 +21,7 @@ from automation.agent.constants import REPO_PATH, TMP_PATH, WORKSPACE_PATH
 from automation.agent.middlewares.file_system import FilesystemPermission
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
 logger = logging.getLogger("daiv.tools")
@@ -49,6 +50,7 @@ WORKSPACE_FENCE_PERMISSIONS = [
     FilesystemPermission(operations=["read", "write"], paths=_tree(f"{REPO_PATH}/**/.git"), mode="deny"),
     FilesystemPermission(operations=["read", "write"], paths=[*_tree(REPO_PATH), *_tree(TMP_PATH)], mode="allow"),
     FilesystemPermission(operations=["read"], paths=[*_tree(SKILLS_PATH), *WORKSPACE_ARTIFACT_SUBTREES], mode="allow"),
+    FilesystemPermission(operations=["read"], paths=_tree(PLUGINS_PATH), mode="allow"),
     FilesystemPermission(operations=["read", "write"], paths=_tree(WORKSPACE_PATH), mode="deny"),
 ]
 
@@ -244,15 +246,13 @@ class RepoFilesystemBackend(DAIVFilesystemBackend):
         return resolved
 
 
-_SKILLS_READ_ONLY = "the skills directory is read-only"
+class ReadOnlyBackend(DAIVFilesystemBackend):
+    """A tree the file tools only read: their write, edit and delete are refused."""
 
-
-class SkillsCacheBackend(DAIVFilesystemBackend):
-    """The worker-wide skills cache, read by every later run: only ``SkillsMiddleware``'s uploads add to it, so the
-    file tools' write, edit and delete are refused."""
+    read_only_reason = "this directory is read-only"
 
     def write(self, file_path: str, content: str) -> WriteResult:
-        return WriteResult(error=f"Error writing file '{file_path}': {_SKILLS_READ_ONLY}")
+        return WriteResult(error=f"Error writing file '{file_path}': {self.read_only_reason}")
 
     def edit(
         self,
@@ -261,13 +261,27 @@ class SkillsCacheBackend(DAIVFilesystemBackend):
         new_string: str,
         replace_all: bool = False,  # noqa: FBT001, FBT002
     ) -> EditResult:
-        return EditResult(error=f"Error editing file '{file_path}': {_SKILLS_READ_ONLY}")
+        return EditResult(error=f"Error editing file '{file_path}': {self.read_only_reason}")
 
     def delete(self, file_path: str) -> DeleteResult:
-        return DeleteResult(error=f"Error deleting '{file_path}': {_SKILLS_READ_ONLY}")
+        return DeleteResult(error=f"Error deleting '{file_path}': {self.read_only_reason}")
 
 
-def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS_CACHE_PATH) -> CompositeBackend:
+class SkillsCacheBackend(ReadOnlyBackend):
+    """The worker-wide skills cache, read by every later run: only ``SkillsMiddleware``'s uploads add to it."""
+
+    read_only_reason = "the skills directory is read-only"
+
+
+class PluginBackend(ReadOnlyBackend):
+    """One installed plugin's checkout, shared by every run that loads it."""
+
+    read_only_reason = "the plugins directory is read-only"
+
+
+def build_disk_workspace_backend(
+    clone_dir: Path, *, skills_cache: Path = SKILLS_CACHE_PATH, plugin_roots: Mapping[str, Path] | None = None
+) -> CompositeBackend:
     """Build the disk-backed composite that serves the unified ``/workspace`` namespace.
 
     Routes:
@@ -278,6 +292,9 @@ def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS
         ``set_runtime_ctx`` tempdir that is auto-removed at run end. Rooted at the clone's parent instead, a path such
         as ``/repo/.git/config`` would reach the clone past both the route and the fence.
 
+    Each of ``plugin_roots`` (plugin name to its checkout) adds a read-only ``/workspace/plugins/<name>/`` route, so
+    only the plugins of the turn's user are reachable.
+
     The skills cache is a route (not copied per run) so the global-cache idempotency in
     ``SkillsMiddleware`` is preserved.
     """
@@ -285,8 +302,12 @@ def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS
     repo_backend = RepoFilesystemBackend(root_dir=clone_dir, virtual_mode=True)
     skills_backend = SkillsCacheBackend(root_dir=skills_cache, virtual_mode=True)
     scratch_backend = DAIVFilesystemBackend(root_dir=clone_dir.parent / "scratch", virtual_mode=True)
+    plugin_routes = {
+        f"{PLUGINS_PATH}/{name}/": PluginBackend(root_dir=root, virtual_mode=True)
+        for name, root in (plugin_roots or {}).items()
+    }
     return CompositeBackend(
         default=scratch_backend,
-        routes={f"{REPO_PATH}/": repo_backend, f"{SKILLS_PATH}/": skills_backend},
+        routes={f"{REPO_PATH}/": repo_backend, f"{SKILLS_PATH}/": skills_backend, **plugin_routes},
         artifacts_root=WORKSPACE_PATH,
     )

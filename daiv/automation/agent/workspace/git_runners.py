@@ -11,6 +11,7 @@ from git import GitCommandError
 
 from automation.agent.constants import REPO_PATH
 from codebase.clients.base import GIT_NO_PROMPT_ENV
+from core.constants import GIT_PROXY_CA_ENV
 
 if TYPE_CHECKING:
     from git import Repo
@@ -71,22 +72,7 @@ class GitRunner(Protocol):
 
 _NO_COMMAND_HOOKS = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null")
 _NO_DIFF_DRIVERS = ("--no-ext-diff", "--no-textconv")
-_INHERITED_ENV = (
-    "PATH",
-    "HOME",
-    "http_proxy",
-    "https_proxy",
-    "no_proxy",
-    "all_proxy",
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "NO_PROXY",
-    "ALL_PROXY",
-    "GIT_SSL_CAINFO",
-    "GIT_SSL_CAPATH",
-    "SSL_CERT_FILE",
-    "SSL_CERT_DIR",
-)
+_INHERITED_ENV = ("PATH", "HOME", *GIT_PROXY_CA_ENV)
 
 
 def _git_argv(working_dir: str | os.PathLike[str], args: tuple[str, ...]) -> list[str | os.PathLike[str]]:

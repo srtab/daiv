@@ -23,6 +23,7 @@ LOCAL_APPS = [
     "mcp_connectors",
     "memory",
     "notifications",
+    "plugins",
     "sandbox_envs",
     "schedules",
     "sessions",

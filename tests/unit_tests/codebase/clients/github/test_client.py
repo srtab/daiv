@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 from git import GitCommandError
 from github import Consts
-from github.GithubException import GithubException
+from github.GithubException import GithubException, UnknownObjectException
 from github.IssueComment import IssueComment
 from github.NamedUser import NamedUser
 from github.Repository import Repository as GhRepository
@@ -560,3 +560,73 @@ class TestGitHubClient:
 
         assert exc_info.value.ref == "gone-branch"
         assert exc_info.value.repo_slug == "owner/repo"
+
+
+class TestGitHubPlatformHostAndReadCheck:
+    @pytest.fixture
+    def github_client(self):
+        integration = Mock()
+        mock_installation = Mock()
+        mock_installation.get_github_for_installation.return_value = Mock()
+        integration.get_app_installation.return_value = mock_installation
+        return GitHubClient(integration=integration, installation_id=67890)
+
+    @staticmethod
+    def _repo(github_client, *, private, permission=None, permission_error=None):
+        repo = Mock(private=private)
+        if permission_error is not None:
+            repo.get_collaborator_permission.side_effect = permission_error
+        else:
+            repo.get_collaborator_permission.return_value = permission
+        github_client.client.get_repo.return_value = repo
+        return repo
+
+    @pytest.mark.parametrize(
+        ("base_url", "expected"),
+        [("https://api.github.com", "github.com"), ("https://github.example.com/api/v3", "github.example.com")],
+    )
+    def test_git_host(self, github_client, base_url, expected):
+        github_client.client.requester.base_url = base_url
+
+        assert github_client.git_host() == expected
+
+    @pytest.mark.parametrize(("private", "expected"), [(True, "private"), (False, "public")])
+    def test_repository_visibility(self, github_client, private, expected):
+        self._repo(github_client, private=private)
+
+        assert github_client.repository_visibility("owner/repo") == expected
+
+    def test_user_can_read_public_without_identity_uid(self, github_client):
+        repo = self._repo(github_client, private=False)
+
+        assert github_client.user_can_read("owner/repo", uid=None, username=None) is True
+        repo.get_collaborator_permission.assert_not_called()
+
+    @pytest.mark.parametrize("permission", ["admin", "maintain", "write", "triage", "read"])
+    def test_user_can_read_private_collaborator(self, github_client, permission):
+        repo = self._repo(github_client, private=True, permission=permission)
+
+        assert github_client.user_can_read("owner/repo", uid=1, username="octocat") is True
+        repo.get_collaborator_permission.assert_called_once_with("octocat")
+
+    def test_user_can_read_private_no_permission_denied(self, github_client):
+        self._repo(github_client, private=True, permission="none")
+
+        assert github_client.user_can_read("owner/repo", uid=1, username="octocat") is False
+
+    def test_user_can_read_private_non_collaborator_denied(self, github_client):
+        self._repo(github_client, private=True, permission_error=UnknownObjectException(404))
+
+        assert github_client.user_can_read("owner/repo", uid=1, username="octocat") is False
+
+    def test_user_can_read_private_without_username_denied(self, github_client):
+        repo = self._repo(github_client, private=True, permission="admin")
+
+        assert github_client.user_can_read("owner/repo", uid=1, username=None) is False
+        repo.get_collaborator_permission.assert_not_called()
+
+    def test_user_can_read_private_propagates_transient_errors(self, github_client):
+        self._repo(github_client, private=True, permission_error=GithubException(502))
+
+        with pytest.raises(GithubException):
+            github_client.user_can_read("owner/repo", uid=1, username="octocat")
