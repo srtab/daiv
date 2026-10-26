@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from deepagents.backends.protocol import BackendProtocol, FileDownloadResponse
     from deepagents.middleware.filesystem import FilesystemPermission
 
+    from automation.agent.context import RepoHandle
     from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from automation.agent.workspace.session import SandboxSession
@@ -29,6 +30,11 @@ class Workspace(Protocol):
     @property
     def git(self) -> GitManager:
         """Git in the repository the agent changes, for commands that need no platform credential."""
+        ...
+
+    @property
+    def repo_path(self) -> str:
+        """Where, in ``/workspace``, the repository ``git`` reaches sits."""
         ...
 
     @property
@@ -74,4 +80,9 @@ class Workspace(Protocol):
         """Read one ``/workspace`` file to copy it out of the run. A sandbox refuses a file over ``max_bytes`` with
         ``DOWNLOAD_TOO_LARGE`` before it crosses the wire; a disk read is local and returns the file whole, leaving the
         limit to the caller."""
+        ...
+
+    def for_repo(self, handle: RepoHandle, *, path: str) -> Workspace:
+        """A workspace whose ``git`` and ``authenticated_git`` reach ``handle``'s repository, sitting at ``path``;
+        everything else is the run's. The main repository's ``path`` returns this workspace."""
         ...

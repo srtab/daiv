@@ -288,6 +288,12 @@ class TestWorkspaceFencePermissions:
             ):
                 assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "deny", (op, path)
 
+    def test_fence_allows_writes_in_extra_repos_but_not_their_git(self):
+        for op in ("read", "write"):
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, "/workspace/repos/g/mod/a.py") == "allow"
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, "/workspace/repos/g/mod/.git/config") == "deny"
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, "/workspace/repos/g/mod/vendor/.git") == "deny"
+
     def test_skills_cache_is_readable_but_not_writable(self):
         for path in (
             "/workspace/skills",
@@ -363,6 +369,33 @@ class TestBuildDiskWorkspaceBackend:
 
         assert (await backend.awrite("/workspace/tmp/t.txt", "T")).error is None
         assert (clone_dir.parent / "scratch" / "workspace" / "tmp" / "t.txt").read_text() == "T"
+
+    async def test_extra_clone_is_routed_under_its_workspace_path(self, tmp_path):
+        clone_dir = tmp_path / "repo"
+        clone_dir.mkdir()
+        mod_dir = tmp_path / "mod"
+        mod_dir.mkdir()
+        (mod_dir / "README.md").write_text("mod readme\n")
+
+        backend = build_disk_workspace_backend(
+            clone_dir, skills_cache=tmp_path / "skills_cache", extra_clones={"/workspace/repos/g/mod": mod_dir}
+        )
+
+        [response] = await backend.adownload_files(["/workspace/repos/g/mod/README.md"])
+        assert response.content == b"mod readme\n"
+        assert (await backend.awrite("/workspace/repos/g/mod/a.py", "A")).error is None
+        assert (mod_dir / "a.py").read_text() == "A"
+
+    async def test_extra_clone_git_metadata_is_refused(self, tmp_path):
+        clone_dir = tmp_path / "repo"
+        clone_dir.mkdir()
+        mod_dir = _clone_with_git_config(tmp_path / "mod_root")
+        backend = build_disk_workspace_backend(
+            clone_dir, skills_cache=tmp_path / "skills_cache", extra_clones={"/workspace/repos/g/mod": mod_dir}
+        )
+
+        assert (await backend.aedit("/workspace/repos/g/mod/.git/config", "original", "planted")).error is not None
+        assert (mod_dir / ".git" / "config").read_text() == "original"
 
     async def test_unrouted_paths_cannot_reach_the_clone(self, tmp_path):
         clone_dir = _clone_with_git_config(tmp_path)

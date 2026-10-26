@@ -15,13 +15,16 @@ from deepagents.backends.filesystem import DEFAULT_GREP_TIMEOUT, FilesystemBacke
 from deepagents.backends.protocol import DeleteResult, EditResult, GrepMatch, GrepResult, WriteResult
 from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
 
-from automation.agent.constants import REPO_PATH, TMP_PATH, WORKSPACE_PATH
+from automation.agent.constants import EXTRA_REPOS_PATH, REPO_PATH, TMP_PATH, WORKSPACE_PATH
 
 # Through DAIV's middleware module, whose import makes the permission globs below match dot paths.
 from automation.agent.middlewares.file_system import FilesystemPermission
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
+
+    from deepagents.backends.protocol import BackendProtocol
 
 logger = logging.getLogger("daiv.tools")
 
@@ -46,8 +49,16 @@ WORKSPACE_ARTIFACT_SUBTREES = [
 # Disk-mode fence for the file tools: the first matching rule wins and an unmatched path is allowed. Sandbox runs have
 # none, since bash is unconstrained there.
 WORKSPACE_FENCE_PERMISSIONS = [
-    FilesystemPermission(operations=["read", "write"], paths=_tree(f"{REPO_PATH}/**/.git"), mode="deny"),
-    FilesystemPermission(operations=["read", "write"], paths=[*_tree(REPO_PATH), *_tree(TMP_PATH)], mode="allow"),
+    FilesystemPermission(
+        operations=["read", "write"],
+        paths=[*_tree(f"{REPO_PATH}/**/.git"), *_tree(f"{EXTRA_REPOS_PATH}/**/.git")],
+        mode="deny",
+    ),
+    FilesystemPermission(
+        operations=["read", "write"],
+        paths=[*_tree(REPO_PATH), *_tree(EXTRA_REPOS_PATH), *_tree(TMP_PATH)],
+        mode="allow",
+    ),
     FilesystemPermission(operations=["read"], paths=[*_tree(SKILLS_PATH), *WORKSPACE_ARTIFACT_SUBTREES], mode="allow"),
     FilesystemPermission(operations=["read", "write"], paths=_tree(WORKSPACE_PATH), mode="deny"),
 ]
@@ -267,11 +278,14 @@ class SkillsCacheBackend(DAIVFilesystemBackend):
         return DeleteResult(error=f"Error deleting '{file_path}': {_SKILLS_READ_ONLY}")
 
 
-def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS_CACHE_PATH) -> CompositeBackend:
+def build_disk_workspace_backend(
+    clone_dir: Path, *, skills_cache: Path = SKILLS_CACHE_PATH, extra_clones: Mapping[str, Path] | None = None
+) -> CompositeBackend:
     """Build the disk-backed composite that serves the unified ``/workspace`` namespace.
 
     Routes:
       - ``/workspace/repo/``   → the local git clone (``clone_dir``), with its ``.git`` refused
+      - each ``extra_clones`` workspace path → that sibling clone, its ``.git`` refused too
       - ``/workspace/skills/`` → the shared global skills cache (``SKILLS_CACHE_PATH``), read-only to the file tools
       - everything else (the ``/workspace/tmp`` scratchpad and the offloaded artifact dirs derived from
         ``artifacts_root``) → a per-run scratch backend rooted at ``scratch/`` beside the clone, inside the
@@ -285,8 +299,7 @@ def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS
     repo_backend = RepoFilesystemBackend(root_dir=clone_dir, virtual_mode=True)
     skills_backend = SkillsCacheBackend(root_dir=skills_cache, virtual_mode=True)
     scratch_backend = DAIVFilesystemBackend(root_dir=clone_dir.parent / "scratch", virtual_mode=True)
-    return CompositeBackend(
-        default=scratch_backend,
-        routes={f"{REPO_PATH}/": repo_backend, f"{SKILLS_PATH}/": skills_backend},
-        artifacts_root=WORKSPACE_PATH,
-    )
+    routes: dict[str, BackendProtocol] = {f"{REPO_PATH}/": repo_backend, f"{SKILLS_PATH}/": skills_backend}
+    for workspace_path, extra_clone in (extra_clones or {}).items():
+        routes[f"{workspace_path}/"] = RepoFilesystemBackend(root_dir=extra_clone, virtual_mode=True)
+    return CompositeBackend(default=scratch_backend, routes=routes, artifacts_root=WORKSPACE_PATH)

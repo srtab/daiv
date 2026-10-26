@@ -5,14 +5,17 @@ from typing import TYPE_CHECKING
 
 from deepagents.backends.composite import CompositeBackend
 
-from automation.agent.constants import WORKSPACE_PATH
+from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
 from automation.agent.workspace.git_manager import GitManager
 from automation.agent.workspace.git_runners import SandboxGitRunner
+from automation.agent.workspace.repo_view import RepoWorkspace
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 if TYPE_CHECKING:
     from deepagents.backends.protocol import FileDownloadResponse
 
+    from automation.agent.context import RepoHandle
+    from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.session import SandboxSession
 
 logger = logging.getLogger("daiv.tools")
@@ -27,6 +30,7 @@ class SandboxWorkspace:
 
     fs_permissions = None
     provisions_skills = True
+    repo_path = REPO_PATH
 
     def __init__(self, session: SandboxSession) -> None:
         self.session = session
@@ -52,6 +56,10 @@ class SandboxWorkspace:
         errors, and any of them only means the publish goes on with the turn-start token, so it is logged, not raised.
         An unacquired session is a caller bug, so that one is raised.
         """
+        await self._refresh_credential()
+        return self.git
+
+    async def _refresh_credential(self) -> None:
         if not self.is_ready:
             raise RuntimeError("Cannot authenticate git before the sandbox session is acquired")
         try:
@@ -63,7 +71,17 @@ class SandboxWorkspace:
                 "turn-start token",
                 self.session.session_id,
             )
-        return self.git
+
+    def for_repo(self, handle: RepoHandle, *, path: str) -> Workspace:
+        if path == REPO_PATH:
+            return self
+        git = GitManager(SandboxGitRunner(self.bash, repo_path=path))
+
+        async def authenticate() -> GitManager:
+            await self._refresh_credential()
+            return git
+
+        return RepoWorkspace(self, repo_path=path, git=git, authenticate=authenticate)
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         (response,) = await self.bash.adownload_files([path], max_bytes=max_bytes)

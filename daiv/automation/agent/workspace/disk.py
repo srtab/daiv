@@ -5,14 +5,17 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
+from automation.agent.constants import REPO_PATH
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS, build_disk_workspace_backend
 from automation.agent.workspace.git_manager import GitManager
 from automation.agent.workspace.git_runners import LocalGitRunner
+from automation.agent.workspace.repo_view import RepoWorkspace
 
 if TYPE_CHECKING:
     from deepagents.backends.protocol import FileDownloadResponse
 
-    from automation.agent.context import RuntimeCtx
+    from automation.agent.context import RepoHandle, RuntimeCtx
+    from automation.agent.workspace.base import Workspace
 
 
 class DiskWorkspace:
@@ -30,10 +33,14 @@ class DiskWorkspace:
     provisions_skills = False
     skills_provisioning_errors = ()
     is_ready = True
+    repo_path = REPO_PATH
 
     def __init__(self, ctx: RuntimeCtx) -> None:
         self._ctx = ctx
-        self.backend = build_disk_workspace_backend(Path(ctx.gitrepo.working_dir))
+        self.backend = build_disk_workspace_backend(
+            Path(ctx.gitrepo.working_dir),
+            extra_clones={ctx.workspace_path(h): Path(h.gitrepo.working_dir) for h in ctx.extra_repos},
+        )
         self.git = GitManager(LocalGitRunner(ctx.gitrepo))
 
     async def authenticated_git(self) -> GitManager:
@@ -45,3 +52,15 @@ class DiskWorkspace:
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         (response,) = await self.backend.adownload_files([path])
         return response
+
+    def for_repo(self, handle: RepoHandle, *, path: str) -> Workspace:
+        if path == REPO_PATH or handle is self._ctx.repo:
+            return self
+
+        async def authenticate() -> GitManager:
+            auth_env = await sync_to_async(handle.client.get_git_auth_env)(handle.repository)
+            return GitManager(LocalGitRunner(handle.gitrepo, auth_env=auth_env))
+
+        return RepoWorkspace(
+            self, repo_path=path, git=GitManager(LocalGitRunner(handle.gitrepo)), authenticate=authenticate
+        )
