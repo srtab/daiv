@@ -47,9 +47,12 @@ class FakeGit:
         self.diffs = ["diff"]
         self.events: list[str] = []
         self.stash_error: Exception | None = None
+        self.merge_error: Exception | None = None
         self.restore_error: Exception | None = None
 
     async def pending_merge(self):
+        if self.merge_error is not None:
+            raise self.merge_error
         return self.merge
 
     async def stash_all(self, message: str) -> bool:
@@ -146,6 +149,15 @@ async def test_failing_before_change_is_unavailable_when_the_changes_cannot_be_s
 
     assert fake_git.events == ["stash_all"]
     assert fake_bash.calls == []
+
+
+async def test_failing_before_change_is_unavailable_when_the_tree_cannot_be_read(fake_bash, fake_git):
+    fake_git.merge_error = httpx.ReadTimeout("timed out")
+
+    with pytest.raises(ChecksUnavailableError):
+        await failing_before_change(fake_bash, fake_git, ["make test"])
+
+    assert fake_git.events == []
 
 
 async def test_failing_before_change_propagates_a_failed_restore(fake_bash, fake_git):

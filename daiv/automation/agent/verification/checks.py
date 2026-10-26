@@ -91,9 +91,9 @@ async def failing_before_change(bash: SandboxFileBackend, git: GitManager, comma
     Failing to set the changes aside leaves the tree as it was, so it is reported as the checks being unavailable;
     failing to restore them raises.
     """
-    if await git.pending_merge() is not None:
-        return frozenset()
     try:
+        if await git.pending_merge() is not None:
+            return frozenset()
         stashed = await git.stash_all("daiv: pre-publish verification")
     except (GitCommandError, httpx.HTTPError, SandboxGitProtocolError) as exc:
         raise ChecksUnavailableError("could not set the changes aside to re-check the starting code") from exc

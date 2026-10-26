@@ -4,6 +4,8 @@ import logging
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, NotRequired, cast
 
+import httpx
+from git import GitCommandError
 from langchain.agents.middleware import AgentMiddleware, AgentState, ExtendedModelResponse
 from langchain_core.messages import AIMessage
 from langgraph.types import Command
@@ -20,6 +22,7 @@ from automation.agent.verification.checks import (
 from automation.agent.verification.fallback import checks_after_last_edit, fallback_reminder
 from automation.agent.verification.outcome import VerificationOutcome, command_outcomes, failure_reminder
 from automation.agent.verification.suspicious import suspicious_paths
+from automation.agent.workspace.git_runners import SandboxGitProtocolError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -37,6 +40,9 @@ if TYPE_CHECKING:
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 logger = logging.getLogger("daiv.agent")
+
+_READ_ERRORS = (GitCommandError, httpx.HTTPError, SandboxGitProtocolError)
+_UNREADABLE = "the repository could not be read to run the checks"
 
 
 class VerificationState(AgentState):
@@ -63,18 +69,16 @@ def _outcome(
     *,
     commands: list[CommandOutcome],
     changed: Sequence[str],
-    fingerprint: str,
     rounds: int,
+    fingerprint: str | None = None,
     reason: str | None = None,
     changed_by_checks: Sequence[str] = (),
 ) -> VerificationOutcome:
     outcome = VerificationOutcome(
-        status=status,
-        commands=commands,
-        rounds=rounds,
-        suspicious_paths=suspicious_paths(changed),
-        fingerprint=fingerprint,
+        status=status, commands=commands, rounds=rounds, suspicious_paths=suspicious_paths(changed)
     )
+    if fingerprint is not None:
+        outcome["fingerprint"] = fingerprint
     if reason is not None:
         outcome["reason"] = reason
     if changed_by_checks:
@@ -119,9 +123,10 @@ class VerificationMiddleware(AgentMiddleware):
     ``LoopBreakerMiddleware`` this lives in ``awrap_model_call``, so it adds no graph node per turn; each reminder is
     saved into the thread ahead of the reply it produced (see ``reminders``).
 
-    ``ModelFallbackMiddleware`` retries the whole chain on any error. So a reminder counts only once the call carrying
-    it returned, and an error from the verification itself is raised again on every later call of the run: a retry
-    after a failed stash pop would find a clean tree and publish nothing.
+    A tree that can't be read, or checks that can't run, record the run as not verified. ``ModelFallbackMiddleware``
+    retries the whole chain on any error. So a reminder counts only once the call carrying it returned, and any other
+    error from the verification itself is raised again on every later call of the run: a retry after a failed stash
+    pop would find a clean tree and publish nothing.
 
     Args:
         workspace: The run's workspace; its ``bash`` runs the checks and its ``git`` reads the tree.
@@ -209,30 +214,46 @@ class VerificationMiddleware(AgentMiddleware):
     async def _verdict(self, history: Sequence[AnyMessage]) -> _Verdict | None:
         """What the agent's stop comes to, or ``None`` when it leaves nothing to publish."""
         git = self._workspace.git
-        changed = await git.get_changed_files()
-        if not changed and await git.pending_merge() is None:
-            return None
+        try:
+            changed = await git.get_changed_files()
+            if not changed and await git.pending_merge() is None:
+                return None
+        except _READ_ERRORS:
+            logger.warning("Could not read the repository to verify the agent's work", exc_info=True)
+            return self._unreadable([])
         if self._commands:
             return await self._verify(changed)
         return self._fallback(history, changed)
 
+    def _unreadable(self, changed: Sequence[str]) -> _Verdict:
+        if not self._commands:
+            return _Verdict(_outcome("not_configured", commands=[], changed=changed, rounds=0))
+        return self._not_verified(changed, _UNREADABLE)
+
+    def _not_verified(self, changed: Sequence[str], reason: str) -> _Verdict:
+        return _Verdict(_outcome("not_verified", commands=[], changed=changed, rounds=self._rounds, reason=reason))
+
     async def _verify(self, changed: list[str]) -> _Verdict:
-        before = await self._workspace.git.get_diff()
-        tree = diff_fingerprint(before)
         try:
+            before = await self._workspace.git.get_diff()
+            tree = diff_fingerprint(before)
             run = self._runs.get(tree)
             if run is None:
                 run = await self._run_checks(before, changed)
                 self._runs[tree] = run
+        except _READ_ERRORS:
+            logger.warning("Could not read the repository around the before_publish checks", exc_info=True)
+            return self._unreadable(changed)
+        except ChecksUnavailableError as exc:
+            logger.warning("Could not run the before_publish checks: %s", exc, exc_info=True)
+            return self._not_verified(changed, str(exc))
+        try:
             already_failing = await self._already_failing([
                 result.command for result in run.results if not result.passed
             ])
         except ChecksUnavailableError as exc:
-            logger.warning("Could not run the before_publish checks: %s", exc)
-            outcome = _outcome(
-                "not_verified", commands=[], changed=changed, fingerprint=tree, rounds=self._rounds, reason=str(exc)
-            )
-            return _Verdict(outcome)
+            logger.warning("Could not re-check the starting code: %s", exc, exc_info=True)
+            return self._not_verified(changed, str(exc))
 
         failures = [result for result in run.results if not result.passed and result.command not in already_failing]
         failed = bool(failures or run.changed_by_checks)
@@ -273,7 +294,4 @@ class VerificationMiddleware(AgentMiddleware):
         finding = checks_after_last_edit(messages)
         if finding.verdict != "checked" and not self._fallback_sent and self._may_remind():
             reminder = fallback_reminder(finding, changed)
-        outcome = VerificationOutcome(
-            status="not_configured", commands=[], rounds=0, suspicious_paths=suspicious_paths(changed)
-        )
-        return _Verdict(outcome, reminder)
+        return _Verdict(_outcome("not_configured", commands=[], changed=changed, rounds=0), reminder)

@@ -18,6 +18,7 @@ from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.verification import VerificationMiddleware
 from automation.agent.synthetic import is_synthetic
 from automation.agent.verification.checks import diff_fingerprint
+from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import FakeWorkspace
 
@@ -29,7 +30,8 @@ LOCK_DIFF = "diff --git a/uv.lock b/uv.lock\n--- a/uv.lock\n+++ b/uv.lock\n@@ -1
 class FakeRepo:
     """The run's sandbox as both ``workspace.git`` and ``workspace.bash``: ``diff`` is the working tree, ``failing``
     the commands that fail on it, ``failing_on_start`` those that fail on the starting code (while stashed),
-    ``checks_leave`` the tree a check run leaves behind, and ``restore_error`` what popping the stash raises."""
+    ``checks_leave`` the tree a check run leaves behind, ``restore_error`` what popping the stash raises, and
+    ``read_errors`` what each read of the tree raises."""
 
     changed: list[str] = field(default_factory=lambda: ["a.py"])
     diff: str = AGENT_DIFF
@@ -38,17 +40,25 @@ class FakeRepo:
     checks_leave: str | None = None
     error: Exception | None = None
     restore_error: Exception | None = None
+    read_errors: dict[str, Exception] = field(default_factory=dict)
     stashed: bool = False
     stashes: int = 0
     check_runs: int = 0
 
+    def _read(self, method: str) -> None:
+        if (error := self.read_errors.get(method)) is not None:
+            raise error
+
     async def get_changed_files(self) -> list[str]:
+        self._read("get_changed_files")
         return list(self.changed)
 
     async def get_diff(self) -> str:
+        self._read("get_diff")
         return self.diff
 
     async def pending_merge(self) -> None:
+        self._read("pending_merge")
         return None
 
     async def stash_all(self, message: str) -> bool:
@@ -361,6 +371,60 @@ async def test_checks_unavailable_records_not_verified():
     outcome = _outcome(result)
     assert outcome["status"] == "not_verified"
     assert "could not be reached" in outcome["reason"]
+    assert result.model_response.result == [reply]
+    assert len(seen) == 1
+
+
+_READ_ERRORS = [
+    httpx.ConnectError("All connection attempts failed: http://sandbox:8000/session/s-1/"),
+    SandboxGitProtocolError("Sandbox returned no result for: git diff"),
+    GitCommandError(["git", "diff"], 128, "fatal: unable to read tree"),
+]
+
+
+@pytest.mark.parametrize("method", ["get_changed_files", "pending_merge", "get_diff"])
+@pytest.mark.parametrize("error", _READ_ERRORS, ids=type)
+async def test_unreadable_tree_records_not_verified_and_the_run_goes_on(method, error):
+    repo = FakeRepo(changed=[] if method == "pending_merge" else ["a.py"], read_errors={method: error})
+    middleware = _middleware(repo)
+    handler, _ = _scripted(_final(), _final())
+
+    outcome = _outcome(await middleware.awrap_model_call(_request(), handler))
+
+    assert outcome["status"] == "not_verified"
+    assert outcome["reason"] == "the repository could not be read to run the checks"
+    assert repo.check_runs == 0
+    repo.read_errors, repo.changed = {}, ["a.py"]
+    assert _outcome(await middleware.awrap_model_call(_request(), handler))["status"] == "passed"
+
+
+async def test_tree_unreadable_after_the_checks_records_not_verified():
+    repo = FakeRepo(failing={"make test"})
+    middleware = _middleware(repo)
+    original = middleware._run_checks
+
+    async def checks_then_unreadable(before, changed):
+        repo.read_errors = {"get_diff": httpx.ReadTimeout("timed out")}
+        return await original(before, changed)
+
+    middleware._run_checks = checks_then_unreadable
+    handler, seen = _scripted(_final())
+
+    outcome = _outcome(await middleware.awrap_model_call(_request(), handler))
+
+    assert outcome["status"] == "not_verified"
+    assert repo.check_runs == 1
+    assert len(seen) == 1
+
+
+async def test_without_commands_an_unreadable_tree_records_not_configured_without_a_reminder():
+    repo = FakeRepo(read_errors={"get_changed_files": httpx.ConnectError("down")})
+    reply = _final()
+    handler, seen = _scripted(reply)
+
+    result = await _middleware(repo, ()).awrap_model_call(_request(_edited_history()), handler)
+
+    assert _outcome(result)["status"] == "not_configured"
     assert result.model_response.result == [reply]
     assert len(seen) == 1
 
