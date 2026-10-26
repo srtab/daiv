@@ -18,6 +18,19 @@ RANGE_CHOICES: list[tuple[str, str]] = [
     ("30d", _("Last 30 days")),
 ]
 
+# Urgency order for the status filter: what waits on the developer comes first.
+STATUS_CHOICES: list[tuple[str, str]] = [
+    (status.value, status.label)
+    for status in (
+        RunStatus.WAITING_INPUT,
+        RunStatus.FAILED,
+        RunStatus.RUNNING,
+        RunStatus.QUEUED,
+        RunStatus.READY,
+        RunStatus.SUCCESSFUL,
+    )
+]
+
 # Rolling-window size per range token; "today" is special-cased to local calendar midnight.
 _RANGE_WINDOWS: dict[str, timedelta] = {"2d": timedelta(days=2), "7d": timedelta(days=7), "30d": timedelta(days=30)}
 
@@ -25,7 +38,7 @@ _RANGE_WINDOWS: dict[str, timedelta] = {"2d": timedelta(days=2), "7d": timedelta
 class SessionFilter(django_filters.FilterSet):
     # Param names match the old activity deep links (?trigger=, ?status=, ...).
     q = django_filters.CharFilter(method="filter_q")
-    status = django_filters.ChoiceFilter(choices=RunStatus.choices, method="filter_status")
+    status = django_filters.ChoiceFilter(choices=STATUS_CHOICES, method="filter_status")
     trigger = django_filters.ChoiceFilter(field_name="origin", choices=SessionOrigin.choices)
     repo = django_filters.CharFilter(field_name="repo_id")  # deep-link back-compat: clearable chip, no widget to set it
     mr = django_filters.NumberFilter(method="filter_mr")

@@ -38,7 +38,7 @@ from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
 from sessions.executor.lock import live_run_for, session_activity
-from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
+from sessions.filters import RANGE_CHOICES, STATUS_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
@@ -205,7 +205,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
             context["current_to"],
         ])
         context["origins"] = SessionOrigin.choices
-        context["statuses"] = RunStatus.choices
+        context["statuses"] = STATUS_CHOICES
         context["ranges"] = RANGE_CHOICES
 
         # The page rows are already scoped to this user and the schedule, so they name the chip.

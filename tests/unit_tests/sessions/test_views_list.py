@@ -145,6 +145,12 @@ class TestSessionListView:
         assert len(response.context["origins"]) > 0
         assert len(response.context["statuses"]) > 0
 
+    def test_status_filter_renders_needs_input_and_failed_first(self, logged_in_client, user):
+        response = logged_in_client.get(reverse("session_list"))
+        html = response.content.decode()
+        positions = [html.index(f"setStatus('{status}')") for status in ("WAITING_INPUT", "FAILED", "SUCCESSFUL")]
+        assert positions == sorted(positions)
+
     def test_date_param_names_are_date_from_and_date_to(self, logged_in_client, user):
         """Lock in the URL param names; values round-trip to template context."""
         _create_session(user=user)
