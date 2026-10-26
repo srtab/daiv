@@ -40,6 +40,7 @@ def _make_agent_runtime(repo_working_dir: str | Path, *, spec: SandboxSpec | Non
     runtime = Mock()
     runtime.context = Mock()
     runtime.context.gitrepo = Mock(working_dir=str(repo_working_dir))
+    runtime.context.extra_repos = ()
     runtime.context.sandbox = spec or sandbox_spec()
     return runtime
 
@@ -432,7 +433,9 @@ def repo_dir(tmp_path: Path) -> Path:
 def _run_session(client: FakeSandboxClient, runtime: Mock, token: str | None) -> SandboxSession:
     """The session the executor builds for one turn; ``token`` is the push token the run mints."""
     credential = GitEgressCredential.for_token(host=_GIT_HOST, token=token) if token is not None else None
-    return SandboxSession(client, runtime.context.sandbox, credential_source=AsyncMock(return_value=credential))
+    return SandboxSession(
+        client, runtime.context.sandbox, credential_source=AsyncMock(return_value=[credential] if credential else [])
+    )
 
 
 async def _turn(

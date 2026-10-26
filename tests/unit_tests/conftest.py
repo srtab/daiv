@@ -120,6 +120,7 @@ class FakeSandboxSession:
     egress: EgressConfigRequest | None = None
     repo_files: frozenset[str] | None = None
     skills_files: frozenset[str] | None = None
+    repos_files: frozenset[str] | None = None
 
 
 class FakeSandboxClient:
@@ -217,16 +218,21 @@ class FakeSandboxClient:
         return session_id
 
     async def seed_session(
-        self, session_id: str, repo_archive: bytes | None = None, skills_archive: bytes | None = None
+        self,
+        session_id: str,
+        repo_archive: bytes | None = None,
+        skills_archive: bytes | None = None,
+        repos_archive: bytes | None = None,
     ) -> None:
-        if repo_archive is None and skills_archive is None:
-            raise ValueError("seed_session requires at least one of repo_archive or skills_archive")
+        if repo_archive is None and skills_archive is None and repos_archive is None:
+            raise ValueError("seed_session requires at least one archive")
         self._record("seed_session", session_id)
         session = self._require("seed_session", session_id)
-        if session.repo_files is not None or session.skills_files is not None:
+        if session.repo_files is not None or session.skills_files is not None or session.repos_files is not None:
             return
         session.repo_files = _archive_members(repo_archive)
         session.skills_files = _archive_members(skills_archive)
+        session.repos_files = _archive_members(repos_archive)
 
     async def session_exists(self, session_id: str) -> bool:
         try:

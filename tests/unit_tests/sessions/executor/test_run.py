@@ -1077,7 +1077,7 @@ async def test_the_sandbox_session_mints_its_egress_credential_from_the_context(
     client = FakeSandboxClient.opened()
     credential = GitEgressCredential.for_token(host="gitlab.com", token="tok")  # noqa: S106
 
-    with agent_stack(_agent(), ctx=_sandbox_ctx(client, credential_source=AsyncMock(return_value=credential))):
+    with agent_stack(_agent(), ctx=_sandbox_ctx(client, credential_source=AsyncMock(return_value=[credential]))):
         await execute_run(make_spec())
 
     [(request,)] = client.calls_to("start_session")

@@ -13,9 +13,11 @@ from automation.agent.workspace.session import (
     SandboxSession,
     SessionSeed,
     _make_global_skills_archive,
+    _make_repos_archive,
     acquire_sandbox,
 )
 from codebase.clients.base import GitEgressCredential
+from core.sandbox.client import SandboxCapabilityError
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, PlatformCredential, with_platform_credentials
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
 from tests.unit_tests.conftest import FakeSandboxClient, acquired_session, sandbox_spec, write_skill
@@ -49,7 +51,9 @@ def _credential(token: str | None, *, host: str = "github.com") -> GitEgressCred
 def _session(
     client, spec: SandboxSpec | None = None, *, credential: GitEgressCredential | None = None
 ) -> SandboxSession:
-    return SandboxSession(client, spec or sandbox_spec(), credential_source=AsyncMock(return_value=credential))
+    return SandboxSession(
+        client, spec or sandbox_spec(), credential_source=AsyncMock(return_value=[credential] if credential else [])
+    )
 
 
 def _injected(egress: EgressConfigRequest) -> list[str]:
@@ -469,7 +473,7 @@ class TestRefreshCredential:
         """B8: a re-mint with no token, or the turn-start one (GitLab's day-cached token), pushes nothing."""
         client = FakeSandboxClient.opened()
         started = _started_egress("turn-start")
-        source = AsyncMock(return_value=remint)
+        source = AsyncMock(return_value=[remint] if remint else [])
         session = acquired_session(client, await _running(client, started), egress=started, credential_source=source)
 
         assert await session.refresh_credential() is False
@@ -483,7 +487,9 @@ class TestRefreshCredential:
         started = _started_egress("turn-start")
         fresh = _credential("fresh", host="gitlab.com")
         session_id = await _running(client, started)
-        session = acquired_session(client, session_id, egress=started, credential_source=AsyncMock(return_value=fresh))
+        session = acquired_session(
+            client, session_id, egress=started, credential_source=AsyncMock(return_value=[fresh])
+        )
 
         assert await session.refresh_credential() is True
         assert await session.refresh_credential() is False
@@ -500,7 +506,7 @@ class TestRefreshCredential:
             client,
             await _running(client, started),
             egress=started,
-            credential_source=AsyncMock(return_value=_credential("fresh", host="gitlab.com")),
+            credential_source=AsyncMock(return_value=[_credential("fresh", host="gitlab.com")]),
         )
         client.fail("update_egress", status=500)
 
@@ -516,7 +522,7 @@ class TestRefreshCredential:
         client = FakeSandboxClient.opened()
         prior_id = await _running(client, _started_egress("turn-start")) if reuse else None
         rotated = _credential("tok-2", host="gitlab.com")
-        source = AsyncMock(side_effect=[_credential("tok-1", host="gitlab.com"), rotated])
+        source = AsyncMock(side_effect=[[_credential("tok-1", host="gitlab.com")], [rotated]])
         session = SandboxSession(client, sandbox_spec(), credential_source=source)
         await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed())
         session_id = session.session_id
@@ -602,11 +608,12 @@ async def test_acquire_sandbox_seeds_a_fresh_session_with_the_repo_and_the_globa
     client = FakeSandboxClient.opened()
     session = _session(client)
 
-    await acquire_sandbox(session, Mock(gitrepo=Mock(working_dir=str(repo_dir))), {})
+    await acquire_sandbox(session, Mock(gitrepo=Mock(working_dir=str(repo_dir)), extra_repos=()), {})
 
     seeded = client.sessions[session.session_id]
     assert seeded.repo_files == {"README.md"}
     assert seeded.skills_files == {"skill-one/SKILL.md"}
+    assert seeded.repos_files is None
 
 
 class TestGlobalSkillsArchive:
@@ -664,3 +671,112 @@ class TestGlobalSkillsArchive:
 
         assert archive is None
         assert errors == ["Global skills failed to load: the sandbox could not be seeded with them"]
+
+
+def _extra_handle(slug: str, working_dir: Path) -> Mock:
+    return Mock(repository=Mock(slug=slug), gitrepo=Mock(working_dir=str(working_dir)))
+
+
+def test_repos_archive_keeps_same_named_repos_apart(tmp_path: Path):
+    a_dir, b_dir = tmp_path / "a", tmp_path / "b"
+    for directory in (a_dir, b_dir):
+        directory.mkdir()
+        (directory / "x.py").write_text("x")
+
+    members = _tar_members(_make_repos_archive({"group-a/utils": str(a_dir), "group-b/utils": str(b_dir)}))
+
+    assert {"group-a/utils/x.py", "group-b/utils/x.py"} <= members.keys()
+    assert {"group-a", "group-a/utils", "group-b", "group-b/utils"} <= {
+        name for name, kind in members.items() if kind == tarfile.DIRTYPE
+    }
+
+
+async def test_acquire_seeds_extra_repos(tmp_path: Path):
+    main_dir, mod_dir = tmp_path / "main", tmp_path / "mod"
+    for directory in (main_dir, mod_dir):
+        directory.mkdir()
+        (directory / "README.md").write_text("x")
+    client = FakeSandboxClient.opened()
+    session = _session(client)
+    ctx = Mock(gitrepo=Mock(working_dir=str(main_dir)), extra_repos=(_extra_handle("g/mod", mod_dir),))
+
+    await acquire_sandbox(session, ctx, {})
+
+    seeded = client.sessions[session.session_id]
+    assert seeded.repos_files == {"g/mod/README.md"}
+
+
+async def test_seed_capability_error_removes_container():
+    client = FakeSandboxClient.opened()
+    client.seed_session = AsyncMock(side_effect=SandboxCapabilityError("no repos support"))
+    session = _session(client)
+
+    with pytest.raises(SandboxCapabilityError):
+        await session.acquire(
+            prior_id=None, prior_fingerprint=None, seed=AsyncMock(return_value=SessionSeed(b"r", None, [], b"x"))
+        )
+
+    [(session_id, force)] = client.calls_to("close_session")
+    assert force is True
+    assert session_id not in client.sessions
+
+
+def _two_repo_source(main_token: str | None, mod_token: str | None):
+    return AsyncMock(
+        return_value=[
+            GitEgressCredential.for_token(host="gitlab.com", token=main_token, path="/g/app.git"),
+            GitEgressCredential.for_token(host="gitlab.com", token=mod_token, path="/g/mod.git"),
+        ]
+    )
+
+
+class TestMultiRepoCredentials:
+    async def test_provision_gives_each_repo_its_token(self):
+        env_rule = EgressRule(host="api.example.com")
+        spec = sandbox_spec(egress=EgressConfigRequest(policy=EgressPolicy(rules=[env_rule])))
+        client = FakeSandboxClient.opened()
+        session = SandboxSession(client, spec, credential_source=_two_repo_source("M", "S"))
+
+        await session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+
+        egress = client.sessions[session.session_id].request.egress
+        assert [(rule.host, rule.inject, rule.path_prefix) for rule in egress.policy.rules] == [
+            ("gitlab.com", f"{PLATFORM_EGRESS_SECRET_NAME}1", "/g/mod.git"),
+            ("gitlab.com", PLATFORM_EGRESS_SECRET_NAME, None),
+            ("api.example.com", None, None),
+        ]
+        assert len(_injected(egress)) == 2
+
+    async def test_refresh_pushes_when_only_a_sibling_token_rotated(self):
+        client = FakeSandboxClient.opened()
+        started = with_platform_credentials(
+            None,
+            [
+                _platform(GitEgressCredential.for_token(host="gitlab.com", token="M", path="/g/app.git")),  # noqa: S106
+                _platform(GitEgressCredential.for_token(host="gitlab.com", token="S", path="/g/mod.git")),  # noqa: S106
+            ],
+        )
+        session = acquired_session(
+            client, await _running(client, started), egress=started, credential_source=_two_repo_source("M", "S2")
+        )
+
+        assert await session.refresh_credential() is True
+
+        assert len(client.calls_to("update_egress")) == 1
+
+    async def test_refresh_skips_when_no_token_changed(self):
+        client = FakeSandboxClient.opened()
+        started = with_platform_credentials(
+            None,
+            [
+                _platform(GitEgressCredential.for_token(host="gitlab.com", token="M", path="/g/app.git")),  # noqa: S106
+                _platform(GitEgressCredential.for_token(host="gitlab.com", token="S", path="/g/mod.git")),  # noqa: S106
+            ],
+        )
+        session = acquired_session(
+            client, await _running(client, started), egress=started, credential_source=_two_repo_source("M", "S")
+        )
+
+        assert await session.refresh_credential() is False
+
+        assert client.calls_to("update_egress") == []

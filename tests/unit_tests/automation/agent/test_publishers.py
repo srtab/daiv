@@ -797,7 +797,9 @@ async def _publish_on_a_live_session(
     session_id = await client.start_session(StartSessionRequest(base_image="python:3.12", egress=turn_start))
     publisher = _make_publisher()
     publisher.workspace = SandboxWorkspace(
-        acquired_session(client, session_id, egress=turn_start, credential_source=AsyncMock(side_effect=remint))
+        acquired_session(
+            client, session_id, egress=turn_start, credential_source=AsyncMock(side_effect=lambda: [remint()])
+        )
     )
 
     await publisher.publish(merge_request=None)

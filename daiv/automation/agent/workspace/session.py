@@ -20,18 +20,18 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import httpx
 from skills.services import global_skill_files
 
-from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, PlatformCredential, with_platform_credentials
+from core.sandbox.egress import PlatformCredential, is_platform_secret_name, with_platform_credentials
 from core.sandbox.schemas import StartSessionRequest
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
 
     from sandbox_envs.spec import SandboxSpec
 
     from automation.agent.context import RuntimeCtx
     from codebase.clients.base import GitEgressCredential
     from core.sandbox.client import DAIVSandboxClient
-    from core.sandbox.schemas import EgressConfigRequest
+    from core.sandbox.schemas import EgressConfigRequest, EgressSecret
 
 logger = logging.getLogger("daiv.tools")
 
@@ -72,6 +72,7 @@ class SessionSeed(NamedTuple):
     skills_archive: bytes | None
     skills_seed_errors: list[str]
     """What the global-skills archive left out, worded for the agent."""
+    repos_archive: bytes | None = None
 
 
 class SandboxSession:
@@ -80,14 +81,15 @@ class SandboxSession:
     ``acquire`` reuses the thread's warm container when it still exists and was started from the same spec (a
     checkpoint with no recorded fingerprint counts as the same), and otherwise starts and seeds a fresh one. Either way
     the container runs with the egress this run provisions, when it provisions any: the environment's policy plus the
-    git-platform rule and a freshly minted token. ``refresh_credential`` re-mints that token before a publish.
+    git-platform rules and a freshly minted token per repository. ``refresh_credential`` re-mints them before a publish.
     ``release`` stops the container so the thread's next turn can reuse it, or removes it for a one-shot run and for a
     container no checkpoint names, which no later turn could find.
 
     Args:
         client: The run's sandbox transport, opened by ``set_runtime_ctx``; the session never opens or closes it.
         spec: The run's sandbox spec; its fingerprint tells a warm container started from another spec.
-        credential_source: Mints the git platform's egress credential; ``None`` provisions the spec's egress alone.
+        credential_source: Mints every repository's git egress credential, main first; ``None`` provisions the spec's
+            egress alone.
     """
 
     def __init__(
@@ -95,7 +97,7 @@ class SandboxSession:
         client: DAIVSandboxClient,
         spec: SandboxSpec,
         *,
-        credential_source: Callable[[], Awaitable[GitEgressCredential | None]] | None = None,
+        credential_source: Callable[[], Awaitable[list[GitEgressCredential]]] | None = None,
     ) -> None:
         if not spec.enabled:
             raise ValueError("A sandbox session needs a spec with a base image")
@@ -176,10 +178,11 @@ class SandboxSession:
         self._session_id, self._egress, self._acquisition = session_id, egress, acquisition
 
     async def refresh_credential(self) -> bool:
-        """Re-mint the git-platform token and push it onto the held container; return whether a new one was pushed.
+        """Re-mint every repository's git-platform token and push them onto the held container; return whether any
+        changed.
 
         Nothing is minted when the container carries no platform token (no egress proxy, or a token-less start), and
-        nothing is pushed when the re-mint yields no token or the same one: GitLab's clone tokens are day-cached, so in
+        nothing is pushed when the re-mint yields no token or the same ones: GitLab's clone tokens are day-cached, so in
         practice only GitHub's per-call installation tokens rotate. Each skip is debug-logged. Raises on a failed mint
         or push.
         """
@@ -187,27 +190,25 @@ class SandboxSession:
         if session_id is None:
             raise RuntimeError("Refreshing the egress credential needs an acquired sandbox session")
         current = self._egress
-        incumbent = current.secrets.get(PLATFORM_EGRESS_SECRET_NAME) if current is not None else None
-        if current is None or incumbent is None or self._credential_source is None:
+        incumbent = _platform_secrets(current)
+        if current is None or not incumbent or self._credential_source is None:
             logger.debug(
                 "Not refreshing platform egress for sandbox session %s: it carries no platform token", session_id
             )
             return False
-        credential = await self._credential_source()
-        if credential is None or credential.value is None:
+        egress = with_platform_credentials(current, _platform_credentials(await self._credential_source()))
+        fresh = _platform_secrets(egress)
+        if not fresh:
             logger.debug(
                 "Not refreshing platform egress for sandbox session %s: no token could be resolved", session_id
             )
             return False
-        if credential.value == incumbent.value:
+        if fresh == incumbent:
             logger.debug(
-                "Not refreshing platform egress for sandbox session %s: the re-mint returned the incumbent token",
+                "Not refreshing platform egress for sandbox session %s: the re-mint returned the incumbent tokens",
                 session_id,
             )
             return False
-        egress = with_platform_credentials(
-            current, [PlatformCredential(host=credential.host, header=credential.header, token=credential.value)]
-        )
         await self._client.update_egress(session_id, egress)
         self._egress = egress
         return True
@@ -257,19 +258,16 @@ class SandboxSession:
             )
 
     async def _provision_egress(self) -> EgressConfigRequest | None:
-        """The spec's egress plus the git-platform rule.
+        """The spec's egress plus the git-platform rules.
 
         DAIV pushes from inside the sandbox, so a network-off environment is still opened to the git host when the run
         holds a push token. Without one (evals' token-less platform) it stays isolated: there is nothing to push, and
         opening it would force the egress proxy onto hermetic runs.
         """
-        credential = await self._credential_source() if self._credential_source is not None else None
-        if credential is None or (self._spec.egress is None and credential.value is None):
+        credentials = await self._credential_source() if self._credential_source is not None else []
+        if not credentials or (self._spec.egress is None and all(c.value is None for c in credentials)):
             return self._spec.egress
-        return with_platform_credentials(
-            self._spec.egress,
-            [PlatformCredential(host=credential.host, header=credential.header, token=credential.value)],
-        )
+        return with_platform_credentials(self._spec.egress, _platform_credentials(credentials))
 
     async def _reuse(
         self, prior_id: str, prior_fingerprint: str | None, egress: EgressConfigRequest | None
@@ -375,8 +373,10 @@ class SandboxSession:
 
     async def _seed(self, session_id: str, seed: Callable[[], Awaitable[SessionSeed]]) -> None:
         try:
-            repo_archive, skills_archive, skills_seed_errors = await seed()
-            await self._client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
+            repo_archive, skills_archive, skills_seed_errors, repos_archive = await seed()
+            await self._client.seed_session(
+                session_id, repo_archive=repo_archive, skills_archive=skills_archive, repos_archive=repos_archive
+            )
             self._skills_seed_errors = skills_seed_errors
         # BaseException: a stopped turn must not leave the new container behind.
         except BaseException as exc:
@@ -394,6 +394,35 @@ def _make_repo_archive(working_dir: str) -> bytes:
         for child in repo_dir.iterdir():
             tf.add(child, arcname=child.name)
     return buf.getvalue()
+
+
+def _make_repos_archive(extra_dirs: Mapping[str, str]) -> bytes:
+    """Tar each extra repository's contents under ``<slug>/``, with a directory entry for every slug component."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        added: set[str] = set()
+        for slug, working_dir in extra_dirs.items():
+            parts = slug.split("/")
+            for depth in range(1, len(parts) + 1):
+                name = "/".join(parts[:depth])
+                if name not in added:
+                    added.add(name)
+                    info = tarfile.TarInfo(name)
+                    info.type, info.mode = tarfile.DIRTYPE, 0o755
+                    tf.addfile(info)
+            for child in Path(working_dir).iterdir():
+                tf.add(child, arcname=f"{slug}/{child.name}")
+    return buf.getvalue()
+
+
+def _platform_credentials(credentials: Sequence[GitEgressCredential]) -> list[PlatformCredential]:
+    return [PlatformCredential(host=c.host, header=c.header, token=c.value, path=c.path) for c in credentials]
+
+
+def _platform_secrets(egress: EgressConfigRequest | None) -> dict[str, EgressSecret]:
+    if egress is None:
+        return {}
+    return {name: secret for name, secret in egress.secrets.items() if is_platform_secret_name(name)}
 
 
 def _make_global_skills_archive() -> tuple[bytes | None, list[str]]:
@@ -427,12 +456,13 @@ def _make_global_skills_archive() -> tuple[bytes | None, list[str]]:
     return buf.getvalue(), skills.errors
 
 
-async def _seed_archives(working_dir: str) -> SessionSeed:
-    """The repository and global-skills archives a fresh sandbox session is seeded with."""
+async def _seed_archives(working_dir: str, extra_dirs: Mapping[str, str] | None = None) -> SessionSeed:
+    """The repository, global-skills and extra-repositories archives a fresh sandbox session is seeded with."""
     repo_archive, (skills_archive, skills_seed_errors) = await asyncio.gather(
         asyncio.to_thread(_make_repo_archive, working_dir), asyncio.to_thread(_make_global_skills_archive)
     )
-    return SessionSeed(repo_archive, skills_archive, skills_seed_errors)
+    repos_archive = await asyncio.to_thread(_make_repos_archive, extra_dirs) if extra_dirs else None
+    return SessionSeed(repo_archive, skills_archive, skills_seed_errors, repos_archive)
 
 
 async def acquire_sandbox(session: SandboxSession, ctx: RuntimeCtx, checkpointed: Mapping[str, Any]) -> None:
@@ -441,7 +471,9 @@ async def acquire_sandbox(session: SandboxSession, ctx: RuntimeCtx, checkpointed
     await session.acquire(
         prior_id=checkpointed.get("session_id"),
         prior_fingerprint=checkpointed.get("sandbox_fingerprint"),
-        seed=lambda: _seed_archives(str(ctx.gitrepo.working_dir)),
+        seed=lambda: _seed_archives(
+            str(ctx.gitrepo.working_dir), {h.repository.slug: str(h.gitrepo.working_dir) for h in ctx.extra_repos}
+        ),
     )
 
 

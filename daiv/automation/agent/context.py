@@ -74,11 +74,11 @@ class RuntimeCtx:
     egress."""
     sandbox_client: DAIVSandboxClient | None = field(default=None, compare=False, repr=False)
     """The run's sandbox transport: opened by :func:`set_runtime_ctx` for an enabled sandbox and closed with it."""
-    credential_source: Callable[[], Awaitable[GitEgressCredential | None]] | None = field(
+    credential_source: Callable[[], Awaitable[list[GitEgressCredential]]] | None = field(
         default=None, compare=False, repr=False
     )
-    """Mints the git platform's egress credential for the run's sandbox session; ``None`` without a sandbox. Each call
-    mints anew, so the session gets any token the clone's self-heal re-minted."""
+    """Mints every repository's git egress credential, main first, for the run's sandbox session; ``None`` without a
+    sandbox. Each call mints anew, so the session gets any token the clone's self-heal re-minted."""
     scope: Scope | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None
@@ -168,12 +168,14 @@ def _load_repo_with_optional_fallback(
 
 
 def _credential_source(
-    repo_client: RepoClient, repository: Repository
-) -> Callable[[], Awaitable[GitEgressCredential | None]]:
-    """Mint the repository's git egress credential on each call: a turn can outlive the token minted at its start."""
+    repo_client: RepoClient, repositories: Sequence[Repository]
+) -> Callable[[], Awaitable[list[GitEgressCredential]]]:
+    """Mint each repository's git egress credential, main first, on each call: a turn can outlive the tokens minted
+    at its start."""
 
-    async def mint() -> GitEgressCredential | None:
-        return await sync_to_async(repo_client.get_git_egress_credential)(repository)
+    async def mint() -> list[GitEgressCredential]:
+        credentials = [await sync_to_async(repo_client.get_git_egress_credential)(r) for r in repositories]
+        return [credential for credential in credentials if credential is not None]
 
     return mint
 
@@ -284,7 +286,11 @@ async def set_runtime_ctx(
                 repos=tuple(handles),
                 sandbox=sandbox_spec,
                 sandbox_client=sandbox_client,
-                credential_source=_credential_source(repo_client, repository) if sandbox_client is not None else None,
+                credential_source=(
+                    _credential_source(repo_client, [h.repository for h in handles])
+                    if sandbox_client is not None
+                    else None
+                ),
                 scope=scope,
                 issue=issue,
                 merge_request=merge_request,

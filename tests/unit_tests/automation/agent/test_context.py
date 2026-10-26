@@ -160,7 +160,7 @@ async def test_the_credential_source_mints_after_the_clone():
         repo_client.get_git_egress_credential.side_effect = lambda _repo: calls.append("credential") or credential
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec()) as ctx:
             assert calls == ["clone"]
-            assert await ctx.credential_source() is credential
+            assert await ctx.credential_source() == [credential]
 
     assert calls == ["clone", "credential"]
     repo_client.get_git_egress_credential.assert_called_once_with(repo_client.get_repository.return_value)
@@ -540,3 +540,26 @@ def test_runtime_ctx_normalises_references_to_a_tuple():
     ctx = RuntimeCtx(bot_username="daiv", repos=(_make_handle(),), references=[ref])  # type: ignore[arg-type]
     assert isinstance(ctx.references, tuple)
     assert ctx.references == (ref,)
+
+
+async def test_credential_source_mints_every_repo_main_first():
+    repo_client, _ = _multi_repo_client()
+    creds = {
+        "g/app": GitEgressCredential.for_token(host="g", token="a", path="/g/app.git"),  # noqa: S106
+        "g/mod": GitEgressCredential.for_token(host="g", token="m", path="/g/mod.git"),  # noqa: S106
+        "g/none": None,
+    }
+    repo_client.get_git_egress_credential.side_effect = lambda repository: creds[repository.slug]
+
+    with (
+        _context_deps(repo_client),
+        _per_repo_config(),
+        patch("automation.agent.context.DAIVSandboxClient", FakeSandboxClient),
+    ):
+        async with set_runtime_ctx(
+            "g/app",
+            scope=RepoScope.GLOBAL,
+            sandbox_spec=sandbox_spec(),
+            extra_repos=[ExtraRepo("g/mod"), ExtraRepo("g/none")],
+        ) as ctx:
+            assert await ctx.credential_source() == [creds["g/app"], creds["g/mod"]]
