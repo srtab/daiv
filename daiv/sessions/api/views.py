@@ -40,7 +40,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
     activity = session_activity(session, runs)
-    turns = annotate_transcript(build_turns(hydrated.messages), runs, activity)
+    turns = annotate_transcript(build_turns(hydrated.messages, in_flight=activity.in_flight), runs, activity)
     if not hydrated.messages:
         turns += await sync_to_async(artifact_turns)(runs)
     live = await sync_to_async(live_run_for)(activity.live, session, request.auth)  # ty: ignore[unresolved-attribute]

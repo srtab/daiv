@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from sessions.turns import build_turns
 
@@ -48,7 +49,7 @@ def test_build_turns_ai_string_with_tool_calls_emits_text_then_tool_segments():
             "name": "read_file",
             "args": '{"path": "README.md"}',
             "result": None,
-            "status": "done",
+            "status": "error",
         },
         {
             "type": "tool_call",
@@ -56,7 +57,7 @@ def test_build_turns_ai_string_with_tool_calls_emits_text_then_tool_segments():
             "name": "grep",
             "args": '{"pattern": "TODO"}',
             "result": None,
-            "status": "done",
+            "status": "error",
         },
     ]
 
@@ -65,7 +66,7 @@ def test_build_turns_ai_empty_content_omits_text_segment():
     m = AIMessage(content="", id="a-2", tool_calls=[{"id": "tc-3", "name": "ls", "args": {"path": "/"}}])
     result = build_turns([m])
     assert result[0]["segments"] == [
-        {"type": "tool_call", "id": "tc-3", "name": "ls", "args": '{"path": "/"}', "result": None, "status": "done"}
+        {"type": "tool_call", "id": "tc-3", "name": "ls", "args": '{"path": "/"}', "result": None, "status": "error"}
     ]
 
 
@@ -107,7 +108,7 @@ def test_build_turns_ai_list_content_tool_use_without_matching_tool_call_still_e
             "name": "custom",
             "args": '{"k": "v"}',
             "result": None,
-            "status": "done",
+            "status": "error",
         }
     ]
 
@@ -328,7 +329,7 @@ def test_build_turns_openai_function_call_block_emits_tool_segment():
             "name": "rt_get_ticket",
             "args": '{"id": 1160298}',
             "result": None,
-            "status": "done",
+            "status": "error",
         }
     ]
 
@@ -472,7 +473,7 @@ def test_build_turns_list_content_falls_back_to_tool_calls_attr_when_no_tool_blo
             "name": "grep",
             "args": '{"pattern": "x"}',
             "result": None,
-            "status": "done",
+            "status": "error",
         }
     ]
 
@@ -498,3 +499,20 @@ def test_build_turns_keeps_a_reply_that_follows_a_failed_question():
     turns = build_turns([call, failed, AIMessage(content="I will pick SQLite.", id="a-2")])
 
     assert turns[-1]["segments"] == [{"type": "text", "content": "I will pick SQLite."}]
+
+
+@pytest.mark.parametrize(("in_flight", "status"), [(False, "error"), (True, "running")])
+def test_build_turns_unanswered_tool_call_status(in_flight, status):
+    ai = AIMessage(
+        content="",
+        id="a-1",
+        tool_calls=[{"id": "tc-ok", "name": "ls", "args": {}}, {"id": "tc-open", "name": "bash", "args": {}}],
+    )
+    turns = build_turns([ai, ToolMessage(content="a.py", tool_call_id="tc-ok")], in_flight=in_flight)
+    assert [(s["id"], s["status"]) for s in turns[0]["segments"]] == [("tc-ok", "done"), ("tc-open", status)]
+
+
+def test_build_turns_empty_tool_result_counts_as_answered():
+    ai = AIMessage(content="", id="a-1", tool_calls=[{"id": "tc-1", "name": "bash", "args": {}}])
+    turns = build_turns([ai, ToolMessage(content="", tool_call_id="tc-1")])
+    assert turns[0]["segments"][0]["status"] == "done"

@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from django.test import Client
 from django.urls import reverse
@@ -7,6 +7,10 @@ from django.utils import timezone
 
 import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
+
+
+def _local_noon(days_ago: int) -> datetime:
+    return timezone.make_aware(datetime.combine(timezone.localdate() - timedelta(days=days_ago), time(12)))
 
 
 def _make_run(user, trigger_type):
@@ -34,8 +38,8 @@ class TestDashboardPeriod:
     def test_seven_days_covers_today_and_the_six_days_before(self, member_user, member_client):
         inside = _make_run(member_user, SessionOrigin.API_JOB)
         outside = _make_run(member_user, SessionOrigin.API_JOB)
-        Run.objects.filter(pk=inside.pk).update(created_at=timezone.now() - timedelta(days=6))
-        Run.objects.filter(pk=outside.pk).update(created_at=timezone.now() - timedelta(days=7))
+        Run.objects.filter(pk=inside.pk).update(created_at=_local_noon(6))
+        Run.objects.filter(pk=outside.pk).update(created_at=_local_noon(7))
 
         response = member_client.get(reverse("dashboard"), {"period": "7d"})
 

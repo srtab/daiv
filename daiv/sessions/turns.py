@@ -36,7 +36,7 @@ def is_assistant_message(m: Any) -> bool:
     return message_role(m) in _ASSISTANT_ROLES
 
 
-def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
+def build_turns(messages: list[Any], *, in_flight: bool = False) -> list[dict[str, Any]]:
     """Walk a LangChain message list once, producing a list of turns.
 
     Each turn is ``{"id", "role", "segments": [...]}``. Segments are either
@@ -57,6 +57,9 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
 
     The close message a question turn ends on is skipped: the chat renders the question from
     the ``ask_user_question`` call.
+
+    A tool call no ``ToolMessage`` answered is ``running`` while ``in_flight``; otherwise its run
+    ended (failed or stopped) before it returned, so it is ``error``.
     """
     turns: list[dict[str, Any]] = []
     tool_index: dict[str, tuple[int, int]] = {}
@@ -92,6 +95,10 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
             )
             pending_skill_tc_id = tc_id if is_skill_placeholder else None
 
+    for t_idx, s_idx in tool_index.values():
+        seg = turns[t_idx]["segments"][s_idx]
+        if seg["result"] is None:
+            seg["status"] = "running" if in_flight else "error"
     return turns
 
 
@@ -243,7 +250,7 @@ def _build_assistant_turn(m: Any) -> dict[str, Any]:
     return {"id": getattr(m, "id", "") or "", "role": "assistant", "segments": segments}
 
 
-def tool_call_segment(tc: Any, *, status: str = "done") -> dict[str, Any]:
+def tool_call_segment(tc: Any) -> dict[str, Any]:
     tc_id = _tc_id(tc) or ""
     if isinstance(tc, dict):
         tc_name = tc.get("name") or ""
@@ -254,4 +261,4 @@ def tool_call_segment(tc: Any, *, status: str = "done") -> dict[str, Any]:
 
     args_str = json.dumps(args) if isinstance(args, (dict, list)) else str(args or "")
 
-    return {"type": "tool_call", "id": tc_id, "name": tc_name, "args": args_str, "result": None, "status": status}
+    return {"type": "tool_call", "id": tc_id, "name": tc_name, "args": args_str, "result": None, "status": "done"}
