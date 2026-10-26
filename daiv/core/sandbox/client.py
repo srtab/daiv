@@ -61,6 +61,10 @@ def is_transient_sandbox_error(exc: httpx.HTTPError) -> bool:
 SANDBOX_CONNECTION_LIMITS = httpx.Limits(max_connections=32, max_keepalive_connections=16)
 
 
+class SandboxCapabilityError(RuntimeError):
+    """The sandbox does not support a feature the session needs."""
+
+
 class DAIVSandboxClient:
     """
     Client to interact with the daiv-sandbox service.
@@ -114,17 +118,26 @@ class DAIVSandboxClient:
         return response.json()["session_id"]
 
     async def seed_session(
-        self, session_id: str, repo_archive: bytes | None = None, skills_archive: bytes | None = None
+        self,
+        session_id: str,
+        repo_archive: bytes | None = None,
+        skills_archive: bytes | None = None,
+        repos_archive: bytes | None = None,
     ) -> None:
         """
-        Seed a session with the initial state of /workspace/repo and/or /workspace/skills.
+        Seed a session with the initial state of /workspace/repo, /workspace/skills and /workspace/repos.
 
         One-shot per session: a 409 from the sandbox (already seeded) is treated
-        as a no-op so retries and checkpoint replays are safe.
+        as a no-op so retries and checkpoint replays are safe. A sandbox that does not acknowledge
+        ``repos_archive`` raises ``SandboxCapabilityError``.
         """
         files = {
             name: (name, archive, "application/octet-stream")
-            for name, archive in (("repo_archive", repo_archive), ("skills_archive", skills_archive))
+            for name, archive in (
+                ("repo_archive", repo_archive),
+                ("skills_archive", skills_archive),
+                ("repos_archive", repos_archive),
+            )
             if archive is not None
         }
         if not files:
@@ -134,6 +147,20 @@ class DAIVSandboxClient:
             logger.info("Sandbox session %s already seeded; skipping", session_id)
             return
         response.raise_for_status()
+        if repos_archive is not None and not self._seeded_repos(response):
+            raise SandboxCapabilityError(
+                "The sandbox did not seed the extra repositories: multi-repository sessions need a "
+                "daiv-sandbox release with repos_archive support."
+            )
+
+    @staticmethod
+    def _seeded_repos(response: httpx.Response) -> bool:
+        if response.status_code != 200:
+            return False
+        try:
+            return "repos" in response.json()["seeded"]
+        except ValueError, KeyError, TypeError:
+            return False
 
     async def fs_ls(self, session_id: str, request: FsLsRequest) -> FsLsResponse:
         """List a directory under ``/workspace`` on the sandbox session."""
