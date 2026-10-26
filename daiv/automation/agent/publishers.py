@@ -15,6 +15,7 @@ from accounts.utils import PlatformIdentity, aget_platform_identity
 from automation.agent.references import render_agent_context, render_commit_trailers, render_references_block
 from automation.agent.utils import build_langsmith_config, repo_relative_text
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
+from codebase.clients.base import aget_open_merge_request
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
@@ -23,10 +24,10 @@ from .diff_to_metadata.graph import create_diff_to_metadata_graph
 from .diff_to_metadata.prompts import sanitize_agent_report
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from automation.agent.agent_settings import AgentSettings
-    from automation.agent.context import RuntimeCtx
+    from automation.agent.context import RepoHandle, RuntimeCtx
     from automation.agent.session_links import SessionLinks, SessionLinksResolver
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.git_manager import PendingMerge
@@ -101,6 +102,41 @@ class PublishOutcome:
     counts: GitLab has no aggregate endpoint and downloads the whole MR diff to add it up
     (truncating it past a size cap), and a freshly-created MR whose diff is still being
     prepared answers zero."""
+
+
+@dataclass(frozen=True)
+class RepoPublish:
+    """How one of the session's extra repositories fared at the end of a turn; kept in ``GitState.repo_publishes``.
+
+    ``current_ref`` is the merge request's source branch when there is one, else the branch the clone is on (``""`` on
+    a detached HEAD). ``error`` is set when the publish failed, which left that repository's work unpublished.
+    """
+
+    repo_id: str
+    merge_request: MergeRequest | None
+    published: bool
+    current_ref: str
+    error: str | None = None
+
+    def to_state(self) -> dict[str, Any]:
+        return {
+            "repo_id": self.repo_id,
+            "merge_request": self.merge_request.model_dump(mode="json") if self.merge_request is not None else None,
+            "published": self.published,
+            "current_ref": self.current_ref,
+            "error": self.error,
+        }
+
+    @classmethod
+    def from_state(cls, data: Mapping[str, Any]) -> RepoPublish:
+        merge_request = data.get("merge_request")
+        return cls(
+            repo_id=data["repo_id"],
+            merge_request=MergeRequest.model_validate(merge_request) if merge_request else None,
+            published=bool(data.get("published")),
+            current_ref=data.get("current_ref") or "",
+            error=data.get("error"),
+        )
 
 
 class GitChangePublisher:
@@ -477,6 +513,7 @@ class GitChangePublisher:
             backend=self.workspace.backend,
             include_pr_metadata=bool(pr_metadata_diff),
             include_commit_message=commit_message_diff is not None,
+            repo_path=self.workspace.repo_path,
         )
         config = build_langsmith_config(
             self.ctx, trigger="diff_to_metadata", model=self.settings.diff_to_metadata.names[0]
@@ -522,13 +559,13 @@ class GitChangePublisher:
             source_branch=branch_name,
             target_branch=target_branch,
             labels=[BOT_LABEL],
-            title=repo_relative_text(title),
+            title=repo_relative_text(title, repo_path=self.workspace.repo_path),
             assignee_id=assignee_id,
             as_draft=as_draft,
             description=render_to_string(
                 "automation/issue_merge_request.txt",
                 {
-                    "description": repo_relative_text(description),
+                    "description": repo_relative_text(description, repo_path=self.workspace.repo_path),
                     "references_block": render_references_block(
                         self.ctx.references, repo_slug=self.ctx.repository.slug
                     ),
@@ -648,3 +685,87 @@ class GitChangePublisher:
 
         params = urlencode({"title": title, "body": body, "labels": BOT_AUTO_LABEL}, quote_via=quote)
         return f"{html_url}/issues/new?{params}"
+
+
+async def apublish_extra_repos(
+    ctx: RuntimeCtx,
+    workspace: Workspace,
+    *,
+    settings: AgentSettings,
+    session_links: SessionLinksResolver | None,
+    skip_ci: bool = False,
+    recovering: bool = False,
+    agent_summary: str | None = None,
+) -> list[RepoPublish]:
+    """Publish each of ``ctx``'s extra repositories to its own branch and merge request, one after the other.
+
+    Each goes through its own views of ``ctx`` and ``workspace``, onto the open merge request of the branch its clone is
+    on. A repository that fails is recorded on its :class:`RepoPublish` and never raised, so it cannot stop the others
+    or the main repository. ``recovering`` is draft recovery: a new merge request opens as a draft, and a draft one
+    stays a draft.
+    """
+    return [
+        await _apublish_extra_repo(
+            ctx,
+            handle,
+            workspace,
+            settings=settings,
+            session_links=session_links,
+            skip_ci=skip_ci,
+            recovering=recovering,
+            agent_summary=agent_summary,
+        )
+        for handle in ctx.extra_repos
+    ]
+
+
+async def _apublish_extra_repo(
+    ctx: RuntimeCtx,
+    handle: RepoHandle,
+    workspace: Workspace,
+    *,
+    settings: AgentSettings,
+    session_links: SessionLinksResolver | None,
+    skip_ci: bool,
+    recovering: bool,
+    agent_summary: str | None,
+) -> RepoPublish:
+    slug = handle.repository.slug
+    branch = "" if handle.head_detached else handle.current_ref
+    try:
+        target = await _abranch_merge_request(handle)
+        publisher = GitChangePublisher(
+            ctx.for_repo(handle),
+            workspace.for_repo(handle, path=ctx.workspace_path(handle)),
+            settings=settings,
+            session_links=session_links,
+        )
+        outcome = await publisher.publish(
+            merge_request=target,
+            skip_ci=skip_ci,
+            as_draft=recovering and (target is None or target.draft),
+            agent_summary=agent_summary,
+        )
+    except UnresolvedMergeConflictsError as exc:
+        logger.warning("Not publishing %s: %s", slug, exc)
+        error = str(exc)
+    except Exception as exc:
+        logger.exception("Publishing to %s failed", slug)
+        error = f"Publishing to {slug} failed ({type(exc).__name__})"
+    else:
+        merge_request = outcome.merge_request
+        return RepoPublish(
+            repo_id=handle.repo_id,
+            merge_request=merge_request,
+            published=outcome.published,
+            current_ref=merge_request.source_branch if merge_request is not None else branch,
+        )
+    return RepoPublish(repo_id=handle.repo_id, merge_request=None, published=False, current_ref=branch, error=error)
+
+
+async def _abranch_merge_request(handle: RepoHandle) -> MergeRequest | None:
+    """The open merge request from the branch ``handle``'s clone is on; ``None`` on a detached HEAD or the default
+    branch, which no run's merge request starts from."""
+    if handle.head_detached or handle.current_ref == handle.config.default_branch:
+        return None
+    return await aget_open_merge_request(handle.client, handle.repository.slug, handle.current_ref)

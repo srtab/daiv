@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import logging
 import re
 import uuid
@@ -81,16 +82,18 @@ def final_assistant_text(messages: Sequence[BaseMessage]) -> str | None:
     return None
 
 
-_WORKSPACE_PATH_PREFIX = re.compile(rf"(?<![\w.~/-]){re.escape(REPO_PATH)}/(?=[\w-]|\.[\w./-])")
+@functools.cache
+def _workspace_path_prefix(repo_path: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![\w.~/-]){re.escape(repo_path)}/(?=[\w-]|\.[\w./-])")
 
 
-def repo_relative_text(text: str) -> str:
-    """``text`` with the workspace prefix removed from every repository path, for text DAIV posts to the platform.
+def repo_relative_text(text: str, *, repo_path: str = REPO_PATH) -> str:
+    """``text`` with the ``repo_path`` prefix removed from every repository path, for text DAIV posts to the platform.
 
     Only a prefix that starts a path is removed; one right after a word or path character, as in a URL's path or a
     longer path, is kept. The root itself, with or without a trailing slash, is kept since it has no repo-relative form.
     """
-    return _WORKSPACE_PATH_PREFIX.sub("", text)
+    return _workspace_path_prefix(repo_path).sub("", text)
 
 
 def build_langsmith_config(

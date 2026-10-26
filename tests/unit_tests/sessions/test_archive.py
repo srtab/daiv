@@ -372,6 +372,7 @@ _RESET_CHANNELS = {
     "pre_run_dirty_files",
     "protected_branch_fallback_source",
     "published",
+    "repo_publishes",
     "sandbox_fingerprint",
     "session_id",
     "skills_load_errors",

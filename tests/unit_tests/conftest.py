@@ -4,7 +4,7 @@ import json
 import os
 import tarfile
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -27,6 +27,7 @@ from accounts.models import Role
 from accounts.models import User as AccountUser
 from automation.agent.agent_settings import AgentSettings, RunOverrides, resolve_agent_settings
 from automation.agent.artifacts import ArtifactError, ArtifactFile
+from automation.agent.constants import REPO_PATH
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
@@ -283,8 +284,8 @@ class FakeSandboxClient:
 @dataclass
 class FakeWorkspace:
     """A ``Workspace`` a test assembles from parts, disk-shaped until told otherwise: no shell, no session, always
-    ready. ``authenticated_git`` hands back ``git``, and ``download_file`` reads through ``backend`` as a disk read
-    does."""
+    ready. ``authenticated_git`` hands back ``git``, ``download_file`` reads through ``backend`` as a disk read does,
+    and ``for_repo`` hands back a copy sitting at the sibling's ``path``."""
 
     backend: Any = field(default_factory=lambda: Mock(spec=BackendProtocol))
     git: Any = field(default_factory=AsyncMock)
@@ -294,6 +295,7 @@ class FakeWorkspace:
     provisions_skills: bool = False
     skills_provisioning_errors: Any = ()
     is_ready: bool = True
+    repo_path: str = REPO_PATH
 
     async def authenticated_git(self) -> Any:
         return self.git
@@ -301,6 +303,9 @@ class FakeWorkspace:
     async def download_file(self, path: str, *, max_bytes: int) -> Any:
         (response,) = await self.backend.adownload_files([path])
         return response
+
+    def for_repo(self, handle: Any, *, path: str) -> Any:
+        return self if path == self.repo_path else replace(self, repo_path=path)
 
 
 @dataclass

@@ -13,7 +13,7 @@ from langsmith import get_current_run_tree
 
 from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
-from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
+from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError, apublish_extra_repos
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, Scope
@@ -141,6 +141,14 @@ class GitState(AgentState):
     output schema like ``model_patch``; absent on normal runs and on clean starts.
     """
 
+    repo_publishes: Annotated[NotRequired[list[dict[str, Any]]], PrivateStateAttr]
+    """
+    This turn's publish of each of the session's extra repositories, as
+    :meth:`~automation.agent.publishers.RepoPublish.to_state` dicts in the context's order.
+    Set at turn end whenever the run has extra repositories; ``merge_request`` and
+    ``diff_stats`` stay the main repository's.
+    """
+
 
 class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
     """
@@ -240,6 +248,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             "code_changes": False,
             "published": False,
             "protected_branch_fallback_source": None,
+            "repo_publishes": [],
         }
         if pre_run_dirty_files:
             update["pre_run_dirty_files"] = pre_run_dirty_files
@@ -395,6 +404,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         and the private ``code_changes`` / ``protected_branch_fallback_source`` flags. A merge the agent left with
         conflict markers is not published: the turn ends with a reply naming the files instead of failing.
 
+        The session's extra repositories publish first, each to its own merge request (see
+        :func:`~automation.agent.publishers.apublish_extra_repos`), and land in ``repo_publishes`` on every return.
+
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
         straight to the after_agent chain) never ran the agent loop, so nothing was captured or changed. Unless
         the command reads the repository, the run executor acquires no sandbox session for it either: its
@@ -432,6 +444,18 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # provider-shaped content blocks whose text is not guaranteed to be a string.
             logger.exception("Could not read the run's closing summary; publishing without it")
             agent_summary = None
+
+        if runtime.context.extra_repos:
+            # Before the main publish, whose failure raises into the executor's recovery.
+            repo_publishes = await apublish_extra_repos(
+                runtime.context,
+                self._workspace,
+                settings=self._settings,
+                session_links=self._session_links,
+                skip_ci=self.skip_ci,
+                agent_summary=agent_summary,
+            )
+            update["repo_publishes"] = [publish.to_state() for publish in repo_publishes]
 
         publisher = GitChangePublisher(
             runtime.context, self._workspace, settings=self._settings, session_links=self._session_links

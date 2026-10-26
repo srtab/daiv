@@ -249,3 +249,7 @@ class TestRepoRelativeText:
         assert repo_relative_text("The root is /workspace/repo/") == "The root is /workspace/repo/"
         assert repo_relative_text("/workspace/repo//a.py") == "/workspace/repo//a.py"
         assert repo_relative_text("/workspace/repo/.agents/x and /workspace/repo/./x") == ".agents/x and ./x"
+
+    def test_the_given_repo_path_is_stripped(self):
+        text = "see /workspace/repos/g/mod/a.py, not /workspace/repo/b.py"
+        assert repo_relative_text(text, repo_path="/workspace/repos/g/mod") == "see a.py, not /workspace/repo/b.py"
