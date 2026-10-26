@@ -318,6 +318,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "context_usage": None,
                 "session_spend": None,
                 "extra_repositories": [],
+                "main_merge_request_url": "",
                 "latest_publish_errors": [],
             })
             return ctx
@@ -362,6 +363,15 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["live_run_stoppable"] = bool(live and live.stoppable)
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
         ctx["extra_repositories"] = list(session.extra_repositories.all())
+        ctx["main_merge_request_url"] = next(
+            (
+                link["url"]
+                for run in reversed(runs)
+                for link in run.merge_request_links()
+                if link["repo_id"] == session.repo_id
+            ),
+            "",
+        )
         latest_finished = next((r for r in reversed(runs) if r.status in RunStatus.terminal()), None)
         ctx["latest_publish_errors"] = latest_finished.publish_errors if latest_finished else []
 

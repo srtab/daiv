@@ -11,6 +11,10 @@
             {% else %}
             <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</span>
             {% endif %}
+        {% elif main_merge_request_url %}
+        <a href="{{ main_merge_request_url }}" target="_blank" rel="noopener" class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}{% if session.merge_request_iid %}!{{ session.merge_request_iid }}{% else %}{% translate "Merge request" %}{% endif %}</a>
+        {% elif session.merge_request_iid %}
+        <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ session.merge_request_iid }}</span>
         {% endif %}
     </div>
     {% for repo in extra_repositories %}
