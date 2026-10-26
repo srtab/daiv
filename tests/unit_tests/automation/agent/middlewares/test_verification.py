@@ -646,6 +646,18 @@ async def test_with_commands_the_agents_checks_are_not_tracked():
     assert repo.diff_reads == 0
 
 
+async def test_without_commands_the_agents_checks_are_not_tracked_after_the_reminder():
+    repo = FakeRepo()
+    middleware = _middleware(repo, ())
+    handler, _ = _scripted(_final(), _final())
+    await middleware.awrap_model_call(_request(), handler)
+    reads = repo.diff_reads
+
+    await _agent_runs(middleware, _bash_message("pytest", 0))
+
+    assert repo.diff_reads == reads
+
+
 async def test_a_command_result_from_a_tool_is_passed_through():
     command = Command(update={})
 
@@ -689,14 +701,18 @@ async def test_recheck_leaves_outcomes_that_ran_no_checks_alone():
         assert await middleware.recheck(outcome) is outcome
 
 
-async def test_recheck_raises_when_the_tree_cannot_be_read():
-    repo = FakeRepo()
+async def test_recheck_records_not_verified_when_the_tree_cannot_be_read():
+    repo = FakeRepo(changed=["tests/test_a.py"])
     middleware = _middleware(repo)
     outcome = _outcome(await _recorded(middleware))
     repo.read_errors = {"get_diff": httpx.ConnectError("down")}
 
-    with pytest.raises(httpx.ConnectError):
-        await middleware.recheck(outcome)
+    updated = await middleware.recheck(outcome)
+
+    assert updated["status"] == "not_verified"
+    assert updated["reason"] == "the tree could not be re-checked after the last checks"
+    assert updated["rounds"] == 0
+    assert updated["suspicious_paths"] == ["tests/test_a.py"]
 
 
 async def test_abefore_agent_resets_previous_outcome():

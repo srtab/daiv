@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
 from automation.agent.verification.checks import CHECK_TIMEOUT_SECONDS
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Container, Sequence
 
     from automation.agent.verification.checks import CheckResult
 
@@ -41,7 +41,7 @@ class VerificationOutcome(TypedDict):
 
 
 def command_outcomes(
-    results: Sequence[CheckResult], already_failing: frozenset[str], output_changed: frozenset[str] = frozenset()
+    results: Sequence[CheckResult], already_failing: Container[str], output_changed: Container[str] = ()
 ) -> list[CommandOutcome]:
     outcomes: list[CommandOutcome] = []
     for result in results:

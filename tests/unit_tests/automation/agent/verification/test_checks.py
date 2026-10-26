@@ -7,6 +7,7 @@ from git import GitCommandError
 from automation.agent.verification.checks import (
     CheckResult,
     ChecksUnavailableError,
+    diff_fingerprint,
     failing_before_change,
     redacted_values,
     run_checks,
@@ -246,19 +247,19 @@ LOCK_DIFF = "diff --git a/uv.lock b/uv.lock\n+v2\n"
 async def test_run_checks_in_place_drops_the_saved_tree_when_the_checks_change_nothing(fake_bash, fake_git):
     fake_git.diffs = [AGENT_DIFF]
 
-    results, changed, after = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
+    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
 
-    assert [result.command for result in results] == ["make test"]
-    assert (changed, after) == ([], AGENT_DIFF)
+    assert [result.command for result in run.results] == ["make test"]
+    assert (run.changed_by_checks, run.fingerprint) == ([], diff_fingerprint(AGENT_DIFF))
     assert fake_git.events == ["save_tree", "drop_stash"]
 
 
 async def test_run_checks_in_place_puts_back_what_the_checks_changed(fake_bash, fake_git):
     fake_git.diffs = [AGENT_DIFF + LOCK_DIFF]
 
-    _, changed, after = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
+    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
 
-    assert (changed, after) == (["uv.lock"], AGENT_DIFF)
+    assert (run.changed_by_checks, run.fingerprint) == (["uv.lock"], diff_fingerprint(AGENT_DIFF))
     assert fake_git.events == ["save_tree", "restore_stash"]
 
 
@@ -266,9 +267,9 @@ async def test_run_checks_in_place_keeps_what_the_checks_changed_during_a_merge(
     fake_git.merge = PendingMerge(head="a" * 40, branch=None, unmerged_paths=(), conflicted_paths=())
     fake_git.diffs = [AGENT_DIFF + LOCK_DIFF]
 
-    _, changed, after = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
+    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
 
-    assert (changed, after) == (["uv.lock"], AGENT_DIFF + LOCK_DIFF)
+    assert (run.changed_by_checks, run.fingerprint) == (["uv.lock"], diff_fingerprint(AGENT_DIFF + LOCK_DIFF))
     assert fake_git.events == []
 
 
@@ -276,9 +277,9 @@ async def test_run_checks_in_place_tolerates_a_failed_drop(fake_bash, fake_git):
     fake_git.diffs = [AGENT_DIFF]
     fake_git.drop_error = GitCommandError(["git", "stash", "drop"], 1, "error")
 
-    _, changed, _ = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
+    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
 
-    assert changed == []
+    assert run.changed_by_checks == []
 
 
 async def test_run_checks_in_place_is_unavailable_when_the_tree_cannot_be_saved(fake_bash, fake_git):

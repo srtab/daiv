@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-import httpx
 import pytest
 from git import GitCommandError
 from langchain_core.messages import AIMessage
@@ -361,18 +360,6 @@ class TestGitMiddleware:
         recheck.assert_awaited_once_with(stale)
         assert kwargs["as_draft"] is True
         assert result["verification"]["status"] == "failed"
-
-    async def test_after_agent_publishes_as_not_verified_when_the_recheck_fails(self):
-        verification = {**self._verification("failed", fingerprint="stale"), "suspicious_paths": ["tests/test_a.py"]}
-        recheck = AsyncMock(side_effect=httpx.ConnectError("failed: http://sandbox:8000/session/s-1/"))
-
-        kwargs, result = await self._publish_with(verification, recheck=recheck)
-
-        assert kwargs["as_draft"] is False
-        assert result["verification"]["status"] == "not_verified"
-        assert result["verification"]["reason"] == "the tree could not be re-checked after the last checks"
-        assert result["verification"]["rounds"] == 0
-        assert result["verification"]["suspicious_paths"] == ["tests/test_a.py"]
 
     async def test_after_agent_raises_when_the_recheck_cannot_restore_the_tree(self):
         recheck = AsyncMock(side_effect=StashRestoreError())

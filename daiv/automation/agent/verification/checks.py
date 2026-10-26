@@ -7,10 +7,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import httpx
-from git import GitCommandError
 
 from automation.agent.constants import REPO_PATH
-from automation.agent.workspace.git_runners import SandboxGitProtocolError
+from automation.agent.workspace.git_manager import GIT_ERRORS
 from automation.agent.workspace.sandbox_backend import SANDBOX_TIMEOUT_EXIT
 
 if TYPE_CHECKING:
@@ -24,7 +23,6 @@ logger = logging.getLogger("daiv.agent")
 MAX_FIX_ROUNDS = 2
 CHECK_TIMEOUT_SECONDS = 600
 OUTPUT_TAIL_CHARS = 4_000
-GIT_ERRORS = (GitCommandError, httpx.HTTPError, SandboxGitProtocolError)
 UNREADABLE = "the repository could not be read to run the checks"
 _STASH_MESSAGE = "daiv: pre-publish verification"
 # Past the sandbox's own limit, so a check that runs out of time comes back as exit 124, not as a client timeout.
@@ -43,7 +41,8 @@ class CheckResult:
     exit_code: int
     output_tail: str
     signature: frozenset[str] = field(default=frozenset(), compare=False, repr=False)
-    """The output's lines with addresses, counts and timings masked, so two runs that fail alike compare equal."""
+    """A failing run's output lines with addresses, counts and timings masked, so two runs that fail alike compare
+    equal; empty for a passing run."""
 
     @property
     def passed(self) -> bool:
@@ -52,6 +51,15 @@ class CheckResult:
     @property
     def timed_out(self) -> bool:
         return self.exit_code == SANDBOX_TIMEOUT_EXIT
+
+
+@dataclass(frozen=True)
+class CheckRun:
+    """One run of the checks on a tree: its results, the files it changed, and the fingerprint of the tree it left."""
+
+    results: list[CheckResult]
+    changed_by_checks: list[str]
+    fingerprint: str
 
 
 class ChecksUnavailableError(Exception):
@@ -71,7 +79,7 @@ def _redact(text: str, values: Sequence[str]) -> str:
 
 
 def _signature(output: str) -> frozenset[str]:
-    return frozenset(filter(None, (_VOLATILE.sub("#", line).strip() for line in output.splitlines())))
+    return frozenset(filter(None, (line.strip() for line in _VOLATILE.sub("#", output).splitlines())))
 
 
 async def run_checks(
@@ -100,15 +108,15 @@ async def _run_check(bash: SandboxFileBackend, command: str, redact: Sequence[st
         command=command,
         exit_code=result.exit_code,
         output_tail=output[-OUTPUT_TAIL_CHARS:],
-        signature=_signature(output),
+        signature=_signature(output) if result.exit_code else frozenset(),
     )
 
 
 async def run_checks_in_place(
     bash: SandboxFileBackend, git: GitManager, commands: Sequence[str], *, before: str, redact: Sequence[str] = ()
-) -> tuple[list[CheckResult], list[str], str]:
+) -> CheckRun:
     """Run the checks on the tree whose diff is ``before``, then put back the files they changed so none of it is
-    published. Returns their results, the paths they changed, and the diff of the tree they leave.
+    published.
 
     The tree is saved in the stash first, which a merge in progress would not survive, so during a merge what the
     checks changed stays. Failing to save the tree or to read it afterwards raises ``ChecksUnavailableError``; failing
@@ -137,7 +145,7 @@ async def run_checks_in_place(
             await git.drop_stash()
         except GIT_ERRORS:
             logger.warning("Could not drop the stash entry saved before the checks", exc_info=True)
-    return results, changed, after
+    return CheckRun(results, changed, diff_fingerprint(after))
 
 
 async def failing_before_change(

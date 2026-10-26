@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.tools")
 
-
+GIT_ERRORS = (GitCommandError, httpx.HTTPError, SandboxGitProtocolError)
 _FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _SANDBOX_BUSY = 409
 _BUSY_ATTEMPTS = 3
@@ -326,7 +326,7 @@ class GitManager:
             return False
         try:
             await self._git_unless_busy("stash", "apply", "--index")
-        except (GitCommandError, httpx.HTTPError, SandboxGitProtocolError) as exc:
+        except GIT_ERRORS as exc:
             raise StashRestoreError from exc
         return True
 
@@ -343,7 +343,7 @@ class GitManager:
         try:
             for args in (("reset", "--hard", "HEAD"), ("clean", "-fd"), ("stash", "pop", "--index")):
                 await self._git_unless_busy(*args)
-        except (GitCommandError, httpx.HTTPError, SandboxGitProtocolError) as exc:
+        except GIT_ERRORS as exc:
             raise StashRestoreError from exc
 
     async def _git_unless_busy(self, *args: str) -> None:

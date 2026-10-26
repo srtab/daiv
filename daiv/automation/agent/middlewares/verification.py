@@ -11,7 +11,6 @@ from langgraph.types import Command
 from automation.agent.middlewares.reminders import call_with_reminder
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME
 from automation.agent.verification.checks import (
-    GIT_ERRORS,
     MAX_FIX_ROUNDS,
     UNREADABLE,
     ChecksUnavailableError,
@@ -19,9 +18,10 @@ from automation.agent.verification.checks import (
     failing_before_change,
     run_checks_in_place,
 )
-from automation.agent.verification.fallback import FallbackFinding, bash_results, fallback_reminder, is_check_command
+from automation.agent.verification.fallback import FallbackFinding, fallback_reminder, last_check
 from automation.agent.verification.outcome import VerificationOutcome, command_outcomes, failure_reminder
 from automation.agent.verification.suspicious import suspicious_paths
+from automation.agent.workspace.git_manager import GIT_ERRORS
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
     from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
     from automation.agent.middlewares.step_budget import StepBudgetMiddleware
-    from automation.agent.verification.checks import CheckResult
+    from automation.agent.verification.checks import CheckResult, CheckRun
     from automation.agent.verification.outcome import CommandOutcome, VerificationStatus
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
@@ -83,20 +83,10 @@ def _outcome(
 
 
 @dataclass(frozen=True)
-class _CheckRun:
-    """One run of the checks on a tree: its results, the files it changed, and the fingerprint of the tree it left."""
-
-    results: list[CheckResult]
-    changed_by_checks: list[str]
-    fingerprint: str
-
-
-@dataclass(frozen=True)
 class _AgentCheck:
     """The last check the agent ran through bash, and the fingerprint of the tree it ran on."""
 
-    command: str
-    exit_code: int
+    finding: FallbackFinding
     tree: str
 
 
@@ -167,7 +157,7 @@ class VerificationMiddleware(AgentMiddleware):
     def _reset(self) -> None:
         self._rounds = 0
         self._starting: dict[str, frozenset[str] | None] = {}
-        self._runs: dict[str, _CheckRun] = {}
+        self._runs: dict[str, CheckRun] = {}
         self._reminded_tree: str | None = None
         self._agent_check: _AgentCheck | None = None
         self._fallback_sent = False
@@ -213,20 +203,35 @@ class VerificationMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command:
         # Inside the filesystem middleware, so a bash result too large for the thread is still read whole here.
         result = await handler(request)
-        if not self._commands and request.tool_call["name"] == BASH_TOOL_NAME and isinstance(result, ToolMessage):
+        if (
+            not self._commands
+            and not self._fallback_sent
+            and request.tool_call["name"] == BASH_TOOL_NAME
+            and isinstance(result, ToolMessage)
+        ):
             await self._note_agent_check(result)
         return result
 
     async def recheck(self, outcome: VerificationOutcome) -> VerificationOutcome:
         """``outcome`` judged again, with no reminder, when the tree changed after its checks ran; ``GitMiddleware``
-        calls it before publishing. Raises what reading the tree raises."""
+        calls it before publishing. A tree that can't be read makes it not verified."""
         if outcome["status"] not in ("passed", "failed"):
             return outcome
         git = self._workspace.git
-        before = await git.get_diff()
-        if diff_fingerprint(before) == outcome.get("fingerprint"):
-            return outcome
-        verdict = await self._verify(await git.get_changed_files(), before, may_remind=False)
+        try:
+            before = await git.get_diff()
+            if diff_fingerprint(before) == outcome.get("fingerprint"):
+                return outcome
+            verdict = await self._verify(await git.get_changed_files(), before, may_remind=False)
+        except GIT_ERRORS:
+            logger.exception("Re-checking the tree before publishing failed; publishing it as not verified")
+            return VerificationOutcome(
+                status="not_verified",
+                commands=[],
+                rounds=outcome["rounds"],
+                suspicious_paths=outcome["suspicious_paths"],
+                reason="the tree could not be re-checked after the last checks",
+            )
         return verdict.outcome
 
     def _may_remind(self) -> bool:
@@ -241,16 +246,15 @@ class VerificationMiddleware(AgentMiddleware):
             self._fallback_sent = True
 
     async def _note_agent_check(self, message: ToolMessage) -> None:
-        checks = [(command, exit_code) for command, exit_code in bash_results(message) if is_check_command(command)]
-        if not checks:
+        finding = last_check(message)
+        if finding is None:
             return
         try:
             tree = diff_fingerprint(await self._workspace.git.get_diff())
         except GIT_ERRORS:
             logger.warning("Could not read the repository after the agent ran a check", exc_info=True)
             return
-        command, exit_code = checks[-1]
-        self._agent_check = _AgentCheck(command, exit_code, tree)
+        self._agent_check = _AgentCheck(finding, tree)
 
     async def _verdict(self) -> _Verdict | None:
         """What the agent's stop comes to, or ``None`` when it leaves nothing to publish."""
@@ -262,28 +266,24 @@ class VerificationMiddleware(AgentMiddleware):
             before = await git.get_diff()
         except GIT_ERRORS:
             logger.warning("Could not read the repository to verify the agent's work", exc_info=True)
-            return self._unreadable()
+            if not self._commands:
+                return _Verdict(_outcome("not_configured", commands=[], changed=[], rounds=0))
+            return self._not_verified([], UNREADABLE)
         if self._commands:
-            return await self._verify(changed, before)
+            return await self._verify(changed, before, may_remind=self._may_remind())
         return self._fallback(changed, diff_fingerprint(before))
-
-    def _unreadable(self) -> _Verdict:
-        if not self._commands:
-            return _Verdict(_outcome("not_configured", commands=[], changed=[], rounds=0))
-        return self._not_verified([], UNREADABLE)
 
     def _not_verified(self, changed: Sequence[str], reason: str) -> _Verdict:
         return _Verdict(_outcome("not_verified", commands=[], changed=changed, rounds=self._rounds, reason=reason))
 
-    async def _verify(self, changed: Sequence[str], before: str, *, may_remind: bool = True) -> _Verdict:
+    async def _verify(self, changed: Sequence[str], before: str, *, may_remind: bool) -> _Verdict:
         tree = diff_fingerprint(before)
         try:
             run = self._runs.get(tree)
             if run is None:
-                results, changed_by_checks, after = await run_checks_in_place(
+                run = self._runs[tree] = await run_checks_in_place(
                     self._bash, self._workspace.git, self._commands, before=before, redact=self._redact
                 )
-                run = self._runs[tree] = _CheckRun(results, changed_by_checks, diff_fingerprint(after))
             baseline = await self._baseline([result for result in run.results if not result.passed])
         except ChecksUnavailableError as exc:
             logger.warning("Could not run the before_publish checks: %s", exc, exc_info=True)
@@ -301,13 +301,10 @@ class VerificationMiddleware(AgentMiddleware):
             and (failed or bool(output_changed))
             and tree != self._reminded_tree
             and self._rounds < MAX_FIX_ROUNDS
-            and self._may_remind()
         )
         outcome = _outcome(
             "failed" if failed else "passed",
-            commands=command_outcomes(
-                run.results, frozenset(baseline), frozenset(result.command for result in output_changed)
-            ),
+            commands=command_outcomes(run.results, baseline, {result.command for result in output_changed}),
             changed=changed,
             fingerprint=run.fingerprint,
             rounds=self._rounds + 1 if remind else self._rounds,
@@ -333,14 +330,9 @@ class VerificationMiddleware(AgentMiddleware):
 
     def _fallback(self, changed: list[str], tree: str) -> _Verdict:
         """The ``not_configured`` outcome, and the run's one reminder when no passing check ran on this tree."""
+        check = self._agent_check
+        finding = check.finding if check is not None and check.tree == tree else FallbackFinding("not_run")
         reminder = None
-        finding = self._agent_finding(tree)
         if finding.verdict != "checked" and not self._fallback_sent and self._may_remind():
             reminder = fallback_reminder(finding, changed)
         return _Verdict(_outcome("not_configured", commands=[], changed=changed, rounds=0), reminder)
-
-    def _agent_finding(self, tree: str) -> FallbackFinding:
-        check = self._agent_check
-        if check is None or check.tree != tree:
-            return FallbackFinding("not_run")
-        return FallbackFinding("checked" if check.exit_code == 0 else "failed", check.command, check.exit_code)

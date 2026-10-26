@@ -125,6 +125,15 @@ def bash_results(message: ToolMessage) -> list[tuple[str, int]]:
     return results
 
 
+def last_check(message: ToolMessage) -> FallbackFinding | None:
+    """The last test, linter or build run in a bash tool result; ``None`` when it ran none."""
+    checks = [(command, exit_code) for command, exit_code in bash_results(message) if is_check_command(command)]
+    if not checks:
+        return None
+    command, exit_code = checks[-1]
+    return FallbackFinding("checked" if exit_code == 0 else "failed", command, exit_code)
+
+
 def _escape(text: str) -> str:
     return text.replace("<", "&lt;").replace(">", "&gt;")
 
