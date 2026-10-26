@@ -4,10 +4,15 @@ import re
 from html import escape
 from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
 
+from automation.agent.verification.checks import ChecksUnavailableError, changed_between, diff_fingerprint, run_checks
+from automation.agent.verification.suspicious import suspicious_paths
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from automation.agent.verification.checks import CheckResult
+    from automation.agent.workspace.git_manager import GitManager
+    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 type VerificationStatus = Literal["passed", "failed", "not_verified", "not_configured"]
 
@@ -128,3 +133,44 @@ def failure_reminder(failures: Sequence[CheckResult], changed_paths: Sequence[st
     )
     parts.append("</system-reminder>")
     return "\n".join(parts)
+
+
+async def recheck_if_stale(
+    bash: SandboxFileBackend, git: GitManager, outcome: VerificationOutcome
+) -> VerificationOutcome:
+    """Re-run a passed or failed outcome's commands once when the tree changed after its checks ran."""
+    if outcome["status"] not in ("passed", "failed"):
+        return outcome
+    before = await git.get_diff()
+    if diff_fingerprint(before) == outcome.get("fingerprint"):
+        return outcome
+
+    commands = [command["command"] for command in outcome["commands"]]
+    try:
+        results = await run_checks(bash, commands)
+    except ChecksUnavailableError as exc:
+        return VerificationOutcome(
+            status="not_verified",
+            commands=[],
+            rounds=outcome["rounds"],
+            suspicious_paths=suspicious_paths(await git.get_changed_files()),
+            fingerprint=diff_fingerprint(before),
+            reason=str(exc),
+        )
+
+    already_failing = frozenset(command["command"] for command in outcome["commands"] if command["already_failing"])
+    after = await git.get_diff()
+    changed_by_checks = changed_between(before, after)
+    failed = bool(changed_by_checks) or any(
+        not result.passed and result.command not in already_failing for result in results
+    )
+    updated = VerificationOutcome(
+        status="failed" if failed else "passed",
+        commands=command_outcomes(results, already_failing),
+        rounds=outcome["rounds"],
+        suspicious_paths=suspicious_paths(await git.get_changed_files()),
+        fingerprint=diff_fingerprint(after),
+    )
+    if changed_by_checks:
+        updated["changed_by_checks"] = changed_by_checks
+    return updated

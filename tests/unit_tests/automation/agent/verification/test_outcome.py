@@ -1,13 +1,17 @@
 import re
 
-from automation.agent.verification.checks import CheckResult
+import httpx
+
+from automation.agent.verification.checks import CheckResult, diff_fingerprint
 from automation.agent.verification.outcome import (
     CommandOutcome,
     VerificationOutcome,
     command_outcomes,
     failure_reminder,
+    recheck_if_stale,
     render_report,
 )
+from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
 
 def _command(command="make test", exit_code=0, *, timed_out=False, already_failing=False, output_tail=None):
@@ -179,3 +183,96 @@ def test_failure_reminder_lists_changed_paths_and_rounds_left():
     assert "running the checks changed these files: uv.lock, dist/a.js" in text
     assert "1 fix round(s) left" in text
     assert "Do not edit, weaken or skip the checks" in text
+
+
+class _Bash:
+    def __init__(self, exit_codes=(0,), error=None):
+        self.exit_codes = list(exit_codes)
+        self.error = error
+        self.calls = 0
+
+    async def run_commands(self, commands, *, fail_fast, timeout=None):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return RunCommandsResponse(
+            results=[
+                RunCommandResult(command=c, output="out", exit_code=code)
+                for c, code in zip(commands, self.exit_codes, strict=True)
+            ]
+        )
+
+
+class _Git:
+    def __init__(self, *diffs, changed=("a.py",)):
+        self.diffs = list(diffs)
+        self.changed = list(changed)
+
+    async def get_diff(self):
+        return self.diffs.pop(0) if len(self.diffs) > 1 else self.diffs[0]
+
+    async def get_changed_files(self):
+        return self.changed
+
+
+def _stale(status="passed", commands=(), fingerprint="stale"):
+    outcome = _outcome(status, commands or [_command()], rounds=1)
+    outcome["fingerprint"] = fingerprint
+    return outcome
+
+
+async def test_recheck_if_stale_reruns_once_when_fingerprint_differs():
+    bash, git = _Bash([1]), _Git("diff --git a/a.py b/a.py\n+x\n")
+
+    updated = await recheck_if_stale(bash, git, _stale())
+
+    assert bash.calls == 1
+    assert updated["status"] == "failed"
+    assert updated["rounds"] == 1
+    assert updated["commands"][0]["exit_code"] == 1
+    assert updated["fingerprint"] == diff_fingerprint("diff --git a/a.py b/a.py\n+x\n")
+
+
+async def test_recheck_if_stale_keeps_outcome_when_fingerprint_matches():
+    outcome = _stale(fingerprint=diff_fingerprint("same"))
+    bash = _Bash()
+
+    assert await recheck_if_stale(bash, _Git("same"), outcome) is outcome
+    assert bash.calls == 0
+
+
+async def test_recheck_if_stale_leaves_unverified_outcomes_alone():
+    for status in ("not_verified", "not_configured"):
+        outcome = _stale(status)
+        assert await recheck_if_stale(_Bash(), _Git("other"), outcome) is outcome
+
+
+async def test_recheck_if_stale_passes_when_only_already_failing_commands_fail():
+    outcome = _stale("failed", [_command("make old", 2, already_failing=True), _command("make lint")])
+
+    updated = await recheck_if_stale(_Bash([2, 0]), _Git("new"), outcome)
+
+    assert updated["status"] == "passed"
+    assert updated["commands"][0]["already_failing"] is True
+
+
+async def test_recheck_if_stale_fails_and_names_files_the_checks_changed():
+    before = "diff --git a/a.py b/a.py\n+x\n"
+    after = before + "diff --git a/fmt.py b/fmt.py\n+y\n"
+
+    updated = await recheck_if_stale(_Bash([0]), _Git(before, after, changed=["a.py", "fmt.py"]), _stale())
+
+    assert updated["status"] == "failed"
+    assert updated["changed_by_checks"] == ["fmt.py"]
+    assert updated["fingerprint"] == diff_fingerprint(after)
+
+
+async def test_recheck_if_stale_is_not_verified_when_the_checks_cannot_run():
+    bash = _Bash(error=httpx.ConnectError("down"))
+
+    updated = await recheck_if_stale(bash, _Git("new"), _stale("failed"))
+
+    assert updated["status"] == "not_verified"
+    assert "could not be reached" in updated["reason"]
+    assert updated["commands"] == []
+    assert updated["rounds"] == 1

@@ -928,6 +928,61 @@ class TestPublishSessionLinks:
         assert create_mr.await_args.kwargs["session_links"] is _LINKS
 
 
+class TestPublishVerification:
+    async def test_report_is_appended_to_a_new_merge_request_description(self):
+        publisher = _publisher_no_issue()
+        _use_git_manager(publisher, _fake_git_manager())
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=make_merge_request()) as create_mr,
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            await publisher.publish(merge_request=None, verification_report="### Verification\n\n- ok")
+
+        assert create_mr.await_args.args[2] == "Body\n\n### Verification\n\n- ok"
+
+    async def test_outcome_flags_a_created_merge_request(self):
+        publisher = _publisher_no_issue()
+        _use_git_manager(publisher, _fake_git_manager())
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=make_merge_request()),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            created = await publisher.publish(merge_request=None)
+            pushed = await publisher.publish(merge_request=make_merge_request(source_branch="feature"))
+
+        assert created.created_merge_request is True
+        assert pushed.created_merge_request is False
+
+    async def test_a_protected_branch_fallback_counts_as_created(self):
+        publisher = _publisher_no_issue()
+        publisher.client.is_branch_protected.return_value = True
+        _use_git_manager(publisher, _fake_git_manager())
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=make_merge_request()),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            outcome = await publisher.publish(merge_request=make_merge_request(source_branch="feature"))
+
+        assert outcome.created_merge_request is True
+
+    async def test_as_draft_leaves_an_existing_draft_merge_request_alone(self):
+        publisher = _publisher_no_issue()
+        _use_git_manager(publisher, _fake_git_manager())
+        draft = make_merge_request(source_branch="feature", draft=True)
+
+        with patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()):
+            outcome = await publisher.publish(merge_request=draft, as_draft=True)
+
+        publisher.client.update_merge_request.assert_not_called()
+        assert outcome.merge_request is draft
+
+
 class TestPublishSuggestsContextFile:
     @pytest.fixture
     def publisher(self):
@@ -958,7 +1013,9 @@ class TestPublishSuggestsContextFile:
             # Fresh branch for a brand-new MR: no remote work to integrate, so no rebase-on-reject.
             gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
             mock_suggest.assert_called_once_with(mr)
-            assert result == PublishOutcome(merge_request=mr, published=True, diff_stats=_LOCAL_STATS)
+            assert result == PublishOutcome(
+                merge_request=mr, published=True, diff_stats=_LOCAL_STATS, created_merge_request=True
+            )
 
     async def test_degrades_to_pending_when_branch_not_visible(self, publisher, monkeypatch, caplog):
         """A pushed branch GitLab won't open an MR for degrades to a partial publish, not a failed job.
@@ -1056,7 +1113,11 @@ class TestPublishSuggestsContextFile:
             # Fallback source is exposed on the outcome so the manager can bundle a footer onto the
             # agent's reply instead of posting a separate comment.
             assert result == PublishOutcome(
-                merge_request=new_mr, published=True, protected_branch_fallback_source="dev", diff_stats=_LOCAL_STATS
+                merge_request=new_mr,
+                published=True,
+                protected_branch_fallback_source="dev",
+                diff_stats=_LOCAL_STATS,
+                created_merge_request=True,
             )
 
     async def test_protected_branch_fallback_is_per_call(self, publisher, monkeypatch):

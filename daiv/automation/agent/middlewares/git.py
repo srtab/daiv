@@ -15,6 +15,7 @@ from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
 from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
+from automation.agent.verification.outcome import recheck_if_stale, render_report
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, Scope
 from codebase.clients.base import aget_open_merge_request
@@ -409,9 +410,16 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         publisher = GitChangePublisher(
             runtime.context, self._workspace, settings=self._settings, session_links=self._session_links
         )
+        verification = state.get("verification")
+        if verification is not None and self._workspace.bash is not None:
+            verification = await recheck_if_stale(self._workspace.bash, self._workspace.git, verification)
         try:
             outcome = await publisher.publish(
-                merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci, agent_summary=agent_summary
+                merge_request=self._publish_target(state, runtime),
+                skip_ci=self.skip_ci,
+                agent_summary=agent_summary,
+                as_draft=verification is not None and verification["status"] == "failed",
+                verification_report=render_report(verification) if verification is not None else None,
             )
         except UnresolvedMergeConflictsError as exc:
             logger.warning("Not publishing: %s", exc)
@@ -422,6 +430,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             )
             return {**update, "messages": [await streamed_assistant_message(notice)]}
 
+        if verification is not None and outcome.published:
+            update["verification"] = {**verification, "reported": outcome.created_merge_request}
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()
         if outcome.published:

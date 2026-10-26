@@ -101,6 +101,7 @@ class PublishOutcome:
     counts: GitLab has no aggregate endpoint and downloads the whole MR diff to add it up
     (truncating it past a size cap), and a freshly-created MR whose diff is still being
     prepared answers zero."""
+    created_merge_request: bool = False
 
 
 class GitChangePublisher:
@@ -132,6 +133,7 @@ class GitChangePublisher:
         skip_ci: bool = False,
         as_draft: bool = False,
         agent_summary: str | None = None,
+        verification_report: str | None = None,
     ) -> PublishOutcome:
         """
         Daiv-direct publish: ensure the run's changes reach a merge request.
@@ -180,6 +182,7 @@ class GitChangePublisher:
             logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
             return PublishOutcome(merge_request=merge_request, published=False, diff_stats=diff_stats)
 
+        created_merge_request = False
         fallback_from_mr: MergeRequest | None = None
         if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
             self.ctx.repository.slug, merge_request.source_branch
@@ -259,11 +262,14 @@ class GitChangePublisher:
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
         if merge_request is None:
+            description = changes_metadata["pr_metadata"].description
+            if verification_report:
+                description = f"{description.rstrip()}\n\n{verification_report}"
             try:
                 merge_request = await self._create_merge_request(
                     branch_name,
                     changes_metadata["pr_metadata"].title,
-                    changes_metadata["pr_metadata"].description,
+                    description,
                     target_branch=self._live_target_branch(base_branch, snapshot.remote_branches, default_branch),
                     as_draft=as_draft,
                     fallback_from_mr=fallback_from_mr,
@@ -297,6 +303,7 @@ class GitChangePublisher:
                 merge_request.merge_request_id,
                 merge_request.draft,
             )
+            created_merge_request = True
             await self._suggest_context_file(merge_request)
         else:
             if merge_request.draft and as_draft is False:
@@ -317,6 +324,7 @@ class GitChangePublisher:
             published=True,
             protected_branch_fallback_source=protected_branch_fallback_source,
             diff_stats=diff_stats,
+            created_merge_request=created_merge_request,
         )
 
     def _merge_commit_message(self, merge: PendingMerge) -> str:

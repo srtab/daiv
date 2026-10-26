@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, NotRequired, cast
 
@@ -13,6 +12,7 @@ from automation.agent.synthetic import synthetic_message
 from automation.agent.verification.checks import (
     MAX_FIX_ROUNDS,
     ChecksUnavailableError,
+    changed_between,
     diff_fingerprint,
     failing_before_change,
     run_checks,
@@ -38,8 +38,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.agent")
 
-_DIFF_HEADER = re.compile(r"^diff --git ", re.MULTILINE)
-
 
 class VerificationState(AgentState):
     verification: NotRequired[VerificationOutcome | None]
@@ -58,22 +56,6 @@ def _before_publishing_section(commands: Sequence[str]) -> str:
 def _stopped(messages: Sequence[BaseMessage]) -> bool:
     replies = [message for message in messages if isinstance(message, AIMessage)]
     return bool(replies) and not replies[-1].tool_calls
-
-
-def _section_path(header: str) -> str:
-    """The path in a ``a/<path> b/<path>`` header; a rename's header, which names two paths, is kept whole."""
-    path = header[2 : 2 + (len(header) - 5) // 2]
-    return path if header == f"a/{path} b/{path}" else header
-
-
-def _diff_sections(diff: str) -> dict[str, str]:
-    sections = _DIFF_HEADER.split(diff)[1:]
-    return {_section_path(section.partition("\n")[0]): section for section in sections}
-
-
-def _changed_between(before: str, after: str) -> list[str]:
-    old, new = _diff_sections(before), _diff_sections(after)
-    return [path for path in dict.fromkeys([*old, *new]) if old.get(path) != new.get(path)]
 
 
 def _outcome(
@@ -269,7 +251,7 @@ class VerificationMiddleware(AgentMiddleware):
         git = self._workspace.git
         results = await run_checks(self._bash, self._commands)
         after = await git.get_diff()
-        changed_by_checks = _changed_between(before, after)
+        changed_by_checks = changed_between(before, after)
         if changed_by_checks:
             changed = await git.get_changed_files()
         return _CheckRun(results, changed_by_checks, changed, diff_fingerprint(after))

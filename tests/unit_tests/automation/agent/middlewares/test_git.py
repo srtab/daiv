@@ -10,6 +10,7 @@ from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflicts
 from automation.agent.workspace.git_manager import GitPushPermissionError
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
+from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings
 
 SETTINGS = agent_settings()
@@ -292,6 +293,87 @@ class TestGitMiddleware:
         with patch.object(GitMiddleware, "_alookup_open_mr", AsyncMock(return_value=None)):
             result = await middleware.abefore_agent({}, runtime)
         assert result["published"] is False
+
+    @staticmethod
+    def _verification(status="passed", fingerprint="fp"):
+        return {
+            "status": status,
+            "commands": [
+                {
+                    "command": "make test",
+                    "exit_code": 0 if status == "passed" else 1,
+                    "timed_out": False,
+                    "already_failing": False,
+                }
+            ],
+            "rounds": 0,
+            "suspicious_paths": [],
+            "fingerprint": fingerprint,
+        }
+
+    async def _publish_with(self, verification, *, created=False, workspace=None):
+        workspace = workspace or FakeWorkspace()
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=workspace)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        state = {"merge_request": None}
+        if verification is not None:
+            state["verification"] = verification
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub = pub_cls.return_value
+            pub.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=_mr(), published=True, created_merge_request=created)
+            )
+            result = await mw.aafter_agent(state, runtime)
+        return pub.publish.await_args.kwargs, result
+
+    async def test_after_agent_publishes_draft_when_verification_failed(self):
+        kwargs, _ = await self._publish_with(self._verification("failed"))
+
+        assert kwargs["as_draft"] is True
+        assert "### Verification" in kwargs["verification_report"]
+
+    async def test_after_agent_passes_report_and_marks_reported(self):
+        kwargs, result = await self._publish_with(self._verification("passed"), created=True)
+
+        assert kwargs["as_draft"] is False
+        assert "`make test` passed" in kwargs["verification_report"]
+        assert result["verification"]["reported"] is True
+
+    async def test_after_agent_marks_not_reported_when_no_merge_request_was_created(self):
+        _, result = await self._publish_with(self._verification("passed"), created=False)
+
+        assert result["verification"]["reported"] is False
+
+    async def test_after_agent_without_outcome_publishes_as_before(self):
+        kwargs, result = await self._publish_with(None)
+
+        assert kwargs["as_draft"] is False
+        assert kwargs["verification_report"] is None
+        assert "verification" not in result
+
+    async def test_after_agent_rechecks_when_tree_changed_after_checks(self):
+        git = Mock()
+        git.get_diff = AsyncMock(return_value="diff --git a/a.py b/a.py\n+x\n")
+        git.get_changed_files = AsyncMock(return_value=["a.py"])
+        bash = Mock()
+        bash.run_commands = AsyncMock(
+            return_value=RunCommandsResponse(
+                results=[RunCommandResult(command="cd /workspace/repo && make test", output="boom", exit_code=1)]
+            )
+        )
+
+        kwargs, result = await self._publish_with(
+            self._verification("passed", fingerprint="stale"), workspace=FakeWorkspace(git=git, bash=bash)
+        )
+
+        bash.run_commands.assert_awaited_once()
+        assert kwargs["as_draft"] is True
+        assert result["verification"]["status"] == "failed"
+
+    async def test_after_agent_does_not_recheck_without_a_shell(self):
+        kwargs, _ = await self._publish_with(self._verification("passed", fingerprint="stale"))
+
+        assert kwargs["as_draft"] is False
 
     async def test_aafter_agent_passes_the_workspace_to_publisher(self):
         """The publisher publishes through the run's workspace, handed over at construction (no session id is threaded

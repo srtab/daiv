@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,8 @@ MAX_FIX_ROUNDS = 2
 CHECK_TIMEOUT_SECONDS = 600
 OUTPUT_TAIL_CHARS = 4_000
 TIMEOUT_EXIT_CODE = 124
+
+_DIFF_HEADER = re.compile(r"^diff --git ", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -75,3 +78,19 @@ def diff_fingerprint(diff: str) -> str:
 
 async def tree_fingerprint(git: GitManager) -> str:
     return diff_fingerprint(await git.get_diff())
+
+
+def _section_path(header: str) -> str:
+    """The path in a ``a/<path> b/<path>`` header; a rename's header, which names two paths, is kept whole."""
+    path = header[2 : 2 + (len(header) - 5) // 2]
+    return path if header == f"a/{path} b/{path}" else header
+
+
+def _diff_sections(diff: str) -> dict[str, str]:
+    sections = _DIFF_HEADER.split(diff)[1:]
+    return {_section_path(section.partition("\n")[0]): section for section in sections}
+
+
+def changed_between(before: str, after: str) -> list[str]:
+    old, new = _diff_sections(before), _diff_sections(after)
+    return [path for path in dict.fromkeys([*old, *new]) if old.get(path) != new.get(path)]
