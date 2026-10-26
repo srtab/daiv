@@ -341,7 +341,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         # "working" state and transcript poller render the same view a chat session gets.
         no_state = hydrated.expired and not is_in_flight
 
-        turns = annotate_transcript(build_turns(hydrated.messages), runs, activity)
+        turns = annotate_transcript(build_turns(hydrated.messages, in_flight=is_in_flight), runs, activity)
         # Expired banner only when there is genuinely nothing to show: no checkpoint or archive
         # AND no failed run whose prompt/marker annotate_transcript could recover.
         ctx["expired"] = no_state and not turns

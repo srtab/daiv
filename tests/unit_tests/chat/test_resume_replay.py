@@ -277,3 +277,51 @@ chat.holdReload({{ preventDefault: () => {{ prevented = true; }} }});
 process.stdout.write(JSON.stringify({{ prevented }}));
 """
     assert run_chat_stream(body, {}) == {"prevented": held}
+
+
+# A rejoin onto a run whose checkpoint holds ``tc-open`` unanswered, then streams ``tc-live``
+# with no result before the stream ends.
+OPEN_CALL_TURNS = build_turns(
+    [AIMessage(id="msg-1", content="", tool_calls=[{"id": "tc-open", "name": "bash", "args": {}}])], in_flight=True
+)
+LIVE_CALL_FRAMES = [
+    {"type": "RUN_STARTED", "timestamp": 1000},
+    {"type": "TOOL_CALL_START", "toolCallId": "tc-live", "toolCallName": "bash", "timestamp": 1100},
+    {"type": "TOOL_CALL_END", "toolCallId": "tc-live", "timestamp": 1200},
+]
+
+
+@pytest.mark.parametrize(
+    ("tail", "reason", "status"),
+    [
+        ([], "finished", "done"),
+        ([{"type": "RUN_ERROR", "message": "boom"}], "finished", "error"),
+        ([{"type": "RUN_ERROR", "code": "run_cancelled"}], "finished", "error"),
+        ([], "stale", "error"),
+    ],
+)
+def test_calls_left_running_settle_by_how_the_run_ended(tail, reason, status):
+    body = """
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
+chat.turns = payload.turns;
+chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+chat.$nextTick = (cb) => cb();
+chat.scrollToBottom = () => {};
+
+const settled = chat._resumeRun("run-1");
+for (const evt of payload.frames) opened.onmessage({ data: JSON.stringify(evt) });
+opened.listeners.end({ data: JSON.stringify({ reason: payload.reason }) });
+await settled;
+
+const calls = chat.turns.flatMap((t) => (t.segments || []).filter((s) => s.type === "tool_call"));
+process.stdout.write(JSON.stringify(Object.fromEntries(calls.map((s) => [s.id, s.status]))));
+"""
+    assert OPEN_CALL_TURNS[0]["segments"][0]["status"] == "running"
+    result = run_chat_stream(
+        body,
+        {"frames": LIVE_CALL_FRAMES + tail, "turns": OPEN_CALL_TURNS, "reason": reason},
+        prelude=PRELUDE,
+        extra_globals="EventSource: FakeEventSource,",
+    )
+
+    assert result == {"tc-open": status, "tc-live": status}

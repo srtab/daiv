@@ -937,8 +937,15 @@
 
     _finishTurn(turn, reason) {
       turn.streaming = false;
+      // A call still running when the run ends never returned, unless the run finished cleanly.
+      // Checkpointed turns count too: they hold the calls the rejoin found unanswered.
+      const unanswered = reason === "finished" && !this._hasRunStatusMarker() ? "done" : "error";
+      for (const t of this.turns) {
+        for (const s of t.segments || []) {
+          if (s.type === "tool_call" && s.status === "running") s.status = unanswered;
+        }
+      }
       turn.segments.forEach((s) => {
-        if (s.type === "tool_call" && s.status === "running") s.status = "done";
         if (s.type === "thinking" && s.status === "running") {
           s.status = "done";
           s.endedAt = this._lastFrameAt || Date.now();
