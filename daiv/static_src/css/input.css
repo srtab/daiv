@@ -3308,6 +3308,10 @@ html {
   }
   .session-row--failed { @apply bg-red-500/[0.03]; }
   .session-repo { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-gray-400; }
+  .session-repositories { @apply mb-4 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm; }
+  .session-repositories__row { @apply flex flex-wrap items-center gap-x-2.5 gap-y-1 py-1; }
+  .session-repositories__main { @apply rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-gray-300; }
+  .session-repositories__errors { @apply mt-2 border-t border-white/10 pt-2 text-red-300; }
   .session-branch { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-gray-400; }
   .mr-pill {
     @apply inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-900/30
