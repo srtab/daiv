@@ -519,7 +519,8 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
             )
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
-    if spec.arm_watch:
+    verification_failed = bool(verification) and verification.get("status") == "failed"
+    if spec.arm_watch or (published and verification_failed):
         try:
             await PipelineWatch(spec.repo_id).aarm_after_run(
                 run_id=spec.run_id,
@@ -527,7 +528,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
                 published=published,
                 user_id=spec.acting_user_id,
                 sandbox_environment_id=spec.sandbox_env_id,
-                verification_failed=bool(verification) and verification["status"] == "failed",
+                verification_failed=verification_failed,
             )
         except Exception:
             logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)

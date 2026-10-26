@@ -97,11 +97,12 @@ async def test_a_fix_run_that_pushed_nothing_ends_the_watch(stub_watch):
 
 
 @pytest.mark.django_db
-async def test_a_published_run_whose_checks_fail_does_not_arm(stub_watch):
+async def test_a_published_run_whose_checks_fail_ends_the_watch_instead_of_arming(stub_watch):
+    """An already-open watch would otherwise judge the next red pipeline and dispatch a fix run."""
     await stub_watch.watch.aarm_after_run(run_id=None, merge_request=MR, published=True, verification_failed=True)
 
     assert stub_watch.watch.armed == []
-    assert stub_watch.watch.exhausted == []
+    assert stub_watch.watch.exhausted == [{"merge_request_iid": 7, "reason": "the before_publish checks still fail"}]
     assert stub_watch.enqueued == []
 
 

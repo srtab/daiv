@@ -577,6 +577,18 @@ async def test_a_fix_run_that_changed_nothing_gives_up(watch):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_ending_a_watch_that_is_not_open_does_nothing(watch):
+    await amake_watched_session(thread_id=mr_thread_id(74), merge_request_iid=74, watch_state=WatchState.GREEN)
+
+    await watch.make().aexhaust(merge_request_iid=74, reason="the before_publish checks still fail")
+    await watch.make().aexhaust(merge_request_iid=75, reason="the before_publish checks still fail")
+
+    session = await Session.objects.aget(thread_id=mr_thread_id(74))
+    assert session.watch_state == WatchState.GREEN
+    assert watch.platform.notes == []
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_arming_gives_the_mr_thread_the_run_owner_and_environment(watch, django_user_model):
     """The MR thread is almost always created *here*, not by a human — so without an owner
     carried in, the give-up notification has no recipient and the fix run loses the user's

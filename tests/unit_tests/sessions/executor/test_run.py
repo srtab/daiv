@@ -437,6 +437,29 @@ async def test_the_reply_has_no_verification_report_when_there_is_none_to_add(ve
     assert outcome.response_text == "done"
 
 
+async def test_a_run_that_does_not_arm_still_ends_the_watch_when_its_checks_fail():
+    state = {"merge_request": MR, "published": True, "verification": _verification("failed")}
+
+    with agent_stack(_agent(state=state)) as stack:
+        await execute_run(make_spec(arm_watch=False))
+
+    assert [call_["verification_failed"] for call_ in stack.armed] == [True]
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"merge_request": MR, "published": False, "verification": _verification("failed")},
+        {"merge_request": MR, "published": True, "verification": _verification("passed")},
+    ],
+)
+async def test_a_run_that_does_not_arm_leaves_the_watch_alone_otherwise(state):
+    with agent_stack(_agent(state=state)) as stack:
+        await execute_run(make_spec(arm_watch=False))
+
+    assert stack.armed == []
+
+
 @pytest.mark.parametrize(("persist_ref", "arm_watch"), [(True, False), (False, True), (False, False)])
 async def test_the_ref_sync_and_the_watch_each_run_only_when_asked(persist_ref, arm_watch):
     with agent_stack(_agent(state={"merge_request": MR, "published": True})) as stack:
