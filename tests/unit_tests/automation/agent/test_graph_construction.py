@@ -5,7 +5,7 @@ import inspect
 import re
 from contextlib import ExitStack
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from sandbox_envs.spec import SandboxSpec
@@ -14,6 +14,7 @@ from automation.agent import graph as graph_module
 from automation.agent import subagents as subagents_module
 from automation.agent.agent_settings import RunOverrides
 from automation.agent.graph import create_daiv_agent
+from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
@@ -176,13 +177,15 @@ async def _construct(
     auto_commit_changes: bool = False,
     sandbox: SandboxSpec | None = None,
     before_publish: tuple[str, ...] | None = ("make test",),
+    delegator: object | None = None,
+    fork_branch: bool = False,
 ):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
     ``site`` overrides site values, ``run`` is what the run asks for (``RunOverrides`` fields), and ``slash_commands``
-    and ``memory`` are the repo's switches. The builder gets them resolved, as the executor hands them over. ``bash``
-    gives the workspace a shell, ``sandbox`` is the run's sandbox spec, and ``before_publish`` the repo's checks
-    (``None``: it declares none).
+    and ``memory`` are the repo's switches. The builder gets them resolved, as the executor hands them over, along with
+    ``delegator`` and ``fork_branch``. ``bash`` gives the workspace a shell, ``sandbox`` is the run's sandbox spec, and
+    ``before_publish`` the repo's checks (``None``: it declares none).
     """
     settings = agent_settings(
         site=site_snapshot(**(_SITE | (site or {}))),
@@ -217,6 +220,8 @@ async def _construct(
             ctx=ctx,
             workspace=FakeWorkspace(bash=MagicMock() if bash else None),
             auto_commit_changes=auto_commit_changes,
+            delegator=delegator,
+            fork_branch=fork_branch,
         )
 
     deep_agent = mocks["create_deep_agent"]
@@ -387,3 +392,17 @@ async def test_verification_runs_the_sandbox_default_unless_the_repo_declares_it
 
     [verification] = _verification(built.middleware)
     assert verification._commands == expected
+
+
+@pytest.mark.parametrize("fork_branch", [True, False])
+async def test_the_git_middleware_gets_the_runs_fork_branch_flag(fork_branch):
+    built = await _construct(fork_branch=fork_branch)
+
+    assert built.git_middleware.call_args.kwargs["fork_branch"] is fork_branch
+
+
+@pytest.mark.parametrize(("delegator", "bound"), [(Mock(), True), (None, False)], ids=["delegator", "no-delegator"])
+async def test_delegate_jobs_is_bound_only_with_a_delegator(delegator, bound):
+    built = await _construct(delegator=delegator)
+
+    assert any(isinstance(m, DelegateJobsMiddleware) for m in built.middleware) is bound

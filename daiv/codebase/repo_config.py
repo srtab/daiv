@@ -96,6 +96,20 @@ class Memory(BaseModel):
     )
 
 
+class Orchestration(BaseModel):
+    """
+    Delegation configuration.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Let the agent delegate tailored sub-jobs, to other repositories or to new sessions on this one, with the "
+            "delegate_jobs tool and resume once they finish."
+        ),
+    )
+
+
 class AgentModelConfig(BaseModel):
     """
     Model configuration for the DAIV agent.
@@ -214,6 +228,10 @@ class RepositoryConfig(BaseModel):
     )
     hooks: Hooks = Field(default_factory=Hooks, description="Configure commands DAIV runs at fixed points of a run.")
     memory: Memory = Field(default_factory=Memory, description="Configure learned repository memory features.")
+    orchestration: Orchestration = Field(
+        default_factory=Orchestration,
+        description="Configure delegation of sub-jobs to other repositories or to this one.",
+    )
     models: Models = Field(default_factory=Models, description="Configure model settings for agents.")
 
     def is_user_allowed(self, username: str) -> bool:

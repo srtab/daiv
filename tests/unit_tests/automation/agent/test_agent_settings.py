@@ -282,6 +282,17 @@ def test_slash_commands_follow_the_repo_whatever_the_site_switches_say(repo_on):
 
 @pytest.mark.parametrize(
     ("daiv_yml", "expected"),
+    [({}, True), ({"orchestration": {"enabled": False}}, False)],
+    ids=["on-by-default", "a-repo-turns-it-off"],
+)
+def test_orchestration_is_on_unless_the_repo_turns_it_off(daiv_yml, expected):
+    features = resolve_features(site=site_snapshot(), repo=RepositoryConfig(**daiv_yml))
+
+    assert features.orchestration is expected
+
+
+@pytest.mark.parametrize(
+    ("daiv_yml", "expected"),
     [
         ({}, 3),
         ({"pipeline_watch": {"max_attempts": 2}}, 2),

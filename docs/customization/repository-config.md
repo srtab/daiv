@@ -36,6 +36,9 @@ pipeline_watch:
   enabled: true
   max_attempts: 3
 
+orchestration:
+  enabled: false
+
 # Verification hooks
 hooks:
   before_publish:
@@ -117,6 +120,7 @@ slash_commands:
 | `slash_commands` | `enabled` | `true` | [Slash Commands & Skills](../features/slash-commands.md) |
 | `pipeline_watch` | `enabled` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — disable to stop DAIV watching CI on published MRs. |
 | `pipeline_watch` | `max_attempts` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — maximum fix attempts before giving up, clamped to the site-wide cap. |
+| `orchestration` | `enabled` | `true` | [Orchestration](../features/orchestration.md) — let the agent delegate sub-jobs to other repositories, or to new sessions on this one. |
 
 ## Verification hooks
 

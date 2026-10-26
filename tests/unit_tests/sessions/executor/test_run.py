@@ -18,7 +18,7 @@ from redisvl.exceptions import RedisSearchError
 from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
-from sessions.executor.run import RunStoppedError, execute_run, stream_run
+from sessions.executor.run import RunStoppedError, _until_stopped, execute_run, stream_run
 from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
@@ -108,6 +108,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         artifact_store=ANY,
         mcp_servers=stack.build_servers.return_value,
         session_links=ANY,
+        delegator=ANY,
     )
     stack.langsmith.assert_called_once_with(
         stack.ctx,
@@ -325,6 +326,98 @@ async def test_a_raising_agent_still_runs_every_finally_step():
     stack.persist.assert_not_awaited()
     assert stack.armed == []
     on_success.assert_not_awaited()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_stop_request_cancels_the_invoke_closes_the_context_and_reaches_on_failure():
+    thread_id = await amake_job_session()
+    invoked = asyncio.Event()
+    cancelled: list[bool] = []
+
+    async def _invoke(*_args, **_kwargs):
+        invoked.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+
+    async def _should_stop():
+        return invoked.is_set()
+
+    agent = _agent()
+    agent.ainvoke = AsyncMock(side_effect=_invoke)
+    spec = make_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1), recover_draft=True)
+
+    with (
+        agent_stack(agent) as stack,
+        patch("sessions.executor.run.STOP_POLL_INTERVAL_S", 0.01),
+        patch("sessions.executor.run.recover_draft", AsyncMock()) as recover,
+    ):
+
+        async def _on_failure(exc, *, draft_published, snapshot):
+            stack.events.append(f"on_failure {type(exc).__name__} holding {await active_holder(thread_id)}")
+
+        with pytest.raises(RunStoppedError):
+            await execute_run(spec, RunHooks(on_failure=_on_failure), should_stop=_should_stop)
+
+    assert cancelled == [True]
+    assert stack.events == [
+        "context entered",
+        "context exited",
+        "on_failure RunStoppedError holding run-1",
+        "stream ended",
+    ]
+    assert await active_holder(thread_id) is None
+    recover.assert_not_awaited()
+
+
+async def test_a_stop_requested_before_the_run_starts_never_reaches_the_agent():
+    agent = _agent()
+    on_failure = AsyncMock()
+
+    async def _should_stop():
+        await asyncio.sleep(0)
+        return True
+
+    with agent_stack(agent) as stack, pytest.raises(RunStoppedError):
+        await execute_run(make_spec(), RunHooks(on_failure=on_failure), should_stop=_should_stop)
+
+    agent.ainvoke.assert_not_awaited()
+    stack.build_spec.assert_not_awaited()
+    assert stack.events == []
+    on_failure.assert_awaited_once()
+
+
+async def test_an_invoke_that_ends_while_the_stop_is_asked_keeps_its_outcome():
+    release, finished = asyncio.Event(), asyncio.Event()
+    answers = iter([False, True])
+
+    async def _invoke():
+        await release.wait()
+        finished.set()
+        return "outcome"
+
+    async def _should_stop():
+        stop = next(answers)
+        if stop:
+            release.set()
+            await finished.wait()
+            await asyncio.sleep(0)
+        return stop
+
+    with patch("sessions.executor.run.STOP_POLL_INTERVAL_S", 0.01):
+        assert await _until_stopped(_invoke, "thread-1", _should_stop) == "outcome"
+
+
+async def test_a_run_never_asked_to_stop_returns_its_outcome():
+    should_stop = AsyncMock(return_value=False)
+
+    with agent_stack(_agent(state={"merge_request": None})):
+        outcome = await execute_run(make_spec(), should_stop=should_stop)
+
+    assert outcome.response_text == "done"
+    should_stop.assert_awaited()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -742,6 +835,7 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
         artifact_store=ANY,
         mcp_servers=[],
         session_links=ANY,
+        delegator=ANY,
         capture_patch=True,
     )
 
@@ -759,6 +853,29 @@ async def test_a_run_without_a_session_to_link_hands_the_agent_no_links(spec_ove
         await execute_run(make_spec(**spec_overrides))
 
     assert stack.create_agent.await_args.kwargs["session_links"] is None
+
+
+@pytest.mark.parametrize(
+    ("spec_overrides", "orchestration", "delegates"),
+    [({}, True, True), ({"thread_id": None}, True, False), ({}, False, False)],
+    ids=["session-run", "one-shot-run", "repo-off"],
+)
+async def test_a_session_run_on_a_repo_with_orchestration_gets_its_sessions_delegator(
+    spec_overrides, orchestration, delegates
+):
+    spec = make_spec(**spec_overrides)
+    settings = agent_settings(
+        repo=RepositoryConfig(orchestration={"enabled": orchestration}),
+        run=RunOverrides(model_names=("claude-4-7-opus",)),
+    )
+
+    with agent_stack(_agent(), resolve=MagicMock(return_value=settings)) as stack:
+        await execute_run(spec)
+
+    delegator = stack.create_agent.await_args.kwargs["delegator"]
+    assert (delegator is stack.delegator_for.return_value) is delegates
+    if delegates:
+        stack.delegator_for.assert_awaited_once_with(spec.thread_id)
 
 
 async def test_the_agent_gets_the_sessions_links_unbuilt():

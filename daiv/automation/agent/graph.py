@@ -18,6 +18,7 @@ from automation.agent.agent_settings import resolve_before_publish
 from automation.agent.base import get_model
 from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
 from automation.agent.context import RuntimeCtx
+from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
 from automation.agent.mcp.toolkits import load_mcp_tools
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
@@ -27,6 +28,7 @@ from automation.agent.middlewares.deferred_tools import (
     direct_mcp_tools,
     inline_tool_definitions_middleware,
 )
+from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
@@ -69,6 +71,7 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.artifacts import ArtifactStore
+    from automation.agent.delegation import JobDelegator
     from automation.agent.mcp.schemas import UserMcpServer
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.workspace.base import Workspace
@@ -95,6 +98,7 @@ ALWAYS_LOADED_TOOLS = frozenset({
     SKILLS_TOOL_NAME,
     "task",
     ASK_USER_QUESTION_TOOL_NAME,
+    DELEGATE_JOBS_TOOL_NAME,
 })
 
 
@@ -178,6 +182,8 @@ async def create_daiv_agent(
     middleware: list[AgentMiddleware] | None = None,
     ask_user_enabled: bool = True,
     session_links: SessionLinksResolver | None = None,
+    delegator: JobDelegator | None = None,
+    fork_branch: bool = False,
 ):
     """
     Create the DAIV agent.
@@ -201,6 +207,10 @@ async def create_daiv_agent(
         ask_user_enabled: Whether the agent may stop to ask the user; off when nobody can answer during the run.
         session_links: What builds the run's session links, from the run executor, for the publish to put in the commit
             and the merge request; ``None`` publishes without them.
+        delegator: What starts ``delegate_jobs`` sub-jobs, from the run executor unless the repository turns
+            orchestration off; ``None`` binds no ``delegate_jobs`` tool.
+        fork_branch: Whether the run publishes to a new branch and merge request even when the checked-out branch
+            already has an open one; set for a delegated leg.
 
     Returns:
         The DAIV agent.
@@ -307,6 +317,7 @@ async def create_daiv_agent(
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
+        *([DelegateJobsMiddleware(delegator=delegator)] if delegator is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.
@@ -328,6 +339,7 @@ async def create_daiv_agent(
             capture_patch=capture_patch,
             session_links=session_links,
             redact=redact,
+            fork_branch=fork_branch,
         ),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,

@@ -6,8 +6,12 @@ from django.test import TestCase
 
 import pytest
 from asgiref.sync import sync_to_async
+from django_tasks_db.models import DBTaskResult
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.signal_defs import run_finished
+from sessions.signal_defs import run_ended, run_finished
+
+from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
+from tests.unit_tests.sessions.conftest import make_task_result
 
 
 def _create_run(*, status: str = RunStatus.RUNNING, trigger_type: str = SessionOrigin.PIPELINE_WEBHOOK) -> Run:
@@ -58,6 +62,18 @@ class TestFinish:
         badge.assert_called_once()
         assert not run_finished_spy.called
 
+    @pytest.mark.parametrize("trigger_type", [SessionOrigin.CHAT, SessionOrigin.API_JOB])
+    def test_every_finished_run_emits_run_ended_chat_included(self, trigger_type):
+        run = _create_run(trigger_type=trigger_type)
+        spy = MagicMock()
+        run_ended.connect(spy, dispatch_uid="tests-run-ended-spy")
+        try:
+            Run.objects.finish(run, RunStatus.SUCCESSFUL)
+        finally:
+            run_ended.disconnect(dispatch_uid="tests-run-ended-spy")
+
+        assert spy.call_args.kwargs["run"] is run
+
     def test_a_finished_row_is_never_overwritten(self, run_finished_spy, badge):
         run = _create_run()
         Run.objects.filter(pk=run.pk).update(status=RunStatus.SUCCESSFUL)
@@ -106,6 +122,114 @@ class TestFinish:
 
 
 @pytest.mark.django_db
+class TestCancel:
+    @pytest.mark.parametrize("status", [RunStatus.READY, RunStatus.QUEUED])
+    def test_a_run_that_is_not_running_finishes_failed_at_once(self, run_finished_spy, badge, status):
+        run = _create_run(status=status)
+
+        assert Run.objects.cancel(run) is True
+
+        assert run.status == RunStatus.FAILED
+        run.refresh_from_db()
+        assert (run.status, run.error_message) == (RunStatus.FAILED, CANCELLED_BY_COORDINATOR_MESSAGE)
+        assert run.started_at is not None and run.finished_at is not None
+        assert run.is_cancelled
+        assert run_finished_spy.call_args.kwargs["never_started"] is True
+
+    def test_its_queued_task_fails_with_it_so_no_worker_claims_it(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.READY)
+        Run.objects.filter(pk=run.pk).update(task_result=make_task_result(status="READY"))
+
+        assert Run.objects.cancel(run) is True
+
+        task_result = DBTaskResult.objects.get(run=run)
+        assert task_result.status == "FAILED"
+        assert task_result.exception_class_path == "sessions.executor.run.RunStoppedError"
+
+    def test_a_task_a_worker_claimed_is_left_to_it(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.READY)
+        Run.objects.filter(pk=run.pk).update(task_result=make_task_result(status="RUNNING"))
+
+        assert Run.objects.cancel(run) is True
+
+        assert DBTaskResult.objects.get(run=run).status == "RUNNING"
+        run.refresh_from_db()
+        assert run.is_cancelled
+
+    def test_a_running_run_is_only_asked_to_stop(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+
+        assert Run.objects.cancel(run) is True
+
+        assert run.status == RunStatus.RUNNING
+        run.refresh_from_db()
+        assert (run.status, run.error_message) == (RunStatus.RUNNING, "")
+        assert run.cancel_requested_at is not None
+        assert not run.is_cancelled
+        assert not run_finished_spy.called
+
+    def test_a_running_run_keeps_what_its_task_recorded(self, run_finished_spy, badge):
+        task_result = make_task_result(
+            status="SUCCESSFUL",
+            return_value={
+                "response": "Opened the merge request.",
+                "code_changes": True,
+                "merge_request_id": 7,
+                "merge_request_web_url": "https://git.example/mr/7",
+            },
+        )
+        run = _create_run(status=RunStatus.RUNNING)
+        Run.objects.filter(pk=run.pk).update(task_result=task_result)
+        Run.objects.cancel(run)
+
+        run = Run.objects.select_related("task_result").get(pk=run.pk)
+        assert run.sync_and_save() is True
+
+        run.refresh_from_db()
+        assert (run.status, run.merge_request_web_url) == (RunStatus.SUCCESSFUL, "https://git.example/mr/7")
+        assert not run.is_cancelled
+
+    def test_a_running_run_its_task_stops_is_cancelled(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        Run.objects.filter(pk=run.pk).update(
+            task_result=make_task_result(status="FAILED", exception_class_path="sessions.executor.run.RunStoppedError")
+        )
+        Run.objects.cancel(run)
+
+        run = Run.objects.select_related("task_result").get(pk=run.pk)
+        run.sync_and_save()
+
+        run.refresh_from_db()
+        assert run.is_cancelled
+        assert run_finished_spy.call_args.kwargs["never_started"] is False
+
+    def test_a_run_asked_once_is_not_asked_again(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        Run.objects.cancel(run)
+
+        assert Run.objects.cancel(run) is False
+
+    def test_a_finished_run_is_left_as_it_ended(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.SUCCESSFUL)
+
+        assert Run.objects.cancel(run) is False
+
+        run.refresh_from_db()
+        assert (run.status, run.cancel_requested_at) == (RunStatus.SUCCESSFUL, None)
+        assert not run_finished_spy.called
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("requested", [True, False])
+async def test_acancel_requested_is_true_once_cancel_asked(requested):
+    run = await sync_to_async(_create_run)(status=RunStatus.RUNNING)
+    if requested:
+        await sync_to_async(Run.objects.cancel)(run)
+
+    assert await Run.objects.acancel_requested(str(run.pk)) is requested
+
+
+@pytest.mark.django_db
 class TestUpdateUnfinished:
     def test_a_finished_row_is_left_alone(self, badge):
         run = _create_run(status=RunStatus.SUCCESSFUL)
@@ -144,6 +268,19 @@ class TestAfinish:
 
         publish.assert_called_once()
         assert not run_finished_spy.called
+
+    async def test_the_worker_threads_connection_is_returned_even_when_a_receiver_raises(self):
+        run = await sync_to_async(_create_run)(trigger_type=SessionOrigin.CHAT)
+
+        with (
+            patch("core.ui_events.publisher.runs_changed"),
+            patch("sessions.managers.close_old_connections") as close,
+            patch.object(type(Run.objects), "_emit_run_finished", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError),
+        ):
+            await Run.objects.afinish(run, RunStatus.SUCCESSFUL)
+
+        close.assert_called_once_with()
 
     async def test_a_finished_row_is_never_overwritten(self, run_finished_spy):
         run = await sync_to_async(_create_run)()

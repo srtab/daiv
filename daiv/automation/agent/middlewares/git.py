@@ -149,6 +149,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         settings: The run's resolved agent settings.
         session_links: What builds the links the publisher puts in the commit and the merge request; ``None`` for none.
         redact: Values masked in the output of the before_publish checks it runs again before publishing.
+        fork_branch: Whether a turn with no merge request of its own leaves an open one on the checked-out branch
+            alone and publishes to a new branch and merge request instead of pushing onto it.
 
     Example:
         ```python
@@ -178,6 +180,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         capture_patch: bool = False,
         session_links: SessionLinksResolver | None = None,
         redact: Sequence[str] = (),
+        fork_branch: bool = False,
     ) -> None:
         """
         Initialize the middleware.
@@ -185,6 +188,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         self.skip_ci = skip_ci
         self.auto_commit_changes = auto_commit_changes
         self.capture_patch = capture_patch
+        self.fork_branch = fork_branch
         self._workspace = workspace
         self._settings = settings
         self._session_links = session_links
@@ -217,7 +221,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # In this case, ignore the branch name and merge request ID from the state,
             # and use the source branch and merge request ID from the merge request.
             merge_request = runtime.context.merge_request
-        elif merge_request is None:
+        elif merge_request is None and not self.fork_branch:
             # Surface any pre-existing open MR on the current branch so the chat composer pill
             # reflects reality from the very first turn. A *first* issue-scope turn starts on the
             # default branch, where this lookup short-circuits; a follow-up turn starts on the

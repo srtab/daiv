@@ -61,6 +61,23 @@ class TestNavContextProcessor:
 
         assert _nav_for(member_user)["nav_running_jobs"] == 1
 
+    def test_supplies_the_latest_running_start(self, member_user):
+        from django.utils import timezone
+
+        session = Session.objects.create(
+            thread_id="test-thread-latest", origin=SessionOrigin.MCP_JOB, repo_id="daiv/api", user=member_user
+        )
+        run = Run.objects.create(
+            session=session,
+            status=RunStatus.RUNNING,
+            trigger_type=SessionOrigin.MCP_JOB,
+            repo_id="daiv/api",
+            user=member_user,
+            started_at=timezone.now(),
+        )
+
+        assert _nav_for(member_user)["nav_latest_running_start"] == run.started_at.isoformat()
+
     def test_resolves_active_section_from_url_name(self, member_client):
         response = member_client.get(reverse("dashboard"))
         assert response.context["nav_active_section"] == "dashboard"
@@ -68,7 +85,7 @@ class TestNavContextProcessor:
     def test_running_jobs_falls_back_to_zero_on_database_error(self, member_user, mocker):
         # A transient DB failure should log-and-degrade the badge rather than crash rendering.
         failing_qs = mocker.MagicMock()
-        failing_qs.filter.return_value.values.return_value.count.side_effect = DatabaseError("connection lost")
+        failing_qs.filter.return_value.values.return_value.aggregate.side_effect = DatabaseError("connection lost")
         mocker.patch("sessions.models.RunManager.visible_to", return_value=failing_qs)
         request = RequestFactory().get("/dashboard/")
         request.user = member_user

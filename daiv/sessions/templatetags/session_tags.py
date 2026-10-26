@@ -83,6 +83,8 @@ _ORIGIN_ICONS = {
     "ui_job": "bolt",
     "issue_webhook": "exclamation-circle",
     "mr_webhook": "merge-request",
+    "delegated_job": "agent",
+    "delegation_resume": "arrow-path",
 }
 
 
