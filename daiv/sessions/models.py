@@ -426,6 +426,13 @@ class Run(models.Model):
         return False  # non-scheduled runs notify unless the run itself is muted
 
     @property
+    def is_retryable(self) -> bool:
+        """Whether the run composer can start this run again: a finished run from a prompt a person or an agent wrote,
+        not a chat turn, a webhook run, or a run DAIV wrote the prompt for."""
+        not_retried = {SessionOrigin.CHAT} | SessionOrigin.webhooks() | SessionOrigin.daiv_authored()
+        return self.status in RunStatus.terminal() and bool(self.prompt) and self.trigger_type not in not_retried
+
+    @property
     def is_cancelled(self) -> bool:
         """Whether the run failed after ``RunManager.cancel`` asked it to stop."""
         return self.status == RunStatus.FAILED and self.cancel_requested_at is not None

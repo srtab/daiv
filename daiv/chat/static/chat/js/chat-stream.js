@@ -1351,7 +1351,8 @@
 
     // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
     turnHasActions(turn, ti) {
-      return turn.role !== "run_status" && (!!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn, ti));
+      if (turn.role === "run_status") return false;
+      return !!turn.sent_at || !!turn.received_at || !!turn.retry_url || this.canCopyTurn(turn, ti);
     },
 
     // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.

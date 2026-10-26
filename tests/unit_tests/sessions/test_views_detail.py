@@ -870,3 +870,24 @@ def test_detail_in_flight_run_on_an_expired_session_keeps_the_working_state(memb
 
     assert resp.context["expired"] is False
     assert len(resp.context["turns"]) == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("can_run", [True, False])
+def test_detail_links_retry_only_when_the_viewer_can_run_on_the_repo(member_client, member_user, can_run):
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    session = _create_session(user=member_user, origin=SessionOrigin.UI_JOB)
+    run = _create_run(session, trigger_type=SessionOrigin.UI_JOB, prompt="fix it")
+    messages = [HumanMessage(content="fix it", id="m-1"), AIMessage(content="done", id="m-2")]
+
+    with (
+        patch("sessions.views.ahydrate_thread", _hydration(messages)),
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+        patch("sessions.transcript.can_run", return_value=can_run),
+    ):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    first = resp.context["turns"][0]
+    expected = f"{reverse('runs:agent_run_new')}?from={run.id}" if can_run else None
+    assert (first["run_id"], first.get("retry_url")) == (str(run.id), expected)

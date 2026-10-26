@@ -396,3 +396,41 @@ def test_artifact_visible_to_follows_session_visibility(admin_user, member_user,
 def test_agent_result_field_updates_maps_code_changes_only_when_set(code_changes, expected):
     """False is left out so a later empty result never clears a flag an earlier sync recorded."""
     assert agent_result_field_updates(parse_agent_result({"code_changes": code_changes})) == expected
+
+
+@pytest.mark.parametrize(
+    ("trigger_type", "retryable"),
+    [
+        (SessionOrigin.API_JOB, True),
+        (SessionOrigin.MCP_JOB, True),
+        (SessionOrigin.UI_JOB, True),
+        (SessionOrigin.SCHEDULE, True),
+        (SessionOrigin.DELEGATED_JOB, True),
+        (SessionOrigin.CHAT, False),
+        (SessionOrigin.ISSUE_WEBHOOK, False),
+        (SessionOrigin.MR_WEBHOOK, False),
+        (SessionOrigin.PIPELINE_WEBHOOK, False),
+        (SessionOrigin.DELEGATION_RESUME, False),
+    ],
+)
+def test_run_is_retryable_by_trigger(trigger_type, retryable):
+    assert Run(trigger_type=trigger_type, status=RunStatus.SUCCESSFUL, prompt="go").is_retryable is retryable
+
+
+@pytest.mark.parametrize(
+    ("status", "retryable"),
+    [
+        (RunStatus.SUCCESSFUL, True),
+        (RunStatus.FAILED, True),
+        (RunStatus.WAITING_INPUT, True),
+        (RunStatus.READY, False),
+        (RunStatus.QUEUED, False),
+        (RunStatus.RUNNING, False),
+    ],
+)
+def test_run_is_retryable_only_once_finished(status, retryable):
+    assert Run(trigger_type=SessionOrigin.UI_JOB, status=status, prompt="go").is_retryable is retryable
+
+
+def test_run_without_a_prompt_is_not_retryable():
+    assert Run(trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL, prompt="").is_retryable is False

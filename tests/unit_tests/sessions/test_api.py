@@ -429,3 +429,32 @@ async def test_session_turns_says_whether_background_work_is_in_flight(client, a
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.json()["background"] is background
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_link_a_finished_runs_retry(client, authed):
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=user
+    )
+    run = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.UI_JOB,
+        repo_id="group/project",
+        status=RunStatus.SUCCESSFUL,
+        prompt="fix it",
+    )
+    messages = [HumanMessage(content="fix it", id="m-1"), AIMessage(content="done", id="m-2")]
+    hydrated = HydratedThread(messages, False, None, None, None)
+
+    with (
+        patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)),
+        patch("sessions.transcript.can_run", return_value=True),
+    ):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    first, reply = resp.json()["turns"]
+    assert (first["run_id"], first["retry_url"]) == (str(run.id), f"/dashboard/runs/new/?from={run.id}")
+    assert "retry_url" not in reply

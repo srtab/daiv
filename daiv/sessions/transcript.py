@@ -4,15 +4,19 @@
 already-fetched run rows) so the segmentation logic is unit-testable without the database,
 mirroring ``sessions.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
 and messages, then zip them here; for a checkpoint with no messages, ``artifact_turns``
-queries the artifacts it no longer carries.
+queries the artifacts it no longer carries, and ``mark_retryable`` queries the viewer's repository access.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlencode
+
+from django.urls import reverse
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
+from codebase.authorization import can_run
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
     CANCELLED_BY_USER_MESSAGE,
@@ -27,6 +31,7 @@ from sessions.turns import tool_call_segment
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from accounts.models import User
     from sessions.models import Run
 
 logger = logging.getLogger("daiv.sessions")
@@ -221,3 +226,20 @@ def artifact_turns(runs: list[Run], shown: Iterable[dict[str, Any]] = ()) -> lis
             _anchor([turn], run)
         result.append(turn)
     return result
+
+
+def mark_retryable(turns: list[dict[str, Any]], runs: list[Run], user: User) -> None:
+    """SYNC ONLY: stamp ``retry_url`` on the anchor turn of each run ``user`` may retry.
+
+    Decided here rather than in the browser: ``can_run`` needs the user's synced repository access.
+    """
+    retryable = {str(run.id): run for run in runs if run.is_retryable}
+    allowed: dict[str, bool] = {}
+    for turn in turns:
+        run = retryable.get(turn.get("run_id", ""))
+        if run is None:
+            continue
+        if run.repo_id not in allowed:
+            allowed[run.repo_id] = can_run(user, run.repo_id)
+        if allowed[run.repo_id]:
+            turn["retry_url"] = f"{reverse('runs:agent_run_new')}?{urlencode({'from': run.id})}"
