@@ -47,7 +47,7 @@ Leaving **CPUs** or **Memory** on *default* means the field is unset, and the va
 
 ### Default `before_publish` commands
 
-The **Before publish commands** field (one command per line) sets the [verification hooks](../customization/repository-config.md#verification-hooks) every repository using this environment runs before DAIV publishes. A `hooks.before_publish` list in a repository's `.daiv.yml` replaces this list entirely, and `before_publish: []` turns the checks off for that repository. Leave the field empty to set no default.
+The **Before publish commands** field (one command per line) sets the [verification hooks](../customization/repository-config.md#verification-hooks) every repository using this environment runs before DAIV publishes. A `hooks.before_publish` list in a repository's `.daiv.yml` replaces this list entirely, and `before_publish: []` turns the checks off for that repository. An environment whose field is empty uses the [global default](#the-single-global-default)'s list, like **CPUs** and **Memory** on *default*; leave the global default's field empty too for no default commands.
 
 ### Environment variables (encrypted at rest)
 
