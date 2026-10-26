@@ -53,7 +53,8 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     """Submit a batch of 1-20 agent jobs. Each repository runs as an independent job.
 
     If ``thread_id`` is supplied, the new job continues an existing thread: exactly one
-    repo must be provided and the session owning that thread must belong to the caller.
+    repo must be provided (a multi-repository session also takes its full list) and the
+    session owning that thread must belong to the caller.
     If a prior run on the thread is still in flight, the new Run is created in ``QUEUED``
     state and will be released FIFO when the prior run terminates.
     """

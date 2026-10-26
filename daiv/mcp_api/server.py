@@ -181,7 +181,8 @@ async def submit_job(
             description=(
                 "Optional. Continue an existing thread by passing its UUID (from a prior"
                 " submit_job or get_job_status response). When set, ``repos`` must contain"
-                " exactly one entry whose session belongs to the calling user."
+                " exactly one entry whose session belongs to the calling user; a multi-repository"
+                " session also accepts its full list, in order, with no ``ref``."
                 " If a prior run on this thread is still in flight, the new job is queued"
                 " and runs FIFO after it terminates."
             )
@@ -455,7 +456,7 @@ async def get_job_status(
 
     Status is one of: QUEUED, READY, RUNNING, SUCCESSFUL, WAITING_INPUT, FAILED. WAITING_INPUT means the agent
     stopped to ask the user: ``question`` holds its questions and ``result`` their rendered text. To answer, call
-    ``submit_job`` with the same single repository, this response's ``thread_id``, and the answer as ``prompt``.
+    ``submit_job`` with the same repository, this response's ``thread_id``, and the answer as ``prompt``.
     """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:
