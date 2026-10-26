@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import httpx
 import pytest
 from git import GitCommandError
 from langchain_core.messages import AIMessage
@@ -369,6 +370,19 @@ class TestGitMiddleware:
         bash.run_commands.assert_awaited_once()
         assert kwargs["as_draft"] is True
         assert result["verification"]["status"] == "failed"
+
+    async def test_after_agent_publishes_as_not_verified_when_the_recheck_fails(self):
+        git = Mock()
+        git.get_diff = AsyncMock(side_effect=httpx.ConnectError("down"))
+
+        kwargs, result = await self._publish_with(
+            self._verification("failed", fingerprint="stale"), workspace=FakeWorkspace(git=git, bash=Mock())
+        )
+
+        assert kwargs["as_draft"] is False
+        assert "Not verified" in kwargs["verification_report"]
+        assert result["verification"]["status"] == "not_verified"
+        assert result["verification"]["rounds"] == 0
 
     async def test_after_agent_does_not_recheck_without_a_shell(self):
         kwargs, _ = await self._publish_with(self._verification("passed", fingerprint="stale"))

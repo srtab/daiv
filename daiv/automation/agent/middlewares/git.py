@@ -15,7 +15,7 @@ from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
 from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
-from automation.agent.verification.outcome import recheck_if_stale, render_report
+from automation.agent.verification.outcome import VerificationOutcome, recheck_if_stale, render_report
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, Scope
 from codebase.clients.base import aget_open_merge_request
@@ -412,7 +412,17 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         )
         verification = state.get("verification")
         if verification is not None and self._workspace.bash is not None:
-            verification = await recheck_if_stale(self._workspace.bash, self._workspace.git, verification)
+            try:
+                verification = await recheck_if_stale(self._workspace.bash, self._workspace.git, verification)
+            except (GitCommandError, httpx.HTTPError, SandboxGitProtocolError) as exc:
+                logger.exception("Re-checking the tree before publishing failed; publishing it as not verified")
+                verification = VerificationOutcome(
+                    status="not_verified",
+                    commands=[],
+                    rounds=verification["rounds"],
+                    suspicious_paths=[],
+                    reason=f"the tree could not be re-checked after the last checks ({exc})",
+                )
         try:
             outcome = await publisher.publish(
                 merge_request=self._publish_target(state, runtime),

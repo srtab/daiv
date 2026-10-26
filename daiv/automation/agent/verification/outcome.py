@@ -146,6 +146,7 @@ async def recheck_if_stale(
         return outcome
 
     commands = [command["command"] for command in outcome["commands"]]
+    changed = await git.get_changed_files()
     try:
         results = await run_checks(bash, commands)
     except ChecksUnavailableError as exc:
@@ -153,7 +154,7 @@ async def recheck_if_stale(
             status="not_verified",
             commands=[],
             rounds=outcome["rounds"],
-            suspicious_paths=suspicious_paths(await git.get_changed_files()),
+            suspicious_paths=suspicious_paths(changed),
             fingerprint=diff_fingerprint(before),
             reason=str(exc),
         )
@@ -161,6 +162,8 @@ async def recheck_if_stale(
     already_failing = frozenset(command["command"] for command in outcome["commands"] if command["already_failing"])
     after = await git.get_diff()
     changed_by_checks = changed_between(before, after)
+    if changed_by_checks:
+        changed = await git.get_changed_files()
     failed = bool(changed_by_checks) or any(
         not result.passed and result.command not in already_failing for result in results
     )
@@ -168,7 +171,7 @@ async def recheck_if_stale(
         status="failed" if failed else "passed",
         commands=command_outcomes(results, already_failing),
         rounds=outcome["rounds"],
-        suspicious_paths=suspicious_paths(await git.get_changed_files()),
+        suspicious_paths=suspicious_paths(changed),
         fingerprint=diff_fingerprint(after),
     )
     if changed_by_checks:
