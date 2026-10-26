@@ -507,6 +507,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         response_text = extract_text_content(messages[-1].content) if messages else ""
     merge_request = values.get("merge_request")
     published = bool(values.get("published"))
+    verification = values.get("verification")
     # An unread checkpoint must not pass for one that published nothing: that would pin a blank ref to the clone's.
     if spec.persist_ref and snapshot is not None:
         try:
@@ -526,6 +527,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
                 published=published,
                 user_id=spec.acting_user_id,
                 sandbox_environment_id=spec.sandbox_env_id,
+                verification_failed=bool(verification) and verification["status"] == "failed",
             )
         except Exception:
             logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)

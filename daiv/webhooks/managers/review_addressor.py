@@ -114,11 +114,14 @@ class CommentsAddressorManager(BaseManager):
 
     async def _on_success(self, outcome: RunOutcome, *, asker: str) -> None:
         fallback_footer = self._render_protected_branch_footer(outcome.snapshot)
+        verification_footer = self.verification_footer(outcome.snapshot)
         if (question := self._question_comment(outcome, asker=asker)) is not None:
             self._leave_comment(self._append_footer(question, fallback_footer), reply_to_id=self.reply_to_id)
             return
         if response := outcome.response_text.strip():
-            self._leave_comment(self._append_footer(response, fallback_footer))
+            self._leave_comment(
+                self._append_footer(self._append_footer(response, fallback_footer), verification_footer)
+            )
         else:
             logger.warning("Agent returned empty response for merge request %d", self.merge_request.merge_request_id)
             self._add_unable_to_address_review_note(fallback_footer=fallback_footer)

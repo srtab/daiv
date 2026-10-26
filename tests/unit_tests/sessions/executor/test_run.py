@@ -385,8 +385,24 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
             "published": True,
             "user_id": 7,
             "sandbox_environment_id": "env-1",
+            "verification_failed": False,
         }
     ]
+
+
+@pytest.mark.parametrize(
+    ("verification", "expected"),
+    [({"status": "failed"}, True), ({"status": "passed"}, False), ({"status": "not_verified"}, False), (None, False)],
+)
+async def test_after_run_passes_verification_failed_to_watch(verification, expected):
+    state = {"merge_request": MR, "published": True}
+    if verification is not None:
+        state["verification"] = verification
+
+    with agent_stack(_agent(state=state)) as stack:
+        await execute_run(make_spec(arm_watch=True))
+
+    assert stack.armed[0]["verification_failed"] is expected
 
 
 @pytest.mark.parametrize(("persist_ref", "arm_watch"), [(True, False), (False, True), (False, False)])
@@ -580,6 +596,7 @@ async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
             "published": False,
             "user_id": None,
             "sandbox_environment_id": None,
+            "verification_failed": False,
         }
     ]
     assert stack.build_result.call_args.kwargs["snapshot"] is None

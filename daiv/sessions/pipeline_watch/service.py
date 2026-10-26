@@ -121,6 +121,7 @@ class PipelineWatch:
         run_id: str | None = None,
         user_id: int | None = None,
         sandbox_environment_id: str | None = None,
+        verification_failed: bool = False,
     ) -> None:
         """Point the CI watch at the merge request a finished run published, then evaluate at once.
 
@@ -148,6 +149,15 @@ class PipelineWatch:
             if was_fix_run:
                 await self.aexhaust(
                     merge_request_iid=merge_request_iid, reason=_("I could not find a change that would fix it")
+                )
+            return
+
+        if verification_failed:
+            # The pushed draft already carries the failing checks; a CI fix loop would chase them blindly.
+            if was_fix_run:
+                await self.aexhaust(
+                    merge_request_iid=merge_request_iid,
+                    reason=_("the before_publish checks still fail after the fix attempt"),
                 )
             return
 

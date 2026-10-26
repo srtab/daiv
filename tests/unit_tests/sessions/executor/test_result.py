@@ -16,6 +16,7 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
+            verification=None,
         )
 
     def test_new_dict_format_no_code_changes(self):
@@ -27,13 +28,20 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
+            verification=None,
         )
 
     def test_legacy_dict_code_changes_only(self):
         """Old format returned by address_issue_task / address_mr_comments_task before this change."""
         rv = {"code_changes": True}
         assert parse_agent_result(rv) == AgentResult(
-            response="", code_changes=True, merge_request_id=None, merge_request_web_url=None, usage=None, question=None
+            response="",
+            code_changes=True,
+            merge_request_id=None,
+            merge_request_web_url=None,
+            usage=None,
+            question=None,
+            verification=None,
         )
 
     def test_legacy_dict_code_changes_false(self):
@@ -45,6 +53,7 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
+            verification=None,
         )
 
     def test_empty_dict(self):
@@ -55,6 +64,7 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
+            verification=None,
         )
 
     def test_legacy_string(self):
@@ -66,6 +76,7 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
+            verification=None,
         )
 
     def test_empty_string(self):
@@ -76,6 +87,7 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
+            verification=None,
         )
 
     def test_none(self):
@@ -87,6 +99,7 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
+            verification=None,
         )
 
     @pytest.mark.parametrize("rv", [{"response": "", "code_changes": False}, {"response": "", "code_changes": True}])
@@ -129,6 +142,14 @@ def test_parse_agent_result_keeps_the_question():
 def test_parse_agent_result_defaults_the_question_for_older_results():
     assert parse_agent_result({"response": "r"})["question"] is None
     assert parse_agent_result("plain text")["question"] is None
+
+
+def test_parse_agent_result_defaults_verification_none():
+    assert parse_agent_result({"response": "r"})["verification"] is None
+    assert parse_agent_result("plain text")["verification"] is None
+    assert parse_agent_result({"response": "r", "verification": {"status": "passed"}})["verification"] == {
+        "status": "passed"
+    }
 
 
 class TestParseAgentResultUsageFields:
@@ -193,3 +214,11 @@ class TestBuildAgentResult:
 
         assert with_snapshot["question"] is None
         assert without_snapshot["question"] is None
+
+    def test_build_agent_result_includes_verification(self):
+        outcome = {"status": "failed", "commands": [], "rounds": 2, "suspicious_paths": []}
+        snapshot = SimpleNamespace(values={"verification": outcome})
+
+        assert build_agent_result(response="done", snapshot=snapshot)["verification"] == outcome
+        assert build_agent_result(response="done", snapshot=SimpleNamespace(values={}))["verification"] is None
+        assert build_agent_result(response="done", snapshot=None)["verification"] is None

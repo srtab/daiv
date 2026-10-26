@@ -1,4 +1,7 @@
+from types import SimpleNamespace
+
 from sessions.executor.lock import Wait
+from webhooks.managers.base import BaseManager
 from webhooks.managers.issue_addressor import IssueAddressorManager
 
 from codebase.base import Issue, User
@@ -27,3 +30,25 @@ class TestClaimUnableNote:
 
         assert manager._claim_unable_note() is True
         assert manager._claim_unable_note() is False
+
+
+def _outcome(status: str, **extra) -> dict:
+    return {"status": status, "commands": [], "rounds": 2, "suspicious_paths": [], "reason": "tests fail", **extra}
+
+
+class TestVerificationFooter:
+    def test_a_failed_outcome_renders_the_report_without_the_draft_clause(self):
+        footer = BaseManager.verification_footer(SimpleNamespace(values={"verification": _outcome("failed")}))
+
+        assert footer is not None
+        assert "Verification" in footer
+        assert "opened as a draft" not in footer
+
+    def test_nothing_to_add_for_reported_not_configured_or_absent_outcomes(self):
+        for values in (
+            {"verification": _outcome("failed", reported=True)},
+            {"verification": _outcome("not_configured")},
+            {},
+        ):
+            assert BaseManager.verification_footer(SimpleNamespace(values=values)) is None
+        assert BaseManager.verification_footer(None) is None

@@ -149,6 +149,26 @@ class TestReviewAfterRunMatrix:
         assert reply.args[2].startswith("done\n\n")
         assert "(!200)" in reply.args[2]
 
+    async def test_mr_reply_carries_verification_footer(self, mention):
+        outcome = {"status": "failed", "commands": [], "rounds": 2, "suspicious_paths": [], "reason": "tests fail"}
+        agent = addressor_agent(
+            return_value={"messages": [AIMessage(content="done")]},
+            state_values={
+                "protected_branch_fallback_source": "feature",
+                "merge_request": _merge_request(200),
+                "verification": outcome,
+            },
+        )
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address()
+
+        [reply] = mention.create_merge_request_comment.call_args_list
+        body = reply.args[2]
+        assert body.startswith("done\n\n")
+        assert body.index("(!200)") < body.index("Verification")
+        assert "opened as a draft" not in body
+
     async def test_the_reply_is_posted_repo_relative(self, mention):
         agent = addressor_agent(
             return_value={"messages": [AIMessage(content="Updated /workspace/repo/daiv/x.py.")]},

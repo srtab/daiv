@@ -97,6 +97,27 @@ async def test_a_fix_run_that_pushed_nothing_ends_the_watch(stub_watch):
 
 
 @pytest.mark.django_db
+async def test_a_published_run_whose_checks_fail_does_not_arm(stub_watch):
+    await stub_watch.watch.aarm_after_run(run_id=None, merge_request=MR, published=True, verification_failed=True)
+
+    assert stub_watch.watch.armed == []
+    assert stub_watch.watch.exhausted == []
+    assert stub_watch.enqueued == []
+
+
+@pytest.mark.django_db
+async def test_a_fix_run_whose_checks_still_fail_ends_the_watch(stub_watch):
+    watch = RecordingWatch(store=FixRunStore(True))
+
+    await watch.aarm_after_run(run_id="a-fix-run", merge_request=MR, published=True, verification_failed=True)
+
+    assert watch.armed == []
+    assert watch.exhausted == [
+        {"merge_request_iid": 7, "reason": "the before_publish checks still fail after the fix attempt"}
+    ]
+
+
+@pytest.mark.django_db
 async def test_a_no_op_turn_on_an_existing_mr_does_not_re_arm(stub_watch):
     """A turn that changed nothing still carries the MR it sits on, so ``merge_request`` alone
     cannot gate the arm — re-arming here would reset the budget and re-judge an old pipeline,
