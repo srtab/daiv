@@ -315,6 +315,33 @@ async def test_chat_turn_on_multi_repo_session_keeps_its_repos(
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_chat_turn_on_multi_repo_session_needs_access_to_every_repo(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    from codebase.authorization import RepositoryAccessDenied
+
+    _, raw, user = authed
+    await _multi_repo_session(user)
+
+    def _deny_the_extra_repo(_user, repo_ids):
+        if "a/extra" in repo_ids:
+            raise RepositoryAccessDenied(["a/extra"])
+
+    with patch("sessions.admission.assert_can_run", side_effect=_deny_the_extra_repo) as check:
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-multi"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 404
+    assert [list(c.args[1]) for c in check.call_args_list] == [["a/b"], ["a/b", "a/extra"]]
+    assert captured_runs == []
+    assert (await Session.objects.aget(thread_id="t-multi")).active_run_id is None
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_auto_resolved_env_passed_to_streamer_on_first_turn(
     client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
 ):

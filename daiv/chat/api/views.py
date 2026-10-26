@@ -14,7 +14,7 @@ from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_acc
 from sessions.executor.lock import SessionLock, session_activity, stale_cutoff
 from sessions.live import relay
 from sessions.models import RunStatus, Session
-from sessions.multi_repo import ais_multi_repo
+from sessions.multi_repo import aload_extra_repos
 from sessions.spend import build_session_spend
 
 from accounts.api.security import AuthBearer
@@ -216,8 +216,14 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     # ``thread.user_id != user.id`` equality check and the ChatThreadFromActivity bridge.
     if not created and not await Session.objects.by_owner(user).filter(pk=session.pk).aexists():
         raise HttpError(403, "Thread not found")
-    if not created and repo_id != session.repo_id and await ais_multi_repo(thread_id):
-        raise HttpError(400, "This session works on several repositories; its main repository can't be changed.")
+    extra_repos = [] if created else await aload_extra_repos(thread_id)
+    if extra_repos:
+        try:
+            await aassert_repo_access(user, [session.repo_id, *(row.repo_id for row in extra_repos)])
+        except RepoAccessError as err:
+            raise Http404(str(err)) from err
+        if repo_id != session.repo_id:
+            raise HttpError(400, "This session works on several repositories; its main repository can't be changed.")
 
     # Re-validate the pinned override before any other gate: a Provider row may
     # have been disabled or renamed since the session was created, OR a thinking
