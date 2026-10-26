@@ -1,15 +1,17 @@
 """The checks a run request passes before a trigger submits it.
 
-The jobs API, MCP ``submit_job`` and ``schedule_job``, chat and the run and schedule forms take their admission
-checks from this module: the agent override, WRITE access on the repositories and the named sandbox environment.
-Each check re-raises its failure as an :class:`AdmissionError` subclass whose ``str()`` is the user-facing message,
-and each trigger maps that one family to its transport (an HTTP status, an MCP error string, a form field).
+The jobs API, MCP ``submit_job`` and ``schedule_job``, chat, the run and schedule forms and the agent's
+``delegate_jobs`` take their admission checks from this module: the agent override, WRITE access on the repositories
+and the named sandbox environment. Each check re-raises its failure as an :class:`AdmissionError` subclass whose
+``str()`` is the user-facing message, and each trigger maps that one family to its transport (an HTTP status, an MCP
+error string, a form field).
 :func:`sessions.services.asubmit_batch_runs` repeats the access check at submit time through this module too, so
 a denial is a :class:`RepoAccessError` wherever it is caught.
 
 :func:`aadmit` runs the whole sequence for a batch submitted now, in this order: override, repository access,
 environment, then the per-repository environment of each target. Triggers that need a different sequence call
-the individual checks: MCP ``schedule_job`` stores the request instead of submitting it, and the run and schedule
+the individual checks: MCP ``schedule_job`` stores the request instead of submitting it, ``delegate_jobs``
+(``sessions.delegation``) fails only the targets it is denied and names no environment, and the run and schedule
 forms report each failure on its own field and take the environment from a model choice field, not a name.
 Chat calls only the access and environment checks; it validates the override with
 :mod:`automation.agent.validators` itself, because the override that runs is the one pinned to its session and a

@@ -10,7 +10,7 @@ from ninja.errors import HttpError
 from sessions.admission import AdmissionError, RepoAccessError, aadmit
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.services import RepoTarget, asubmit_batch_runs
+from sessions.services import BatchSubmitFailure, RepoTarget, asubmit_batch_runs
 
 from accounts.api.security import AuthBearer
 from core.api.throttling import JobsRateThrottle
@@ -58,7 +58,9 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     try:
         admission = await aadmit(
             user=request.auth,
-            repos=[RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos],
+            repos=[
+                RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "", prompt=spec.prompt or "") for spec in payload.repos
+            ],
             agent_model=payload.agent_model,
             agent_thinking_level=payload.agent_thinking_level,
             environment=payload.environment,
@@ -80,22 +82,17 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     except AdmissionError as err:
         return 400, {"detail": str(err)}
 
-    failed_keys = {(f.repo_id, f.ref) for f in result.failed}
-    runs_iter = iter(result.runs)
-    jobs: list[JobSubmitJobItem] = []
-    for spec in payload.repos:
-        if (spec.repo_id, spec.ref or "") in failed_keys:
-            continue
-        run = next(runs_iter)
-        jobs.append(
-            JobSubmitJobItem(
-                job_id=str(run.id),
-                repo_id=spec.repo_id,
-                ref=spec.ref,
-                thread_id=str(run.session_id),
-                status=cast("Literal['QUEUED', 'READY']", run.status),
-            )
+    jobs = [
+        JobSubmitJobItem(
+            job_id=str(outcome.id),
+            repo_id=spec.repo_id,
+            ref=spec.ref,
+            thread_id=str(outcome.session_id),
+            status=cast("Literal['QUEUED', 'READY']", outcome.status),
         )
+        for spec, outcome in zip(payload.repos, result.outcomes, strict=True)
+        if not isinstance(outcome, BatchSubmitFailure)
+    ]
 
     failed = [JobSubmitFailureItem(repo_id=f.repo_id, ref=f.ref, error=f.error) for f in result.failed]
     return 202, JobSubmitResponse(batch_id=str(result.batch_id), jobs=jobs, failed=failed)

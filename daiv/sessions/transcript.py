@@ -13,7 +13,12 @@ import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
-from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from core.constants import (
+    CANCELLED_BY_COORDINATOR_MESSAGE,
+    CANCELLED_BY_USER_MESSAGE,
+    INTERRUPTED_MESSAGE,
+    RUN_FAILED_MESSAGE,
+)
 from sessions.artifacts import published_tool_result
 from sessions.executor.lock import SessionActivity
 from sessions.models import RunArtifact, RunStatus, SessionOrigin
@@ -48,6 +53,8 @@ def _marker(run: Run) -> dict[str, Any] | None:
         # failure chip. This is the single, deliberate string-coupling point: nothing
         # persisted distinguishes them from a genuine failure except these shared messages.
         aborted = run.error_message in (CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE)
+    elif run.is_cancelled:
+        message, aborted = CANCELLED_BY_COORDINATOR_MESSAGE, True
     else:
         message = RUN_FAILED_MESSAGE
         aborted = False
@@ -70,6 +77,13 @@ def _stamp_run_times(seg_turns: list[dict[str, Any]], run: Run) -> None:
         seg_turns[-1]["received_at"] = run.finished_at.isoformat()
 
 
+def _mark_author(user_turn: dict[str, Any], run: Run) -> None:
+    """Tag a user turn whose prompt DAIV wrote, so the page shows it as DAIV's notice, not the user's message."""
+    if run.trigger_type in SessionOrigin.daiv_authored():
+        user_turn["author"] = "daiv"
+        user_turn["origin"] = run.trigger_type
+
+
 def _prompt_turns(run: Run, *, pending: bool = False) -> list[dict[str, Any]]:
     """``run``'s prompt as a user turn, flagged ``pending`` while the run waits to start; none without a prompt."""
     if not run.prompt:
@@ -79,6 +93,7 @@ def _prompt_turns(run: Run, *, pending: bool = False) -> list[dict[str, Any]]:
         user_turn["sent_at"] = run.created_at.isoformat()
     if pending:
         user_turn["pending"] = True
+    _mark_author(user_turn, run)
     return [user_turn]
 
 
@@ -155,8 +170,11 @@ def annotate_transcript(
             cursor += 1
         # received_at targets the segment's own turns; the run_status marker is appended
         # to `result` separately below, so it never receives a timestamp.
-        _stamp_run_times(segments[matched]["turns"], run)
-        result.extend(segments[matched]["turns"])
+        owned = segments[matched]["turns"]
+        _stamp_run_times(owned, run)
+        if owned[0].get("role") == "user":
+            _mark_author(owned[0], run)
+        result.extend(owned)
         cursor = matched + 1
         if (marker := _marker(run)) is not None:
             result.append(marker)

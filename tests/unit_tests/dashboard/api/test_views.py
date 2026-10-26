@@ -14,6 +14,7 @@ import uuid
 from unittest.mock import patch
 
 from django.db import Error as DatabaseError
+from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
@@ -74,7 +75,12 @@ def start_run(user, *, status=RunStatus.RUNNING, repo_id="daiv/api") -> Run:
         thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id=repo_id, user=user
     )
     return Run.objects.create(
-        session=session, status=status, trigger_type=SessionOrigin.UI_JOB, repo_id=repo_id, user=user
+        session=session,
+        status=status,
+        trigger_type=SessionOrigin.UI_JOB,
+        repo_id=repo_id,
+        user=user,
+        started_at=timezone.now() if status == RunStatus.RUNNING else None,
     )
 
 
@@ -104,13 +110,36 @@ class TestNavFrames:
         for key in snapshots(frames)[0]:
             assert f"{key}: " in rendered
 
-    async def test_the_snapshot_carries_both_counts(self, member_user):
+    async def test_the_snapshot_carries_both_counts_and_the_latest_start(self, member_user):
         await Notification.objects.acreate(
             recipient=member_user, event_type="schedule.finished", subject="n", body="b", link_url="/"
         )
-        await start_run(member_user)
+        run = await start_run(member_user)
         frames = await read_frames(member_user, FakeStream(), count=2)
-        assert snapshots(frames) == [{"unread_count": 1, "running_runs": 1}]
+        assert snapshots(frames) == [
+            {"unread_count": 1, "running_runs": 1, "latest_running_start": run.started_at.isoformat()}
+        ]
+
+    async def test_another_run_starting_sends_a_fresh_snapshot_though_the_count_held(self, member_user):
+        """A leg finishing into its coordinator's resume leaves the count alone, and the session
+        page still has to hear that a run started."""
+        leg = await start_run(member_user)
+        stream = FakeStream()
+        generator = _nav_frames(member_user)
+        with patch("dashboard.api.views.UIEventStream.for_user", return_value=stream):
+            try:
+                await anext(generator)
+                first = json.loads((await anext(generator)).split("data: ", 1)[1])
+
+                await Run.objects.filter(pk=leg.pk).aupdate(status=RunStatus.SUCCESSFUL)
+                await start_run(member_user, repo_id="daiv/other")
+                stream.changes.append(True)
+                second = json.loads((await anext(generator)).split("data: ", 1)[1])
+            finally:
+                await generator.aclose()
+
+        assert first["running_runs"] == second["running_runs"] == 1
+        assert second["latest_running_start"] > first["latest_running_start"]
 
     async def test_only_running_runs_are_counted(self, member_user):
         await start_run(member_user, status=RunStatus.SUCCESSFUL)

@@ -372,6 +372,19 @@ class TestGitMiddleware:
             "protected_branch_fallback_source": None,
         }
 
+    async def test_a_forked_run_leaves_the_checked_out_branchs_open_mr_alone(self):
+        middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace(), fork_branch=True)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+
+        with (
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
+            patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock()) as lookup,
+        ):
+            result = await middleware.abefore_agent({}, runtime)
+
+        lookup.assert_not_called()
+        assert result["merge_request"] is None
+
     async def test_abefore_agent_skips_lookup_when_state_has_mr(self):
         middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
