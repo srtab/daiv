@@ -130,6 +130,14 @@
   which opens past the rail's right edge.
   {% endcomment %}
   <div class="border-t border-border px-3 py-3">
+    <a href="{{ build_info.docs_url }}"
+       target="_blank"
+       rel="noopener"
+       data-testid="sidebar-docs-link"
+       class="sidebar__footer-link flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-text-faint transition-colors hover:text-text-muted">
+      {% icon "document-text" "h-3.5 w-3.5 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Help & docs" %}</span>
+    </a>
     <a href="{% url 'api:openapi-view' %}"
        class="sidebar__footer-link flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-text-faint transition-colors hover:text-text-muted">
       {% icon "code-bracket" "h-3.5 w-3.5 shrink-0" %}

@@ -33,6 +33,23 @@ class TestSidebarSmoke:
 
 
 @pytest.mark.django_db
+class TestSidebarDocsLink:
+    def test_footer_links_the_user_docs_with_a_collapsible_label(self, member_client):
+        content = member_client.get(reverse("session_list")).content.decode()
+        link = content.split('data-testid="sidebar-docs-link"', 1)[0].rsplit("<a ", 1)[1]
+        link += content.split('data-testid="sidebar-docs-link"', 1)[1].split("</a>", 1)[0]
+        assert 'href="https://srtab.github.io/daiv/latest/"' in link
+        assert 'target="_blank"' in link
+        assert "sidebar__footer-link" in link
+        assert '<span class="sidebar__collapsible">Help & docs</span>' in link
+
+    def test_label_is_translated(self, member_client):
+        with catalog({"Help & docs": "Ajuda"}):
+            content = member_client.get(reverse("dashboard")).content.decode()
+        assert '<span class="sidebar__collapsible">Ajuda</span>' in content
+
+
+@pytest.mark.django_db
 class TestMobileTopBar:
     def test_opens_the_sidebar_sheet_and_shows_unread(self, member_client):
         content = member_client.get(reverse("dashboard")).content.decode()

@@ -10,6 +10,10 @@ def test_build_info_exposes_version_under_context_key():
     assert build_info(None)["build_info"]["version"] == __version__
 
 
+def test_build_info_exposes_the_user_docs_url():
+    assert build_info(None)["build_info"]["docs_url"] == "https://srtab.github.io/daiv/latest/"
+
+
 def test_compute_without_stamp(monkeypatch):
     monkeypatch.setattr("core.context_processors.GIT_SHA", "")
     monkeypatch.setattr("core.context_processors.GIT_SHA_SHORT", "")

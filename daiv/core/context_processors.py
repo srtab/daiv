@@ -1,7 +1,7 @@
 import contextlib
 from datetime import datetime
 
-from daiv import BUILD_DATE, GIT_SHA, GIT_SHA_SHORT, REPO_URL, __version__
+from daiv import BUILD_DATE, DOCS_URL, GIT_SHA, GIT_SHA_SHORT, REPO_URL, __version__
 
 
 def _compute_build_info() -> dict:
@@ -15,6 +15,7 @@ def _compute_build_info() -> dict:
         "sha_short": GIT_SHA_SHORT or None,
         "build_date": build_date,
         "commit_url": f"{REPO_URL}/commit/{GIT_SHA}" if GIT_SHA else None,
+        "docs_url": DOCS_URL,
     }
 
 
