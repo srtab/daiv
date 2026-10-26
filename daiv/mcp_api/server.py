@@ -292,24 +292,25 @@ async def submit_job(
     except (AdmissionError, SharedSessionError) as err:
         return json.dumps({"error": str(err)})
 
-    # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
-    # non-failed one with the next run in result.runs (same order as input).
-    failed_keys = {(f.repo_id, f.ref) for f in result.failed}
-    runs_iter = iter(result.runs)
-    jobs: list[dict] = []
-    job_ids: list[str] = []
-    for spec in specs[:1] if shared_session else specs:
-        if (spec.repo_id, spec.ref or "") in failed_keys:
-            continue
-        run = next(runs_iter)
-        jobs.append({
+    if shared_session:
+        submitted = [(specs[0], run) for run in result.runs]
+    else:
+        # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
+        # non-failed one with the next run in result.runs (same order as input).
+        failed_keys = {(f.repo_id, f.ref) for f in result.failed}
+        runs_iter = iter(result.runs)
+        submitted = [(spec, next(runs_iter)) for spec in specs if (spec.repo_id, spec.ref or "") not in failed_keys]
+    jobs: list[dict] = [
+        {
             "job_id": str(run.id),
             "repo_id": spec.repo_id,
             "ref": spec.ref,
             "thread_id": str(run.session_id) if run.session_id else None,
             "status": str(run.status),
-        })
-        job_ids.append(str(run.id))
+        }
+        for spec, run in submitted
+    ]
+    job_ids = [job["job_id"] for job in jobs]
 
     failed_out = [{"repo_id": f.repo_id, "ref": f.ref, "error": f.error} for f in result.failed]
 

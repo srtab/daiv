@@ -92,22 +92,24 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     except (AdmissionError, SharedSessionError) as err:
         return 400, {"detail": str(err)}
 
-    failed_keys = {(f.repo_id, f.ref) for f in result.failed}
-    runs_iter = iter(result.runs)
-    jobs: list[JobSubmitJobItem] = []
-    for spec in payload.repos[:1] if shared else payload.repos:
-        if (spec.repo_id, spec.ref or "") in failed_keys:
-            continue
-        run = next(runs_iter)
-        jobs.append(
-            JobSubmitJobItem(
-                job_id=str(run.id),
-                repo_id=spec.repo_id,
-                ref=spec.ref,
-                thread_id=str(run.session_id),
-                status=cast("Literal['QUEUED', 'READY']", run.status),
-            )
+    if shared:
+        submitted = [(payload.repos[0], run) for run in result.runs]
+    else:
+        failed_keys = {(f.repo_id, f.ref) for f in result.failed}
+        runs_iter = iter(result.runs)
+        submitted = [
+            (spec, next(runs_iter)) for spec in payload.repos if (spec.repo_id, spec.ref or "") not in failed_keys
+        ]
+    jobs = [
+        JobSubmitJobItem(
+            job_id=str(run.id),
+            repo_id=spec.repo_id,
+            ref=spec.ref,
+            thread_id=str(run.session_id),
+            status=cast("Literal['QUEUED', 'READY']", run.status),
         )
+        for spec, run in submitted
+    ]
 
     failed = [JobSubmitFailureItem(repo_id=f.repo_id, ref=f.ref, error=f.error) for f in result.failed]
     return 202, JobSubmitResponse(batch_id=str(result.batch_id), jobs=jobs, failed=failed)

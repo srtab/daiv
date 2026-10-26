@@ -391,6 +391,25 @@ async def test_continuing_a_multi_repo_thread_needs_no_flag(_default_mcp_user):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_failed_continuation_of_a_multi_repo_thread_is_reported_as_failed(_default_mcp_user):
+    from mcp_api.server import submit_job
+    from sessions.models import SessionRepository
+
+    session = await _session(user=_default_mcp_user, repo_id="g/app")
+    await Session.objects.filter(pk=session.pk).aupdate(ref="daiv/fix-1")
+    await SessionRepository.objects.acreate(session=session, position=1, repo_id="g/mod")
+
+    with patch("mcp_api.server._allow_job_submission", return_value=True), patch("sessions.queue.run_job_task") as task:
+        task.aenqueue = AsyncMock(side_effect=RuntimeError("down"))
+        result = await submit_job(repos=[{"repo_id": "g/app", "ref": None}], prompt="x", thread_id=session.thread_id)
+
+    data = json.loads(result)
+    assert data["jobs"] == []
+    assert [(f["repo_id"], f["ref"]) for f in data["failed"]] == [("g/app", "daiv/fix-1")]
+    assert "down" in data["failed"][0]["error"]
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_batch_path_unchanged_without_flag(_default_mcp_user):
     from mcp_api.server import submit_job
     from sessions.services import BatchSubmitResult
