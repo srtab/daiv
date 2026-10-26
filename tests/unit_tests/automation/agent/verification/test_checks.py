@@ -123,9 +123,11 @@ def test_check_result_timed_out_on_exit_124():
 
 
 async def test_run_checks_raises_unavailable_on_transport_error(fake_bash):
-    fake_bash.error = httpx.ConnectError("down")
-    with pytest.raises(ChecksUnavailableError):
+    fake_bash.error = httpx.ConnectError("All connection attempts failed: http://sandbox:8000/session/s-1/")
+    with pytest.raises(ChecksUnavailableError) as raised:
         await run_checks(fake_bash, ["make test"])
+
+    assert str(raised.value) == "the sandbox could not be reached to run the checks"
 
 
 async def test_failing_before_change_returns_commands_that_fail_on_starting_code(fake_bash, fake_git):

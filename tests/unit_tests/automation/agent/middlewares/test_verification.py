@@ -362,7 +362,7 @@ async def test_verification_error_is_raised_again_on_later_calls():
 
 
 async def test_checks_unavailable_records_not_verified():
-    repo = FakeRepo(error=httpx.ConnectError("down"))
+    repo = FakeRepo(error=httpx.ConnectError("All connection attempts failed: http://sandbox:8000/session/s-1/"))
     reply = _final()
     handler, seen = _scripted(reply)
 
@@ -370,7 +370,7 @@ async def test_checks_unavailable_records_not_verified():
 
     outcome = _outcome(result)
     assert outcome["status"] == "not_verified"
-    assert "could not be reached" in outcome["reason"]
+    assert outcome["reason"] == "the sandbox could not be reached to run the checks"
     assert result.model_response.result == [reply]
     assert len(seen) == 1
 

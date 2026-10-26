@@ -393,16 +393,17 @@ class TestGitMiddleware:
 
     async def test_after_agent_publishes_as_not_verified_when_the_recheck_fails(self):
         git = Mock()
-        git.get_diff = AsyncMock(side_effect=httpx.ConnectError("down"))
+        git.get_diff = AsyncMock(side_effect=httpx.ConnectError("failed: http://sandbox:8000/session/s-1/"))
+        verification = {**self._verification("failed", fingerprint="stale"), "suspicious_paths": ["tests/test_a.py"]}
 
-        kwargs, result = await self._publish_with(
-            self._verification("failed", fingerprint="stale"), workspace=FakeWorkspace(git=git, bash=Mock())
-        )
+        kwargs, result = await self._publish_with(verification, workspace=FakeWorkspace(git=git, bash=Mock()))
 
         assert kwargs["as_draft"] is False
-        assert "Not verified" in kwargs["verification_report"]
+        assert "Not verified: the tree could not be re-checked after the last checks" in kwargs["verification_report"]
+        assert "sandbox:8000" not in kwargs["verification_report"]
         assert result["verification"]["status"] == "not_verified"
         assert result["verification"]["rounds"] == 0
+        assert result["verification"]["suspicious_paths"] == ["tests/test_a.py"]
 
     async def test_after_agent_does_not_recheck_without_a_shell(self):
         kwargs, _ = await self._publish_with(self._verification("passed", fingerprint="stale"))

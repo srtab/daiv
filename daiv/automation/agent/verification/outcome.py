@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from html import escape
 from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
     from automation.agent.verification.checks import CheckResult
     from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+
+logger = logging.getLogger("daiv.agent")
 
 type VerificationStatus = Literal["passed", "failed", "not_verified", "not_configured"]
 
@@ -156,6 +159,7 @@ async def recheck_if_stale(
     try:
         results = await run_checks(bash, commands, redact=redact)
     except ChecksUnavailableError as exc:
+        logger.warning("Could not re-run the before_publish checks before publishing: %s", exc, exc_info=True)
         return VerificationOutcome(
             status="not_verified",
             commands=[],

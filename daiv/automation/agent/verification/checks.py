@@ -46,7 +46,8 @@ class CheckResult:
 
 
 class ChecksUnavailableError(Exception):
-    """The checks could not be run; ``str(exc)`` is the reason shown to people."""
+    """The checks could not be run; ``str(exc)`` is the reason shown to people, a fixed sentence that names no host,
+    session or path, and the cause is chained for the logs."""
 
 
 def redacted_values(env_vars: Mapping[str, str]) -> tuple[str, ...]:
@@ -77,7 +78,7 @@ async def _run_check(bash: SandboxFileBackend, command: str, redact: Sequence[st
             http_timeout=CHECK_TIMEOUT_SECONDS + _RESPONSE_GRACE_SECONDS,
         )
     except httpx.HTTPError as exc:
-        raise ChecksUnavailableError(f"the sandbox could not be reached to run the checks ({exc})") from exc
+        raise ChecksUnavailableError("the sandbox could not be reached to run the checks") from exc
     if not response.results:
         raise ChecksUnavailableError("the sandbox returned no result for a check")
     result = response.results[0]

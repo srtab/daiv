@@ -287,15 +287,17 @@ async def test_recheck_if_stale_fails_and_names_files_the_checks_changed():
     assert updated["fingerprint"] == diff_fingerprint(after)
 
 
-async def test_recheck_if_stale_is_not_verified_when_the_checks_cannot_run():
-    bash = _Bash(error=httpx.ConnectError("down"))
+async def test_recheck_if_stale_is_not_verified_when_the_checks_cannot_run(caplog):
+    bash = _Bash(error=httpx.ConnectError("failed: http://sandbox:8000/session/s-1/"))
 
     updated = await recheck_if_stale(bash, _Git("new"), _stale("failed"))
 
     assert updated["status"] == "not_verified"
-    assert "could not be reached" in updated["reason"]
+    assert updated["reason"] == "the sandbox could not be reached to run the checks"
     assert updated["commands"] == []
     assert updated["rounds"] == 1
+    [record] = caplog.records
+    assert isinstance(record.exc_info[1].__cause__, httpx.ConnectError)
 
 
 async def test_recheck_if_stale_masks_the_values_in_the_output():

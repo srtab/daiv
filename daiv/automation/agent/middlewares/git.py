@@ -419,14 +419,14 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 verification = await recheck_if_stale(
                     self._workspace.bash, self._workspace.git, verification, redact=self._redact
                 )
-            except (GitCommandError, httpx.HTTPError, SandboxGitProtocolError) as exc:
+            except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
                 logger.exception("Re-checking the tree before publishing failed; publishing it as not verified")
                 verification = VerificationOutcome(
                     status="not_verified",
                     commands=[],
                     rounds=verification["rounds"],
-                    suspicious_paths=[],
-                    reason=f"the tree could not be re-checked after the last checks ({exc})",
+                    suspicious_paths=verification["suspicious_paths"],
+                    reason="the tree could not be re-checked after the last checks",
                 )
         try:
             outcome = await publisher.publish(
