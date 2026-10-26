@@ -223,8 +223,8 @@ class TestIssueAfterRunMatrix:
             await _address(**_mention(captured_client))
 
         [reply] = captured_client.create_issue_comment.call_args_list
-        assert reply.args[2].startswith("done\n\n")
-        assert "Verification" in reply.args[2]
+        assert reply.args[2].startswith("done\n\n### Verification\n")
+        assert reply.args[2].count("### Verification") == 1
         assert "opened as a draft" not in reply.args[2]
 
     async def test_a_question_is_posted_under_the_mention_with_the_reply_footer(self, captured_client):

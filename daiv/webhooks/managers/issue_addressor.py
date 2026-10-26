@@ -195,7 +195,7 @@ class IssueAddressorManager(BaseManager):
             self._leave_comment(question, reply_to_id=self.reply_to_id)
             return
         if response := outcome.response_text.strip():
-            self._leave_comment(self._append_footer(response, self.verification_footer(outcome.snapshot)))
+            self._leave_comment(response)
         else:
             logger.warning("Agent returned empty response for issue %d", self.issue.iid)
             self._add_unable_to_address_issue_note()

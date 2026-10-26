@@ -165,8 +165,9 @@ class TestReviewAfterRunMatrix:
 
         [reply] = mention.create_merge_request_comment.call_args_list
         body = reply.args[2]
-        assert body.startswith("done\n\n")
-        assert body.index("(!200)") < body.index("Verification")
+        assert body.startswith("done\n\n### Verification\n")
+        assert body.count("### Verification") == 1
+        assert body.index("Verification") < body.index("(!200)")
         assert "opened as a draft" not in body
 
     async def test_the_reply_is_posted_repo_relative(self, mention):

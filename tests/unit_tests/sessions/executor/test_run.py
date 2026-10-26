@@ -390,9 +390,19 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
     ]
 
 
+def _verification(status: str, **extra) -> dict:
+    command = {"command": "make test", "exit_code": 1, "timed_out": False, "already_failing": False}
+    return {"status": status, "commands": [command], "rounds": 2, "suspicious_paths": [], **extra}
+
+
 @pytest.mark.parametrize(
     ("verification", "expected"),
-    [({"status": "failed"}, True), ({"status": "passed"}, False), ({"status": "not_verified"}, False), (None, False)],
+    [
+        (_verification("failed"), True),
+        (_verification("passed"), False),
+        (_verification("not_verified"), False),
+        (None, False),
+    ],
 )
 async def test_after_run_passes_verification_failed_to_watch(verification, expected):
     state = {"merge_request": MR, "published": True}
@@ -403,6 +413,28 @@ async def test_after_run_passes_verification_failed_to_watch(verification, expec
         await execute_run(make_spec(arm_watch=True))
 
     assert stack.armed[0]["verification_failed"] is expected
+
+
+async def test_the_reply_carries_the_verification_report_when_no_description_did():
+    with agent_stack(_agent(state={"verification": _verification("failed")})):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.response_text.startswith("done\n\n### Verification\n")
+    assert "`make test` failed (exit 1)" in outcome.response_text
+    assert "draft" not in outcome.response_text
+    assert outcome.agent_result["response"] == outcome.response_text
+
+
+@pytest.mark.parametrize(
+    "verification", [_verification("failed", reported=True), _verification("not_configured", commands=[]), None]
+)
+async def test_the_reply_has_no_verification_report_when_there_is_none_to_add(verification):
+    state = {} if verification is None else {"verification": verification}
+
+    with agent_stack(_agent(state=state)):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.response_text == "done"
 
 
 @pytest.mark.parametrize(("persist_ref", "arm_watch"), [(True, False), (False, True), (False, False)])

@@ -141,7 +141,7 @@ When a command fails, DAIV sends the output back to the agent and the agent fixe
 DAIV publishes the run with a **Verification** section that lists each command's result and, for failing ones, the end of its output in a collapsible block. It also lists files the checks themselves changed, and suspicious edits: test files, lint and test configuration, CI files and `.daiv.yml`. Suspicious edits are flagged for review, not blocked.
 
 - A new merge request opens as a draft.
-- On an existing merge request, the section goes in DAIV's reply comment instead of the description, and the merge request's draft status is not changed.
+- On an existing merge request, the merge request's draft status is not changed, and the section goes in DAIV's reply instead of the description: the comment it posts on the issue or merge request, or the result of a job, MCP call or scheduled job. Chat replies don't show it yet.
 - The [pipeline watch](../features/pipeline-watch.md) CI fix loop stays off for the merge request, so DAIV doesn't keep trying after the checks gave up.
 
 If the agent gets stuck in a loop and DAIV stops it, the checks still run and are reported, but no fix round is spent. If the checks can't run at all, for example when the sandbox fails, DAIV publishes normally and says in the report that the run was not verified, and why. The CI fix loop works as usual in that case.

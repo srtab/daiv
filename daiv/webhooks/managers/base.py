@@ -5,12 +5,10 @@ from django.template.loader import render_to_string
 
 from sessions.executor.lock import wait_for_slot
 
-from automation.agent.verification.outcome import render_report
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 
 if TYPE_CHECKING:
-    from langgraph.types import StateSnapshot
     from sessions.executor.lock import LockPolicy
     from sessions.executor.spec import RunOutcome
 
@@ -49,17 +47,6 @@ class BaseManager:
         if not footer:
             return body
         return f"{body.rstrip()}\n\n{footer.lstrip()}"
-
-    @staticmethod
-    def verification_footer(snapshot: StateSnapshot | None) -> str | None:
-        """The before_publish report for a reply on a merge request this run did not create; ``None`` when there
-        is nothing to add."""
-        if snapshot is None:
-            return None
-        verification = snapshot.values.get("verification")
-        if not verification or verification.get("reported") or verification["status"] == "not_configured":
-            return None
-        return render_report(verification, new_merge_request=False)
 
     def _question_comment(self, outcome: RunOutcome, *, asker: str) -> str | None:
         """The comment posting the question the run ended on, mentioning ``asker`` with how to answer it; ``None``
