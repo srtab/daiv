@@ -136,7 +136,7 @@ def _fs_transport_failure_text(exc: httpx.HTTPError, op: str, target: str) -> st
 DOWNLOAD_TOO_LARGE = "file_too_large"
 _DOWNLOAD_MARKER = "__DAIV_DOWNLOAD__"
 _DOWNLOAD_EXIT_ERRORS = {3: IS_DIRECTORY, 4: FILE_NOT_FOUND, 5: PERMISSION_DENIED, 6: DOWNLOAD_TOO_LARGE}
-_SANDBOX_TIMEOUT_EXIT = 124
+SANDBOX_TIMEOUT_EXIT = 124
 
 
 def _download_command(path: str, max_bytes: int) -> str:
@@ -167,7 +167,7 @@ def _download_response(path: str, result: RunCommandResult | None) -> FileDownlo
         error = "the sandbox returned no result for this file"
     elif result.exit_code in _DOWNLOAD_EXIT_ERRORS:
         return FileDownloadResponse(path=path, error=_DOWNLOAD_EXIT_ERRORS[result.exit_code])
-    elif result.exit_code == _SANDBOX_TIMEOUT_EXIT:
+    elif result.exit_code == SANDBOX_TIMEOUT_EXIT:
         error = "reading the file timed out in the sandbox"
     elif result.exit_code != 0:
         error = f"the file could not be read (exit {result.exit_code})"

@@ -5,7 +5,13 @@ import re
 from html import escape
 from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
 
-from automation.agent.verification.checks import ChecksUnavailableError, changed_between, diff_fingerprint, run_checks
+from automation.agent.verification.checks import (
+    CHECK_TIMEOUT_SECONDS,
+    ChecksUnavailableError,
+    changed_between,
+    diff_fingerprint,
+    run_checks,
+)
 from automation.agent.verification.suspicious import suspicious_paths
 
 if TYPE_CHECKING:
@@ -20,6 +26,7 @@ logger = logging.getLogger("daiv.agent")
 type VerificationStatus = Literal["passed", "failed", "not_verified", "not_configured"]
 
 SUSPICIOUS_PATHS_LINE = "Changed test, lint, CI or DAIV configuration files — please review: "
+_TIMED_OUT = f"timed out after {CHECK_TIMEOUT_SECONDS // 60} minutes"
 
 
 class CommandOutcome(TypedDict):
@@ -72,7 +79,7 @@ def _bullet(command: CommandOutcome) -> str:
     if command["already_failing"]:
         return f"- {span} was already failing before this change"
     if command["timed_out"]:
-        return f"- {span} timed out after 10 minutes"
+        return f"- {span} {_TIMED_OUT}"
     return f"- {span} failed (exit {command['exit_code']})"
 
 
@@ -123,7 +130,7 @@ def render_report(outcome: VerificationOutcome, *, new_merge_request: bool = Tru
 def failure_reminder(failures: Sequence[CheckResult], changed_paths: Sequence[str], rounds_left: int) -> str:
     parts = ["<system-reminder>", "The checks that run before your work is published still fail:"]
     for failure in failures:
-        status = "timed out after 10 minutes" if failure.timed_out else f"exit code {failure.exit_code}"
+        status = _TIMED_OUT if failure.timed_out else f"exit code {failure.exit_code}"
         parts.append(f"- {failure.command}: {status}")
     for failure in failures:
         command = escape(failure.command, quote=True)

@@ -10,6 +10,7 @@ from git import GitCommandError
 
 from automation.agent.constants import REPO_PATH
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
+from automation.agent.workspace.sandbox_backend import SANDBOX_TIMEOUT_EXIT
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -20,7 +21,6 @@ if TYPE_CHECKING:
 MAX_FIX_ROUNDS = 2
 CHECK_TIMEOUT_SECONDS = 600
 OUTPUT_TAIL_CHARS = 4_000
-TIMEOUT_EXIT_CODE = 124
 # Past the sandbox's own limit, so a check that runs out of time comes back as exit 124, not as a client timeout.
 _RESPONSE_GRACE_SECONDS = 60
 _REDACTED = "******"
@@ -42,7 +42,7 @@ class CheckResult:
 
     @property
     def timed_out(self) -> bool:
-        return self.exit_code == TIMEOUT_EXIT_CODE
+        return self.exit_code == SANDBOX_TIMEOUT_EXIT
 
 
 class ChecksUnavailableError(Exception):
