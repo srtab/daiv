@@ -5,10 +5,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("agent_sessions", "0016_remove_session_issue_iid_run_mention_comment_id"),
-        ("sandbox_envs", "0006_drop_network_enabled"),
-    ]
+    dependencies = [("agent_sessions", "0018_run_cancel_requested_at"), ("sandbox_envs", "0006_drop_network_enabled")]
 
     operations = [
         migrations.AddField(

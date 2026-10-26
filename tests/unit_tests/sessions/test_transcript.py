@@ -17,7 +17,12 @@ from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.transcript import annotate_transcript, artifact_turns
 from sessions.turns import build_turns
 
-from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from core.constants import (
+    CANCELLED_BY_COORDINATOR_MESSAGE,
+    CANCELLED_BY_USER_MESSAGE,
+    INTERRUPTED_MESSAGE,
+    RUN_FAILED_MESSAGE,
+)
 from tests.unit_tests.sessions.conftest import make_artifact
 
 CREATED_AT = datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC)
@@ -34,6 +39,7 @@ def _run(
     trigger_type=SessionOrigin.CHAT,
     created_at=None,
     finished_at=None,
+    is_cancelled=False,
 ):
     return SimpleNamespace(
         id=rid,
@@ -44,6 +50,7 @@ def _run(
         trigger_type=trigger_type,
         created_at=created_at,
         finished_at=finished_at,
+        is_cancelled=is_cancelled,
     )
 
 
@@ -144,6 +151,26 @@ def test_non_chat_failed_run_shows_generic_message_not_raw_error():
     assert marker["message"] == RUN_FAILED_MESSAGE
     assert "GitCommandError" not in marker["message"]
     assert "Traceback" not in marker["message"]
+
+
+def test_a_leg_its_delegating_session_cancelled_renders_aborted_marker():
+    turns = [_user("h1"), _assistant("a1")]
+    traceback = "sessions.executor.run.RunStoppedError\nTraceback (most recent call last): ..."
+    runs = [
+        _run(
+            "r1",
+            trigger_type=SessionOrigin.DELEGATED_JOB,
+            status=RunStatus.FAILED,
+            error_message=traceback,
+            is_cancelled=True,
+        )
+    ]
+    assert annotate_transcript(turns, runs)[-1] == {
+        "id": "run-status-r1",
+        "role": "run_status",
+        "status": "aborted",
+        "message": CANCELLED_BY_COORDINATOR_MESSAGE,
+    }
 
 
 def test_chat_failed_run_renders_error_message_verbatim():
@@ -375,6 +402,35 @@ def test_sent_at_not_stamped_on_assistant_first_head_segment():
     assert "sent_at" not in result[0]  # assistant-first head turn: guard declines sent_at
     assert result[0]["received_at"] == FINISHED_AT.isoformat()
     assert all("sent_at" not in t for t in result)
+
+
+@pytest.mark.parametrize("trigger_type", [SessionOrigin.DELEGATION_RESUME, SessionOrigin.PIPELINE_WEBHOOK])
+def test_a_prompt_daiv_wrote_is_marked_as_daivs(trigger_type):
+    turns = [_user("u1"), _assistant("a1"), _user("u2", "The sub-jobs you delegated have finished"), _assistant("a2")]
+    runs = [_run("r1", message_id="u1"), _run("r2", trigger_type=trigger_type)]
+
+    result = annotate_transcript(turns, runs)
+
+    assert (result[2]["author"], result[2]["origin"]) == ("daiv", trigger_type)
+    assert "author" not in result[0]
+    assert "author" not in result[3]
+
+
+@pytest.mark.parametrize("trigger_type", [SessionOrigin.CHAT, SessionOrigin.SCHEDULE, SessionOrigin.MR_WEBHOOK])
+def test_a_prompt_a_person_wrote_is_not_marked(trigger_type):
+    result = annotate_transcript([_user("u1"), _assistant("a1")], [_run("r1", trigger_type=trigger_type)])
+
+    assert "author" not in result[0]
+
+
+def test_a_recovered_prompt_daiv_wrote_is_marked_as_daivs():
+    run = _run(
+        "r1", status=RunStatus.FAILED, prompt="The sub-jobs you delegated", trigger_type=SessionOrigin.DELEGATION_RESUME
+    )
+
+    result = annotate_transcript([], [run])
+
+    assert (result[0]["role"], result[0]["author"]) == ("user", "daiv")
 
 
 def _db_run(session: Session) -> Run:

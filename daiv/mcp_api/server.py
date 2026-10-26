@@ -16,7 +16,7 @@ from django.utils.dateparse import parse_datetime
 from asgiref.sync import sync_to_async
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
@@ -24,7 +24,7 @@ from sessions.admission import AdmissionError, aadmit, aassert_repo_access, ares
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.multi_repo import SharedSessionError, ais_multi_repo, asubmit_shared_session_run, validate_shared_repos
-from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, asubmit_batch_runs
+from sessions.services import MAX_REPOS_PER_BATCH, BatchSubmitFailure, RepoTarget, alist_user_runs, asubmit_batch_runs
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 from codebase.authorization import asearch_viewable_repositories
@@ -108,10 +108,26 @@ POLL_INTERVAL = 2.0
 MAX_POLL_DURATION = 600.0  # 10 minutes
 
 
-class RepoSubmitSpec(BaseModel):
+class RepoSpec(BaseModel):
     repo_id: str = Field(description='Repository identifier. "owner/repo" for GitHub or full project path for GitLab.')
     ref: str | None = Field(
         default=None, description="Branch name to start from. None / empty string = default branch."
+    )
+
+
+class RepoScheduleSpec(RepoSpec):
+    # Refused, not ignored: a submit_job entry's per-repository `prompt` would otherwise vanish without a word.
+    model_config = ConfigDict(extra="forbid")
+
+
+class RepoSubmitSpec(RepoSpec):
+    prompt: str | None = Field(
+        default=None,
+        pattern=r"\S",
+        description=(
+            "Instruction for this repository only; replaces the batch prompt for it. Must not be blank. "
+            "Refused with `shared_session`."
+        ),
     )
 
 
@@ -129,7 +145,7 @@ async def submit_job(
                 " automatically after the job, and DAIV generates the branch name, commit message,"
                 " and MR/PR title/description itself. Be specific: include file paths, function"
                 " names, or error messages. The same prompt runs independently against each repository,"
-                " unless `shared_session` is true."
+                " except one whose repos[].prompt replaces it; with `shared_session` it runs once across all of them."
             )
         ),
     ],
@@ -270,7 +286,7 @@ async def submit_job(
         if not owned:
             return json.dumps({"error": _THREAD_NOT_FOUND})
 
-    targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs]
+    targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "", prompt=s.prompt or "") for s in specs]
     try:
         if shared_session:
             validate_shared_repos(targets, continuation=thread_id_str is not None)
@@ -299,12 +315,13 @@ async def submit_job(
     if shared_session:
         submitted = [(specs[0], run) for run in result.runs]
     else:
-        # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
-        # non-failed one with the next run in result.runs (same order as input).
-        failed_keys = {(f.repo_id, f.ref) for f in result.failed}
-        runs_iter = iter(result.runs)
-        submitted = [(spec, next(runs_iter)) for spec in specs if (spec.repo_id, spec.ref or "") not in failed_keys]
-    jobs: list[dict] = [
+        # Walk the specs, not the runs, to echo the client-sent ref value (None vs "").
+        submitted = [
+            (spec, outcome)
+            for spec, outcome in zip(specs, result.outcomes, strict=True)
+            if not isinstance(outcome, BatchSubmitFailure)
+        ]
+    jobs = [
         {
             "job_id": str(run.id),
             "repo_id": spec.repo_id,
@@ -314,7 +331,7 @@ async def submit_job(
         }
         for spec, run in submitted
     ]
-    job_ids = [job["job_id"] for job in jobs]
+    job_ids = [str(run.id) for run in result.runs]
 
     failed_out = [{"repo_id": f.repo_id, "ref": f.ref, "error": f.error} for f in result.failed]
 
@@ -829,8 +846,12 @@ async def schedule_job(
         ),
     ],
     repos: Annotated[
-        list[RepoSubmitSpec],
-        Field(min_length=1, max_length=20, description="1-20 repositories the schedule runs against."),
+        list[RepoScheduleSpec],
+        Field(
+            min_length=1,
+            max_length=20,
+            description="1-20 repositories the schedule runs against, each with the same `prompt`.",
+        ),
     ],
     frequency: Annotated[Frequency, Field(description="hourly | daily | weekdays | weekly (Mondays) | custom | once.")],
     time: Annotated[
@@ -880,7 +901,7 @@ async def schedule_job(
     if auth_error is not None:
         return auth_error
 
-    specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
+    specs = [spec if isinstance(spec, RepoScheduleSpec) else RepoScheduleSpec(**spec) for spec in repos]
     repo_dicts = [{"repo_id": s.repo_id, "ref": s.ref or ""} for s in specs]
 
     try:

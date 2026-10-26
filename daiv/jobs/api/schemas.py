@@ -13,6 +13,14 @@ from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtim
 class RepoSubmitItem(Schema):
     repo_id: str = Field(min_length=1)
     ref: str | None = None
+    prompt: str | None = Field(
+        default=None,
+        pattern=r"\S",
+        description=(
+            "Instruction for this repository only; replaces the batch prompt for it. Must not be blank. "
+            "Refused with `shared_session`."
+        ),
+    )
 
 
 class JobSubmitRequest(Schema):

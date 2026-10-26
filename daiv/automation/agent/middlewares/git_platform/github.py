@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -137,7 +138,7 @@ async def run_github_subcommand(
     if isinstance(args, str):
         return args
 
-    token, state_update = _get_cached_github_cli_token(runtime)
+    token, state_update = await asyncio.to_thread(_get_cached_github_cli_token, runtime)
     resource, action = args[0:2]
     is_run_log = resource == "run" and action == "view" and "--log" in args
     invocation = CliInvocation(

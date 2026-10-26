@@ -19,6 +19,7 @@ from automation.agent.session_links import SessionLinks
 from core.utils import build_absolute_url
 from sessions.archive import aarchive_thread, arestore_thread
 from sessions.artifacts import RunArtifactStore, bind_active_run
+from sessions.delegation import adelegator_for
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
@@ -28,7 +29,7 @@ from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Awaitable, Callable
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine
     from contextlib import AbstractAsyncContextManager
 
     from langchain.agents import CompiledAgent
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 STREAM_HEARTBEAT_INTERVAL_S = 5.0
+STOP_POLL_INTERVAL_S = 10.0
 ARCHIVE_TIMEOUT_S = 30.0
 
 
@@ -74,14 +76,16 @@ class AgentRun:
     extra_repos: tuple[SessionRepository, ...] = ()
 
 
-async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
+async def execute_run(
+    spec: RunSpec, hooks: RunHooks | None = None, *, should_stop: Callable[[], Awaitable[bool]] | None = None
+) -> RunOutcome:
     """Run the agent once for ``spec``; the package docstring lists the order of the steps."""
     hooks = hooks or RunHooks()
     entered = False
     try:
         async with _hold_slot(spec) as holder_id:
             entered = True
-            return await _run_in_slot(spec, hooks, holder_id)
+            return await _run_in_slot(spec, hooks, holder_id, should_stop)
     except Exception as exc:
         if not entered:
             await _notify_failure(hooks, exc)
@@ -176,17 +180,45 @@ async def _supervised(
             logger.exception("executor: failed to close the stream for thread_id=%s", thread_id)
 
 
-async def _run_in_slot(spec: RunSpec, hooks: RunHooks, holder_id: str | None) -> RunOutcome:
+async def _run_in_slot(
+    spec: RunSpec, hooks: RunHooks, holder_id: str | None, should_stop: Callable[[], Awaitable[bool]] | None
+) -> RunOutcome:
     recovery = _Recovery()
     async with _live_relay(spec, holder_id) as run_relay:
         try:
-            outcome = await _invoke(spec, hooks, recovery, run_relay)
+            invoke = partial(_invoke, spec, hooks, recovery, run_relay)
+            outcome = await (invoke() if should_stop is None else _until_stopped(invoke, spec.thread_id, should_stop))
         except Exception as exc:
             await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
             raise
         if hooks.on_success is not None:
             await hooks.on_success(outcome)
     return outcome
+
+
+async def _until_stopped(
+    invoke: Callable[[], Coroutine[Any, Any, RunOutcome]],
+    thread_id: str | None,
+    should_stop: Callable[[], Awaitable[bool]],
+) -> RunOutcome:
+    """Run ``invoke`` unless ``should_stop`` asks to stop first, asking again every ``STOP_POLL_INTERVAL_S``.
+
+    A stop request raises ``RunStoppedError``, after cancelling the invocation and waiting for it to close the run's
+    context if it had started; an invocation that ends while ``should_stop`` is asked keeps its outcome.
+    """
+    if await should_stop():
+        raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop before it started")
+    task = asyncio.ensure_future(invoke())
+    try:
+        while not task.done():
+            await asyncio.wait({task}, timeout=STOP_POLL_INTERVAL_S)
+            if not task.done() and await should_stop() and not task.done():
+                raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop")
+        return task.result()
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 @asynccontextmanager
@@ -342,6 +374,11 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
             session_links = _session_links(spec, settings)
             if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
+            delegator = (
+                await adelegator_for(spec.thread_id)
+                if spec.thread_id is not None and settings.features.orchestration
+                else None
+            )
             agent = await create_daiv_agent(
                 settings=settings,
                 ctx=ctx,
@@ -351,6 +388,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 artifact_store=RunArtifactStore(),
                 mcp_servers=await sync_to_async(build_runtime_servers)(spec.acting_user_id, spec.mcp_overrides),
                 session_links=session_links,
+                delegator=delegator,
                 **spec.agent_options,
             )
             config = build_langsmith_config(

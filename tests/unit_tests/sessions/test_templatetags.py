@@ -160,6 +160,8 @@ def test_date_bucket_exact_window_edges(monkeypatch):
         ("ui_job", "bolt"),
         ("issue_webhook", "exclamation-circle"),
         ("mr_webhook", "merge-request"),
+        ("delegated_job", "agent"),
+        ("delegation_resume", "arrow-path"),
         ("unknown", "jobs"),
     ],
 )

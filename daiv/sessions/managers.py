@@ -3,10 +3,15 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from django.db import models, transaction
+from django.db import close_old_connections, models, transaction
+from django.tasks import TaskResultStatus
+from django.utils import timezone
+
+from django_tasks_db.models import DBTaskResult
 
 from core import ui_events
-from sessions.signal_defs import run_finished
+from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
+from sessions.signal_defs import run_ended, run_finished
 
 if TYPE_CHECKING:
     from accounts.models import User
@@ -149,9 +154,9 @@ class RunManager(models.Manager["Run"]):
 
         The write is one guarded ``UPDATE``: it lands only while the row is not terminal yet and matches ``where``,
         so a finish never overwrites one that got there first. Returns whether this call finished the run. When it
-        did, ``run`` takes the written values, the nav badge is refreshed once the write commits, and
-        ``run_finished`` goes out unless ``run`` is a chat run, which the classification, memory and dispatch receivers
-        must not see.
+        did, ``run`` takes the written values, the nav badge is refreshed once the write commits, ``run_ended`` goes
+        out, and ``run_finished`` follows unless ``run`` is a chat run, which the classification, memory and dispatch
+        receivers must not see.
         """
         _require_terminal(status)
         if not self._unfinished(run, where).update(status=status, **fields):
@@ -184,6 +189,46 @@ class RunManager(models.Manager["Run"]):
         await asyncio.to_thread(self._announce_finished, run, skip_dispatch=skip_dispatch, never_started=never_started)
         return True
 
+    def cancel(self, run: Run) -> bool:
+        """Ask an unfinished ``run`` to stop, and return whether this call did; ``run`` is left with its row's status.
+
+        A run that is not RUNNING finishes FAILED here as ``never_started``, with ``CANCELLED_BY_COORDINATOR_MESSAGE``,
+        and its task fails too unless a worker claimed it. A ``run_job_task`` running the run stops at its next
+        :meth:`acancel_requested` check, before the agent if it has not reached it, and a RUNNING run finishes as that
+        task does: with what it recorded, or SUCCESSFUL if it finished first.
+        """
+        from sessions.executor.run import RunStoppedError
+        from sessions.models import RunStatus
+
+        now = timezone.now()
+        if not self._unfinished(run).filter(cancel_requested_at__isnull=True).update(cancel_requested_at=now):
+            run.refresh_from_db(fields=["status", "cancel_requested_at"])
+            return False
+        run.cancel_requested_at = now
+        finished = self.finish(
+            run,
+            RunStatus.FAILED,
+            where=~models.Q(status=RunStatus.RUNNING),
+            never_started=True,
+            error_message=CANCELLED_BY_COORDINATOR_MESSAGE,
+            finished_at=now,
+            started_at=run.started_at or now,
+        )
+        if not finished:
+            run.refresh_from_db(fields=["status"])
+            return run.status not in RunStatus.terminal()
+        DBTaskResult.objects.filter(run=run, status=TaskResultStatus.READY).update(
+            status=TaskResultStatus.FAILED,
+            finished_at=now,
+            exception_class_path=f"{RunStoppedError.__module__}.{RunStoppedError.__qualname__}",
+            traceback=CANCELLED_BY_COORDINATOR_MESSAGE,
+        )
+        return True
+
+    async def acancel_requested(self, run_id: str) -> bool:
+        """Whether :meth:`cancel` asked the run ``run_id`` to stop."""
+        return await self.filter(pk=run_id, cancel_requested_at__isnull=False).aexists()
+
     def update_unfinished(self, run: Run, **fields: Any) -> bool:
         """Write a non-terminal change onto ``run``'s row unless the run has finished, so a stale sync never reopens it.
 
@@ -200,8 +245,12 @@ class RunManager(models.Manager["Run"]):
         return True
 
     def _announce_finished(self, run: Run, **flags: bool) -> None:
-        ui_events.publisher.runs_changed()
-        self._emit_run_finished(run, **flags)
+        try:
+            ui_events.publisher.runs_changed()
+            self._emit_run_finished(run, **flags)
+        finally:
+            # Runs in an executor thread no request lifecycle closes, so its pooled connection would be held forever.
+            close_old_connections()
 
     def _unfinished(self, run: Run, where: models.Q | None = None) -> models.QuerySet[Run]:
         from sessions.models import RunStatus
@@ -219,6 +268,7 @@ class RunManager(models.Manager["Run"]):
     def _emit_run_finished(run: Run, **flags: bool) -> None:
         from sessions.models import SessionOrigin
 
+        run_ended.send_robust(sender=type(run), run=run)
         if run.trigger_type == SessionOrigin.CHAT:
             return
         run_finished.send_robust(sender=type(run), run=run, **flags)

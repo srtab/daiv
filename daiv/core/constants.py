@@ -38,6 +38,8 @@ SANDBOX_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
 CANCELLED_BY_USER_MESSAGE = "Stopped by user."
 INTERRUPTED_MESSAGE = "Run was interrupted before completing."
 RUN_FAILED_MESSAGE = "Run failed. Check server logs for details."
+# The "aborted" marker's message for a run its delegating session cancelled (``Run.is_cancelled``).
+CANCELLED_BY_COORDINATOR_MESSAGE = "Stopped by the session that delegated it."
 
 # A worker runs one task to completion before claiming the next, so short user-visible work
 # needs its own queue — priority alone cannot get it past an agent run already running.

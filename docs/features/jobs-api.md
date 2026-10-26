@@ -69,8 +69,8 @@ POST /api/jobs
 
 | Field                  | Type             | Required | Description |
 |------------------------|------------------|----------|-------------|
-| `repos`                | array of objects | yes      | 1–20 repositories to run against. Each item: `{ "repo_id": "group/project", "ref": "branch" }` — `ref` is optional, must be a branch that exists on the remote, and defaults to the repository's default branch. A new MR/PR targets it, and is assigned to the API key's owner when their DAIV account is OAuth-linked to the git platform. |
-| `prompt`               | string           | yes      | The prompt to send to the agent. The same prompt runs as an independent job against each repository in `repos`. |
+| `repos`                | array of objects | yes      | 1–20 repositories to run against. Each item: `{ "repo_id": "group/project", "ref": "branch", "prompt": "..." }` — `ref` is optional, must be a branch that exists on the remote, and defaults to the repository's default branch; `prompt` is optional, must not be blank, and replaces the batch `prompt` for that repository only. A new MR/PR targets it, and is assigned to the API key's owner when their DAIV account is OAuth-linked to the git platform. |
+| `prompt`               | string           | yes      | The prompt to send to the agent. It runs as an independent job against each repository in `repos`, except one that gives its own `prompt`, and it titles the batch. |
 | `agent_model`          | string           | no       | Override the model used for this batch. Invalid model / thinking-level combinations are rejected with `400`. |
 | `agent_thinking_level` | string           | no       | Override the agent's reasoning effort. One of `minimal`, `low`, `medium`, `high`, `xhigh`. Invalid combinations are rejected with `400`. |
 | `muted`                | boolean          | no       | Mute notifications for every job in this batch. Default false. |
@@ -197,7 +197,7 @@ For `POST /api/jobs`:
 
 | Code | When |
 |------|------|
-| `400` | Invalid request — bad `agent_model` / `agent_thinking_level` override, no `agent_model` given and no system default model configured (a model set only in `.daiv.yml` does not count), unresolvable `environment`, invalid `shared_session` list (more than 5 entries, or a repository listed twice), or invalid `thread_id` continuation (unknown/unowned thread; more than one repo for a single-repository session; for a multi-repository session, anything but the main repository alone or its full list in order, or a `ref`). |
+| `400` | Invalid request — bad `agent_model` / `agent_thinking_level` override, no `agent_model` given and no system default model configured (a model set only in `.daiv.yml` does not count), unresolvable `environment`, invalid `shared_session` list (more than 5 entries, a repository listed twice, or a per-repository `prompt`), or invalid `thread_id` continuation (unknown/unowned thread; more than one repo for a single-repository session; for a multi-repository session, anything but the main repository alone or its full list in order, or a `ref`). |
 | `404` | A repository in `repos` is not found or you lack write access to it. The response does not say which one. |
 | `422` | Malformed body or unknown fields (e.g. the removed `use_max` or `notify_on`). |
 | `429` | Rate limit exceeded (see [Rate limiting](#rate-limiting)). |
@@ -218,7 +218,7 @@ By default, several entries in `repos` fan out into independent jobs, one sessio
 }
 ```
 
-- `repos` takes up to 5 entries (the first is the main one), each repository at most once.
+- `repos` takes up to 5 entries (the first is the main one), each repository at most once, and no per-repository `prompt`: the session runs the one `prompt`.
 - The response holds **one** job and one `thread_id`; the job's `repo_id` is the first entry, the **main repository**.
 - You need write access to every repository. If any is missing or unknown, the call fails with the usual opaque `404`.
 - The main repository's `.daiv.yml`, model, sandbox environment, skills, subagents and memory drive the session. It is checked out at `/workspace/repo`; the others at `/workspace/repos/<repository path>`. The agent is told about them and reads their `AGENTS.md`.

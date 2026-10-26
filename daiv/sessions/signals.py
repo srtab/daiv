@@ -13,9 +13,10 @@ from django.tasks.signals import task_finished, task_started
 from django_tasks_db.backend import TaskResult as DatabaseTaskResult
 
 from core import ui_events
+from sessions.delegation import resume_coordinator
 from sessions.models import Run, RunStatus, Session
-from sessions.queue import dispatch_next_queued
-from sessions.signal_defs import run_finished
+from sessions.queue import dispatch_next_queued, release_runs_waiting_for
+from sessions.signal_defs import run_ended, run_finished
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -124,6 +125,24 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
         return
     if session_id := getattr(run, "session_id", None):
         dispatch_next_queued(session_id)
+
+
+@receiver(run_ended, dispatch_uid="sessions.release_waiting_runs")
+def release_waiting_runs(sender: type, run: Any, **kwargs: Any) -> None:
+    """Start the QUEUED runs that waited for ``run`` (:func:`sessions.queue.release_runs_waiting_for`).
+
+    On ``run_ended`` rather than ``run_finished`` so a chat turn that delegated releases its waiting legs too.
+    """
+    release_runs_waiting_for(run)
+
+
+@receiver(run_finished, dispatch_uid="sessions.resume_delegating_session")
+def resume_delegating_session(sender: type, run: Any, **kwargs: Any) -> None:
+    """Resume the coordinator once its delegated batch has finished (:func:`sessions.delegation.resume_coordinator`).
+
+    Ignores ``skip_dispatch``: a leg the dispatcher failed still finishes its batch.
+    """
+    resume_coordinator(run)
 
 
 @receiver(post_delete, sender="agent_sessions.RunArtifact", dispatch_uid="sessions.delete_artifact_file")

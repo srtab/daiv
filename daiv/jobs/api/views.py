@@ -11,7 +11,7 @@ from sessions.admission import AdmissionError, RepoAccessError, aadmit
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.multi_repo import SharedSessionError, ais_multi_repo, asubmit_shared_session_run, validate_shared_repos
-from sessions.services import RepoTarget, asubmit_batch_runs
+from sessions.services import BatchSubmitFailure, RepoTarget, asubmit_batch_runs
 
 from accounts.api.security import AuthBearer
 from core.api.throttling import JobsRateThrottle
@@ -67,7 +67,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
         if not ok:
             return 400, {"detail": err}
 
-    repos = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos]
+    repos = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "", prompt=spec.prompt or "") for spec in payload.repos]
     try:
         if shared:
             validate_shared_repos(repos, continuation=payload.thread_id is not None)
@@ -99,10 +99,10 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     if shared:
         submitted = [(payload.repos[0], run) for run in result.runs]
     else:
-        failed_keys = {(f.repo_id, f.ref) for f in result.failed}
-        runs_iter = iter(result.runs)
         submitted = [
-            (spec, next(runs_iter)) for spec in payload.repos if (spec.repo_id, spec.ref or "") not in failed_keys
+            (spec, outcome)
+            for spec, outcome in zip(payload.repos, result.outcomes, strict=True)
+            if not isinstance(outcome, BatchSubmitFailure)
         ]
     jobs = [
         JobSubmitJobItem(

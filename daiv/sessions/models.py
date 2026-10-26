@@ -54,6 +54,8 @@ class SessionOrigin(models.TextChoices):
     ISSUE_WEBHOOK = "issue_webhook", _("Issue Webhook")
     MR_WEBHOOK = "mr_webhook", _("MR/PR Webhook")
     PIPELINE_WEBHOOK = "pipeline_webhook", _("Pipeline Webhook")
+    DELEGATED_JOB = "delegated_job", _("Delegated Run")
+    DELEGATION_RESUME = "delegation_resume", _("Delegation Resume")
 
     @classmethod
     def webhooks(cls) -> frozenset[str]:
@@ -62,18 +64,23 @@ class SessionOrigin(models.TextChoices):
 
     @classmethod
     def prompt_driven(cls) -> frozenset[str]:
-        """Job triggers created from an explicit user prompt (API / MCP / UI batch submits)."""
-        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB})
+        """Job triggers created from an explicit prompt (API / MCP / UI batch submits and an agent's delegation)."""
+        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB})
+
+    @classmethod
+    def daiv_authored(cls) -> frozenset[str]:
+        """Triggers whose run prompt DAIV writes rather than a person: a CI fix and a delegation resume."""
+        return frozenset({cls.PIPELINE_WEBHOOK, cls.DELEGATION_RESUME})
 
     @classmethod
     def classified(cls) -> frozenset[str]:
-        """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven)."""
-        return frozenset({cls.SCHEDULE}) | cls.webhooks() | cls.prompt_driven()
+        """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven + DELEGATION_RESUME)."""
+        return frozenset({cls.SCHEDULE, cls.DELEGATION_RESUME}) | cls.webhooks() | cls.prompt_driven()
 
     @classmethod
     def unattended(cls) -> frozenset[str]:
         """Job triggers nobody is around to answer a question for."""
-        return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK})
+        return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK, cls.DELEGATED_JOB})
 
 
 class WatchState(models.TextChoices):
@@ -136,6 +143,16 @@ class Session(models.Model):
     watch_attempts = models.PositiveSmallIntegerField(_("watch attempts"), default=0)
     watch_pipeline_id = models.BigIntegerField(_("last watched pipeline"), null=True, blank=True)
     watch_armed_at = models.DateTimeField(_("watch armed at"), null=True, blank=True)
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delegated_sessions",
+        db_index=False,
+        verbose_name=_("delegated by"),
+        help_text=_("The session whose agent delegated this one with delegate_jobs."),
+    )
 
     # Unified execution lock. NULL means "free slot"; any non-NULL value is the
     # holder id (AG-UI run_id for chat turns, str(Run.pk) for background runs).
@@ -164,6 +181,7 @@ class Session(models.Model):
                 name="session_watch_sweep_idx",
                 condition=models.Q(watch_state__in=sorted(WatchState.open())),
             ),
+            models.Index(fields=["parent"], name="session_parent_idx", condition=models.Q(parent__isnull=False)),
         ]
         constraints = [
             models.CheckConstraint(
@@ -309,6 +327,22 @@ class Run(models.Model):
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
     title = models.CharField(_("title"), max_length=120, blank=True, default="")
     batch_id = models.UUIDField(_("batch ID"), null=True, blank=True, db_index=True)
+    continuation_of_batch_id = models.UUIDField(
+        _("continues delegated batch"),
+        null=True,
+        blank=True,
+        help_text=_("The delegated batch whose finish queued this run on the coordinator's session."),
+    )
+    waits_for = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="waiting_runs",
+        db_index=False,
+        verbose_name=_("waits for"),
+        help_text=_("While this run is QUEUED, it starts only once that run has finished."),
+    )
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     prompt = models.TextField(_("prompt"), blank=True, default="")
@@ -350,6 +384,12 @@ class Run(models.Model):
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)
     finished_at = models.DateTimeField(_("finished at"), null=True, blank=True)
+    cancel_requested_at = models.DateTimeField(
+        _("cancel requested at"),
+        null=True,
+        blank=True,
+        help_text=_("When the run was asked to stop; it ends FAILED unless it finished first."),
+    )
     # False only on pre-feature rows backfilled at deploy, so the classifier never retro-runs the
     # backlog; every new run is eligible. Chat is excluded by origin (SessionOrigin.classified), not this.
     classify_eligible = models.BooleanField(_("classify eligible"), default=True)
@@ -365,20 +405,37 @@ class Run(models.Model):
             models.Index(fields=["trigger_type", "-created_at"], name="run_trigger_created_idx"),
             models.Index(fields=["status", "-created_at"], name="run_status_created_idx"),
             models.Index(fields=["user", "-created_at"], name="run_user_created_idx"),
+            # Partial: almost every run leaves these NULL.
+            models.Index(
+                fields=["continuation_of_batch_id"],
+                name="run_continuation_batch_idx",
+                condition=models.Q(continuation_of_batch_id__isnull=False),
+            ),
+            models.Index(fields=["waits_for"], name="run_waits_for_idx", condition=models.Q(waits_for__isnull=False)),
         ]
         constraints = [
-            # At most one active (READY or RUNNING) API/MCP run per session. QUEUED is
+            # At most one active (READY or RUNNING) API/MCP/delegation run per session. QUEUED is
             # intentionally outside the constraint so FIFO siblings can stack; webhook
             # triggers share deterministic sessions and are intentionally excluded.
             # Exact port of activity_one_active_per_thread. The status/trigger_type
             # literals here must equal {RunStatus.READY, RunStatus.RUNNING} and
-            # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB} — Django serializes
-            # constraints with literals, so a drift is caught by
+            # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB, SessionOrigin.DELEGATED_JOB,
+            # SessionOrigin.DELEGATION_RESUME} — Django serializes constraints with literals, so a drift is caught by
             # ``test_active_constraint_literals_match_enums``.
             models.UniqueConstraint(
                 fields=["session"],
-                condition=models.Q(status__in=["READY", "RUNNING"], trigger_type__in=["api_job", "mcp_job"]),
+                condition=models.Q(
+                    status__in=["READY", "RUNNING"],
+                    trigger_type__in=["api_job", "mcp_job", "delegated_job", "delegation_resume"],
+                ),
                 name="run_one_active_per_session",
+            ),
+            # The insert of a batch's continuation is the election when several legs finish at once; a FAILED one
+            # leaves room for ``sessions.delegation.resume_stalled_batches`` to retry one that never reached the queue.
+            models.UniqueConstraint(
+                fields=["continuation_of_batch_id"],
+                condition=models.Q(continuation_of_batch_id__isnull=False) & ~models.Q(status="FAILED"),
+                name="run_one_continuation_per_batch",
             ),
             # DB-level enum enforcement (``choices=`` alone is not enforced, and
             # ``.aupdate()``/raw writes bypass field validation).
@@ -414,6 +471,11 @@ class Run(models.Model):
         if schedule is not None:
             return schedule.muted
         return False  # non-scheduled runs notify unless the run itself is muted
+
+    @property
+    def is_cancelled(self) -> bool:
+        """Whether the run failed after ``RunManager.cancel`` asked it to stop."""
+        return self.status == RunStatus.FAILED and self.cancel_requested_at is not None
 
     @property
     def duration(self) -> float | None:

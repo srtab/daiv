@@ -18,6 +18,7 @@ from sessions.multi_repo import (
 )
 from sessions.services import RepoTarget
 
+from automation.agent.references import RefIn
 from codebase.authorization import RepositoryAccessDenied
 from tests.unit_tests.sessions.conftest import make_task_result
 
@@ -87,6 +88,24 @@ async def test_rejects_duplicates_too_many_and_empty(member_user, enqueue, ids):
         await _submit(member_user, [RepoTarget(i) for i in ids])
 
     assert await Run.objects.acount() == 0
+
+
+async def test_rejects_a_per_repository_prompt(member_user, enqueue):
+    with pytest.raises(SharedSessionError, match=r"repos\[\]\.prompt"):
+        await _submit(member_user, [RepoTarget("g/app"), RepoTarget("g/mod", prompt="other")])
+
+    assert await Run.objects.acount() == 0
+
+
+async def test_every_repositorys_references_join_the_session(member_user, enqueue):
+    result = await _submit(
+        member_user,
+        [RepoTarget("g/app"), RepoTarget("g/mod", references=(RefIn(key="DAIV-1V", provider="sentry"),))],
+        references=[RefIn(key="PROJ-1", provider="jira")],
+    )
+
+    session = await Session.objects.aget(pk=result.runs[0].session_id)
+    assert sorted(ref.key for ref in session.external_references()) == ["DAIV-1V", "PROJ-1"]
 
 
 async def test_failed_row_creation_leaves_no_run_behind(member_user, enqueue):

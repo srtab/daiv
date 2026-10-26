@@ -9,15 +9,8 @@ from asgiref.sync import sync_to_async
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION
 from sessions.admission import aassert_repo_access
-from sessions.models import Session, SessionRepository
-from sessions.services import (
-    BatchSubmitFailure,
-    BatchSubmitResult,
-    RepoTarget,
-    _aclaim_and_enqueue,
-    _aenqueue_batch_title,
-    create_run,
-)
+from sessions.models import RunStatus, Session, SessionRepository
+from sessions.services import BatchSubmitResult, RepoTarget, _aclaim_run, _aenqueue_batch_title, _astart_run, create_run
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -73,6 +66,10 @@ def validate_shared_repos(repos: Sequence[RepoTarget], *, continuation: bool) ->
         raise SharedSessionError(f"repos lists the same repository more than once: {', '.join(duplicates)}")
     if continuation and any(target.ref for target in repos):
         raise SharedSessionError("a continuation of a shared session cannot set a ref; it reuses the stored branches")
+    if any(target.prompt for target in repos):
+        raise SharedSessionError(
+            "a shared session runs one prompt for all its repositories; repos[].prompt cannot be set"
+        )
 
 
 def _validate_continuation(repos: list[RepoTarget], stored_ids: list[str]) -> None:
@@ -126,7 +123,8 @@ async def asubmit_shared_session_run(
 ) -> BatchSubmitResult:
     """Submit one run over several repositories: a new shared session, or a continuation of one."""
     validate_shared_repos(repos, continuation=thread_id is not None)
-    stored_refs = [ref.to_stored() for ref in references or []]
+    refs = [*(references or []), *(ref for t in repos for ref in t.references)]
+    stored_refs = [ref.to_stored() for ref in refs]
     if len(stored_refs) > MAX_REFS_PER_SUBMISSION:
         raise SharedSessionError(f"references exceeds the maximum of {MAX_REFS_PER_SUBMISSION}")
 
@@ -180,10 +178,12 @@ async def asubmit_shared_session_run(
                 status=status,
             )
 
-    outcome = await _aclaim_and_enqueue(
-        create, target=target, stored_refs=stored_refs, log_context="submit_shared_session_run"
+    log_context = "submit_shared_session_run"
+    claimed = await _aclaim_run(
+        create, target=target, initial_status=RunStatus.READY, stored_refs=stored_refs, log_context=log_context
     )
-    if isinstance(outcome, BatchSubmitFailure):
-        return BatchSubmitResult(batch_id=batch_id, failed=[outcome])
-    await _aenqueue_batch_title(batch_id=batch_id, prompt=prompt, user=user, trigger_type=trigger_type, runs=[outcome])
-    return BatchSubmitResult(batch_id=batch_id, runs=[outcome])
+    result = BatchSubmitResult(batch_id=batch_id, outcomes=[await _astart_run(claimed, log_context=log_context)])
+    await _aenqueue_batch_title(
+        batch_id=batch_id, prompt=prompt, user=user, trigger_type=trigger_type, runs=result.runs
+    )
+    return result

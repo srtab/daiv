@@ -6,7 +6,12 @@ from django.tasks.base import DEFAULT_TASK_PRIORITY
 import pytest
 from django_tasks_db.models import DBTaskResult
 from sessions.models import Run, Session, SessionOrigin
-from sessions.tasks import generate_batch_title_task, generate_title_task, sync_stuck_runs_cron_task
+from sessions.tasks import (
+    generate_batch_title_task,
+    generate_title_task,
+    resume_stalled_batches_cron_task,
+    sync_stuck_runs_cron_task,
+)
 from sessions.titling import TitlerNotConfiguredError
 
 from core.constants import TASK_QUEUE_INTERACTIVE
@@ -22,6 +27,13 @@ def test_sync_stuck_runs_cron_task_dispatches_command():
         sync_stuck_runs_cron_task.func()
 
     mock_call_command.assert_called_once_with("sync_stuck_runs")
+
+
+def test_resume_stalled_batches_cron_task_runs_the_sweep():
+    with patch("sessions.delegation.resume_stalled_batches", return_value=0) as sweep:
+        resume_stalled_batches_cron_task.func()
+
+    sweep.assert_called_once_with()
 
 
 def _run_for_titling(

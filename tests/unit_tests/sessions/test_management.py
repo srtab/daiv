@@ -12,7 +12,9 @@ from django.utils import timezone
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from sessions.management.commands.sync_stuck_runs import NEVER_QUEUED_AFTER
 from sessions.models import Run, RunStatus, Session, SessionArchive, SessionOrigin
+from sessions.queue import ENQUEUE_FAILED_PREFIX
 
 from tests.unit_tests.sessions.conftest import create_archive
 
@@ -152,6 +154,40 @@ class TestSyncStuckRunsCommand:
 
         run.refresh_from_db()
         assert run.status == RunStatus.RUNNING
+
+    def test_a_ready_run_never_queued_is_failed_and_releases_its_sessions_queue(self, create_db_task_result):
+        session = _make_session()
+        stranded = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.API_JOB,
+            repo_id="group/project",
+            status=RunStatus.READY,
+            created_at=timezone.now() - NEVER_QUEUED_AFTER - timedelta(minutes=1),
+        )
+        queued = Run.objects.create(
+            session=session, trigger_type=SessionOrigin.API_JOB, repo_id="group/project", status=RunStatus.QUEUED
+        )
+        task = create_db_task_result(status="READY")
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
+            call_command("sync_stuck_runs")
+
+        stranded.refresh_from_db()
+        queued.refresh_from_db()
+        assert stranded.status == RunStatus.FAILED
+        assert stranded.error_message.startswith(ENQUEUE_FAILED_PREFIX)
+        assert (queued.status, queued.task_result_id) == (RunStatus.READY, task.id)
+
+    def test_a_ready_run_just_created_is_left_for_its_submitter(self):
+        run = Run.objects.create(
+            session=_make_session(), trigger_type=SessionOrigin.API_JOB, repo_id="group/project", status=RunStatus.READY
+        )
+
+        call_command("sync_stuck_runs")
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.READY
 
     def test_continues_after_per_row_error(self, caplog, create_db_task_result):
         ok_tr = create_db_task_result(
