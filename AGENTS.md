@@ -17,10 +17,6 @@ make lint           # check only (no fixes); CI gate
 make lint-typing    # ty, daiv/ only
 make lint-imports   # app layering contracts in .importlinter; part of lint and lint-fix
 
-# Single test / pattern
-uv run pytest tests/unit_tests/accounts/test_views.py
-uv run pytest tests/unit_tests/ -k "test_notes"
-
 # Test layout — one test file per application file: tests for
 # `accounts/adapter.py` go in `test_adapter.py`, `accounts/emails.py` in
 # `test_emails.py`, `accounts/views.py` in `test_views.py`, etc. Don't create
@@ -31,13 +27,9 @@ make integration-tests   # real LLM calls; needs docker/local/app/config.secrets
 make eval-prompts SUITES="skills todos" OUT=eval-runs/before.jsonl   # prompt evals on EVAL_MODEL (GLM-5.2): DAIV_EVAL_REPEATS passes (default 3), one JSONL row per case per pass; markers: ask_user skills todos web_search subagents code_review
 uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl                # PR-body table and verdict: regressed / unconfirmed / inconclusive / improved / neutral
 # "unconfirmed" = a flip over 3 votes; it prints a `make eval-prompts CASES=...` re-run for each side, whose two files go back in with --confirm BEFORE_CONFIRM AFTER_CONFIRM
-
-# Translations
-make makemessages && make compilemessages
 ```
 
 - `asyncio_mode = "auto"` — no `@pytest.mark.asyncio` needed.
-- Python **3.14 only** (`requires-python = ">=3.14,<3.15"`).
 - Never edit `pyproject.toml` by hand — use `uv add <pkg>==<version>` / `uv remove <pkg>` (deps are `==`-pinned; `parable` is git-pinned, not on PyPI).
 
 ## Repo map (only what's non-obvious)
@@ -51,7 +43,6 @@ make makemessages && make compilemessages
 - `daiv/accounts/` — identity only: users, sign-in (allauth adapters, OAuth), API keys, user admin, and the `accounts/_avatar.html` partial (+ `avatar_tags`) other apps include
 - `daiv/dashboard/` — the app shell: dashboard and homepage views, the `nav` context processor, the nav SSE badges (`api/views.py`), `nav_tags`, and the `base_app.html` layout every signed-in page extends. It is top layer: a lower app's template gets request-wide values from that app's own context processor (e.g. `codebase.context_processors.git_platform`), and a view whose URL belongs to another sidebar section sets `request.nav_view_name` to that section's URL name
 - `daiv/configuration/` — the site-configuration UI (forms, views, templates); the data it edits (`SiteConfiguration`, `Provider`, `site_settings`) stays in `core` because lower layers read it
-- `daiv/daiv/settings/components/` — split settings; `common.py` has `INSTALLED_APPS`
 - `evals/` — eval suite, **not** run by `make test`
 - UI rules live in `DESIGN.md` (icon system, layout tokens, floating surfaces) and `docs/` (mkdocs) — consult before touching templates/CSS.
 
@@ -73,7 +64,6 @@ make makemessages && make compilemessages
 - **PEP 758** — `except E1, E2:` is valid; ruff canonicalises it unparenthesised — don't "fix" it back to parens (pure churn).
 - **Django** — test settings module is `daiv.settings.test`; `NINJA_SKIP_REGISTRY=true` is auto-set in tests.
 - **Views by content type** — HTML = CBVs in `daiv/<app>/views.py`; JSON = a django-ninja `Router` in `daiv/<app>/api/views.py` (or `api/router.py`), registered in `daiv/daiv/api.py`. Filtered lists use `django_filters.FilterSet` + `FilterView(strict=False)`, not hand-rolled `request.GET`/`Paginator`.
-- **Dependency upgrade blockers** (re-verify first): **redis 8.x is now UNBLOCKED** — as of `redisvl 0.27.1` (transitive, via `langgraph-checkpoint-redis==0.5.2`, which caps `redis>=5.2.1`/`redisvl<1.0.0`) the redis cap is `redis<9.0,>=6.3.0,!=8.0.0`, so `redis 8.1.0` resolves; `uv lock --upgrade` bumps `redisvl 0.26.0 -> 0.27.1` automatically. The code is already forward-compatible: `daiv/core/redis.py` explicitly passes `socket_timeout=None` on the async client and documents the redis-py 8.0 default change, and no `setex`/`can_read_destructive`/`protocol=` usage exists (RESP3 default preserves legacy shapes). Safe to bump the direct `redis` pin. **mcp 2.x is adopted** (`mcp==2.2.0`): the MCP client is `langchain.mcp` (beta) + `fastmcp-slim[client]==4.0.10`, imported only in `automation/agent/mcp/client.py` (used by `automation/agent/mcp/toolkits.py` + `mcp_connectors/services.py`) — keep `fastmcp-slim` within `langchain`'s supported `fastmcp>=4.0.1,<5` range. DAIV's own server uses `mcp.server.mcpserver.MCPServer` (`mcp_api/server.py`); `stateless_http` / `transport_security` are `streamable_http_app(...)` arguments in `daiv/daiv/asgi.py`. Also: **tasks run on Django's built-in `django.tasks`** (`from django.tasks import task`, signals from `django.tasks.signals`); `django-tasks-db` is only the database backend. Don't re-add the third-party `django-tasks` package: its `Task` fails `DBTaskResult.task`'s `isinstance` check and its signals are separate objects the worker never sends. Deps are `==`-pinned, so `uv lock --upgrade --dry-run` shows only transitive updates — check the PyPI JSON API per direct dep. Also BLOCKED: **`ag-ui-protocol` is pinned `<1`** in `pyproject.toml` (transitive cap, since `ag-ui-langgraph==0.0.45` declares only `ag-ui-protocol>=0.1.22` with no upper bound) — `uv lock --upgrade` would otherwise auto-bump it to the 1.x major, whose breaking changes (wire-protocol version bump, renamed message parts, dropped file sources, null-omission in serialization) are incompatible with both `ag-ui-langgraph==0.0.45` (targets 0.x) and the repo's tight coupling to `ag_ui.core.events`/`ag_ui.core` shapes in `sessions/live/event_filter.py`, `sessions/live/agui.py`, `sessions/live/publisher.py`, `chat/api/runner.py`, `chat/api/streaming.py`. Do **not** remove the cap until `ag-ui-langgraph` ships a 1.x-compatible release and those call sites are re-verified. Also: **deepagents is at 0.7.19** (was 0.7.13) — the 0.7.13→0.7.19 "patch" bumps removed the private `_remaining_lines_notice` helper (its prose notice was refactored into the structured `_window_fields` header fields + `_assemble_read`). The 3 `TestSandboxReadPagination` tests in `tests/unit_tests/automation/agent/middlewares/test_file_system.py` were ported to assert on `_window_fields(result)` (window span, total, resume offset) instead of the removed prose; the "exact remainder" is now verified as `total_lines - next_offset` rather than the old "N lines remaining from offset M" string (which upstream no longer emits). No production code imported the removed helper. Note: **patch releases can still break private-API consumers** — review the deepagents filesystem module before bumping it again.
 - **Run artifacts** — `MEDIA_ROOT` must be a volume shared by the web and worker containers (the worker writes `RunArtifact` bytes, the web serves them); when adding viewer kinds keep `content_type` extension-derived and the raw endpoint's `sandbox` CSP. Every agent run carries its `Run` id (`RunSpec.run_id` / `bind_active_run`): webhook tasks take `takes_context=True` and resolve it with `aget_task_run_id`, because the Run links to the task result (`webhooks.dispatch` commits both in one transaction). A new entry point must do the same — unbound code gets no run, never a guessed one.
 - **Detailed behaviour lives in module docstrings**, not here — e.g. `automation/agent/chat_models.py`, `core/ui_events.py`, `sessions/live/relay.py`, `sessions/pipeline_watch/`. Read the relevant docstring before changing that area.
 
