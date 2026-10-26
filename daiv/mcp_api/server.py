@@ -23,6 +23,7 @@ from sandbox_envs.services import alist_visible_environments
 from sessions.admission import AdmissionError, aadmit, aassert_repo_access, aresolve_environment, check_agent_override
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.multi_repo import SharedSessionError, ais_multi_repo, asubmit_shared_session_run
 from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, asubmit_batch_runs
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
@@ -68,6 +69,9 @@ repository default branch. If `ref` is a branch that already has an open MR/PR, 
 new commit onto that same branch and updates the existing MR/PR — useful for fixing CI or an \
 in-review branch. Otherwise DAIV creates a new branch off `ref` and opens a new MR/PR targeting \
 `ref` itself.
+
+Set `shared_session` to true to open one session over several repositories (at most 5, the first is the main one): \
+the agent sees all of them and DAIV opens one merge request per repository it changes.
 
 Jobs are rate-limited per user. Long-running jobs may exceed the 10-minute polling window; \
 continue polling with `get_job_status` if the result is not yet available.\
@@ -124,7 +128,8 @@ async def submit_job(
                 " to commit, push, create a branch, or open a merge/pull request; those steps run"
                 " automatically after the job, and DAIV generates the branch name, commit message,"
                 " and MR/PR title/description itself. Be specific: include file paths, function"
-                " names, or error messages. The same prompt runs independently against each repository."
+                " names, or error messages. The same prompt runs independently against each repository,"
+                " unless `shared_session` is true."
             )
         ),
     ],
@@ -182,6 +187,15 @@ async def submit_job(
             )
         ),
     ] = None,
+    shared_session: Annotated[
+        bool,
+        Field(
+            description=(
+                "Run every repository in one session: the agent sees all of them and opens one merge request per "
+                "repository it changes. The first repository is the main one. At most 5."
+            )
+        ),
+    ] = False,
     references: Annotated[
         list[RefIn] | None,
         Field(
@@ -218,9 +232,6 @@ async def submit_job(
     if len(refs_in) > MAX_REFS_PER_SUBMISSION:
         return json.dumps({"error": f"At most {MAX_REFS_PER_SUBMISSION} references allowed per submission."})
 
-    if thread_id is not None and len(specs) != 1:
-        return json.dumps({"error": "thread_id continuation requires exactly one repo"})
-
     try:
         mcp_user = await get_current_user()
     except Exception:
@@ -252,6 +263,9 @@ async def submit_job(
             logger.info("submit_job: rejecting malformed thread_id", extra={"user_id": mcp_user.pk})
             return json.dumps({"error": _THREAD_NOT_FOUND})
         owned = await Session.objects.by_owner(mcp_user).filter(thread_id=thread_id_str).aexists()
+        shared_session = shared_session or (owned and await ais_multi_repo(thread_id_str))
+        if not shared_session and len(specs) != 1:
+            return json.dumps({"error": "thread_id continuation requires exactly one repo"})
         if not owned:
             return json.dumps({"error": _THREAD_NOT_FOUND})
 
@@ -263,7 +277,8 @@ async def submit_job(
             agent_thinking_level=agent_thinking_level,
             environment=environment,
         )
-        result = await asubmit_batch_runs(
+        submit = asubmit_shared_session_run if shared_session else asubmit_batch_runs
+        result = await submit(
             user=mcp_user,
             prompt=prompt,
             repos=admission.targets,
@@ -274,7 +289,7 @@ async def submit_job(
             thread_id=thread_id_str,
             references=refs_in,
         )
-    except AdmissionError as err:
+    except (AdmissionError, SharedSessionError) as err:
         return json.dumps({"error": str(err)})
 
     # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
@@ -283,7 +298,7 @@ async def submit_job(
     runs_iter = iter(result.runs)
     jobs: list[dict] = []
     job_ids: list[str] = []
-    for spec in specs:
+    for spec in specs[:1] if shared_session else specs:
         if (spec.repo_id, spec.ref or "") in failed_keys:
             continue
         run = next(runs_iter)

@@ -333,6 +333,84 @@ async def test_submit_job_rejects_too_many_references():
     assert "error" in json.loads(result)
 
 
+_SHARED_REPOS = [{"repo_id": "g/app", "ref": None}, {"repo_id": "g/mod", "ref": None}]
+
+
+def _shared_result(run):
+    from sessions.services import BatchSubmitResult
+
+    return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run])
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_shared_session_returns_one_job_on_the_main_repo(_default_mcp_user):
+    from mcp_api.server import submit_job
+
+    run = await _run(await _session(user=_default_mcp_user, repo_id="g/app"))
+    with (
+        patch("mcp_api.server._allow_job_submission", return_value=True),
+        patch("mcp_api.server.asubmit_shared_session_run", new=AsyncMock(return_value=_shared_result(run))) as shared,
+    ):
+        result = await submit_job(repos=_SHARED_REPOS, prompt="x", shared_session=True)
+
+    assert [j["repo_id"] for j in json.loads(result)["jobs"]] == ["g/app"]
+    assert [t.repo_id for t in shared.call_args.kwargs["repos"]] == ["g/app", "g/mod"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_shared_session_errors_are_returned(_default_mcp_user):
+    from mcp_api.server import submit_job
+    from sessions.multi_repo import SharedSessionError
+
+    with (
+        patch("mcp_api.server._allow_job_submission", return_value=True),
+        patch("mcp_api.server.asubmit_shared_session_run", new=AsyncMock(side_effect=SharedSessionError("too many"))),
+    ):
+        result = await submit_job(repos=_SHARED_REPOS, prompt="x", shared_session=True)
+
+    assert json.loads(result) == {"error": "too many"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuing_a_multi_repo_thread_needs_no_flag(_default_mcp_user):
+    from mcp_api.server import submit_job
+
+    session = await _session(user=_default_mcp_user, repo_id="g/app")
+    run = await _run(session)
+    with (
+        patch("mcp_api.server._allow_job_submission", return_value=True),
+        patch("mcp_api.server.ais_multi_repo", new=AsyncMock(return_value=True)),
+        patch("mcp_api.server.asubmit_shared_session_run", new=AsyncMock(return_value=_shared_result(run))) as shared,
+        patch("mcp_api.server.asubmit_batch_runs") as batch,
+    ):
+        result = await submit_job(repos=[{"repo_id": "g/app", "ref": None}], prompt="x", thread_id=session.thread_id)
+
+    assert "error" not in json.loads(result)
+    assert shared.call_args.kwargs["thread_id"] == session.thread_id
+    batch.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_batch_path_unchanged_without_flag(_default_mcp_user):
+    from mcp_api.server import submit_job
+    from sessions.services import BatchSubmitResult
+
+    session = await _session(user=_default_mcp_user, repo_id="g/app")
+    runs = [await _run(session), await _run(session)]
+    with (
+        patch("mcp_api.server._allow_job_submission", return_value=True),
+        patch(
+            "mcp_api.server.asubmit_batch_runs",
+            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), runs=runs)),
+        ),
+        patch("mcp_api.server.asubmit_shared_session_run") as shared,
+    ):
+        result = await submit_job(repos=_SHARED_REPOS, prompt="x")
+
+    assert len(json.loads(result)["jobs"]) == 2
+    shared.assert_not_called()
+
+
 def test_the_submit_job_description_advertises_every_special_provider():
     """``RefProvider`` owns the vocabulary, but the tool description spells it out in prose for the
     model. A member added to the enum and not here is silently never advertised.

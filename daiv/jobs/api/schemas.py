@@ -28,6 +28,11 @@ class JobSubmitRequest(Schema):
     muted: bool = Field(default=False, description="Mute notifications for every job in this batch.")
     environment: str | None = None
     thread_id: UUID | None = None
+    shared_session: bool = Field(
+        default=False,
+        description="Run every repository in one session: the agent sees all of them and opens one merge request per "
+        "repository it changes. The first repository is the main one. At most 5.",
+    )
     references: list[RefIn] = Field(
         default_factory=list,
         max_length=MAX_REFS_PER_SUBMISSION,

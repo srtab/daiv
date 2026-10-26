@@ -296,6 +296,99 @@ async def test_submit_job_accepts_an_explicit_model_when_the_site_has_none(authe
     assert captured["agent_model"] == "openrouter:z-ai/glm-5.2"
 
 
+_SHARED_BODY = {"repos": [{"repo_id": "g/app"}, {"repo_id": "g/mod"}], "prompt": "x"}
+
+
+def _shared_submit(captured: dict):
+    from sessions.services import BatchSubmitResult
+
+    async def _fake(**kwargs):
+        captured.update(kwargs)
+        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[FakeRun(task_result_id=None)], failed=[])
+
+    return _fake
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_shared_session_returns_one_job_on_the_main_repo(authenticated_client: TestAsyncClient):
+    captured: dict = {}
+    with patch("jobs.api.views.asubmit_shared_session_run", side_effect=_shared_submit(captured)):
+        response = await authenticated_client.post("/jobs", json={**_SHARED_BODY, "shared_session": True})
+
+    assert response.status_code == 202
+    assert [job["repo_id"] for job in response.json()["jobs"]] == ["g/app"]
+    assert [t.repo_id for t in captured["repos"]] == ["g/app", "g/mod"]
+    assert captured["thread_id"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_shared_session_errors_are_400(authenticated_client: TestAsyncClient):
+    from sessions.multi_repo import SharedSessionError
+
+    with patch("jobs.api.views.asubmit_shared_session_run", side_effect=SharedSessionError("too many")):
+        response = await authenticated_client.post("/jobs", json={**_SHARED_BODY, "shared_session": True})
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "too many"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuing_a_multi_repo_thread_needs_no_flag(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, user=user, repo_id="g/app"
+    )
+    captured: dict = {}
+    with (
+        patch("jobs.api.views.ais_multi_repo", new=AsyncMock(return_value=True)),
+        patch("jobs.api.views.asubmit_shared_session_run", side_effect=_shared_submit(captured)),
+        patch("jobs.api.views.asubmit_batch_runs") as batch,
+    ):
+        response = await authenticated_client.post(
+            "/jobs", json={"repos": [{"repo_id": "g/app"}], "prompt": "x", "thread_id": session.thread_id}
+        )
+
+    assert response.status_code == 202
+    assert captured["thread_id"] == session.thread_id
+    batch.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_multi_repo_thread_still_requires_ownership(authenticated_client: TestAsyncClient):
+    with patch("jobs.api.views.ais_multi_repo", new=AsyncMock(return_value=True)):
+        response = await authenticated_client.post(
+            "/jobs", json={"repos": [{"repo_id": "g/app"}], "prompt": "x", "thread_id": str(uuid.uuid4())}
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "thread_id not found"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_batch_path_unchanged_without_flag(authenticated_client: TestAsyncClient):
+    captured: dict = {}
+    with (
+        patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_batch_two(captured)),
+        patch("jobs.api.views.asubmit_shared_session_run") as shared,
+    ):
+        response = await authenticated_client.post("/jobs", json=_SHARED_BODY)
+
+    assert response.status_code == 202
+    assert len(response.json()["jobs"]) == 2
+    shared.assert_not_called()
+
+
+def _fake_batch_two(captured: dict):
+    from sessions.services import BatchSubmitResult
+
+    async def _fake(**kwargs):
+        captured.update(kwargs)
+        runs = [FakeRun(task_result_id=None), FakeRun(task_result_id=None)]
+        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=runs, failed=[])
+
+    return _fake
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_all_enqueue_failures_reported(authenticated_client: TestAsyncClient):
     with patch("sessions.queue.run_job_task") as mock_task:

@@ -10,6 +10,7 @@ from ninja.errors import HttpError
 from sessions.admission import AdmissionError, RepoAccessError, aadmit
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.multi_repo import SharedSessionError, ais_multi_repo, asubmit_shared_session_run
 from sessions.services import RepoTarget, asubmit_batch_runs
 
 from accounts.api.security import AuthBearer
@@ -48,10 +49,12 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     If a prior run on the thread is still in flight, the new Run is created in ``QUEUED``
     state and will be released FIFO when the prior run terminates.
     """
+    shared = payload.shared_session
     if payload.thread_id is not None:
-        if len(payload.repos) != 1:
-            return 400, {"detail": "thread_id continuation requires exactly one repo"}
         ok, err = await _validate_thread_id(payload.thread_id, request.auth)
+        shared = shared or (ok and await ais_multi_repo(str(payload.thread_id)))
+        if not shared and len(payload.repos) != 1:
+            return 400, {"detail": "thread_id continuation requires exactly one repo"}
         if not ok:
             return 400, {"detail": err}
 
@@ -63,7 +66,8 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             agent_thinking_level=payload.agent_thinking_level,
             environment=payload.environment,
         )
-        result = await asubmit_batch_runs(
+        submit = asubmit_shared_session_run if shared else asubmit_batch_runs
+        result = await submit(
             user=request.auth,
             prompt=payload.prompt,
             repos=admission.targets,
@@ -77,13 +81,13 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     except RepoAccessError as err:
         # Opaque 404: don't confirm the repo's existence to unauthorized callers.
         raise HttpError(404, str(err)) from err
-    except AdmissionError as err:
+    except (AdmissionError, SharedSessionError) as err:
         return 400, {"detail": str(err)}
 
     failed_keys = {(f.repo_id, f.ref) for f in result.failed}
     runs_iter = iter(result.runs)
     jobs: list[JobSubmitJobItem] = []
-    for spec in payload.repos:
+    for spec in payload.repos[:1] if shared else payload.repos:
         if (spec.repo_id, spec.ref or "") in failed_keys:
             continue
         run = next(runs_iter)

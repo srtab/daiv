@@ -760,13 +760,11 @@ class TestMCPThreadContinuation:
         assert captured["thread_id"] == thread_id
 
     async def test_multi_repo_with_thread_id_rejected(self):
-        user = MagicMock(pk=1)
-        with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
-            result = await submit_job(
-                repos=[{"repo_id": "a/b", "ref": None}, {"repo_id": "c/d", "ref": None}],
-                prompt="x",
-                thread_id=str(uuid.uuid4()),
-            )
+        result = await submit_job(
+            repos=[{"repo_id": "a/b", "ref": None}, {"repo_id": "c/d", "ref": None}],
+            prompt="x",
+            thread_id=str(uuid.uuid4()),
+        )
         data = json.loads(result)
         assert "exactly one repo" in data["error"]
 
