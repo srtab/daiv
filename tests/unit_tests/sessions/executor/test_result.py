@@ -14,6 +14,8 @@ class TestParseAgentResult:
             code_changes=True,
             merge_request_id=None,
             merge_request_web_url=None,
+            merge_requests=[],
+            publish_errors=[],
             usage=None,
             question=None,
         )
@@ -25,6 +27,8 @@ class TestParseAgentResult:
             code_changes=False,
             merge_request_id=None,
             merge_request_web_url=None,
+            merge_requests=[],
+            publish_errors=[],
             usage=None,
             question=None,
         )
@@ -33,7 +37,14 @@ class TestParseAgentResult:
         """Old format returned by address_issue_task / address_mr_comments_task before this change."""
         rv = {"code_changes": True}
         assert parse_agent_result(rv) == AgentResult(
-            response="", code_changes=True, merge_request_id=None, merge_request_web_url=None, usage=None, question=None
+            response="",
+            code_changes=True,
+            merge_request_id=None,
+            merge_request_web_url=None,
+            merge_requests=[],
+            publish_errors=[],
+            usage=None,
+            question=None,
         )
 
     def test_legacy_dict_code_changes_false(self):
@@ -43,6 +54,8 @@ class TestParseAgentResult:
             code_changes=False,
             merge_request_id=None,
             merge_request_web_url=None,
+            merge_requests=[],
+            publish_errors=[],
             usage=None,
             question=None,
         )
@@ -53,6 +66,8 @@ class TestParseAgentResult:
             code_changes=False,
             merge_request_id=None,
             merge_request_web_url=None,
+            merge_requests=[],
+            publish_errors=[],
             usage=None,
             question=None,
         )
@@ -64,6 +79,8 @@ class TestParseAgentResult:
             code_changes=False,
             merge_request_id=None,
             merge_request_web_url=None,
+            merge_requests=[],
+            publish_errors=[],
             usage=None,
             question=None,
         )
@@ -74,6 +91,8 @@ class TestParseAgentResult:
             code_changes=False,
             merge_request_id=None,
             merge_request_web_url=None,
+            merge_requests=[],
+            publish_errors=[],
             usage=None,
             question=None,
         )
@@ -85,6 +104,8 @@ class TestParseAgentResult:
             code_changes=False,
             merge_request_id=None,
             merge_request_web_url=None,
+            merge_requests=[],
+            publish_errors=[],
             usage=None,
             question=None,
         )
@@ -193,3 +214,81 @@ class TestBuildAgentResult:
 
         assert with_snapshot["question"] is None
         assert without_snapshot["question"] is None
+
+
+def _mr(repo_id: str, iid: int, web_url: str | None = None):
+    from codebase.base import MergeRequest, User
+
+    return MergeRequest(
+        repo_id=repo_id,
+        merge_request_id=iid,
+        source_branch=f"daiv/{iid}",
+        target_branch="main",
+        title="t",
+        description="d",
+        web_url=web_url,
+        author=User(id=1, username="bot"),
+    )
+
+
+def _publish(repo_id: str, iid: int | None = None, *, error: str | None = None) -> dict:
+    from automation.agent.publishers import RepoPublish
+
+    mr = _mr(repo_id, iid, f"https://git/{repo_id}/-/merge_requests/{iid}") if iid else None
+    return RepoPublish(repo_id=repo_id, merge_request=mr, published=bool(mr), current_ref="", error=error).to_state()
+
+
+def test_build_agent_result_lists_main_then_sibling_mrs():
+    snapshot = SimpleNamespace(
+        values={
+            "merge_request": _mr("g/main", 1, "https://git/g/main/-/merge_requests/1"),
+            "repo_publishes": [_publish("g/mod", 7), _publish("g/lib", error="Publishing to g/lib failed (X)")],
+            "main_publish_error": None,
+        }
+    )
+
+    result = build_agent_result(response="r", snapshot=snapshot, main_repo_id="g/main")
+
+    assert result["merge_requests"] == [
+        {"repo_id": "g/main", "merge_request_id": 1, "web_url": "https://git/g/main/-/merge_requests/1"},
+        {"repo_id": "g/mod", "merge_request_id": 7, "web_url": "https://git/g/mod/-/merge_requests/7"},
+    ]
+    assert result["publish_errors"] == [{"repo_id": "g/lib", "error": "Publishing to g/lib failed (X)"}]
+    assert result["merge_request_id"] == 1
+    assert result["merge_request_web_url"] == "https://git/g/main/-/merge_requests/1"
+
+
+def test_web_url_falls_back_to_first_sibling_when_main_unchanged():
+    snapshot = SimpleNamespace(
+        values={
+            "repo_publishes": [_publish("g/mod", 7), _publish("g/lib", 8)],
+            "main_publish_error": "Publishing to g/main failed (Boom)",
+        }
+    )
+
+    result = build_agent_result(response="r", snapshot=snapshot, main_repo_id="g/main")
+
+    assert result["merge_request_id"] is None
+    assert result["merge_request_web_url"] == "https://git/g/mod/-/merge_requests/7"
+    assert [item["repo_id"] for item in result["merge_requests"]] == ["g/mod", "g/lib"]
+    assert result["publish_errors"] == [{"repo_id": "g/main", "error": "Publishing to g/main failed (Boom)"}]
+
+
+def test_parse_legacy_result_has_empty_lists():
+    for rv in ({"response": "r", "code_changes": True}, "text", None):
+        parsed = parse_agent_result(rv)
+        assert parsed["merge_requests"] == []
+        assert parsed["publish_errors"] == []
+
+
+def test_parse_keeps_the_lists():
+    rv = {
+        "response": "r",
+        "merge_requests": [{"repo_id": "g/mod", "merge_request_id": 7, "web_url": "u"}],
+        "publish_errors": [{"repo_id": "g/lib", "error": "e"}],
+    }
+
+    parsed = parse_agent_result(rv)
+
+    assert parsed["merge_requests"] == rv["merge_requests"]
+    assert parsed["publish_errors"] == rv["publish_errors"]

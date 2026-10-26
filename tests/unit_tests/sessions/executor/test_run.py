@@ -260,7 +260,7 @@ async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     assert outcome.snapshot is agent.aget_state.return_value
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
     stack.build_result.assert_called_once_with(
-        response="done", usage={}, snapshot=agent.aget_state.return_value, question=None
+        response="done", usage={}, snapshot=agent.aget_state.return_value, question=None, main_repo_id="owner/repo"
     )
     on_success.assert_awaited_once_with(outcome)
     on_failure.assert_not_awaited()
@@ -417,6 +417,104 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
             "sandbox_environment_id": "env-1",
         }
     ]
+
+
+def _sibling_state(*repo_ids: str) -> list[dict]:
+    from automation.agent.publishers import RepoPublish
+    from codebase.base import MergeRequest, User
+
+    return [
+        RepoPublish(
+            repo_id=repo_id,
+            merge_request=MergeRequest(
+                repo_id=repo_id,
+                merge_request_id=index,
+                source_branch=f"daiv/{index}",
+                target_branch="main",
+                title="t",
+                description="d",
+                web_url=f"https://git/{repo_id}/-/merge_requests/{index}",
+                author=User(id=1, username="bot"),
+            ),
+            published=True,
+            current_ref=f"daiv/{index}",
+        ).to_state()
+        for index, repo_id in enumerate(repo_ids, start=1)
+    ]
+
+
+async def test_after_run_arms_a_watch_per_sibling_mr_with_its_env():
+    rows = [
+        SimpleNamespace(repo_id="g/mod", ref="", sandbox_environment_id="env-b"),
+        SimpleNamespace(repo_id="g/lib", ref="", sandbox_environment_id=None),
+    ]
+    spec = make_spec(persist_ref=True, arm_watch=True, run_id="run-1", acting_user_id=7, sandbox_env_id="env-1")
+    state = {"merge_request": MR, "published": True, "repo_publishes": _sibling_state("g/mod", "g/lib")}
+
+    with (
+        agent_stack(_agent(state=state)) as stack,
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+    ):
+        stack.load_extra_repos.return_value = rows
+        await execute_run(spec)
+
+    assert [(a["repo_id"], a["sandbox_environment_id"], a["published"]) for a in stack.armed] == [
+        ("owner/repo", "env-1", True),
+        ("g/mod", "env-b", True),
+        ("g/lib", None, True),
+    ]
+    assert stack.armed[1]["merge_request"].merge_request_id == 1
+    assert stack.armed[1]["run_id"] == "run-1"
+    assert stack.armed[1]["user_id"] == 7
+    persisted = stack.persist_extra.await_args.args
+    assert persisted[0] == spec.thread_id
+    assert [rp.repo_id for rp in persisted[1]] == ["g/mod", "g/lib"]
+
+
+async def test_after_run_a_raising_sibling_arm_does_not_stop_the_next(caplog):
+    from sessions.executor import run as run_module
+
+    calls = []
+
+    class _Watch:
+        def __init__(self, repo_id):
+            self.repo_id = repo_id
+
+        async def aarm_after_run(self, **kwargs):
+            calls.append(self.repo_id)
+            if self.repo_id == "g/mod":
+                raise RuntimeError("boom")
+
+    spec = make_spec(persist_ref=True, arm_watch=True)
+    state = {"repo_publishes": _sibling_state("g/mod", "g/lib")}
+
+    with (
+        agent_stack(_agent(state=state)),
+        patch.object(run_module, "PipelineWatch", _Watch),
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+        caplog.at_level("ERROR"),
+    ):
+        await execute_run(spec)
+
+    assert calls == ["owner/repo", "g/mod", "g/lib"]
+    assert "failed to arm pipeline watch for g/mod" in caplog.text
+
+
+async def test_after_run_skips_persist_without_snapshot():
+    agent = _agent()
+    agent.aget_state = AsyncMock(side_effect=RedisError("down"))
+
+    with (
+        agent_stack(agent) as stack,
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+    ):
+        await execute_run(make_spec(persist_ref=True))
+
+    stack.persist.assert_not_awaited()
+    stack.persist_extra.assert_not_awaited()
 
 
 @pytest.mark.parametrize(("persist_ref", "arm_watch"), [(True, False), (False, True), (False, False)])

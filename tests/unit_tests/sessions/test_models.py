@@ -422,3 +422,24 @@ def test_merge_request_links_prefers_list_and_falls_back_to_legacy_url():
 
     run.merge_request_web_url = ""
     assert run.merge_request_links() == []
+
+
+def test_field_updates_include_merge_requests_and_errors():
+    result = parse_agent_result({
+        "response": "r",
+        "merge_requests": [
+            {"repo_id": "g/mod", "merge_request_id": 7, "web_url": "https://git/g/mod/-/merge_requests/7"}
+        ],
+        "publish_errors": [{"repo_id": "g/lib", "error": "boom"}],
+    })
+
+    updates = agent_result_field_updates(result)
+
+    assert updates["merge_requests"] == [
+        {"repo_id": "g/mod", "merge_request_iid": 7, "web_url": "https://git/g/mod/-/merge_requests/7"}
+    ]
+    assert updates["publish_errors"] == [{"repo_id": "g/lib", "error": "boom"}]
+
+
+def test_field_updates_leave_out_empty_lists():
+    assert agent_result_field_updates(parse_agent_result({"response": "r"})) == {}

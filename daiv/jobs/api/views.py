@@ -16,7 +16,15 @@ from sessions.services import RepoTarget, asubmit_batch_runs
 from accounts.api.security import AuthBearer
 from core.api.throttling import JobsRateThrottle
 
-from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
+from .schemas import (
+    JobMergeRequestItem,
+    JobPublishErrorItem,
+    JobStatusResponse,
+    JobSubmitFailureItem,
+    JobSubmitJobItem,
+    JobSubmitRequest,
+    JobSubmitResponse,
+)
 
 if TYPE_CHECKING:
     from accounts.models import User
@@ -127,6 +135,8 @@ async def get_job_status(request: HttpRequest, job_id: str):
         result=run.response_text or None,
         question=run.question,
         merge_request_url=run.merge_request_web_url or None,
+        merge_requests=[JobMergeRequestItem(**link) for link in run.merge_request_links()],
+        publish_errors=[JobPublishErrorItem(**item) for item in run.publish_errors],
         artifacts=artifacts,
         artifacts_error=artifacts_error,
         error=error,

@@ -441,6 +441,38 @@ async def test_get_job_status_successful(authenticated_client: TestAsyncClient):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_job_status_lists_every_mr_and_error(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, merge_request_web_url="https://git/g/main/-/merge_requests/1")
+    run.merge_requests = [
+        {"repo_id": "group/project", "merge_request_iid": 1, "web_url": "https://git/g/main/-/merge_requests/1"},
+        {"repo_id": "g/mod", "merge_request_iid": 7, "web_url": "https://git/g/mod/-/merge_requests/7"},
+    ]
+    run.publish_errors = [{"repo_id": "g/lib", "error": "Publishing to g/lib failed (X)"}]
+    await run.asave()
+
+    data = (await authenticated_client.get(f"/jobs/{run.id}")).json()
+
+    assert data["merge_request_url"] == "https://git/g/main/-/merge_requests/1"
+    assert data["merge_requests"] == [
+        {"repo_id": "group/project", "url": "https://git/g/main/-/merge_requests/1"},
+        {"repo_id": "g/mod", "url": "https://git/g/mod/-/merge_requests/7"},
+    ]
+    assert data["publish_errors"] == [{"repo_id": "g/lib", "error": "Publishing to g/lib failed (X)"}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_job_status_legacy_run_lists_its_single_mr(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, merge_request_web_url="https://git/g/p/-/merge_requests/3")
+
+    data = (await authenticated_client.get(f"/jobs/{run.id}")).json()
+
+    assert data["merge_requests"] == [{"repo_id": "group/project", "url": "https://git/g/p/-/merge_requests/3"}]
+    assert data["publish_errors"] == []
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_get_job_status_returns_the_full_response_past_the_summary_cap(authenticated_client: TestAsyncClient):
     user = await User.objects.aget(username="testuser")
     response_text = "x" * 2500

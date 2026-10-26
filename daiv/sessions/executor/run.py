@@ -23,7 +23,7 @@ from sessions.executor.lock import SessionLockLostError, hold_session_lock, stil
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.models import Run, SessionRepository
-from sessions.multi_repo import aload_extra_repos
+from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import apersist_session_ref, areset_session_ref
 
@@ -503,7 +503,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     from automation.agent.questions import pending_question
     from automation.agent.usage_tracking import build_usage_summary
     from automation.agent.utils import extract_text_content
-    from sessions.executor.result import build_agent_result
+    from sessions.executor.result import build_agent_result, repo_publishes_from_state
 
     snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}
@@ -512,6 +512,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         response_text = extract_text_content(messages[-1].content) if messages else ""
     merge_request = values.get("merge_request")
     published = bool(values.get("published"))
+    sibling_publishes = repo_publishes_from_state(values)
     # An unread checkpoint must not pass for one that published nothing: that would pin a blank ref to the clone's.
     if spec.persist_ref and snapshot is not None:
         try:
@@ -523,6 +524,10 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
             )
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
+        try:
+            await apersist_extra_repo_state(run.thread_id, sibling_publishes)
+        except Exception:
+            logger.exception("executor: failed to persist extra repository state for thread_id=%s", run.thread_id)
     if spec.arm_watch:
         try:
             await PipelineWatch(spec.repo_id).aarm_after_run(
@@ -534,12 +539,30 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
             )
         except Exception:
             logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)
+        env_by_repo = {row.repo_id: row.sandbox_environment_id for row in run.extra_repos}
+        for rp in sibling_publishes:
+            if rp.merge_request is None:
+                continue
+            env_id = env_by_repo.get(rp.repo_id)
+            try:
+                await PipelineWatch(rp.repo_id).aarm_after_run(
+                    run_id=spec.run_id,
+                    merge_request=rp.merge_request,
+                    published=rp.published,
+                    user_id=spec.acting_user_id,
+                    sandbox_environment_id=str(env_id) if env_id else None,
+                )
+            except Exception:
+                logger.exception(
+                    "executor: failed to arm pipeline watch for %s of thread_id=%s", rp.repo_id, run.thread_id
+                )
 
     agent_result = build_agent_result(
         response=response_text,
         usage=build_usage_summary(run.usage).to_dict(),
         snapshot=snapshot,
         question=pending_question(messages),
+        main_repo_id=spec.repo_id,
     )
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
 

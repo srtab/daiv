@@ -3,8 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from automation.agent.git_state import checkpointed_merge_request
+from automation.agent.publishers import RepoPublish
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from langgraph.types import StateSnapshot
 
 
@@ -26,11 +29,25 @@ class AgentResult(TypedDict):
     merge_request_web_url: str | None
     """The full URL to the merge request, or None if no MR is linked."""
 
+    merge_requests: list[dict[str, Any]]
+    """Every MR the run opened, main repository first: ``{"repo_id", "merge_request_id", "web_url"}``."""
+
+    publish_errors: list[dict[str, str]]
+    """Repositories whose publish failed: ``{"repo_id", "error"}``."""
+
     usage: dict[str, Any] | None
     """Token usage and cost summary, or None if not available."""
 
     question: dict[str, Any] | None
     """The question the run ended on (``{"questions": [...]}``), or None when it ended without one."""
+
+
+def _dict_items(value: Any) -> list[dict[str, Any]]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def repo_publishes_from_state(values: Mapping[str, Any]) -> list[RepoPublish]:
+    return [RepoPublish.from_state(item) for item in values.get("repo_publishes") or []]
 
 
 def parse_agent_result(rv: dict | str | None) -> AgentResult:
@@ -45,6 +62,8 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
             code_changes=bool(rv.get("code_changes")),
             merge_request_id=rv.get("merge_request_id"),
             merge_request_web_url=rv.get("merge_request_web_url"),
+            merge_requests=_dict_items(rv.get("merge_requests")),
+            publish_errors=_dict_items(rv.get("publish_errors")),
             usage=rv.get("usage") if isinstance(rv.get("usage"), dict) else None,
             question=rv.get("question") if isinstance(rv.get("question"), dict) else None,
         )
@@ -53,6 +72,8 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
         code_changes=False,
         merge_request_id=None,
         merge_request_web_url=None,
+        merge_requests=[],
+        publish_errors=[],
         usage=None,
         question=None,
     )
@@ -64,6 +85,7 @@ def build_agent_result(
     snapshot: StateSnapshot | None,
     usage: dict[str, Any] | None = None,
     question: dict[str, Any] | None = None,
+    main_repo_id: str = "",
 ) -> AgentResult:
     """Build a standardized :class:`AgentResult` from the agent's persisted state.
 
@@ -76,15 +98,28 @@ def build_agent_result(
             code_changes=False,
             merge_request_id=None,
             merge_request_web_url=None,
+            merge_requests=[],
+            publish_errors=[],
             usage=usage,
             question=question,
         )
     mr = checkpointed_merge_request(snapshot.values, strict=False)
+    publishes = repo_publishes_from_state(snapshot.values)
+    owned = [(main_repo_id or mr.repo_id, mr)] if mr else []
+    owned += [(rp.repo_id, rp.merge_request) for rp in publishes if rp.merge_request]
+    merge_requests = [
+        {"repo_id": repo_id, "merge_request_id": m.merge_request_id, "web_url": m.web_url} for repo_id, m in owned
+    ]
+    errors = [(main_repo_id, snapshot.values.get("main_publish_error")), *((rp.repo_id, rp.error) for rp in publishes)]
+    publish_errors = [{"repo_id": repo_id, "error": error} for repo_id, error in errors if error]
+    web_url = next((item["web_url"] for item in merge_requests if item["web_url"]), None)
     return AgentResult(
         response=response,
         code_changes=bool(snapshot.values.get("code_changes")),
         merge_request_id=mr.merge_request_id if mr else None,
-        merge_request_web_url=mr.web_url if mr else None,
+        merge_request_web_url=web_url,
+        merge_requests=merge_requests,
+        publish_errors=publish_errors,
         usage=usage,
         question=question,
     )

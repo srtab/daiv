@@ -327,6 +327,8 @@ async def test_submit_job_wait_success():
             finished.started_at = now
             finished.finished_at = now
             finished.question = None
+            finished.merge_request_links.return_value = []
+            finished.publish_errors = []
             return _AsyncRows([finished])
 
         mock_model.objects.filter = MagicMock(side_effect=lambda **kw: _make_filter(**kw))
@@ -455,6 +457,8 @@ async def test_get_job_status_wait_already_complete():
     mock_run.started_at = now
     mock_run.finished_at = now
     mock_run.question = None
+    mock_run.merge_request_links.return_value = []
+    mock_run.publish_errors = []
 
     caller = MagicMock(pk=1)
     with (
@@ -493,6 +497,8 @@ async def test_get_job_status_wait_polls_until_complete():
     finished_result.started_at = now
     finished_result.finished_at = now
     finished_result.question = None
+    finished_result.merge_request_links.return_value = []
+    finished_result.publish_errors = []
 
     caller = MagicMock(pk=1)
     with (
@@ -528,6 +534,8 @@ async def test_get_job_status_wait_not_found_then_appears():
     finished_result.started_at = now
     finished_result.finished_at = now
     finished_result.question = None
+    finished_result.merge_request_links.return_value = []
+    finished_result.publish_errors = []
 
     class _DoesNotExistError(Exception):
         pass

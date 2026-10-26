@@ -60,6 +60,16 @@ class JobSubmitResponse(Schema):
     failed: list[JobSubmitFailureItem]
 
 
+class JobMergeRequestItem(Schema):
+    repo_id: str
+    url: str
+
+
+class JobPublishErrorItem(Schema):
+    repo_id: str
+    error: str
+
+
 class JobStatusResponse(Schema):
     job_id: str
     status: Literal["QUEUED", "READY", "RUNNING", "SUCCESSFUL", "WAITING_INPUT", "FAILED"]
@@ -71,6 +81,12 @@ class JobStatusResponse(Schema):
         "this thread_id and the answer as the prompt.",
     )
     merge_request_url: str | None = None
+    merge_requests: list[JobMergeRequestItem] = Field(
+        default_factory=list, description="Every merge request the run opened, one per changed repository."
+    )
+    publish_errors: list[JobPublishErrorItem] = Field(
+        default_factory=list, description="Repositories whose publish failed; their work is not published."
+    )
     artifacts: list[ArtifactPayload] = Field(
         default_factory=list, description="Files the agent published from this run, with viewer and download URLs."
     )

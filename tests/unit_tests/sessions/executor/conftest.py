@@ -121,6 +121,7 @@ def agent_stack(
         stack.events.append("stream ended")
 
     persist = AsyncMock(side_effect=_persist_ref)
+    persist_extra = AsyncMock()
     reset = AsyncMock()
     load_extra_repos = AsyncMock(return_value=[])
 
@@ -145,6 +146,7 @@ def agent_stack(
         patch.multiple(
             "sessions.executor.run",
             apersist_session_ref=persist,
+            apersist_extra_repo_state=persist_extra,
             areset_session_ref=reset,
             aload_extra_repos=load_extra_repos,
         ),
@@ -166,6 +168,7 @@ def agent_stack(
         stack.langsmith = langsmith
         stack.build_result = build_result
         stack.persist = persist
+        stack.persist_extra = persist_extra
         stack.reset = reset
         stack.load_extra_repos = load_extra_repos
         stack.build_absolute_url = build_absolute_url

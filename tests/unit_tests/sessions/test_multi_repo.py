@@ -13,6 +13,7 @@ from sessions.multi_repo import (
     SharedSessionError,
     ais_multi_repo,
     aload_extra_repos,
+    apersist_extra_repo_state,
     asubmit_shared_session_run,
 )
 from sessions.services import RepoTarget
@@ -173,3 +174,67 @@ async def test_enqueue_failure_is_reported_as_failed(member_user):
 
     assert result.runs == []
     assert result.failed[0].repo_id == "g/app"
+
+
+def _publish(repo_id, *, iid=None, branch="", published=False, current_ref="", error=None):
+    from automation.agent.publishers import RepoPublish
+    from codebase.base import MergeRequest, User
+
+    mr = (
+        MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=iid,
+            source_branch=branch,
+            target_branch="main",
+            title="t",
+            description="d",
+            web_url=f"https://git/{repo_id}/-/merge_requests/{iid}",
+            author=User(id=1, username="bot"),
+        )
+        if iid
+        else None
+    )
+    return RepoPublish(repo_id=repo_id, merge_request=mr, published=published, current_ref=current_ref, error=error)
+
+
+async def _session_with_rows(*repo_ids):
+    session = await Session.objects.acreate(thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="g/main")
+    for position, repo_id in enumerate(repo_ids, start=1):
+        await SessionRepository.objects.acreate(session=session, position=position, repo_id=repo_id)
+    return session
+
+
+async def test_persist_extra_repo_state_keeps_each_branch_and_mr():
+    session = await _session_with_rows("g/mod", "g/lib", "g/err")
+
+    await apersist_extra_repo_state(
+        session.thread_id,
+        [
+            _publish("g/mod", iid=7, branch="daiv/mod", published=True),
+            _publish("g/lib", iid=8, branch="daiv/lib", published=True),
+            _publish("g/err", error="boom", current_ref="daiv/err"),
+            _publish("g/unknown", iid=9, branch="daiv/x", published=True),
+        ],
+    )
+
+    rows = {row.repo_id: row for row in await aload_extra_repos(session.thread_id)}
+    assert (rows["g/mod"].ref, rows["g/mod"].merge_request_iid) == ("daiv/mod", 7)
+    assert rows["g/mod"].merge_request_web_url == "https://git/g/mod/-/merge_requests/7"
+    assert (rows["g/lib"].ref, rows["g/lib"].merge_request_iid) == ("daiv/lib", 8)
+    assert (rows["g/err"].ref, rows["g/err"].merge_request_iid) == ("", None)
+
+
+async def test_persist_extra_repo_state_without_an_mr():
+    session = await _session_with_rows("g/pushed", "g/local", "g/detached")
+
+    await apersist_extra_repo_state(
+        session.thread_id,
+        [
+            _publish("g/pushed", published=True, current_ref="daiv/pushed"),
+            _publish("g/local", published=False, current_ref="feat/local"),
+            _publish("g/detached", published=False, current_ref=""),
+        ],
+    )
+
+    refs = {row.repo_id: row.ref for row in await aload_extra_repos(session.thread_id)}
+    assert refs == {"g/pushed": "", "g/local": "feat/local", "g/detached": ""}

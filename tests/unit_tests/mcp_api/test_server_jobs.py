@@ -428,3 +428,43 @@ def test_the_submit_job_description_advertises_every_special_provider():
     for provider in RefProvider:
         if provider is not RefProvider.GENERIC:
             assert provider.value in description, f"{provider.value} is not advertised to the model"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_job_status_lists_every_mr_and_error(_default_mcp_user):
+    from mcp_api.server import get_job_status
+
+    run = await _run(
+        await _session(_default_mcp_user),
+        status=RunStatus.SUCCESSFUL,
+        merge_request_web_url="https://git/a/b/-/merge_requests/1",
+        merge_requests=[
+            {"repo_id": "a/b", "merge_request_iid": 1, "web_url": "https://git/a/b/-/merge_requests/1"},
+            {"repo_id": "g/mod", "merge_request_iid": 7, "web_url": "https://git/g/mod/-/merge_requests/7"},
+        ],
+        publish_errors=[{"repo_id": "g/lib", "error": "boom"}],
+    )
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data["merge_requests"] == [
+        {"repo_id": "a/b", "url": "https://git/a/b/-/merge_requests/1"},
+        {"repo_id": "g/mod", "url": "https://git/g/mod/-/merge_requests/7"},
+    ]
+    assert data["publish_errors"] == [{"repo_id": "g/lib", "error": "boom"}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_job_status_legacy_run_lists_its_single_mr(_default_mcp_user):
+    from mcp_api.server import get_job_status
+
+    run = await _run(
+        await _session(_default_mcp_user),
+        status=RunStatus.SUCCESSFUL,
+        merge_request_web_url="https://git/a/b/-/merge_requests/3",
+    )
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data["merge_requests"] == [{"repo_id": "a/b", "url": "https://git/a/b/-/merge_requests/3"}]
+    assert data["publish_errors"] == []

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from accounts.models import User
+    from automation.agent.publishers import RepoPublish
     from automation.agent.references import RefIn
     from sessions.models import Run
 
@@ -39,6 +40,25 @@ async def ais_multi_repo(thread_id: str) -> bool:
 
 async def aload_extra_repos(thread_id: str) -> list[SessionRepository]:
     return [row async for row in SessionRepository.objects.filter(session_id=thread_id).order_by("position")]
+
+
+async def apersist_extra_repo_state(thread_id: str, publishes: Sequence[RepoPublish]) -> None:
+    """Keep each extra repository's working branch and MR on its row, so the next turn continues there.
+
+    A failed publish leaves its row alone; a blank ref is never written, since it means the default branch.
+    """
+    for rp in publishes:
+        rows = SessionRepository.objects.filter(session_id=thread_id, repo_id=rp.repo_id)
+        if rp.error:
+            continue
+        if rp.merge_request is not None:
+            await rows.aupdate(
+                ref=rp.merge_request.source_branch,
+                merge_request_iid=rp.merge_request.merge_request_id,
+                merge_request_web_url=rp.merge_request.web_url or "",
+            )
+        elif not rp.published and rp.current_ref:
+            await rows.aupdate(ref=rp.current_ref)
 
 
 def _validate_new(repos: list[RepoTarget]) -> None:

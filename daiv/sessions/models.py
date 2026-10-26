@@ -243,6 +243,11 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
         "code_changes": result["code_changes"],
         "merge_request_iid": result["merge_request_id"],
         "merge_request_web_url": result["merge_request_web_url"],
+        "merge_requests": [
+            {"repo_id": item["repo_id"], "merge_request_iid": item["merge_request_id"], "web_url": item["web_url"]}
+            for item in result["merge_requests"]
+        ],
+        "publish_errors": result["publish_errors"],
     }
     return {field: value for field, value in updates.items() if value}
 
