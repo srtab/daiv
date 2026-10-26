@@ -372,6 +372,22 @@ async def test_shared_session_errors_are_returned(_default_mcp_user):
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "repos",
+    [[{"repo_id": f"g/r{i}", "ref": None} for i in range(6)], [{"repo_id": "g/app"}, {"repo_id": "g/app"}]],
+    ids=["too-many", "duplicate"],
+)
+async def test_a_bad_shared_session_list_is_refused_before_admission(_default_mcp_user, repos):
+    from mcp_api.server import submit_job
+
+    with patch("mcp_api.server._allow_job_submission", return_value=True), patch("mcp_api.server.aadmit") as admit:
+        result = await submit_job(repos=repos, prompt="x", shared_session=True)
+
+    assert "error" in json.loads(result)
+    admit.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_continuing_a_multi_repo_thread_needs_no_flag(_default_mcp_user):
     from mcp_api.server import submit_job
 

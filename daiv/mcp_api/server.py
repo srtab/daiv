@@ -23,7 +23,7 @@ from sandbox_envs.services import alist_visible_environments
 from sessions.admission import AdmissionError, aadmit, aassert_repo_access, aresolve_environment, check_agent_override
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.multi_repo import SharedSessionError, ais_multi_repo, asubmit_shared_session_run
+from sessions.multi_repo import SharedSessionError, ais_multi_repo, asubmit_shared_session_run, validate_shared_repos
 from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, asubmit_batch_runs
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
@@ -269,10 +269,13 @@ async def submit_job(
         if not owned:
             return json.dumps({"error": _THREAD_NOT_FOUND})
 
+    targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs]
     try:
+        if shared_session:
+            validate_shared_repos(targets, continuation=thread_id_str is not None)
         admission = await aadmit(
             user=mcp_user,
-            repos=[RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs],
+            repos=targets,
             agent_model=agent_model,
             agent_thinking_level=agent_thinking_level,
             environment=environment,

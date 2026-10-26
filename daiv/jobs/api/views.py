@@ -10,7 +10,7 @@ from ninja.errors import HttpError
 from sessions.admission import AdmissionError, RepoAccessError, aadmit
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.multi_repo import SharedSessionError, ais_multi_repo, asubmit_shared_session_run
+from sessions.multi_repo import SharedSessionError, ais_multi_repo, asubmit_shared_session_run, validate_shared_repos
 from sessions.services import RepoTarget, asubmit_batch_runs
 
 from accounts.api.security import AuthBearer
@@ -66,10 +66,13 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
         if not ok:
             return 400, {"detail": err}
 
+    repos = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos]
     try:
+        if shared:
+            validate_shared_repos(repos, continuation=payload.thread_id is not None)
         admission = await aadmit(
             user=request.auth,
-            repos=[RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos],
+            repos=repos,
             agent_model=payload.agent_model,
             agent_thinking_level=payload.agent_thinking_level,
             environment=payload.environment,

@@ -61,7 +61,8 @@ async def apersist_extra_repo_state(thread_id: str, publishes: Sequence[RepoPubl
             await rows.aupdate(ref=rp.current_ref)
 
 
-def _validate_new(repos: list[RepoTarget]) -> None:
+def validate_shared_repos(repos: Sequence[RepoTarget], *, continuation: bool) -> None:
+    """Check the shape of a shared-session list, without reading anything; run it before admission."""
     if not repos:
         raise SharedSessionError("repos must contain at least one entry")
     if len(repos) > MAX_REPOS_PER_SESSION:
@@ -70,11 +71,11 @@ def _validate_new(repos: list[RepoTarget]) -> None:
     duplicates = sorted({repo_id for repo_id in repo_ids if repo_ids.count(repo_id) > 1})
     if duplicates:
         raise SharedSessionError(f"repos lists the same repository more than once: {', '.join(duplicates)}")
+    if continuation and any(target.ref for target in repos):
+        raise SharedSessionError("a continuation of a shared session cannot set a ref; it reuses the stored branches")
 
 
 def _validate_continuation(repos: list[RepoTarget], stored_ids: list[str]) -> None:
-    if any(target.ref for target in repos):
-        raise SharedSessionError("a continuation of a shared session cannot set a ref; it reuses the stored branches")
     sent = [target.repo_id for target in repos]
     if sent != stored_ids[:1] and sent != stored_ids:
         raise SharedSessionError(
@@ -124,6 +125,7 @@ async def asubmit_shared_session_run(
     references: Sequence[RefIn] | None = None,
 ) -> BatchSubmitResult:
     """Submit one run over several repositories: a new shared session, or a continuation of one."""
+    validate_shared_repos(repos, continuation=thread_id is not None)
     stored_refs = [ref.to_stored() for ref in references or []]
     if len(stored_refs) > MAX_REFS_PER_SUBMISSION:
         raise SharedSessionError(f"references exceeds the maximum of {MAX_REFS_PER_SUBMISSION}")
@@ -138,7 +140,6 @@ async def asubmit_shared_session_run(
     batch_id = uuid.uuid4()
 
     if thread_id is None:
-        _validate_new(repos)
         await aassert_repo_access(user, [target.repo_id for target in repos])
         target = repos[0]
         new_thread_id = str(uuid.uuid4())

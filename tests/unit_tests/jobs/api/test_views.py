@@ -333,6 +333,42 @@ async def test_shared_session_errors_are_400(authenticated_client: TestAsyncClie
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "repos",
+    [[{"repo_id": f"g/r{i}"} for i in range(6)], [{"repo_id": "g/app"}, {"repo_id": "g/app"}]],
+    ids=["too-many", "duplicate"],
+)
+async def test_a_bad_shared_session_list_is_refused_before_admission(authenticated_client: TestAsyncClient, repos):
+    with patch("jobs.api.views.aadmit") as admit:
+        response = await authenticated_client.post(
+            "/jobs", json={"repos": repos, "prompt": "x", "shared_session": True}
+        )
+
+    assert response.status_code == 400
+    admit.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_shared_continuation_with_a_ref_is_refused_before_admission(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, user=user, repo_id="g/app"
+    )
+
+    with (
+        patch("jobs.api.views.ais_multi_repo", new=AsyncMock(return_value=True)),
+        patch("jobs.api.views.aadmit") as admit,
+    ):
+        response = await authenticated_client.post(
+            "/jobs", json={"repos": [{"repo_id": "g/app", "ref": "dev"}], "prompt": "x", "thread_id": session.thread_id}
+        )
+
+    assert response.status_code == 400
+    assert "cannot set a ref" in response.json()["detail"]
+    admit.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_continuing_a_multi_repo_thread_needs_no_flag(authenticated_client: TestAsyncClient):
     user = await User.objects.aget(username="testuser")
     session = await Session.objects.acreate(
