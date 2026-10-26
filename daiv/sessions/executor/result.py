@@ -3,16 +3,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, TypedDict
 
-from automation.agent.git_state import checkpointed_merge_request
+from automation.agent.git_state import checkpointed_merge_request, checkpointed_repo_publishes
 
 logger = logging.getLogger("daiv.sessions")
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from langgraph.types import StateSnapshot
-
-    from automation.agent.publishers import RepoPublish
 
 
 class AgentResult(TypedDict):
@@ -50,20 +46,6 @@ def _dict_items(value: Any) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
-def repo_publishes_from_state(values: Mapping[str, Any]) -> list[RepoPublish]:
-    from automation.agent.publishers import RepoPublish
-
-    items = values.get("repo_publishes")
-    publishes = []
-    for item in items if isinstance(items, list) else []:
-        try:
-            publishes.append(RepoPublish.from_state(item))
-        except AttributeError, KeyError, ValueError, TypeError:
-            repo_id = item.get("repo_id") if isinstance(item, dict) else None
-            logger.exception("Skipping an unreadable sibling publish (repo_id=%s)", repo_id)
-    return publishes
-
-
 def parse_agent_result(rv: dict | str | None) -> AgentResult:
     """Parse a DBTaskResult.return_value into an AgentResult.
 
@@ -99,7 +81,7 @@ def build_agent_result(
     snapshot: StateSnapshot | None,
     usage: dict[str, Any] | None = None,
     question: dict[str, Any] | None = None,
-    main_repo_id: str = "",
+    main_repo_id: str,
 ) -> AgentResult:
     """Build a standardized :class:`AgentResult` from the agent's persisted state.
 
@@ -118,8 +100,8 @@ def build_agent_result(
             question=question,
         )
     mr = checkpointed_merge_request(snapshot.values, strict=False)
-    publishes = repo_publishes_from_state(snapshot.values)
-    owned = [(main_repo_id or mr.repo_id, mr)] if mr else []
+    publishes = checkpointed_repo_publishes(snapshot.values)
+    owned = [(main_repo_id, mr)] if mr else []
     owned += [(rp.repo_id, rp.merge_request) for rp in publishes if rp.merge_request]
     merge_requests: list[dict[str, Any]] = [
         {"repo_id": repo_id, "merge_request_id": m.merge_request_id, "web_url": m.web_url} for repo_id, m in owned

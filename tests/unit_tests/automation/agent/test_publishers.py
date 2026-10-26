@@ -12,11 +12,11 @@ from pydantic import SecretStr
 from accounts.utils import PlatformIdentity
 from automation.agent.constants import REPO_PATH
 from automation.agent.context import RuntimeCtx
+from automation.agent.git_state import RepoPublish
 from automation.agent.publishers import (
     SESSION_TRAILER,
     GitChangePublisher,
     PublishOutcome,
-    RepoPublish,
     UnresolvedMergeConflictsError,
     append_trailer,
     apublish_extra_repos,
@@ -32,7 +32,7 @@ from codebase.clients.base import GitEgressCredential
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
-from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, PlatformCredential, with_platform_credentials
+from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credentials
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
 from tests.unit_tests.automation.agent.conftest import make_merge_request, make_repo_handle
 from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, agent_settings, site_snapshot
@@ -42,10 +42,6 @@ if TYPE_CHECKING:
 
 # The fake ``"diff"`` body has no hunks, so counting it yields zeros.
 _LOCAL_STATS = MergeRequestDiffStats()
-
-
-def _platform(credential):
-    return PlatformCredential(host=credential.host, header=credential.header, token=credential.value)
 
 
 def _fake_git_manager(
@@ -153,7 +149,7 @@ def _turn_start_egress(
 ) -> EgressConfigRequest:
     """The turn-start egress: the git-host rule layered on ``env``, credentialed when ``token`` is set."""
     credential = _platform_credential(token)
-    return with_platform_credentials(env, [_platform(credential)])
+    return with_platform_credentials(env, [credential])
 
 
 class TestSuggestContextFile:
@@ -1571,9 +1567,7 @@ async def test_sibling_commit_metadata_reads_the_siblings_context_file(monkeypat
     publisher, captured = _publisher_with_graph_capture(monkeypatch)
     publisher.ctx.scope = None
     run_workspace = publisher.workspace
-    publisher.workspace = RepoWorkspace(
-        run_workspace, repo_path="/workspace/repos/g/mod", git=Mock(), authenticate=AsyncMock()
-    )
+    publisher.workspace = RepoWorkspace(run_workspace.backend, "/workspace/repos/g/mod", AsyncMock())
 
     await publisher._diff_to_metadata(commit_message_diff="diff")
 
@@ -1834,9 +1828,11 @@ class TestPublishExtraRepos:
 
         _, pub_cls, _, workspace = await _publish_extras(ctx, session_links=links)
 
-        workspace.for_repo.assert_called_once_with(mod, path="/workspace/repos/g/mod")
+        workspace.for_repo.assert_called_once_with(mod)
         pub_cls.assert_called_once()
-        assert pub_cls.call_args.args == (ctx.for_repo(mod), workspace.for_repo.return_value)
+        view, publish_workspace = pub_cls.call_args.args
+        assert view.repos == (mod,)
+        assert publish_workspace is workspace.for_repo.return_value
         assert pub_cls.call_args.kwargs["session_links"] is links
 
     async def test_a_sibling_publish_drops_platform_issue_refs_but_keeps_the_others(self):
@@ -1887,7 +1883,7 @@ class TestPublishExtraRepos:
                 current_ref="main",
                 error="Publishing to g/mod failed (RuntimeError)",
             ),
-            RepoPublish(repo_id="g/web", merge_request=web_mr, published=True, current_ref="daiv/fix"),
+            RepoPublish(repo_id="g/web", merge_request=web_mr, published=True, current_ref="main"),
         ]
         assert "push rejected" in caplog.text
 
@@ -1908,7 +1904,7 @@ class TestPublishExtraRepos:
         ],
         ids=["branch", "detached-head"],
     )
-    async def test_with_no_merge_request_current_ref_is_the_clones_branch(self, handle, current_ref):
+    async def test_current_ref_is_the_clones_branch(self, handle, current_ref):
         [publish], _, _, _ = await _publish_extras(_multi_repo_ctx(handle))
 
         assert publish.current_ref == current_ref

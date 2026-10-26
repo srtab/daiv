@@ -6,8 +6,9 @@ from git import GitCommandError
 from langchain_core.messages import AIMessage
 
 from automation.agent.context import RuntimeCtx
+from automation.agent.git_state import RepoPublish
 from automation.agent.middlewares.git import GitMiddleware
-from automation.agent.publishers import PublishOutcome, RepoPublish, UnresolvedMergeConflictsError
+from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflictsError
 from automation.agent.workspace.git_manager import GitPushPermissionError
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
@@ -24,6 +25,8 @@ def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
     runtime.context.merge_request = None
     runtime.context.repository = Mock(slug="a/b")
     runtime.context.config = Mock(default_branch="main")
+    runtime.context.repo.repository = runtime.context.repository
+    runtime.context.repo.config = runtime.context.config
     runtime.context.repo.head_detached = False
     runtime.context.extra_repos = ()
     return runtime
@@ -736,7 +739,6 @@ class TestGitMiddleware:
                 config=SimpleNamespace(default_branch="main"),
             ),
         )
-        runtime.context.workspace_path = lambda handle: f"/workspace/repos/{handle.repository.slug}"
 
         prompt = await self._render_git_prompt(GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace()), runtime)
 
@@ -792,16 +794,19 @@ class TestGitMiddleware:
             git=MagicMock(get_changed_files=AsyncMock(return_value=[]), get_diff=AsyncMock(return_value=""))
         )
         mw = GitMiddleware(settings=SETTINGS, workspace=workspace, auto_commit_changes=True, capture_patch=True)
+        repository, config = Mock(slug="a/b"), Mock(default_branch="main")
         runtime = Mock(
             context=SimpleNamespace(
                 scope=Scope.GLOBAL,
                 merge_request=None,
                 issue=None,
-                repository=Mock(slug="a/b"),
-                config=Mock(default_branch="main"),
+                repository=repository,
+                config=config,
                 git_platform=Mock(value="gitlab"),
                 extra_repos=(),
                 repo=SimpleNamespace(
+                    repository=repository,
+                    config=config,
                     current_ref="feature-x",
                     head_detached=False,
                     client=MagicMock(get_merge_request_by_branches=MagicMock(return_value=None)),

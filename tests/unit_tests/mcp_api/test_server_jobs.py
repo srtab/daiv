@@ -298,7 +298,7 @@ async def test_submit_job_forwards_references(_default_mcp_user):
     with (
         patch("mcp_api.server._allow_job_submission", return_value=True),
         patch(
-            "mcp_api.server.asubmit_batch_runs",
+            "sessions.multi_repo.asubmit_batch_runs",
             new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])),
         ) as submit,
     ):
@@ -324,7 +324,7 @@ async def test_submit_job_gives_a_repository_its_own_prompt(_default_mcp_user):
     with (
         patch("mcp_api.server._allow_job_submission", return_value=True),
         patch(
-            "mcp_api.server.asubmit_batch_runs",
+            "sessions.multi_repo.asubmit_batch_runs",
             new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])),
         ) as submit,
     ):
@@ -369,7 +369,9 @@ async def test_shared_session_returns_one_job_on_the_main_repo(_default_mcp_user
     run = await _run(await _session(user=_default_mcp_user, repo_id="g/app"))
     with (
         patch("mcp_api.server._allow_job_submission", return_value=True),
-        patch("mcp_api.server.asubmit_shared_session_run", new=AsyncMock(return_value=_shared_result(run))) as shared,
+        patch(
+            "sessions.multi_repo.asubmit_shared_session_run", new=AsyncMock(return_value=_shared_result(run))
+        ) as shared,
     ):
         result = await submit_job(repos=_SHARED_REPOS, prompt="x", shared_session=True)
 
@@ -384,7 +386,9 @@ async def test_shared_session_errors_are_returned(_default_mcp_user):
 
     with (
         patch("mcp_api.server._allow_job_submission", return_value=True),
-        patch("mcp_api.server.asubmit_shared_session_run", new=AsyncMock(side_effect=SharedSessionError("too many"))),
+        patch(
+            "sessions.multi_repo.asubmit_shared_session_run", new=AsyncMock(side_effect=SharedSessionError("too many"))
+        ),
     ):
         result = await submit_job(repos=_SHARED_REPOS, prompt="x", shared_session=True)
 
@@ -400,7 +404,7 @@ async def test_shared_session_errors_are_returned(_default_mcp_user):
 async def test_a_bad_shared_session_list_is_refused_before_admission(_default_mcp_user, repos):
     from mcp_api.server import submit_job
 
-    with patch("mcp_api.server._allow_job_submission", return_value=True), patch("mcp_api.server.aadmit") as admit:
+    with patch("mcp_api.server._allow_job_submission", return_value=True), patch("sessions.multi_repo.aadmit") as admit:
         result = await submit_job(repos=repos, prompt="x", shared_session=True)
 
     assert "error" in json.loads(result)
@@ -415,9 +419,11 @@ async def test_continuing_a_multi_repo_thread_needs_no_flag(_default_mcp_user):
     run = await _run(session)
     with (
         patch("mcp_api.server._allow_job_submission", return_value=True),
-        patch("mcp_api.server.ais_multi_repo", new=AsyncMock(return_value=True)),
-        patch("mcp_api.server.asubmit_shared_session_run", new=AsyncMock(return_value=_shared_result(run))) as shared,
-        patch("mcp_api.server.asubmit_batch_runs") as batch,
+        patch("sessions.multi_repo.ais_multi_repo", new=AsyncMock(return_value=True)),
+        patch(
+            "sessions.multi_repo.asubmit_shared_session_run", new=AsyncMock(return_value=_shared_result(run))
+        ) as shared,
+        patch("sessions.multi_repo.asubmit_batch_runs") as batch,
     ):
         result = await submit_job(repos=[{"repo_id": "g/app", "ref": None}], prompt="x", thread_id=session.thread_id)
 
@@ -455,10 +461,10 @@ async def test_batch_path_unchanged_without_flag(_default_mcp_user):
     with (
         patch("mcp_api.server._allow_job_submission", return_value=True),
         patch(
-            "mcp_api.server.asubmit_batch_runs",
+            "sessions.multi_repo.asubmit_batch_runs",
             new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=runs)),
         ),
-        patch("mcp_api.server.asubmit_shared_session_run") as shared,
+        patch("sessions.multi_repo.asubmit_shared_session_run") as shared,
     ):
         result = await submit_job(repos=_SHARED_REPOS, prompt="x")
 

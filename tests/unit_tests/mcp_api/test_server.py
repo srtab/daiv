@@ -208,14 +208,14 @@ async def test_submit_job_forwards_agent_override(openrouter_provider):
 
 
 def _capture_asubmit_batch_runs(captured: dict):
-    """Patch ``mcp_api.server.asubmit_batch_runs`` to record kwargs and return one run."""
+    """Patch ``sessions.multi_repo.asubmit_batch_runs`` to record kwargs and return one run."""
     from sessions.services import BatchSubmitResult
 
     async def _fake(**kwargs):
         captured.update(kwargs)
         return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[FakeRun(task_result_id=None)])
 
-    return patch("mcp_api.server.asubmit_batch_runs", side_effect=_fake)
+    return patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake)
 
 
 @pytest.mark.django_db(transaction=True)

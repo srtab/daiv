@@ -147,16 +147,16 @@ def test_detail_lists_every_repository_and_its_mr(member_client, member_user):
     assert "g/app" in html and "g/mod" in html and "feat/mod" in html
     assert "https://gl/g/mod/-/merge_requests/3" in html
     assert "!7" in html
-    assert [r.repo_id for r in resp.context["extra_repositories"]] == ["g/mod"]
+    assert [row["repo_id"] for row in resp.context["repository_rows"]] == ["g/app", "g/mod"]
 
 
 @pytest.mark.django_db
 def test_detail_main_mr_links_to_the_run_url_without_a_payload(member_client, member_user):
     session = _multi_repo_session(member_user)
-    _create_run(session, merge_requests=[{"repo_id": "g/app", "web_url": "https://gl/g/app/-/merge_requests/7"}])
+    _create_run(session, merge_request_web_url="https://gl/g/app/-/merge_requests/7")
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-    assert resp.context["main_merge_request_url"] == "https://gl/g/app/-/merge_requests/7"
+    assert resp.context["repository_rows"][0]["mr_url"] == "https://gl/g/app/-/merge_requests/7"
     assert 'href="https://gl/g/app/-/merge_requests/7"' in resp.content.decode()
 
 
@@ -165,7 +165,7 @@ def test_detail_main_mr_falls_back_to_a_plain_iid_pill(member_client, member_use
     session = _multi_repo_session(member_user)
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-    assert resp.context["main_merge_request_url"] == ""
+    assert resp.context["repository_rows"][0]["mr_url"] == ""
     assert "!7" in resp.content.decode()
 
 
@@ -185,7 +185,7 @@ def test_single_repo_detail_has_no_repositories_block(member_client, member_user
     session = _create_session(user=member_user)
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-    assert resp.context["extra_repositories"] == []
+    assert resp.context["repository_rows"] == []
     assert "session-repositories" not in resp.content.decode()
 
 

@@ -247,7 +247,7 @@ def _fake_submit_factory(captured: dict):
 async def test_submit_job_accepts_muted_and_forwards_it(authenticated_client: TestAsyncClient):
     """POST /jobs with muted=True threads ``muted=True`` into ``asubmit_batch_runs``."""
     captured: dict = {}
-    with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+    with patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
         response = await authenticated_client.post("/jobs", json=_single_repo_body(muted=True))
     assert response.status_code == 202
     assert captured.get("muted") is True
@@ -259,7 +259,7 @@ async def test_submit_job_gives_a_repository_its_own_prompt(authenticated_client
 
     captured: dict = {}
     body = _single_repo_body(repos=[{"repo_id": "group/project", "prompt": "only here"}], prompt="batch")
-    with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+    with patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
         response = await authenticated_client.post("/jobs", json=body)
 
     assert response.status_code == 202
@@ -287,7 +287,7 @@ async def test_submit_job_reports_each_entry_of_a_repository_listed_twice(authen
     body = _single_repo_body(
         repos=[{"repo_id": "group/project", "prompt": "first"}, {"repo_id": "group/project", "prompt": "second"}]
     )
-    with patch("jobs.api.views.asubmit_batch_runs", new=AsyncMock(return_value=result)):
+    with patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock(return_value=result)):
         response = await authenticated_client.post("/jobs", json=body)
 
     assert response.status_code == 202
@@ -306,7 +306,7 @@ async def test_submit_job_notify_on_rejected(authenticated_client: TestAsyncClie
 async def test_submit_job_muted_defaults_to_false(authenticated_client: TestAsyncClient):
     """Omitting ``muted`` defaults to False."""
     captured: dict = {}
-    with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+    with patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
         response = await authenticated_client.post("/jobs", json=_single_repo_body())
     assert response.status_code == 202
     assert captured.get("muted") is False
@@ -314,7 +314,7 @@ async def test_submit_job_muted_defaults_to_false(authenticated_client: TestAsyn
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_refuses_with_400_when_no_model_can_be_resolved(authenticated_client: TestAsyncClient):
-    with patch.multiple(site_settings, agent_model_name=""), patch("jobs.api.views.asubmit_batch_runs") as submit:
+    with patch.multiple(site_settings, agent_model_name=""), patch("sessions.multi_repo.asubmit_batch_runs") as submit:
         response = await authenticated_client.post("/jobs", json=_single_repo_body())
 
     assert response.status_code == 400
@@ -328,7 +328,7 @@ async def test_submit_job_accepts_an_explicit_model_when_the_site_has_none(authe
     with (
         patch.multiple(site_settings, agent_model_name=""),
         patch("automation.agent.validators.validate_agent_override", return_value=("openrouter:z-ai/glm-5.2", "")),
-        patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)),
+        patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)),
     ):
         response = await authenticated_client.post(
             "/jobs", json=_single_repo_body(agent_model="openrouter:z-ai/glm-5.2")
@@ -354,7 +354,7 @@ def _shared_submit(captured: dict):
 @pytest.mark.django_db(transaction=True)
 async def test_shared_session_returns_one_job_on_the_main_repo(authenticated_client: TestAsyncClient):
     captured: dict = {}
-    with patch("jobs.api.views.asubmit_shared_session_run", side_effect=_shared_submit(captured)):
+    with patch("sessions.multi_repo.asubmit_shared_session_run", side_effect=_shared_submit(captured)):
         response = await authenticated_client.post("/jobs", json={**_SHARED_BODY, "shared_session": True})
 
     assert response.status_code == 202
@@ -367,7 +367,7 @@ async def test_shared_session_returns_one_job_on_the_main_repo(authenticated_cli
 async def test_shared_session_errors_are_400(authenticated_client: TestAsyncClient):
     from sessions.multi_repo import SharedSessionError
 
-    with patch("jobs.api.views.asubmit_shared_session_run", side_effect=SharedSessionError("too many")):
+    with patch("sessions.multi_repo.asubmit_shared_session_run", side_effect=SharedSessionError("too many")):
         response = await authenticated_client.post("/jobs", json={**_SHARED_BODY, "shared_session": True})
 
     assert response.status_code == 400
@@ -385,7 +385,7 @@ async def test_shared_session_errors_are_400(authenticated_client: TestAsyncClie
     ids=["too-many", "duplicate", "per-repo-prompt"],
 )
 async def test_a_bad_shared_session_list_is_refused_before_admission(authenticated_client: TestAsyncClient, repos):
-    with patch("jobs.api.views.aadmit") as admit:
+    with patch("sessions.multi_repo.aadmit") as admit:
         response = await authenticated_client.post(
             "/jobs", json={"repos": repos, "prompt": "x", "shared_session": True}
         )
@@ -402,8 +402,8 @@ async def test_a_shared_continuation_with_a_ref_is_refused_before_admission(auth
     )
 
     with (
-        patch("jobs.api.views.ais_multi_repo", new=AsyncMock(return_value=True)),
-        patch("jobs.api.views.aadmit") as admit,
+        patch("sessions.multi_repo.ais_multi_repo", new=AsyncMock(return_value=True)),
+        patch("sessions.multi_repo.aadmit") as admit,
     ):
         response = await authenticated_client.post(
             "/jobs", json={"repos": [{"repo_id": "g/app", "ref": "dev"}], "prompt": "x", "thread_id": session.thread_id}
@@ -422,9 +422,9 @@ async def test_continuing_a_multi_repo_thread_needs_no_flag(authenticated_client
     )
     captured: dict = {}
     with (
-        patch("jobs.api.views.ais_multi_repo", new=AsyncMock(return_value=True)),
-        patch("jobs.api.views.asubmit_shared_session_run", side_effect=_shared_submit(captured)),
-        patch("jobs.api.views.asubmit_batch_runs") as batch,
+        patch("sessions.multi_repo.ais_multi_repo", new=AsyncMock(return_value=True)),
+        patch("sessions.multi_repo.asubmit_shared_session_run", side_effect=_shared_submit(captured)),
+        patch("sessions.multi_repo.asubmit_batch_runs") as batch,
     ):
         response = await authenticated_client.post(
             "/jobs", json={"repos": [{"repo_id": "g/app"}], "prompt": "x", "thread_id": session.thread_id}
@@ -437,7 +437,7 @@ async def test_continuing_a_multi_repo_thread_needs_no_flag(authenticated_client
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_multi_repo_thread_still_requires_ownership(authenticated_client: TestAsyncClient):
-    with patch("jobs.api.views.ais_multi_repo", new=AsyncMock(return_value=True)):
+    with patch("sessions.multi_repo.ais_multi_repo", new=AsyncMock(return_value=True)):
         response = await authenticated_client.post(
             "/jobs", json={"repos": [{"repo_id": "g/app"}], "prompt": "x", "thread_id": str(uuid.uuid4())}
         )
@@ -475,8 +475,8 @@ async def test_a_failed_continuation_of_a_multi_repo_thread_is_reported_as_faile
 async def test_batch_path_unchanged_without_flag(authenticated_client: TestAsyncClient):
     captured: dict = {}
     with (
-        patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_batch_two(captured)),
-        patch("jobs.api.views.asubmit_shared_session_run") as shared,
+        patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_batch_two(captured)),
+        patch("sessions.multi_repo.asubmit_shared_session_run") as shared,
     ):
         response = await authenticated_client.post("/jobs", json=_SHARED_BODY)
 
@@ -552,8 +552,8 @@ async def test_job_status_lists_every_mr_and_error(authenticated_client: TestAsy
     user = await User.objects.aget(username="testuser")
     run = await _create_run_row(user, merge_request_web_url="https://git/g/main/-/merge_requests/1")
     run.merge_requests = [
-        {"repo_id": "group/project", "merge_request_iid": 1, "web_url": "https://git/g/main/-/merge_requests/1"},
-        {"repo_id": "g/mod", "merge_request_iid": 7, "web_url": "https://git/g/mod/-/merge_requests/7"},
+        {"repo_id": "group/project", "merge_request_id": 1, "web_url": "https://git/g/main/-/merge_requests/1"},
+        {"repo_id": "g/mod", "merge_request_id": 7, "web_url": "https://git/g/mod/-/merge_requests/7"},
     ]
     run.publish_errors = [{"repo_id": "g/lib", "error": "Publishing to g/lib failed (X)"}]
     await run.asave()

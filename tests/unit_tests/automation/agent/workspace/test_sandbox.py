@@ -6,7 +6,6 @@ from deepagents.backends.composite import CompositeBackend
 
 from automation.agent.constants import WORKSPACE_PATH
 from automation.agent.workspace.git_runners import SandboxGitRunner
-from automation.agent.workspace.repo_view import RepoWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
@@ -62,7 +61,7 @@ async def test_publishes_close_together_share_one_credential_refresh():
     session.refresh_credential = AsyncMock(return_value=True)
     workspace = SandboxWorkspace(session)
 
-    await workspace.for_repo(MagicMock(), path="/workspace/repos/g/mod").authenticated_git()
+    await workspace.for_repo(MagicMock()).authenticated_git()
     await workspace.authenticated_git()
 
     session.refresh_credential.assert_awaited_once_with()
@@ -123,24 +122,19 @@ def test_a_sandbox_workspace_sits_at_the_main_repo_path():
     assert SandboxWorkspace(SandboxSession(FakeSandboxClient.opened(), sandbox_spec())).repo_path == "/workspace/repo"
 
 
-def test_for_repo_main_path_is_self():
-    workspace = SandboxWorkspace(SandboxSession(FakeSandboxClient.opened(), sandbox_spec()))
-
-    assert workspace.for_repo(MagicMock(), path="/workspace/repo") is workspace
-
-
 async def test_for_repo_sibling_refreshes_credentials_then_returns_its_git():
     session = acquired_session(FakeSandboxClient.opened())
     session.refresh_credential = AsyncMock(return_value=True)
     workspace = SandboxWorkspace(session)
 
-    view = workspace.for_repo(MagicMock(), path="/workspace/repos/g/mod")
+    handle = MagicMock()
+    handle.repository.slug = "g/mod"
+
+    view = workspace.for_repo(handle)
     session.refresh_credential.assert_not_awaited()
     git = await view.authenticated_git()
 
     session.refresh_credential.assert_awaited_once_with()
-    assert isinstance(view, RepoWorkspace)
-    assert git is view.git
     assert view.repo_path == "/workspace/repos/g/mod"
     assert git._runner == SandboxGitRunner(workspace.bash, repo_path="/workspace/repos/g/mod")
-    assert view.bash is workspace.bash
+    assert view.backend is workspace.backend

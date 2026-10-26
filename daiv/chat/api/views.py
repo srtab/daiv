@@ -14,7 +14,6 @@ from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_acc
 from sessions.executor.lock import SessionLock, session_activity, stale_cutoff
 from sessions.live import relay
 from sessions.models import RunStatus, Session
-from sessions.multi_repo import aload_extra_repos
 from sessions.spend import build_session_spend
 
 from accounts.api.security import AuthBearer
@@ -216,10 +215,10 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     # ``thread.user_id != user.id`` equality check and the ChatThreadFromActivity bridge.
     if not created and not await Session.objects.by_owner(user).filter(pk=session.pk).aexists():
         raise HttpError(403, "Thread not found")
-    extra_repos = [] if created else await aload_extra_repos(thread_id)
-    if extra_repos:
+    repo_ids = [session.repo_id] if created else await session.arepo_ids()
+    if len(repo_ids) > 1:
         try:
-            await aassert_repo_access(user, [session.repo_id, *(row.repo_id for row in extra_repos)])
+            await aassert_repo_access(user, repo_ids)
         except RepoAccessError as err:
             raise Http404(str(err)) from err
         if repo_id != session.repo_id:

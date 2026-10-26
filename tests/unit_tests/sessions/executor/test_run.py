@@ -552,7 +552,7 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
 
 
 def _sibling_state(*repo_ids: str) -> list[dict]:
-    from automation.agent.publishers import RepoPublish
+    from automation.agent.git_state import RepoPublish
     from codebase.base import MergeRequest, User
 
     return [

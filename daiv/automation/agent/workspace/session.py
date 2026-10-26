@@ -20,11 +20,11 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import httpx
 from skills.services import global_skill_files
 
-from core.sandbox.egress import PlatformCredential, is_platform_secret_name, with_platform_credentials
+from core.sandbox.egress import is_platform_secret_name, with_platform_credentials
 from core.sandbox.schemas import StartSessionRequest
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping, Sequence
+    from collections.abc import Awaitable, Callable, Mapping
 
     from sandbox_envs.spec import SandboxSpec
 
@@ -196,7 +196,7 @@ class SandboxSession:
                 "Not refreshing platform egress for sandbox session %s: it carries no platform token", session_id
             )
             return False
-        egress = with_platform_credentials(current, _platform_credentials(await self._credential_source()))
+        egress = with_platform_credentials(current, await self._credential_source())
         fresh = _platform_secrets(egress)
         if not fresh:
             logger.debug(
@@ -269,7 +269,7 @@ class SandboxSession:
             self._spec.egress is None and all(c is None or c.value is None for c in credentials)
         ):
             return self._spec.egress
-        return with_platform_credentials(self._spec.egress, _platform_credentials(credentials))
+        return with_platform_credentials(self._spec.egress, credentials)
 
     async def _reuse(
         self, prior_id: str, prior_fingerprint: str | None, egress: EgressConfigRequest | None
@@ -398,8 +398,11 @@ def _make_repo_archive(working_dir: str) -> bytes:
     return buf.getvalue()
 
 
-def _make_repos_archive(extra_dirs: Mapping[str, str]) -> bytes:
-    """Tar each extra repository's contents under ``<slug>/``, with a directory entry for every slug component."""
+def _make_repos_archive(extra_dirs: Mapping[str, str]) -> bytes | None:
+    """Tar each extra repository's contents under ``<slug>/``, with a directory entry for every slug component;
+    ``None`` without any."""
+    if not extra_dirs:
+        return None
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tf:
         added: set[str] = set()
@@ -415,13 +418,6 @@ def _make_repos_archive(extra_dirs: Mapping[str, str]) -> bytes:
             for child in Path(working_dir).iterdir():
                 tf.add(child, arcname=f"{slug}/{child.name}")
     return buf.getvalue()
-
-
-def _platform_credentials(credentials: Sequence[GitEgressCredential | None]) -> list[PlatformCredential | None]:
-    return [
-        PlatformCredential(host=c.host, header=c.header, token=c.value, path=c.path) if c is not None else None
-        for c in credentials
-    ]
 
 
 def _platform_secrets(egress: EgressConfigRequest | None) -> dict[str, EgressSecret]:
@@ -463,10 +459,11 @@ def _make_global_skills_archive() -> tuple[bytes | None, list[str]]:
 
 async def _seed_archives(working_dir: str, extra_dirs: Mapping[str, str] | None = None) -> SessionSeed:
     """The repository, global-skills and extra-repositories archives a fresh sandbox session is seeded with."""
-    repo_archive, (skills_archive, skills_seed_errors) = await asyncio.gather(
-        asyncio.to_thread(_make_repo_archive, working_dir), asyncio.to_thread(_make_global_skills_archive)
+    repo_archive, (skills_archive, skills_seed_errors), repos_archive = await asyncio.gather(
+        asyncio.to_thread(_make_repo_archive, working_dir),
+        asyncio.to_thread(_make_global_skills_archive),
+        asyncio.to_thread(_make_repos_archive, extra_dirs or {}),
     )
-    repos_archive = await asyncio.to_thread(_make_repos_archive, extra_dirs) if extra_dirs else None
     return SessionSeed(repo_archive, skills_archive, skills_seed_errors, repos_archive)
 
 

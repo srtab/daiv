@@ -3,7 +3,7 @@ import sys
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator  # noqa: TC003
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from time import monotonic
 from typing import TYPE_CHECKING, cast
 
@@ -11,7 +11,7 @@ from asgiref.sync import sync_to_async
 from git import Repo  # noqa: TC002
 from sandbox_envs.spec import SandboxSpec  # noqa: TC002
 
-from automation.agent.constants import EXTRA_REPOS_PATH, REPO_PATH
+from automation.agent.constants import EXTRA_REPOS_PATH
 from automation.agent.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
@@ -57,6 +57,11 @@ class RepoHandle:
     """Whether the clone's HEAD named no branch (``ref`` was a tag or a commit)."""
     clone_seconds: float
     """How long the worker took to clone the repository; both attempts count when the fallback ran."""
+
+
+def extra_repo_path(handle: RepoHandle) -> str:
+    """Where one of the run's extra repositories sits in ``/workspace``."""
+    return f"{EXTRA_REPOS_PATH}/{handle.repository.slug}"
 
 
 @dataclass(frozen=True)
@@ -105,14 +110,6 @@ class RuntimeCtx:
     @property
     def extra_repos(self) -> tuple[RepoHandle, ...]:
         return self.repos[1:]
-
-    def workspace_path(self, handle: RepoHandle) -> str:
-        if handle is self.repo:
-            return REPO_PATH
-        return f"{EXTRA_REPOS_PATH}/{handle.repository.slug}"
-
-    def for_repo(self, handle: RepoHandle) -> RuntimeCtx:
-        return replace(self, repos=(handle,))
 
     @property
     def repository(self) -> Repository:
@@ -166,6 +163,34 @@ def _load_repo_with_optional_fallback(
         yield repo, effective_ref
     finally:
         cm.__exit__(*sys.exc_info())
+
+
+def _clone_handle(
+    clones: ExitStack,
+    repo_client: RepoClient,
+    repo_id: str,
+    repository: Repository,
+    config: RepositoryConfig,
+    ref: str,
+    *,
+    fallback: bool,
+) -> RepoHandle:
+    """Clone ``repository`` at ``ref`` for as long as ``clones`` stays open, and bind it into a handle."""
+    started = monotonic()
+    repo, effective_ref = clones.enter_context(
+        _load_repo_with_optional_fallback(repo_client, repository, ref, cast("str", config.default_branch), fallback)
+    )
+    return RepoHandle(
+        repo_id=repo_id,
+        client=repo_client,
+        repository=repository,
+        gitrepo=repo,
+        config=config,
+        ref=effective_ref,
+        current_ref=get_repo_ref(repo),
+        head_detached=repo.head.is_detached,
+        clone_seconds=monotonic() - started,
+    )
 
 
 def _credential_source(
@@ -235,50 +260,20 @@ async def set_runtime_ctx(
         sandbox_client = DAIVSandboxClient()
         await sandbox_client.open()
 
-    clone_started = monotonic()
     try:
         with ExitStack() as clones:
-            repo, effective_ref = clones.enter_context(
-                _load_repo_with_optional_fallback(
-                    repo_client, repository, ref, cast("str", config.default_branch), fallback_ref_on_missing
-                )
-            )
             handles = [
-                RepoHandle(
-                    repo_id=repo_id,
-                    client=repo_client,
-                    repository=repository,
-                    gitrepo=repo,
-                    config=config,
-                    ref=effective_ref,
-                    current_ref=get_repo_ref(repo),
-                    head_detached=repo.head.is_detached,
-                    clone_seconds=monotonic() - clone_started,
-                )
+                _clone_handle(clones, repo_client, repo_id, repository, config, ref, fallback=fallback_ref_on_missing)
             ]
             for extra in extra_repos:
-                extra_started = monotonic()
                 extra_repository = repo_client.get_repository(extra.repo_id)
                 extra_config = RepositoryConfig.get_config(
                     repo_id=extra.repo_id, repository=extra_repository, offline=offline, repo_client=repo_client
                 )
-                extra_default = cast("str", extra_config.default_branch)
-                extra_clone, extra_effective_ref = clones.enter_context(
-                    _load_repo_with_optional_fallback(
-                        repo_client, extra_repository, extra.ref or extra_default, extra_default, fallback=True
-                    )
-                )
+                extra_ref = extra.ref or cast("str", extra_config.default_branch)
                 handles.append(
-                    RepoHandle(
-                        repo_id=extra.repo_id,
-                        client=repo_client,
-                        repository=extra_repository,
-                        gitrepo=extra_clone,
-                        config=extra_config,
-                        ref=extra_effective_ref,
-                        current_ref=get_repo_ref(extra_clone),
-                        head_detached=extra_clone.head.is_detached,
-                        clone_seconds=monotonic() - extra_started,
+                    _clone_handle(
+                        clones, repo_client, extra.repo_id, extra_repository, extra_config, extra_ref, fallback=True
                     )
                 )
             ctx = RuntimeCtx(

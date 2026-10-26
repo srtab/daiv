@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 from git import Repo
 
-from automation.agent.context import ExtraRepo, RepoHandle, RuntimeCtx, set_runtime_ctx
+from automation.agent.context import ExtraRepo, RepoHandle, RuntimeCtx, extra_repo_path, set_runtime_ctx
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.references import ExternalRef
 from automation.agent.workspace.sandbox import SandboxWorkspace
@@ -398,21 +398,10 @@ def test_repo_is_main_and_extra_repos_are_the_rest():
     assert ctx.extra_repos == (mod,)
 
 
-def test_workspace_path_keeps_same_named_repos_apart():
-    main, a, b = _make_handle("g/app"), _make_handle("group-a/utils"), _make_handle("group-b/utils")
-    ctx = RuntimeCtx(bot_username="daiv", repos=(main, a, b))
-    assert ctx.workspace_path(main) == "/workspace/repo"
-    assert ctx.workspace_path(a) == "/workspace/repos/group-a/utils"
-    assert ctx.workspace_path(b) == "/workspace/repos/group-b/utils"
-
-
-def test_for_repo_is_a_single_repo_view():
-    main, mod = _make_handle("g/app"), _make_handle("g/mod")
-    ref = ExternalRef(key="PROJ-1", provider="jira")
-    view = RuntimeCtx(bot_username="daiv", repos=(main, mod), references=(ref,)).for_repo(mod)
-    assert view.repo is mod
-    assert view.extra_repos == ()
-    assert view.references == (ref,)
+def test_extra_repo_path_keeps_same_named_repos_apart():
+    a, b = _make_handle("group-a/utils"), _make_handle("group-b/utils")
+    assert extra_repo_path(a) == "/workspace/repos/group-a/utils"
+    assert extra_repo_path(b) == "/workspace/repos/group-b/utils"
 
 
 def _multi_repo_client(*, gone: set[str] = frozenset()):

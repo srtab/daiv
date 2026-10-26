@@ -18,16 +18,12 @@ from automation.agent.workspace.session import (
 )
 from codebase.clients.base import GitEgressCredential
 from core.sandbox.client import SandboxCapabilityError
-from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, PlatformCredential, with_platform_credentials
+from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credentials
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
 from tests.unit_tests.conftest import FakeSandboxClient, acquired_session, sandbox_spec, write_skill
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-def _platform(credential):
-    return PlatformCredential(host=credential.host, header=credential.header, token=credential.value)
 
 
 def _repo_archive() -> bytes:
@@ -432,7 +428,7 @@ async def _stop_in_flight(task: asyncio.Task, reached: asyncio.Event, gate: asyn
 
 def _started_egress(token: str | None, env: EgressConfigRequest | None = None) -> EgressConfigRequest:
     credential = _credential(token, host="gitlab.com")
-    return with_platform_credentials(env, [_platform(credential)])
+    return with_platform_credentials(env, [credential])
 
 
 async def _running(client: FakeSandboxClient, egress: EgressConfigRequest | None) -> str:
@@ -494,9 +490,7 @@ class TestRefreshCredential:
         assert await session.refresh_credential() is True
         assert await session.refresh_credential() is False
 
-        assert client.calls_to("update_egress") == [
-            (session_id, with_platform_credentials(started, [_platform(fresh)]))
-        ]
+        assert client.calls_to("update_egress") == [(session_id, with_platform_credentials(started, [fresh]))]
 
     async def test_a_failed_push_raises(self):
         """The publisher logs a failed push and publishes with the turn-start token, so the session raises it."""
@@ -752,8 +746,8 @@ class TestMultiRepoCredentials:
         started = with_platform_credentials(
             None,
             [
-                _platform(GitEgressCredential.for_token(host="gitlab.com", token="M", path="/g/app.git")),  # noqa: S106
-                _platform(GitEgressCredential.for_token(host="gitlab.com", token="S", path="/g/mod.git")),  # noqa: S106
+                GitEgressCredential.for_token(host="gitlab.com", token="M", path="/g/app.git"),  # noqa: S106
+                GitEgressCredential.for_token(host="gitlab.com", token="S", path="/g/mod.git"),  # noqa: S106
             ],
         )
         session = acquired_session(
@@ -769,8 +763,8 @@ class TestMultiRepoCredentials:
         started = with_platform_credentials(
             None,
             [
-                _platform(GitEgressCredential.for_token(host="gitlab.com", token="M", path="/g/app.git")),  # noqa: S106
-                _platform(GitEgressCredential.for_token(host="gitlab.com", token="S", path="/g/mod.git")),  # noqa: S106
+                GitEgressCredential.for_token(host="gitlab.com", token="M", path="/g/app.git"),  # noqa: S106
+                GitEgressCredential.for_token(host="gitlab.com", token="S", path="/g/mod.git"),  # noqa: S106
             ],
         )
         session = acquired_session(

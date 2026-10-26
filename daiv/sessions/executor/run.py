@@ -15,6 +15,7 @@ from asgiref.sync import sync_to_async
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
+from automation.agent.git_state import checkpointed_repo_publishes
 from automation.agent.session_links import SessionLinks
 from core.utils import build_absolute_url
 from sessions.archive import aarchive_thread, arestore_thread
@@ -39,11 +40,12 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
-    from automation.agent.publishers import RepoPublish
+    from automation.agent.git_state import RepoPublish
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.session import SandboxSession
+    from codebase.base import MergeRequest
     from sessions.executor.spec import RunSpec
     from sessions.live.relay import RunRelay
 
@@ -310,9 +312,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
     if recovery.snapshot is not None:
-        from sessions.executor.result import repo_publishes_from_state
-
-        await _record_sibling_publishes(spec, run, repo_publishes_from_state(recovery.snapshot.values))
+        await _record_sibling_publishes(spec, run, checkpointed_repo_publishes(recovery.snapshot.values))
 
 
 @asynccontextmanager
@@ -550,7 +550,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     from automation.agent.questions import pending_question
     from automation.agent.usage_tracking import build_usage_summary
     from automation.agent.utils import extract_text_content
-    from sessions.executor.result import build_agent_result, repo_publishes_from_state
+    from sessions.executor.result import build_agent_result
 
     snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}
@@ -559,7 +559,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         response_text = extract_text_content(messages[-1].content) if messages else ""
     merge_request = values.get("merge_request")
     published = bool(values.get("published"))
-    sibling_publishes = repo_publishes_from_state(values)
+    sibling_publishes = checkpointed_repo_publishes(values)
     # An unread checkpoint must not pass for one that published nothing: that would pin a blank ref to the clone's.
     if spec.persist_ref and snapshot is not None:
         try:
@@ -572,16 +572,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
     if spec.arm_watch:
-        try:
-            await PipelineWatch(spec.repo_id).aarm_after_run(
-                run_id=spec.run_id,
-                merge_request=merge_request,
-                published=published,
-                user_id=spec.acting_user_id,
-                sandbox_environment_id=spec.sandbox_env_id,
-            )
-        except Exception:
-            logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)
+        await _arm_watch(spec, run, spec.repo_id, merge_request, published, spec.sandbox_env_id)
     await _record_sibling_publishes(spec, run, sibling_publishes)
 
     agent_result = build_agent_result(
@@ -607,19 +598,29 @@ async def _record_sibling_publishes(spec: RunSpec, run: AgentRun, publishes: Seq
         return
     env_by_repo = {row.repo_id: row.sandbox_environment_id for row in run.extra_repos}
     for rp in publishes:
-        if rp.merge_request is None:
-            continue
-        env_id = env_by_repo.get(rp.repo_id)
-        try:
-            await PipelineWatch(rp.repo_id).aarm_after_run(
-                run_id=spec.run_id,
-                merge_request=rp.merge_request,
-                published=rp.published,
-                user_id=spec.acting_user_id,
-                sandbox_environment_id=str(env_id) if env_id else None,
-            )
-        except Exception:
-            logger.exception("executor: failed to arm pipeline watch for %s of thread_id=%s", rp.repo_id, run.thread_id)
+        if rp.merge_request is not None:
+            env_id = env_by_repo.get(rp.repo_id)
+            await _arm_watch(spec, run, rp.repo_id, rp.merge_request, rp.published, str(env_id) if env_id else None)
+
+
+async def _arm_watch(
+    spec: RunSpec,
+    run: AgentRun,
+    repo_id: str,
+    merge_request: MergeRequest | dict | None,
+    published: bool,
+    sandbox_env_id: str | None,
+) -> None:
+    try:
+        await PipelineWatch(repo_id).aarm_after_run(
+            run_id=spec.run_id,
+            merge_request=merge_request,
+            published=published,
+            user_id=spec.acting_user_id,
+            sandbox_environment_id=sandbox_env_id,
+        )
+    except Exception:
+        logger.exception("executor: failed to arm pipeline watch for %s of thread_id=%s", repo_id, run.thread_id)
 
 
 async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:

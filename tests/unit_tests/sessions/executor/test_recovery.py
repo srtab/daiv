@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from sessions.executor.recovery import recover_draft
 
-from automation.agent.publishers import RepoPublish
+from automation.agent.git_state import RepoPublish
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import MergeRequest, User

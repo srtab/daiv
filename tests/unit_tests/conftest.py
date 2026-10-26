@@ -28,6 +28,7 @@ from accounts.models import User as AccountUser
 from automation.agent.agent_settings import AgentSettings, RunOverrides, resolve_agent_settings
 from automation.agent.artifacts import ArtifactError, ArtifactFile
 from automation.agent.constants import REPO_PATH
+from automation.agent.context import extra_repo_path
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
@@ -285,7 +286,7 @@ class FakeSandboxClient:
 class FakeWorkspace:
     """A ``Workspace`` a test assembles from parts, disk-shaped until told otherwise: no shell, no session, always
     ready. ``authenticated_git`` hands back ``git``, ``download_file`` reads through ``backend`` as a disk read does,
-    and ``for_repo`` hands back a copy sitting at the sibling's ``path``."""
+    and ``for_repo`` hands back a copy sitting at the sibling's path."""
 
     backend: Any = field(default_factory=lambda: Mock(spec=BackendProtocol))
     git: Any = field(default_factory=AsyncMock)
@@ -304,8 +305,8 @@ class FakeWorkspace:
         (response,) = await self.backend.adownload_files([path])
         return response
 
-    def for_repo(self, handle: Any, *, path: str) -> Any:
-        return self if path == self.repo_path else replace(self, repo_path=path)
+    def for_repo(self, handle: Any) -> Any:
+        return replace(self, repo_path=extra_repo_path(handle))
 
 
 @dataclass

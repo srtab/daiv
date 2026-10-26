@@ -18,7 +18,7 @@ def _token(value: str) -> SecretStr:
 
 
 def _apply(egress: EgressConfigRequest | None, token: SecretStr | None) -> EgressConfigRequest:
-    return with_platform_credentials(egress, [PlatformCredential(host=HOST, header=HEADER, token=token)])
+    return with_platform_credentials(egress, [PlatformCredential(host=HOST, header=HEADER, value=token)])
 
 
 def _env_egress() -> EgressConfigRequest:
@@ -92,8 +92,8 @@ def test_an_environment_rule_for_the_git_host_stays_behind_the_platform_rule():
     ]
 
 
-MAIN = PlatformCredential(host="gitlab.com", header="Authorization", token=SecretStr("M"), path="/g/app.git")
-MOD = PlatformCredential(host="gitlab.com", header="Authorization", token=SecretStr("S"), path="/g/mod.git")
+MAIN = PlatformCredential(host="gitlab.com", header="Authorization", value=SecretStr("M"), path="/g/app.git")
+MOD = PlatformCredential(host="gitlab.com", header="Authorization", value=SecretStr("S"), path="/g/mod.git")
 
 
 def test_main_credential_is_host_wide_and_siblings_are_path_scoped():
@@ -124,7 +124,7 @@ def test_environment_rules_are_kept_after_platform_rules():
 
 
 def test_tokenless_sibling_adds_no_rule():
-    bare = PlatformCredential(host="gitlab.com", header="Authorization", token=None, path="/g/mod.git")
+    bare = PlatformCredential(host="gitlab.com", header="Authorization", value=None, path="/g/mod.git")
 
     assert len(with_platform_credentials(None, [MAIN, bare]).policy.rules) == 1
 

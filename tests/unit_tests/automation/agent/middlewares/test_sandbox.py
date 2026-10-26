@@ -16,7 +16,7 @@ from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxEgressUnavailableError, SandboxSession, acquire_sandbox
 from codebase.clients.base import GitEgressCredential
 from core.conf import settings as core_settings
-from core.sandbox.egress import PlatformCredential, with_platform_credentials
+from core.sandbox.egress import with_platform_credentials
 from core.sandbox.schemas import EgressConfigRequest, RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import (
     FakeSandboxClient,
@@ -30,10 +30,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from sandbox_envs.spec import SandboxSpec
-
-
-def _platform(credential):
-    return PlatformCredential(host=credential.host, header=credential.header, token=credential.value)
 
 
 def _make_agent_runtime(repo_working_dir: str | Path, *, spec: SandboxSpec | None = None) -> Mock:
@@ -419,7 +415,7 @@ _FRESH_SESSION_TURN = ["start_session", "seed_session", "run_commands", "close_s
 def _egress(token: str) -> EgressConfigRequest:
     """The egress a network-off run holding push token ``token`` is provisioned with: the git host alone."""
     credential = GitEgressCredential.for_token(host=_GIT_HOST, token=token)
-    return with_platform_credentials(None, [_platform(credential)])
+    return with_platform_credentials(None, [credential])
 
 
 @pytest.fixture

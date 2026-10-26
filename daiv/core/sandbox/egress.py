@@ -22,9 +22,12 @@ PLATFORM_EGRESS_SECRET_NAME = "__daiv_git_platform__"  # noqa: S105
 
 @dataclass(frozen=True)
 class PlatformCredential:
+    """A repository's git host, the header carrying its token (``value``; ``None`` leaves the host reachable but
+    unauthenticated) and its clone URL's ``path``."""
+
     host: str
-    header: str
-    token: SecretStr | None
+    header: str = "Authorization"
+    value: SecretStr | None = None
     path: str = ""
 
 
@@ -61,9 +64,9 @@ def with_platform_credentials(
         if credential is None:
             continue
         inject = None
-        if credential.token is not None:
+        if credential.value is not None:
             inject = PLATFORM_EGRESS_SECRET_NAME if index == 0 else f"{PLATFORM_EGRESS_SECRET_NAME}{index}"
-            secrets[inject] = EgressSecret(header=credential.header, value=credential.token)
+            secrets[inject] = EgressSecret(header=credential.header, value=credential.value)
         if index == 0:
             main_rule = EgressRule(host=credential.host, methods=["*"], inject=inject)
         elif inject is not None:

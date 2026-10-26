@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from deepagents.backends.composite import CompositeBackend
 
 from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
+from automation.agent.context import extra_repo_path
 from automation.agent.workspace.git_manager import GitManager
 from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.repo_view import RepoWorkspace
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     from deepagents.backends.protocol import FileDownloadResponse
 
     from automation.agent.context import RepoHandle
-    from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.base import PublishWorkspace
     from automation.agent.workspace.session import SandboxSession
 
 logger = logging.getLogger("daiv.tools")
@@ -81,16 +82,15 @@ class SandboxWorkspace:
                 self.session.session_id,
             )
 
-    def for_repo(self, handle: RepoHandle, *, path: str) -> Workspace:
-        if path == REPO_PATH:
-            return self
+    def for_repo(self, handle: RepoHandle) -> PublishWorkspace:
+        path = extra_repo_path(handle)
         git = GitManager(SandboxGitRunner(self.bash, repo_path=path))
 
         async def authenticate() -> GitManager:
             await self._refresh_credential()
             return git
 
-        return RepoWorkspace(self, repo_path=path, git=git, authenticate=authenticate)
+        return RepoWorkspace(self.backend, path, authenticate)
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         (response,) = await self.bash.adownload_files([path], max_bytes=max_bytes)

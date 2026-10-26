@@ -258,6 +258,28 @@ class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):
         return [{"label": "Sessions", "url": reverse("session_list")}, {"label": "New", "url": None}]
 
 
+def _repository_rows(session: Session, runs: list[Run], merge_request: dict | None, ref: str) -> list[dict]:
+    """A multi-repository session's repositories, the main one first, each with its branch and merge request; empty
+    for a single-repository session."""
+    extra_repositories = list(session.extra_repositories.all())
+    if not extra_repositories:
+        return []
+    main_mr = merge_request or {}
+    run_url = next((r.merge_request_web_url for r in reversed(runs) if r.merge_request_web_url), "")
+    return [
+        {
+            "repo_id": session.repo_id,
+            "ref": ref,
+            "mr_url": main_mr.get("url") or run_url,
+            "mr_iid": main_mr.get("id") or session.merge_request_iid,
+        },
+        *(
+            {"repo_id": r.repo_id, "ref": r.ref, "mr_url": r.merge_request_web_url, "mr_iid": r.merge_request_iid}
+            for r in extra_repositories
+        ),
+    ]
+
+
 class SessionDetailView(LoginRequiredMixin, DetailView):
     """Renders the session transcript page, or the empty state for the ``session_new_chat`` route."""
 
@@ -317,8 +339,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "in_flight_ids": "",
                 "context_usage": None,
                 "session_spend": None,
-                "extra_repositories": [],
-                "main_merge_request_url": "",
+                "repository_rows": [],
                 "latest_publish_errors": [],
             })
             return ctx
@@ -362,16 +383,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["live_run_started_at"] = live.started_at.isoformat() if live else ""
         ctx["live_run_stoppable"] = bool(live and live.stoppable)
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
-        ctx["extra_repositories"] = list(session.extra_repositories.all())
-        ctx["main_merge_request_url"] = next(
-            (
-                link["url"]
-                for run in reversed(runs)
-                for link in run.merge_request_links()
-                if link["repo_id"] == session.repo_id
-            ),
-            "",
-        )
+        ctx["repository_rows"] = _repository_rows(session, runs, merge_request, ctx["thread_ref"])
         latest_finished = next((r for r in reversed(runs) if r.status in RunStatus.terminal()), None)
         ctx["latest_publish_errors"] = latest_finished.publish_errors if latest_finished else []
 

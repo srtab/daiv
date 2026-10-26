@@ -11,19 +11,20 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
-from automation.agent.context import RuntimeCtx  # noqa: TC001
-from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
+from automation.agent.context import RuntimeCtx, extra_repo_path
+from automation.agent.git_state import RepoPublish, checkpointed_merge_request, effective_merge_request
 from automation.agent.publishers import (
     GitChangePublisher,
-    RepoPublish,
+    PublishOutcome,
     UnresolvedMergeConflictsError,
+    aopen_branch_merge_request,
     apublish_extra_repos,
+    publish_failure,
 )
 from automation.agent.sibling_links import RelatedMergeRequest, aensure_related_links
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, Scope
-from codebase.clients.base import aget_open_merge_request
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -165,10 +166,9 @@ class GitState(AgentState):
 
 def _sibling_failure_notice(ctx: RuntimeCtx, repo_publishes: list[RepoPublish]) -> str | None:
     """The turn-end notice naming each extra repository whose publish failed; ``None`` when none did."""
-    slugs = {handle.repo_id: handle.repository.slug for handle in ctx.extra_repos}
     failed = [
-        f"- `{slugs.get(publish.repo_id, publish.repo_id)}`: {publish.error}"
-        for publish in repo_publishes
+        f"- `{handle.repository.slug}`: {publish.error}"
+        for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True)
         if publish.error
     ]
     if not failed:
@@ -316,19 +316,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
     @staticmethod
     async def _alookup_open_mr(context: RuntimeCtx) -> MergeRequest | None:
-        """Best-effort lookup of an open MR whose source branch matches the current ref.
-
-        Short-circuits on detached HEAD: commit-pinned runs (SWE-bench evals check out a
-        raw SHA) have no branch, so no MR can exist and querying the platform with a SHA
-        would be meaningless.
-        """
-        if context.repo.head_detached:
-            logger.debug("Skipping MR lookup for %s: detached HEAD (commit-pinned run)", context.repository.slug)
-            return None
-        current_branch = context.repo.current_ref
-        if not current_branch or current_branch == context.config.default_branch:
-            return None
-        return await aget_open_merge_request(context.repo.client, context.repository.slug, current_branch)
+        """Best-effort lookup of an open MR whose source branch is the main repository's current ref."""
+        return await aopen_branch_merge_request(context.repo)
 
     def _effective_mr(self, state: GitState, context: RuntimeCtx, *, current_ref: str) -> MergeRequest | None:
         """Resolve the run's MR from the one decision, with the context this middleware holds.
@@ -389,7 +378,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         other_repositories = [
             {
                 "repository": handle.repository.slug,
-                "path": runtime_ctx.workspace_path(handle),
+                "path": extra_repo_path(handle),
                 "current_branch": handle.current_ref,
                 "default_branch": handle.config.default_branch,
             }
@@ -423,10 +412,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
     @staticmethod
     async def _alink_related(
-        runtime: Runtime[RuntimeCtx], main_merge_request: MergeRequest | None, repo_publishes: list[RepoPublish]
+        ctx: RuntimeCtx, main_merge_request: MergeRequest | None, repo_publishes: list[RepoPublish]
     ) -> None:
         """Link the session's merge requests to each other, the main one first; a no-op below two of them."""
-        ctx = runtime.context
         if not ctx.extra_repos:
             return
         entries = (
@@ -434,13 +422,10 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             if main_merge_request
             else []
         )
-        handles = {handle.repo_id: handle for handle in ctx.extra_repos}
         entries += [
-            RelatedMergeRequest(
-                handles[publish.repo_id].client, handles[publish.repo_id].repository.slug, publish.merge_request
-            )
-            for publish in repo_publishes
-            if publish.merge_request is not None and publish.repo_id in handles
+            RelatedMergeRequest(handle.client, handle.repository.slug, publish.merge_request)
+            for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True)
+            if publish.merge_request is not None
         ]
         await aensure_related_links(entries)
 
@@ -502,54 +487,50 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             logger.exception("Could not read the run's closing summary; publishing without it")
             agent_summary = None
 
-        multi_repo = bool(runtime.context.extra_repos)
+        ctx = runtime.context
+        multi_repo = bool(ctx.extra_repos)
         repo_publishes: list[RepoPublish] = []
         if multi_repo:
             repo_publishes = await apublish_extra_repos(
-                runtime.context,
-                self._workspace,
-                settings=self._settings,
-                session_links=self._session_links,
-                skip_ci=self.skip_ci,
+                ctx, self._workspace, settings=self._settings, session_links=self._session_links, skip_ci=self.skip_ci
             )
             update["repo_publishes"] = [publish.to_state() for publish in repo_publishes]
-        sibling_notice = _sibling_failure_notice(runtime.context, repo_publishes)
 
-        publisher = GitChangePublisher(
-            runtime.context, self._workspace, settings=self._settings, session_links=self._session_links
-        )
+        publisher = GitChangePublisher(ctx, self._workspace, settings=self._settings, session_links=self._session_links)
+        outcome: PublishOutcome | None = None
+        notice: str | None = None
         try:
             outcome = await publisher.publish(
                 merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci, agent_summary=agent_summary
             )
         except UnresolvedMergeConflictsError as exc:
             logger.warning("Not publishing: %s", exc)
-            await self._alink_related(runtime, checkpointed_merge_request(state, strict=False), repo_publishes)
-            slug = runtime.context.repository.slug
-            in_main, there = (f" in the main repository `{slug}`", " there") if multi_repo else ("", "")
+            in_main, there = (f" in the main repository `{ctx.repository.slug}`", " there") if multi_repo else ("", "")
             notice = (
                 f"I didn't publish the merge{in_main}: {', '.join(f'`{path}`' for path in exc.paths)} still "
                 f"{'has' if len(exc.paths) == 1 else 'have'} conflict markers, so nothing was committed or "
                 f"pushed{there}. Ask me to finish resolving them."
             )
-            notice = "\n\n".join(filter(None, [notice, sibling_notice]))
-            return {**update, "messages": [await streamed_assistant_message(notice)]}
         except Exception as exc:
             if not multi_repo:
                 raise
-            slug = runtime.context.repository.slug
-            logger.exception("Publishing to %s failed", slug)
-            await self._alink_related(runtime, checkpointed_merge_request(state, strict=False), repo_publishes)
+            logger.exception("Publishing to %s failed", ctx.repository.slug)
+            update["main_publish_error"] = publish_failure(ctx.repository.slug, exc)
             notice = (
-                f"I couldn't publish the changes in the main repository `{slug}` ({type(exc).__name__}). "
-                "The other repositories were published on their own, and their results stand."
+                f"I couldn't publish the changes in the main repository `{ctx.repository.slug}` "
+                f"({type(exc).__name__}). The other repositories were published on their own, and their results stand."
             )
-            notice = "\n\n".join(filter(None, [notice, sibling_notice]))
-            return {
-                **update,
-                "main_publish_error": f"Publishing to {slug} failed ({type(exc).__name__})",
-                "messages": [await streamed_assistant_message(notice)],
-            }
+
+        # A link block only goes stale when a publish opens a merge request or rewrites its description.
+        if outcome is None or outcome.published or any(publish.published for publish in repo_publishes):
+            main_merge_request = outcome.merge_request if outcome is not None else None
+            await self._alink_related(
+                ctx, main_merge_request or checkpointed_merge_request(state, strict=False), repo_publishes
+            )
+        if notice := "\n\n".join(filter(None, [notice, _sibling_failure_notice(ctx, repo_publishes)])):
+            update["messages"] = [await streamed_assistant_message(notice)]
+        if outcome is None:
+            return update
 
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()
@@ -557,12 +538,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # Only ever set true here; ``abefore_agent`` clears it, so a no-op turn cannot
             # inherit the previous turn's push.
             update["published"] = True
-
-        await self._alink_related(
-            runtime, outcome.merge_request or checkpointed_merge_request(state, strict=False), repo_publishes
-        )
-        if sibling_notice:
-            update["messages"] = [await streamed_assistant_message(sibling_notice)]
 
         if outcome.merge_request is None:
             # published + no MR is the branch-visibility degrade (branch pushed, MR pending): record

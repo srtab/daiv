@@ -195,7 +195,7 @@ class TestBuildAgentResult:
         snapshot = SimpleNamespace(values={"merge_request": envelope, "code_changes": True})
 
         with caplog.at_level("ERROR"):
-            result = build_agent_result(response="done", snapshot=snapshot)
+            result = build_agent_result(response="done", snapshot=snapshot, main_repo_id="g/main")
 
         assert (result["merge_request_id"], result["merge_request_web_url"]) == (None, None)
         assert result["code_changes"] is True
@@ -204,13 +204,15 @@ class TestBuildAgentResult:
     def test_question_round_trips_into_the_result(self):
         snapshot = SimpleNamespace(values={})
 
-        result = build_agent_result(response="done", snapshot=snapshot, question={"questions": []})
+        result = build_agent_result(
+            response="done", snapshot=snapshot, question={"questions": []}, main_repo_id="g/main"
+        )
 
         assert result["question"] == {"questions": []}
 
     def test_question_defaults_to_none_including_the_snapshot_none_branch(self):
-        with_snapshot = build_agent_result(response="done", snapshot=SimpleNamespace(values={}))
-        without_snapshot = build_agent_result(response="done", snapshot=None)
+        with_snapshot = build_agent_result(response="done", snapshot=SimpleNamespace(values={}), main_repo_id="g/main")
+        without_snapshot = build_agent_result(response="done", snapshot=None, main_repo_id="g/main")
 
         assert with_snapshot["question"] is None
         assert without_snapshot["question"] is None
@@ -232,7 +234,7 @@ def _mr(repo_id: str, iid: int, web_url: str | None = None):
 
 
 def _publish(repo_id: str, iid: int | None = None, *, error: str | None = None) -> dict:
-    from automation.agent.publishers import RepoPublish
+    from automation.agent.git_state import RepoPublish
 
     mr = _mr(repo_id, iid, f"https://git/{repo_id}/-/merge_requests/{iid}") if iid else None
     return RepoPublish(repo_id=repo_id, merge_request=mr, published=bool(mr), current_ref="", error=error).to_state()
@@ -308,23 +310,3 @@ def test_parse_keeps_the_lists():
 
     assert parsed["merge_requests"] == rv["merge_requests"]
     assert parsed["publish_errors"] == rv["publish_errors"]
-
-
-def test_repo_publishes_from_state_skips_unreadable_items(caplog):
-    from sessions.executor.result import repo_publishes_from_state
-
-    values = {
-        "repo_publishes": [
-            {"no_repo_id": True},
-            "not-a-dict",
-            _publish("g/mod", 7),
-            {"repo_id": "g/bad", "merge_request": {"unexpected": 1}},
-        ]
-    }
-
-    with caplog.at_level("ERROR"):
-        publishes = repo_publishes_from_state(values)
-
-    assert [rp.repo_id for rp in publishes] == ["g/mod"]
-    assert "repo_id=g/bad" in caplog.text
-    assert repo_publishes_from_state({"repo_publishes": "nope"}) == []

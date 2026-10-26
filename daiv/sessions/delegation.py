@@ -73,7 +73,7 @@ from sessions.admission import (
 )
 from sessions.artifacts import aresolve_active_run
 from sessions.executor.lock import SessionLockTimeoutError
-from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.queue import ENQUEUE_FAILED_PREFIX, LINK_FAILED_PREFIX, dispatch_next_queued, release_orphan_queued_runs
 from sessions.services import RepoTarget, asubmit_batch_runs, create_run, pinned_agent_override
 
@@ -357,8 +357,7 @@ def _resume_batch(batch_id: uuid.UUID) -> bool:
         return False
 
     user = legs[0].user
-    extra_repo_ids = SessionRepository.objects.filter(session=coordinator).values_list("repo_id", flat=True)
-    denial = _access_denial(user, [coordinator.repo_id, *extra_repo_ids])
+    denial = _access_denial(user, coordinator.repo_ids())
     agent_model, agent_thinking_level = pinned_agent_override(coordinator)
     try:
         with transaction.atomic():

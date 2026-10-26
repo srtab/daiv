@@ -20,11 +20,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
-from sessions.admission import AdmissionError, aadmit, aassert_repo_access, aresolve_environment, check_agent_override
+from sessions.admission import AdmissionError, aassert_repo_access, aresolve_environment, check_agent_override
 from sessions.artifacts import aserialize_run_artifacts_for_status
-from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.multi_repo import SharedSessionError, ais_multi_repo, asubmit_shared_session_run, validate_shared_repos
-from sessions.services import MAX_REPOS_PER_BATCH, BatchSubmitFailure, RepoTarget, alist_user_runs, asubmit_batch_runs
+from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.multi_repo import THREAD_NOT_FOUND, asubmit_jobs
+from sessions.services import MAX_REPOS_PER_BATCH, BatchSubmitFailure, RepoTarget, alist_user_runs
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 from codebase.authorization import asearch_viewable_repositories
@@ -86,8 +86,6 @@ continue polling with `get_job_status` if the result is not yet available.\
     ),
     token_verifier=DjangoTokenVerifier(),
 )
-
-_THREAD_NOT_FOUND = "thread_id not found"
 
 
 def _allow_job_submission(user) -> bool:
@@ -278,58 +276,37 @@ async def submit_job(
             thread_id_str = str(uuid_mod.UUID(str(thread_id)))
         except ValueError, TypeError:
             logger.info("submit_job: rejecting malformed thread_id", extra={"user_id": mcp_user.pk})
-            return json.dumps({"error": _THREAD_NOT_FOUND})
-        owned = await Session.objects.by_owner(mcp_user).filter(thread_id=thread_id_str).aexists()
-        shared_session = shared_session or (owned and await ais_multi_repo(thread_id_str))
-        if not shared_session and len(specs) != 1:
-            return json.dumps({"error": "thread_id continuation requires exactly one repo"})
-        if not owned:
-            return json.dumps({"error": _THREAD_NOT_FOUND})
+            return json.dumps({"error": THREAD_NOT_FOUND})
 
-    targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "", prompt=s.prompt or "") for s in specs]
     try:
-        if shared_session:
-            validate_shared_repos(targets, continuation=thread_id_str is not None)
-        admission = await aadmit(
+        result = await asubmit_jobs(
             user=mcp_user,
-            repos=targets,
+            repos=[RepoTarget(repo_id=s.repo_id, ref=s.ref or "", prompt=s.prompt or "") for s in specs],
+            shared=shared_session,
+            thread_id=thread_id_str,
+            prompt=prompt,
             agent_model=agent_model,
             agent_thinking_level=agent_thinking_level,
             environment=environment,
-        )
-        submit = asubmit_shared_session_run if shared_session else asubmit_batch_runs
-        result = await submit(
-            user=mcp_user,
-            prompt=prompt,
-            repos=admission.targets,
-            agent_model=admission.agent_model,
-            agent_thinking_level=admission.agent_thinking_level,
             muted=muted,
             trigger_type=SessionOrigin.MCP_JOB,
-            thread_id=thread_id_str,
             references=refs_in,
         )
-    except (AdmissionError, SharedSessionError) as err:
+    except AdmissionError as err:
         return json.dumps({"error": str(err)})
 
-    if shared_session:
-        submitted = [(specs[0], run) for run in result.runs]
-    else:
-        # Walk the specs, not the runs, to echo the client-sent ref value (None vs "").
-        submitted = [
-            (spec, outcome)
-            for spec, outcome in zip(specs, result.outcomes, strict=True)
-            if not isinstance(outcome, BatchSubmitFailure)
-        ]
+    # Walk the specs, not the runs, to echo the client-sent ref value (None vs ""). A shared session's single
+    # outcome pairs with its main repository, the first spec.
     jobs = [
         {
-            "job_id": str(run.id),
+            "job_id": str(outcome.id),
             "repo_id": spec.repo_id,
             "ref": spec.ref,
-            "thread_id": str(run.session_id) if run.session_id else None,
-            "status": str(run.status),
+            "thread_id": str(outcome.session_id) if outcome.session_id else None,
+            "status": str(outcome.status),
         }
-        for spec, run in submitted
+        for spec, outcome in zip(specs, result.outcomes, strict=False)
+        if not isinstance(outcome, BatchSubmitFailure)
     ]
     job_ids = [str(run.id) for run in result.runs]
 

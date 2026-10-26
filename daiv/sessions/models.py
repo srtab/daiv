@@ -219,6 +219,13 @@ class Session(models.Model):
         )
         return {self.merge_request_iid, *run_iids} - {None}
 
+    def repo_ids(self) -> list[str]:
+        """Every repository of the session, the main one first."""
+        return [self.repo_id, *self.extra_repositories.values_list("repo_id", flat=True)]
+
+    async def arepo_ids(self) -> list[str]:
+        return [self.repo_id, *[repo_id async for repo_id in self.extra_repositories.values_list("repo_id", flat=True)]]
+
     def touch(self) -> None:
         """Bump ``last_active_at`` (a queryset update, so no other column is written)."""
         type(self).objects.filter(pk=self.pk).update(last_active_at=timezone.now())
@@ -261,10 +268,7 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
         "code_changes": result["code_changes"],
         "merge_request_iid": result["merge_request_id"],
         "merge_request_web_url": result["merge_request_web_url"],
-        "merge_requests": [
-            {"repo_id": item["repo_id"], "merge_request_iid": item["merge_request_id"], "web_url": item["web_url"]}
-            for item in result["merge_requests"]
-        ],
+        "merge_requests": result["merge_requests"],
         "publish_errors": result["publish_errors"],
     }
     return {field: value for field, value in updates.items() if value}

@@ -12,6 +12,7 @@ from django.template.loader import render_to_string
 from asgiref.sync import sync_to_async
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
+from automation.agent.git_state import RepoPublish
 from automation.agent.references import (
     PLATFORM_ISSUE_PROVIDERS,
     render_agent_context,
@@ -29,12 +30,12 @@ from .diff_to_metadata.graph import create_diff_to_metadata_graph
 from .diff_to_metadata.prompts import sanitize_agent_report
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RepoHandle, RuntimeCtx
     from automation.agent.session_links import SessionLinks, SessionLinksResolver
-    from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.base import PublishWorkspace, Workspace
     from automation.agent.workspace.git_manager import PendingMerge
 
 
@@ -109,41 +110,6 @@ class PublishOutcome:
     prepared answers zero."""
 
 
-@dataclass(frozen=True)
-class RepoPublish:
-    """How one of the session's extra repositories fared at the end of a turn; kept in ``GitState.repo_publishes``.
-
-    ``current_ref`` is the merge request's source branch when there is one, else the branch the clone is on (``""`` on
-    a detached HEAD). ``error`` is set when the publish failed, which left that repository's work unpublished.
-    """
-
-    repo_id: str
-    merge_request: MergeRequest | None
-    published: bool
-    current_ref: str
-    error: str | None = None
-
-    def to_state(self) -> dict[str, Any]:
-        return {
-            "repo_id": self.repo_id,
-            "merge_request": self.merge_request.model_dump(mode="json") if self.merge_request is not None else None,
-            "published": self.published,
-            "current_ref": self.current_ref,
-            "error": self.error,
-        }
-
-    @classmethod
-    def from_state(cls, data: Mapping[str, Any]) -> RepoPublish:
-        merge_request = data.get("merge_request")
-        return cls(
-            repo_id=data["repo_id"],
-            merge_request=MergeRequest.model_validate(merge_request) if merge_request else None,
-            published=bool(data.get("published")),
-            current_ref=data.get("current_ref") or "",
-            error=data.get("error"),
-        )
-
-
 class GitChangePublisher:
     """
     Publisher for changes made by the agent to the Git repository.
@@ -155,7 +121,7 @@ class GitChangePublisher:
     def __init__(
         self,
         ctx: RuntimeCtx,
-        workspace: Workspace,
+        workspace: PublishWorkspace,
         *,
         settings: AgentSettings,
         session_links: SessionLinksResolver | None,
@@ -735,12 +701,9 @@ async def _apublish_extra_repo(
     slug = handle.repository.slug
     branch = "" if handle.head_detached else handle.current_ref
     try:
-        target = await _abranch_merge_request(handle)
+        target = await aopen_branch_merge_request(handle)
         publisher = GitChangePublisher(
-            _extra_repo_ctx(ctx, handle),
-            workspace.for_repo(handle, path=ctx.workspace_path(handle)),
-            settings=settings,
-            session_links=session_links,
+            _extra_repo_ctx(ctx, handle), workspace.for_repo(handle), settings=settings, session_links=session_links
         )
         outcome = await publisher.publish(
             merge_request=target, skip_ci=skip_ci, as_draft=recovering and (target is None or target.draft)
@@ -750,28 +713,32 @@ async def _apublish_extra_repo(
         error = str(exc)
     except Exception as exc:
         logger.exception("Publishing to %s failed", slug)
-        error = f"Publishing to {slug} failed ({type(exc).__name__})"
+        error = publish_failure(slug, exc)
     else:
-        merge_request = outcome.merge_request
         return RepoPublish(
-            repo_id=handle.repo_id,
-            merge_request=merge_request,
-            published=outcome.published,
-            current_ref=merge_request.source_branch if merge_request is not None else branch,
+            repo_id=handle.repo_id, merge_request=outcome.merge_request, published=outcome.published, current_ref=branch
         )
     return RepoPublish(repo_id=handle.repo_id, merge_request=None, published=False, current_ref=branch, error=error)
 
 
+def publish_failure(slug: str, exc: Exception) -> str:
+    return f"Publishing to {slug} failed ({type(exc).__name__})"
+
+
 def _extra_repo_ctx(ctx: RuntimeCtx, handle: RepoHandle) -> RuntimeCtx:
-    """``ctx`` seen through ``handle``, minus the platform-issue references: in ``handle``'s merge request their
+    """``ctx`` seen through ``handle`` alone, minus the platform-issue references: in ``handle``'s merge request their
     ``Closes`` line would name an issue of ``handle``'s repository, not the one meant."""
     references = tuple(ref for ref in ctx.references if ref.provider not in PLATFORM_ISSUE_PROVIDERS)
-    return replace(ctx.for_repo(handle), references=references)
+    return replace(ctx, repos=(handle,), references=references)
 
 
-async def _abranch_merge_request(handle: RepoHandle) -> MergeRequest | None:
-    """The open merge request from the branch ``handle``'s clone is on; ``None`` on a detached HEAD or the default
-    branch, which no run's merge request starts from."""
-    if handle.head_detached or handle.current_ref == handle.config.default_branch:
+async def aopen_branch_merge_request(handle: RepoHandle) -> MergeRequest | None:
+    """The open merge request from the branch ``handle``'s clone is on; ``None`` on a detached HEAD (a commit-pinned
+    run, such as a SWE-bench eval on a raw SHA) or the default branch, which no run's merge request starts from."""
+    slug = handle.repository.slug
+    if handle.head_detached:
+        logger.debug("Skipping MR lookup for %s: detached HEAD (commit-pinned run)", slug)
         return None
-    return await aget_open_merge_request(handle.client, handle.repository.slug, handle.current_ref)
+    if not handle.current_ref or handle.current_ref == handle.config.default_branch:
+        return None
+    return await aget_open_merge_request(handle.client, slug, handle.current_ref)

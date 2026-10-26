@@ -31,6 +31,7 @@ from codebase.base import (
     User,
 )
 from codebase.conf import settings
+from core.sandbox.egress import PlatformCredential
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -88,7 +89,7 @@ def _basic_oauth2(token: str) -> str:
 
 
 @dataclass(frozen=True)
-class GitEgressCredential:
+class GitEgressCredential(PlatformCredential):
     """Egress-proxy contribution for a repo's git platform: which host to allow and the
     ``Authorization`` header to inject so git-over-HTTPS in the sandbox is authenticated.
 
@@ -97,11 +98,6 @@ class GitEgressCredential:
     platform needs none (e.g. SWE eval's public repos) or one was required but could not be minted.
     The host is still returned so reachability works; auth, if required, then fails at the git
     layer."""
-
-    host: str
-    header: str = "Authorization"
-    value: SecretStr | None = None
-    path: str = ""
 
     @classmethod
     def for_token(cls, *, host: str, token: str | None, path: str = "") -> GitEgressCredential:

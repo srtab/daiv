@@ -18,6 +18,20 @@ if TYPE_CHECKING:
     from sessions.models import Run, RunArtifact, Session
 
 
+def _readable_repos_q(user: User, session_ref: str) -> models.Q:
+    """Rows on a repository ``user`` can read whose session (``session_ref``) has no extra repository they can't."""
+    # Local import: keep this module from pulling codebase.authorization
+    # (and its codebase.* / allauth graph) in at app-load time.
+    from codebase.authorization import viewable_repo_ids_subquery
+    from sessions.models import SessionRepository
+
+    viewable = viewable_repo_ids_subquery(user)
+    unreadable_extra = models.Exists(
+        SessionRepository.objects.filter(session=models.OuterRef(session_ref)).exclude(repo_id__in=viewable)
+    )
+    return models.Q(repo_id__in=viewable) & ~unreadable_extra
+
+
 class SessionQuerySet(models.QuerySet["Session"]):
     def _owner_q(self, user: User) -> models.Q:
         """Ownership predicate shared by ``by_owner``/``visible_to``.
@@ -60,16 +74,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         """
         if user.is_admin:
             return self.all()
-        # Local import: keep this module from pulling codebase.authorization
-        # (and its codebase.* / allauth graph) in at app-load time.
-        from codebase.authorization import viewable_repo_ids_subquery
-        from sessions.models import SessionRepository
-
-        viewable = viewable_repo_ids_subquery(user)
-        unreadable_extra = models.Exists(
-            SessionRepository.objects.filter(session=models.OuterRef("pk")).exclude(repo_id__in=viewable)
-        )
-        return self.filter(self._owner_q(user) | (models.Q(repo_id__in=viewable) & ~unreadable_extra)).distinct()
+        return self.filter(self._owner_q(user) | _readable_repos_q(user, "pk")).distinct()
 
     def for_merge_request(self, iid: int) -> models.QuerySet[Session]:
         """Sessions that touched merge request ``iid``, whichever way they learned of it.
@@ -126,16 +131,7 @@ class RunManager(models.Manager["Run"]):
         """
         if user.is_admin:
             return self.all()
-        # Local import: keep this module from pulling codebase.authorization
-        # (and its codebase.* / allauth graph) in at app-load time.
-        from codebase.authorization import viewable_repo_ids_subquery
-        from sessions.models import SessionRepository
-
-        viewable = viewable_repo_ids_subquery(user)
-        unreadable_extra = models.Exists(
-            SessionRepository.objects.filter(session=models.OuterRef("session_id")).exclude(repo_id__in=viewable)
-        )
-        return self.filter(self._owner_q(user) | (models.Q(repo_id__in=viewable) & ~unreadable_extra)).distinct()
+        return self.filter(self._owner_q(user) | _readable_repos_q(user, "session_id")).distinct()
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)

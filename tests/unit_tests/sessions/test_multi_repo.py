@@ -210,7 +210,7 @@ async def test_enqueue_failure_is_reported_as_failed(member_user):
 
 
 def _publish(repo_id, *, iid=None, branch="", published=False, current_ref="", error=None):
-    from automation.agent.publishers import RepoPublish
+    from automation.agent.git_state import RepoPublish
     from codebase.base import MergeRequest, User
 
     mr = (

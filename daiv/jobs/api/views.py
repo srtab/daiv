@@ -1,17 +1,16 @@
 import logging
 import uuid as uuid_mod
-from typing import TYPE_CHECKING, Literal, cast
-from uuid import UUID
+from typing import Literal, cast
 
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django
 
 from ninja import Router
 from ninja.errors import HttpError
-from sessions.admission import AdmissionError, RepoAccessError, aadmit
+from sessions.admission import AdmissionError, RepoAccessError
 from sessions.artifacts import aserialize_run_artifacts_for_status
-from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.multi_repo import SharedSessionError, ais_multi_repo, asubmit_shared_session_run, validate_shared_repos
-from sessions.services import BatchSubmitFailure, RepoTarget, asubmit_batch_runs
+from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.multi_repo import asubmit_jobs
+from sessions.services import BatchSubmitFailure, RepoTarget
 
 from accounts.api.security import AuthBearer
 from core.api.throttling import JobsRateThrottle
@@ -26,26 +25,9 @@ from .schemas import (
     JobSubmitResponse,
 )
 
-if TYPE_CHECKING:
-    from accounts.models import User
-
 logger = logging.getLogger("daiv.jobs")
 
-_THREAD_NOT_FOUND = "thread_id not found"
-
 jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
-
-
-async def _validate_thread_id(thread_id: UUID, user: User) -> tuple[bool, str | None]:
-    """Return (ok, error_detail). One opaque message regardless of cause (unknown or not owned).
-
-    Schema-layer validation already constrains ``thread_id`` to a well-formed UUID, so no
-    UUID parsing is needed here — a non-existent ID is indistinguishable from a non-owned one.
-    """
-    owned = await Session.objects.by_owner(user).filter(thread_id=str(thread_id)).aexists()
-    if not owned:
-        return False, _THREAD_NOT_FOUND
-    return True, None
 
 
 @jobs_router.post("", response={202: JobSubmitResponse, 400: dict, 404: dict, 503: dict}, throttle=[JobsRateThrottle()])
@@ -58,61 +40,39 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     If a prior run on the thread is still in flight, the new Run is created in ``QUEUED``
     state and will be released FIFO when the prior run terminates.
     """
-    shared = payload.shared_session
-    if payload.thread_id is not None:
-        ok, err = await _validate_thread_id(payload.thread_id, request.auth)
-        shared = shared or (ok and await ais_multi_repo(str(payload.thread_id)))
-        if not shared and len(payload.repos) != 1:
-            return 400, {"detail": "thread_id continuation requires exactly one repo"}
-        if not ok:
-            return 400, {"detail": err}
-
-    repos = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "", prompt=spec.prompt or "") for spec in payload.repos]
     try:
-        if shared:
-            validate_shared_repos(repos, continuation=payload.thread_id is not None)
-        admission = await aadmit(
+        result = await asubmit_jobs(
             user=request.auth,
-            repos=repos,
+            repos=[
+                RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "", prompt=spec.prompt or "") for spec in payload.repos
+            ],
+            shared=payload.shared_session,
+            thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
+            prompt=payload.prompt,
             agent_model=payload.agent_model,
             agent_thinking_level=payload.agent_thinking_level,
             environment=payload.environment,
-        )
-        submit = asubmit_shared_session_run if shared else asubmit_batch_runs
-        result = await submit(
-            user=request.auth,
-            prompt=payload.prompt,
-            repos=admission.targets,
-            agent_model=admission.agent_model,
-            agent_thinking_level=admission.agent_thinking_level,
             muted=payload.muted,
             trigger_type=SessionOrigin.API_JOB,
-            thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
             references=payload.references,
         )
     except RepoAccessError as err:
         # Opaque 404: don't confirm the repo's existence to unauthorized callers.
         raise HttpError(404, str(err)) from err
-    except (AdmissionError, SharedSessionError) as err:
+    except AdmissionError as err:
         return 400, {"detail": str(err)}
 
-    if shared:
-        submitted = [(payload.repos[0], run) for run in result.runs]
-    else:
-        submitted = [
-            (spec, outcome)
-            for spec, outcome in zip(payload.repos, result.outcomes, strict=True)
-            if not isinstance(outcome, BatchSubmitFailure)
-        ]
     jobs = [
         JobSubmitJobItem(
-            job_id=str(run.id),
+            job_id=str(outcome.id),
             repo_id=spec.repo_id,
             ref=spec.ref,
-            thread_id=str(run.session_id),
-            status=cast("Literal['QUEUED', 'READY']", run.status),
+            thread_id=str(outcome.session_id),
+            status=cast("Literal['QUEUED', 'READY']", outcome.status),
         )
-        for spec, run in submitted
+        # A shared session's single outcome pairs with its main repository, the first spec.
+        for spec, outcome in zip(payload.repos, result.outcomes, strict=False)
+        if not isinstance(outcome, BatchSubmitFailure)
     ]
 
     failed = [JobSubmitFailureItem(repo_id=f.repo_id, ref=f.ref, error=f.error) for f in result.failed]

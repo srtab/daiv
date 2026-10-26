@@ -415,8 +415,8 @@ def test_merge_request_links_prefers_list_and_falls_back_to_legacy_url():
         _mk_session(),
         merge_request_web_url="https://git/g/repo/-/merge_requests/1",
         merge_requests=[
-            {"repo_id": "group/repo", "merge_request_iid": 1, "web_url": "https://git/g/repo/-/merge_requests/1"},
-            {"repo_id": "g/mod", "merge_request_iid": 7, "web_url": "https://git/g/mod/-/merge_requests/7"},
+            {"repo_id": "group/repo", "merge_request_id": 1, "web_url": "https://git/g/repo/-/merge_requests/1"},
+            {"repo_id": "g/mod", "merge_request_id": 7, "web_url": "https://git/g/mod/-/merge_requests/7"},
         ],
     )
     assert run.merge_request_links() == [
@@ -432,7 +432,7 @@ def test_merge_request_links_prefers_list_and_falls_back_to_legacy_url():
 
 
 def test_primary_merge_request_url_prefers_the_main_repositorys():
-    sibling = {"repo_id": "g/mod", "merge_request_iid": 7, "web_url": "https://git/g/mod/-/merge_requests/7"}
+    sibling = {"repo_id": "g/mod", "merge_request_id": 7, "web_url": "https://git/g/mod/-/merge_requests/7"}
     run = _mk_run(
         _mk_session(), merge_request_web_url="https://git/g/repo/-/merge_requests/1", merge_requests=[sibling]
     )
@@ -457,7 +457,7 @@ def test_field_updates_include_merge_requests_and_errors():
     updates = agent_result_field_updates(result)
 
     assert updates["merge_requests"] == [
-        {"repo_id": "g/mod", "merge_request_iid": 7, "web_url": "https://git/g/mod/-/merge_requests/7"}
+        {"repo_id": "g/mod", "merge_request_id": 7, "web_url": "https://git/g/mod/-/merge_requests/7"}
     ]
     assert updates["publish_errors"] == [{"repo_id": "g/lib", "error": "boom"}]
 

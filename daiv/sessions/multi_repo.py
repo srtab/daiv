@@ -8,22 +8,31 @@ from django.db import transaction
 from asgiref.sync import sync_to_async
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION
-from sessions.admission import aassert_repo_access
+from sessions.admission import AdmissionError, aadmit, aassert_repo_access
 from sessions.models import RunStatus, Session, SessionRepository
-from sessions.services import BatchSubmitResult, RepoTarget, _aclaim_run, _aenqueue_batch_title, _astart_run, create_run
+from sessions.services import (
+    BatchSubmitResult,
+    RepoTarget,
+    _aclaim_run,
+    _aenqueue_batch_title,
+    _astart_run,
+    asubmit_batch_runs,
+    create_run,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from accounts.models import User
-    from automation.agent.publishers import RepoPublish
+    from automation.agent.git_state import RepoPublish
     from automation.agent.references import RefIn
     from sessions.models import Run
 
 MAX_REPOS_PER_SESSION = 5
+THREAD_NOT_FOUND = "thread_id not found"
 
 
-class SharedSessionError(ValueError):
+class SharedSessionError(AdmissionError):
     """A shared-session submission the caller got wrong; the message is shown to them verbatim."""
 
 
@@ -41,9 +50,9 @@ async def apersist_extra_repo_state(thread_id: str, publishes: Sequence[RepoPubl
     A failed publish leaves its row alone; a blank ref is never written, since it means the default branch.
     """
     for rp in publishes:
-        rows = SessionRepository.objects.filter(session_id=thread_id, repo_id=rp.repo_id)
         if rp.error:
             continue
+        rows = SessionRepository.objects.filter(session_id=thread_id, repo_id=rp.repo_id)
         if rp.merge_request is not None:
             await rows.aupdate(
                 ref=rp.merge_request.source_branch,
@@ -81,9 +90,8 @@ def _validate_continuation(repos: list[RepoTarget], stored_ids: list[str]) -> No
         )
 
 
-def _create_new_session_run(
-    *, repos: list[RepoTarget], thread_id: str, status: str, run_kwargs: dict, user: User
-) -> Run:
+def _create_session_run(*, repos: list[RepoTarget], thread_id: str, status: str, run_kwargs: dict, user: User) -> Run:
+    """Create the run on ``repos[0]`` and a session row for each later one; a continuation passes the main alone."""
     main, *extras = repos
     with transaction.atomic():
         run = create_run(
@@ -109,6 +117,56 @@ def _create_new_session_run(
     return run
 
 
+async def asubmit_jobs(
+    *,
+    user: User,
+    repos: list[RepoTarget],
+    shared: bool,
+    thread_id: str | None,
+    prompt: str,
+    agent_model: str | None,
+    agent_thinking_level: str | None,
+    environment: str | None,
+    muted: bool | None,
+    trigger_type: str,
+    references: Sequence[RefIn] | None,
+) -> BatchSubmitResult:
+    """Admit and submit a jobs request: one run on a shared session when ``shared`` is set or ``thread_id`` continues
+    a multi-repository session, else an independent run per repository.
+
+    ``thread_id`` must name a session ``user`` owns. Every refusal is an :class:`~sessions.admission.AdmissionError`.
+    The result holds one outcome per entry of ``repos``, or a shared session's single one, for its main repository.
+    """
+    if thread_id is not None:
+        owned = await Session.objects.by_owner(user).filter(thread_id=thread_id).aexists()
+        shared = shared or (owned and await ais_multi_repo(thread_id))
+        if not shared and len(repos) != 1:
+            raise AdmissionError("thread_id continuation requires exactly one repo")
+        if not owned:
+            raise AdmissionError(THREAD_NOT_FOUND)
+    if shared:
+        validate_shared_repos(repos, continuation=thread_id is not None)
+    admission = await aadmit(
+        user=user,
+        repos=repos,
+        agent_model=agent_model,
+        agent_thinking_level=agent_thinking_level,
+        environment=environment,
+    )
+    submit = asubmit_shared_session_run if shared else asubmit_batch_runs
+    return await submit(
+        user=user,
+        prompt=prompt,
+        repos=admission.targets,
+        agent_model=admission.agent_model,
+        agent_thinking_level=admission.agent_thinking_level,
+        muted=muted,
+        trigger_type=trigger_type,
+        thread_id=thread_id,
+        references=references,
+    )
+
+
 async def asubmit_shared_session_run(
     *,
     user: User,
@@ -128,59 +186,45 @@ async def asubmit_shared_session_run(
     if len(stored_refs) > MAX_REFS_PER_SUBMISSION:
         raise SharedSessionError(f"references exceeds the maximum of {MAX_REFS_PER_SUBMISSION}")
 
+    batch_id = uuid.uuid4()
     run_kwargs = {
         "trigger_type": trigger_type,
         "prompt": prompt,
         "agent_model": agent_model,
         "agent_thinking_level": agent_thinking_level,
         "muted": muted,
+        "batch_id": batch_id,
     }
-    batch_id = uuid.uuid4()
 
     if thread_id is None:
         await aassert_repo_access(user, [target.repo_id for target in repos])
-        target = repos[0]
-        new_thread_id = str(uuid.uuid4())
-
-        def create(status: str):
-            return sync_to_async(_create_new_session_run)(
-                repos=repos,
-                thread_id=new_thread_id,
-                status=status,
-                run_kwargs=run_kwargs | {"batch_id": batch_id},
-                user=user,
-            )
-
+        session_repos, session_thread_id = repos, str(uuid.uuid4())
     else:
         try:
             uuid.UUID(thread_id)
         except (ValueError, TypeError) as err:
             raise SharedSessionError("thread_id must be a UUID string") from err
         session = await Session.objects.filter(pk=thread_id).afirst()
-        extras = await aload_extra_repos(thread_id) if session else []
-        if not extras:
+        stored_ids = await session.arepo_ids() if session else []
+        if len(stored_ids) < 2:
             raise SharedSessionError(f"thread {thread_id} is not a multi-repository session")
-        stored_ids = [session.repo_id, *(row.repo_id for row in extras)]
         _validate_continuation(repos, stored_ids)
         await aassert_repo_access(user, stored_ids)
-        target = RepoTarget(session.repo_id, session.ref, repos[0].sandbox_environment_id)
+        session_repos = [RepoTarget(session.repo_id, session.ref, repos[0].sandbox_environment_id)]
+        session_thread_id = thread_id
 
-        def create(status: str):
-            return sync_to_async(create_run)(
-                **run_kwargs,
-                batch_id=batch_id,
-                user=user,
-                repo_id=target.repo_id,
-                ref=target.ref,
-                sandbox_environment_id=target.sandbox_environment_id,
-                thread_id=thread_id,
-                task_result_id=None,
-                status=status,
-            )
+    def create(status: str):
+        return sync_to_async(_create_session_run)(
+            repos=session_repos, thread_id=session_thread_id, status=status, run_kwargs=run_kwargs, user=user
+        )
 
     log_context = "submit_shared_session_run"
     claimed = await _aclaim_run(
-        create, target=target, initial_status=RunStatus.READY, stored_refs=stored_refs, log_context=log_context
+        create,
+        target=session_repos[0],
+        initial_status=RunStatus.READY,
+        stored_refs=stored_refs,
+        log_context=log_context,
     )
     result = BatchSubmitResult(batch_id=batch_id, outcomes=[await _astart_run(claimed, log_context=log_context)])
     await _aenqueue_batch_title(

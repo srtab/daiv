@@ -1,30 +1,15 @@
 {% load i18n icon_tags %}
-{% if extra_repositories %}
+{% if repository_rows %}
 <section class="session-repositories" aria-label="{% translate 'Repositories' %}">
-    <div class="session-repositories__row">
-        <span class="session-repo" title="{{ session.repo_id }}">{% icon "repo" "h-3 w-3 shrink-0" %}<span class="truncate">{{ session.repo_id }}</span></span>
-        <span class="session-repositories__main">{% translate "main" %}</span>
-        {% if thread_ref %}<span class="session-branch min-w-0" title="{{ thread_ref }}">{% icon "branch" "h-3 w-3 shrink-0" %}<span class="truncate">{{ thread_ref }}</span></span>{% endif %}
-        {% if merge_request %}
-            {% if merge_request.url %}
-            <a href="{{ merge_request.url }}" target="_blank" rel="noopener" class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</a>
-            {% else %}
-            <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</span>
-            {% endif %}
-        {% elif main_merge_request_url %}
-        <a href="{{ main_merge_request_url }}" target="_blank" rel="noopener" class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}{% if session.merge_request_iid %}!{{ session.merge_request_iid }}{% else %}{% translate "Merge request" %}{% endif %}</a>
-        {% elif session.merge_request_iid %}
-        <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ session.merge_request_iid }}</span>
-        {% endif %}
-    </div>
-    {% for repo in extra_repositories %}
+    {% for repo in repository_rows %}
     <div class="session-repositories__row">
         <span class="session-repo" title="{{ repo.repo_id }}">{% icon "repo" "h-3 w-3 shrink-0" %}<span class="truncate">{{ repo.repo_id }}</span></span>
+        {% if forloop.first %}<span class="session-repositories__main">{% translate "main" %}</span>{% endif %}
         {% if repo.ref %}<span class="session-branch min-w-0" title="{{ repo.ref }}">{% icon "branch" "h-3 w-3 shrink-0" %}<span class="truncate">{{ repo.ref }}</span></span>{% endif %}
-        {% if repo.merge_request_web_url %}
-        <a href="{{ repo.merge_request_web_url }}" target="_blank" rel="noopener" class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}{% if repo.merge_request_iid %}!{{ repo.merge_request_iid }}{% else %}{% translate "Merge request" %}{% endif %}</a>
-        {% elif repo.merge_request_iid %}
-        <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ repo.merge_request_iid }}</span>
+        {% if repo.mr_url %}
+        <a href="{{ repo.mr_url }}" target="_blank" rel="noopener" class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}{% if repo.mr_iid %}!{{ repo.mr_iid }}{% else %}{% translate "Merge request" %}{% endif %}</a>
+        {% elif repo.mr_iid %}
+        <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ repo.mr_iid }}</span>
         {% endif %}
     </div>
     {% endfor %}
