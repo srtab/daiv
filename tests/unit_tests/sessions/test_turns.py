@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from sessions.turns import build_turns
 
@@ -500,24 +501,15 @@ def test_build_turns_keeps_a_reply_that_follows_a_failed_question():
     assert turns[-1]["segments"] == [{"type": "text", "content": "I will pick SQLite."}]
 
 
-def test_build_turns_unanswered_tool_call_of_an_ended_run_is_error():
-    ai = AIMessage(
-        content="",
-        id="a-1",
-        tool_calls=[{"id": "tc-ok", "name": "ls", "args": {}}, {"id": "tc-lost", "name": "bash", "args": {}}],
-    )
-    turns = build_turns([ai, ToolMessage(content="a.py", tool_call_id="tc-ok")])
-    assert [(s["id"], s["status"]) for s in turns[0]["segments"]] == [("tc-ok", "done"), ("tc-lost", "error")]
-
-
-def test_build_turns_unanswered_tool_call_while_in_flight_is_running():
+@pytest.mark.parametrize(("in_flight", "status"), [(False, "error"), (True, "running")])
+def test_build_turns_unanswered_tool_call_status(in_flight, status):
     ai = AIMessage(
         content="",
         id="a-1",
         tool_calls=[{"id": "tc-ok", "name": "ls", "args": {}}, {"id": "tc-open", "name": "bash", "args": {}}],
     )
-    turns = build_turns([ai, ToolMessage(content="a.py", tool_call_id="tc-ok")], in_flight=True)
-    assert [(s["id"], s["status"]) for s in turns[0]["segments"]] == [("tc-ok", "done"), ("tc-open", "running")]
+    turns = build_turns([ai, ToolMessage(content="a.py", tool_call_id="tc-ok")], in_flight=in_flight)
+    assert [(s["id"], s["status"]) for s in turns[0]["segments"]] == [("tc-ok", "done"), ("tc-open", status)]
 
 
 def test_build_turns_empty_tool_result_counts_as_answered():

@@ -939,7 +939,8 @@
       turn.streaming = false;
       // A call still running when the run ends never returned, unless the run finished cleanly.
       // Checkpointed turns count too: they hold the calls the rejoin found unanswered.
-      const unanswered = reason === "finished" && !this._hasRunStatusMarker() ? "done" : "error";
+      const hasMarker = this._hasRunStatusMarker();
+      const unanswered = reason === "finished" && !hasMarker ? "done" : "error";
       for (const t of this.turns) {
         for (const s of t.segments || []) {
           if (s.type === "tool_call" && s.status === "running") s.status = unanswered;
@@ -960,7 +961,7 @@
         connection_lost: "Lost connection to the server — refresh to continue.",
         error: "The live stream failed — refresh to check the run's state.",
       };
-      if (REASON_ERRORS[reason] && !this._hasRunStatusMarker()) {
+      if (REASON_ERRORS[reason] && !hasMarker) {
         this._pushRunStatus("failed", REASON_ERRORS[reason]);
       }
       this.streaming = false;

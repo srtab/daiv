@@ -76,8 +76,8 @@ class FakeEventSource {
 }
 """
 
-BODY = """
-const { frames, turns } = payload;
+REJOIN = """
+const { frames, turns, reason } = payload;
 
 const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
 chat.turns = turns;
@@ -87,19 +87,21 @@ chat.scrollToBottom = () => {};
 
 const settled = chat._resumeRun("run-1");
 for (const evt of frames) opened.onmessage({ data: JSON.stringify(evt) });
-opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+opened.listeners.end({ data: JSON.stringify({ reason }) });
 await settled;
+"""
 
+REJOIN_SEGMENTS = """
 const turn = chat.turns.filter((t) => t.role === "assistant").pop();
 process.stdout.write(JSON.stringify(turn.segments.map((s) => ({ ...s, label: chat.thinkingLabel(s) }))));
 """
 
 
-def _rejoin(frames) -> list[dict]:
-    """Replay ``frames`` into a freshly rejoined turn; return its rendered segments."""
+def _rejoin(frames, *, turns=HYDRATED_TURNS, reason="finished", report=REJOIN_SEGMENTS):
+    """Replay ``frames`` into a freshly rejoined turn, end the stream with ``reason``; return what ``report`` wrote."""
     return run_chat_stream(
-        BODY,
-        {"frames": frames, "turns": HYDRATED_TURNS},
+        REJOIN + report,
+        {"frames": frames, "turns": turns, "reason": reason},
         prelude=PRELUDE,
         extra_globals="EventSource: FakeEventSource,",
     )
@@ -301,27 +303,10 @@ LIVE_CALL_FRAMES = [
     ],
 )
 def test_calls_left_running_settle_by_how_the_run_ended(tail, reason, status):
-    body = """
-const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
-chat.turns = payload.turns;
-chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
-chat.$nextTick = (cb) => cb();
-chat.scrollToBottom = () => {};
-
-const settled = chat._resumeRun("run-1");
-for (const evt of payload.frames) opened.onmessage({ data: JSON.stringify(evt) });
-opened.listeners.end({ data: JSON.stringify({ reason: payload.reason }) });
-await settled;
-
+    report = """
 const calls = chat.turns.flatMap((t) => (t.segments || []).filter((s) => s.type === "tool_call"));
 process.stdout.write(JSON.stringify(Object.fromEntries(calls.map((s) => [s.id, s.status]))));
 """
-    assert OPEN_CALL_TURNS[0]["segments"][0]["status"] == "running"
-    result = run_chat_stream(
-        body,
-        {"frames": LIVE_CALL_FRAMES + tail, "turns": OPEN_CALL_TURNS, "reason": reason},
-        prelude=PRELUDE,
-        extra_globals="EventSource: FakeEventSource,",
-    )
+    result = _rejoin(LIVE_CALL_FRAMES + tail, turns=OPEN_CALL_TURNS, reason=reason, report=report)
 
     assert result == {"tc-open": status, "tc-live": status}

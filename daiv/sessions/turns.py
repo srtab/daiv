@@ -250,7 +250,7 @@ def _build_assistant_turn(m: Any) -> dict[str, Any]:
     return {"id": getattr(m, "id", "") or "", "role": "assistant", "segments": segments}
 
 
-def tool_call_segment(tc: Any, *, status: str = "done") -> dict[str, Any]:
+def tool_call_segment(tc: Any) -> dict[str, Any]:
     tc_id = _tc_id(tc) or ""
     if isinstance(tc, dict):
         tc_name = tc.get("name") or ""
@@ -261,4 +261,4 @@ def tool_call_segment(tc: Any, *, status: str = "done") -> dict[str, Any]:
 
     args_str = json.dumps(args) if isinstance(args, (dict, list)) else str(args or "")
 
-    return {"type": "tool_call", "id": tc_id, "name": tc_name, "args": args_str, "result": None, "status": status}
+    return {"type": "tool_call", "id": tc_id, "name": tc_name, "args": args_str, "result": None, "status": "done"}
