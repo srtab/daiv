@@ -124,6 +124,7 @@ def agent_stack(
     persist_extra = AsyncMock()
     reset = AsyncMock()
     load_extra_repos = AsyncMock(return_value=[])
+    session_ref = AsyncMock(return_value="")
 
     with (
         stub_sandbox_spec() as build_spec,
@@ -149,6 +150,7 @@ def agent_stack(
             apersist_extra_repo_state=persist_extra,
             areset_session_ref=reset,
             aload_extra_repos=load_extra_repos,
+            aget_session_ref=session_ref,
         ),
         patch("sessions.executor.run.PipelineWatch", _Watch),
         patch(
@@ -171,6 +173,7 @@ def agent_stack(
         stack.persist_extra = persist_extra
         stack.reset = reset
         stack.load_extra_repos = load_extra_repos
+        stack.session_ref = session_ref
         stack.build_absolute_url = build_absolute_url
         yield stack
 

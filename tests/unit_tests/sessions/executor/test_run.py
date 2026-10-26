@@ -152,6 +152,27 @@ async def test_one_shot_run_loads_no_extra_repos():
     assert stack.context_kwargs["extra_repos"] == []
 
 
+async def test_a_multi_repo_run_clones_main_on_the_sessions_current_branch():
+    spec = make_spec(ref="dev", fallback_ref_on_missing=True)
+
+    with agent_stack(_agent()) as stack:
+        stack.load_extra_repos.return_value = [SimpleNamespace(repo_id="g/mod", ref="", sandbox_environment_id=None)]
+        stack.session_ref.return_value = "daiv/fix-1"
+        await execute_run(spec)
+
+    stack.session_ref.assert_awaited_once_with(thread_id=spec.thread_id)
+    assert stack.context_kwargs["ref"] == "daiv/fix-1"
+    stack.reset.assert_awaited_once_with(thread_id=spec.thread_id, new_ref="main")
+
+
+async def test_a_single_repo_run_clones_the_ref_it_was_given():
+    with agent_stack(_agent()) as stack:
+        await execute_run(make_spec(ref="feat/x"))
+
+    stack.session_ref.assert_not_awaited()
+    assert stack.context_kwargs["ref"] == "feat/x"
+
+
 async def test_a_session_run_streams_under_its_slots_holder_id():
     agent = _agent()
     spec = make_spec(lock=Held(holder_id="h-1"))

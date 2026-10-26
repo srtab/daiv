@@ -25,7 +25,7 @@ from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.models import Run, SessionRepository
 from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
 from sessions.pipeline_watch.service import PipelineWatch
-from sessions.services import apersist_session_ref, areset_session_ref
+from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -306,11 +306,13 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
     else:
         thread_id, checkpoints = spec.thread_id, open_checkpointer()
     extra_rows = await aload_extra_repos(spec.thread_id) if spec.thread_id is not None else []
+    # A turn queued behind another must continue on the branch that turn moved the main repository to.
+    main_ref = (await aget_session_ref(thread_id=thread_id) or None) if extra_rows else spec.ref
     async with (
         set_runtime_ctx(
             repo_id=spec.repo_id,
             scope=spec.scope,
-            ref=spec.ref,
+            ref=main_ref,
             issue=spec.issue,
             merge_request=spec.merge_request,
             fallback_ref_on_missing=spec.fallback_ref_on_missing,
@@ -327,7 +329,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
         handed_over = False
         run_id = spec.run_id
         try:
-            if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
+            if spec.fallback_ref_on_missing and main_ref and ctx.repo.ref != main_ref:
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
             if hooks.on_context_ready is not None:
                 started_run_id = await hooks.on_context_ready(ctx.repo.ref)
