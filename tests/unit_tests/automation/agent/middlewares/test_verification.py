@@ -30,8 +30,8 @@ LOCK_DIFF = "diff --git a/uv.lock b/uv.lock\n--- a/uv.lock\n+++ b/uv.lock\n@@ -1
 class FakeRepo:
     """The run's sandbox as both ``workspace.git`` and ``workspace.bash``: ``diff`` is the working tree, ``failing``
     the commands that fail on it, ``failing_on_start`` those that fail on the starting code (while stashed),
-    ``checks_leave`` the tree a check run leaves behind, ``restore_error`` what popping the stash raises, and
-    ``read_errors`` what each read of the tree raises."""
+    ``checks_leave`` the tree a check run leaves behind, ``stash_error`` and ``restore_error`` what stashing and
+    popping raise, and ``read_errors`` what each read of the tree raises."""
 
     changed: list[str] = field(default_factory=lambda: ["a.py"])
     diff: str = AGENT_DIFF
@@ -40,6 +40,7 @@ class FakeRepo:
     checks_leave: str | None = None
     error: Exception | None = None
     restore_error: Exception | None = None
+    stash_error: Exception | None = None
     read_errors: dict[str, Exception] = field(default_factory=dict)
     stashed: bool = False
     stashes: int = 0
@@ -62,6 +63,8 @@ class FakeRepo:
         return None
 
     async def stash_all(self, message: str) -> bool:
+        if self.stash_error is not None:
+            raise self.stash_error
         self.stashes += 1
         self.stashed = True
         return True
@@ -427,6 +430,20 @@ async def test_without_commands_an_unreadable_tree_records_not_configured_withou
     assert _outcome(result)["status"] == "not_configured"
     assert result.model_response.result == [reply]
     assert len(seen) == 1
+
+
+async def test_starting_code_that_cannot_be_rechecked_records_not_verified():
+    repo = FakeRepo(failing={"make test"}, stash_error=GitCommandError(["git", "stash"], 1, "cannot lock ref"))
+    middleware = _middleware(repo)
+    handler, seen = _scripted(_final(), _final(), _final())
+
+    outcome = _outcome(await middleware.awrap_model_call(_request(), handler))
+
+    assert outcome["status"] == "not_verified"
+    assert outcome["reason"] == "could not set the changes aside to re-check the starting code"
+    assert len(seen) == 1
+    repo.stash_error = None
+    assert _outcome(await middleware.awrap_model_call(_request(), handler))["status"] == "failed"
 
 
 async def test_suspicious_paths_recorded():
