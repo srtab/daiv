@@ -28,9 +28,14 @@ class RelatedMergeRequest:
     merge_request: MergeRequest
 
 
+def _escape_link_text(text: str) -> str:
+    return re.sub(r"([\\\[\]])", r"\\\1", text)
+
+
 def render_related_block(related: Sequence[RelatedMergeRequest]) -> str:
     lines = [
-        f"- `{entry.repo_slug}`: [{entry.merge_request.title}]({entry.merge_request.web_url})" for entry in related
+        f"- `{entry.repo_slug}`: [{_escape_link_text(entry.merge_request.title)}]({entry.merge_request.web_url})"
+        for entry in related
     ]
     return "\n".join([RELATED_START, "**Related merge requests** (same DAIV session):", "", *lines, RELATED_END])
 

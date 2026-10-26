@@ -35,6 +35,12 @@ def test_render_related_block():
     )
 
 
+def test_render_related_block_escapes_link_text():
+    block = render_related_block([rel("g/mod", title="Fix [lib] parser\\", url="https://gl/m/3")])
+
+    assert "- `g/mod`: [Fix \\[lib\\] parser\\\\](https://gl/m/3)" in block
+
+
 def test_with_related_block_replaces_existing_block_once():
     old = f"intro\n\n{RELATED_START}\nold\n{RELATED_END}\n\noutro"
     new = f"{RELATED_START}\nnew \\1\n{RELATED_END}"

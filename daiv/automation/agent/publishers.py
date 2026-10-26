@@ -700,14 +700,13 @@ async def apublish_extra_repos(
     session_links: SessionLinksResolver | None,
     skip_ci: bool = False,
     recovering: bool = False,
-    agent_summary: str | None = None,
 ) -> list[RepoPublish]:
     """Publish each of ``ctx``'s extra repositories to its own branch and merge request, one after the other.
 
     Each goes through its own views of ``ctx`` and ``workspace``, onto the open merge request of the branch its clone is
     on. A repository that fails is recorded on its :class:`RepoPublish` and never raised, so it cannot stop the others
     or the main repository. ``recovering`` is draft recovery: a new merge request opens as a draft, and a draft one
-    stays a draft.
+    stays a draft. The agent's closing summary is left out: it covers the whole turn, not this repository.
     """
     return [
         await _apublish_extra_repo(
@@ -718,7 +717,6 @@ async def apublish_extra_repos(
             session_links=session_links,
             skip_ci=skip_ci,
             recovering=recovering,
-            agent_summary=agent_summary,
         )
         for handle in ctx.extra_repos
     ]
@@ -733,7 +731,6 @@ async def _apublish_extra_repo(
     session_links: SessionLinksResolver | None,
     skip_ci: bool,
     recovering: bool,
-    agent_summary: str | None,
 ) -> RepoPublish:
     slug = handle.repository.slug
     branch = "" if handle.head_detached else handle.current_ref
@@ -746,10 +743,7 @@ async def _apublish_extra_repo(
             session_links=session_links,
         )
         outcome = await publisher.publish(
-            merge_request=target,
-            skip_ci=skip_ci,
-            as_draft=recovering and (target is None or target.draft),
-            agent_summary=agent_summary,
+            merge_request=target, skip_ci=skip_ci, as_draft=recovering and (target is None or target.draft)
         )
     except UnresolvedMergeConflictsError as exc:
         logger.warning("Not publishing %s: %s", slug, exc)

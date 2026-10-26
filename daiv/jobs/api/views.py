@@ -140,7 +140,7 @@ async def get_job_status(request: HttpRequest, job_id: str):
         thread_id=str(run.session_id) if run.session_id else None,
         result=run.response_text or None,
         question=run.question,
-        merge_request_url=run.merge_request_web_url or None,
+        merge_request_url=run.primary_merge_request_url(),
         merge_requests=[JobMergeRequestItem(**link) for link in run.merge_request_links()],
         publish_errors=[JobPublishErrorItem(**item) for item in run.publish_errors],
         artifacts=artifacts,

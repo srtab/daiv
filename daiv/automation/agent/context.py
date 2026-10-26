@@ -74,11 +74,12 @@ class RuntimeCtx:
     egress."""
     sandbox_client: DAIVSandboxClient | None = field(default=None, compare=False, repr=False)
     """The run's sandbox transport: opened by :func:`set_runtime_ctx` for an enabled sandbox and closed with it."""
-    credential_source: Callable[[], Awaitable[list[GitEgressCredential]]] | None = field(
+    credential_source: Callable[[], Awaitable[list[GitEgressCredential | None]]] | None = field(
         default=None, compare=False, repr=False
     )
-    """Mints every repository's git egress credential, main first, for the run's sandbox session; ``None`` without a
-    sandbox. Each call mints anew, so the session gets any token the clone's self-heal re-minted."""
+    """Mints every repository's git egress credential, main first and one per repository (``None`` where it has none),
+    for the run's sandbox session; ``None`` without a sandbox. Each call mints anew, so the session gets any token the
+    clone's self-heal re-minted."""
     scope: Scope | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None
@@ -169,13 +170,12 @@ def _load_repo_with_optional_fallback(
 
 def _credential_source(
     repo_client: RepoClient, repositories: Sequence[Repository]
-) -> Callable[[], Awaitable[list[GitEgressCredential]]]:
+) -> Callable[[], Awaitable[list[GitEgressCredential | None]]]:
     """Mint each repository's git egress credential, main first, on each call: a turn can outlive the tokens minted
-    at its start."""
+    at its start. A repository without one keeps its ``None`` slot, since position tells the main credential apart."""
 
-    async def mint() -> list[GitEgressCredential]:
-        credentials = [await sync_to_async(repo_client.get_git_egress_credential)(r) for r in repositories]
-        return [credential for credential in credentials if credential is not None]
+    async def mint() -> list[GitEgressCredential | None]:
+        return [await sync_to_async(repo_client.get_git_egress_credential)(r) for r in repositories]
 
     return mint
 

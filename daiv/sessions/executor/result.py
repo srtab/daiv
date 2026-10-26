@@ -126,13 +126,12 @@ def build_agent_result(
     ]
     errors = [(main_repo_id, snapshot.values.get("main_publish_error")), *((rp.repo_id, rp.error) for rp in publishes)]
     publish_errors = [{"repo_id": repo_id, "error": error} for repo_id, error in errors if error]
-    web_url: str | None = next((item["web_url"] for item in merge_requests if item["web_url"]), None)
     return AgentResult(
         response=response,
         code_changes=bool(snapshot.values.get("code_changes"))
         or any(not rp.error and (rp.published or rp.merge_request is not None) for rp in publishes),
         merge_request_id=mr.merge_request_id if mr else None,
-        merge_request_web_url=web_url,
+        merge_request_web_url=mr.web_url if mr else None,
         merge_requests=merge_requests,
         publish_errors=publish_errors,
         usage=usage,

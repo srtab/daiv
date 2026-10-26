@@ -328,6 +328,7 @@ async def test_submit_job_wait_success():
             finished.finished_at = now
             finished.question = None
             finished.merge_request_links.return_value = []
+            finished.primary_merge_request_url.return_value = None
             finished.publish_errors = []
             return _AsyncRows([finished])
 
@@ -458,6 +459,7 @@ async def test_get_job_status_wait_already_complete():
     mock_run.finished_at = now
     mock_run.question = None
     mock_run.merge_request_links.return_value = []
+    mock_run.primary_merge_request_url.return_value = None
     mock_run.publish_errors = []
 
     caller = MagicMock(pk=1)
@@ -498,6 +500,7 @@ async def test_get_job_status_wait_polls_until_complete():
     finished_result.finished_at = now
     finished_result.question = None
     finished_result.merge_request_links.return_value = []
+    finished_result.primary_merge_request_url.return_value = None
     finished_result.publish_errors = []
 
     caller = MagicMock(pk=1)
@@ -535,6 +538,7 @@ async def test_get_job_status_wait_not_found_then_appears():
     finished_result.finished_at = now
     finished_result.question = None
     finished_result.merge_request_links.return_value = []
+    finished_result.primary_merge_request_url.return_value = None
     finished_result.publish_errors = []
 
     class _DoesNotExistError(Exception):

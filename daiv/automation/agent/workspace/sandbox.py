@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from deepagents.backends.composite import CompositeBackend
@@ -20,6 +21,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.tools")
 
+# One refresh re-mints every repository's token, so the publishes of one turn end share it.
+CREDENTIAL_REFRESH_WINDOW_SECONDS = 60
+
 
 class SandboxWorkspace:
     """A sandbox run's workspace: the file tools, the ``bash`` tool and git all reach the container ``session`` holds,
@@ -34,6 +38,7 @@ class SandboxWorkspace:
 
     def __init__(self, session: SandboxSession) -> None:
         self.session = session
+        self._refreshed_at: float | None = None
         self.bash = SandboxFileBackend(session)
         # A composite only so the offloading middlewares get an ``artifacts_root`` under /workspace: a bare backend
         # defaults to "/", and the sandbox rejects evictions written there.
@@ -49,7 +54,8 @@ class SandboxWorkspace:
         return self.session.skills_seed_errors
 
     async def authenticated_git(self) -> GitManager:
-        """Re-mint the git-platform token onto the container, then hand back ``git``.
+        """Re-mint the git-platform tokens onto the container, unless a refresh in the last
+        ``CREDENTIAL_REFRESH_WINDOW_SECONDS`` already did, then hand back ``git``.
 
         Refreshing before the publish's first network command, rather than after a failed one, keeps this independent of
         git's auth-error wording. Best-effort: the mint and the proxy update raise a spread of platform and transport
@@ -62,9 +68,12 @@ class SandboxWorkspace:
     async def _refresh_credential(self) -> None:
         if not self.is_ready:
             raise RuntimeError("Cannot authenticate git before the sandbox session is acquired")
+        if self._refreshed_at is not None and monotonic() - self._refreshed_at < CREDENTIAL_REFRESH_WINDOW_SECONDS:
+            return
         try:
             if await self.session.refresh_credential():
                 logger.info("Refreshed the sandbox egress token of session %s before publish", self.session.session_id)
+            self._refreshed_at = monotonic()
         except Exception:
             logger.exception(
                 "Could not refresh the sandbox egress token of session %s before publish; proceeding with the "

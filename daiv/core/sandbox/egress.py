@@ -34,14 +34,15 @@ def is_platform_secret_name(name: str) -> bool:
 
 
 def with_platform_credentials(
-    egress: EgressConfigRequest | None, credentials: Sequence[PlatformCredential]
+    egress: EgressConfigRequest | None, credentials: Sequence[PlatformCredential | None]
 ) -> EgressConfigRequest:
     """Return ``egress`` with the git-platform rules for ``credentials``, first, carrying their tokens.
 
     The first credential is the main repository's: a host-wide rule injecting ``PLATFORM_EGRESS_SECRET_NAME``.
     Each later one is limited to its ``path`` and injects ``PLATFORM_EGRESS_SECRET_NAME<i>``, placed before
     the host-wide rule so the sidecar's first match gives each repository its own token. A later credential
-    without a token adds no rule: the main rule already makes the host reachable.
+    without a token adds no rule: the main rule already makes the host reachable. A ``None`` keeps its position and
+    adds nothing.
 
     Idempotent: platform rules and secrets already present are replaced, not duplicated. With no ``egress``
     the base is a deny-all policy; an existing policy keeps its ``default``, ``intercept`` and non-platform
@@ -57,6 +58,8 @@ def with_platform_credentials(
     scoped: list[EgressRule] = []
     main_rule: EgressRule | None = None
     for index, credential in enumerate(credentials):
+        if credential is None:
+            continue
         inject = None
         if credential.token is not None:
             inject = PLATFORM_EGRESS_SECRET_NAME if index == 0 else f"{PLATFORM_EGRESS_SECRET_NAME}{index}"
@@ -68,7 +71,7 @@ def with_platform_credentials(
                 EgressRule(host=credential.host, methods=["*"], inject=inject, path_prefix=credential.path or None)
             )
 
-    hosts = {credential.host for credential in credentials}
+    hosts = {credential.host for credential in credentials if credential is not None}
     platform_rules = [*reversed(scoped), *([main_rule] if main_rule is not None else [])]
     other_rules = [rule for rule in base_policy.rules if not _is_platform_rule(rule, hosts)]
     policy = base_policy.model_copy(update={"rules": [*platform_rules, *other_rules]})

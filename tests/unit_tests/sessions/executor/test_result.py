@@ -258,7 +258,7 @@ def test_build_agent_result_lists_main_then_sibling_mrs():
     assert result["merge_request_web_url"] == "https://git/g/main/-/merge_requests/1"
 
 
-def test_web_url_falls_back_to_first_sibling_when_main_unchanged():
+def test_web_url_stays_the_main_repositorys_when_only_siblings_opened_one():
     snapshot = SimpleNamespace(
         values={
             "repo_publishes": [_publish("g/mod", 7), _publish("g/lib", 8)],
@@ -269,7 +269,7 @@ def test_web_url_falls_back_to_first_sibling_when_main_unchanged():
     result = build_agent_result(response="r", snapshot=snapshot, main_repo_id="g/main")
 
     assert result["merge_request_id"] is None
-    assert result["merge_request_web_url"] == "https://git/g/mod/-/merge_requests/7"
+    assert result["merge_request_web_url"] is None
     assert [item["repo_id"] for item in result["merge_requests"]] == ["g/mod", "g/lib"]
     assert result["publish_errors"] == [{"repo_id": "g/main", "error": "Publishing to g/main failed (Boom)"}]
 

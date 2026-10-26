@@ -163,6 +163,19 @@ class GitState(AgentState):
     """
 
 
+def _sibling_failure_notice(ctx: RuntimeCtx, repo_publishes: list[RepoPublish]) -> str | None:
+    """The turn-end notice naming each extra repository whose publish failed; ``None`` when none did."""
+    slugs = {handle.repo_id: handle.repository.slug for handle in ctx.extra_repos}
+    failed = [
+        f"- `{slugs.get(publish.repo_id, publish.repo_id)}`: {publish.error}"
+        for publish in repo_publishes
+        if publish.error
+    ]
+    if not failed:
+        return None
+    return "\n".join(["I couldn't publish the changes in these repositories:", *failed])
+
+
 class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
     """
     Middleware to handle the git operations and persist changes made by the DAIV agent to the repository.
@@ -448,7 +461,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         The session's extra repositories publish first, each to its own merge request (see
         :func:`~automation.agent.publishers.apublish_extra_repos`), and land in ``repo_publishes`` on every return. With
         extra repositories, a failed main publish is recorded in ``main_publish_error`` and ends the turn with a notice
-        rather than raising, which would discard the extra repositories' results.
+        rather than raising, which would discard the extra repositories' results. An extra repository whose publish
+        failed is named in the turn's closing notice too.
 
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
         straight to the after_agent chain) never ran the agent loop, so nothing was captured or changed. Unless
@@ -497,9 +511,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 settings=self._settings,
                 session_links=self._session_links,
                 skip_ci=self.skip_ci,
-                agent_summary=agent_summary,
             )
             update["repo_publishes"] = [publish.to_state() for publish in repo_publishes]
+        sibling_notice = _sibling_failure_notice(runtime.context, repo_publishes)
 
         publisher = GitChangePublisher(
             runtime.context, self._workspace, settings=self._settings, session_links=self._session_links
@@ -518,6 +532,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 f"{'has' if len(exc.paths) == 1 else 'have'} conflict markers, so nothing was committed or "
                 f"pushed{there}. Ask me to finish resolving them."
             )
+            notice = "\n\n".join(filter(None, [notice, sibling_notice]))
             return {**update, "messages": [await streamed_assistant_message(notice)]}
         except Exception as exc:
             if not multi_repo:
@@ -529,6 +544,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 f"I couldn't publish the changes in the main repository `{slug}` ({type(exc).__name__}). "
                 "The other repositories were published on their own, and their results stand."
             )
+            notice = "\n\n".join(filter(None, [notice, sibling_notice]))
             return {
                 **update,
                 "main_publish_error": f"Publishing to {slug} failed ({type(exc).__name__})",
@@ -545,6 +561,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         await self._alink_related(
             runtime, outcome.merge_request or checkpointed_merge_request(state, strict=False), repo_publishes
         )
+        if sibling_notice:
+            update["messages"] = [await streamed_assistant_message(sibling_notice)]
 
         if outcome.merge_request is None:
             # published + no MR is the branch-visibility degrade (branch pushed, MR pending): record

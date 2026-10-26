@@ -97,7 +97,7 @@ class SandboxSession:
         client: DAIVSandboxClient,
         spec: SandboxSpec,
         *,
-        credential_source: Callable[[], Awaitable[list[GitEgressCredential]]] | None = None,
+        credential_source: Callable[[], Awaitable[list[GitEgressCredential | None]]] | None = None,
     ) -> None:
         if not spec.enabled:
             raise ValueError("A sandbox session needs a spec with a base image")
@@ -265,7 +265,9 @@ class SandboxSession:
         opening it would force the egress proxy onto hermetic runs.
         """
         credentials = await self._credential_source() if self._credential_source is not None else []
-        if not credentials or (self._spec.egress is None and all(c.value is None for c in credentials)):
+        if not any(credentials) or (
+            self._spec.egress is None and all(c is None or c.value is None for c in credentials)
+        ):
             return self._spec.egress
         return with_platform_credentials(self._spec.egress, _platform_credentials(credentials))
 
@@ -415,8 +417,11 @@ def _make_repos_archive(extra_dirs: Mapping[str, str]) -> bytes:
     return buf.getvalue()
 
 
-def _platform_credentials(credentials: Sequence[GitEgressCredential]) -> list[PlatformCredential]:
-    return [PlatformCredential(host=c.host, header=c.header, token=c.value, path=c.path) for c in credentials]
+def _platform_credentials(credentials: Sequence[GitEgressCredential | None]) -> list[PlatformCredential | None]:
+    return [
+        PlatformCredential(host=c.host, header=c.header, token=c.value, path=c.path) if c is not None else None
+        for c in credentials
+    ]
 
 
 def _platform_secrets(egress: EgressConfigRequest | None) -> dict[str, EgressSecret]:

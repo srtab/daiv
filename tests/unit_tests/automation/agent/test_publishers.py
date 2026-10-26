@@ -1853,14 +1853,10 @@ class TestPublishExtraRepos:
         mod = make_repo_handle("g/mod", current_ref="fix-x")
         open_mr = make_merge_request(repo_id="g/mod", source_branch="fix-x")
 
-        _, pub_cls, lookup, _ = await _publish_extras(
-            _multi_repo_ctx(mod), open_mr=open_mr, skip_ci=True, agent_summary="Fixed it."
-        )
+        _, pub_cls, lookup, _ = await _publish_extras(_multi_repo_ctx(mod), open_mr=open_mr, skip_ci=True)
 
         lookup.assert_awaited_once_with(mod.client, "g/mod", "fix-x")
-        pub_cls.return_value.publish.assert_awaited_once_with(
-            merge_request=open_mr, skip_ci=True, as_draft=False, agent_summary="Fixed it."
-        )
+        pub_cls.return_value.publish.assert_awaited_once_with(merge_request=open_mr, skip_ci=True, as_draft=False)
 
     @pytest.mark.parametrize(
         "handle",

@@ -454,6 +454,10 @@ class Run(models.Model):
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
 
+    def primary_merge_request_url(self) -> str | None:
+        """The main repository's merge request URL, else the first one the run opened in another repository."""
+        return self.merge_request_web_url or next((link["url"] for link in self.merge_request_links()), None)
+
     def merge_request_links(self) -> list[dict[str, str]]:
         """``[{"repo_id", "url"}]`` for every MR the run opened, falling back to the legacy single MR URL."""
         links = [

@@ -562,4 +562,4 @@ async def test_credential_source_mints_every_repo_main_first():
             sandbox_spec=sandbox_spec(),
             extra_repos=[ExtraRepo("g/mod"), ExtraRepo("g/none")],
         ) as ctx:
-            assert await ctx.credential_source() == [creds["g/app"], creds["g/mod"]]
+            assert await ctx.credential_source() == [creds["g/app"], creds["g/mod"], None]

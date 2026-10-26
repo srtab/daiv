@@ -431,6 +431,20 @@ def test_merge_request_links_prefers_list_and_falls_back_to_legacy_url():
     assert run.merge_request_links() == []
 
 
+def test_primary_merge_request_url_prefers_the_main_repositorys():
+    sibling = {"repo_id": "g/mod", "merge_request_iid": 7, "web_url": "https://git/g/mod/-/merge_requests/7"}
+    run = _mk_run(
+        _mk_session(), merge_request_web_url="https://git/g/repo/-/merge_requests/1", merge_requests=[sibling]
+    )
+    assert run.primary_merge_request_url() == "https://git/g/repo/-/merge_requests/1"
+
+    run.merge_request_web_url = ""
+    assert run.primary_merge_request_url() == "https://git/g/mod/-/merge_requests/7"
+
+    run.merge_requests = []
+    assert run.primary_merge_request_url() is None
+
+
 def test_field_updates_include_merge_requests_and_errors():
     result = parse_agent_result({
         "response": "r",

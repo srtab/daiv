@@ -166,6 +166,24 @@ async def test_a_multi_repo_run_clones_main_on_the_sessions_current_branch():
     stack.reset.assert_awaited_once_with(thread_id=spec.thread_id, new_ref="main")
 
 
+@pytest.mark.parametrize(("session_ref", "requested"), [("daiv/fix-1", "daiv/fix-1"), ("", "main")])
+async def test_a_multi_repo_run_requests_the_sessions_branch(session_ref, requested):
+    seen = {}
+
+    async def _stream(run):
+        seen["requested_ref"] = run.requested_ref
+        yield "event"
+
+    with agent_stack(_agent()) as stack:
+        stack.load_extra_repos.return_value = [SimpleNamespace(repo_id="g/mod", ref="", sandbox_environment_id=None)]
+        stack.session_ref.return_value = session_ref
+        stack.ctx.config.default_branch = "main"
+        async for _ in stream_run(make_spec(ref="dev"), _stream, should_stop=AsyncMock(return_value=False)):
+            pass
+
+    assert seen["requested_ref"] == requested
+
+
 async def test_a_single_repo_run_clones_the_ref_it_was_given():
     with agent_stack(_agent()) as stack:
         await execute_run(make_spec(ref="feat/x"))
@@ -1126,6 +1144,26 @@ async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_f
     assert stack.events == ["context entered", "draft recovered", "context exited"]
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
     on_failure.assert_awaited_once_with(agent.ainvoke.side_effect, draft_published=True, snapshot=recovered_state)
+
+
+async def test_a_recovered_sibling_draft_is_kept_on_its_row_and_watched():
+    agent = _agent(state={"merge_request": None})
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
+
+    with agent_stack(agent) as stack:
+
+        async def _recover(*_args, **_kwargs):
+            agent.aget_state.return_value = MagicMock(values={"repo_publishes": _sibling_state("g/mod")})
+            return True
+
+        with (
+            patch("sessions.executor.run.recover_draft", new=AsyncMock(side_effect=_recover)),
+            pytest.raises(RuntimeError, match="agent blew up"),
+        ):
+            await execute_run(make_spec(recover_draft=True, persist_ref=True, arm_watch=True))
+
+    assert [rp.repo_id for rp in stack.persist_extra.await_args.args[1]] == ["g/mod"]
+    assert [a["repo_id"] for a in stack.armed] == ["g/mod"]
 
 
 async def test_a_setup_error_skips_draft_recovery():

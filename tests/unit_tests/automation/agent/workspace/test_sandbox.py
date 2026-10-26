@@ -57,6 +57,28 @@ async def test_authenticated_git_refreshes_the_credential_before_handing_back_gi
     session.refresh_credential.assert_awaited_once_with()
 
 
+async def test_publishes_close_together_share_one_credential_refresh():
+    session = acquired_session(FakeSandboxClient.opened())
+    session.refresh_credential = AsyncMock(return_value=True)
+    workspace = SandboxWorkspace(session)
+
+    await workspace.for_repo(MagicMock(), path="/workspace/repos/g/mod").authenticated_git()
+    await workspace.authenticated_git()
+
+    session.refresh_credential.assert_awaited_once_with()
+
+
+async def test_a_failed_refresh_is_retried_by_the_next_publish():
+    session = acquired_session(FakeSandboxClient.opened())
+    session.refresh_credential = AsyncMock(side_effect=[httpx.ConnectError("down"), True])
+    workspace = SandboxWorkspace(session)
+
+    await workspace.authenticated_git()
+    await workspace.authenticated_git()
+
+    assert session.refresh_credential.await_count == 2
+
+
 async def test_authenticated_git_refuses_an_unacquired_session():
     session = SandboxSession(FakeSandboxClient.opened(), sandbox_spec())
     session.refresh_credential = AsyncMock()

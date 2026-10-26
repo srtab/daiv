@@ -129,6 +129,13 @@ def test_tokenless_sibling_adds_no_rule():
     assert len(with_platform_credentials(None, [MAIN, bare]).policy.rules) == 1
 
 
+def test_a_missing_main_credential_keeps_siblings_path_scoped():
+    cfg = with_platform_credentials(None, [None, MOD])
+
+    assert [(r.path_prefix, r.inject) for r in cfg.policy.rules] == [("/g/mod.git", f"{PLATFORM_EGRESS_SECRET_NAME}1")]
+    assert set(cfg.secrets) == {f"{PLATFORM_EGRESS_SECRET_NAME}1"}
+
+
 def test_is_platform_secret_name():
     assert is_platform_secret_name(PLATFORM_EGRESS_SECRET_NAME)
     assert is_platform_secret_name(f"{PLATFORM_EGRESS_SECRET_NAME}3")
