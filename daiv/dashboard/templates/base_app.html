@@ -8,7 +8,7 @@
 {% block content %}
 {% translate "{count} running" as nav_running_label %}
 <div x-data="{ mobileNavOpen: false }"
-     x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }} }, runningLabel: '{{ nav_running_label|escapejs }}' })"
+     x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }}, latest_running_start: '{{ nav_latest_running_start|escapejs }}' }, runningLabel: '{{ nav_running_label|escapejs }}' })"
      @keydown.escape.window="mobileNavOpen = false"
      class="flex h-dvh bg-ground">
   {% include "dashboard/_sidebar.html" %}

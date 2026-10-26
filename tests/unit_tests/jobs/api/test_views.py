@@ -238,7 +238,7 @@ def _fake_submit_factory(captured: dict):
     async def _fake_submit(**kwargs):
         captured.update(kwargs)
         run = FakeRun(task_result_id=None)
-        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run], failed=[])
+        return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])
 
     return _fake_submit
 
@@ -251,6 +251,48 @@ async def test_submit_job_accepts_muted_and_forwards_it(authenticated_client: Te
         response = await authenticated_client.post("/jobs", json=_single_repo_body(muted=True))
     assert response.status_code == 202
     assert captured.get("muted") is True
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_gives_a_repository_its_own_prompt(authenticated_client: TestAsyncClient):
+    from sessions.services import RepoTarget
+
+    captured: dict = {}
+    body = _single_repo_body(repos=[{"repo_id": "group/project", "prompt": "only here"}], prompt="batch")
+    with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+        response = await authenticated_client.post("/jobs", json=body)
+
+    assert response.status_code == 202
+    assert captured["prompt"] == "batch"
+    assert captured["repos"] == [RepoTarget(repo_id="group/project", prompt="only here")]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_refuses_a_blank_per_repository_prompt(authenticated_client: TestAsyncClient):
+    body = _single_repo_body(repos=[{"repo_id": "group/project", "prompt": "  "}])
+
+    response = await authenticated_client.post("/jobs", json=body)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_reports_each_entry_of_a_repository_listed_twice(authenticated_client: TestAsyncClient):
+    from sessions.services import BatchSubmitFailure, BatchSubmitResult
+
+    run = FakeRun(task_result_id=None)
+    result = BatchSubmitResult(
+        batch_id=uuid.uuid4(), outcomes=[BatchSubmitFailure(repo_id="group/project", ref="", error="boom"), run]
+    )
+    body = _single_repo_body(
+        repos=[{"repo_id": "group/project", "prompt": "first"}, {"repo_id": "group/project", "prompt": "second"}]
+    )
+    with patch("jobs.api.views.asubmit_batch_runs", new=AsyncMock(return_value=result)):
+        response = await authenticated_client.post("/jobs", json=body)
+
+    assert response.status_code == 202
+    assert [job["job_id"] for job in response.json()["jobs"]] == [str(run.id)]
+    assert [failure["error"] for failure in response.json()["failed"]] == ["boom"]
 
 
 @pytest.mark.django_db(transaction=True)

@@ -299,7 +299,7 @@ async def test_submit_job_forwards_references(_default_mcp_user):
         patch("mcp_api.server._allow_job_submission", return_value=True),
         patch(
             "mcp_api.server.asubmit_batch_runs",
-            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run])),
+            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])),
         ) as submit,
     ):
         result = await submit_job(
@@ -312,6 +312,26 @@ async def test_submit_job_forwards_references(_default_mcp_user):
     assert submit.call_args.kwargs["references"] == [
         RefIn(key="DAIV-1V", provider="sentry", url="https://s.io/1", relation="closes")
     ]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_gives_a_repository_its_own_prompt(_default_mcp_user):
+    from mcp_api.server import submit_job
+    from sessions.services import BatchSubmitResult, RepoTarget
+
+    run = await _run(await _session(user=_default_mcp_user, repo_id="a/b"))
+
+    with (
+        patch("mcp_api.server._allow_job_submission", return_value=True),
+        patch(
+            "mcp_api.server.asubmit_batch_runs",
+            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])),
+        ) as submit,
+    ):
+        await submit_job(repos=[{"repo_id": "a/b", "ref": None, "prompt": "only for a/b"}], prompt="batch")
+
+    assert submit.call_args.kwargs["prompt"] == "batch"
+    assert submit.call_args.kwargs["repos"] == [RepoTarget(repo_id="a/b", prompt="only for a/b")]
 
 
 @pytest.mark.django_db(transaction=True)

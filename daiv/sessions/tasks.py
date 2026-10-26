@@ -23,8 +23,9 @@ logger = logging.getLogger("daiv.sessions")
 def sync_stuck_runs_cron_task():
     """Reconcile non-terminal Runs periodically (crash-recovery backstop).
 
-    Re-syncs task-backed runs from their linked DBTaskResult and reaps inline chat runs a
-    worker crash left stuck in RUNNING (once the session heartbeat goes stale). The normal
+    Re-syncs task-backed runs from their linked DBTaskResult, reaps inline chat runs a
+    worker crash left stuck in RUNNING (once the session heartbeat goes stale), and fails READY
+    runs whose submitter stopped before queueing them. The normal
     path is the ``run_finished`` signal / streamer ``finally``; this is the safety net for
     missed transitions and hard crashes.
 
@@ -34,6 +35,22 @@ def sync_stuck_runs_cron_task():
     is visible to monitoring rather than silently swallowed.
     """
     call_command("sync_stuck_runs")
+
+
+@cron("*/5 * * * *")
+@task
+@locked_task(key="resume-stalled-batches")
+def resume_stalled_batches_cron_task():
+    """Resume the coordinators whose delegated batch finished without a continuation reaching the task queue.
+
+    The normal path is the ``run_finished`` signal (``sessions.delegation.resume_coordinator``); this is its
+    backstop. Non-blocking lock, so a sweep that overruns the interval is never double-dispatched.
+    """
+    from sessions.delegation import resume_stalled_batches
+
+    queued = resume_stalled_batches()
+    if queued:
+        logger.info("resume_stalled_batches: queued %d continuation(s)", queued)
 
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE)

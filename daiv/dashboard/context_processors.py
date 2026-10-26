@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from django.db import Error as DatabaseError
+from django.db.models import Count, Max
 from django.utils.functional import SimpleLazyObject
 
 from sessions.models import Run, RunStatus
@@ -84,52 +85,66 @@ def _resolve_active_section(request) -> str:
     return ""
 
 
-def count_running(visible) -> int:
-    """RUNNING rows in a ``Run.objects.visible_to(user)`` queryset.
+def running_snapshot(visible) -> dict[str, Any]:
+    """The RUNNING rows of a ``Run.objects.visible_to(user)`` queryset, under the nav stream's keys.
 
-    ``values("pk")`` keeps the DISTINCT of the visibility join off every Run column.
+    ``running_runs`` is the badge. ``latest_running_start`` moves whenever another run starts, even when one
+    finishing at the same moment leaves the count unchanged, which is how the session page hears that a run
+    started on its session after it rendered. ``values()`` keeps the DISTINCT of the visibility join off every
+    other Run column.
     """
-    return visible.filter(status=RunStatus.RUNNING).values("pk").count()
+    stats = (
+        visible
+        .filter(status=RunStatus.RUNNING)
+        .values("pk", "started_at")
+        .aggregate(running_runs=Count("pk"), latest=Max("started_at"))
+    )
+    latest = stats["latest"]
+    return {"running_runs": stats["running_runs"], "latest_running_start": latest.isoformat() if latest else ""}
 
 
-def query_running_jobs(user) -> int:
-    """Count the runs ``user`` can see that are currently RUNNING.
+def query_running_snapshot(user) -> dict[str, Any]:
+    """``running_snapshot`` of the runs ``user`` can see.
 
-    The nav badge's single source of truth: the first page render reads it through
-    ``nav`` below, and every subsequent update comes from the SSE endpoint
-    (``dashboard.api.views``) recomputing it on a ``core.ui_events`` poke. Raises on
-    ``DatabaseError`` so each caller picks its own degradation — a page render shows 0,
-    but a live stream must keep the browser's last value rather than push a zero it
-    cannot distinguish from a real one.
+    The nav's single source of truth: the first page render reads it through ``nav`` below,
+    and every subsequent update comes from the SSE endpoint (``dashboard.api.views``)
+    recomputing it on a ``core.ui_events`` poke. Raises on ``DatabaseError`` so each caller
+    picks its own degradation — a page render shows 0, but a live stream must keep the
+    browser's last value rather than push a zero it cannot distinguish from a real one.
 
     SYNC ONLY — ``visible_to`` resolves platform identity with a DB read at query-build time.
     """
-    return count_running(Run.objects.visible_to(user))
+    return running_snapshot(Run.objects.visible_to(user))
 
 
-def running_jobs_count(request, user) -> int:
-    """``query_running_jobs`` memoized per-request via ``request._daiv_running_jobs``.
+def running_state(request, user) -> dict[str, Any]:
+    """``query_running_snapshot`` memoized per-request via ``request._daiv_running_state``.
 
-    Degrades to 0 on ``DatabaseError`` so a transient DB failure costs the badge rather
-    than the whole page render.
+    Degrades to nothing running on ``DatabaseError`` so a transient DB failure costs the
+    badge rather than the whole page render.
     """
-    cached = getattr(request, "_daiv_running_jobs", None)
+    cached = getattr(request, "_daiv_running_state", None)
     if cached is not None:
         return cached
     try:
-        running = query_running_jobs(user)
+        state = query_running_snapshot(user)
     except DatabaseError:
         logger.exception("Failed to compute nav_running_jobs for user %s", user.pk)
-        running = 0
-    request._daiv_running_jobs = running
-    return running
+        state = {"running_runs": 0, "latest_running_start": ""}
+    request._daiv_running_state = state
+    return state
+
+
+def running_jobs_count(request, user) -> int:
+    return running_state(request, user)["running_runs"]
 
 
 def nav(request) -> dict[str, Any]:
-    """Supply ``nav_running_jobs`` and ``nav_active_section`` to every authenticated request.
+    """Supply ``nav_running_jobs``, ``nav_latest_running_start`` and ``nav_active_section`` to every
+    authenticated request.
 
-    ``nav_running_jobs`` is wrapped in ``SimpleLazyObject`` so the DB query runs only if the
-    template actually references it — non-HTML responses (redirects, HTMX fragments, SSE)
+    The running values are wrapped in ``SimpleLazyObject`` so the DB query runs only if the
+    template actually references them — non-HTML responses (redirects, HTMX fragments, SSE)
     skip the query entirely.
     """
     user = getattr(request, "user", None)
@@ -138,5 +153,6 @@ def nav(request) -> dict[str, Any]:
 
     return {
         "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
+        "nav_latest_running_start": SimpleLazyObject(lambda: running_state(request, user)["latest_running_start"]),
         "nav_active_section": _resolve_active_section(request),
     }

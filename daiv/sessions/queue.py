@@ -6,21 +6,30 @@ from the row, so each ``Run`` column reaches the agent the same way whichever pa
 among them: their callbacks enqueue their own tasks. A failed enqueue or link marks the row FAILED and emits
 ``run_finished`` (:func:`amark_failed_and_advance`), so the session's QUEUED siblings advance instead of waiting
 behind a row that will never finish.
+
+A QUEUED run whose ``waits_for`` run has not finished stays QUEUED, and so does every later run of its session: no
+release path starts it early, and :func:`release_runs_waiting_for` starts it once that run ends. Whichever path
+releases it, it starts from the branch the waited-for run's session is on by then, which that run may have moved
+by publishing to a new branch.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 
 from sessions.executor.tasks import run_job_task
-from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -58,7 +67,8 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
             sandbox_environment_id=str(run.sandbox_environment_id) if run.sandbox_environment_id else None,
             run_id=str(run.pk),
             user_id=run.user_id,
-            ask_user_enabled=run.trigger_type not in SessionOrigin.unattended(),
+            ask_user_enabled=await _acan_ask_user(run),
+            fork_branch=run.trigger_type == SessionOrigin.DELEGATED_JOB,
         )
     except Exception as err:  # noqa: BLE001
         logger.exception("%s: enqueue failed for run=%s repo_id=%s", log_context, run.pk, run.repo_id)
@@ -79,6 +89,15 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
         )
         return EnqueueFailure(task_enqueued=True)
     return None
+
+
+async def _acan_ask_user(run: Run) -> bool:
+    """Whether someone can answer a question ``run`` asks; a delegation's resume asks only where its session's origin
+    could, since it continues the run that delegated."""
+    trigger = run.trigger_type
+    if trigger == SessionOrigin.DELEGATION_RESUME:
+        trigger = await Session.objects.filter(pk=run.session_id).values_list("origin", flat=True).afirst()
+    return trigger not in SessionOrigin.unattended()
 
 
 async def amark_failed_and_advance(
@@ -120,19 +139,47 @@ async def amark_failed_and_advance(
 
 
 def _claim_queued(run: Run) -> bool:
-    """Move ``run`` from QUEUED to READY unless another dispatcher took it first.
+    """Move ``run`` from QUEUED to READY unless another dispatcher took it first, rebased on the branch its
+    ``waits_for`` run left that run's session on.
 
-    Raises ``IntegrityError`` when a peer already holds the session's active slot (``run_one_active_per_session``).
+    Raises ``IntegrityError`` when a peer already holds the session's active slot (``run_one_active_per_session``),
+    from a savepoint of its own, so a caller inside a transaction can catch it and carry on.
     """
-    if Run.objects.filter(pk=run.pk, status=RunStatus.QUEUED).update(status=RunStatus.READY) != 1:
-        return False
+    with transaction.atomic():
+        if Run.objects.filter(pk=run.pk, status=RunStatus.QUEUED).update(status=RunStatus.READY) != 1:
+            return False
+        if run.waits_for_id is not None:
+            _rebase_on_waited_branch(run)
     run.refresh_from_db()
     return True
+
+
+def _rebase_on_waited_branch(run: Run) -> None:
+    branch = Run.objects.filter(pk=run.waits_for_id).values_list("session__ref", flat=True).first()
+    if not branch:
+        return
+    Run.objects.filter(pk=run.pk).exclude(ref=branch).update(ref=branch)
+    Session.objects.filter(pk=run.session_id).exclude(ref=branch).update(ref=branch)
 
 
 def _enqueue_claimed(run: Run, *, log_context: str) -> bool:
     # skip_dispatch: dispatch_next_queued tries the next sibling itself; the orphan sweep leaves it for its next pass.
     return async_to_sync(aenqueue_run)(run, log_context=log_context, skip_dispatch=True) is None
+
+
+def _still_waiting(run: Run) -> bool:
+    """Whether ``run`` waits for a run that has not finished yet."""
+    return (
+        run.waits_for_id is not None
+        and Run.objects.filter(pk=run.waits_for_id).exclude(status__in=RunStatus.terminal()).exists()
+    )
+
+
+def release_runs_waiting_for(run: Run) -> None:
+    """Release the sessions whose oldest QUEUED run waited for ``run``, now that it has finished."""
+    waiting = Run.objects.filter(waits_for=run, status=RunStatus.QUEUED).values_list("session_id", flat=True)
+    for session_id in set(waiting):
+        dispatch_next_queued(session_id)
 
 
 def dispatch_next_queued(session_id: str) -> None:
@@ -149,7 +196,7 @@ def dispatch_next_queued(session_id: str) -> None:
     consecutive_failures = 0
     while True:
         next_q = Run.objects.filter(session_id=session_id, status=RunStatus.QUEUED).order_by("created_at").first()
-        if next_q is None:
+        if next_q is None or _still_waiting(next_q):
             return
 
         try:
@@ -182,8 +229,9 @@ class OrphanRelease:
     errored: int
 
 
-def release_orphan_queued_runs() -> OrphanRelease:
-    """Queue the oldest QUEUED run of every session that has no READY/RUNNING sibling.
+def release_orphan_queued_runs(session_ids: QuerySet | None = None) -> OrphanRelease:
+    """Queue the oldest QUEUED run of every session that has no READY/RUNNING sibling; ``session_ids`` narrows the
+    sweep to those sessions.
 
     Recovers the sessions :func:`dispatch_next_queued` gave up on after ``MAX_CONSECUTIVE_DISPATCH_FAILURES``,
     and the rare TOCTOU loss where the dispatcher missed a terminal transition or the row was created QUEUED but
@@ -192,12 +240,10 @@ def release_orphan_queued_runs() -> OrphanRelease:
     active_sessions = set(
         Run.objects.filter(status__in=[RunStatus.READY, RunStatus.RUNNING]).values_list("session_id", flat=True)
     )
-    orphans = (
-        Run.objects
-        .filter(status=RunStatus.QUEUED)
-        .filter(~Q(session_id__in=active_sessions))
-        .order_by("session_id", "created_at")
-    )
+    orphans = Run.objects.filter(status=RunStatus.QUEUED).filter(~Q(session_id__in=active_sessions))
+    if session_ids is not None:
+        orphans = orphans.filter(session_id__in=session_ids)
+    orphans = orphans.order_by("session_id", "created_at")
 
     seen_sessions: set[str] = set()
     released = skipped = errored = 0
@@ -206,6 +252,9 @@ def release_orphan_queued_runs() -> OrphanRelease:
             skipped += 1
             continue
         seen_sessions.add(run.session_id)
+        if _still_waiting(run):
+            skipped += 1
+            continue
         try:
             claimed = _claim_queued(run)
         except IntegrityError:
