@@ -51,8 +51,8 @@
         <span>&middot; {{ skill.size_bytes|filesizeformat }}</span>
     </div>
     {% else %}
-    <div class="mt-2 text-xs text-gray-500">
-        <span class="card__corner-badge inline-block">{% translate "Built-in" %}</span>
+    <div class="mt-2">
+        <span class="inline-block rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-0.5 text-[12px] font-medium text-gray-400">{% translate "Built-in" %}</span>
     </div>
     {% endif %}
 </div>
