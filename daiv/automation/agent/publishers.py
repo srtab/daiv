@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlencode
@@ -12,7 +12,12 @@ from django.template.loader import render_to_string
 from asgiref.sync import sync_to_async
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
-from automation.agent.references import render_agent_context, render_commit_trailers, render_references_block
+from automation.agent.references import (
+    PLATFORM_ISSUE_PROVIDERS,
+    render_agent_context,
+    render_commit_trailers,
+    render_references_block,
+)
 from automation.agent.utils import build_langsmith_config, repo_relative_text
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients.base import aget_open_merge_request
@@ -735,7 +740,7 @@ async def _apublish_extra_repo(
     try:
         target = await _abranch_merge_request(handle)
         publisher = GitChangePublisher(
-            ctx.for_repo(handle),
+            _extra_repo_ctx(ctx, handle),
             workspace.for_repo(handle, path=ctx.workspace_path(handle)),
             settings=settings,
             session_links=session_links,
@@ -761,6 +766,13 @@ async def _apublish_extra_repo(
             current_ref=merge_request.source_branch if merge_request is not None else branch,
         )
     return RepoPublish(repo_id=handle.repo_id, merge_request=None, published=False, current_ref=branch, error=error)
+
+
+def _extra_repo_ctx(ctx: RuntimeCtx, handle: RepoHandle) -> RuntimeCtx:
+    """``ctx`` seen through ``handle``, minus the platform-issue references: in ``handle``'s merge request their
+    ``Closes`` line would name an issue of ``handle``'s repository, not the one meant."""
+    references = tuple(ref for ref in ctx.references if ref.provider not in PLATFORM_ISSUE_PROVIDERS)
+    return replace(ctx.for_repo(handle), references=references)
 
 
 async def _abranch_merge_request(handle: RepoHandle) -> MergeRequest | None:

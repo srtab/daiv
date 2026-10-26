@@ -1839,6 +1839,16 @@ class TestPublishExtraRepos:
         assert pub_cls.call_args.args == (ctx.for_repo(mod), workspace.for_repo.return_value)
         assert pub_cls.call_args.kwargs["session_links"] is links
 
+    async def test_a_sibling_publish_drops_platform_issue_refs_but_keeps_the_others(self):
+        ticket = ExternalRef(key="SUP-1", provider="rt", url="https://support.example.com/SUP-1")
+        issue = ExternalRef(key="12", provider="gitlab-issue", relation="closes")
+        repos = (make_repo_handle("g/app"), make_repo_handle("g/mod"))
+        ctx = RuntimeCtx(bot_username="daiv", repos=repos, references=(issue, ticket))
+
+        _, pub_cls, _, _ = await _publish_extras(ctx)
+
+        assert pub_cls.call_args.args[0].references == (ticket,)
+
     async def test_extra_repo_targets_the_open_mr_on_its_branch(self):
         mod = make_repo_handle("g/mod", current_ref="fix-x")
         open_mr = make_merge_request(repo_id="g/mod", source_branch="fix-x")

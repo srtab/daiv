@@ -149,6 +149,13 @@ class GitState(AgentState):
     ``diff_stats`` stay the main repository's.
     """
 
+    main_publish_error: Annotated[NotRequired[str | None], PrivateStateAttr]
+    """
+    Why the main repository's publish failed in a turn with extra repositories, which ends the
+    turn with a notice instead of raising so the extra repositories' publishes are kept. ``None``
+    otherwise; a run without extra repositories still raises.
+    """
+
 
 class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
     """
@@ -249,6 +256,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             "published": False,
             "protected_branch_fallback_source": None,
             "repo_publishes": [],
+            "main_publish_error": None,
         }
         if pre_run_dirty_files:
             update["pre_run_dirty_files"] = pre_run_dirty_files
@@ -405,7 +413,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         conflict markers is not published: the turn ends with a reply naming the files instead of failing.
 
         The session's extra repositories publish first, each to its own merge request (see
-        :func:`~automation.agent.publishers.apublish_extra_repos`), and land in ``repo_publishes`` on every return.
+        :func:`~automation.agent.publishers.apublish_extra_repos`), and land in ``repo_publishes`` on every return. With
+        extra repositories, a failed main publish is recorded in ``main_publish_error`` and ends the turn with a notice
+        rather than raising, which would discard the extra repositories' results.
 
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
         straight to the after_agent chain) never ran the agent loop, so nothing was captured or changed. Unless
@@ -445,8 +455,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             logger.exception("Could not read the run's closing summary; publishing without it")
             agent_summary = None
 
-        if runtime.context.extra_repos:
-            # Before the main publish, whose failure raises into the executor's recovery.
+        multi_repo = bool(runtime.context.extra_repos)
+        if multi_repo:
             repo_publishes = await apublish_extra_repos(
                 runtime.context,
                 self._workspace,
@@ -466,12 +476,28 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             )
         except UnresolvedMergeConflictsError as exc:
             logger.warning("Not publishing: %s", exc)
+            slug = runtime.context.repository.slug
+            in_main, there = (f" in the main repository `{slug}`", " there") if multi_repo else ("", "")
             notice = (
-                f"I didn't publish the merge: {', '.join(f'`{path}`' for path in exc.paths)} still "
-                f"{'has' if len(exc.paths) == 1 else 'have'} conflict markers, so nothing was committed or pushed. "
-                "Ask me to finish resolving them."
+                f"I didn't publish the merge{in_main}: {', '.join(f'`{path}`' for path in exc.paths)} still "
+                f"{'has' if len(exc.paths) == 1 else 'have'} conflict markers, so nothing was committed or "
+                f"pushed{there}. Ask me to finish resolving them."
             )
             return {**update, "messages": [await streamed_assistant_message(notice)]}
+        except Exception as exc:
+            if not multi_repo:
+                raise
+            slug = runtime.context.repository.slug
+            logger.exception("Publishing to %s failed", slug)
+            notice = (
+                f"I couldn't publish the changes in the main repository `{slug}` ({type(exc).__name__}). "
+                "The other repositories were published on their own, and their results stand."
+            )
+            return {
+                **update,
+                "main_publish_error": f"Publishing to {slug} failed ({type(exc).__name__})",
+                "messages": [await streamed_assistant_message(notice)],
+            }
 
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()

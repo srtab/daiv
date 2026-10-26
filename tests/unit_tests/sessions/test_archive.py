@@ -366,6 +366,7 @@ _RESET_CHANNELS = {
     "github_token",
     "github_token_expires_at",
     "jump_to",
+    "main_publish_error",
     "memory_contents",
     "model_patch",
     "pinned_skills",
