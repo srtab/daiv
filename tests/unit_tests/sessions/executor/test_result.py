@@ -274,6 +274,22 @@ def test_web_url_falls_back_to_first_sibling_when_main_unchanged():
     assert result["publish_errors"] == [{"repo_id": "g/main", "error": "Publishing to g/main failed (Boom)"}]
 
 
+@pytest.mark.parametrize(
+    ("publish", "expected"),
+    [
+        (_publish("g/mod", 7), True),
+        ({**_publish("g/mod"), "published": True}, True),
+        (_publish("g/mod"), False),
+        (_publish("g/mod", 7, error="Publishing to g/mod failed (X)"), False),
+    ],
+    ids=["mr", "pushed-without-mr", "unchanged", "failed"],
+)
+def test_code_changes_counts_a_sibling_that_published(publish, expected):
+    snapshot = SimpleNamespace(values={"code_changes": False, "repo_publishes": [publish]})
+
+    assert build_agent_result(response="r", snapshot=snapshot, main_repo_id="g/main")["code_changes"] is expected
+
+
 def test_parse_legacy_result_has_empty_lists():
     for rv in ({"response": "r", "code_changes": True}, "text", None):
         parsed = parse_agent_result(rv)
@@ -300,6 +316,7 @@ def test_repo_publishes_from_state_skips_unreadable_items(caplog):
     values = {
         "repo_publishes": [
             {"no_repo_id": True},
+            "not-a-dict",
             _publish("g/mod", 7),
             {"repo_id": "g/bad", "merge_request": {"unexpected": 1}},
         ]

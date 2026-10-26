@@ -25,7 +25,7 @@ class AgentResult(TypedDict):
     """The last agent response text."""
 
     code_changes: bool
-    """Whether the agent published code changes to the repository."""
+    """Whether the agent published code changes to any of the run's repositories."""
 
     merge_request_id: int | None
     """The merge request IID/number, or None if no MR is linked."""
@@ -58,7 +58,7 @@ def repo_publishes_from_state(values: Mapping[str, Any]) -> list[RepoPublish]:
     for item in items if isinstance(items, list) else []:
         try:
             publishes.append(RepoPublish.from_state(item))
-        except KeyError, ValueError, TypeError:
+        except AttributeError, KeyError, ValueError, TypeError:
             repo_id = item.get("repo_id") if isinstance(item, dict) else None
             logger.exception("Skipping an unreadable sibling publish (repo_id=%s)", repo_id)
     return publishes
@@ -129,7 +129,8 @@ def build_agent_result(
     web_url: str | None = next((item["web_url"] for item in merge_requests if item["web_url"]), None)
     return AgentResult(
         response=response,
-        code_changes=bool(snapshot.values.get("code_changes")),
+        code_changes=bool(snapshot.values.get("code_changes"))
+        or any(not rp.error and (rp.published or rp.merge_request is not None) for rp in publishes),
         merge_request_id=mr.merge_request_id if mr else None,
         merge_request_web_url=web_url,
         merge_requests=merge_requests,
