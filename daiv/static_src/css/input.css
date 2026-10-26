@@ -604,11 +604,17 @@ html {
   }
 
   .status-badge-queued {
+    @apply bg-gray-800/60 text-gray-300;
+  }
+
+  .status-badge-warning {
     @apply bg-amber-900/40 text-amber-300;
   }
 
   .status-badge-waiting {
-    @apply bg-amber-400/15 text-amber-200 ring-1 ring-inset ring-amber-400/40;
+    @apply text-status-found ring-1 ring-inset;
+    background-color: color-mix(in srgb, var(--color-status-found) 14%, transparent);
+    --tw-ring-color: color-mix(in srgb, var(--color-status-found) 45%, transparent);
   }
 
   .status-badge-pending {
@@ -644,12 +650,13 @@ html {
     animation: pulse-dot 2s ease-in-out infinite;
   }
 
+  /* Shape carries the state alongside colour: hollow ring = queued, diamond = needs input. */
   .status-dot-queued {
-    @apply bg-amber-400;
+    @apply bg-transparent ring-[1.5px] ring-inset ring-gray-400;
   }
 
   .status-dot-waiting {
-    @apply bg-amber-300;
+    @apply rotate-45 rounded-[1.5px] bg-status-found;
   }
 
   .status-dot-pending {
