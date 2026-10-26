@@ -45,15 +45,19 @@ def with_related_block(description: str, block: str) -> str:
 
 
 async def aensure_related_links(entries: Sequence[RelatedMergeRequest]) -> None:
-    """Make each merge request's description list the others. Best effort: a failed update is logged, never raised."""
+    """Make each merge request's description list the others. Best effort: failures are logged, never raised."""
     if len(entries) < 2:
         return
     for entry in entries:
         merge_request = entry.merge_request
         try:
             others = [other for other in entries if other is not entry]
-            description = with_related_block(merge_request.description or "", render_related_block(others))
-            if description == (merge_request.description or ""):
+            current = await sync_to_async(entry.client.get_merge_request)(
+                merge_request.repo_id, merge_request.merge_request_id
+            )
+            current_description = current.description or ""
+            description = with_related_block(current_description, render_related_block(others))
+            if description == current_description:
                 continue
             await sync_to_async(entry.client.update_merge_request)(
                 merge_request.repo_id, merge_request.merge_request_id, description=description

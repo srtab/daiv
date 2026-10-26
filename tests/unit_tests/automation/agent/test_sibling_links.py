@@ -23,7 +23,9 @@ def rel(slug: str, *, title: str = "T", url: str = "u", description: str = "body
         draft=False,
         web_url=url,
     )
-    return RelatedMergeRequest(client=Mock(), repo_slug=slug, merge_request=merge_request)
+    client = Mock()
+    client.get_merge_request.return_value = merge_request
+    return RelatedMergeRequest(client=client, repo_slug=slug, merge_request=merge_request)
 
 
 def test_render_related_block():
@@ -85,5 +87,41 @@ async def test_ensure_survives_one_failed_update(caplog):
 
     await aensure_related_links([first, second])
 
+    second.client.update_merge_request.assert_called_once()
+    assert "Could not link g/app" in caplog.text
+
+
+async def test_ensure_builds_the_update_from_the_current_remote_description():
+    first, second = rel("g/app", description="stale", iid=1), rel("g/mod", iid=2)
+    first.client.get_merge_request.return_value = first.merge_request.model_copy(
+        update={"description": "edited by a reviewer"}
+    )
+
+    await aensure_related_links([first, second])
+
+    first.client.update_merge_request.assert_called_once_with(
+        "g/app", 1, description=with_related_block("edited by a reviewer", render_related_block([second]))
+    )
+
+
+async def test_ensure_skips_when_the_current_description_already_has_the_block():
+    other = rel("g/mod", iid=2)
+    current = rel("g/app", description="stale")
+    current.client.get_merge_request.return_value = current.merge_request.model_copy(
+        update={"description": with_related_block("body", render_related_block([other]))}
+    )
+
+    await aensure_related_links([current, other])
+
+    current.client.update_merge_request.assert_not_called()
+
+
+async def test_ensure_survives_one_failed_read(caplog):
+    first, second = rel("g/app", iid=1), rel("g/mod", iid=2)
+    first.client.get_merge_request.side_effect = RuntimeError("boom")
+
+    await aensure_related_links([first, second])
+
+    first.client.update_merge_request.assert_not_called()
     second.client.update_merge_request.assert_called_once()
     assert "Could not link g/app" in caplog.text
