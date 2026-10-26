@@ -22,6 +22,7 @@ from notifications.channels.telegram import TelegramChannel
 from notifications.choices import ChannelType
 from notifications.forms import RocketChatBindingForm
 from notifications.models import Notification, UserChannelBinding
+from notifications.outcomes import attach_outcomes
 from notifications.telegram.tokens import mint_token
 from notifications.telegram_bindings import binding_state_for_pk
 
@@ -91,6 +92,7 @@ class NotificationListView(LoginRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["current_filter"] = self.request.GET.get("status", "all")
+        attach_outcomes(ctx["notifications"])
         return ctx
 
 
@@ -101,6 +103,7 @@ class MarkNotificationReadView(LoginRequiredMixin, TemplateView):
     def post(self, request, notification_id):
         notification = get_object_or_404(Notification, id=notification_id, recipient=request.user)
         notification.mark_as_read()
+        attach_outcomes([notification])
         return self.render_to_response({"notification": notification})
 
 

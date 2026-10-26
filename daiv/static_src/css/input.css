@@ -630,6 +630,24 @@ html {
   }
 }
 
+/* -- Notification outcome ------------------------------------------------- */
+
+@layer components {
+  .outcome-icon {
+    @apply mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg;
+    color: var(--outcome-color);
+    background-color: color-mix(in srgb, var(--outcome-color) 14%, transparent);
+  }
+  .outcome-label {
+    @apply font-medium;
+    color: var(--outcome-color);
+  }
+  .outcome-icon--clear, .outcome-label--clear { --outcome-color: var(--color-status-clear); }
+  .outcome-icon--found, .outcome-label--found { --outcome-color: var(--color-status-found); }
+  .outcome-icon--attn, .outcome-label--attn { --outcome-color: var(--color-status-attn); }
+  .outcome-icon--fail, .outcome-label--fail { --outcome-color: var(--color-status-fail); }
+}
+
 /* -- Status dot variants -------------------------------------------------- */
 
 @layer components {
