@@ -59,7 +59,7 @@
                    x-ref="userSearch"
                    placeholder="{% translate 'Search users by name, email, or username...' %}"
                    hx-get="{{ user_picker_url }}"
-                   hx-trigger="input changed delay:200ms[this.value.length >= 2], search"
+                   hx-trigger="input[this.value.length >= 2] changed delay:200ms, search"
                    hx-include="previous input[name='exclude']"
                    hx-sync="this:abort"
                    hx-target="#user-picker-list"
