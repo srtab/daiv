@@ -10,12 +10,13 @@ from sessions.executor.lock import (
     Held,
     LiveRun,
     NoLock,
+    SessionActivity,
     SessionLock,
     SessionLockTimeoutError,
     Wait,
     background_in_flight,
     hold_session_lock,
-    live_run,
+    session_activity,
     stale_cutoff,
     still_held,
 )
@@ -24,10 +25,6 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 
 pytestmark = pytest.mark.django_db(transaction=True)
-
-
-def _session(heartbeat_age=timedelta(0)):
-    return SimpleNamespace(last_active_at=timezone.now() - heartbeat_age)
 
 
 def _run(trigger_type, status=RunStatus.RUNNING):
@@ -39,20 +36,18 @@ class TestBackgroundInFlight:
     def test_a_live_non_chat_run_is_background_work(self, status):
         runs = [_run(SessionOrigin.CHAT, RunStatus.SUCCESSFUL), _run(SessionOrigin.DELEGATION_RESUME, status)]
 
-        assert background_in_flight(_session(), runs) is True
+        assert background_in_flight(SessionActivity(in_flight=True), runs) is True
 
     def test_a_chat_run_alone_is_not(self):
-        assert background_in_flight(_session(), [_run(SessionOrigin.CHAT)]) is False
+        assert background_in_flight(SessionActivity(in_flight=True), [_run(SessionOrigin.CHAT)]) is False
 
     def test_a_finished_non_chat_run_is_not(self):
         runs = [_run(SessionOrigin.PIPELINE_WEBHOOK, RunStatus.SUCCESSFUL), _run(SessionOrigin.CHAT)]
 
-        assert background_in_flight(_session(), runs) is False
+        assert background_in_flight(SessionActivity(in_flight=True), runs) is False
 
-    def test_a_stale_holder_is_not(self):
-        runs = [_run(SessionOrigin.DELEGATION_RESUME)]
-
-        assert background_in_flight(_session(heartbeat_age=timedelta(minutes=31)), runs) is False
+    def test_a_session_out_of_flight_is_not(self):
+        assert background_in_flight(SessionActivity(), [_run(SessionOrigin.DELEGATION_RESUME)]) is False
 
 
 class TestSessionLock:
@@ -326,8 +321,12 @@ async def _holder_session(*, trigger_type=SessionOrigin.API_JOB, status=RunStatu
     return session, run
 
 
+async def _activity(session):
+    return session_activity(session, [r async for r in session.runs.order_by("created_at")])
+
+
 async def _live_run(session):
-    return live_run(session, [r async for r in session.runs.order_by("created_at")])
+    return (await _activity(session)).live
 
 
 async def test_live_run_is_the_slot_holder_while_in_flight():
@@ -383,9 +382,10 @@ async def test_a_job_holder_is_the_run_its_holder_id_names():
     )
     session.active_run_id = str(holder.pk)
 
-    live = live_run(session, [waiting, holder])
+    activity = session_activity(session, [waiting, holder])
 
-    assert live.started_at == holder.started_at
+    assert activity.holder == holder
+    assert activity.live.started_at == holder.started_at
 
 
 async def test_live_run_does_not_depend_on_the_runs_order():
@@ -396,4 +396,56 @@ async def test_live_run_does_not_depend_on_the_runs_order():
 
     newest_first = [r async for r in session.runs.order_by("-created_at")]
 
-    assert live_run(session, newest_first) == await _live_run(session)
+    assert session_activity(session, newest_first) == await _activity(session)
+
+
+async def test_a_free_slot_leaves_every_unfinished_job_waiting_even_once_its_task_started():
+    session, running = await _holder_session()
+    queued = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.API_JOB, repo_id="owner/repo", status=RunStatus.QUEUED
+    )
+
+    activity = await _activity(session)
+
+    assert activity.waiting == (running, queued)
+    assert activity.waiting_since == running.created_at
+    assert activity.holder is None
+    assert activity.live is None
+
+
+async def test_an_unfinished_chat_run_never_waits():
+    session, _run = await _holder_session(trigger_type=SessionOrigin.CHAT)
+
+    assert (await _activity(session)).waiting == ()
+
+
+async def test_a_held_slot_leaves_nothing_waiting():
+    session, run = await _holder_session(trigger_type=SessionOrigin.API_JOB)
+    session.active_run_id = str(run.pk)
+
+    activity = await _activity(session)
+
+    assert activity.waiting == ()
+    assert activity.holder == run
+
+
+async def test_a_stale_session_has_no_activity():
+    session, _run = await _holder_session(status=RunStatus.READY, last_active_at=stale_cutoff() - timedelta(minutes=1))
+
+    assert await _activity(session) == SessionActivity()
+
+
+async def test_a_webhook_holder_beats_an_older_job_still_waiting_for_the_slot():
+    session, job = await _holder_session(trigger_type=SessionOrigin.API_JOB, active_run_id="webhook-abc")
+    webhook = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.MR_WEBHOOK,
+        repo_id="owner/repo",
+        status=RunStatus.RUNNING,
+        started_at=timezone.now(),
+    )
+
+    activity = await _activity(session)
+
+    assert activity.holder == webhook
+    assert job.created_at < webhook.created_at

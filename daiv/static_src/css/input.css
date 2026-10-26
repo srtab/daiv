@@ -954,6 +954,21 @@ html {
     border-top-right-radius: 6px;
     color: #dbeafe;
     text-align: left;
+    transition: background-color 0.45s ease, border-color 0.45s ease, color 0.45s ease;
+  }
+
+  .chat-turn--pending .chat-segment--text {
+    background: rgba(96, 165, 250, 0.03);
+    border-style: dashed;
+    border-color: rgba(96, 165, 250, 0.34);
+    color: #9fb0c8;
+  }
+
+  .chat-turn__pending {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
   }
 
   .chat-turn--user .chat-text {
@@ -1817,10 +1832,19 @@ html {
   .chat-thinking__dot {
     width: 6px;
     height: 6px;
+    border: 1.5px solid #fbbf24;
     border-radius: 999px;
     background: #fbbf24;
     box-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
     animation: pulse-dot 1.4s ease-in-out infinite;
+    transition: background-color 0.45s ease, border-color 0.45s ease, box-shadow 0.45s ease;
+  }
+
+  .chat-thinking--waiting .chat-thinking__dot {
+    border-color: #64748b;
+    background: transparent;
+    box-shadow: none;
+    animation-duration: 2.6s;
   }
 
   .chat-thinking__timer {

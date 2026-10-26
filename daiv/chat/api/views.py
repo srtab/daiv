@@ -11,9 +11,9 @@ from ninja.errors import HttpError
 from ninja.security import django_auth
 from sandbox_envs.selection import resolve_env_for_run
 from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_access, aresolve_environment
-from sessions.executor.lock import SessionLock, stale_cutoff
+from sessions.executor.lock import SessionLock, session_activity, stale_cutoff
 from sessions.live import relay
-from sessions.models import Session
+from sessions.models import RunStatus, Session
 from sessions.spend import build_session_spend
 
 from accounts.api.security import AuthBearer
@@ -142,7 +142,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     under the authenticated caller; subsequent requests must be able to see it (a
     webhook-origin session with ``user=None`` is continuable by anyone with visibility).
     ``SessionLock.try_claim`` atomically claims the per-session run slot — parallel tabs
-    resolve to a single winner, the loser gets 409.
+    resolve to a single winner, the loser gets 409. A run waiting to start holds no slot yet,
+    so a turn sent meanwhile gets 409 too instead of jumping ahead of it.
 
     Runs execute detached (see ``chat.api.runner``); the response is a run handle (JSON) or an
     inline relay tail (``Accept: text/event-stream``).
@@ -253,6 +254,9 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
             " from forwarded_props or start a new thread to change it.",
         )
 
+    unfinished = [run async for run in session.runs.exclude(status__in=RunStatus.terminal())]
+    if session_activity(session, unfinished).waiting:
+        raise HttpError(409, "A run is waiting to start on this thread")
     if not await SessionLock.try_claim(thread_id, run_id):
         raise HttpError(409, "A run is already in progress for this thread")
 
