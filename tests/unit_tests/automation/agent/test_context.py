@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 from git import Repo
 
-from automation.agent.context import RepoHandle, RuntimeCtx, SingleRepoRequiredError, set_runtime_ctx
+from automation.agent.context import ExtraRepo, RepoHandle, RuntimeCtx, set_runtime_ctx
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.references import ExternalRef
 from automation.agent.workspace.sandbox import SandboxWorkspace
@@ -363,11 +363,11 @@ async def test_a_fallback_clone_is_timed_across_both_attempts():
     assert repo_client.load_repo.call_count == 2
 
 
-def _make_handle() -> RepoHandle:
+def _make_handle(slug: str = "acme/api") -> RepoHandle:
     return RepoHandle(
-        repo_id="acme/api",
+        repo_id=slug,
         client=Mock(),
-        repository=Mock(slug="acme/api"),
+        repository=Mock(slug=slug),
         gitrepo=Mock(),
         config=Mock(),
         ref="main",
@@ -386,18 +386,140 @@ def test_runtime_ctx_accepts_exactly_one_repo():
     assert ctx.config is handle.config
 
 
-def test_runtime_ctx_rejects_zero_repos():
-    with pytest.raises(SingleRepoRequiredError) as exc:
+def test_runtime_ctx_requires_a_repository():
+    with pytest.raises(ValueError, match="at least one repository"):
         RuntimeCtx(bot_username="daiv", repos=())
-    assert exc.value.actual == 0
-    assert "0" in str(exc.value)
 
 
-def test_runtime_ctx_rejects_multiple_repos():
-    with pytest.raises(SingleRepoRequiredError) as exc:
-        RuntimeCtx(bot_username="daiv", repos=(_make_handle(), _make_handle()))
-    assert exc.value.actual == 2
-    assert "multi-repo" in str(exc.value)
+def test_repo_is_main_and_extra_repos_are_the_rest():
+    main, mod = _make_handle("g/app"), _make_handle("g/mod")
+    ctx = RuntimeCtx(bot_username="daiv", repos=(main, mod))
+    assert ctx.repo is main
+    assert ctx.extra_repos == (mod,)
+
+
+def test_workspace_path_keeps_same_named_repos_apart():
+    main, a, b = _make_handle("g/app"), _make_handle("group-a/utils"), _make_handle("group-b/utils")
+    ctx = RuntimeCtx(bot_username="daiv", repos=(main, a, b))
+    assert ctx.workspace_path(main) == "/workspace/repo"
+    assert ctx.workspace_path(a) == "/workspace/repos/group-a/utils"
+    assert ctx.workspace_path(b) == "/workspace/repos/group-b/utils"
+
+
+def test_for_repo_is_a_single_repo_view():
+    main, mod = _make_handle("g/app"), _make_handle("g/mod")
+    ref = ExternalRef(key="PROJ-1", provider="jira")
+    view = RuntimeCtx(bot_username="daiv", repos=(main, mod), references=(ref,)).for_repo(mod)
+    assert view.repo is mod
+    assert view.extra_repos == ()
+    assert view.references == (ref,)
+
+
+def _multi_repo_client(*, gone: set[str] = frozenset()):
+    """A client whose ``load_repo`` yields a fake clone per repository slug, or a vanished-ref failure."""
+    repo_client = _repo_client()
+    repo_client.get_repository.side_effect = lambda repo_id: Mock(slug=repo_id)
+    loaded = []
+
+    def load_repo(repository, sha):
+        loaded.append((repository.slug, sha))
+        if (repository.slug, sha) in gone:
+            return _gone_clone(sha)
+        clone = MagicMock()
+        clone.head.is_detached = False
+        clone.active_branch.name = sha
+        return nullcontext(clone)
+
+    repo_client.load_repo.side_effect = load_repo
+    return repo_client, loaded
+
+
+def _per_repo_config():
+    return patch.multiple(
+        "automation.agent.context",
+        RepositoryConfig=MagicMock(
+            get_config=MagicMock(side_effect=lambda repo_id, **_: MagicMock(repo_id=repo_id, default_branch="main"))
+        ),
+    )
+
+
+async def test_set_runtime_ctx_clones_extra_repos_after_main():
+    repo_client, loaded = _multi_repo_client()
+
+    with _context_deps(repo_client), _per_repo_config():
+        async with set_runtime_ctx(
+            "g/app",
+            scope=RepoScope.GLOBAL,
+            sandbox_spec=sandbox_spec(base_image=None),
+            extra_repos=[ExtraRepo("g/mod", "dev"), ExtraRepo("g/lib")],
+        ) as ctx:
+            assert [h.repo_id for h in ctx.repos] == ["g/app", "g/mod", "g/lib"]
+            assert [h.ref for h in ctx.extra_repos] == ["dev", "main"]
+            assert [h.config.repo_id for h in ctx.repos] == ["g/app", "g/mod", "g/lib"]
+            assert all(h.client is repo_client for h in ctx.repos)
+
+    assert loaded == [("g/app", "main"), ("g/mod", "dev"), ("g/lib", "main")]
+
+
+async def test_extra_repo_missing_branch_falls_back_to_default():
+    repo_client, loaded = _multi_repo_client(gone={("g/mod", "gone")})
+
+    with _context_deps(repo_client), _per_repo_config():
+        async with set_runtime_ctx(
+            "g/app",
+            scope=RepoScope.GLOBAL,
+            sandbox_spec=sandbox_spec(base_image=None),
+            extra_repos=[ExtraRepo("g/mod", "gone")],
+        ) as ctx:
+            assert ctx.extra_repos[0].ref == "main"
+
+    assert loaded == [("g/app", "main"), ("g/mod", "gone"), ("g/mod", "main")]
+
+
+async def test_main_repo_missing_branch_still_raises_with_extra_repos():
+    repo_client, _ = _multi_repo_client(gone={("g/app", "gone")})
+
+    with _context_deps(repo_client), _per_repo_config(), pytest.raises(CloneRefNotFoundError):
+        async with set_runtime_ctx(
+            "g/app",
+            scope=RepoScope.GLOBAL,
+            ref="gone",
+            sandbox_spec=sandbox_spec(base_image=None),
+            extra_repos=[ExtraRepo("g/mod")],
+        ):
+            pass
+
+
+async def test_every_clone_is_released_when_a_later_extra_repo_fails():
+    released = []
+
+    @contextmanager
+    def clone(name):
+        try:
+            yield MagicMock(**{"head.is_detached": False, "active_branch.name": "main"})
+        finally:
+            released.append(name)
+
+    repo_client = _repo_client()
+    repo_client.get_repository.side_effect = lambda repo_id: Mock(slug=repo_id)
+
+    def load_repo(repository, sha):
+        if repository.slug == "g/bad":
+            return _gone_clone(sha)
+        return clone(repository.slug)
+
+    repo_client.load_repo.side_effect = load_repo
+
+    with _context_deps(repo_client), _per_repo_config(), pytest.raises(CloneRefNotFoundError):
+        async with set_runtime_ctx(
+            "g/app",
+            scope=RepoScope.GLOBAL,
+            sandbox_spec=sandbox_spec(base_image=None),
+            extra_repos=[ExtraRepo("g/mod"), ExtraRepo("g/bad", "main")],
+        ):
+            pass
+
+    assert released == ["g/mod", "g/app"]
 
 
 def test_runtime_ctx_normalises_list_to_tuple():

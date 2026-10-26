@@ -1,9 +1,9 @@
 import logging
 import sys
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator  # noqa: TC003
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from time import monotonic
 from typing import TYPE_CHECKING, cast
 
@@ -11,6 +11,7 @@ from asgiref.sync import sync_to_async
 from git import Repo  # noqa: TC002
 from sandbox_envs.spec import SandboxSpec  # noqa: TC002
 
+from automation.agent.constants import EXTRA_REPOS_PATH, REPO_PATH
 from automation.agent.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
@@ -27,30 +28,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.agent")
 
 
-class SingleRepoRequiredError(RuntimeError):
-    """Raised when a ``RuntimeCtx`` is constructed or accessed without exactly one repo handle.
+@dataclass(frozen=True)
+class ExtraRepo:
+    """A repository a session opens beside its main one; an empty ``ref`` means its default branch."""
 
-    Today every run is enforced to be single-repo; the error guards the multi-repo seam.
-    ``actual`` is the number of handles supplied — ``0`` means the caller forgot to
-    supply one (likely a misuse), ``>= 2`` means multi-repo, which isn't supported yet.
-    """
-
-    def __init__(self, actual: int) -> None:
-        detail = "got 0 (no repository supplied)" if actual == 0 else f"got {actual} (multi-repo not yet supported)"
-        super().__init__(f"RuntimeCtx requires exactly one repository handle, {detail}.")
-        self.actual = actual
+    repo_id: str
+    ref: str = ""
 
 
 @dataclass(frozen=True)
 class RepoHandle:
-    """Bindings for a single repository within a RuntimeCtx.
-
-    A RuntimeCtx holds exactly one of these today (enforced in
-    :meth:`RuntimeCtx.__post_init__`). The tuple shape on RuntimeCtx is the
-    multi-repo seam; the forwarding properties (``repository``, ``gitrepo``,
-    ``git_platform``, ``config``) make single-handle access read like a flat
-    dataclass.
-    """
+    """Bindings for a single repository within a RuntimeCtx."""
 
     repo_id: str
     client: RepoClient = field(compare=False, repr=False)
@@ -73,13 +61,10 @@ class RepoHandle:
 
 @dataclass(frozen=True)
 class RuntimeCtx:
-    """Per-run context. Holds a tuple of repository handles plus shared agent-level state.
+    """Per-run context. Holds the run's repository handles plus shared agent-level state.
 
-    The constructor enforces ``len(repos) == 1`` (raising
-    :class:`SingleRepoRequiredError` otherwise); forwarding properties
-    (``repository``, ``gitrepo``, ``git_platform``, ``config``) delegate to
-    ``self.repo``. The tuple is the multi-repo seam for the future, not a
-    capability today.
+    ``repos[0]`` is the main repository, which drives the run; the rest are the session's extra repositories.
+    The forwarding properties (``repository``, ``gitrepo``, ``git_platform``, ``config``) read the main handle.
     """
 
     bot_username: str
@@ -109,14 +94,24 @@ class RuntimeCtx:
             object.__setattr__(self, "repos", tuple(self.repos))
         if not isinstance(self.references, tuple):
             object.__setattr__(self, "references", tuple(self.references))
-        if len(self.repos) != 1:
-            raise SingleRepoRequiredError(actual=len(self.repos))
+        if not self.repos:
+            raise ValueError("RuntimeCtx needs at least one repository handle")
 
     @property
     def repo(self) -> RepoHandle:
-        if len(self.repos) != 1:
-            raise SingleRepoRequiredError(actual=len(self.repos))
         return self.repos[0]
+
+    @property
+    def extra_repos(self) -> tuple[RepoHandle, ...]:
+        return self.repos[1:]
+
+    def workspace_path(self, handle: RepoHandle) -> str:
+        if handle is self.repo:
+            return REPO_PATH
+        return f"{EXTRA_REPOS_PATH}/{handle.repository.slug}"
+
+    def for_repo(self, handle: RepoHandle) -> RuntimeCtx:
+        return replace(self, repos=(handle,))
 
     @property
     def repository(self) -> Repository:
@@ -197,6 +192,7 @@ async def set_runtime_ctx(
     references: Sequence[ExternalRef] | None = None,
     fallback_ref_on_missing: bool = False,
     repo_client: RepoClient | None = None,
+    extra_repos: Sequence[ExtraRepo] = (),
 ) -> AsyncGenerator[RuntimeCtx]:
     """Set the runtime context and load repository files to a temporary directory.
 
@@ -214,6 +210,8 @@ async def set_runtime_ctx(
             the remote (a merged-and-deleted branch) retries on the repository default branch
             instead of raising. ``ctx.repo.ref`` then reflects the branch actually used.
         repo_client: The run's platform client (``ctx.repo.client``); the configured platform's when omitted.
+        extra_repos: Repositories cloned beside the main one, in order; each falls back to its default branch
+            when its ref is gone.
 
     Yields:
         RuntimeCtx: The runtime context
@@ -237,23 +235,53 @@ async def set_runtime_ctx(
 
     clone_started = monotonic()
     try:
-        with _load_repo_with_optional_fallback(
-            repo_client, repository, ref, cast("str", config.default_branch), fallback_ref_on_missing
-        ) as (repo, effective_ref):
-            handle = RepoHandle(
-                repo_id=repo_id,
-                client=repo_client,
-                repository=repository,
-                gitrepo=repo,
-                config=config,
-                ref=effective_ref,
-                current_ref=get_repo_ref(repo),
-                head_detached=repo.head.is_detached,
-                clone_seconds=monotonic() - clone_started,
+        with ExitStack() as clones:
+            repo, effective_ref = clones.enter_context(
+                _load_repo_with_optional_fallback(
+                    repo_client, repository, ref, cast("str", config.default_branch), fallback_ref_on_missing
+                )
             )
+            handles = [
+                RepoHandle(
+                    repo_id=repo_id,
+                    client=repo_client,
+                    repository=repository,
+                    gitrepo=repo,
+                    config=config,
+                    ref=effective_ref,
+                    current_ref=get_repo_ref(repo),
+                    head_detached=repo.head.is_detached,
+                    clone_seconds=monotonic() - clone_started,
+                )
+            ]
+            for extra in extra_repos:
+                extra_started = monotonic()
+                extra_repository = repo_client.get_repository(extra.repo_id)
+                extra_config = RepositoryConfig.get_config(
+                    repo_id=extra.repo_id, repository=extra_repository, offline=offline, repo_client=repo_client
+                )
+                extra_default = cast("str", extra_config.default_branch)
+                extra_clone, extra_effective_ref = clones.enter_context(
+                    _load_repo_with_optional_fallback(
+                        repo_client, extra_repository, extra.ref or extra_default, extra_default, fallback=True
+                    )
+                )
+                handles.append(
+                    RepoHandle(
+                        repo_id=extra.repo_id,
+                        client=repo_client,
+                        repository=extra_repository,
+                        gitrepo=extra_clone,
+                        config=extra_config,
+                        ref=extra_effective_ref,
+                        current_ref=get_repo_ref(extra_clone),
+                        head_detached=extra_clone.head.is_detached,
+                        clone_seconds=monotonic() - extra_started,
+                    )
+                )
             ctx = RuntimeCtx(
                 bot_username=repo_client.current_user.username,
-                repos=(handle,),
+                repos=tuple(handles),
                 sandbox=sandbox_spec,
                 sandbox_client=sandbox_client,
                 credential_source=_credential_source(repo_client, repository) if sandbox_client is not None else None,
