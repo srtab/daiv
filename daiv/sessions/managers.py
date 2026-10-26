@@ -58,8 +58,13 @@ class SessionQuerySet(models.QuerySet["Session"]):
         # Local import: keep this module from pulling codebase.authorization
         # (and its codebase.* / allauth graph) in at app-load time.
         from codebase.authorization import viewable_repo_ids_subquery
+        from sessions.models import SessionRepository
 
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
+        viewable = viewable_repo_ids_subquery(user)
+        unreadable_extra = models.Exists(
+            SessionRepository.objects.filter(session=models.OuterRef("pk")).exclude(repo_id__in=viewable)
+        )
+        return self.filter(self._owner_q(user) | (models.Q(repo_id__in=viewable) & ~unreadable_extra)).distinct()
 
     def for_merge_request(self, iid: int) -> models.QuerySet[Session]:
         """Sessions that touched merge request ``iid``, whichever way they learned of it.
@@ -119,8 +124,13 @@ class RunManager(models.Manager["Run"]):
         # Local import: keep this module from pulling codebase.authorization
         # (and its codebase.* / allauth graph) in at app-load time.
         from codebase.authorization import viewable_repo_ids_subquery
+        from sessions.models import SessionRepository
 
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
+        viewable = viewable_repo_ids_subquery(user)
+        unreadable_extra = models.Exists(
+            SessionRepository.objects.filter(session=models.OuterRef("session_id")).exclude(repo_id__in=viewable)
+        )
+        return self.filter(self._owner_q(user) | (models.Q(repo_id__in=viewable) & ~unreadable_extra)).distinct()
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)

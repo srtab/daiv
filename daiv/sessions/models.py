@@ -247,6 +247,37 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
     return {field: value for field, value in updates.items() if value}
 
 
+class SessionRepository(models.Model):
+    """An extra repository of a multi-repository session; the main one stays on ``Session``."""
+
+    session = models.ForeignKey(
+        Session, on_delete=models.CASCADE, related_name="extra_repositories", verbose_name=_("session")
+    )
+    position = models.PositiveSmallIntegerField(_("position"))
+    repo_id = models.CharField(_("repository"), max_length=255)
+    ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
+    merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
+    merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
+    sandbox_environment = models.ForeignKey(
+        "sandbox_envs.SandboxEnvironment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("sandbox environment"),
+    )
+
+    class Meta:
+        ordering = ["position"]
+        constraints = [
+            models.UniqueConstraint(fields=["session", "repo_id"], name="session_repo_unique"),
+            models.UniqueConstraint(fields=["session", "position"], name="session_repo_position_unique"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.repo_id} ({self.session_id})"
+
+
 class Run(models.Model):
     """One agent execution within a session."""
 
@@ -295,6 +326,8 @@ class Run(models.Model):
         related_name="agent_runs",
         verbose_name=_("sandbox environment"),
     )
+    merge_requests = models.JSONField(_("merge requests"), default=list, blank=True)
+    publish_errors = models.JSONField(_("publish errors"), default=list, blank=True)
 
     # Denormalized result / error / usage — copied verbatim from Activity.
     result_summary = models.TextField(_("result summary"), blank=True, default="")
@@ -358,6 +391,15 @@ class Run(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
+
+    def merge_request_links(self) -> list[dict[str, str]]:
+        """``[{"repo_id", "url"}]`` for every MR the run opened, falling back to the legacy single MR URL."""
+        links = [
+            {"repo_id": item["repo_id"], "url": item["web_url"]} for item in self.merge_requests if item.get("web_url")
+        ]
+        if not links and self.merge_request_web_url:
+            links = [{"repo_id": self.repo_id, "url": self.merge_request_web_url}]
+        return links
 
     @property
     def effective_muted(self) -> bool:
