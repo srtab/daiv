@@ -262,18 +262,16 @@ class GitChangePublisher:
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
         if merge_request is None:
-            description = changes_metadata["pr_metadata"].description
-            if verification_report:
-                description = f"{description.rstrip()}\n\n{verification_report}"
             try:
                 merge_request = await self._create_merge_request(
                     branch_name,
                     changes_metadata["pr_metadata"].title,
-                    description,
+                    changes_metadata["pr_metadata"].description,
                     target_branch=self._live_target_branch(base_branch, snapshot.remote_branches, default_branch),
                     as_draft=as_draft,
                     fallback_from_mr=fallback_from_mr,
                     session_links=links,
+                    verification_report=verification_report,
                 )
             except MergeRequestBranchNotVisibleError:
                 # Branch is pushed but GitLab won't open the MR yet; failing here would orphan the work
@@ -505,6 +503,7 @@ class GitChangePublisher:
         as_draft: bool = False,
         fallback_from_mr: MergeRequest | None = None,
         session_links: SessionLinks | None = None,
+        verification_report: str | None = None,
     ) -> MergeRequest:
         """
         Update or create the merge request.
@@ -519,6 +518,8 @@ class GitChangePublisher:
             fallback_from_mr: The original MR whose protected source branch forced this fresh MR;
                 the description back-links to it so reviewers can trace the relationship.
             session_links: The session links; the description links to the session's merge request page.
+            verification_report: The before_publish report, Markdown with HTML blocks that goes below the description
+                unescaped; ``None`` for none.
 
         Returns:
             The merge request.
@@ -537,6 +538,7 @@ class GitChangePublisher:
                 "automation/issue_merge_request.txt",
                 {
                     "description": repo_relative_text(description),
+                    "verification_report": repo_relative_text(verification_report) if verification_report else None,
                     "references_block": render_references_block(
                         self.ctx.references, repo_slug=self.ctx.repository.slug
                     ),

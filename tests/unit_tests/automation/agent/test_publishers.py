@@ -19,6 +19,7 @@ from automation.agent.publishers import (
 )
 from automation.agent.references import ExternalRef
 from automation.agent.session_links import SessionLinks
+from automation.agent.verification.outcome import render_report
 from automation.agent.workspace.git_manager import PendingMerge, RepoStatus
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import GitPlatform, Issue, MergeRequestDiffStats, Pipeline, Scope, TriggeredPipeline, User
@@ -280,6 +281,35 @@ class TestCreateMergeRequestDescription:
         await publisher._create_merge_request("feature", "Title", "Body", target_branch="master")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "master"
+
+    async def test_verification_report_is_rendered_as_markdown_after_the_escaped_description(self):
+        publisher = _publisher_no_issue()
+        outcome = {
+            "status": "failed",
+            "commands": [
+                {
+                    "command": "make test",
+                    "exit_code": 1,
+                    "timed_out": False,
+                    "already_failing": False,
+                    "output_tail": 'E   assert name == "daiv" in /workspace/repo/tests/test_a.py',
+                }
+            ],
+            "rounds": 2,
+            "suspicious_paths": [],
+        }
+
+        await publisher._create_merge_request(
+            "feature", "Title", "Fixes <b>bold</b>", target_branch="main", verification_report=render_report(outcome)
+        )
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert description.startswith("Fixes &lt;b&gt;bold&lt;/b&gt;\n\n### Verification\n")
+        assert "\n\n<details><summary>Output of make test</summary>\n" in description
+        assert 'E   assert name == "daiv" in tests/test_a.py' in description
+        assert "&lt;details&gt;" not in description
+        assert "&quot;" not in description
+        assert "opened as a draft.\n\n---\n" in description
 
     async def test_title_and_description_are_repo_relative(self):
         publisher = _publisher_no_issue()
@@ -929,7 +959,7 @@ class TestPublishSessionLinks:
 
 
 class TestPublishVerification:
-    async def test_report_is_appended_to_a_new_merge_request_description(self):
+    async def test_report_reaches_a_new_merge_request_apart_from_the_description(self):
         publisher = _publisher_no_issue()
         _use_git_manager(publisher, _fake_git_manager())
 
@@ -940,7 +970,8 @@ class TestPublishVerification:
         ):
             await publisher.publish(merge_request=None, verification_report="### Verification\n\n- ok")
 
-        assert create_mr.await_args.args[2] == "Body\n\n### Verification\n\n- ok"
+        assert create_mr.await_args.args[2] == "Body"
+        assert create_mr.await_args.kwargs["verification_report"] == "### Verification\n\n- ok"
 
     async def test_outcome_flags_a_created_merge_request(self):
         publisher = _publisher_no_issue()

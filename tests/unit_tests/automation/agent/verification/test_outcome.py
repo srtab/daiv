@@ -102,7 +102,25 @@ def test_render_report_already_failing():
 def test_render_report_shows_failing_output_in_collapsible_block():
     report = render_report(_outcome("failed", [_command(exit_code=1, output_tail="E assert 1 == 2")], rounds=2))
 
-    assert "<details><summary>Output of `make test`</summary>\n\n```\nE assert 1 == 2\n```\n\n</details>" in report
+    assert (
+        "- `make test` failed (exit 1)\n\n"
+        "<details><summary>Output of make test</summary>\n\n```\nE assert 1 == 2\n```\n\n</details>"
+    ) in report
+
+
+def test_render_report_names_the_command_in_the_summary_as_escaped_plain_text():
+    report = render_report(_outcome("failed", [_command("grep -c '<x>' a.py", exit_code=1, output_tail="0")]))
+
+    assert "<summary>Output of grep -c '&lt;x&gt;' a.py</summary>" in report
+
+
+def test_render_report_starts_a_new_block_after_each_output_block():
+    lint = _command("make lint", exit_code=1, output_tail="lint")
+    test = _command("make test", exit_code=2, output_tail="t")
+
+    report = render_report(_outcome("failed", [lint, test]))
+
+    assert "</details>\n\n- `make test` failed (exit 2)\n\n<details>" in report
 
 
 def test_render_report_fences_output_longer_than_any_backtick_run_in_it():

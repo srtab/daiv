@@ -78,7 +78,7 @@ def _output_block(command: CommandOutcome) -> str | None:
     if not tail:
         return None
     fence = "`" * max(3, _longest_backtick_run(tail) + 1)
-    summary = escape(f"Output of {_code_span(command['command'])}", quote=False)
+    summary = escape(f"Output of {command['command']}", quote=False)
     return f"<details><summary>{summary}</summary>\n\n{fence}\n{tail}\n{fence}\n\n</details>"
 
 
@@ -97,10 +97,15 @@ def render_report(outcome: VerificationOutcome, *, new_merge_request: bool = Tru
         return None
 
     lines = ["### Verification", ""]
+    after_block = False
     for command in outcome["commands"]:
+        if after_block:
+            lines.append("")
         lines.append(_bullet(command))
-        if block := _output_block(command):
-            lines.append(block)
+        block = _output_block(command)
+        if block is not None:
+            lines += ["", block]
+        after_block = block is not None
     if changed_by_checks := outcome.get("changed_by_checks"):
         lines += ["", "Running the checks changed these files: " + ", ".join(map(_code_span, changed_by_checks))]
     if outcome["status"] == "failed":

@@ -1,5 +1,7 @@
 {{ description }}
-
+{% if verification_report %}{# render_report escapes what it takes from the run and fences the output #}
+{{ verification_report|safe }}
+{% endif %}
 ---
 {% if references_block %}{# markdown for the platform API, not HTML — the RefIn charsets make raw embedding safe #}
 {{ references_block|safe }}
