@@ -50,6 +50,7 @@ def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
     runtime.context.repository = Mock(slug="a/b")
     runtime.context.config = Mock(default_branch="main")
     runtime.context.git_platform = Mock(value="gitlab")
+    runtime.context.extra_repos = ()
     return runtime
 
 
@@ -670,8 +671,8 @@ class TestGitMiddleware:
 
         assert "merge request #" not in captured["system_prompt"]
 
-    async def _render_git_prompt(self, middleware) -> str:
-        runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
+    async def _render_git_prompt(self, middleware, runtime=None) -> str:
+        runtime = runtime or _build_runtime_for_prompt(scope=Scope.GLOBAL)
         captured = {}
 
         async def fake_handler(req):
@@ -693,6 +694,28 @@ class TestGitMiddleware:
         prompt = await self._render_git_prompt(GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace()))
 
         assert "Committing and pushing is automatic" in prompt
+
+    async def test_prompt_lists_other_repositories(self):
+        runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
+        runtime.context.extra_repos = (
+            SimpleNamespace(
+                repository=SimpleNamespace(slug="g/mod"),
+                current_ref="fix-x",
+                config=SimpleNamespace(default_branch="main"),
+            ),
+        )
+        runtime.context.workspace_path = lambda handle: f"/workspace/repos/{handle.repository.slug}"
+
+        prompt = await self._render_git_prompt(GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace()), runtime)
+
+        assert "## Other repositories in this session" in prompt
+        assert "`g/mod` at `/workspace/repos/g/mod` (current branch: `fix-x`, default branch: `main`)" in prompt
+        assert "git -C <path>" in prompt
+
+    async def test_single_repo_prompt_has_no_other_repositories_section(self):
+        prompt = await self._render_git_prompt(GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace()))
+
+        assert "Other repositories in this session" not in prompt
 
     async def test_awrap_model_call_prefers_context_mr_over_state(self):
         """When ``context.merge_request`` is set (true MR-scoped trigger), it
@@ -745,6 +768,7 @@ class TestGitMiddleware:
                 repository=Mock(slug="a/b"),
                 config=Mock(default_branch="main"),
                 git_platform=Mock(value="gitlab"),
+                extra_repos=(),
                 repo=SimpleNamespace(
                     current_ref="feature-x",
                     head_detached=False,

@@ -63,7 +63,21 @@ The user will interact with you through the issue comments that will be automati
 You're currently working on merge request #{{merge_request_iid}}.
 
 The user will interact with you through the merge request comments that will be automatically provided to you as messages. You should respond to the user's comments with the appropriate actions and tools.
-{{/merge_request_iid}}""",  # noqa: E501
+{{/merge_request_iid}}
+{{#has_other_repositories}}
+
+## Other repositories in this session
+
+The repository above is the main one, checked out at `/workspace/repo`. This session also has:
+{{#other_repositories}}
+- `{{repository}}` at `{{path}}` (current branch: `{{current_branch}}`, default branch: `{{default_branch}}`)
+{{/other_repositories}}
+
+- Each is its own git repository: run git in it with `git -C <path> …`.
+- Fix a problem in the repository whose code causes it; never work around one repository's bug in another.
+- When your turn ends, each repository's changes are committed, pushed and opened as their own merge request.
+- A repository's own agent instructions, if any, are in `<path>/.agents/AGENTS.md` or `<path>/AGENTS.md`: read them before changing that repository.
+{{/has_other_repositories}}""",  # noqa: E501
     "mustache",
 )
 
@@ -331,6 +345,17 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             cast("GitState", request.state), request.runtime.context, current_ref=current_ref
         )
 
+        runtime_ctx = request.runtime.context
+        other_repositories = [
+            {
+                "repository": handle.repository.slug,
+                "path": runtime_ctx.workspace_path(handle),
+                "current_branch": handle.current_ref,
+                "default_branch": handle.config.default_branch,
+            }
+            for handle in runtime_ctx.extra_repos
+        ]
+
         context = {
             "git_platform": request.runtime.context.git_platform.value,
             "repository": request.runtime.context.repository.slug,
@@ -338,6 +363,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             "default_branch": request.runtime.context.config.default_branch,
             "issue_iid": request.runtime.context.issue.iid if request.runtime.context.issue else None,
             "merge_request_iid": effective_mr.merge_request_id if effective_mr is not None else None,
+            "has_other_repositories": bool(other_repositories),
+            "other_repositories": other_repositories,
         }
 
         system_prompt = ""
