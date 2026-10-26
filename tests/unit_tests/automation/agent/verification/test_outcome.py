@@ -17,12 +17,14 @@ def _command(command="make test", exit_code=0, *, timed_out=False, already_faili
     return outcome
 
 
-def _outcome(status, commands=(), *, rounds=0, suspicious=(), reason=None):
+def _outcome(status, commands=(), *, rounds=0, suspicious=(), reason=None, changed_by_checks=()):
     outcome = VerificationOutcome(
         status=status, commands=list(commands), rounds=rounds, suspicious_paths=list(suspicious)
     )
     if reason:
         outcome["reason"] = reason
+    if changed_by_checks:
+        outcome["changed_by_checks"] = list(changed_by_checks)
     return outcome
 
 
@@ -120,6 +122,19 @@ def test_render_report_lists_suspicious_paths():
     assert (
         "Changed test, lint, CI or DAIV configuration files — please review: `tests/test_a.py`, `.daiv.yml`" in report
     )
+
+
+def test_render_report_lists_files_the_checks_changed_before_the_failure_line():
+    report = render_report(_outcome("failed", [_command()], changed_by_checks=["uv.lock", "dist/a.js"]))
+
+    assert "Running the checks changed these files: `uv.lock`, `dist/a.js`" in report
+    assert report.index("Running the checks changed") < report.index("These checks still fail")
+
+
+def test_render_report_has_no_changed_files_line_when_the_checks_changed_nothing():
+    report = render_report(_outcome("failed", [_command(exit_code=1)], rounds=1))
+
+    assert "Running the checks changed" not in report
 
 
 def test_render_report_none_when_not_configured():

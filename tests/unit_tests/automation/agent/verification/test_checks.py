@@ -6,6 +6,7 @@ import pytest
 from automation.agent.verification.checks import (
     CheckResult,
     ChecksUnavailableError,
+    diff_fingerprint,
     failing_before_change,
     run_checks,
     tree_fingerprint,
@@ -123,3 +124,9 @@ async def test_run_checks_raises_unavailable_when_result_count_differs(fake_bash
     fake_bash.results = [RunCommandResult(command="cd /workspace/repo && make lint", output="", exit_code=0)]
     with pytest.raises(ChecksUnavailableError):
         await run_checks(fake_bash, ["make lint", "make test"])
+
+
+async def test_tree_fingerprint_is_the_diff_fingerprint_of_the_tree(fake_git):
+    fake_git.diffs = ["diff --git a/a.py b/a.py\n"]
+
+    assert await tree_fingerprint(fake_git) == diff_fingerprint("diff --git a/a.py b/a.py\n")

@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import httpx
 import pytest
+from git import GitCommandError
 from langchain.agents.middleware import ExtendedModelResponse, ModelRequest
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
@@ -16,6 +17,7 @@ from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.verification import VerificationMiddleware
 from automation.agent.synthetic import is_synthetic
+from automation.agent.verification.checks import diff_fingerprint
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import FakeWorkspace
 
@@ -26,8 +28,8 @@ LOCK_DIFF = "diff --git a/uv.lock b/uv.lock\n--- a/uv.lock\n+++ b/uv.lock\n@@ -1
 @dataclass
 class FakeRepo:
     """The run's sandbox as both ``workspace.git`` and ``workspace.bash``: ``diff`` is the working tree, ``failing``
-    the commands that fail on it, ``failing_on_start`` those that fail on the starting code (while stashed), and
-    ``checks_leave`` the tree a check run leaves behind."""
+    the commands that fail on it, ``failing_on_start`` those that fail on the starting code (while stashed),
+    ``checks_leave`` the tree a check run leaves behind, and ``restore_error`` what popping the stash raises."""
 
     changed: list[str] = field(default_factory=lambda: ["a.py"])
     diff: str = AGENT_DIFF
@@ -35,6 +37,7 @@ class FakeRepo:
     failing_on_start: set[str] = field(default_factory=set)
     checks_leave: str | None = None
     error: Exception | None = None
+    restore_error: Exception | None = None
     stashed: bool = False
     stashes: int = 0
     check_runs: int = 0
@@ -54,6 +57,8 @@ class FakeRepo:
         return True
 
     async def restore_stash(self) -> None:
+        if self.restore_error is not None:
+            raise self.restore_error
         self.stashed = False
 
     async def run_commands(self, commands, *, fail_fast, timeout=None) -> RunCommandsResponse:
@@ -232,13 +237,28 @@ async def test_baseline_runs_once_per_command_per_run():
 
 async def test_check_that_changes_files_counts_as_failed():
     repo = FakeRepo(checks_leave=AGENT_DIFF + LOCK_DIFF)
+    handler, _ = _scripted(_final())
+
+    result = await _middleware(repo, finalizing=True).awrap_model_call(_request(), handler)
+
+    outcome = _outcome(result)
+    assert outcome["status"] == "failed"
+    assert outcome["changed_by_checks"] == ["uv.lock"]
+    assert [command["exit_code"] for command in outcome["commands"]] == [0]
+    assert outcome["fingerprint"] == diff_fingerprint(AGENT_DIFF + LOCK_DIFF)
+
+
+async def test_files_the_checks_changed_are_rechecked_when_the_agent_keeps_them():
+    repo = FakeRepo(checks_leave=AGENT_DIFF + LOCK_DIFF)
     handler, seen = _scripted(_final(), _final())
 
     result = await _middleware(repo).awrap_model_call(_request(), handler)
 
-    reminder = seen[1].messages[-1]
-    assert "running the checks changed these files: uv.lock." in reminder.content
-    assert _outcome(result)["status"] == "failed"
+    assert "running the checks changed these files: uv.lock." in seen[1].messages[-1].content
+    outcome = _outcome(result)
+    assert outcome["status"] == "passed"
+    assert "changed_by_checks" not in outcome
+    assert repo.check_runs == 2
 
 
 async def test_unchanged_tree_after_reminder_is_not_rechecked():
@@ -295,7 +315,22 @@ async def test_failed_reminder_call_keeps_the_round_for_the_retry():
     outcome = _outcome(result)
     assert outcome["status"] == "failed"
     assert outcome["rounds"] == 1
+    assert repo.check_runs == 1
     assert repo.stashes == 1
+
+
+async def test_verification_error_is_raised_again_on_later_calls():
+    repo = FakeRepo(failing={"make test"}, restore_error=GitCommandError(["git", "stash", "pop"], 1, "conflict"))
+    middleware = _middleware(repo)
+    handler, seen = _scripted(_final())
+    with pytest.raises(GitCommandError) as first:
+        await middleware.awrap_model_call(_request(), handler)
+
+    with pytest.raises(GitCommandError) as again:
+        await middleware.awrap_model_call(_request(), handler)
+
+    assert again.value is first.value
+    assert len(seen) == 1
 
 
 async def test_checks_unavailable_records_not_verified():

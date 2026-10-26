@@ -69,5 +69,9 @@ async def failing_before_change(bash: SandboxFileBackend, git: GitManager, comma
     return frozenset(result.command for result in results if not result.passed)
 
 
+def diff_fingerprint(diff: str) -> str:
+    return hashlib.sha256(diff.encode()).hexdigest()
+
+
 async def tree_fingerprint(git: GitManager) -> str:
-    return hashlib.sha256((await git.get_diff()).encode()).hexdigest()
+    return diff_fingerprint(await git.get_diff())

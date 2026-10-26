@@ -29,6 +29,7 @@ class VerificationOutcome(TypedDict):
     suspicious_paths: list[str]
     reason: NotRequired[str]
     fingerprint: NotRequired[str]
+    changed_by_checks: NotRequired[list[str]]
     reported: NotRequired[bool]
 
 
@@ -95,6 +96,8 @@ def render_report(outcome: VerificationOutcome, *, new_merge_request: bool = Tru
         lines.append(_bullet(command))
         if block := _output_block(command):
             lines.append(block)
+    if changed_by_checks := outcome.get("changed_by_checks"):
+        lines += ["", "Running the checks changed these files: " + ", ".join(map(_code_span, changed_by_checks))]
     if outcome["status"] == "failed":
         lines += ["", _failed_line(outcome["rounds"], new_merge_request)]
     elif outcome["status"] == "not_verified":
