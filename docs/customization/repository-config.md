@@ -36,6 +36,12 @@ pipeline_watch:
   enabled: true
   max_attempts: 3
 
+# Verification hooks
+hooks:
+  before_publish:
+    - "uv run ruff check ."
+    - "uv run pytest -q"
+
 # Model overrides
 models:
   agent:
@@ -111,6 +117,46 @@ slash_commands:
 | `slash_commands` | `enabled` | `true` | [Slash Commands & Skills](../features/slash-commands.md) |
 | `pipeline_watch` | `enabled` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — disable to stop DAIV watching CI on published MRs. |
 | `pipeline_watch` | `max_attempts` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — maximum fix attempts before giving up, clamped to the site-wide cap. |
+
+## Verification hooks
+
+`hooks.before_publish` lists commands DAIV runs to check the agent's work before it publishes:
+
+```yaml
+hooks:
+  before_publish:
+    - "uv run ruff check ."
+    - "uv run pytest -q"
+```
+
+A command passes when it exits 0. When the agent finishes, DAIV runs the commands in order, from the repository root inside the sandbox. They run only in sandbox runs and never when the agent works on a local checkout. Each command has 10 minutes before it counts as failed.
+
+When a command fails, DAIV sends the output back to the agent and the agent fixes the code, for up to 2 rounds. DAIV checks again after each round. A failure that was already there before the change is reported but not sent back for fixing.
+
+!!! warning
+    A check that changes files counts as failed, because it would leave the published code different from what was verified. Run formatters in check mode (`ruff format --check .`, not `ruff format .`).
+
+### What happens when checks still fail
+
+DAIV publishes the run with a **Verification** section that lists each command's result and, for failing ones, the end of its output in a collapsible block. It also lists files the checks themselves changed, and suspicious edits: test files, lint and test configuration, CI files and `.daiv.yml`. Suspicious edits are flagged for review, not blocked.
+
+- A new merge request opens as a draft.
+- On an existing merge request, the section goes in DAIV's reply comment instead of the description, and the merge request's draft status is not changed.
+- The [pipeline watch](../features/pipeline-watch.md) CI fix loop stays off for the merge request, so DAIV doesn't keep trying after the checks gave up.
+
+If the agent gets stuck in a loop and DAIV stops it, the checks still run and are reported, but no fix round is spent. If the checks can't run at all, for example when the sandbox fails, DAIV publishes normally and says in the report that the run was not verified, and why. The CI fix loop works as usual in that case.
+
+### Default commands
+
+A [Sandbox Environment](../features/sandbox-environments.md#default-before_publish-commands) can set default `before_publish` commands for every repository that uses it. A list in `.daiv.yml` replaces the environment's list entirely. Set `before_publish: []` to turn the checks off for the repository.
+
+### Without commands
+
+When no commands are declared, DAIV sends the agent one reminder if it edited files and ran no passing check after its last edit. The run is published as usual.
+
+### Site switch
+
+Administrators can turn verification off for all repositories with **Verification enabled** in the **Agent** section of the site configuration. It is on by default. When it is off, DAIV runs no `before_publish` commands and sends no reminder.
 
 ## Branch naming and commit conventions
 
