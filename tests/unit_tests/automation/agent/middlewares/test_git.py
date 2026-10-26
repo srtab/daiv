@@ -1110,3 +1110,63 @@ class TestExtraRepoPublish:
 
         publish.assert_not_awaited()
         assert "repo_publishes" not in result
+
+
+class TestRelatedLinks:
+    @staticmethod
+    def _sibling_publish() -> RepoPublish:
+        return RepoPublish(repo_id="g/mod", merge_request=_mr(iid=9), published=True, current_ref="feat/y")
+
+    async def _run(self, state, main_publish, runtime):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        with (
+            patch(
+                "automation.agent.middlewares.git.apublish_extra_repos",
+                AsyncMock(return_value=[self._sibling_publish()]),
+            ),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            patch("automation.agent.middlewares.git.aensure_related_links", AsyncMock()) as ensure,
+        ):
+            main_cls.return_value.publish = main_publish
+            await mw.aafter_agent(state, runtime)
+        return ensure
+
+    async def test_after_agent_links_main_and_sibling_mrs(self):
+        runtime = _multi_repo_runtime(make_repo_handle("g/mod"))
+        publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(iid=3), published=True))
+
+        ensure = await self._run({"merge_request": None}, publish, runtime)
+
+        [entries] = ensure.await_args.args
+        assert [(e.repo_slug, e.merge_request.merge_request_id) for e in entries] == [("g/app", 3), ("g/mod", 9)]
+        assert entries[0].client is runtime.context.repo.client
+        assert entries[1].client is runtime.context.extra_repos[0].client
+
+    async def test_a_failed_main_publish_still_links_siblings_to_the_existing_main_mr(self):
+        runtime = _multi_repo_runtime(make_repo_handle("g/mod"))
+
+        ensure = await self._run({"merge_request": _mr(iid=3)}, AsyncMock(side_effect=RuntimeError("500")), runtime)
+
+        [entries] = ensure.await_args.args
+        assert [e.repo_slug for e in entries] == ["g/app", "g/mod"]
+
+    async def test_a_main_conflict_links_the_siblings_alone_when_there_is_no_main_mr(self):
+        runtime = _multi_repo_runtime(make_repo_handle("g/mod"))
+
+        ensure = await self._run(
+            {"merge_request": None}, AsyncMock(side_effect=UnresolvedMergeConflictsError(["a.py"])), runtime
+        )
+
+        [entries] = ensure.await_args.args
+        assert [e.repo_slug for e in entries] == ["g/mod"]
+
+    async def test_a_single_repo_run_does_not_link(self):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        with (
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            patch("automation.agent.middlewares.git.aensure_related_links", AsyncMock()) as ensure,
+        ):
+            main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime())
+
+        ensure.assert_not_awaited()

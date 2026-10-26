@@ -13,7 +13,13 @@ from langsmith import get_current_run_tree
 
 from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
-from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError, apublish_extra_repos
+from automation.agent.publishers import (
+    GitChangePublisher,
+    RepoPublish,
+    UnresolvedMergeConflictsError,
+    apublish_extra_repos,
+)
+from automation.agent.sibling_links import RelatedMergeRequest, aensure_related_links
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, Scope
@@ -398,6 +404,29 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):
             rt.metadata["merge_request_id"] = merge_request.merge_request_id
 
+    @staticmethod
+    async def _alink_related(
+        runtime: Runtime[RuntimeCtx], main_merge_request: MergeRequest | None, repo_publishes: list[RepoPublish]
+    ) -> None:
+        """Link the session's merge requests to each other, the main one first; a no-op below two of them."""
+        ctx = runtime.context
+        if not ctx.extra_repos:
+            return
+        entries = (
+            [RelatedMergeRequest(ctx.repo.client, ctx.repository.slug, main_merge_request)]
+            if main_merge_request
+            else []
+        )
+        handles = {handle.repo_id: handle for handle in ctx.extra_repos}
+        entries += [
+            RelatedMergeRequest(
+                handles[publish.repo_id].client, handles[publish.repo_id].repository.slug, publish.merge_request
+            )
+            for publish in repo_publishes
+            if publish.merge_request is not None and publish.repo_id in handles
+        ]
+        await aensure_related_links(entries)
+
     async def aafter_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
         After the agent finishes, optionally capture the run's patch, then publish any new changes.
@@ -456,6 +485,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             agent_summary = None
 
         multi_repo = bool(runtime.context.extra_repos)
+        repo_publishes: list[RepoPublish] = []
         if multi_repo:
             repo_publishes = await apublish_extra_repos(
                 runtime.context,
@@ -476,6 +506,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             )
         except UnresolvedMergeConflictsError as exc:
             logger.warning("Not publishing: %s", exc)
+            await self._alink_related(runtime, checkpointed_merge_request(state, strict=False), repo_publishes)
             slug = runtime.context.repository.slug
             in_main, there = (f" in the main repository `{slug}`", " there") if multi_repo else ("", "")
             notice = (
@@ -489,6 +520,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 raise
             slug = runtime.context.repository.slug
             logger.exception("Publishing to %s failed", slug)
+            await self._alink_related(runtime, checkpointed_merge_request(state, strict=False), repo_publishes)
             notice = (
                 f"I couldn't publish the changes in the main repository `{slug}` ({type(exc).__name__}). "
                 "The other repositories were published on their own, and their results stand."
@@ -505,6 +537,10 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # Only ever set true here; ``abefore_agent`` clears it, so a no-op turn cannot
             # inherit the previous turn's push.
             update["published"] = True
+
+        await self._alink_related(
+            runtime, outcome.merge_request or checkpointed_merge_request(state, strict=False), repo_publishes
+        )
 
         if outcome.merge_request is None:
             # published + no MR is the branch-visibility degrade (branch pushed, MR pending): record
