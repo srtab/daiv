@@ -4,7 +4,6 @@ import logging
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from automation.agent.git_state import checkpointed_merge_request
-from automation.agent.publishers import RepoPublish
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -12,6 +11,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from langgraph.types import StateSnapshot
+
+    from automation.agent.publishers import RepoPublish
 
 
 class AgentResult(TypedDict):
@@ -50,6 +51,8 @@ def _dict_items(value: Any) -> list[dict[str, Any]]:
 
 
 def repo_publishes_from_state(values: Mapping[str, Any]) -> list[RepoPublish]:
+    from automation.agent.publishers import RepoPublish
+
     items = values.get("repo_publishes")
     publishes = []
     for item in items if isinstance(items, list) else []:
@@ -118,12 +121,12 @@ def build_agent_result(
     publishes = repo_publishes_from_state(snapshot.values)
     owned = [(main_repo_id or mr.repo_id, mr)] if mr else []
     owned += [(rp.repo_id, rp.merge_request) for rp in publishes if rp.merge_request]
-    merge_requests = [
+    merge_requests: list[dict[str, Any]] = [
         {"repo_id": repo_id, "merge_request_id": m.merge_request_id, "web_url": m.web_url} for repo_id, m in owned
     ]
     errors = [(main_repo_id, snapshot.values.get("main_publish_error")), *((rp.repo_id, rp.error) for rp in publishes)]
     publish_errors = [{"repo_id": repo_id, "error": error} for repo_id, error in errors if error]
-    web_url = next((item["web_url"] for item in merge_requests if item["web_url"]), None)
+    web_url: str | None = next((item["web_url"] for item in merge_requests if item["web_url"]), None)
     return AgentResult(
         response=response,
         code_changes=bool(snapshot.values.get("code_changes")),
