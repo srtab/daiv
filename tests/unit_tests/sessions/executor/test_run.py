@@ -87,6 +87,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         "issue": None,
         "merge_request": None,
         "fallback_ref_on_missing": False,
+        "extra_repos": [],
         "sandbox_spec": stack.build_spec.return_value,
         "acting_user_id": 7,
         "references": refs,
@@ -120,6 +121,35 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
     )
     assert agent.ainvoke.call_args.args == ({"messages": list(spec.input_messages)},)
     assert agent.ainvoke.call_args.kwargs == {"config": stack.langsmith.return_value, "context": stack.ctx}
+
+
+async def test_session_run_clones_its_extra_repos():
+    from automation.agent.context import ExtraRepo
+
+    rows = [SimpleNamespace(repo_id="g/mod", ref="fix-x", sandbox_environment_id=None)]
+    spec = make_spec()
+    seen = {}
+
+    async def _stream(run):
+        seen["extra_repos"] = run.extra_repos
+        yield "event"
+
+    with agent_stack(_agent()) as stack:
+        stack.load_extra_repos.return_value = rows
+        async for _ in stream_run(spec, _stream, should_stop=AsyncMock(return_value=False)):
+            pass
+
+    stack.load_extra_repos.assert_awaited_once_with(spec.thread_id)
+    assert stack.context_kwargs["extra_repos"] == [ExtraRepo("g/mod", "fix-x")]
+    assert seen["extra_repos"] == tuple(rows)
+
+
+async def test_one_shot_run_loads_no_extra_repos():
+    with agent_stack(_agent()) as stack:
+        await execute_run(make_spec(thread_id=None))
+
+    stack.load_extra_repos.assert_not_awaited()
+    assert stack.context_kwargs["extra_repos"] == []
 
 
 async def test_a_session_run_streams_under_its_slots_holder_id():

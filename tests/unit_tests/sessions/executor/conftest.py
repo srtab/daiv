@@ -120,6 +120,10 @@ def agent_stack(
     async def _end_stream(run_relay):
         stack.events.append("stream ended")
 
+    persist = AsyncMock(side_effect=_persist_ref)
+    reset = AsyncMock()
+    load_extra_repos = AsyncMock(return_value=[])
+
     with (
         stub_sandbox_spec() as build_spec,
         patch("sessions.live.publisher.ainvoke_live", _ainvoke_live),
@@ -138,8 +142,12 @@ def agent_stack(
         patch("sessions.executor.result.build_agent_result", side_effect=_build_result) as build_result,
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
-        patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
+        patch.multiple(
+            "sessions.executor.run",
+            apersist_session_ref=persist,
+            areset_session_ref=reset,
+            aload_extra_repos=load_extra_repos,
+        ),
         patch("sessions.executor.run.PipelineWatch", _Watch),
         patch(
             "sessions.executor.run.build_absolute_url", side_effect=lambda path: f"{SITE_URL}{path}"
@@ -159,6 +167,7 @@ def agent_stack(
         stack.build_result = build_result
         stack.persist = persist
         stack.reset = reset
+        stack.load_extra_repos = load_extra_repos
         stack.build_absolute_url = build_absolute_url
         yield stack
 

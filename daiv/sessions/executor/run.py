@@ -22,7 +22,8 @@ from sessions.artifacts import RunArtifactStore, bind_active_run
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
-from sessions.models import Run
+from sessions.models import Run, SessionRepository
+from sessions.multi_repo import aload_extra_repos
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import apersist_session_ref, areset_session_ref
 
@@ -70,6 +71,7 @@ class AgentRun:
     workspace: Workspace
     settings: AgentSettings
     session_links: SessionLinksResolver | None
+    extra_repos: tuple[SessionRepository, ...] = ()
 
 
 async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
@@ -283,7 +285,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
     from sandbox_envs.services import build_sandbox_spec
 
     from automation.agent.agent_settings import resolve_agent_settings
-    from automation.agent.context import set_runtime_ctx
+    from automation.agent.context import ExtraRepo, set_runtime_ctx
     from automation.agent.graph import create_daiv_agent
     from automation.agent.middlewares.slash_commands import resets_thread, skips_sandbox
     from automation.agent.usage_tracking import track_usage_metadata
@@ -303,6 +305,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
         thread_id, checkpoints = str(uuid.uuid4()), nullcontext(InMemorySaver())
     else:
         thread_id, checkpoints = spec.thread_id, open_checkpointer()
+    extra_rows = await aload_extra_repos(spec.thread_id) if spec.thread_id is not None else []
     async with (
         set_runtime_ctx(
             repo_id=spec.repo_id,
@@ -311,6 +314,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
             issue=spec.issue,
             merge_request=spec.merge_request,
             fallback_ref_on_missing=spec.fallback_ref_on_missing,
+            extra_repos=[ExtraRepo(row.repo_id, row.ref) for row in extra_rows],
             sandbox_spec=sandbox_spec,
             acting_user_id=spec.acting_user_id,
             references=spec.references,
@@ -370,6 +374,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     workspace=workspace,
                     settings=settings,
                     session_links=session_links,
+                    extra_repos=tuple(extra_rows),
                 )
                 try:
                     yield run

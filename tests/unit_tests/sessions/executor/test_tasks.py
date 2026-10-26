@@ -222,6 +222,23 @@ async def test_run_job_task_reads_session_mcp_overrides():
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("extra_repos", "expected"), [(["g/mod"], True), ([], False)], ids=["multi-repo", "single-repo"]
+)
+async def test_job_falls_back_on_a_missing_ref_only_in_a_multi_repo_session(extra_repos, expected):
+    from sessions.models import SessionRepository
+
+    thread_id = str(uuid.uuid4())
+    await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="g/r")
+    for position, repo_id in enumerate(extra_repos, start=1):
+        await SessionRepository.objects.acreate(session_id=thread_id, position=position, repo_id=repo_id)
+
+    spec = await _run_spec(thread_id)
+
+    assert spec.fallback_ref_on_missing is expected
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolution():
     """A run that dies before the model is resolved (e.g. the git clone inside
     ``set_runtime_ctx``) leaves ``agent_model`` empty — the UI falls back to the

@@ -270,6 +270,50 @@ async def test_existing_thread_keeps_original_env_even_when_resolution_would_pic
     await user.adelete()
 
 
+async def _multi_repo_session(user):
+    from sessions.models import SessionRepository
+
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-multi", user=user, repo_id="a/b", ref="main"
+    )
+    await SessionRepository.objects.acreate(session=session, position=1, repo_id="a/extra")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_chat_turn_cannot_switch_a_multi_repo_sessions_repo(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    await _multi_repo_session(user)
+
+    with patch("chat.api.views.aassert_repo_access", new=AsyncMock()):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-multi"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "g/other", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 400
+    assert "can't be changed" in response.json()["detail"]
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_chat_turn_on_multi_repo_session_keeps_its_repos(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    _, raw, user = authed
+    await _multi_repo_session(user)
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-multi"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    await user.adelete()
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_auto_resolved_env_passed_to_streamer_on_first_turn(
     client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
