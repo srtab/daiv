@@ -291,3 +291,23 @@ class TestAfinish:
 
         publish.assert_not_called()
         assert not run_finished_spy.called
+
+
+@pytest.mark.django_db
+class TestOwnedBy:
+    def test_an_admin_gets_only_their_own_sessions(self, admin_user, other_user):
+        mine = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=admin_user)
+        Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=other_user)
+
+        assert list(Session.objects.owned_by(admin_user)) == [mine]
+
+    def test_a_run_actor_owns_the_shared_thread(self, other_user):
+        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.ISSUE_WEBHOOK)
+        Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+            repo_id="acme/api",
+            external_username=other_user.username,
+        )
+
+        assert list(Session.objects.owned_by(other_user)) == [session]

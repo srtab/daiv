@@ -38,7 +38,7 @@ from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
 from sessions.executor.lock import live_run_for, session_activity
-from sessions.filters import RANGE_CHOICES, STATUS_CHOICES, ArtifactFilter, SessionFilter
+from sessions.filters import RANGE_CHOICES, SCOPE_CHOICES, STATUS_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
@@ -177,6 +177,8 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context = super().get_context_data(**kwargs)
         form = context["filter"].form
         cleaned = form.cleaned_data if form.is_valid() else {}
+        # The filterset always fills scope (explicit, or defaulted from the deep-link params).
+        context["current_scope"] = form.data["scope"]
         context["current_status"] = cleaned.get("status") or ""
         context["current_trigger"] = cleaned.get("trigger") or ""
         context["current_trigger_label"] = dict(SessionOrigin.choices).get(context["current_trigger"], "")
@@ -206,6 +208,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         ])
         context["origins"] = SessionOrigin.choices
         context["statuses"] = STATUS_CHOICES
+        context["scopes"] = SCOPE_CHOICES
         context["ranges"] = RANGE_CHOICES
 
         # The page rows are already scoped to this user and the schedule, so they name the chip.

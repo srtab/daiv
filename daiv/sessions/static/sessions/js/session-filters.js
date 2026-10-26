@@ -6,6 +6,10 @@
  * only #session-results via the shared swapResults().
  */
 
+// Mirrors sessions.filters.default_scope: a deep link with no explicit scope shows everyone's sessions.
+const SCOPES = ["mine", "all"];
+const DEEP_LINK_PARAMS = ["repo", "mr", "schedule", "batch"];
+
 const { swapResults } = window.createResultsSwap("session-results", {
     errorMessage: "Couldn't update the session list — check your connection and try again.",
     onUrlChanged: () => window.dispatchEvent(new CustomEvent("sessions:url-changed")),
@@ -14,6 +18,7 @@ const { swapResults } = window.createResultsSwap("session-results", {
 document.addEventListener("alpine:init", () => {
     Alpine.data("filterBar", () => ({
         open: null, // id of the open dropdown, or null
+        scope: "mine",
         q: "",
         status: "",
         trigger: "",
@@ -33,6 +38,9 @@ document.addEventListener("alpine:init", () => {
 
         _readUrl() {
             const p = new URLSearchParams(window.location.search);
+            const scope = p.get("scope");
+            const deepLink = DEEP_LINK_PARAMS.some((key) => p.get(key));
+            this.scope = SCOPES.includes(scope) ? scope : deepLink ? "all" : "mine";
             this.q = p.get("q") || "";
             this.status = p.get("status") || "";
             this.trigger = p.get("trigger") || "";
@@ -60,6 +68,8 @@ document.addEventListener("alpine:init", () => {
             const set = (k, v) => {
                 if (v) params.set(k, v);
             };
+            // Always explicit: clearing a deep-link chip must not silently flip "all" back to "mine".
+            set("scope", this.scope);
             set("q", this.q);
             set("status", this.status);
             set("trigger", this.trigger);
@@ -79,6 +89,10 @@ document.addEventListener("alpine:init", () => {
             this.open = this.open === id ? null : id;
         },
 
+        setScope(value) {
+            this.scope = value;
+            this._apply();
+        },
         setStatus(value) {
             this.status = value;
             this._apply();

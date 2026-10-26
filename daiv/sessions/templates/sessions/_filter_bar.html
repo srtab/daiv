@@ -2,6 +2,16 @@
 <div class="animate-fade-up relative z-10 mt-8 flex flex-col gap-3" style="animation-delay: 50ms"
      x-data="filterBar()">
     <div class="flex flex-wrap items-center gap-3">
+        <div class="filter-seg" role="group" aria-label="{% translate 'Whose sessions' %}">
+            {% for value, label in scopes %}
+            <a href="{% querystring scope=value page=None %}"
+               class="filter-seg-item {% if current_scope == value %}filter-seg-item--active{% endif %}"
+               @click.prevent="setScope('{{ value }}')" :class="{ 'filter-seg-item--active': scope === '{{ value }}' }"
+               :aria-current="scope === '{{ value }}' ? 'true' : null"
+               {% if current_scope == value %}aria-current="true"{% endif %}>{{ label }}</a>
+            {% endfor %}
+        </div>
+
         {# Search (title or repo) — replaces the repo picker #}
         <div class="relative min-w-[240px] flex-1">
             <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
@@ -127,7 +137,7 @@
                class="filter-chip__x" aria-label="{% translate 'Clear batch filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
-        <a href="{% url 'session_list' %}" @click.prevent="clearAll()"
+        <a href="{% url 'session_list' %}?scope={{ current_scope }}" @click.prevent="clearAll()"
            class="filter-clear" x-show="hasActiveFilters">{% translate "Clear all" %}</a>
     </div>
 </div>

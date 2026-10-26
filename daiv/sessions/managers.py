@@ -39,6 +39,14 @@ class SessionQuerySet(models.QuerySet["Session"]):
             | models.Exists(run_match)
         )
 
+    def owned_by(self, user: User) -> models.QuerySet[Session]:
+        """Sessions the user owns, admins included: the session list's "Mine" scope.
+
+        Unlike :meth:`by_owner` this is a view filter, not a visibility boundary, so an admin's
+        "Mine" is their own sessions rather than everything they may see.
+        """
+        return self.filter(self._owner_q(user)).distinct()
+
     def by_owner(self, user: User) -> models.QuerySet[Session]:
         """Sessions the user owns (ownership only).
 
@@ -49,7 +57,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         """
         if user.is_admin:
             return self.all()
-        return self.filter(self._owner_q(user)).distinct()
+        return self.owned_by(user)
 
     def visible_to(self, user: User) -> models.QuerySet[Session]:
         """Sessions the user may view: ownership OR a repository they can currently read.

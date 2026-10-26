@@ -31,12 +31,26 @@ STATUS_CHOICES: list[tuple[str, str]] = [
     )
 ]
 
+SCOPE_MINE = "mine"
+SCOPE_ALL = "all"
+SCOPE_CHOICES: list[tuple[str, str]] = [(SCOPE_MINE, _("Mine")), (SCOPE_ALL, _("Everyone"))]
+
+# A link that names what it points at must show all of it, teammates' sessions included.
+DEEP_LINK_PARAMS = ("repo", "mr", "schedule", "batch")
+
+
+def default_scope(data) -> str:
+    """The scope a URL without a valid ``scope`` gets: ``all`` for a deep link, else ``mine``."""
+    return SCOPE_ALL if any(data.get(param) for param in DEEP_LINK_PARAMS) else SCOPE_MINE
+
+
 # Rolling-window size per range token; "today" is special-cased to local calendar midnight.
 _RANGE_WINDOWS: dict[str, timedelta] = {"2d": timedelta(days=2), "7d": timedelta(days=7), "30d": timedelta(days=30)}
 
 
 class SessionFilter(django_filters.FilterSet):
     # Param names match the old activity deep links (?trigger=, ?status=, ...).
+    scope = django_filters.ChoiceFilter(choices=SCOPE_CHOICES, method="filter_scope")
     q = django_filters.CharFilter(method="filter_q")
     status = django_filters.ChoiceFilter(choices=STATUS_CHOICES, method="filter_status")
     trigger = django_filters.ChoiceFilter(field_name="origin", choices=SessionOrigin.choices)
@@ -53,6 +67,18 @@ class SessionFilter(django_filters.FilterSet):
         model = Session
         # All filters are declared above; disable auto-generation from model fields.
         fields: list[str] = []
+
+    def __init__(self, data=None, *args, **kwargs):
+        data = data.copy() if data is not None else {}
+        if data.get("scope") not in dict(SCOPE_CHOICES):
+            data["scope"] = default_scope(data)
+        super().__init__(data, *args, **kwargs)
+
+    def filter_scope(self, queryset, name, value):
+        user = getattr(self.request, "user", None)
+        if value != SCOPE_MINE or user is None or not user.is_authenticated:
+            return queryset
+        return queryset.owned_by(user)
 
     def filter_q(self, queryset, name, value):
         return queryset.filter(Q(title__icontains=value) | Q(repo_id__icontains=value))

@@ -97,6 +97,34 @@ class TestSessionListView:
         assert mine.pk in session_pks
         assert theirs.pk not in session_pks
 
+    def test_a_plain_visit_shows_only_the_users_own_sessions(self, admin_client, admin_user):
+        client = admin_client
+        mine = _create_session(user=admin_user)
+        theirs = _create_session(user=User.objects.create_user(username="bob", email="b@test.com", password="x"))  # noqa: S106
+
+        response = client.get(reverse("session_list"))
+
+        assert [s.pk for s in response.context["sessions"]] == [mine.pk]
+        assert response.context["current_scope"] == "mine"
+        assert response.context["has_active_filters"] is False
+        response = client.get(reverse("session_list"), {"scope": "all"})
+        assert {s.pk for s in response.context["sessions"]} == {mine.pk, theirs.pk}
+
+    def test_a_deep_link_defaults_to_all_and_clear_all_keeps_it(self, admin_client):
+        client = admin_client
+        theirs = _create_session(user=User.objects.create_user(username="bob", email="b@test.com", password="x"))  # noqa: S106
+
+        response = client.get(reverse("session_list"), {"repo": "group/project"})
+
+        assert [s.pk for s in response.context["sessions"]] == [theirs.pk]
+        assert response.context["current_scope"] == "all"
+        assert f'href="{reverse("session_list")}?scope=all"' in response.content.decode()
+
+    def test_filter_bar_renders_the_scope_toggle(self, logged_in_client, user):
+        html = logged_in_client.get(reverse("session_list")).content.decode()
+        assert "setScope('mine')" in html
+        assert "setScope('all')" in html
+
     def test_hides_ci_watch_placeholder_until_a_run_lands(self, logged_in_client, user):
         placeholder = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=7)
         fixed = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=8)
