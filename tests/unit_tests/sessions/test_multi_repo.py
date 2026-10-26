@@ -167,6 +167,20 @@ async def test_access_checked_for_every_repo(member_user, enqueue):
     assert await Run.objects.acount() == 0
 
 
+async def test_continuation_rechecks_access_on_every_stored_repo(member_user, enqueue):
+    thread_id = await _new_session(member_user)
+    await Run.objects.filter(session_id=thread_id).aupdate(status=RunStatus.SUCCESSFUL)
+
+    with (
+        patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["g/lib"])) as check,
+        pytest.raises(RepoAccessError),
+    ):
+        await _submit(member_user, [RepoTarget("g/app")], thread_id=thread_id)
+
+    assert list(check.call_args.args[1]) == ["g/app", "g/mod", "g/lib"]
+    assert await Run.objects.filter(session_id=thread_id).acount() == 1
+
+
 async def test_enqueue_failure_is_reported_as_failed(member_user):
     with patch("sessions.queue.run_job_task") as task:
         task.aenqueue = AsyncMock(side_effect=RuntimeError("down"))
