@@ -25,15 +25,16 @@ ______________________________________________________________________
 
 Each session is tagged with the origin that created it:
 
-| Origin            | Source                                                                                            | Example                                        |
-| ----------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| **Chat**          | Dashboard session workspace                                                                       | You type a prompt and stream a reply           |
-| **API Run**       | [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) `POST /api/jobs`          | A CI pipeline or script submits a prompt       |
-| **MCP Run**       | [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) `submit_job` tool | Claude Code or Cursor delegates a task         |
-| **Scheduled Run** | [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) cron dispatch | A weekly dependency audit fires on Monday      |
-| **UI Run**        | Dashboard run composer (see below)                                                                | You start a run from **Dashboard > Sessions**  |
-| **Issue Webhook** | GitLab/GitHub issue event                                                                         | An issue is labelled `daiv`                    |
-| **MR/PR Webhook** | GitLab/GitHub merge request event                                                                 | A reviewer mentions `@daiv` on a merge request |
+| Origin            | Source                                                                                                                   | Example                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| **Chat**          | Dashboard session workspace                                                                                              | You type a prompt and stream a reply               |
+| **API Run**       | [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) `POST /api/jobs`                                 | A CI pipeline or script submits a prompt           |
+| **MCP Run**       | [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) `submit_job` tool                        | Claude Code or Cursor delegates a task             |
+| **Scheduled Run** | [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) cron dispatch                        | A weekly dependency audit fires on Monday          |
+| **UI Run**        | Dashboard run composer (see below)                                                                                       | You start a run from **Dashboard > Sessions**      |
+| **Issue Webhook** | GitLab/GitHub issue event                                                                                                | An issue is labelled `daiv`                        |
+| **MR/PR Webhook** | GitLab/GitHub merge request event                                                                                        | A reviewer mentions `@daiv` on a merge request     |
+| **Delegated Run** | A coordinator's `delegate_jobs` call ([Orchestration](https://srtab.github.io/daiv/dev/features/orchestration/index.md)) | One repository's part of a multi-repository change |
 
 ______________________________________________________________________
 
@@ -58,7 +59,7 @@ Use the filter controls at the top of the list to narrow results:
 | Filter            | Description                                                                                                                                                                                  |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Status**        | Queued, Pending, Running, Successful, or Failed                                                                                                                                              |
-| **Origin type**   | Chat, API Run, MCP Run, Scheduled Run, UI Run, Issue Webhook, or MR/PR Webhook                                                                                                               |
+| **Origin type**   | Chat, API Run, MCP Run, Scheduled Run, UI Run, Issue Webhook, MR/PR Webhook, or Delegated Run                                                                                                |
 | **Repository**    | Search and select a specific repository                                                                                                                                                      |
 | **Date range**    | From / To date pickers                                                                                                                                                                       |
 | **Schedule**      | Pre-applied when navigating from a scheduled job's run count                                                                                                                                 |

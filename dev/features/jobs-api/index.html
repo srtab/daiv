@@ -905,6 +905,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../orchestration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../mcp-endpoint/" class="md-nav__link">
         
   
@@ -1847,13 +1875,13 @@
 <td><code>repos</code></td>
 <td>array of objects</td>
 <td>yes</td>
-<td>1–20 repositories to run against. Each item: <code>{ "repo_id": "group/project", "ref": "branch" }</code> — <code>ref</code> is optional, must be a branch that exists on the remote, and defaults to the repository's default branch. A new MR/PR targets it, and is assigned to the API key's owner when their DAIV account is OAuth-linked to the git platform.</td>
+<td>1–20 repositories to run against. Each item: <code>{ "repo_id": "group/project", "ref": "branch", "prompt": "..." }</code> — <code>ref</code> is optional, must be a branch that exists on the remote, and defaults to the repository's default branch; <code>prompt</code> is optional, must not be blank, and replaces the batch <code>prompt</code> for that repository only. A new MR/PR targets it, and is assigned to the API key's owner when their DAIV account is OAuth-linked to the git platform.</td>
 </tr>
 <tr>
 <td><code>prompt</code></td>
 <td>string</td>
 <td>yes</td>
-<td>The prompt to send to the agent. The same prompt runs as an independent job against each repository in <code>repos</code>.</td>
+<td>The prompt to send to the agent. It runs as an independent job against each repository in <code>repos</code>, except one that gives its own <code>prompt</code>, and it titles the batch.</td>
 </tr>
 <tr>
 <td><code>agent_model</code></td>
