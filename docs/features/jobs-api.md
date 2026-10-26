@@ -75,6 +75,7 @@ POST /api/jobs
 | `agent_thinking_level` | string           | no       | Override the agent's reasoning effort. One of `minimal`, `low`, `medium`, `high`, `xhigh`. Invalid combinations are rejected with `400`. |
 | `muted`                | boolean          | no       | Mute notifications for every job in this batch. Default false. |
 | `environment`          | string           | no       | Select a sandbox environment (by name or id) applied to every job in the batch. An unresolvable environment is rejected with `400`. |
+| `shared_session`       | boolean          | no       | Run all repositories in `repos` in **one** session instead of one job each. See [Multi-repository sessions](#multi-repository-sessions). |
 | `thread_id`            | string (UUID)    | no       | Continue an existing thread. Requires exactly one repo in `repos`, and the most recent run on that thread must belong to you (otherwise `400`). If a prior run on the thread is still in flight, the new job is created in `QUEUED` state and released FIFO when that run finishes. |
 | `references`           | array of objects | no       | Up to 20 external work-item references (Jira/Sentry/RT tickets, git-platform issues, …) that DAIV links into the MR/PR it creates. Each item: `{ "key": "PROJ-123", "url": "https://…", "provider": "jira", "relation": "relates" }` — only `key` is required. |
 
@@ -149,7 +150,7 @@ GET /api/jobs/{job_id}
 }
 ```
 
-`merge_request_url` is populated when the agent produced code changes that were committed and pushed; `null` otherwise (e.g. read-only triage runs). `thread_id` identifies the thread this job ran on — pass it back as the `thread_id` field on a new submission to continue the conversation.
+`merge_request_url` is populated when the agent produced code changes that were committed and pushed; `null` otherwise (e.g. read-only triage runs). In a [multi-repository session](#multi-repository-sessions) it is the main repository's merge request, else the first one opened. `thread_id` identifies the thread this job ran on — pass it back as the `thread_id` field on a new submission to continue the conversation.
 
 `artifacts` lists the files the agent published with its `publish_artifact` tool (reports, datasets, charts) — see [Artifacts](sessions.md#artifacts). Each entry carries the viewer page (`url`), a direct download (`download_url`), and a `kind` (`markdown`, `html`, `image`, `text`, or `other`) describing how the viewer renders it. Both `url` and `download_url` require a signed-in DAIV user who can see the run. An artifact that a later job on the same thread revises keeps its id and URLs, and is listed under both the job that first published it and every job that revised it, with its current file ([Revising an artifact](sessions.md#revising-an-artifact)). The list is empty for runs that published nothing, and it is populated as the run progresses, so it can be read while the job is still `RUNNING`. If DAIV cannot list the artifacts, `artifacts` is empty and `artifacts_error` explains why; the rest of the status is unaffected.
 
@@ -201,6 +202,52 @@ For `POST /api/jobs`:
 | `422` | Malformed body or unknown fields (e.g. the removed `use_max` or `notify_on`). |
 | `429` | Rate limit exceeded (see [Rate limiting](#rate-limiting)). |
 | `401` | Missing or invalid API key |
+
+## Multi-repository sessions
+
+By default, several entries in `repos` fan out into independent jobs, one session per repository. To let the agent work across repositories in a single conversation (for example a backend change and the client that consumes it), set `shared_session: true`:
+
+```json
+{
+  "repos": [
+    {"repo_id": "mygroup/backend"},
+    {"repo_id": "mygroup/client", "ref": "develop"}
+  ],
+  "shared_session": true,
+  "prompt": "Add a `locale` field to the profile endpoint and use it in the client."
+}
+```
+
+- `repos` takes 2 to 5 entries. The batch limit of 20 applies only without `shared_session`.
+- The response holds **one** job and one `thread_id`; the job's `repo_id` is the first entry, the **main repository**.
+- You need write access to every repository. If any is missing or unknown, the call fails with the usual opaque `404`.
+- The main repository's `.daiv.yml`, model, sandbox environment, skills, subagents and memory drive the session. It is checked out at `/workspace/repo`; the others at `/workspace/repos/<repository path>`. The agent is told about them and reads their `AGENTS.md`.
+
+### Merge requests
+
+At the end of each turn every repository that changed gets its own commit, branch and merge request; unchanged repositories get nothing. One repository failing to publish does not stop the others. Each merge request's description links to the session's other merge requests. External references (such as a support ticket) go into every merge request; GitLab or GitHub issue references go only into the main repository's.
+
+The job status adds two lists:
+
+| Field | Meaning |
+|-------|---------|
+| `merge_requests` | `[{"repo_id": "...", "url": "..."}]`, one per opened or updated merge request. |
+| `publish_errors` | `[{"repo_id": "...", "error": "..."}]`, one per repository that could not be published. |
+
+`merge_request_url` is kept: the main repository's merge request, else the first one opened.
+
+### Continuing a multi-repository session
+
+Pass the session's `thread_id`. `shared_session` is optional; send the main repository alone, or the identical list in the same order, and no `ref`s. Anything else returns `400`. Each repository continues on its stored working branch; if that branch is gone (its merge request was merged), the repository falls back to its default branch and opens a new merge request the next time it changes.
+
+### Visibility and CI
+
+A multi-repository session (runs, transcript, artifacts and merge request links) is visible only to its owner, admins, and users who can read every repository in it.
+
+Each merge request gets its own [CI watch](pipeline-watch.md). A CI-fix run happens in that merge request's own single-repository thread, with that repository's sandbox environment, and an `@daiv` comment on any of the merge requests goes to that merge request's own thread. In the dashboard, a multi-repository session continued in chat keeps all its repositories, its main repository cannot be switched, and the session page lists every repository and merge request.
+
+!!! warning "Requires a recent daiv-sandbox"
+    Multi-repository runs need a daiv-sandbox release with path-scoped egress rules and repository seeding. With an older sandbox the run fails before any command runs, with a clear error. Deploy the sandbox release first; single-repository runs are unaffected.
 
 ## Job lifecycle
 

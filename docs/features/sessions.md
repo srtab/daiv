@@ -16,6 +16,8 @@ A **Session** groups all runs that share the same agent thread:
 - **Session** — the thread. Has a repository, ref, origin (how it was first triggered), title, and an optional link to an issue or merge request, schedule, or user.
 - **Run** — one agent execution inside that session. A session can have many runs: retries, follow-up chat turns, and FIFO-queued API submissions all add new runs to the same session.
 
+A session can also span several repositories: a [Jobs API](jobs-api.md#multi-repository-sessions) or MCP request with `shared_session` opens one session over up to five repositories, with the first as the main one. The agent edits them together, each changed repository gets its own merge request, and the session page lists every repository and merge request. Only users who can read all of them (and admins) can see it.
+
 A chat conversation is a session where the origin is `Chat`; each turn you send creates a new Run. A webhook event (issue or MR) creates a session tied to the issue or merge request; the single agent invocation is its first Run.
 
 ---
