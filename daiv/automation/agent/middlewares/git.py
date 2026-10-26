@@ -21,7 +21,7 @@ from codebase.base import MergeRequest, Scope
 from codebase.clients.base import aget_open_merge_request
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from langgraph.runtime import Runtime
 
@@ -148,6 +148,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         workspace: The run's workspace; its git backs the pre-run check and patch capture, and the publisher uses it.
         settings: The run's resolved agent settings.
         session_links: What builds the links the publisher puts in the commit and the merge request; ``None`` for none.
+        redact: Values masked in the output of the before_publish checks it runs again before publishing.
 
     Example:
         ```python
@@ -176,6 +177,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         auto_commit_changes: bool = True,
         capture_patch: bool = False,
         session_links: SessionLinksResolver | None = None,
+        redact: Sequence[str] = (),
     ) -> None:
         """
         Initialize the middleware.
@@ -186,6 +188,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         self._workspace = workspace
         self._settings = settings
         self._session_links = session_links
+        self._redact = redact
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -413,7 +416,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         verification = state.get("verification")
         if verification is not None and self._workspace.bash is not None:
             try:
-                verification = await recheck_if_stale(self._workspace.bash, self._workspace.git, verification)
+                verification = await recheck_if_stale(
+                    self._workspace.bash, self._workspace.git, verification, redact=self._redact
+                )
             except (GitCommandError, httpx.HTTPError, SandboxGitProtocolError) as exc:
                 logger.exception("Re-checking the tree before publishing failed; publishing it as not verified")
                 verification = VerificationOutcome(

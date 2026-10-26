@@ -57,6 +57,7 @@ from automation.agent.subagents import (
     load_builtin_code_review_detectors,
     load_custom_subagents,
 )
+from automation.agent.verification.checks import redacted_values
 from codebase.base import GitPlatform
 from core.constants import BOT_NAME
 
@@ -262,6 +263,7 @@ async def create_daiv_agent(
     # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
     # and discard work — the failure mode StepBudget guards against.
     loop_breaker = LoopBreakerMiddleware(terminal="finalize")
+    redact = redacted_values(ctx.sandbox.env_vars) if ctx.sandbox else ()
     verification: list[AgentMiddleware[Any, Any, Any]] = []
     if settings.features.verification and auto_commit_changes and bash_tool_enabled:
         before_publish = resolve_before_publish(
@@ -269,7 +271,11 @@ async def create_daiv_agent(
         )
         verification.append(
             VerificationMiddleware(
-                workspace=workspace, commands=before_publish, step_budget=step_budget, loop_breaker=loop_breaker
+                workspace=workspace,
+                commands=before_publish,
+                step_budget=step_budget,
+                loop_breaker=loop_breaker,
+                redact=redact,
             )
         )
 
@@ -321,6 +327,7 @@ async def create_daiv_agent(
             auto_commit_changes=auto_commit_changes,
             capture_patch=capture_patch,
             session_links=session_links,
+            redact=redact,
         ),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,

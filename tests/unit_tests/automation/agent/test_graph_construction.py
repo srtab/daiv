@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sandbox_envs.spec import SandboxSpec
 
 from automation.agent import graph as graph_module
 from automation.agent import subagents as subagents_module
@@ -173,12 +174,14 @@ async def _construct(
     memory: bool = True,
     bash: bool = False,
     auto_commit_changes: bool = False,
+    sandbox: SandboxSpec | None = None,
 ):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
     ``site`` overrides site values, ``run`` is what the run asks for (``RunOverrides`` fields), and ``slash_commands``
     and ``memory`` are the repo's switches. The builder gets them resolved, as the executor hands them over. ``bash``
-    gives the workspace a shell, and the repo declares ``make test`` as its ``before_publish`` check.
+    gives the workspace a shell, the repo declares ``make test`` as its ``before_publish`` check, and ``sandbox`` is the
+    run's sandbox spec.
     """
     settings = agent_settings(
         site=site_snapshot(**(_SITE | (site or {}))),
@@ -205,7 +208,7 @@ async def _construct(
         explore_models = stack.enter_context(patch("automation.agent.subagents.get_model"))
         stack.enter_context(patch("automation.agent.subagents.create_agent"))
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
-        ctx = MagicMock(sandbox=None)
+        ctx = MagicMock(sandbox=sandbox)
         ctx.config.context_file_name = "AGENTS.md"
         ctx.config.hooks.before_publish = ("make test",)
         await create_daiv_agent(
@@ -357,3 +360,15 @@ async def test_verification_middleware_absent_without_auto_commit():
     built = await _construct(bash=True, auto_commit_changes=False)
 
     assert _verification(built.middleware) == []
+
+
+async def test_check_output_masks_the_sandbox_env_values_in_both_producers():
+    sandbox = SandboxSpec(
+        base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={"TOKEN": "abcd1234efgh", "DEBUG": "1"}
+    )
+
+    built = await _construct(bash=True, auto_commit_changes=True, sandbox=sandbox)
+
+    [verification] = _verification(built.middleware)
+    assert verification._redact == ("abcd1234efgh",)
+    assert built.git_middleware.call_args.kwargs["redact"] == ("abcd1234efgh",)

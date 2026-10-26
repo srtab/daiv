@@ -9,6 +9,7 @@ from automation.agent.verification.checks import (
     ChecksUnavailableError,
     diff_fingerprint,
     failing_before_change,
+    redacted_values,
     run_checks,
     tree_fingerprint,
 )
@@ -98,6 +99,20 @@ async def test_run_checks_keeps_declared_command_and_output_tail(fake_bash):
     fake_bash.results = [RunCommandResult(command="cd /workspace/repo && make test", output="x" * 5_000, exit_code=1)]
     [result] = await run_checks(fake_bash, ["make test"])
     assert result.command == "make test" and len(result.output_tail) == 4_000 and not result.passed
+
+
+async def test_run_checks_masks_the_values_before_taking_the_tail(fake_bash):
+    output = "token=hunter2-secret-0042 " + "y" * 3_990
+    fake_bash.results = [RunCommandResult(command="cd /workspace/repo && make test", output=output, exit_code=1)]
+
+    [result] = await run_checks(fake_bash, ["make test"], redact=("hunter2-secret-0042",))
+
+    assert result.output_tail.startswith("en=******")
+    assert "0042" not in result.output_tail
+
+
+def test_redacted_values_keeps_values_of_eight_characters_or_more():
+    assert redacted_values({"SHORT": "abc1234", "TOKEN": "abcd1234", "EMPTY": ""}) == ("abcd1234",)
 
 
 def test_check_result_timed_out_on_exit_124():

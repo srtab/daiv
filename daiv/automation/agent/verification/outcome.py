@@ -141,9 +141,10 @@ def failure_reminder(failures: Sequence[CheckResult], changed_paths: Sequence[st
 
 
 async def recheck_if_stale(
-    bash: SandboxFileBackend, git: GitManager, outcome: VerificationOutcome
+    bash: SandboxFileBackend, git: GitManager, outcome: VerificationOutcome, *, redact: Sequence[str] = ()
 ) -> VerificationOutcome:
-    """Re-run a passed or failed outcome's commands once when the tree changed after its checks ran."""
+    """Re-run a passed or failed outcome's commands once when the tree changed after its checks ran, masking every
+    ``redact`` value in their output."""
     if outcome["status"] not in ("passed", "failed"):
         return outcome
     before = await git.get_diff()
@@ -153,7 +154,7 @@ async def recheck_if_stale(
     commands = [command["command"] for command in outcome["commands"]]
     changed = await git.get_changed_files()
     try:
-        results = await run_checks(bash, commands)
+        results = await run_checks(bash, commands, redact=redact)
     except ChecksUnavailableError as exc:
         return VerificationOutcome(
             status="not_verified",

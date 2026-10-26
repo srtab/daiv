@@ -312,9 +312,9 @@ class TestGitMiddleware:
             "fingerprint": fingerprint,
         }
 
-    async def _publish_with(self, verification, *, created=False, workspace=None):
+    async def _publish_with(self, verification, *, created=False, workspace=None, redact=()):
         workspace = workspace or FakeWorkspace()
-        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=workspace)
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=workspace, redact=redact)
         runtime = _make_runtime(scope=Scope.GLOBAL)
         state = {"merge_request": None}
         if verification is not None:
@@ -370,6 +370,26 @@ class TestGitMiddleware:
         bash.run_commands.assert_awaited_once()
         assert kwargs["as_draft"] is True
         assert result["verification"]["status"] == "failed"
+
+    async def test_after_agent_masks_the_values_in_the_rechecked_output(self):
+        git = Mock()
+        git.get_diff = AsyncMock(return_value="diff --git a/a.py b/a.py\n+x\n")
+        git.get_changed_files = AsyncMock(return_value=["a.py"])
+        bash = Mock()
+        bash.run_commands = AsyncMock(
+            return_value=RunCommandsResponse(
+                results=[RunCommandResult(command="make test", output="auth failed: tok-0123456789", exit_code=1)]
+            )
+        )
+
+        kwargs, result = await self._publish_with(
+            self._verification("passed", fingerprint="stale"),
+            workspace=FakeWorkspace(git=git, bash=bash),
+            redact=("tok-0123456789",),
+        )
+
+        assert result["verification"]["commands"][0]["output_tail"] == "auth failed: ******"
+        assert "tok-0123456789" not in kwargs["verification_report"]
 
     async def test_after_agent_publishes_as_not_verified_when_the_recheck_fails(self):
         git = Mock()

@@ -12,7 +12,7 @@ from automation.agent.constants import REPO_PATH
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
@@ -23,6 +23,9 @@ OUTPUT_TAIL_CHARS = 4_000
 TIMEOUT_EXIT_CODE = 124
 # Past the sandbox's own limit, so a check that runs out of time comes back as exit 124, not as a client timeout.
 _RESPONSE_GRACE_SECONDS = 60
+_REDACTED = "******"
+# Shorter values (``true``, ``8000``, ``python``) would mask ordinary words all over the output.
+_MIN_REDACTED_LENGTH = 8
 
 _DIFF_HEADER = re.compile(r"^diff --git ", re.MULTILINE)
 
@@ -46,13 +49,26 @@ class ChecksUnavailableError(Exception):
     """The checks could not be run; ``str(exc)`` is the reason shown to people."""
 
 
-async def run_checks(bash: SandboxFileBackend, commands: Sequence[str]) -> list[CheckResult]:
+def redacted_values(env_vars: Mapping[str, str]) -> tuple[str, ...]:
+    """The values of the sandbox's env vars, which may be secrets, that check output must not show."""
+    return tuple(value for value in env_vars.values() if len(value) >= _MIN_REDACTED_LENGTH)
+
+
+def _redact(text: str, values: Sequence[str]) -> str:
+    for value in sorted(values, key=len, reverse=True):
+        text = text.replace(value, _REDACTED)
+    return text
+
+
+async def run_checks(
+    bash: SandboxFileBackend, commands: Sequence[str], *, redact: Sequence[str] = ()
+) -> list[CheckResult]:
     """Run every command from the repo root, each in a request of its own so one that fails or times out never stops
-    the others, and return one result per command."""
-    return [await _run_check(bash, command) for command in commands]
+    the others, and return one result per command, every ``redact`` value in its output masked."""
+    return [await _run_check(bash, command, redact) for command in commands]
 
 
-async def _run_check(bash: SandboxFileBackend, command: str) -> CheckResult:
+async def _run_check(bash: SandboxFileBackend, command: str, redact: Sequence[str]) -> CheckResult:
     try:
         response = await bash.run_commands(
             [f"cd {REPO_PATH} && {command}"],
@@ -65,7 +81,8 @@ async def _run_check(bash: SandboxFileBackend, command: str) -> CheckResult:
     if not response.results:
         raise ChecksUnavailableError("the sandbox returned no result for a check")
     result = response.results[0]
-    return CheckResult(command=command, exit_code=result.exit_code, output_tail=result.output[-OUTPUT_TAIL_CHARS:])
+    output = _redact(result.output, redact)
+    return CheckResult(command=command, exit_code=result.exit_code, output_tail=output[-OUTPUT_TAIL_CHARS:])
 
 
 async def failing_before_change(bash: SandboxFileBackend, git: GitManager, commands: Sequence[str]) -> frozenset[str]:

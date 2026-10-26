@@ -128,6 +128,7 @@ class VerificationMiddleware(AgentMiddleware):
         commands: The ``before_publish`` commands; empty when the repository declares none.
         step_budget: The run's step budget, asked whether a fix round still fits.
         loop_breaker: The run's loop breaker, whose terminal stop must not be reopened.
+        redact: Values masked in the checks' output before the agent or the outcome sees it.
     """
 
     state_schema = VerificationState
@@ -139,6 +140,7 @@ class VerificationMiddleware(AgentMiddleware):
         commands: tuple[str, ...],
         step_budget: StepBudgetMiddleware,
         loop_breaker: LoopBreakerMiddleware,
+        redact: Sequence[str] = (),
     ) -> None:
         super().__init__()
         if workspace.bash is None:
@@ -148,6 +150,7 @@ class VerificationMiddleware(AgentMiddleware):
         self._commands = commands
         self._step_budget = step_budget
         self._loop_breaker = loop_breaker
+        self._redact = redact
         self._reset()
 
     def _reset(self) -> None:
@@ -249,7 +252,7 @@ class VerificationMiddleware(AgentMiddleware):
 
     async def _run_checks(self, before: str, changed: list[str]) -> _CheckRun:
         git = self._workspace.git
-        results = await run_checks(self._bash, self._commands)
+        results = await run_checks(self._bash, self._commands, redact=self._redact)
         after = await git.get_diff()
         changed_by_checks = changed_between(before, after)
         if changed_by_checks:

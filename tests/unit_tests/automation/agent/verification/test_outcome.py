@@ -206,9 +206,10 @@ def test_failure_reminder_lists_changed_paths_and_rounds_left():
 class _Bash:
     """``exit_codes`` are handed out one per command, in order."""
 
-    def __init__(self, exit_codes=(0,), error=None):
+    def __init__(self, exit_codes=(0,), error=None, output="out"):
         self.exit_codes = list(exit_codes)
         self.error = error
+        self.output = output
         self.calls = 0
 
     async def run_commands(self, commands, *, fail_fast, timeout=None, http_timeout=None):
@@ -216,7 +217,9 @@ class _Bash:
         if self.error:
             raise self.error
         return RunCommandsResponse(
-            results=[RunCommandResult(command=c, output="out", exit_code=self.exit_codes.pop(0)) for c in commands]
+            results=[
+                RunCommandResult(command=c, output=self.output, exit_code=self.exit_codes.pop(0)) for c in commands
+            ]
         )
 
 
@@ -293,3 +296,11 @@ async def test_recheck_if_stale_is_not_verified_when_the_checks_cannot_run():
     assert "could not be reached" in updated["reason"]
     assert updated["commands"] == []
     assert updated["rounds"] == 1
+
+
+async def test_recheck_if_stale_masks_the_values_in_the_output():
+    bash = _Bash([1], output="login failed for s3cr3t-password")
+
+    updated = await recheck_if_stale(bash, _Git("new"), _stale(), redact=("s3cr3t-password",))
+
+    assert updated["commands"][0]["output_tail"] == "login failed for ******"
