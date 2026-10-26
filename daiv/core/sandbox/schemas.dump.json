@@ -61,6 +61,19 @@
             },
             "title": "Methods",
             "type": "array"
+          },
+          "path_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Request path prefix this rule is limited to, matched on whole path segments (e.g. '/group/app.git'); None matches every path.",
+            "title": "Path Prefix"
           }
         },
         "required": [
@@ -136,6 +149,19 @@
             },
             "title": "Methods",
             "type": "array"
+          },
+          "path_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Request path prefix this rule is limited to, matched on whole path segments (e.g. '/group/app.git'); None matches every path.",
+            "title": "Path Prefix"
           }
         },
         "required": [
@@ -204,6 +230,19 @@
         },
         "title": "Methods",
         "type": "array"
+      },
+      "path_prefix": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Request path prefix this rule is limited to, matched on whole path segments (e.g. '/group/app.git'); None matches every path.",
+        "title": "Path Prefix"
       }
     },
     "required": [
@@ -1254,6 +1293,19 @@
             },
             "title": "Methods",
             "type": "array"
+          },
+          "path_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Request path prefix this rule is limited to, matched on whole path segments (e.g. '/group/app.git'); None matches every path.",
+            "title": "Path Prefix"
           }
         },
         "required": [

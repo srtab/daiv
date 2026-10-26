@@ -26,7 +26,7 @@ from codebase.clients.base import GitEgressCredential
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
-from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
+from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, PlatformCredential, with_platform_credentials
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
 from tests.unit_tests.automation.agent.conftest import make_merge_request
 from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, agent_settings, site_snapshot
@@ -36,6 +36,10 @@ if TYPE_CHECKING:
 
 # The fake ``"diff"`` body has no hunks, so counting it yields zeros.
 _LOCAL_STATS = MergeRequestDiffStats()
+
+
+def _platform(credential):
+    return PlatformCredential(host=credential.host, header=credential.header, token=credential.value)
 
 
 def _fake_git_manager(
@@ -143,7 +147,7 @@ def _turn_start_egress(
 ) -> EgressConfigRequest:
     """The turn-start egress: the git-host rule layered on ``env``, credentialed when ``token`` is set."""
     credential = _platform_credential(token)
-    return with_platform_credential(env, host=credential.host, header=credential.header, token=credential.value)
+    return with_platform_credentials(env, [_platform(credential)])
 
 
 class TestSuggestContextFile:

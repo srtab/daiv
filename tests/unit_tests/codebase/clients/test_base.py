@@ -7,7 +7,8 @@ from github import GithubException
 from gitlab.exceptions import GitlabError
 from pydantic import SecretStr
 
-from codebase.clients.base import GitAuthEnv, RepoClient, aget_open_merge_request
+from codebase.base import GitPlatform, Repository
+from codebase.clients.base import GitAuthEnv, GitEgressCredential, RepoClient, aget_open_merge_request
 
 
 def test_git_auth_env_as_env_builds_host_scoped_extraheader_config():
@@ -80,3 +81,23 @@ async def test_aget_open_merge_request_propagates_bugs():
 
     with pytest.raises(KeyError):
         await aget_open_merge_request(client, "a/b", "feature-x")
+
+
+def test_git_egress_credential_carries_clone_url_path():
+    repository = Repository(
+        pk=1,
+        slug="g/sub/app",
+        name="app",
+        clone_url="https://gitlab.com/g/sub/app.git",
+        html_url="https://gitlab.com/g/sub/app",
+        default_branch="main",
+        git_platform=GitPlatform.GITLAB,
+    )
+    client = MagicMock(spec=RepoClient)
+    client._git_egress_token.return_value = "tok"
+
+    credential = RepoClient.get_git_egress_credential(client, repository)
+
+    assert credential.host == "gitlab.com"
+    assert credential.path == "/g/sub/app.git"
+    assert GitEgressCredential.for_token(host="h", token=None).path == ""

@@ -348,7 +348,12 @@ async def test_start_session_sends_egress_with_plaintext_secret(fake_settings, h
     egress = json.loads(body)["egress"]
     assert egress["secrets"]["tok"] == {"header": "PRIVATE-TOKEN", "value": "supersecret"}
     assert egress["policy"]["default"] == "deny"
-    assert egress["policy"]["rules"][0] == {"host": "gitlab.com", "methods": ["*"], "inject": "tok"}
+    assert egress["policy"]["rules"][0] == {
+        "host": "gitlab.com",
+        "methods": ["*"],
+        "inject": "tok",
+        "path_prefix": None,
+    }
 
 
 async def test_start_session_sends_policy_only_egress_with_empty_secrets(fake_settings, httpx_mock):

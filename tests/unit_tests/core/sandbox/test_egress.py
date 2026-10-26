@@ -1,7 +1,12 @@
 import pytest
 from pydantic import SecretStr
 
-from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
+from core.sandbox.egress import (
+    PLATFORM_EGRESS_SECRET_NAME,
+    PlatformCredential,
+    is_platform_secret_name,
+    with_platform_credentials,
+)
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
 
 HOST = "github.com"
@@ -13,7 +18,7 @@ def _token(value: str) -> SecretStr:
 
 
 def _apply(egress: EgressConfigRequest | None, token: SecretStr | None) -> EgressConfigRequest:
-    return with_platform_credential(egress, host=HOST, header=HEADER, token=token)
+    return with_platform_credentials(egress, [PlatformCredential(host=HOST, header=HEADER, token=token)])
 
 
 def _env_egress() -> EgressConfigRequest:
@@ -85,3 +90,46 @@ def test_an_environment_rule_for_the_git_host_stays_behind_the_platform_rule():
         EgressRule(host=HOST, methods=["*"], inject=PLATFORM_EGRESS_SECRET_NAME),
         EgressRule(host=HOST, methods=["GET"]),
     ]
+
+
+MAIN = PlatformCredential(host="gitlab.com", header="Authorization", token=SecretStr("M"), path="/g/app.git")
+MOD = PlatformCredential(host="gitlab.com", header="Authorization", token=SecretStr("S"), path="/g/mod.git")
+
+
+def test_main_credential_is_host_wide_and_siblings_are_path_scoped():
+    cfg = with_platform_credentials(None, [MAIN, MOD])
+
+    assert [(r.host, r.path_prefix, r.inject) for r in cfg.policy.rules] == [
+        ("gitlab.com", "/g/mod.git", f"{PLATFORM_EGRESS_SECRET_NAME}1"),
+        ("gitlab.com", None, PLATFORM_EGRESS_SECRET_NAME),
+    ]
+    assert cfg.secrets[f"{PLATFORM_EGRESS_SECRET_NAME}1"].value.get_secret_value() == "S"
+
+
+def test_reapplying_replaces_every_platform_rule_and_secret():
+    first = with_platform_credentials(None, [MAIN, MOD])
+
+    again = with_platform_credentials(first, [MAIN])
+
+    assert len(again.policy.rules) == 1
+    assert set(again.secrets) == {PLATFORM_EGRESS_SECRET_NAME}
+
+
+def test_environment_rules_are_kept_after_platform_rules():
+    env = EgressConfigRequest(policy=EgressPolicy(rules=[EgressRule(host="pypi.org")]))
+
+    result = with_platform_credentials(env, [MAIN, MOD])
+
+    assert [r.host for r in result.policy.rules] == ["gitlab.com", "gitlab.com", "pypi.org"]
+
+
+def test_tokenless_sibling_adds_no_rule():
+    bare = PlatformCredential(host="gitlab.com", header="Authorization", token=None, path="/g/mod.git")
+
+    assert len(with_platform_credentials(None, [MAIN, bare]).policy.rules) == 1
+
+
+def test_is_platform_secret_name():
+    assert is_platform_secret_name(PLATFORM_EGRESS_SECRET_NAME)
+    assert is_platform_secret_name(f"{PLATFORM_EGRESS_SECRET_NAME}3")
+    assert not is_platform_secret_name("my_token")

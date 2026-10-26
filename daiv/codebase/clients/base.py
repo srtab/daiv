@@ -101,12 +101,13 @@ class GitEgressCredential:
     host: str
     header: str = "Authorization"
     value: SecretStr | None = None
+    path: str = ""
 
     @classmethod
-    def for_token(cls, *, host: str, token: str | None) -> GitEgressCredential:
+    def for_token(cls, *, host: str, token: str | None, path: str = "") -> GitEgressCredential:
         """Build a credential injecting ``Authorization: Basic base64("oauth2:<token>")``.
-        ``value`` is ``None`` when ``token`` is falsy."""
-        return cls(host=host, value=SecretStr(_basic_oauth2(token)) if token else None)
+        ``value`` is ``None`` when ``token`` is falsy; ``path`` is the clone URL's path."""
+        return cls(host=host, value=SecretStr(_basic_oauth2(token)) if token else None, path=path)
 
 
 @dataclass(frozen=True)
@@ -274,10 +275,12 @@ class RepoClient(abc.ABC):
         The shared shape lives here — derive the host from the clone URL, then build a
         ``Basic oauth2:<token>`` credential. Platforms supply only the token via
         :meth:`_git_egress_token` (overriding this method is unnecessary)."""
-        host = urlparse(repository.clone_url).hostname
-        if not host:
+        parsed = urlparse(repository.clone_url)
+        if not parsed.hostname:
             return None
-        return GitEgressCredential.for_token(host=host, token=self._git_egress_token(repository))
+        return GitEgressCredential.for_token(
+            host=parsed.hostname, token=self._git_egress_token(repository), path=parsed.path
+        )
 
     def _git_egress_token(self, repository: Repository) -> str | None:
         """Short-lived token authenticating git-over-HTTPS for this repo's platform, or ``None`` for

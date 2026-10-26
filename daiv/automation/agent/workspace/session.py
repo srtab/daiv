@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import httpx
 from skills.services import global_skill_files
 
-from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
+from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, PlatformCredential, with_platform_credentials
 from core.sandbox.schemas import StartSessionRequest
 
 if TYPE_CHECKING:
@@ -205,8 +205,8 @@ class SandboxSession:
                 session_id,
             )
             return False
-        egress = with_platform_credential(
-            current, host=credential.host, header=credential.header, token=credential.value
+        egress = with_platform_credentials(
+            current, [PlatformCredential(host=credential.host, header=credential.header, token=credential.value)]
         )
         await self._client.update_egress(session_id, egress)
         self._egress = egress
@@ -266,8 +266,9 @@ class SandboxSession:
         credential = await self._credential_source() if self._credential_source is not None else None
         if credential is None or (self._spec.egress is None and credential.value is None):
             return self._spec.egress
-        return with_platform_credential(
-            self._spec.egress, host=credential.host, header=credential.header, token=credential.value
+        return with_platform_credentials(
+            self._spec.egress,
+            [PlatformCredential(host=credential.host, header=credential.header, token=credential.value)],
         )
 
     async def _reuse(
