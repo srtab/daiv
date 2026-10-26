@@ -175,13 +175,14 @@ async def _construct(
     bash: bool = False,
     auto_commit_changes: bool = False,
     sandbox: SandboxSpec | None = None,
+    before_publish: tuple[str, ...] | None = ("make test",),
 ):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
     ``site`` overrides site values, ``run`` is what the run asks for (``RunOverrides`` fields), and ``slash_commands``
     and ``memory`` are the repo's switches. The builder gets them resolved, as the executor hands them over. ``bash``
-    gives the workspace a shell, the repo declares ``make test`` as its ``before_publish`` check, and ``sandbox`` is the
-    run's sandbox spec.
+    gives the workspace a shell, ``sandbox`` is the run's sandbox spec, and ``before_publish`` the repo's checks
+    (``None``: it declares none).
     """
     settings = agent_settings(
         site=site_snapshot(**(_SITE | (site or {}))),
@@ -210,7 +211,7 @@ async def _construct(
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
         ctx = MagicMock(sandbox=sandbox)
         ctx.config.context_file_name = "AGENTS.md"
-        ctx.config.hooks.before_publish = ("make test",)
+        ctx.config.hooks.before_publish = before_publish
         await create_daiv_agent(
             settings=settings,
             ctx=ctx,
@@ -372,3 +373,17 @@ async def test_check_output_masks_the_sandbox_env_values_in_both_producers():
     [verification] = _verification(built.middleware)
     assert verification._redact == ("abcd1234efgh",)
     assert built.git_middleware.call_args.kwargs["redact"] == ("abcd1234efgh",)
+
+
+@pytest.mark.parametrize(
+    ("before_publish", "expected"), [(None, ("make lint",)), (("make test",), ("make test",)), ((), ())]
+)
+async def test_verification_runs_the_sandbox_default_unless_the_repo_declares_its_own(before_publish, expected):
+    sandbox = SandboxSpec(
+        base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={}, before_publish=("make lint",)
+    )
+
+    built = await _construct(bash=True, auto_commit_changes=True, sandbox=sandbox, before_publish=before_publish)
+
+    [verification] = _verification(built.middleware)
+    assert verification._commands == expected
