@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from automation.agent.git_state import checkpointed_merge_request
 from automation.agent.publishers import RepoPublish
+
+logger = logging.getLogger("daiv.sessions")
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -47,7 +50,15 @@ def _dict_items(value: Any) -> list[dict[str, Any]]:
 
 
 def repo_publishes_from_state(values: Mapping[str, Any]) -> list[RepoPublish]:
-    return [RepoPublish.from_state(item) for item in values.get("repo_publishes") or []]
+    items = values.get("repo_publishes")
+    publishes = []
+    for item in items if isinstance(items, list) else []:
+        try:
+            publishes.append(RepoPublish.from_state(item))
+        except KeyError, ValueError, TypeError:
+            repo_id = item.get("repo_id") if isinstance(item, dict) else None
+            logger.exception("Skipping an unreadable sibling publish (repo_id=%s)", repo_id)
+    return publishes
 
 
 def parse_agent_result(rv: dict | str | None) -> AgentResult:

@@ -292,3 +292,22 @@ def test_parse_keeps_the_lists():
 
     assert parsed["merge_requests"] == rv["merge_requests"]
     assert parsed["publish_errors"] == rv["publish_errors"]
+
+
+def test_repo_publishes_from_state_skips_unreadable_items(caplog):
+    from sessions.executor.result import repo_publishes_from_state
+
+    values = {
+        "repo_publishes": [
+            {"no_repo_id": True},
+            _publish("g/mod", 7),
+            {"repo_id": "g/bad", "merge_request": {"unexpected": 1}},
+        ]
+    }
+
+    with caplog.at_level("ERROR"):
+        publishes = repo_publishes_from_state(values)
+
+    assert [rp.repo_id for rp in publishes] == ["g/mod"]
+    assert "repo_id=g/bad" in caplog.text
+    assert repo_publishes_from_state({"repo_publishes": "nope"}) == []

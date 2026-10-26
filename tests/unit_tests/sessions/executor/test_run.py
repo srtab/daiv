@@ -502,6 +502,21 @@ async def test_after_run_a_raising_sibling_arm_does_not_stop_the_next(caplog):
     assert "failed to arm pipeline watch for g/mod" in caplog.text
 
 
+async def test_after_run_ignores_an_unreadable_sibling_publish():
+    spec = make_spec(persist_ref=True, arm_watch=True)
+    state = {"published": True, "repo_publishes": [{"oops": 1}, *_sibling_state("g/mod")]}
+
+    with (
+        agent_stack(_agent(state=state)) as stack,
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+    ):
+        await execute_run(spec)
+
+    assert [rp.repo_id for rp in stack.persist_extra.await_args.args[1]] == ["g/mod"]
+    assert [a["repo_id"] for a in stack.armed] == ["owner/repo", "g/mod"]
+
+
 async def test_after_run_skips_persist_without_snapshot():
     agent = _agent()
     agent.aget_state = AsyncMock(side_effect=RedisError("down"))
