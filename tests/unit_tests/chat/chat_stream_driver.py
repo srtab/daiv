@@ -43,6 +43,7 @@ const sandbox = {
   CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
   window: {
     dispatchEvent: (event) => { dispatched.push(event); return true; },
+    location: { hash: "" },
     Alpine: {
       data: (name, factory) => (registry[name] = factory),
       effect: (fn) => alpineEffect(fn),

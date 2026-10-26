@@ -121,7 +121,12 @@ def test_pre_checkpoint_failure_synthesizes_user_turn_and_marker():
     ]
     result = annotate_transcript(turns, runs)
     assert [t["id"] for t in result] == ["h1", "a1", "run-r2", "run-status-r2"]
-    assert result[2] == {"id": "run-r2", "role": "user", "segments": [{"type": "text", "content": "please fix X"}]}
+    assert result[2] == {
+        "id": "run-r2",
+        "role": "user",
+        "segments": [{"type": "text", "content": "please fix X"}],
+        "run_id": "r2",
+    }
 
 
 def test_multiple_failed_middle_runs_each_get_a_marker():
@@ -201,7 +206,13 @@ def test_synthetic_turns_marker_only_when_no_prompt():
     runs = [_run("r1", message_id="missing-id", status=RunStatus.FAILED, error_message=RUN_FAILED_MESSAGE, prompt="")]
     result = annotate_transcript([], runs)
     assert len(result) == 1
-    assert result[0] == {"id": "run-status-r1", "role": "run_status", "status": "failed", "message": RUN_FAILED_MESSAGE}
+    assert result[0] == {
+        "id": "run-status-r1",
+        "role": "run_status",
+        "status": "failed",
+        "message": RUN_FAILED_MESSAGE,
+        "run_id": "r1",
+    }
 
 
 def test_interrupted_run_renders_aborted_marker():
@@ -264,7 +275,7 @@ def test_empty_transcript_recovers_every_failed_run():
 def test_slot_holder_not_checkpointed_yet_shows_its_prompt_without_a_marker():
     holder = _run("r1", status=RunStatus.RUNNING, prompt="please fix X", trigger_type=SessionOrigin.UI_JOB)
     assert annotate_transcript([], [holder], _holding(holder)) == [
-        {"id": "run-r1", "role": "user", "segments": [{"type": "text", "content": "please fix X"}]}
+        {"id": "run-r1", "role": "user", "segments": [{"type": "text", "content": "please fix X"}], "run_id": "r1"}
     ]
 
 
@@ -272,7 +283,13 @@ def test_slot_holder_not_checkpointed_yet_shows_its_prompt_without_a_marker():
 def test_run_not_started_shows_its_prompt_as_pending(status):
     run = _run("r1", status=status, prompt="please fix X", trigger_type=SessionOrigin.UI_JOB)
     assert annotate_transcript([], [run], SessionActivity(in_flight=True, waiting=(run,))) == [
-        {"id": "run-r1", "role": "user", "segments": [{"type": "text", "content": "please fix X"}], "pending": True}
+        {
+            "id": "run-r1",
+            "role": "user",
+            "segments": [{"type": "text", "content": "please fix X"}],
+            "pending": True,
+            "run_id": "r1",
+        }
     ]
 
 
@@ -387,7 +404,7 @@ def test_stamping_is_noop_without_run_timestamps():
     # pre-existing tests) add no new keys, so the old exact-turn assertions still hold.
     turns = [_user("h1"), _assistant("a1")]
     result = annotate_transcript(turns, [_run("r1", message_id="h1")])
-    assert result == [_user("h1"), _assistant("a1")]
+    assert result == [{**_user("h1"), "run_id": "r1"}, _assistant("a1")]
     assert all("sent_at" not in t and "received_at" not in t for t in result)
 
 
@@ -433,6 +450,35 @@ def test_a_recovered_prompt_daiv_wrote_is_marked_as_daivs():
     assert (result[0]["role"], result[0]["author"]) == ("user", "daiv")
 
 
+def test_each_run_anchors_its_first_turn():
+    turns = [_user("h1"), _assistant("a1"), _user("h2"), _assistant("a2"), _assistant("a3")]
+    runs = [_run("r1", message_id="h1"), _run("r2", message_id="h2")]
+
+    result = annotate_transcript(turns, runs)
+
+    assert [(t["id"], t.get("run_id")) for t in result] == [
+        ("h1", "r1"),
+        ("a1", None),
+        ("h2", "r2"),
+        ("a2", None),
+        ("a3", None),
+    ]
+
+
+def test_ordinal_matched_run_anchors_its_first_turn():
+    result = annotate_transcript([_user("h1"), _assistant("a1")], [_run("r1")])
+
+    assert result[0]["run_id"] == "r1"
+
+
+def test_recovered_failed_run_anchors_its_prompt_not_its_marker():
+    run = _run("r1", status=RunStatus.FAILED, message_id="lost", prompt="do it")
+
+    prompt, marker = annotate_transcript([], [run])
+
+    assert (prompt["run_id"], "run_id" in marker) == ("r1", False)
+
+
 def _db_run(session: Session) -> Run:
     return Run.objects.create(
         session=session, trigger_type=SessionOrigin.UI_JOB, repo_id=session.repo_id, status=RunStatus.SUCCESSFUL
@@ -464,8 +510,13 @@ def test_artifact_turns_synthesizes_a_publish_turn_per_run_with_artifacts():
         }
 
     assert result == [
-        {"id": f"run-{first.id}-artifacts", "role": "assistant", "segments": [segment(report), segment(chart)]},
-        {"id": f"run-{last.id}-artifacts", "role": "assistant", "segments": [segment(page)]},
+        {
+            "id": f"run-{first.id}-artifacts",
+            "role": "assistant",
+            "segments": [segment(report), segment(chart)],
+            "run_id": str(first.id),
+        },
+        {"id": f"run-{last.id}-artifacts", "role": "assistant", "segments": [segment(page)], "run_id": str(last.id)},
     ]
 
 
@@ -477,7 +528,7 @@ def test_artifact_turn_segments_carry_the_build_turns_tool_call_keys():
 
     (turn,) = artifact_turns([run])
 
-    assert turn.keys() == built[0].keys()
+    assert turn.keys() - {"run_id"} == built[0].keys()
     assert turn["segments"][0].keys() == built[0]["segments"][0].keys()
 
 
@@ -490,6 +541,19 @@ def test_artifact_turns_mark_a_revised_artifact_updated():
     (turn,) = artifact_turns([run])
 
     assert json.loads(turn["segments"][0]["result"])["status"] == "updated"
+
+
+@pytest.mark.django_db
+def test_artifact_turns_leave_the_anchor_to_a_run_already_shown():
+    session = _db_session()
+    failed, published = _db_run(session), _db_run(session)
+    make_artifact(failed)
+    make_artifact(published)
+    shown = [{"id": f"run-{failed.id}", "role": "user", "segments": [], "run_id": str(failed.id)}]
+
+    result = artifact_turns([failed, published], shown)
+
+    assert [turn.get("run_id") for turn in result] == [None, str(published.id)]
 
 
 @pytest.mark.django_db

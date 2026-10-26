@@ -25,6 +25,8 @@ from sessions.models import RunArtifact, RunStatus, SessionOrigin
 from sessions.turns import tool_call_segment
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from sessions.models import Run
 
 logger = logging.getLogger("daiv.sessions")
@@ -104,6 +106,13 @@ def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     return [] if marker is None else [*_prompt_turns(run), marker]
 
 
+def _anchor(run_turns: list[dict[str, Any]], run: Run) -> list[dict[str, Any]]:
+    """Stamp ``run_id`` on the first of ``run_turns``: the page renders it as the run's ``#run-<id>`` link target."""
+    if run_turns:
+        run_turns[0]["run_id"] = str(run.id)
+    return run_turns
+
+
 def _unstarted(run: Run, activity: SessionActivity) -> bool:
     """Whether ``run`` has not executed yet, so it owns no checkpointed turn: never picked up, or behind the slot's
     holder."""
@@ -119,8 +128,9 @@ def annotate_transcript(
     (SessionLock), so run *k* owns every turn from its user turn up to the next
     user turn. Matching is by ``message_id`` (chat runs) with a chronological
     ordinal fallback (background/legacy runs). A run whose ``message_id`` never
-    reached the checkpoint is recovered via ``_synthetic_turns``. ``activity`` says which unfinished runs have not
-    started, so they own no turn, and which of them show their prompt as pending; it defaults to nothing in flight.
+    reached the checkpoint is recovered via ``_synthetic_turns``. Each run's first turn carries its ``run_id``.
+    ``activity`` says which unfinished runs have not started, so they own no turn, and which of them show their
+    prompt as pending; it defaults to nothing in flight.
     """
     activity = activity or SessionActivity()
     # Segment the transcript at user-turn boundaries. Leading non-user turns (rare)
@@ -136,7 +146,7 @@ def annotate_transcript(
     cursor = 0  # index of the next unconsumed segment (ordinal fallback + skip-flushing)
     for run in runs:
         if run in activity.waiting:
-            result.extend(_prompt_turns(run, pending=True))
+            result.extend(_anchor(_prompt_turns(run, pending=True), run))
             continue
         if _unstarted(run, activity):
             continue
@@ -161,7 +171,7 @@ def annotate_transcript(
                     run.status,
                     mid,
                 )
-            result.extend(_prompt_turns(run) if run == activity.holder else _synthetic_turns(run))
+            result.extend(_anchor(_prompt_turns(run) if run == activity.holder else _synthetic_turns(run), run))
             continue
 
         # Flush any segments with no owning run (defensive; keeps ordering intact).
@@ -170,7 +180,7 @@ def annotate_transcript(
             cursor += 1
         # received_at targets the segment's own turns; the run_status marker is appended
         # to `result` separately below, so it never receives a timestamp.
-        owned = segments[matched]["turns"]
+        owned = _anchor(segments[matched]["turns"], run)
         _stamp_run_times(owned, run)
         if owned[0].get("role") == "user":
             _mark_author(owned[0], run)
@@ -191,17 +201,23 @@ def _artifact_segment(artifact: RunArtifact) -> dict[str, Any]:
     return {**segment, "result": published_tool_result(artifact)}
 
 
-def artifact_turns(runs: list[Run]) -> list[dict[str, Any]]:
+def artifact_turns(runs: list[Run], shown: Iterable[dict[str, Any]] = ()) -> list[dict[str, Any]]:
     """SYNC ONLY: the runs' artifacts as synthetic ``publish_artifact`` turns, for a checkpoint with no messages.
 
     Artifact rows outlive the checkpoint TTL, so once the transcript is gone each run that published
     gets one assistant turn (``runs`` order, artifacts oldest first) shaped like ``build_turns`` output.
+    A run's turn carries its ``run_id`` unless one of the ``shown`` turns already does.
     """
+    anchored = {turn.get("run_id") for turn in shown}
     by_run: dict[Any, list[dict[str, Any]]] = {}
     for artifact in RunArtifact.objects.filter(run__in=runs).select_related("run"):
         by_run.setdefault(artifact.run_id, []).append(_artifact_segment(artifact))
-    return [
-        {"id": f"run-{run.id}-artifacts", "role": "assistant", "segments": by_run[run.id]}
-        for run in runs
-        if run.id in by_run
-    ]
+    result = []
+    for run in runs:
+        if run.id not in by_run:
+            continue
+        turn = {"id": f"run-{run.id}-artifacts", "role": "assistant", "segments": by_run[run.id]}
+        if str(run.id) not in anchored:
+            _anchor([turn], run)
+        result.append(turn)
+    return result

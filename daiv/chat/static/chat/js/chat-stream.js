@@ -395,6 +395,8 @@
     _lastFrameAt: 0,
     _scrollQueued: false,
     _autoFollow: true,
+    // The `run-<id>` element the URL's hash names, until it has rendered and been scrolled to.
+    _pendingRunAnchor: "",
     _thinkingTimer: null,
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
@@ -674,7 +676,9 @@
       // Mirror the live-stream path (dispatch() scrolls after every event): follow
       // the tail once the new turns render. The no-force scrollToBottom() no-ops
       // when the user has scrolled up to read, so it only auto-follows at bottom.
-      this.$nextTick(() => this.scrollToBottom());
+      this.$nextTick(() => {
+        if (!this.revealRunAnchor()) this.scrollToBottom();
+      });
     },
 
     applySandboxEnvSelection(detail) {
@@ -783,6 +787,9 @@
       } else {
         this.resuming = false;
       }
+
+      const hash = window.location.hash;
+      if (/^#run-[\w-]+$/.test(hash)) this._pendingRunAnchor = hash.slice(1);
 
       // Park the viewport on page load. $nextTick waits for Alpine to
       // materialize x-for'd turns into DOM; parkViewport() then settles the
@@ -1802,8 +1809,9 @@
     // *top of the last assistant message* instead: that final answer is what
     // the reader came for, and anchoring to the bottom buries its opening
     // lines above the fold whenever it is taller than the viewport.
+    // A `#run-<id>` hash outranks both, once that run's turn has rendered.
     parkViewport() {
-      if (config.sessionLive) {
+      if (config.sessionLive && !this._pendingRunAnchor) {
         this.scrollToBottom({ force: true });
         return;
       }
@@ -1815,6 +1823,11 @@
       // scroll anchoring, but Safari has none — so settle it here instead of
       // depending on the browser to paper over it.
       requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (this.revealRunAnchor()) return;
+        if (config.sessionLive) {
+          this.scrollToBottom({ force: true });
+          return;
+        }
         const el = this._scrollEl;
         if (!el) return;
         // Last rendered assistant turn — querying the DOM rather than `turns`
@@ -1835,6 +1848,21 @@
         // final answer degrades to the old bottom-anchored position for free.
         target.scrollIntoView({ block: "start", behavior: "auto" });
       }));
+    },
+
+    // A run the hash names may render only on a later poll, so each poll retries until it lands.
+    revealRunAnchor() {
+      if (!this._pendingRunAnchor) return false;
+      const target = document.getElementById(this._pendingRunAnchor);
+      if (!target) return false;
+      this._pendingRunAnchor = "";
+      this._autoFollow = false;
+      target.scrollIntoView({ block: "start", behavior: "auto" });
+      return true;
+    },
+
+    runAnchorId(turn) {
+      return turn.run_id ? `run-${turn.run_id}` : null;
     },
 
     scrollToBottom({ force = false } = {}) {

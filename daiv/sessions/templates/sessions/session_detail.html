@@ -181,7 +181,7 @@
           <template x-if="isTurnVisible(turn, ti === turns.length - 1)">
             <div class="chat-turn-wrap">
               <template x-if="turn.role === 'run_status'">
-                <div class="chat-run-status" :class="`chat-run-status--${turn.status}`" role="status" aria-live="polite">
+                <div class="chat-run-status" :id="runAnchorId(turn)" :class="`chat-run-status--${turn.status}`" role="status" aria-live="polite">
                   <span class="chat-run-status__icon" aria-hidden="true">
                     <template x-if="turn.status === 'aborted'">{% icon "x-mark" "h-4 w-4" %}</template>
                     <template x-if="turn.status !== 'aborted'">{% icon "exclamation-triangle" "h-4 w-4" %}</template>
@@ -190,7 +190,7 @@
                 </div>
               </template>
               <template x-if="turn.role !== 'run_status'">
-                <article class="chat-turn"
+                <article class="chat-turn" :id="runAnchorId(turn)"
                          :class="{ [`chat-turn--${turn.role}`]: true, 'chat-turn--daiv': turn.author === 'daiv', 'chat-turn--pending': turn.pending }"
                          :data-role="turn.role">
                   <div class="chat-turn__body">

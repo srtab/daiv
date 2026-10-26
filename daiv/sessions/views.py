@@ -347,7 +347,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["expired"] = no_state and not turns
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
         ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
-        ctx["turns"] = turns if hydrated.messages else turns + artifact_turns(runs)
+        ctx["turns"] = turns if hydrated.messages else turns + artifact_turns(runs, turns)
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats
