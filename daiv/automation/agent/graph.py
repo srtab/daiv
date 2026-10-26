@@ -273,20 +273,16 @@ async def create_daiv_agent(
     # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
     # and discard work — the failure mode StepBudget guards against.
     loop_breaker = LoopBreakerMiddleware(terminal="finalize")
-    redact = redacted_values(ctx.sandbox.env_vars) if ctx.sandbox else ()
-    verification: list[AgentMiddleware[Any, Any, Any]] = []
+    verification: VerificationMiddleware | None = None
     if settings.features.verification and auto_commit_changes and bash_tool_enabled:
-        before_publish = resolve_before_publish(
-            repo=ctx.config, sandbox_default=ctx.sandbox.before_publish if ctx.sandbox else None
-        )
-        verification.append(
-            VerificationMiddleware(
-                workspace=workspace,
-                commands=before_publish,
-                step_budget=step_budget,
-                loop_breaker=loop_breaker,
-                redact=redact,
-            )
+        verification = VerificationMiddleware(
+            workspace=workspace,
+            commands=resolve_before_publish(
+                repo=ctx.config, sandbox_default=ctx.sandbox.before_publish if ctx.sandbox else None
+            ),
+            step_budget=step_budget,
+            loop_breaker=loop_breaker,
+            redact=redacted_values(ctx.sandbox.env_vars) if ctx.sandbox else (),
         )
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
@@ -325,7 +321,7 @@ async def create_daiv_agent(
         *([AskUserQuestionMiddleware()] if ask_user_enabled else []),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
-        *verification,
+        *([verification] if verification is not None else []),
         loop_breaker,
         step_budget,
         ContextUsageMiddleware(),
@@ -338,7 +334,7 @@ async def create_daiv_agent(
             auto_commit_changes=auto_commit_changes,
             capture_patch=capture_patch,
             session_links=session_links,
-            redact=redact,
+            recheck=verification.recheck if verification is not None else None,
             fork_branch=fork_branch,
         ),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),

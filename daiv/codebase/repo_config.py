@@ -60,7 +60,11 @@ class Hooks(BaseModel):
     """
 
     before_publish: tuple[str, ...] | None = Field(
-        default=None, description="Commands DAIV runs before publishing a run's changes. Each must exit 0."
+        default=None,
+        description=(
+            "Commands DAIV runs before publishing a run's changes. Each must exit 0. An empty list turns verification "
+            "off for the repository."
+        ),
     )
 
     @field_validator("before_publish")

@@ -4,16 +4,12 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from langchain_core.messages import AIMessage, ToolMessage
-
-from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
-from automation.agent.middlewares.sandbox import BASH_TOOL_NAME
 from automation.agent.workspace.bash_policy.command_parser import CommandParseError, parse_command
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from langchain_core.messages import AnyMessage
+    from langchain_core.messages import ToolMessage
 
 type FallbackVerdict = Literal["checked", "not_run", "failed"]
 
@@ -107,7 +103,9 @@ def is_check_command(command: str) -> bool:
     return any(_is_check_argv(segment.argv) for segment in segments)
 
 
-def _bash_results(message: ToolMessage) -> list[tuple[str, int]]:
+def bash_results(message: ToolMessage) -> list[tuple[str, int]]:
+    """The ``(command, exit_code)`` of each command in a bash tool result; none for a result that is not the tool's
+    JSON."""
     if not isinstance(message.content, str):
         return []
     try:
@@ -125,30 +123,6 @@ def _bash_results(message: ToolMessage) -> list[tuple[str, int]]:
         if isinstance(command, str) and isinstance(exit_code, int) and not isinstance(exit_code, bool):
             results.append((command, exit_code))
     return results
-
-
-def _last_edit_index(messages: Sequence[AnyMessage]) -> int:
-    for index in range(len(messages) - 1, -1, -1):
-        message = messages[index]
-        if isinstance(message, AIMessage) and any(call["name"] in WRITE_TOOL_NAMES for call in message.tool_calls):
-            return index
-    return -1
-
-
-def checks_after_last_edit(messages: Sequence[AnyMessage]) -> FallbackFinding:
-    last_check: tuple[str, int] | None = None
-    for message in messages[_last_edit_index(messages) + 1 :]:
-        if not isinstance(message, ToolMessage) or message.name != BASH_TOOL_NAME:
-            continue
-        for command, exit_code in _bash_results(message):
-            if is_check_command(command):
-                last_check = (command, exit_code)
-    if last_check is None:
-        return FallbackFinding("not_run")
-    command, exit_code = last_check
-    if exit_code == 0:
-        return FallbackFinding("checked", command, exit_code)
-    return FallbackFinding("failed", command, exit_code)
 
 
 def _escape(text: str) -> str:

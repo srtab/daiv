@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import httpx
@@ -18,14 +19,20 @@ if TYPE_CHECKING:
     from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
+logger = logging.getLogger("daiv.agent")
+
 MAX_FIX_ROUNDS = 2
 CHECK_TIMEOUT_SECONDS = 600
 OUTPUT_TAIL_CHARS = 4_000
+GIT_ERRORS = (GitCommandError, httpx.HTTPError, SandboxGitProtocolError)
+UNREADABLE = "the repository could not be read to run the checks"
+_STASH_MESSAGE = "daiv: pre-publish verification"
 # Past the sandbox's own limit, so a check that runs out of time comes back as exit 124, not as a client timeout.
 _RESPONSE_GRACE_SECONDS = 60
 _REDACTED = "******"
 # Shorter values (``true``, ``8000``, ``python``) would mask ordinary words all over the output.
 _MIN_REDACTED_LENGTH = 8
+_VOLATILE = re.compile(r"0[xX][0-9a-fA-F]+|\d+")
 
 _DIFF_HEADER = re.compile(r"^diff --git ", re.MULTILINE)
 
@@ -35,6 +42,8 @@ class CheckResult:
     command: str
     exit_code: int
     output_tail: str
+    signature: frozenset[str] = field(default=frozenset(), compare=False, repr=False)
+    """The output's lines with addresses, counts and timings masked, so two runs that fail alike compare equal."""
 
     @property
     def passed(self) -> bool:
@@ -61,6 +70,10 @@ def _redact(text: str, values: Sequence[str]) -> str:
     return text
 
 
+def _signature(output: str) -> frozenset[str]:
+    return frozenset(filter(None, (_VOLATILE.sub("#", line).strip() for line in output.splitlines())))
+
+
 async def run_checks(
     bash: SandboxFileBackend, commands: Sequence[str], *, redact: Sequence[str] = ()
 ) -> list[CheckResult]:
@@ -83,37 +96,77 @@ async def _run_check(bash: SandboxFileBackend, command: str, redact: Sequence[st
         raise ChecksUnavailableError("the sandbox returned no result for a check")
     result = response.results[0]
     output = _redact(result.output, redact)
-    return CheckResult(command=command, exit_code=result.exit_code, output_tail=output[-OUTPUT_TAIL_CHARS:])
+    return CheckResult(
+        command=command,
+        exit_code=result.exit_code,
+        output_tail=output[-OUTPUT_TAIL_CHARS:],
+        signature=_signature(output),
+    )
 
 
-async def failing_before_change(bash: SandboxFileBackend, git: GitManager, commands: Sequence[str]) -> frozenset[str]:
-    """The commands that already fail on the starting code, found by stashing the agent's changes and running them.
+async def run_checks_in_place(
+    bash: SandboxFileBackend, git: GitManager, commands: Sequence[str], *, before: str, redact: Sequence[str] = ()
+) -> tuple[list[CheckResult], list[str], str]:
+    """Run the checks on the tree whose diff is ``before``, then put back the files they changed so none of it is
+    published. Returns their results, the paths they changed, and the diff of the tree they leave.
+
+    The tree is saved in the stash first, which a merge in progress would not survive, so during a merge what the
+    checks changed stays. Failing to save the tree or to read it afterwards raises ``ChecksUnavailableError``; failing
+    to put it back raises ``StashRestoreError``.
+    """
+    try:
+        saved = await git.pending_merge() is None and await git.save_tree(_STASH_MESSAGE)
+    except GIT_ERRORS as exc:
+        raise ChecksUnavailableError("could not set the changes aside to run the checks") from exc
+    try:
+        results = await run_checks(bash, commands, redact=redact)
+        try:
+            after = await git.get_diff()
+        except GIT_ERRORS as exc:
+            raise ChecksUnavailableError(UNREADABLE) from exc
+    except Exception:
+        if saved:
+            await git.restore_stash()
+        raise
+    changed = changed_between(before, after)
+    if saved and changed:
+        await git.restore_stash()
+        after = before
+    elif saved:
+        try:
+            await git.drop_stash()
+        except GIT_ERRORS:
+            logger.warning("Could not drop the stash entry saved before the checks", exc_info=True)
+    return results, changed, after
+
+
+async def failing_before_change(
+    bash: SandboxFileBackend, git: GitManager, failing: Sequence[CheckResult], *, redact: Sequence[str] = ()
+) -> dict[str, frozenset[str]]:
+    """The ``failing`` commands that already fail on the starting code, found by stashing the agent's changes and
+    running them, each mapped to the signature of its output there.
 
     Failing to set the changes aside leaves the tree as it was, so it is reported as the checks being unavailable;
-    failing to restore them raises.
+    failing to restore them raises ``StashRestoreError``.
     """
     try:
         if await git.pending_merge() is not None:
-            return frozenset()
-        stashed = await git.stash_all("daiv: pre-publish verification")
-    except (GitCommandError, httpx.HTTPError, SandboxGitProtocolError) as exc:
+            return {}
+        stashed = await git.stash_all(_STASH_MESSAGE)
+    except GIT_ERRORS as exc:
         raise ChecksUnavailableError("could not set the changes aside to re-check the starting code") from exc
     if not stashed:
-        # Nothing was stashed, so a pop would restore an older, unrelated stash.
-        return frozenset(commands)
+        # Nothing was stashed, so the tree is the starting code, and a pop would restore an older, unrelated stash.
+        return {result.command: result.signature for result in failing}
     try:
-        results = await run_checks(bash, commands)
+        results = await run_checks(bash, [result.command for result in failing], redact=redact)
     finally:
         await git.restore_stash()
-    return frozenset(result.command for result in results if not result.passed)
+    return {result.command: result.signature for result in results if not result.passed}
 
 
 def diff_fingerprint(diff: str) -> str:
     return hashlib.sha256(diff.encode()).hexdigest()
-
-
-async def tree_fingerprint(git: GitManager) -> str:
-    return diff_fingerprint(await git.get_diff())
 
 
 def _section_path(header: str) -> str:

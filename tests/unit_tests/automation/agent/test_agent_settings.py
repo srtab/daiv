@@ -352,3 +352,9 @@ def test_resolve_features_verification_follows_site():
     on = resolve_features(site=site_snapshot(verification_enabled=True), repo=RepositoryConfig())
 
     assert (off.verification, on.verification) == (False, True)
+
+
+def test_resolve_features_verification_off_for_a_repo_that_declares_no_commands():
+    repo = RepositoryConfig(hooks={"before_publish": []})
+
+    assert resolve_features(site=site_snapshot(verification_enabled=True), repo=repo).verification is False

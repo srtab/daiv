@@ -189,7 +189,11 @@ async def _construct(
     """
     settings = agent_settings(
         site=site_snapshot(**(_SITE | (site or {}))),
-        repo=RepositoryConfig(slash_commands={"enabled": slash_commands}, memory={"enabled": memory}),
+        repo=RepositoryConfig(
+            slash_commands={"enabled": slash_commands},
+            memory={"enabled": memory},
+            hooks={"before_publish": before_publish},
+        ),
         run=RunOverrides(**(run or {})),
     )
     graph_patches = {
@@ -368,7 +372,17 @@ async def test_verification_middleware_absent_without_auto_commit():
     assert _verification(built.middleware) == []
 
 
-async def test_check_output_masks_the_sandbox_env_values_in_both_producers():
+async def test_verification_middleware_absent_when_the_repo_declares_no_commands():
+    sandbox = SandboxSpec(
+        base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={}, before_publish=("make lint",)
+    )
+
+    built = await _construct(bash=True, auto_commit_changes=True, sandbox=sandbox, before_publish=())
+
+    assert _verification(built.middleware) == []
+
+
+async def test_check_output_masks_the_sandbox_env_values():
     sandbox = SandboxSpec(
         base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={"TOKEN": "abcd1234efgh", "DEBUG": "1"}
     )
@@ -377,12 +391,22 @@ async def test_check_output_masks_the_sandbox_env_values_in_both_producers():
 
     [verification] = _verification(built.middleware)
     assert verification._redact == ("abcd1234efgh",)
-    assert built.git_middleware.call_args.kwargs["redact"] == ("abcd1234efgh",)
 
 
-@pytest.mark.parametrize(
-    ("before_publish", "expected"), [(None, ("make lint",)), (("make test",), ("make test",)), ((), ())]
-)
+async def test_the_git_middleware_rechecks_through_the_verification_middleware():
+    built = await _construct(bash=True, auto_commit_changes=True)
+
+    [verification] = _verification(built.middleware)
+    assert built.git_middleware.call_args.kwargs["recheck"] == verification.recheck
+
+
+async def test_the_git_middleware_has_no_recheck_without_verification():
+    built = await _construct(bash=False, auto_commit_changes=True)
+
+    assert built.git_middleware.call_args.kwargs["recheck"] is None
+
+
+@pytest.mark.parametrize(("before_publish", "expected"), [(None, ("make lint",)), (("make test",), ("make test",))])
 async def test_verification_runs_the_sandbox_default_unless_the_repo_declares_its_own(before_publish, expected):
     sandbox = SandboxSpec(
         base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={}, before_publish=("make lint",)

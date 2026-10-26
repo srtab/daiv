@@ -15,13 +15,13 @@ from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
 from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
-from automation.agent.verification.outcome import VerificationOutcome, recheck_if_stale, render_report
+from automation.agent.verification.outcome import VerificationOutcome
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, Scope
 from codebase.clients.base import aget_open_merge_request
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable
 
     from langgraph.runtime import Runtime
 
@@ -148,7 +148,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         workspace: The run's workspace; its git backs the pre-run check and patch capture, and the publisher uses it.
         settings: The run's resolved agent settings.
         session_links: What builds the links the publisher puts in the commit and the merge request; ``None`` for none.
-        redact: Values masked in the output of the before_publish checks it runs again before publishing.
+        recheck: What judges the run's verification outcome again before publishing, ``VerificationMiddleware.recheck``;
+            ``None`` when the run is not verified.
         fork_branch: Whether a turn with no merge request of its own leaves an open one on the checked-out branch
             alone and publishes to a new branch and merge request instead of pushing onto it.
 
@@ -179,7 +180,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         auto_commit_changes: bool = True,
         capture_patch: bool = False,
         session_links: SessionLinksResolver | None = None,
-        redact: Sequence[str] = (),
+        recheck: Callable[[VerificationOutcome], Awaitable[VerificationOutcome]] | None = None,
         fork_branch: bool = False,
     ) -> None:
         """
@@ -192,7 +193,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         self._workspace = workspace
         self._settings = settings
         self._session_links = session_links
-        self._redact = redact
+        self._recheck = recheck
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -418,11 +419,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             runtime.context, self._workspace, settings=self._settings, session_links=self._session_links
         )
         verification = state.get("verification")
-        if verification is not None and self._workspace.bash is not None:
+        if verification is not None and self._recheck is not None:
             try:
-                verification = await recheck_if_stale(
-                    self._workspace.bash, self._workspace.git, verification, redact=self._redact
-                )
+                verification = await self._recheck(verification)
             except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
                 logger.exception("Re-checking the tree before publishing failed; publishing it as not verified")
                 verification = VerificationOutcome(
@@ -438,7 +437,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 skip_ci=self.skip_ci,
                 agent_summary=agent_summary,
                 as_draft=verification is not None and verification["status"] == "failed",
-                verification_report=render_report(verification) if verification is not None else None,
+                verification=verification,
             )
         except UnresolvedMergeConflictsError as exc:
             logger.warning("Not publishing: %s", exc)

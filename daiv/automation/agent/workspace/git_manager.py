@@ -10,6 +10,7 @@ from uuid import uuid4
 import httpx
 from git import GitCommandError
 
+from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.utils import is_git_auth_error_text
 
 if TYPE_CHECKING:
@@ -315,14 +316,35 @@ class GitManager:
         result = await self._git("stash", "push", "--include-untracked", "-m", message)
         return "No local changes to save" not in result.output
 
+    async def save_tree(self, message: str) -> bool:
+        """Copy the tracked and untracked changes into a stash entry and leave them in the tree, for ``restore_stash``
+        or ``drop_stash`` to end. ``False`` when there was nothing to save.
+
+        Raises ``StashRestoreError`` when the changes were stashed but could not be put back in the tree.
+        """
+        if not await self.stash_all(message):
+            return False
+        try:
+            await self._git_unless_busy("stash", "apply", "--index")
+        except (GitCommandError, httpx.HTTPError, SandboxGitProtocolError) as exc:
+            raise StashRestoreError from exc
+        return True
+
+    async def drop_stash(self) -> None:
+        """Drop the newest stash entry."""
+        await self._git_unless_busy("stash", "drop")
+
     async def restore_stash(self) -> None:
         """Discard whatever is in the tree and pop the newest stash back, index included.
 
         A step the sandbox turned away as busy (HTTP 409: it never ran) is run again, ``_BUSY_ATTEMPTS`` times in all.
-        Any other failure raises at once, and a failed pop leaves the stash entry in place.
+        Any other failure raises ``StashRestoreError`` at once, and a failed pop leaves the stash entry in place.
         """
-        for args in (("reset", "--hard", "HEAD"), ("clean", "-fd"), ("stash", "pop", "--index")):
-            await self._git_unless_busy(*args)
+        try:
+            for args in (("reset", "--hard", "HEAD"), ("clean", "-fd"), ("stash", "pop", "--index")):
+                await self._git_unless_busy(*args)
+        except (GitCommandError, httpx.HTTPError, SandboxGitProtocolError) as exc:
+            raise StashRestoreError from exc
 
     async def _git_unless_busy(self, *args: str) -> None:
         for attempt in range(1, _BUSY_ATTEMPTS):
@@ -492,6 +514,13 @@ class GitManager:
             branch_name = f"{original_branch_name}-{uuid4().hex[:8]}"
 
         return branch_name
+
+
+class StashRestoreError(RuntimeError):
+    """The changes set aside in the stash could not be put back in the tree; they stay in its newest entry."""
+
+    def __init__(self) -> None:
+        super().__init__("The run's changes could not be restored from the stash; they stay in its newest entry")
 
 
 class GitPushPermissionError(RuntimeError):

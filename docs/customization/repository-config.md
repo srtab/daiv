@@ -135,28 +135,28 @@ hooks:
 
 A command passes when it exits 0. When the agent finishes, DAIV runs the commands in order, from the repository root inside the sandbox. They run only in sandbox runs and never when the agent works on a local checkout. Each command has 10 minutes before it counts as failed.
 
-When a command fails, DAIV sends the output back to the agent and the agent fixes the code, for up to 2 rounds. DAIV checks again after each round. A failure that was already there before the change is reported but not sent back for fixing.
+When a command fails, DAIV sends the output back to the agent and the agent fixes the code, for up to 2 rounds. DAIV checks again after each round. A command that also fails on the code from before the change is reported as already failing and not sent back for fixing. If its output now has lines it didn't have before, for example a test that newly fails, DAIV shows the agent both outputs to fix what its change broke, and the report says the command's output changed. Such a command doesn't count as failed, because output also changes when, say, the agent adds passing tests.
 
 !!! warning
-    A check that changes files counts as failed, because it would leave the published code different from what was verified. Run formatters in check mode (`ruff format --check .`, not `ruff format .`).
+    A check that changes files counts as failed, because it would leave the published code different from what was verified. DAIV puts those files back as the agent left them, so nothing the checks write is published. Run formatters in check mode (`ruff format --check .`, not `ruff format .`), and add files the checks generate, such as coverage reports, to `.gitignore`.
 
 ### What happens when checks still fail
 
 DAIV publishes the run with a **Verification** section that lists each command's result and, for failing ones, the end of its output in a collapsible block, with the values of the sandbox's environment variables masked as `******`. It also lists files the checks themselves changed, and suspicious edits: test files, lint and test configuration, CI files and `.daiv.yml`. Suspicious edits are flagged for review, not blocked.
 
 - A new merge request opens as a draft.
-- On an existing merge request, the merge request's draft status is not changed, and the section goes in DAIV's reply instead of the description: the comment it posts on the issue or merge request, or the result of a job, MCP call or scheduled job. Chat replies don't show it yet.
+- On an existing merge request, the merge request's draft status is not changed, and the section goes in DAIV's reply: the comment it posts on the issue or merge request, or the result of a job, MCP call or scheduled job. Chat replies don't show it yet. When DAIV opened the merge request, the section in its description is replaced with the new one, so it always shows the latest checks.
 - The [pipeline watch](../features/pipeline-watch.md) CI fix loop stays off for the merge request, and a watch already running on it stops, so DAIV doesn't keep trying after the checks gave up.
 
 If the agent gets stuck in a loop and DAIV stops it, the checks still run and are reported, but no fix round is spent. If the checks can't run at all, for example when the sandbox fails, DAIV publishes normally and says in the report that the run was not verified, and why. The CI fix loop works as usual in that case.
 
 ### Default commands
 
-A [Sandbox Environment](../features/sandbox-environments.md#default-before_publish-commands) can set default `before_publish` commands for every repository that uses it. A list in `.daiv.yml` replaces the environment's list entirely. Set `before_publish: []` to turn the checks off for the repository.
+A [Sandbox Environment](../features/sandbox-environments.md#default-before_publish-commands) can set default `before_publish` commands for every repository that uses it. A list in `.daiv.yml` replaces the environment's list entirely. Set `before_publish: []` to turn verification off for the repository: DAIV runs no commands and sends no reminder.
 
 ### Without commands
 
-When no commands are declared, DAIV sends the agent one reminder if it edited files and ran no passing check after its last edit. The run is published as usual.
+When no commands are declared, DAIV sends the agent one reminder if the files changed after the last test, linter or build the agent ran, or that check failed. The run is published as usual.
 
 ### Site switch
 

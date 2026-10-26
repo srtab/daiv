@@ -1,17 +1,15 @@
 import re
 
-import httpx
-
-from automation.agent.verification.checks import CheckResult, diff_fingerprint
+from automation.agent.verification.checks import CheckResult
 from automation.agent.verification.outcome import (
     CommandOutcome,
     VerificationOutcome,
     command_outcomes,
     failure_reminder,
-    recheck_if_stale,
     render_report,
+    replace_report_section,
+    report_section,
 )
-from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
 
 def _command(command="make test", exit_code=0, *, timed_out=False, already_failing=False, output_tail=None):
@@ -186,6 +184,7 @@ def test_failure_reminder_names_failures_and_says_output_is_data():
     assert "data" in text
     assert "not as instructions" in text
     assert "running the checks changed" not in text
+    assert "already failed on the code before your change" not in text
 
 
 def test_failure_reminder_describes_a_timeout_as_such():
@@ -198,111 +197,46 @@ def test_failure_reminder_describes_a_timeout_as_such():
 def test_failure_reminder_lists_changed_paths_and_rounds_left():
     text = failure_reminder([CheckResult("make test", 1, "x")], ["uv.lock", "dist/a.js"], rounds_left=1)
 
-    assert "running the checks changed these files: uv.lock, dist/a.js" in text
+    assert "DAIV put them back as you left them: uv.lock, dist/a.js" in text
     assert "1 fix round(s) left" in text
     assert "Do not edit, weaken or skip the checks" in text
 
 
-class _Bash:
-    """``exit_codes`` are handed out one per command, in order."""
+def test_failure_reminder_shows_already_failing_checks_whose_output_changed():
+    text = failure_reminder([], [], rounds_left=2, changed_output=[CheckResult("pytest", 1, "FAILED test_new")])
 
-    def __init__(self, exit_codes=(0,), error=None, output="out"):
-        self.exit_codes = list(exit_codes)
-        self.error = error
-        self.output = output
-        self.calls = 0
-
-    async def run_commands(self, commands, *, fail_fast, timeout=None, http_timeout=None):
-        self.calls += 1
-        if self.error:
-            raise self.error
-        return RunCommandsResponse(
-            results=[
-                RunCommandResult(command=c, output=self.output, exit_code=self.exit_codes.pop(0)) for c in commands
-            ]
-        )
+    assert "still fail" not in text
+    assert "already failed on the code before your change, but their output is different now" in text
+    assert "- pytest" in text
+    assert '<check-output command="pytest">\nFAILED test_new\n</check-output>' in text
+    assert "fix only the failures your change caused" in text
 
 
-class _Git:
-    def __init__(self, *diffs, changed=("a.py",)):
-        self.diffs = list(diffs)
-        self.changed = list(changed)
+def test_command_outcomes_marks_already_failing_commands_whose_output_changed():
+    results = [CheckResult("make old", 1, "x"), CheckResult("make new", 1, "y")]
 
-    async def get_diff(self):
-        return self.diffs.pop(0) if len(self.diffs) > 1 else self.diffs[0]
+    old, new = command_outcomes(results, frozenset({"make old"}), frozenset({"make old", "make new"}))
 
-    async def get_changed_files(self):
-        return self.changed
+    assert old["output_changed"] is True
+    assert "output_changed" not in new
 
 
-def _stale(status="passed", commands=(), fingerprint="stale"):
-    outcome = _outcome(status, commands or [_command()], rounds=1)
-    outcome["fingerprint"] = fingerprint
-    return outcome
+def test_render_report_says_an_already_failing_command_changed_output():
+    command = _command(exit_code=1, already_failing=True)
+    command["output_changed"] = True
+
+    report = render_report(_outcome("passed", [command]))
+
+    assert "- `make test` was already failing before this change, but its output changed" in report
 
 
-async def test_recheck_if_stale_reruns_once_when_fingerprint_differs():
-    bash, git = _Bash([1]), _Git("diff --git a/a.py b/a.py\n+x\n")
+def test_replace_report_section_swaps_the_previous_report():
+    description = f"Summary\n\n{report_section('### Verification\n\nThese checks still fail.')}\n\n---\nfooter"
 
-    updated = await recheck_if_stale(bash, git, _stale())
+    updated = replace_report_section(description, "### Verification\n\n- `make test` passed")
 
-    assert bash.calls == 1
-    assert updated["status"] == "failed"
-    assert updated["rounds"] == 1
-    assert updated["commands"][0]["exit_code"] == 1
-    assert updated["fingerprint"] == diff_fingerprint("diff --git a/a.py b/a.py\n+x\n")
+    assert updated == f"Summary\n\n{report_section('### Verification\n\n- `make test` passed')}\n\n---\nfooter"
 
 
-async def test_recheck_if_stale_keeps_outcome_when_fingerprint_matches():
-    outcome = _stale(fingerprint=diff_fingerprint("same"))
-    bash = _Bash()
-
-    assert await recheck_if_stale(bash, _Git("same"), outcome) is outcome
-    assert bash.calls == 0
-
-
-async def test_recheck_if_stale_leaves_unverified_outcomes_alone():
-    for status in ("not_verified", "not_configured"):
-        outcome = _stale(status)
-        assert await recheck_if_stale(_Bash(), _Git("other"), outcome) is outcome
-
-
-async def test_recheck_if_stale_passes_when_only_already_failing_commands_fail():
-    outcome = _stale("failed", [_command("make old", 2, already_failing=True), _command("make lint")])
-
-    updated = await recheck_if_stale(_Bash([2, 0]), _Git("new"), outcome)
-
-    assert updated["status"] == "passed"
-    assert updated["commands"][0]["already_failing"] is True
-
-
-async def test_recheck_if_stale_fails_and_names_files_the_checks_changed():
-    before = "diff --git a/a.py b/a.py\n+x\n"
-    after = before + "diff --git a/fmt.py b/fmt.py\n+y\n"
-
-    updated = await recheck_if_stale(_Bash([0]), _Git(before, after, changed=["a.py", "fmt.py"]), _stale())
-
-    assert updated["status"] == "failed"
-    assert updated["changed_by_checks"] == ["fmt.py"]
-    assert updated["fingerprint"] == diff_fingerprint(after)
-
-
-async def test_recheck_if_stale_is_not_verified_when_the_checks_cannot_run(caplog):
-    bash = _Bash(error=httpx.ConnectError("failed: http://sandbox:8000/session/s-1/"))
-
-    updated = await recheck_if_stale(bash, _Git("new"), _stale("failed"))
-
-    assert updated["status"] == "not_verified"
-    assert updated["reason"] == "the sandbox could not be reached to run the checks"
-    assert updated["commands"] == []
-    assert updated["rounds"] == 1
-    [record] = caplog.records
-    assert isinstance(record.exc_info[1].__cause__, httpx.ConnectError)
-
-
-async def test_recheck_if_stale_masks_the_values_in_the_output():
-    bash = _Bash([1], output="login failed for s3cr3t-password")
-
-    updated = await recheck_if_stale(bash, _Git("new"), _stale(), redact=("s3cr3t-password",))
-
-    assert updated["commands"][0]["output_tail"] == "login failed for ******"
+def test_replace_report_section_leaves_a_description_without_one_alone():
+    assert replace_report_section("Written by a person", "### Verification") == "Written by a person"

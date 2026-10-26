@@ -8,10 +8,9 @@ from langchain_core.messages import AIMessage
 
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflictsError
-from automation.agent.workspace.git_manager import GitPushPermissionError
+from automation.agent.workspace.git_manager import GitPushPermissionError, StashRestoreError
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
-from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings
 
 SETTINGS = agent_settings()
@@ -312,9 +311,8 @@ class TestGitMiddleware:
             "fingerprint": fingerprint,
         }
 
-    async def _publish_with(self, verification, *, created=False, workspace=None, redact=()):
-        workspace = workspace or FakeWorkspace()
-        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=workspace, redact=redact)
+    async def _publish_with(self, verification, *, created=False, recheck=None):
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace(), recheck=recheck)
         runtime = _make_runtime(scope=Scope.GLOBAL)
         state = {"merge_request": None}
         if verification is not None:
@@ -328,16 +326,18 @@ class TestGitMiddleware:
         return pub.publish.await_args.kwargs, result
 
     async def test_after_agent_publishes_draft_when_verification_failed(self):
-        kwargs, _ = await self._publish_with(self._verification("failed"))
+        verification = self._verification("failed")
+
+        kwargs, _ = await self._publish_with(verification)
 
         assert kwargs["as_draft"] is True
-        assert "### Verification" in kwargs["verification_report"]
+        assert kwargs["verification"] == verification
 
-    async def test_after_agent_passes_report_and_marks_reported(self):
+    async def test_after_agent_passes_outcome_and_marks_reported(self):
         kwargs, result = await self._publish_with(self._verification("passed"), created=True)
 
         assert kwargs["as_draft"] is False
-        assert "`make test` passed" in kwargs["verification_report"]
+        assert kwargs["verification"]["status"] == "passed"
         assert result["verification"]["reported"] is True
 
     async def test_after_agent_marks_not_reported_when_no_merge_request_was_created(self):
@@ -349,63 +349,38 @@ class TestGitMiddleware:
         kwargs, result = await self._publish_with(None)
 
         assert kwargs["as_draft"] is False
-        assert kwargs["verification_report"] is None
+        assert kwargs["verification"] is None
         assert "verification" not in result
 
-    async def test_after_agent_rechecks_when_tree_changed_after_checks(self):
-        git = Mock()
-        git.get_diff = AsyncMock(return_value="diff --git a/a.py b/a.py\n+x\n")
-        git.get_changed_files = AsyncMock(return_value=["a.py"])
-        bash = Mock()
-        bash.run_commands = AsyncMock(
-            return_value=RunCommandsResponse(
-                results=[RunCommandResult(command="cd /workspace/repo && make test", output="boom", exit_code=1)]
-            )
-        )
+    async def test_after_agent_publishes_the_rechecked_outcome(self):
+        stale, failed = self._verification("passed", fingerprint="stale"), self._verification("failed")
+        recheck = AsyncMock(return_value=failed)
 
-        kwargs, result = await self._publish_with(
-            self._verification("passed", fingerprint="stale"), workspace=FakeWorkspace(git=git, bash=bash)
-        )
+        kwargs, result = await self._publish_with(stale, recheck=recheck)
 
-        bash.run_commands.assert_awaited_once()
+        recheck.assert_awaited_once_with(stale)
         assert kwargs["as_draft"] is True
         assert result["verification"]["status"] == "failed"
 
-    async def test_after_agent_masks_the_values_in_the_rechecked_output(self):
-        git = Mock()
-        git.get_diff = AsyncMock(return_value="diff --git a/a.py b/a.py\n+x\n")
-        git.get_changed_files = AsyncMock(return_value=["a.py"])
-        bash = Mock()
-        bash.run_commands = AsyncMock(
-            return_value=RunCommandsResponse(
-                results=[RunCommandResult(command="make test", output="auth failed: tok-0123456789", exit_code=1)]
-            )
-        )
-
-        kwargs, result = await self._publish_with(
-            self._verification("passed", fingerprint="stale"),
-            workspace=FakeWorkspace(git=git, bash=bash),
-            redact=("tok-0123456789",),
-        )
-
-        assert result["verification"]["commands"][0]["output_tail"] == "auth failed: ******"
-        assert "tok-0123456789" not in kwargs["verification_report"]
-
     async def test_after_agent_publishes_as_not_verified_when_the_recheck_fails(self):
-        git = Mock()
-        git.get_diff = AsyncMock(side_effect=httpx.ConnectError("failed: http://sandbox:8000/session/s-1/"))
         verification = {**self._verification("failed", fingerprint="stale"), "suspicious_paths": ["tests/test_a.py"]}
+        recheck = AsyncMock(side_effect=httpx.ConnectError("failed: http://sandbox:8000/session/s-1/"))
 
-        kwargs, result = await self._publish_with(verification, workspace=FakeWorkspace(git=git, bash=Mock()))
+        kwargs, result = await self._publish_with(verification, recheck=recheck)
 
         assert kwargs["as_draft"] is False
-        assert "Not verified: the tree could not be re-checked after the last checks" in kwargs["verification_report"]
-        assert "sandbox:8000" not in kwargs["verification_report"]
         assert result["verification"]["status"] == "not_verified"
+        assert result["verification"]["reason"] == "the tree could not be re-checked after the last checks"
         assert result["verification"]["rounds"] == 0
         assert result["verification"]["suspicious_paths"] == ["tests/test_a.py"]
 
-    async def test_after_agent_does_not_recheck_without_a_shell(self):
+    async def test_after_agent_raises_when_the_recheck_cannot_restore_the_tree(self):
+        recheck = AsyncMock(side_effect=StashRestoreError())
+
+        with pytest.raises(StashRestoreError):
+            await self._publish_with(self._verification("passed", fingerprint="stale"), recheck=recheck)
+
+    async def test_after_agent_does_not_recheck_without_verification(self):
         kwargs, _ = await self._publish_with(self._verification("passed", fingerprint="stale"))
 
         assert kwargs["as_draft"] is False

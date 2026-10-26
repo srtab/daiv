@@ -16,6 +16,7 @@ from automation.agent.workspace.git_manager import (
     GitPushPermissionError,
     GitPushStaleError,
     PendingMerge,
+    StashRestoreError,
     _is_push_stale_error_text,
 )
 from automation.agent.workspace.git_runners import GitResult, LocalGitRunner, SandboxGitRunner
@@ -1042,8 +1043,39 @@ async def test_restore_stash_runs_reset_clean_pop_in_order() -> None:
 
 async def test_restore_stash_raises_when_pop_fails() -> None:
     gm, _ = _sandbox_manager({"stash pop": (1, "CONFLICT")})
-    with pytest.raises(GitCommandError):
+    with pytest.raises(StashRestoreError) as raised:
         await gm.restore_stash()
+    assert isinstance(raised.value.__cause__, GitCommandError)
+
+
+async def test_save_tree_stashes_then_puts_the_changes_back() -> None:
+    gm, client = _sandbox_manager({"stash push": (0, "Saved working directory and index state On main: m")})
+    assert await gm.save_tree("m") is True
+    assert [c.removeprefix("git -C /workspace/repo ") for c in client.commands] == [
+        "stash push --include-untracked -m m",
+        "stash apply --index",
+    ]
+
+
+async def test_save_tree_returns_false_when_clean() -> None:
+    gm, client = _sandbox_manager({"stash push": (0, "No local changes to save")})
+    assert await gm.save_tree("m") is False
+    assert not client.ran("stash apply")
+
+
+async def test_save_tree_raises_when_the_changes_cannot_be_put_back() -> None:
+    gm, _ = _sandbox_manager({
+        "stash push": (0, "Saved working directory and index state On main: m"),
+        "stash apply": (1, "error"),
+    })
+    with pytest.raises(StashRestoreError):
+        await gm.save_tree("m")
+
+
+async def test_drop_stash_drops_the_newest_entry() -> None:
+    gm, client = _sandbox_manager()
+    await gm.drop_stash()
+    assert client.ran("stash drop")
 
 
 class _BusyRunner:
@@ -1090,8 +1122,10 @@ async def test_restore_stash_retries_a_step_the_sandbox_refused_as_busy(no_backo
 async def test_restore_stash_gives_up_after_three_busy_answers(no_backoff) -> None:
     runner = _BusyRunner(busy=3)
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(StashRestoreError) as raised:
         await GitManager(runner).restore_stash()
+
+    assert isinstance(raised.value.__cause__, httpx.HTTPStatusError)
 
     assert len(runner.attempts) == 3
 
@@ -1099,7 +1133,7 @@ async def test_restore_stash_gives_up_after_three_busy_answers(no_backoff) -> No
 async def test_restore_stash_does_not_retry_other_sandbox_errors(no_backoff) -> None:
     runner = _BusyRunner(busy=1, status=500)
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(StashRestoreError):
         await GitManager(runner).restore_stash()
 
     assert len(runner.attempts) == 1
