@@ -88,7 +88,7 @@ def _inbox_rules(now: datetime) -> list[tuple[Q, Outcome]]:
     """Each way a run of yours can leave you something to do, in inbox order, so the first match is the one shown."""
     since = now - INBOX_FINDINGS_WINDOW
     failed_since = now - INBOX_FAILED_WINDOW
-    return [
+    rules = [
         (Q(status=RunStatus.WAITING_INPUT), ENVELOPE_OUTCOMES[EnvelopeStatus.NEEDS_INPUT]),
         (
             Q(status=RunStatus.FAILED, cancel_requested_at__isnull=True, retried=False)
@@ -101,6 +101,7 @@ def _inbox_rules(now: datetime) -> list[tuple[Q, Outcome]]:
             for status in (EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.NEEDS_ATTENTION)
         ),
     ]
+    return sorted(rules, key=lambda rule: _SEVERITY[rule[1].key])
 
 
 def _runs_needing(user: User) -> list[dict]:

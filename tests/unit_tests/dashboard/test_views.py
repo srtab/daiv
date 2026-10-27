@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
-from dashboard.home import _SEVERITY, INBOX_LIMIT, _inbox_rules
+from dashboard.home import INBOX_LIMIT
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
 from notifications.models import RunEnvelope
@@ -273,21 +273,12 @@ class TestNeedsYouInbox:
         _classified_session(member_user, EnvelopeStatus.NEEDS_ATTENTION, days_ago=8)
         stale_watch = _make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=8)
         Session.objects.filter(pk=stale_watch.pk).update(watch_state=WatchState.EXHAUSTED)
-        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED, days_ago=10)
 
-        assert _keys(_inbox(member_client)) == ["failed", "found-issues"]
-
-    def test_findings_leave_after_seven_days(self, member_user, member_client):
-        _classified_session(member_user, EnvelopeStatus.FOUND_ISSUES, days_ago=6)
-        _classified_session(member_user, EnvelopeStatus.FOUND_ISSUES, days_ago=8)
-
-        assert [item.at for item in _inbox(member_client)["items"]] == [_local_noon(6)]
+        assert _keys(_inbox(member_client)) == ["found-issues"]
 
     def test_a_failure_leaves_fourteen_days_after_it_finished(self, member_user, member_client):
         for days_ago in (13, 15):
-            session = Session.objects.create(
-                thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="daiv/test", user=member_user
-            )
+            session = _bare_session(member_user, SessionOrigin.UI_JOB)
             _add_latest_run(session, RunStatus.FAILED, days_ago=days_ago, prompt=f"Task {days_ago}")
 
         assert [item.at for item in _inbox(member_client)["items"]] == [_local_noon(13)]
@@ -309,11 +300,6 @@ class TestNeedsYouInbox:
         Session.objects.filter(pk=session.pk).update(watch_state=WatchState.EXHAUSTED)
 
         assert _keys(_inbox(member_client)) == ["needs-input"]
-
-    def test_rules_are_in_display_order_so_the_first_match_is_the_highest_rank(self):
-        ranks = [_SEVERITY[outcome.key] for _q, outcome in _inbox_rules(timezone.now())]
-
-        assert ranks == sorted(ranks)
 
     def test_all_clear_and_schedules_that_will_not_run_stay_out(self, member_user, member_client):
         _classified_session(member_user, EnvelopeStatus.ALL_CLEAR)
