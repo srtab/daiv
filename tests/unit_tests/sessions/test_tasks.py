@@ -63,7 +63,7 @@ def test_generate_title_task_skips_a_missing_session_without_calling_the_model()
 
 @pytest.mark.django_db
 def test_generate_title_task_overwrites_the_session_title_with_the_generated_one():
-    session = _chat_session()
+    session = _chat_session(title="add login")
 
     with patch("sessions.titling.generate_title", return_value="LLM generated") as generate:
         generate_title_task.func(pk=session.thread_id, prompt="add login", repo_id="group/repo", ref="feat/x")
@@ -88,9 +88,7 @@ def test_generate_title_task_keeps_a_title_renamed_before_it_ran():
     session = _chat_session(title="My rename")
 
     with patch("sessions.titling.generate_title", return_value="LLM generated"):
-        generate_title_task.func(
-            pk=session.thread_id, prompt="add login", repo_id="group/repo", expected_title="Heuristic placeholder"
-        )
+        generate_title_task.func(pk=session.thread_id, prompt="add login", repo_id="group/repo")
 
     session.refresh_from_db()
     assert session.title == "My rename"
@@ -98,7 +96,7 @@ def test_generate_title_task_keeps_a_title_renamed_before_it_ran():
 
 @pytest.mark.django_db
 def test_generate_title_task_keeps_a_title_renamed_while_the_model_answered():
-    session = _chat_session()
+    session = _chat_session(title="add login")
 
     def rename_then_answer(*args, **kwargs):
         Session.objects.filter(pk=session.pk).update(title="My rename")

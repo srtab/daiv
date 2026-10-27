@@ -914,6 +914,20 @@ async def test_turning_the_watch_on_creates_the_merge_request_thread(watch, eval
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_turning_on_a_watch_that_is_still_open_leaves_it_alone(watch, evaluations):
+    mr_thread = mr_thread_id(98)
+    await amake_watched_session(
+        thread_id=mr_thread, merge_request_iid=98, watch_state=WatchState.FIXING, watch_attempts=2
+    )
+
+    assert await watch.make().aturn_on(merge_request_iid=98) == mr_thread
+
+    session = await Session.objects.aget(thread_id=mr_thread)
+    assert (session.watch_state, session.watch_attempts) == (WatchState.FIXING, 2)
+    assert evaluations == []
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_turning_the_watch_on_does_nothing_when_the_repository_has_it_off(watch, evaluations):
     config = RepositoryConfig(**{"pipeline_watch": {"enabled": False}})
 

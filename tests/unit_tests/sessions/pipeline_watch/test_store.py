@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 import pytest
+from asgiref.sync import sync_to_async
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import WatchStore
 
@@ -128,3 +129,5 @@ async def test_the_state_read_is_none_without_a_row():
 
     assert await WatchStore().astate("stated") == WatchState.GREEN
     assert await WatchStore().astate("missing") is None
+    assert await sync_to_async(WatchStore().state)("stated") == WatchState.GREEN
+    assert await sync_to_async(WatchStore().state)("missing") is None

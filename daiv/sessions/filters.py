@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 
 from django.db.models import Q
-from django.http import QueryDict
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -55,19 +54,6 @@ def local_midnight(day: date) -> datetime:
     return timezone.make_aware(datetime.combine(day, time.min))
 
 
-class ArchivedFilter(django_filters.BooleanFilter):
-    """Archived sessions are a list of their own: ``true`` shows only the viewer's, anything else leaves them out.
-
-    Runs while unset too, unlike other filters. Archiving is per viewer, so a filterset without a request has none.
-    """
-
-    def filter(self, qs, value):
-        request = self.parent.request
-        if request is None:
-            return qs
-        return qs.archived_for(request.user, archived=value is True)
-
-
 class SessionFilter(django_filters.FilterSet):
     # Param names match the old activity deep links (?trigger=, ?status=, ...).
     q = django_filters.CharFilter(method="filter_q")
@@ -82,16 +68,11 @@ class SessionFilter(django_filters.FilterSet):
     date_from = django_filters.DateFilter(method="filter_date_from")
     date_to = django_filters.DateFilter(method="filter_date_to")
     ran_on = django_filters.DateFilter(method="filter_ran_on")
-    archived = ArchivedFilter()
 
     class Meta:
         model = Session
         # All filters are declared above; disable auto-generation from model fields.
         fields: list[str] = []
-
-    def __init__(self, data=None, *args, **kwargs):
-        # Bound even without params, or the bare list would skip ``archived`` and show archived sessions.
-        super().__init__(QueryDict() if data is None else data, *args, **kwargs)
 
     def filter_q(self, queryset, name, value):
         return queryset.filter(Q(title__icontains=value) | Q(repo_id__icontains=value))

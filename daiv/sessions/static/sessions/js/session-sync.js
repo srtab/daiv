@@ -28,17 +28,22 @@ document.addEventListener("alpine:init", () => {
       this._start();
       this.poll();
     },
+    // `requestedAt` lets a listener tell a response from before its own write apart from one after it.
+    async _fetchTurns() {
+      const requestedAt = performance.now();
+      const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return { ...(await res.json()), requestedAt };
+    },
     // One fetch for the top bar only, dispatched even on failure so the page stops holding "running".
     async _refreshHeader() {
       let data = null;
-      const requestedAt = performance.now();
       try {
-        const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
-        if (res.ok) data = await res.json();
+        data = await this._fetchTurns();
       } catch (e) {
         // The next run end or poll refreshes it; a stale status is not worth an error.
       }
-      window.dispatchEvent(new CustomEvent("daiv:session-header", { detail: data && { ...data, requestedAt } }));
+      window.dispatchEvent(new CustomEvent("daiv:session-header", { detail: data }));
     },
     _start() {
       if (!this._timer) this._timer = setInterval(() => this.poll(), 5000);
@@ -59,14 +64,11 @@ document.addEventListener("alpine:init", () => {
       if (this._engaged || this._checking) return;
       this._checking = true;
       try {
-        const requestedAt = performance.now();
-        const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
-        if (!res.ok) return;
-        const data = await res.json();
+        const data = await this._fetchTurns();
         if (!data.background) return;
         this._engaged = true;
         this._start();
-        this._apply(data, requestedAt);
+        this._apply(data);
       } catch (e) {
         // A failed check only delays the update: the next run that starts asks again.
       } finally {
@@ -75,25 +77,18 @@ document.addEventListener("alpine:init", () => {
     },
     async poll() {
       const token = ++this._seq;
-      const requestedAt = performance.now();
       try {
-        const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
-        if (!res.ok) {
-          this._onFailure(`HTTP ${res.status}`);
-          return;
-        }
-        const data = await res.json();
+        const data = await this._fetchTurns();
         if (token !== this._seq) return;
-        this._apply(data, requestedAt);
+        this._apply(data);
       } catch (e) {
         // Transient network errors: keep polling until the failure cap is hit.
         this._onFailure(e && e.message ? e.message : "network error");
       }
     },
-    // `requestedAt` lets a listener tell a response from before its own write apart from one after it.
-    _apply(data, requestedAt) {
+    _apply(data) {
       this._failures = 0;
-      window.dispatchEvent(new CustomEvent("daiv:session-turns", { detail: { ...data, requestedAt } }));
+      window.dispatchEvent(new CustomEvent("daiv:session-turns", { detail: data }));
       if (!data.active) {
         this._stop();
         this._engaged = false;

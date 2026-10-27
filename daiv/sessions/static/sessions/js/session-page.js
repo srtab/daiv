@@ -4,8 +4,6 @@
 document.addEventListener("alpine:init", () => {
   const WIDE = "(min-width: 1100px)";
 
-  const OPEN_WATCH = ["watching", "fixing"];
-
   const readJSON = (id) => {
     const el = document.getElementById(id);
     if (!el) return null;
@@ -108,13 +106,10 @@ document.addEventListener("alpine:init", () => {
       if (!data || data.latest_run === undefined) return;
       this.latest = data.latest_run;
       this.runCount = data.run_count ?? this.runCount;
-      this._takeWatch(data, data.requestedAt);
-    },
-    // A response asked for before the last toggle answered read the watch from before it; one without `watch` has
-    // no merge request on record, so the page keeps its own.
-    _takeWatch(data, requestedAt) {
-      if (!("watch" in data) || requestedAt <= this._watchAt) return;
-      this.watch = data.watch ?? null;
+      // A response asked for before the last toggle answered read the watch from before it; one without `watch`
+      // has no merge request on record, so the page keeps its own.
+      const stale = data.requestedAt <= this._watchAt;
+      if ("watch" in data && !stale) this.watch = data.watch ?? null;
     },
     _setWatch(watch) {
       this.watch = watch ?? null;
@@ -163,7 +158,7 @@ document.addEventListener("alpine:init", () => {
     },
     // A green, exhausted or unreadable watch is over: ticking the item again starts a new one.
     get ciWatchOn() {
-      return OPEN_WATCH.includes(this.watch?.state);
+      return Boolean(this.watch?.open);
     },
     get ciWatchHint() {
       if (this.ciWatchDisabled) return this.ciWatchDisabled;
@@ -205,7 +200,6 @@ document.addEventListener("alpine:init", () => {
       try {
         const res = await this._send(config.archiveUrl, "POST", { archived });
         if (!res.ok) throw new Error(`archive failed: ${res.status}`);
-        this.archived = (await res.json()).archived;
       } catch {
         this.archived = previous;
       }

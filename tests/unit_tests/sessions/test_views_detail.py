@@ -1080,7 +1080,7 @@ def test_detail_hands_the_ci_watch_to_the_page(member_client, member_user):
 
     resp = _get_detail(member_client, session)
 
-    assert resp.context["header"]["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn"}
+    assert resp.context["header"]["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn", "open": True}
     assert b'id="session-header"' in resp.content
 
 
@@ -1194,10 +1194,10 @@ def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, 
 
 @pytest.mark.django_db
 def test_detail_reads_the_watch_off_the_merge_requests_thread(member_client, member_user):
-    from sessions.header import watch_thread_id
+    from sessions.pipeline_watch.store import watch_thread_id
 
     session = _create_session(user=member_user)
-    _create_session(thread_id=watch_thread_id(session, 5), merge_request_iid=5, watch_state=WatchState.WATCHING)
+    _create_session(thread_id=watch_thread_id(session.repo_id, 5), merge_request_iid=5, watch_state=WatchState.WATCHING)
 
     with (
         patch(
@@ -1213,10 +1213,10 @@ def test_detail_reads_the_watch_off_the_merge_requests_thread(member_client, mem
 
 @pytest.mark.django_db
 def test_detail_reads_the_watch_of_a_merge_request_found_by_its_branch(member_client, member_user):
-    from sessions.header import watch_thread_id
+    from sessions.pipeline_watch.store import watch_thread_id
 
     session = _create_session(user=member_user, ref="feature")
-    _create_session(thread_id=watch_thread_id(session, 5), merge_request_iid=5, watch_state=WatchState.FIXING)
+    _create_session(thread_id=watch_thread_id(session.repo_id, 5), merge_request_iid=5, watch_state=WatchState.FIXING)
 
     resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
 

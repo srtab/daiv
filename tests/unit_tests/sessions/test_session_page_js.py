@@ -112,7 +112,7 @@ process.stdout.write(JSON.stringify({
 DONE = {"label": "Done", "variant": "success", "retry_url": "/runs/new/?from=r1"}
 FAILED = {"label": "Failed", "variant": "failed", "retry_url": ""}
 RUNNING = {"variant": "running", "label": "Running"}
-WATCHING = {"state": "watching", "label": "Waiting for CI", "tone": "attn"}
+WATCHING = {"state": "watching", "label": "Waiting for CI", "tone": "attn", "open": True}
 
 
 def _run(steps, *, initial=DONE, watch=None, wide=True, stored=None, storage_blocked=False, archived=False) -> dict:
@@ -287,7 +287,7 @@ def test_a_refused_rename_puts_the_old_title_back():
 
 def test_the_ci_item_describes_the_watch():
     assert _read(watch=WATCHING)["hint"] == "Watching: Waiting for CI"
-    assert _read(watch={"state": "green", "label": "Green", "tone": "clear"})["hint"] == "Green"
+    assert _read(watch={"state": "green", "label": "Green", "tone": "clear", "open": False})["hint"] == "Green"
     assert _read(watch=None)["hint"] == "Off for this merge request"
 
 
@@ -309,7 +309,7 @@ def test_ticking_turns_the_watch_on():
 
 @pytest.mark.parametrize("state", ["green", "exhausted", "unclear"])
 def test_a_watch_that_is_over_shows_unticked_and_ticking_starts_a_new_one(state):
-    ended = {"state": state, "label": state.title(), "tone": "fail"}
+    ended = {"state": state, "label": state.title(), "tone": "fail", "open": False}
     result = _run([["read", None], ["ci-toggle", 7], ["reply", {"body": WATCHING}], ["read", None]], watch=ended)
 
     assert result["seen"][0]["checked"] is False
@@ -318,7 +318,7 @@ def test_a_watch_that_is_over_shows_unticked_and_ticking_starts_a_new_one(state)
 
 
 def test_a_lost_race_shows_the_watch_as_it_now_is():
-    fixing = {"state": "fixing", "label": "Fixing", "tone": "attn"}
+    fixing = {"state": "fixing", "label": "Fixing", "tone": "attn", "open": True}
     result = _run(
         [
             ["ci-toggle", None],

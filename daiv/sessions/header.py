@@ -5,22 +5,22 @@ and retry link, the CI watch on its merge request, and the issue an issue-webhoo
 keeps it current are built by the same code.
 
 The CI watch lives on the merge request's own thread, which a chat or job session that published the merge request
-is not, so ``watch_thread_id`` names the row to read it from and the toggle to write it on.
+is not, so ``watch_state`` reads it off that row.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from codebase.base import GitPlatform, Scope
+from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
-from sessions.ids import compute_thread_id
-from sessions.models import Session, SessionOrigin, WatchState
+from sessions.models import SessionOrigin, WatchState
+from sessions.pipeline_watch.store import WatchStore, watch_thread_id
 from sessions.templatetags.session_tags import status_variant
 
 if TYPE_CHECKING:
-    from sessions.models import Run
+    from sessions.models import Run, Session
 
 _WATCH_TONES = {
     WatchState.WATCHING: "attn",
@@ -56,37 +56,32 @@ def merge_request_iid(session: Session, runs: list[Run], merge_request: dict | N
     return next((r.merge_request_iid for r in reversed(runs) if r.merge_request_iid), None)
 
 
-def watch_thread_id(session: Session, iid: int | None) -> str | None:
-    """The thread that holds the CI watch on merge request ``iid``, or ``None`` without one."""
+def _other_watch_thread(session: Session, iid: int | None) -> str | None:
+    """The thread holding the CI watch on merge request ``iid``, or ``None`` when ``session`` holds it itself."""
     if not iid or not session.repo_id:
         return None
-    return compute_thread_id(repo_slug=session.repo_id, scope=Scope.MERGE_REQUEST, entity_iid=iid)
+    thread_id = watch_thread_id(session.repo_id, iid)
+    return None if thread_id == session.thread_id else thread_id
 
 
-def watch_session(session: Session, iid: int | None) -> Session | None:
-    """SYNC ONLY: the row holding the watch on merge request ``iid``; ``None`` while nothing ever armed one."""
-    thread_id = watch_thread_id(session, iid)
-    if thread_id is None or thread_id == session.thread_id:
-        return session
-    return Session.objects.filter(thread_id=thread_id).only("thread_id", "watch_state").first()
+def watch_state(session: Session, iid: int | None) -> str | None:
+    """SYNC ONLY: the state of the CI watch on merge request ``iid``; ``None`` while nothing ever armed one."""
+    thread_id = _other_watch_thread(session, iid)
+    return session.watch_state if thread_id is None else WatchStore().state(thread_id)
 
 
-async def awatch_session(session: Session, iid: int | None, *, fresh: bool = False) -> Session | None:
-    """:func:`watch_session` for async callers; ``fresh`` reads the row back even when it is ``session``."""
-    thread_id = watch_thread_id(session, iid)
-    if thread_id is None or (thread_id == session.thread_id and not fresh):
-        return session
-    return await Session.objects.filter(thread_id=thread_id).only("thread_id", "watch_state").afirst()
+async def awatch_state(session: Session, iid: int | None) -> str | None:
+    """:func:`watch_state` for async callers."""
+    thread_id = _other_watch_thread(session, iid)
+    return session.watch_state if thread_id is None else await WatchStore().astate(thread_id)
 
 
-def watch_payload(session: Session | None) -> dict[str, str] | None:
-    """The CI watch ``session`` holds, or ``None`` when nothing is watched."""
-    if session is None:
-        return None
-    tone = _WATCH_TONES.get(session.watch_state)
+def watch_payload(state: str | None) -> dict[str, Any] | None:
+    """The CI watch in ``state``, or ``None`` when nothing is watched; ``open`` while it still waits on or fixes CI."""
+    tone = _WATCH_TONES.get(state)
     if tone is None:
         return None
-    return {"state": session.watch_state, "label": str(session.get_watch_state_display()), "tone": tone}
+    return {"state": state, "label": str(WatchState(state).label), "tone": tone, "open": state in WatchState.open()}
 
 
 def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
@@ -121,7 +116,7 @@ def build_session_header(
     """SYNC ONLY: the header's context, for ``runs`` ordered oldest first and the ``merge_request`` the page shows."""
     return {
         "latest_run": latest_run_payload(runs, retry_urls),
-        "watch": watch_payload(watch_session(session, merge_request_iid(session, runs, merge_request))),
+        "watch": watch_payload(watch_state(session, merge_request_iid(session, runs, merge_request))),
         "issue": issue_link(session, runs),
         "run_count": len(runs),
     }

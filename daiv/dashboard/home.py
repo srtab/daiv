@@ -156,11 +156,7 @@ def inbox(user: User) -> dict:
 
 def recent_sessions(user: User) -> list[Session]:
     return list(
-        Session.objects
-        .listed_for(user, mine=True)
-        .archived_for(user, archived=False)
-        .with_row_runs()
-        .order_by("-last_active_at")[:RECENT_SESSIONS_LIMIT]
+        Session.objects.listed_for(user, mine=True).with_row_runs().order_by("-last_active_at")[:RECENT_SESSIONS_LIMIT]
     )
 
 

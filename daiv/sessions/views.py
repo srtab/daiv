@@ -147,6 +147,13 @@ class SessionListView(LoginRequiredMixin, FilterView):
     def scope(self) -> str:
         return resolve_scope(self.request.GET)
 
+    @cached_property
+    def archived(self) -> bool:
+        return self.request.GET.get("archived") == "true"
+
+    def _listed(self, *, archived: bool) -> QuerySet[Session]:
+        return Session.objects.listed_for(self.request.user, mine=self.scope == SCOPE_MINE, archived=archived)
+
     def get_template_names(self) -> list[str]:
         # HTMX requests get just the results fragment so the filter bar and page
         # chrome stay put; a normal GET renders the full page (deep-link / no-JS safe).
@@ -158,7 +165,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
         # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
         # gives the SSE dot the real ``Run.id`` to key live updates on.
-        return Session.objects.listed_for(self.request.user, mine=self.scope == SCOPE_MINE).with_row_runs()
+        return self._listed(archived=self.archived).with_row_runs()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -181,7 +188,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
         context["current_to"] = self.request.GET.get("date_to", "")
-        context["current_archived"] = bool(cleaned.get("archived"))
+        context["current_archived"] = self.archived
         context["has_active_filters"] = any([
             context["current_q"],
             context["current_status"],
@@ -196,12 +203,9 @@ class SessionListView(LoginRequiredMixin, FilterView):
             context["current_to"],
             context["current_archived"],
         ])
-        if context["has_active_filters"] and not context["current_archived"]:
-            archived = self.request.GET.copy()
-            archived["archived"] = "true"
-            context["archived_matches"] = SessionFilter(
-                archived, queryset=self.filterset.queryset, request=self.request
-            ).qs.count()
+        if context["has_active_filters"] and not self.archived:
+            archived = SessionFilter(self.request.GET, queryset=self._listed(archived=True))
+            context["archived_matches"] = archived.qs.count()
         context["origins"] = SessionOrigin.choices
         context["statuses"] = STATUS_CHOICES
         context["scopes"] = SCOPE_CHOICES

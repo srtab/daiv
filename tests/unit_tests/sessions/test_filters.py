@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, time, timedelta
-from types import SimpleNamespace
 
 from django.utils import timezone
 
 import pytest
 from sessions.artifacts import ArtifactKind, content_types_for_kind
 from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, resolve_scope
-from sessions.models import HiddenSession, Run, RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
@@ -89,40 +88,6 @@ def test_resolve_scope(data, expected):
 
 @pytest.mark.django_db
 class TestSessionFilter:
-    @pytest.mark.parametrize(
-        ("data", "lists_archived"),
-        [
-            (None, False),
-            ({}, False),
-            ({"archived": "false"}, False),
-            ({"archived": "1"}, False),
-            ({"archived": "true"}, True),
-        ],
-    )
-    def test_archived_sessions_are_a_list_of_their_own(self, user, data, lists_archived):
-        shown = _create_session()
-        hidden = _create_session()
-        HiddenSession.objects.create(session=hidden, user=user)
-
-        f = SessionFilter(data, queryset=_qs(), request=SimpleNamespace(user=user))
-
-        assert list(f.qs) == ([hidden] if lists_archived else [shown])
-        assert bool(f.form.cleaned_data["archived"]) is lists_archived
-
-    def test_archiving_hides_a_session_from_the_archiver_alone(self, user):
-        other = User.objects.create_user(username="bob", email="bob@test.com", password="x")  # noqa: S106
-        session = _create_session()
-        HiddenSession.objects.create(session=session, user=other)
-
-        assert list(SessionFilter({}, queryset=_qs(), request=SimpleNamespace(user=user)).qs) == [session]
-        assert list(SessionFilter({}, queryset=_qs(), request=SimpleNamespace(user=other)).qs) == []
-
-    def test_without_a_viewer_nothing_is_archived(self, user):
-        session = _create_session()
-        HiddenSession.objects.create(session=session, user=user)
-
-        assert list(SessionFilter({"archived": "true"}, queryset=_qs()).qs) == [session]
-
     def test_no_params_returns_all(self, user):
         a = _create_session()
         b = _create_session()

@@ -146,7 +146,7 @@ def test_the_finished_run_is_not_followed_again():
 
     result = _run(
         {"liveRunId": "r1"},
-        [["event", "daiv:live-run-ended"], ["respond", payload], ["respond", payload], ["advance", 5000]],
+        [["respond", payload], ["respond", payload], ["event", "daiv:live-run-ended"], ["advance", 5000]],
     )
 
     assert "daiv:session-live-run" not in [e["type"] for e in result["events"]]

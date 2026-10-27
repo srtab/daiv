@@ -402,3 +402,11 @@ class TestArchivedFor:
         assert list(Session.objects.archived_for(other_user)) == [hidden]
         assert list(Session.objects.archived_for(other_user, archived=False)) == [shown]
         assert set(Session.objects.archived_for(member_user, archived=False)) == {shown, hidden}
+
+    def test_the_list_leaves_out_what_the_user_archived_unless_asked_for_it(self, member_user):
+        shown = self._session(member_user)
+        hidden = self._session(member_user)
+        HiddenSession.objects.create(session=hidden, user=member_user)
+
+        assert list(Session.objects.listed_for(member_user, mine=True)) == [shown]
+        assert list(Session.objects.listed_for(member_user, mine=True, archived=True)) == [hidden]

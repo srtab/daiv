@@ -729,7 +729,7 @@ async def test_session_ci_watch_off_loses_to_a_fix_run_that_claimed_the_watch_af
 
     assert resp.status_code == 409
     assert resp.json()["reason"] == "changed"
-    assert resp.json()["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn"}
+    assert resp.json()["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn", "open": True}
     await session.arefresh_from_db()
     assert session.watch_state == WatchState.FIXING
 
@@ -746,7 +746,7 @@ async def test_session_ci_watch_on_arms_the_merge_request_the_page_names_and_ask
     resp = await client.post(f"/sessions/{session.thread_id}/ci-watch", json=TURN_ON, headers=_auth_headers(raw))
 
     assert resp.status_code == 200
-    assert resp.json() == {"state": "watching", "label": "Waiting for CI", "tone": "attn"}
+    assert resp.json() == {"state": "watching", "label": "Waiting for CI", "tone": "attn", "open": True}
     watch_row = await Session.objects.aget(thread_id=_watch_thread_id(7))
     assert (watch_row.ref, watch_row.user_id, watch_row.watch_attempts) == ("daiv/renamed", user.pk, 0)
     assert watch_world.evaluations == [{"repo_id": "group/project", "ref": "daiv/renamed"}]
@@ -830,4 +830,4 @@ async def test_session_turns_report_the_watch_the_merge_requests_thread_holds(cl
     with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
-    assert resp.json()["watch"] == {"state": "green", "label": "Green", "tone": "clear"}
+    assert resp.json()["watch"] == {"state": "green", "label": "Green", "tone": "clear", "open": False}

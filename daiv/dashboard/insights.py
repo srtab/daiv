@@ -325,7 +325,7 @@ def session_breakdown(user: User, window: Window, previous: Window | None) -> di
     link opens.
     """
     period = window.list_params()
-    listed = Session.objects.listed_for(user).archived_for(user, archived=False)
+    listed = Session.objects.listed_for(user)
     sessions = SessionFilter(period, queryset=listed).qs
     rows = list(
         sessions
