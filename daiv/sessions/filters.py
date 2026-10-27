@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING
 
 from django.db.models import Q
 from django.utils import timezone
@@ -11,10 +10,6 @@ import django_filters
 
 from sessions.artifacts import KNOWN_KIND_CONTENT_TYPES, ArtifactKind, content_types_for_kind
 from sessions.models import RunArtifact, RunStatus, Session, SessionOrigin
-
-if TYPE_CHECKING:
-    from accounts.models import User
-    from sessions.managers import SessionQuerySet
 
 RANGE_CHOICES: list[tuple[str, str]] = [
     ("today", _("Today")),
@@ -42,20 +37,12 @@ SCOPE_CHOICES: list[tuple[str, str]] = [(SCOPE_MINE, _("Mine")), (SCOPE_ALL, _("
 DEEP_LINK_PARAMS = ("repo", "mr", "schedule", "batch")
 
 
-def default_scope(data) -> str:
-    """The scope a URL without a valid ``scope`` gets: ``all`` for a deep link, else ``mine``."""
-    return SCOPE_ALL if any(data.get(param) for param in DEEP_LINK_PARAMS) else SCOPE_MINE
-
-
 def resolve_scope(data) -> str:
-    """The scope a request's query params select: an explicit valid ``scope``, else :func:`default_scope`."""
+    """The scope a request's query params select: an explicit valid ``scope``, else ``all`` for a deep link."""
     scope = data.get("scope")
-    return scope if scope in dict(SCOPE_CHOICES) else default_scope(data)
-
-
-def scope_queryset(queryset: SessionQuerySet, user: User, scope: str) -> SessionQuerySet:
-    """The sessions ``scope`` shows ``user``: the ones they own for ``mine``, all they may see for ``all``."""
-    return queryset.owned_by(user) if scope == SCOPE_MINE else queryset.visible_to(user)
+    if scope in dict(SCOPE_CHOICES):
+        return scope
+    return SCOPE_ALL if any(data.get(param) for param in DEEP_LINK_PARAMS) else SCOPE_MINE
 
 
 # Rolling-window size per range token; "today" is special-cased to local calendar midnight.
@@ -64,7 +51,6 @@ _RANGE_WINDOWS: dict[str, timedelta] = {"2d": timedelta(days=2), "7d": timedelta
 
 class SessionFilter(django_filters.FilterSet):
     # Param names match the old activity deep links (?trigger=, ?status=, ...).
-    scope = django_filters.ChoiceFilter(choices=SCOPE_CHOICES, method="filter_scope")
     q = django_filters.CharFilter(method="filter_q")
     status = django_filters.ChoiceFilter(choices=STATUS_CHOICES, method="filter_status")
     trigger = django_filters.ChoiceFilter(field_name="origin", choices=SessionOrigin.choices)
@@ -81,15 +67,6 @@ class SessionFilter(django_filters.FilterSet):
         model = Session
         # All filters are declared above; disable auto-generation from model fields.
         fields: list[str] = []
-
-    def __init__(self, data=None, *args, **kwargs):
-        data = data.copy() if data is not None else {}
-        data["scope"] = resolve_scope(data)
-        super().__init__(data, *args, **kwargs)
-
-    def filter_scope(self, queryset, name, value):
-        # The view applies the scope as its base queryset (``scope_queryset``); here it is only validated.
-        return queryset
 
     def filter_q(self, queryset, name, value):
         return queryset.filter(Q(title__icontains=value) | Q(repo_id__icontains=value))

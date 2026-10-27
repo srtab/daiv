@@ -39,14 +39,13 @@ from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
 from sessions.executor.lock import live_run_for, session_activity
 from sessions.filters import (
-    DEEP_LINK_PARAMS,
     RANGE_CHOICES,
     SCOPE_CHOICES,
+    SCOPE_MINE,
     STATUS_CHOICES,
     ArtifactFilter,
     SessionFilter,
     resolve_scope,
-    scope_queryset,
 )
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
@@ -143,6 +142,10 @@ class SessionListView(LoginRequiredMixin, FilterView):
     # silently drop that filter, not blank the whole list.
     strict = False
 
+    @cached_property
+    def scope(self) -> str:
+        return resolve_scope(self.request.GET)
+
     def get_template_names(self) -> list[str]:
         # HTMX requests get just the results fragment so the filter bar and page
         # chrome stay put; a normal GET renders the full page (deep-link / no-JS safe).
@@ -155,7 +158,11 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
         # gives the SSE dot the real ``Run.id`` to key live updates on.
         return (
-            scope_queryset(Session.objects.all(), self.request.user, resolve_scope(self.request.GET))
+            (
+                Session.objects.owned_by(self.request.user)
+                if self.scope == SCOPE_MINE
+                else Session.objects.visible_to(self.request.user)
+            )
             .without_watch_placeholders()
             .with_latest_status()
             .select_related("user", "scheduled_job")
@@ -185,8 +192,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context = super().get_context_data(**kwargs)
         form = context["filter"].form
         cleaned = form.cleaned_data if form.is_valid() else {}
-        # The filterset always fills scope (explicit, or defaulted from the deep-link params).
-        context["current_scope"] = form.data["scope"]
+        context["current_scope"] = self.scope
         context["current_status"] = cleaned.get("status") or ""
         context["current_trigger"] = cleaned.get("trigger") or ""
         context["current_trigger_label"] = dict(SessionOrigin.choices).get(context["current_trigger"], "")
@@ -217,12 +223,16 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["origins"] = SessionOrigin.choices
         context["statuses"] = STATUS_CHOICES
         context["scopes"] = SCOPE_CHOICES
-        context["scope_values"] = " ".join(dict(SCOPE_CHOICES))
-        context["deep_link_params"] = " ".join(DEEP_LINK_PARAMS)
         context["ranges"] = RANGE_CHOICES
 
         if context["current_schedule"]:
-            context["schedule_name"] = self._schedule_name(context["sessions"], context["current_schedule"])
+            context["schedule_name"] = (
+                Session.objects
+                .visible_to(self.request.user)
+                .filter(scheduled_job_id=context["current_schedule"])
+                .values_list("scheduled_job__name", flat=True)
+                .first()
+            ) or ""
 
         # In-flight RUN ids across the page's sessions, for the SSE status stream.
         page_ids = [s.pk for s in context["sessions"]]
@@ -230,19 +240,6 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["in_flight_ids"] = ",".join(str(rid) for rid in in_flight.values_list("id", flat=True))
 
         return context
-
-    def _schedule_name(self, sessions, schedule_id) -> str:
-        """Name the schedule chip from a visible row; ``Mine`` can leave the page without one."""
-        first = next(iter(sessions), None)
-        if first is not None:
-            return first.scheduled_job.name
-        return (
-            Session.objects
-            .visible_to(self.request.user)
-            .filter(scheduled_job_id=schedule_id)
-            .values_list("scheduled_job__name", flat=True)
-            .first()
-        ) or ""
 
 
 class SessionMergeRequestRedirectView(LoginRequiredMixin, View):

@@ -120,6 +120,22 @@ class TestSessionListView:
         assert response.context["current_scope"] == "all"
         assert f'href="{reverse("session_list")}?scope=all"' in response.content.decode()
 
+    @pytest.mark.parametrize("param", ["repo", "schedule", "batch", "mr"])
+    def test_a_deep_link_without_scope_shows_teammates_sessions(self, admin_client, admin_user, other_user, param):
+        schedule = _create_schedule(other_user, "Nightly")
+        batch_id = uuid.uuid4()
+        _create_session(user=admin_user, repo_id="group/other")
+        theirs = _create_session(user=other_user, scheduled_job=schedule, merge_request_iid=42)
+        _create_run(theirs, batch_id=batch_id)
+        value = {"repo": "group/project", "schedule": str(schedule.pk), "batch": str(batch_id), "mr": "42"}[param]
+
+        response = admin_client.get(reverse("session_list"), {param: value})
+
+        assert [s.pk for s in response.context["sessions"]] == [theirs.pk]
+        assert response.context["current_scope"] == "all"
+        response = admin_client.get(reverse("session_list"), {param: value, "scope": "mine"})
+        assert list(response.context["sessions"]) == []
+
     def test_filter_bar_renders_the_scope_toggle(self, logged_in_client, user):
         html = logged_in_client.get(reverse("session_list")).content.decode()
         assert "setScope('mine')" in html

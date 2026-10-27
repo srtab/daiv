@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, time, timedelta
-from types import SimpleNamespace
 
-from django.http import QueryDict
 from django.utils import timezone
 
 import pytest
 from sessions.artifacts import ArtifactKind, content_types_for_kind
-from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, default_scope, resolve_scope, scope_queryset
+from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, resolve_scope
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
-from accounts.models import Role, User
+from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
 from tests.unit_tests.sessions.conftest import make_artifact
 
@@ -78,75 +76,14 @@ def test_status_choices_cover_every_run_status():
         ({"schedule": "7"}, "all"),
         ({"batch": str(uuid.UUID(int=1))}, "all"),
         ({"repo": ""}, "mine"),
+        ({"repo": "group/project", "scope": "mine"}, "mine"),
+        ({"scope": "all"}, "all"),
+        ({"scope": "everyone"}, "mine"),
+        ({"scope": "everyone", "repo": "group/project"}, "all"),
     ],
 )
-def test_default_scope(data, expected):
-    assert default_scope(data) == expected
-
-
-@pytest.mark.django_db
-class TestSessionFilterScope:
-    @pytest.fixture
-    def user(self, db):
-        """An admin, so ``all`` shows teammates' sessions without granting repository access."""
-        return User.objects.create_user(
-            username="alice",
-            email="alice@test.com",
-            password="testpass123",  # noqa: S106
-            role=Role.ADMIN,
-        )
-
-    @pytest.fixture
-    def teammate(self, db):
-        return User.objects.create_user(username="bob", email="bob@test.com", password="x")  # noqa: S106
-
-    @pytest.fixture
-    def sessions(self, user, teammate):
-        return _create_session(user=user), _create_session(user=teammate)
-
-    def _pks(self, data, user):
-        queryset = scope_queryset(_qs(), user, resolve_scope(data or {}))
-        f = SessionFilter(data, queryset=queryset, request=SimpleNamespace(user=user))
-        return set(f.qs.values_list("pk", flat=True)), f.form.data["scope"]
-
-    def test_a_plain_visit_shows_only_mine(self, user, sessions):
-        mine, theirs = sessions
-        assert self._pks(None, user) == ({mine.pk}, "mine")
-
-    def test_scope_all_shows_teammates_sessions(self, user, sessions):
-        mine, theirs = sessions
-        assert self._pks({"scope": "all"}, user) == ({mine.pk, theirs.pk}, "all")
-
-    @pytest.mark.parametrize("param", ["repo", "schedule", "batch", "mr"])
-    def test_a_deep_link_without_scope_shows_everything_it_points_at(self, user, teammate, param):
-        job = ScheduledJob.objects.create(
-            user=teammate,
-            name="nightly",
-            prompt="x",
-            repos=[{"repo_id": "group/project", "ref": ""}],
-            frequency=Frequency.DAILY,
-            time=time(3, 0),
-        )
-        batch_id = uuid.uuid4()
-        theirs = _create_session(user=teammate, scheduled_job=job, merge_request_iid=42)
-        _create_run(theirs, batch_id=batch_id)
-        value = {"repo": "group/project", "schedule": str(job.pk), "batch": str(batch_id), "mr": "42"}[param]
-
-        assert self._pks({param: value}, user) == ({theirs.pk}, "all")
-
-    def test_an_explicit_scope_beats_the_deep_link_default(self, user, sessions):
-        mine, theirs = sessions
-        assert self._pks({"repo": "group/project", "scope": "mine"}, user) == ({mine.pk}, "mine")
-
-    def test_an_invalid_scope_falls_back_to_the_default(self, user, sessions):
-        mine, theirs = sessions
-        assert self._pks({"scope": "everyone"}, user) == ({mine.pk}, "mine")
-        assert self._pks({"scope": "everyone", "repo": "group/project"}, user) == ({mine.pk, theirs.pk}, "all")
-
-    def test_a_query_dict_is_not_mutated(self, user, sessions):
-        data = QueryDict("q=x")
-        SessionFilter(data, queryset=_qs(), request=SimpleNamespace(user=user))
-        assert "scope" not in data
+def test_resolve_scope(data, expected):
+    assert resolve_scope(data) == expected
 
 
 @pytest.mark.django_db

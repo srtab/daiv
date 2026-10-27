@@ -4,9 +4,9 @@
    hx-swap="none"
    hx-on::after-request="window.location.href = this.getAttribute('href')"
    class="block border-b border-border px-4 py-3 transition hover:bg-surface-3 last:border-b-0 {% if not notification.read_at %}bg-surface-3/50{% endif %}">
-  <div class="flex items-start gap-3">
-    {% with outcome=notification.outcome %}
-    <span class="outcome-icon outcome-icon--{{ outcome.tone }}" data-outcome="{{ outcome.key }}">
+  {% with outcome=notification.outcome %}
+  <div class="outcome--{{ outcome.tone }} flex items-start gap-3">
+    <span class="outcome-icon" data-outcome="{{ outcome.key }}">
       {% icon outcome.icon "h-4 w-4" %}
     </span>
     <div class="min-w-0 flex-1">
@@ -18,7 +18,7 @@
       </div>
       <p class="mt-0.5 line-clamp-2 text-xs text-text-muted">{{ notification.body }}</p>
       <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-faint">
-        <span class="outcome-label outcome-label--{{ outcome.tone }}">{{ outcome.label }}</span>
+        <span class="outcome-label">{{ outcome.label }}</span>
         <span>{{ notification.created|timesince }} {% translate "ago" %}</span>
         {% for d in notification.deliveries.all %}
           {% if d.status == "failed" %}
@@ -29,6 +29,6 @@
         {% endfor %}
       </div>
     </div>
-    {% endwith %}
   </div>
+  {% endwith %}
 </a>

@@ -34,11 +34,8 @@ document.addEventListener("alpine:init", () => {
 
         _readUrl() {
             const p = new URLSearchParams(window.location.search);
-            // Same rule as sessions.filters.resolve_scope, whose values the server renders onto the root.
-            const scopes = this.$root.dataset.scopes.split(" ");
-            const deepLink = this.$root.dataset.deepLinkParams.split(" ").some((key) => p.get(key));
-            const scope = p.get("scope");
-            this.scope = scopes.includes(scope) ? scope : deepLink ? "all" : "mine";
+            // Only the server-rendered URL can lack a scope (_apply always sets one), so take the scope it resolved.
+            this.scope = p.get("scope") || this.$root.dataset.scope;
             this.q = p.get("q") || "";
             this.status = p.get("status") || "";
             this.trigger = p.get("trigger") || "";

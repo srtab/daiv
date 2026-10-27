@@ -38,7 +38,7 @@ class TestNotificationListView:
         content = member_client.get("/dashboard/notifications/").content.decode()
         assert 'data-outcome="ci-still-failing"' in content
         assert 'data-outcome="needs-input"' in content
-        assert "outcome-icon--fail" in content
+        assert "outcome--fail" in content
 
     def test_rows_hide_sent_deliveries_and_flag_failed_ones(self, member_client, member_user):
         sent = Notification.objects.create(

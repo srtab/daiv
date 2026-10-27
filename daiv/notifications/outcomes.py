@@ -29,15 +29,15 @@ class Outcome(NamedTuple):
     tone: str  # clear / found / attn / fail — the DESIGN.md status token it is painted with
 
 
-_ENVELOPE_LOOKS: dict[EnvelopeStatus, tuple[str, str]] = {
-    EnvelopeStatus.FAILED: ("exclamation-circle", "fail"),
-    EnvelopeStatus.NEEDS_INPUT: ("chat-bubble", "found"),
-    EnvelopeStatus.FOUND_ISSUES: ("exclamation-triangle", "found"),
-    EnvelopeStatus.NEEDS_ATTENTION: ("magnifying-glass", "attn"),
-    EnvelopeStatus.ALL_CLEAR: ("check-circle", "clear"),
-}
 ENVELOPE_OUTCOMES: dict[str, Outcome] = {
-    status: Outcome(status, status.label, icon, tone) for status, (icon, tone) in _ENVELOPE_LOOKS.items()
+    status: Outcome(status, status.label, icon, tone)
+    for status, icon, tone in (
+        (EnvelopeStatus.FAILED, "exclamation-circle", "fail"),
+        (EnvelopeStatus.NEEDS_INPUT, "chat-bubble", "found"),
+        (EnvelopeStatus.FOUND_ISSUES, "exclamation-triangle", "found"),
+        (EnvelopeStatus.NEEDS_ATTENTION, "magnifying-glass", "attn"),
+        (EnvelopeStatus.ALL_CLEAR, "check-circle", "clear"),
+    )
 }
 CI_STILL_FAILING = Outcome("ci-still-failing", _("CI still failing"), "arrow-path", "fail")
 CANT_RUN = Outcome("cant-run", _("Can't run"), "pause", "fail")

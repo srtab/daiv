@@ -35,7 +35,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         return (
             models.Q(user=user)
             | models.Q(external_username=user.username)
-            | models.Q(scheduled_job__subscribers=user)
+            | models.Q(scheduled_job__in=user.subscribed_schedules.values("pk"))
             | models.Exists(run_match)
         )
 
@@ -45,7 +45,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         Unlike :meth:`by_owner` this is a view filter, not a visibility boundary, so an admin's
         "Mine" is their own sessions rather than everything they may see.
         """
-        return self.filter(self._owner_q(user)).distinct()
+        return self.filter(self._owner_q(user))
 
     def by_owner(self, user: User) -> models.QuerySet[Session]:
         """Sessions the user owns (ownership only).
@@ -72,7 +72,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         # (and its codebase.* / allauth graph) in at app-load time.
         from codebase.authorization import viewable_repo_ids_subquery
 
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
+        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user)))
 
     def for_merge_request(self, iid: int) -> models.QuerySet[Session]:
         """Sessions that touched merge request ``iid``, whichever way they learned of it.

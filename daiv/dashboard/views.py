@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from urllib.parse import urlencode
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q, Sum
@@ -7,6 +8,7 @@ from django.urls import reverse
 from django.utils.timezone import localdate
 from django.views.generic import TemplateView
 
+from sessions.filters import SCOPE_ALL
 from sessions.models import Run, RunStatus, SessionOrigin
 
 from accounts.models import APIKey, User
@@ -120,7 +122,10 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         scheduled_count = stats["scheduled"]
         api_jobs_count = stats["api_jobs"]
         chat_jobs_count = stats["chat_jobs"]
-        sessions_url = f"{reverse('session_list')}?scope=all"
+        sessions_url = reverse("session_list")
+
+        def sessions_link(**params) -> str:
+            return f"{sessions_url}?{urlencode({'scope': SCOPE_ALL, **params})}"
 
         # Non-overlapping segments for the breakdown bar.
         # Trigger types are mutually exclusive, so the trigger-keyed segments never overlap.
@@ -137,14 +142,14 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             - failed_count,
         )
         raw_segments = [
-            ("Issues", issues_count, "bg-amber-500/50", f"{sessions_url}&trigger={SessionOrigin.ISSUE_WEBHOOK}"),
-            ("MR/PR", mrs_count, "bg-cyan-500/50", f"{sessions_url}&trigger={SessionOrigin.MR_WEBHOOK}"),
-            ("MCP Job", mcp_jobs_count, "bg-indigo-500/50", f"{sessions_url}&trigger={SessionOrigin.MCP_JOB}"),
-            ("Scheduled", scheduled_count, "bg-violet-500/40", f"{sessions_url}&trigger={SessionOrigin.SCHEDULE}"),
-            ("API", api_jobs_count, "bg-emerald-500/50", f"{sessions_url}&trigger={SessionOrigin.API_JOB}"),
-            ("Chat", chat_jobs_count, "bg-sky-500/40", f"{sessions_url}&trigger={SessionOrigin.CHAT}"),
+            ("Issues", issues_count, "bg-amber-500/50", sessions_link(trigger=SessionOrigin.ISSUE_WEBHOOK)),
+            ("MR/PR", mrs_count, "bg-cyan-500/50", sessions_link(trigger=SessionOrigin.MR_WEBHOOK)),
+            ("MCP Job", mcp_jobs_count, "bg-indigo-500/50", sessions_link(trigger=SessionOrigin.MCP_JOB)),
+            ("Scheduled", scheduled_count, "bg-violet-500/40", sessions_link(trigger=SessionOrigin.SCHEDULE)),
+            ("API", api_jobs_count, "bg-emerald-500/50", sessions_link(trigger=SessionOrigin.API_JOB)),
+            ("Chat", chat_jobs_count, "bg-sky-500/40", sessions_link(trigger=SessionOrigin.CHAT)),
             ("Other", other_count, "bg-gray-500/30", None),
-            ("Failed", failed_count, "bg-red-500/40", f"{sessions_url}&status={RunStatus.FAILED}"),
+            ("Failed", failed_count, "bg-red-500/40", sessions_link(status=RunStatus.FAILED)),
         ]
         segments = []
         for label, value, css, url in raw_segments:
@@ -170,7 +175,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "code_changes": code_changes_count,
             "code_changes_pct": _format_pct(code_changes_count, successful_count),
             "avg_duration_s": avg_duration.total_seconds() if avg_duration is not None else None,
-            "activity_url": sessions_url,
+            "activity_url": sessions_link(),
             "segments": segments,
         }
 
