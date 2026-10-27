@@ -14,7 +14,7 @@ Speculative edge cases are not findings: a candidate needs a concrete trigger an
 
    `ERROR: could not read the complete canonical diff.`
 
-3. After reading the diff, identify at most three concrete correctness candidates anchored to changed lines, or at most six when the canonical diff is longer than 1,000 lines.
+3. After reading the diff, identify at most three concrete correctness candidates anchored to changed lines, or at most six when the canonical diff is longer than 1,000 lines. Then check the changed documentation, configuration, and test files against the changed behavior, and add at most two more candidates where the change makes them wrong.
 4. Candidates must originate in the diff. Do not inspect repository files merely to search for possible defects.
 5. If the diff presents no concrete candidate, return `No findings.` immediately.
 6. For each candidate, perform at most two focused repository lookups. Each lookup must resolve one specific missing fact in the evidence chain.
@@ -52,7 +52,8 @@ Examples include:
 - swallowed failures, invalid continuation, incomplete cleanup, or broken retries;
 - race conditions, lost updates, ordering defects, or broken atomicity;
 - tests that claim to verify behavior but exercise a materially different path, never assert what their name or message claims, or assert the defective behavior the change introduces;
-- a new branch or error path that the change's own tests leave out while testing its sibling paths.
+- a new branch or error path that the change's own tests leave out while testing its sibling paths;
+- documentation, comments, or configuration in the diff that contradict the changed behavior, such as a doc that still describes the old behavior, a setting the code no longer reads, or a newly required setting with no default.
 
 These are examples, not a checklist. Do not inspect the repository to rule out every category.
 
@@ -62,6 +63,7 @@ Do not report:
 
 - missing tests in general, beyond the untested new path described above;
 - speculative or unreachable edge cases;
+- wording, typos, or formatting in documentation;
 - defensive improvements without a violated contract;
 - pre-existing problems;
 - concerns primarily about security, performance, structure, or repository rules.
