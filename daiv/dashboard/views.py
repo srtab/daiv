@@ -179,13 +179,17 @@ def _my_sessions_url(**params: str) -> str:
 
 
 def _started_from() -> list[tuple[str, frozenset[str]]]:
+    """Every trigger in exactly one group, so the counts add up to the week's runs."""
     platform = "GitHub" if codebase_settings.CLIENT == GitPlatform.GITHUB else "GitLab"
-    return [
-        (platform, SessionOrigin.webhooks()),
+    groups = [
+        (platform, SessionOrigin.webhooks() | {SessionOrigin.PIPELINE_WEBHOOK}),
         (str(_("Your editor")), frozenset({SessionOrigin.MCP_JOB})),
         (str(_("Here")), frozenset({SessionOrigin.CHAT, SessionOrigin.UI_JOB})),
         (str(_("Schedules")), frozenset({SessionOrigin.SCHEDULE})),
+        (str(_("API")), frozenset({SessionOrigin.API_JOB})),
     ]
+    grouped = frozenset().union(*(origins for _label, origins in groups))
+    return [*groups, (str(_("Delegated by the agent")), frozenset(SessionOrigin.values) - grouped)]
 
 
 def your_week(user: User) -> dict:

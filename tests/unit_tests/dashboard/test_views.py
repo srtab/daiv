@@ -628,6 +628,16 @@ class TestYourWeek:
             {"label": "Here", "count": 1},
         ]
 
+    def test_started_from_covers_every_trigger(self, member_user, member_client):
+        session = _bare_session(member_user, SessionOrigin.API_JOB)
+        for origin in SessionOrigin.values:
+            _week_run(session, trigger_type=origin)
+
+        week = _week(member_client)
+
+        assert sum(source["count"] for source in week["started_from"]) == week["runs"] == len(SessionOrigin.values)
+        assert {"label": "GitLab", "count": 3} in week["started_from"]
+
     def test_quiet_week_shows_a_nudge(self, member_user, member_client):
         _week_run(_bare_session(member_user, days_ago=10), days_ago=10)
 
