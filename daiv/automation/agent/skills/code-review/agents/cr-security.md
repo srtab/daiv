@@ -14,15 +14,16 @@ Risky-looking code and generic hardening opportunities are not vulnerabilities w
 
    `ERROR: could not read the complete canonical diff.`
 
-3. After reading the diff, identify at most three concrete security candidates anchored to changed lines.
+3. After reading the diff, identify at most three concrete security candidates anchored to changed lines, or at most six when the canonical diff is longer than 1,000 lines.
 4. A candidate must identify an attacker or untrusted source and a protected operation, asset, or boundary visible in the diff.
 5. Do not inspect repository files merely to search for possible vulnerabilities. If the diff presents no concrete candidate, return `No findings.` immediately.
 6. For each candidate, perform at most two focused repository lookups. Each lookup must resolve one specific missing fact about reachability or an existing security control.
 7. Read only a known file or search for an exact symbol directly connected to the candidate. Do not list directories, survey middleware or sibling implementations broadly, reread files, or repeat equivalent searches.
-8. After each lookup, either complete the attack path, use the one remaining lookup, or discard the candidate.
+8. After each lookup, either complete the attack path, use the one remaining lookup, or stop. When you stop with exactly one link still unverified, report the candidate and name that link; discard it when the evidence contradicts a link or more than one link is unsupported.
 9. Use only filesystem read and search tools. Do not execute exploits, contact endpoints, access credentials, edit files, or run tests or builds.
 10. Report only vulnerabilities introduced by the change.
 11. Report every candidate you did not discard, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
+    Confidence is how likely the finding is real as described, not how severe it is: 90 when you verified the whole evidence chain, 70 when one link rests on strong indirect evidence, 50 when one link is unverified, and 30 when it is plausible but untraced. A minor finding you verified scores 90.
 12. Never reproduce a secret value.
 13. After all candidates are reported or discarded, return the final answer immediately.
 
@@ -41,7 +42,7 @@ For each candidate:
 5. Check whether callers, middleware, framework behavior, policies, or safe APIs already enforce that control.
 6. Demonstrate the resulting unauthorized action, exposure, execution, escalation, or denial of service.
 
-If attacker capability, reachability, missing control, or impact remains unsupported after the allowed lookups, discard the candidate.
+If exactly one of attacker capability, reachability, missing control, or impact remains unverified after the allowed lookups, report the candidate and name that link in **Why**. Discard it when the evidence contradicts a link or more than one link is unsupported.
 
 ## What to detect
 

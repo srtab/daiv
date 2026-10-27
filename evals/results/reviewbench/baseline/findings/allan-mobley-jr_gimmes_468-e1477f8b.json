@@ -1,0 +1,46 @@
+{
+  "pr": {
+    "repo": "https://github.com/allan-mobley-jr/gimmes",
+    "pr_number": 468,
+    "base": "08efd0bbc34fd29de2a4077f07d24f3dc02a63b6",
+    "head": "e1477f8b3f18c1de6ff87dbca9465a7b106dc193"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "src/gimmes/strategy/staleness.py",
+      "start_line": 72,
+      "end_line": 72,
+      "message": "Dormant markets with any lifetime volume are never marked stale\n\nLine 72 falls back to lifetime `volume` when `volume_24h` is 0. Line 79 gates activity on that value. A market with no trades in the last 24h, flat price, flat OI, and at least 10 lifetime contracts gets `has_volume=True` on every scan. Its count resets, so it is never skipped.\n\nI checked this by running `check_staleness` from the base and head versions on the same input (`volume_24h=0`, `volume=500`, flat price and OI, prior count 4, threshold 5). Base skips it at count 5. Head keeps it at count 0. The test helper sets `volume_24h = volume`, so no test covers this path.\n\nFix: use `has_volume = m.volume_24h >= volume_floor` with no fallback. Add a test with `volume_24h=0, volume=500` that expects the market to be skipped at threshold, and let `_market` take `volume_24h` as its own argument.\n\nThis assumes `Market.volume` is the cumulative total. The UI shows it separately from \"Volume 24h\" (`src/gimmes/cli.py:1641-1642`). I could not check Kalshi's API docs offline.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/gimmes/config.py",
+      "start_line": 627,
+      "end_line": 627,
+      "message": "Config description does not match the rule\n\nIt says \"no volume\", but the gate allows up to 9 contracts. The floor of 10 is hardcoded as a default in `check_staleness` (`src/gimmes/strategy/staleness.py:51`), and `src/gimmes/cli.py:312` does not pass it. Operators cannot tune it. Either state the floor in the description or expose it on `ScannerConfig`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/gimmes/strategy/staleness.py",
+      "start_line": 91,
+      "end_line": 91,
+      "message": "Stored `volume` is written but never read\n\nIts only reader was the removed spike-ratio check. It also mixes 24h and lifetime values depending on the fallback, so it cannot serve as a baseline. Remove it from `StalenessEntry` and the write (old JSON with the extra key still loads), or document it as a cumulative baseline if you take the fix for Critical #1 in that direction.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/gimmes/strategy/staleness.py",
+      "start_line": 19,
+      "end_line": 19,
+      "message": "`open_interest` is a required key that old files lack\n\n`load_staleness` does not validate, so `entry.get(\"open_interest\", 0)` hides a type that is false for on-disk data. It also treats \"never recorded\" the same as zero OI. The backward-compat test passes, but a future `entry[\"open_interest\"]` read would raise `KeyError` on upgraded installs. Normalize missing values in `load_staleness`.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 946287,
+    "completion_tokens": 111493,
+    "total_tokens": 1057780,
+    "time_in_ms": 302956,
+    "cost_usd": 0.08193031
+  }
+}

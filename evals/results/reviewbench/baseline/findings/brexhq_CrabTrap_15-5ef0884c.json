@@ -1,0 +1,88 @@
+{
+  "pr": {
+    "repo": "https://github.com/brexhq/CrabTrap",
+    "pr_number": 15,
+    "base": "b29930e93765700608313c0f0d32c4818734e158",
+    "head": "5ef0884c59b3ee1d5a986dd02686a8232570c80f"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "web/src/components/AuditTrail.tsx",
+      "start_line": 105,
+      "end_line": 105,
+      "message": "Expanded rows keep a pre-stream snapshot that is never refreshed\n\nStreamed responses are logged before the body is complete (`internal/proxy/handler.go:1704`). The body, duration, and error are filled in later by `UpdateResponse` (`handler.go:1715`). SSE pushes the row to the table as soon as it is logged, so a user can expand a row mid-stream. `toggleExpanded` returns early once `entryDetails[detailKey]` exists (line 105), and line 416 prefers that cached copy over the list row. Nothing invalidates the cache. The expanded panel therefore keeps the empty body and stale duration/error, even after a filter refetch refreshes the row. Before this PR, the panel read from the list row, so a refetch corrected it.\n\nFix: remove the `entryDetails[detailKey]` short-circuit so each expansion refetches (keep the `detailLoading` guard), and clear `entryDetails` when the list refetches. Alternatively, take metadata such as status, duration, error, and `llm_*` from `entry`, and use the detail only for payload fields.",
+      "producer": "daiv"
+    },
+    {
+      "file": "internal/admin/api.go",
+      "start_line": 325,
+      "end_line": 340,
+      "message": "A failed summary read returns `has_more: true` on an empty page\n\n`Count` succeeds, then `query` returns `nil` on a query error (line 397) and silently skips rows that fail to scan (line 405). The handler turns this into a 200 with `entries: []`, `total: N`, and `has_more: true`. The UI then shows the empty state with a \"Load more\" button, and `loadMore` requests `offset = limit`, which skips the first page. The trigger is a DB failure between the two statements. The silent-failure pattern predates this PR, but `has_more` is new and asserts a state the page contradicts.\n\nFix: have the summary read return `([]types.AuditEntry, error)` and respond 500 on error, as the `Count` path already does.",
+      "producer": "daiv"
+    },
+    {
+      "file": "internal/admin/pg_audit_reader.go",
+      "start_line": 397,
+      "end_line": 397,
+      "message": "A failed summary read returns `has_more: true` on an empty page\n\n`Count` succeeds, then `query` returns `nil` on a query error (line 397) and silently skips rows that fail to scan (line 405). The handler turns this into a 200 with `entries: []`, `total: N`, and `has_more: true`. The UI then shows the empty state with a \"Load more\" button, and `loadMore` requests `offset = limit`, which skips the first page. The trigger is a DB failure between the two statements. The silent-failure pattern predates this PR, but `has_more` is new and asserts a state the page contradicts.\n\nFix: have the summary read return `([]types.AuditEntry, error)` and respond 500 on error, as the `Count` path already does.",
+      "producer": "daiv"
+    },
+    {
+      "file": "internal/admin/audit_integration_test.go",
+      "start_line": 172,
+      "end_line": 192,
+      "message": "The pagination test cannot distinguish the defects it targets\n\nThe test inserts one row and requests `?limit=10`. `total == 1` and `has_more == false` also hold if `total` is the page size, or if `has_more` is computed from `len(entries) == limit`. No test in the package exercises `has_more: true`, offset paging, or a filtered total. The test also skips when `testPool` is nil, and the PR notes it could not run locally, so this path has no runtime coverage yet.\n\nFix: insert three rows with distinct request IDs. Assert that `?limit=2` returns `total=3`, `has_more=true`, and 2 entries. Assert that `?limit=2&offset=2` returns `total=3`, `has_more=false`, and 1 entry. Also assert the echoed `limit` and `offset`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "internal/admin/api.go",
+      "start_line": 308,
+      "end_line": 316,
+      "message": "The default, cap, and invalid-`limit` branches are untested\n\nThe list requests in the audit tests use only `limit=10` or `limit=100`. Nothing sends 0, a negative value, `abc`, or a value above 500, and nothing asserts the effective limit. Removing the 500 clamp or the `limit > 0` guard would not fail any test. Fix: add a table-driven check on the response `limit` field. No parameter should give 100, `0`, `-5`, and `abc` should give 100, and `10000` should give 500.",
+      "producer": "daiv"
+    },
+    {
+      "file": "internal/admin/api.go",
+      "start_line": 325,
+      "end_line": 325,
+      "message": "Every list request now runs an unconditional `COUNT(*)`\n\nAn unfiltered request runs `SELECT COUNT(*) FROM audit_log` before the list query, on every page and every filter change. The cost grows with the audit table, and it adds to list latency because the two queries run serially. I did not check the table size or retention policy. The PR requires `total`, so some count is needed. The open question is whether it must run on every page. Fix: compute `total` only when `offset == 0` and have the UI keep it across \"Load more\", or run the count concurrently with the summary query.",
+      "producer": "daiv"
+    },
+    {
+      "file": "internal/admin/pg_audit_reader.go",
+      "start_line": 416,
+      "end_line": 424,
+      "message": "Every list request now runs an unconditional `COUNT(*)`\n\nAn unfiltered request runs `SELECT COUNT(*) FROM audit_log` before the list query, on every page and every filter change. The cost grows with the audit table, and it adds to list latency because the two queries run serially. I did not check the table size or retention policy. The PR requires `total`, so some count is needed. The open question is whether it must run on every page. Fix: compute `total` only when `offset == 0` and have the UI keep it across \"Load more\", or run the count concurrently with the summary query.",
+      "producer": "daiv"
+    },
+    {
+      "file": "internal/admin/api.go",
+      "start_line": 340,
+      "end_line": 340,
+      "message": "`has_more` is computed by the server but ignored by the UI\n\n`useAuditLog` derives `hasMore` from `entries.length < total`, and `web/src/api/client.ts:74` types `has_more` as optional. The two only agree because SSE `addEntry` updates `entries` and `total` together. Either have the hook read `data.has_more`, or remove the field from the response and the type.",
+      "producer": "daiv"
+    },
+    {
+      "file": "web/src/hooks/useAuditLog.ts",
+      "start_line": 102,
+      "end_line": 102,
+      "message": "`has_more` is computed by the server but ignored by the UI\n\n`useAuditLog` derives `hasMore` from `entries.length < total`, and `web/src/api/client.ts:74` types `has_more` as optional. The two only agree because SSE `addEntry` updates `entries` and `total` together. Either have the hook read `data.has_more`, or remove the field from the response and the type.",
+      "producer": "daiv"
+    },
+    {
+      "file": "internal/admin/pg_audit_reader.go",
+      "start_line": 307,
+      "end_line": 314,
+      "message": "The summary projection is a hand-maintained copy of the full projection\n\n`auditSummarySelectCols` must match `auditSelectCols` and `scanAuditEntry` positionally. If a column is added to the full projection but not the summary one, every summary row fails to scan, and the `continue` at line 405 hides it. That is the same failure mode as finding 2. Fix: build both projections from one source, for example with a `summary bool` argument to `query`.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 2929096,
+    "completion_tokens": 186631,
+    "total_tokens": 3115727,
+    "time_in_ms": 416268,
+    "cost_usd": 0.158934505
+  }
+}

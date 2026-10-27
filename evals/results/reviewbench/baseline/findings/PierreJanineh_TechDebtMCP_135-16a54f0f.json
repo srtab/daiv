@@ -1,0 +1,144 @@
+{
+  "pr": {
+    "repo": "https://github.com/PierreJanineh/TechDebtMCP",
+    "pr_number": 135,
+    "base": "ea0385c7349bbaee04456c57bf0ec3f217d63532",
+    "head": "16a54f0f85a9091f220418850eac6b4122782be5"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "src/core/customRulesEngine.ts",
+      "start_line": 262,
+      "end_line": 262,
+      "message": "The change does not mitigate ReDoS, but the PR, CHANGELOG, and \"Closes #127\" say it does.\n\nCatastrophic backtracking depends on pattern structure, not on length or flags. `validatePattern()` still accepts nested quantifiers such as `(a+)+$` (7 characters) or `(a|a)*b`. Matching runs synchronously per line with no timeout. An input like `'a'.repeat(30) + '!'` should cost on the order of 10^9 backtracking steps (estimate). The 500,000-character `code` cap and the 500 KB `path` cap don't prevent this, because a single line can still be that long. The vulnerability predates this PR, so the change is not a regression, but it claims a fix it does not make.\n\nDecide before merge: either add real protection (match in a `worker_thread` with a hard timeout, use a linear-time engine such as RE2, or reject nested quantifiers and backreferences as a supplement), or drop \"Closes #127\" and reword the CHANGELOG so it doesn't say ReDoS is prevented.",
+      "producer": "daiv"
+    },
+    {
+      "file": "CHANGELOG.md",
+      "start_line": 36,
+      "end_line": 36,
+      "message": "The change does not mitigate ReDoS, but the PR, CHANGELOG, and \"Closes #127\" say it does.\n\nCatastrophic backtracking depends on pattern structure, not on length or flags. `validatePattern()` still accepts nested quantifiers such as `(a+)+$` (7 characters) or `(a|a)*b`. Matching runs synchronously per line with no timeout. An input like `'a'.repeat(30) + '!'` should cost on the order of 10^9 backtracking steps (estimate). The 500,000-character `code` cap and the 500 KB `path` cap don't prevent this, because a single line can still be that long. The vulnerability predates this PR, so the change is not a regression, but it claims a fix it does not make.\n\nDecide before merge: either add real protection (match in a `worker_thread` with a hard timeout, use a linear-time engine such as RE2, or reject nested quantifiers and backreferences as a supplement), or drop \"Closes #127\" and reword the CHANGELOG so it doesn't say ReDoS is prevented.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/customRulesEngine.ts",
+      "start_line": 267,
+      "end_line": 267,
+      "message": "Regression: `validate_config` crashes instead of reporting when a config pattern has non-string `flags`.\n\nThe `pattern.flags.replace(...)` call at line 267 sits outside the `try`, which only wraps `new RegExp`. For `flags: 123`, `true`, `null`, or `[\"g\"]` in `.techdebtrc.json`, `validatePattern()` throws a `TypeError`. The CallTool wrapper (`src/server/handlers.ts:102-105`) turns it into `InternalError: Error executing validate_config: pattern.flags.replace is not a function`. Before this PR, `flags: 123` produced an \"Invalid regex pattern\" entry and `flags: null` was silently accepted. `add_custom_rule` is not affected, because its parser rejects non-string flags first (`src/server/inputParser.ts:378`).\n\nFix: check `typeof pattern.flags !== 'string'`, push an error, and skip normalization. Add a test with `flags: 123` that asserts `valid === false` and no throw.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/server/configValidator.ts",
+      "start_line": 119,
+      "end_line": 119,
+      "message": "Regression: `validate_config` crashes instead of reporting when a config pattern has non-string `flags`.\n\nThe `pattern.flags.replace(...)` call at line 267 sits outside the `try`, which only wraps `new RegExp`. For `flags: 123`, `true`, `null`, or `[\"g\"]` in `.techdebtrc.json`, `validatePattern()` throws a `TypeError`. The CallTool wrapper (`src/server/handlers.ts:102-105`) turns it into `InternalError: Error executing validate_config: pattern.flags.replace is not a function`. Before this PR, `flags: 123` produced an \"Invalid regex pattern\" entry and `flags: null` was silently accepted. `add_custom_rule` is not affected, because its parser rejects non-string flags first (`src/server/inputParser.ts:378`).\n\nFix: check `typeof pattern.flags !== 'string'`, push an error, and skip normalization. Add a test with `flags: 123` that asserts `valid === false` and no throw.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/__tests__/customRulesEngine.test.ts",
+      "start_line": 442,
+      "end_line": 451,
+      "message": "The \"exactly MAX_PATTERN_LENGTH\" execution test cannot fail.\n\nThe engine comes from `beforeEach` with no `onRuleError` callback, and `executeRules` never throws because `executePattern` catches everything. `not.toThrow()` therefore passes even if a 1,000-character rule is wrongly rejected, for example by changing `>` to `>=`.\n\nFix: build the engine with an error spy, match `'a'.repeat(1000)` against the 1,000-character pattern, and assert one issue and no spy calls.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/server/__tests__/handlers.test.ts",
+      "start_line": 72,
+      "end_line": 85,
+      "message": "The oversized-file test passes with the size guard removed.\n\nThe factory's `readFile` returns `undefined`. Without the guard, the `if (!code)` branch throws an `McpError` anyway, and `.rejects.toThrow(McpError)` still passes.\n\nFix: assert the message (`/exceeds maximum size/`) and `expect(readFile).not.toHaveBeenCalled()`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/customRulesEngine.ts",
+      "start_line": 138,
+      "end_line": 152,
+      "message": "The runtime guards in `executePattern()` have no production path.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/server/handlers.ts",
+      "start_line": 90,
+      "end_line": 90,
+      "message": "The runtime guards in `executePattern()` have no production path.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/customRulesEngine.ts",
+      "start_line": 32,
+      "end_line": 32,
+      "message": "Flag normalization is copied in two places.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/__tests__/customRulesEngine.test.ts",
+      "start_line": 266,
+      "end_line": 266,
+      "message": "The flag-allowlist test only checks `x`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/server/handlers.ts",
+      "start_line": 441,
+      "end_line": 454,
+      "message": "The path-size gate overstates what it bounds.",
+      "producer": "daiv"
+    },
+    {
+      "file": "CHANGELOG.md",
+      "start_line": 36,
+      "end_line": 36,
+      "message": "The CHANGELOG entry is inaccurate in two places.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/server/tools.ts",
+      "start_line": 150,
+      "end_line": 162,
+      "message": "The CHANGELOG entry is inaccurate in two places.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/server/inputParser.ts",
+      "start_line": 416,
+      "end_line": 427,
+      "message": "The CHANGELOG entry is inaccurate in two places.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/server/tools.ts",
+      "start_line": 107,
+      "end_line": 107,
+      "message": "Limits are hard-coded in several places.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/customRulesEngine.ts",
+      "start_line": 26,
+      "end_line": 26,
+      "message": "Limits are hard-coded in several places.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/server/__tests__/handlers.test.ts",
+      "start_line": 6,
+      "end_line": 20,
+      "message": "The handlers test mock replaces the limits with literals.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/server/handlers.ts",
+      "start_line": 358,
+      "end_line": 358,
+      "message": "The handlers test mock replaces the limits with literals.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 2187769,
+    "completion_tokens": 210617,
+    "total_tokens": 2398386,
+    "time_in_ms": 453108,
+    "cost_usd": 0.16751267
+  }
+}
