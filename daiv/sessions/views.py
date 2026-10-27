@@ -262,10 +262,10 @@ class SessionMergeRequestRedirectView(LoginRequiredMixin, View):
 
 
 class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):
-    """Single front door: choose Chat ('work with the agent') or Run ('hand off a task').
+    """Choose Chat ('work with the agent') or Background run ('hand off a task').
 
-    The chat hero and the run form are unchanged; this page only routes to them and
-    carries the one-line rule of thumb so the choice is legible at the fork.
+    The shell's New split button links both destinations directly; this page is where the
+    Sessions list's New button and the empty states land, so the choice is explained there.
     """
 
     template_name = "sessions/session_new.html"

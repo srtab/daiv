@@ -93,6 +93,7 @@ def test_session_new_renders_chooser_with_both_paths(member_client):
     # The chooser links to both destinations — the guidance lives at the fork.
     assert reverse("session_new_chat") in content
     assert reverse("runs:agent_run_new") in content
+    assert "Background run" in content
 
 
 # ---------------------------------------------------------------------------
