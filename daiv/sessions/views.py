@@ -45,7 +45,7 @@ from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
-from sessions.transcript import annotate_transcript, artifact_turns
+from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
 from sessions.turns import build_turns
 from slash_commands.composer import composer_command_rows
 
@@ -345,7 +345,8 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["expired"] = no_state and not turns
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
         ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
-        ctx["turns"] = turns if hydrated.messages else turns + artifact_turns(runs)
+        ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
+        mark_retryable(ctx["turns"], runs, self.request.user)
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats
@@ -559,7 +560,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             raise Http404("Invalid run id.") from err
         # A visible run on a repo the caller can no longer run on must not prefill a
         # retry form — submission would be rejected downstream anyway. Fall back to blank.
-        if source is not None and not can_run(self.request.user, source.repo_id):
+        if source is not None and (not source.is_retryable or not can_run(self.request.user, source.repo_id)):
             return None
         return source
 

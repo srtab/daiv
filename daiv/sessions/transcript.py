@@ -3,16 +3,21 @@
 ``annotate_transcript`` is kept free of Django query code (it only reads attributes off
 already-fetched run rows) so the segmentation logic is unit-testable without the database,
 mirroring ``sessions.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
-and messages, then zip them here; for a checkpoint with no messages, ``artifact_turns``
-queries the artifacts it no longer carries.
+and messages, then zip them here; for a checkpoint with no messages, ``expired_run_turns``
+restores the prompts and queries the artifacts it no longer carries, and ``mark_retryable``
+queries the viewer's repository access.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlencode
+
+from django.urls import reverse
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
+from codebase.authorization import runnable_repo_ids
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
     CANCELLED_BY_USER_MESSAGE,
@@ -25,6 +30,9 @@ from sessions.models import RunArtifact, RunStatus, SessionOrigin
 from sessions.turns import tool_call_segment
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from accounts.models import User
     from sessions.models import Run
 
 logger = logging.getLogger("daiv.sessions")
@@ -104,6 +112,13 @@ def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     return [] if marker is None else [*_prompt_turns(run), marker]
 
 
+def _anchor(run_turns: list[dict[str, Any]], run: Run) -> list[dict[str, Any]]:
+    """Stamp ``run_id`` on the first of ``run_turns``: the page renders it as the run's ``#run-<id>`` link target."""
+    if run_turns:
+        run_turns[0]["run_id"] = str(run.id)
+    return run_turns
+
+
 def _unstarted(run: Run, activity: SessionActivity) -> bool:
     """Whether ``run`` has not executed yet, so it owns no checkpointed turn: never picked up, or behind the slot's
     holder."""
@@ -119,8 +134,9 @@ def annotate_transcript(
     (SessionLock), so run *k* owns every turn from its user turn up to the next
     user turn. Matching is by ``message_id`` (chat runs) with a chronological
     ordinal fallback (background/legacy runs). A run whose ``message_id`` never
-    reached the checkpoint is recovered via ``_synthetic_turns``. ``activity`` says which unfinished runs have not
-    started, so they own no turn, and which of them show their prompt as pending; it defaults to nothing in flight.
+    reached the checkpoint is recovered via ``_synthetic_turns``. Each run's first turn carries its ``run_id``.
+    ``activity`` says which unfinished runs have not started, so they own no turn, and which of them show their
+    prompt as pending; it defaults to nothing in flight.
     """
     activity = activity or SessionActivity()
     # Segment the transcript at user-turn boundaries. Leading non-user turns (rare)
@@ -136,7 +152,7 @@ def annotate_transcript(
     cursor = 0  # index of the next unconsumed segment (ordinal fallback + skip-flushing)
     for run in runs:
         if run in activity.waiting:
-            result.extend(_prompt_turns(run, pending=True))
+            result.extend(_anchor(_prompt_turns(run, pending=True), run))
             continue
         if _unstarted(run, activity):
             continue
@@ -161,7 +177,7 @@ def annotate_transcript(
                     run.status,
                     mid,
                 )
-            result.extend(_prompt_turns(run) if run == activity.holder else _synthetic_turns(run))
+            result.extend(_anchor(_prompt_turns(run) if run == activity.holder else _synthetic_turns(run), run))
             continue
 
         # Flush any segments with no owning run (defensive; keeps ordering intact).
@@ -170,7 +186,7 @@ def annotate_transcript(
             cursor += 1
         # received_at targets the segment's own turns; the run_status marker is appended
         # to `result` separately below, so it never receives a timestamp.
-        owned = segments[matched]["turns"]
+        owned = _anchor(segments[matched]["turns"], run)
         _stamp_run_times(owned, run)
         if owned[0].get("role") == "user":
             _mark_author(owned[0], run)
@@ -191,17 +207,41 @@ def _artifact_segment(artifact: RunArtifact) -> dict[str, Any]:
     return {**segment, "result": published_tool_result(artifact)}
 
 
-def artifact_turns(runs: list[Run]) -> list[dict[str, Any]]:
-    """SYNC ONLY: the runs' artifacts as synthetic ``publish_artifact`` turns, for a checkpoint with no messages.
+def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """SYNC ONLY: what a checkpoint with no messages still shows of each run, from rows that outlive its TTL.
 
-    Artifact rows outlive the checkpoint TTL, so once the transcript is gone each run that published
-    gets one assistant turn (``runs`` order, artifacts oldest first) shaped like ``build_turns`` output.
+    A finished run no ``shown`` turn carries gets its prompt back, and each run that published gets one assistant
+    turn of synthetic ``publish_artifact`` segments (artifacts oldest first) shaped like ``build_turns`` output.
+    A run's first turn carries its ``run_id`` unless a ``shown`` turn already does.
     """
+    anchored = {turn.get("run_id") for turn in shown}
     by_run: dict[Any, list[dict[str, Any]]] = {}
     for artifact in RunArtifact.objects.filter(run__in=runs).select_related("run"):
         by_run.setdefault(artifact.run_id, []).append(_artifact_segment(artifact))
-    return [
-        {"id": f"run-{run.id}-artifacts", "role": "assistant", "segments": by_run[run.id]}
-        for run in runs
-        if run.id in by_run
-    ]
+    result = []
+    for run in runs:
+        unshown = str(run.id) not in anchored
+        run_turns = _prompt_turns(run) if unshown and run.status in RunStatus.terminal() else []
+        if run.id in by_run:
+            run_turns.append({"id": f"run-{run.id}-artifacts", "role": "assistant", "segments": by_run[run.id]})
+        if unshown:
+            _stamp_run_times(run_turns, run)
+            _anchor(run_turns, run)
+        result.extend(run_turns)
+    return result
+
+
+def mark_retryable(turns: list[dict[str, Any]], runs: list[Run], user: User) -> None:
+    """SYNC ONLY: stamp ``retry_url`` on the anchor turn of each run ``user`` may retry.
+
+    Decided here rather than in the browser: ``runnable_repo_ids`` needs the user's synced repository access.
+    """
+    retryable = {str(run.id): run for run in runs if run.is_retryable}
+    if not retryable:
+        return
+    allowed = runnable_repo_ids(user, {run.repo_id for run in retryable.values()})
+    composer = reverse("runs:agent_run_new")
+    for turn in turns:
+        run = retryable.get(turn.get("run_id", ""))
+        if run is not None and run.repo_id in allowed:
+            turn["retry_url"] = f"{composer}?{urlencode({'from': run.id})}"

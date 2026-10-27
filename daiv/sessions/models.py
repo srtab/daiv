@@ -68,6 +68,11 @@ class SessionOrigin(models.TextChoices):
         return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB})
 
     @classmethod
+    def retryable(cls) -> frozenset[str]:
+        """Triggers whose prompt the run composer can start again: the prompt-driven jobs and schedules."""
+        return cls.prompt_driven() | {cls.SCHEDULE}
+
+    @classmethod
     def daiv_authored(cls) -> frozenset[str]:
         """Triggers whose run prompt DAIV writes rather than a person: a CI fix and a delegation resume."""
         return frozenset({cls.PIPELINE_WEBHOOK, cls.DELEGATION_RESUME})
@@ -424,6 +429,17 @@ class Run(models.Model):
         if schedule is not None:
             return schedule.muted
         return False  # non-scheduled runs notify unless the run itself is muted
+
+    @property
+    def is_retryable(self) -> bool:
+        """Whether the run composer can start this run again: a done or failed run on a repo, with a prompt, from a
+        ``SessionOrigin.retryable`` trigger."""
+        return (
+            self.status in (RunStatus.SUCCESSFUL, RunStatus.FAILED)
+            and bool(self.prompt)
+            and bool(self.repo_id)
+            and self.trigger_type in SessionOrigin.retryable()
+        )
 
     @property
     def is_cancelled(self) -> bool:

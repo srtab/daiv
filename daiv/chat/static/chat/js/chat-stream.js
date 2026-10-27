@@ -393,8 +393,11 @@
     // Emit time of the last relay frame, so a thought closed by the turn ending is stamped
     // on the same clock its start came from (client/server skew otherwise leaks).
     _lastFrameAt: 0,
-    _scrollQueued: false,
+    _scrollFrame: 0,
     _autoFollow: true,
+    // The `run-<id>` element the URL's hash names, until it has rendered and been scrolled to.
+    _pendingRunAnchor: "",
+    _runAnchorWatch: null,
     _thinkingTimer: null,
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
@@ -674,7 +677,9 @@
       // Mirror the live-stream path (dispatch() scrolls after every event): follow
       // the tail once the new turns render. The no-force scrollToBottom() no-ops
       // when the user has scrolled up to read, so it only auto-follows at bottom.
-      this.$nextTick(() => this.scrollToBottom());
+      this.$nextTick(() => {
+        if (!this.revealRunAnchor()) this.scrollToBottom();
+      });
     },
 
     applySandboxEnvSelection(detail) {
@@ -784,6 +789,17 @@
         this.resuming = false;
       }
 
+      const hash = window.location.hash;
+      if (/^#run-[\w-]+$/.test(hash)) {
+        this._pendingRunAnchor = hash.slice(1);
+        // Once the reader takes over the scroll, a run that renders later must not yank them to it.
+        this._runAnchorWatch = new AbortController();
+        const disarm = () => this._settleRunAnchor();
+        for (const name of ["wheel", "touchstart", "keydown", "pointerdown"]) {
+          document.addEventListener(name, disarm, { signal: this._runAnchorWatch.signal, passive: true });
+        }
+      }
+
       // Park the viewport on page load. $nextTick waits for Alpine to
       // materialize x-for'd turns into DOM; parkViewport() then settles the
       // height shifts that land after that first render.
@@ -800,6 +816,7 @@
       if (this._thinkingTimer) clearInterval(this._thinkingTimer);
       if (this._nowTimer) clearInterval(this._nowTimer);
       if (this._source) this._source.close();
+      this._settleRunAnchor();
     },
 
     // ---------- Run stream (EventSource against the relay) -------------
@@ -1344,7 +1361,8 @@
 
     // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
     turnHasActions(turn, ti) {
-      return turn.role !== "run_status" && (!!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn, ti));
+      if (turn.role === "run_status") return false;
+      return !!turn.sent_at || !!turn.received_at || !!turn.retry_url || this.canCopyTurn(turn, ti);
     },
 
     // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.
@@ -1802,8 +1820,9 @@
     // *top of the last assistant message* instead: that final answer is what
     // the reader came for, and anchoring to the bottom buries its opening
     // lines above the fold whenever it is taller than the viewport.
+    // A `#run-<id>` hash outranks both, once that run's turn has rendered.
     parkViewport() {
-      if (config.sessionLive) {
+      if (config.sessionLive && !this._pendingRunAnchor) {
         this.scrollToBottom({ force: true });
         return;
       }
@@ -1815,6 +1834,11 @@
       // scroll anchoring, but Safari has none — so settle it here instead of
       // depending on the browser to paper over it.
       requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (this.revealRunAnchor()) return;
+        if (config.sessionLive) {
+          this.scrollToBottom({ force: true });
+          return;
+        }
         const el = this._scrollEl;
         if (!el) return;
         // Last rendered assistant turn — querying the DOM rather than `turns`
@@ -1837,12 +1861,34 @@
       }));
     },
 
+    // A run the hash names may render only on a later poll, so each poll retries until it lands.
+    revealRunAnchor() {
+      if (!this._pendingRunAnchor) return false;
+      const target = document.getElementById(this._pendingRunAnchor);
+      if (!target) return false;
+      this._settleRunAnchor();
+      this._autoFollow = false;
+      cancelAnimationFrame(this._scrollFrame);
+      this._scrollFrame = 0;
+      target.scrollIntoView({ block: "start", behavior: "auto" });
+      return true;
+    },
+
+    _settleRunAnchor() {
+      this._pendingRunAnchor = "";
+      this._runAnchorWatch?.abort();
+      this._runAnchorWatch = null;
+    },
+
+    runAnchorId(turn) {
+      return turn.run_id ? `run-${turn.run_id}` : null;
+    },
+
     scrollToBottom({ force = false } = {}) {
       if (!force && !this._autoFollow) return;
-      if (this._scrollQueued) return;
-      this._scrollQueued = true;
-      requestAnimationFrame(() => {
-        this._scrollQueued = false;
+      if (this._scrollFrame) return;
+      this._scrollFrame = requestAnimationFrame(() => {
+        this._scrollFrame = 0;
         const el = this._scrollEl;
         if (!el) return;
         el.scrollTo({
