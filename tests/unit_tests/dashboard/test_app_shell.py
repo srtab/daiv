@@ -17,7 +17,15 @@ RAIL_BLOCK = re.compile(
 )
 SIDEBAR_HOOK = re.compile(r"sidebar__[\w-]+")
 NAV_ITEM = re.compile(r'class="sidebar__nav-item[^"]*"(.*?)</a>', re.DOTALL)
+INCLUDE = re.compile(r'{% include "dashboard/([\w.]+)"')
 FONT_CDN = re.compile(r"https://fonts\.(?:googleapis|gstatic)\.com")
+
+
+def _sidebar_sources() -> str:
+    """The sidebar and every dashboard partial it includes."""
+    sidebar = SIDEBAR_TEMPLATE.read_text(encoding="utf-8")
+    partials = {SIDEBAR_TEMPLATE.with_name(name) for name in INCLUDE.findall(sidebar)}
+    return "\n".join([sidebar, *(path.read_text(encoding="utf-8") for path in sorted(partials))])
 
 
 def test_every_sidebar_hook_is_handled_by_the_rail_tier():
@@ -33,7 +41,7 @@ def test_every_sidebar_hook_is_handled_by_the_rail_tier():
     assert rail, "no rail block bounded by the md/lg breakpoint tokens — the sidebar shows full labels at tablet widths"
     assert "width:" not in rail.group(1), "the rail restates the sidebar's width instead of tiering --app-sidebar-width"
 
-    used = set(SIDEBAR_HOOK.findall(SIDEBAR_TEMPLATE.read_text(encoding="utf-8")))
+    used = set(SIDEBAR_HOOK.findall(_sidebar_sources()))
     handled = set(SIDEBAR_HOOK.findall(rail.group(1)))
 
     assert used - handled == set(), f"the rail tier ignores {sorted(used - handled)}"
@@ -47,7 +55,7 @@ def test_every_sidebar_nav_item_labels_its_text():
     into a 4rem-wide column, which is how the label spills over the icon."""
     unlabelled = [
         body.strip().splitlines()[0].strip()
-        for body in NAV_ITEM.findall(SIDEBAR_TEMPLATE.read_text(encoding="utf-8"))
+        for body in NAV_ITEM.findall(_sidebar_sources())
         if "sidebar__collapsible" not in body
     ]
 
@@ -69,6 +77,9 @@ def test_the_account_menu_is_not_clipped_by_the_sidebar():
     )
     assert sidebar.index('data-testid="app-user-menu"') > sidebar.index("</nav>"), (
         "the account menu sits inside the scrolling nav, which clips it"
+    )
+    assert sidebar.index("_new_split.html") < sidebar.index("<nav"), (
+        "the New menu sits inside the scrolling nav, which clips it on the rail"
     )
 
 

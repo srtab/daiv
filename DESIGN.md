@@ -266,10 +266,17 @@ Requires `is_paginated` and `page_obj` in template context (standard Django `Lis
 
 `base_app.html` is the chrome every signed-in page inherits: the sidebar and a
 scrolling `<main>`. There is no top bar from `md:` up — everything global lives in the
-sidebar. Below `md:` the sidebar becomes a sheet, opened from a slim top bar (menu button
-plus wordmark) that is the only nav entry point on a phone.
+sidebar. Below `md:` the sidebar becomes a sheet, opened from a slim top bar (menu button,
+wordmark and the New split button) that is the only nav entry point on a phone.
 
 - **Tiers.** `< md` sheet + slim top bar; `md–lg` icon rail; `>= lg` full sidebar.
+- **Groups.** Daily work comes first with no heading: Home (URL name `dashboard`), Sessions,
+  Notifications, Artifacts, Schedules. Then **Agent setup** — Sandbox environments, MCP
+  servers, Memory: pages set up once that most teammates can skip, so the heading carries
+  a one-line "optional" hint and each item a `.nav-description` under its label
+  (the item takes `sidebar__nav-item--described`). The rail hides that text, so each
+  item's `title` repeats label and description as its tooltip. Last, **Admin**
+  (`is_admin` only). Order and grouping are pinned by `dashboard/test_sidebar.py`.
 - **Sidebar hooks.** Anything the rail must hide carries `sidebar__collapsible`, and
   anything only the rail shows carries `sidebar__rail-only` (the dot that stands in for the
   unread count). The elements it re-centres carry `sidebar__brand` / `sidebar__cta` /
@@ -280,9 +287,16 @@ plus wordmark) that is the only nav entry point on a phone.
   appearance is the `.sidebar__nav-item` component class, not a utility chain, and its
   active state comes from `{% nav_active %}` — which adds `sidebar__nav-item--active`,
   the class that draws the 3px brand rail.
+- **New.** `dashboard/_new_split.html`, a split button: the main part starts a chat
+  (`session_new_chat`), the chevron opens a menu of Chat and Background run
+  (`runs:agent_run_new`). It sits above the `<nav>` in the sidebar and, with `compact=True`,
+  at the right of the mobile top bar. On the rail the chevron becomes a strip under the
+  icon and the menu opens beside the rail. Keyboard behaviour is the `menuButton` Alpine
+  component (`core/js/menu-button.js`); the `session_new` chooser page stays for the
+  Sessions list's New button and the empty states.
 - **Only the `<nav>` scrolls.** The `<aside>` carries no `overflow`, so the footer
-  (API docs, build info, account chip) stays pinned and the account menu can open past
-  the rail's edge without being clipped.
+  (API docs, build info, account chip) stays pinned and the account and New menus can
+  open past the rail's edge without being clipped.
 - **Account menu.** The chip at the bottom of the sidebar (`.sidebar__account`) opens a
   menu holding the personal pages — notification channels, API keys, passkeys — and
   sign-out. It opens upward over the full sidebar and the sheet, and beside the rail

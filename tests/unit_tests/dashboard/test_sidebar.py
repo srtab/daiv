@@ -207,3 +207,137 @@ class TestNavActiveState:
         assert users_response.context["nav_active_section"] == "users"
         config_response = admin_client.get(reverse("site_configuration", kwargs={"group_key": "agent"}))
         assert config_response.context["nav_active_section"] == "configuration"
+
+
+def _soup(client, url_name="session_list"):
+    return BeautifulSoup(client.get(reverse(url_name)).content.decode(), "html.parser")
+
+
+def _sidebar_nav(client, url_name="session_list"):
+    """The persistent sidebar's <nav>; the mobile sheet renders a second copy of the partial."""
+    return _soup(client, url_name).select_one('[data-testid="app-sidebar"] nav')
+
+
+def _item_label(item) -> str:
+    label = item.select_one(".sidebar__collapsible")
+    return (label.find("span") or label).get_text(strip=True)
+
+
+def _nav_outline(nav) -> list[str]:
+    """Headings as ``# Heading`` and items by label, in document order."""
+    outline = []
+    for node in nav.find_all(["a", "div"], recursive=False):
+        if "sidebar__group-heading" in node.get("class", []):
+            outline.append("# " + node.select_one(".sidebar__collapsible").get_text(strip=True))
+        else:
+            outline.append(_item_label(node))
+    return outline
+
+
+DAILY_WORK = ["Home", "Sessions", "Notifications", "Artifacts", "Schedules"]
+AGENT_SETUP = ["# Agent setup", "Sandbox environments", "MCP servers", "Memory"]
+ADMIN = ["# Admin", "Users", "Configuration", "Schedule templates", "Skills", "Global MCP servers"]
+
+
+@pytest.mark.django_db
+class TestSidebarGroups:
+    def test_member_sees_daily_work_then_agent_setup(self, member_client):
+        nav = _sidebar_nav(member_client)
+        assert _nav_outline(nav) == DAILY_WORK + AGENT_SETUP
+
+    def test_admin_group_comes_last(self, admin_client):
+        nav = _sidebar_nav(admin_client)
+        assert _nav_outline(nav) == DAILY_WORK + AGENT_SETUP + ADMIN
+
+    def test_home_links_the_dashboard(self, member_client):
+        nav = _sidebar_nav(member_client)
+        home = next(a for a in nav.find_all("a", recursive=False) if _item_label(a) == "Home")
+        assert home["href"] == reverse("dashboard")
+
+    def test_agent_setup_items_say_what_they_are_for(self, member_client):
+        nav = _sidebar_nav(member_client)
+        described = nav.select(".sidebar__nav-item--described")
+        assert [_item_label(a) for a in described] == AGENT_SETUP[1:]
+        for item in described:
+            description = item.select_one('[data-testid="nav-description"]').get_text(strip=True)
+            assert description
+            # The rail hides the description, so the tooltip has to carry it.
+            assert item["title"] == f"{_item_label(item)}: {description}"
+
+    def test_agent_setup_heading_says_it_is_optional(self, member_client):
+        nav = _sidebar_nav(member_client)
+        heading = nav.select_one('[data-testid="nav-setup-group"]')
+        assert "Optional" in heading.get_text()
+        assert heading["title"].startswith("Optional")
+
+    def test_mobile_sheet_shows_the_same_groups(self, member_client):
+        sheet_nav = _soup(member_client).select('[data-testid="app-sidebar"]')[1].select_one("nav")
+        assert _nav_outline(sheet_nav) == DAILY_WORK + AGENT_SETUP
+
+    @pytest.mark.parametrize(
+        "url_name,label",
+        [
+            ("dashboard", "Home"),
+            ("session_list", "Sessions"),
+            ("sandbox_envs:list", "Sandbox environments"),
+            ("mcp_connectors:list", "MCP servers"),
+            ("memory:list", "Memory"),
+        ],
+    )
+    def test_the_active_item_is_the_page_section(self, member_client, url_name, label):
+        nav = _sidebar_nav(member_client, url_name)
+        active = nav.select(".sidebar__nav-item--active")
+        assert [_item_label(a) for a in active] == [label]
+
+
+@pytest.mark.django_db
+class TestNewSplitButton:
+    @pytest.mark.parametrize("testid", ["nav-new", "topbar-new"])
+    def test_main_part_starts_a_chat(self, member_client, testid):
+        split = _soup(member_client).select_one(f'[data-testid="{testid}"]')
+        assert split.select_one(f'[data-testid="{testid}-chat"]')["href"] == reverse("session_new_chat")
+
+    @pytest.mark.parametrize("testid", ["nav-new", "topbar-new"])
+    def test_menu_offers_chat_and_background_run(self, member_client, testid):
+        split = _soup(member_client).select_one(f'[data-testid="{testid}"]')
+        items = split.select('[role="menu"] [role="menuitem"]')
+        assert [(a["href"], a.select_one("span span").get_text(strip=True)) for a in items] == [
+            (reverse("session_new_chat"), "Chat"),
+            (reverse("runs:agent_run_new"), "Background run"),
+        ]
+        # Items are reached with the arrow keys, not Tab (menu button pattern).
+        assert all(a["tabindex"] == "-1" for a in items)
+
+    def test_toggle_is_a_keyboard_menu_button(self, member_client):
+        split = _soup(member_client).select_one('[data-testid="nav-new"]')
+        toggle = split.select_one('[data-testid="nav-new-toggle"]')
+        assert toggle.name == "button"
+        assert toggle["aria-haspopup"] == "menu"
+        assert toggle["aria-label"]
+        assert toggle[":aria-expanded"] == "open.toString()"
+        assert toggle[":aria-controls"] == split.select_one('[role="menu"]')[":id"]
+        assert split["x-data"] == "menuButton"
+        assert split["@keydown.escape"] == "onEscape($event)"
+
+    def test_component_script_is_loaded(self, member_client):
+        assert "core/js/menu-button.js" in member_client.get(reverse("dashboard")).content.decode()
+
+    def test_rail_hides_the_label_but_keeps_the_icon(self, member_client):
+        main = _soup(member_client).select_one('[data-testid="nav-new-chat"]')
+        assert "sidebar__cta" in main["class"]
+        assert main.select_one(".sidebar__collapsible").get_text(strip=True) == "New chat"
+
+    def test_sidebar_no_longer_routes_through_the_chooser(self, member_client):
+        sidebar = _soup(member_client).select_one('[data-testid="app-sidebar"]')
+        assert not sidebar.select(f'a[href="{reverse("session_new")}"]')
+
+
+@pytest.mark.django_db
+class TestMobileTopBarNew:
+    def test_top_bar_holds_the_new_split_button(self, member_client):
+        bar = _soup(member_client).select_one('[data-testid="mobile-top-bar"]')
+        split = bar.select_one('[data-testid="topbar-new"]')
+        assert "new-split--compact" in split["class"]
+
+    def test_only_one_top_bar_copy(self, member_client):
+        assert len(_soup(member_client).select('[data-testid="topbar-new"]')) == 1
