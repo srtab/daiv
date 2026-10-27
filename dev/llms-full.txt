@@ -1906,13 +1906,15 @@ ______________________________________________________________________
 
 ## Home
 
-The Home page (`/dashboard/`) opens with **Needs you**: what is waiting on you, worst first, up to eight items.
+The Home page (`/dashboard/`) opens with **Needs you**: what is waiting on you, up to eight items. Questions come first, then failures (Failed, CI still failing, Can't run), then Found issues, then Needs attention; newest first within each.
 
-- **Failed** — your session's latest run failed. It leaves once a newer run starts in the session, or once you retry it (a later run on the same repository with the same prompt). A run you cancelled doesn't count.
+- **Needs input** — your session's latest run asked you a question. It leaves when you answer.
+- **Failed** — your session's latest run failed. It leaves once a newer run starts in the session, once you retry it (a later run on the same repository with the same prompt), or 14 days after it failed; it stays in Sessions. A run you cancelled doesn't count.
 - **CI still failing** — DAIV's CI watch on a merge/pull request gave up. Shown for 7 days.
 - **Can't run** — one of your schedules can't start its runs. It leaves when the schedule starts a run again or you pause it.
-- **Needs input** — your session's latest run asked you a question. It leaves when you answer.
 - **Found issues** / **Needs attention** — your session's latest run was classified that way. Shown for 7 days, since a fix made outside DAIV leaves no trace it can see.
+
+A session counts once, as the first of these it matches: a question in a session whose CI watch gave up shows as Needs input. A session with no activity for 90 days leaves the list.
 
 Below it are your five most recent sessions, the ways to start work (issue labels, mentions and slash commands on your Git platform; this instance's MCP URL for your editor; Chat and Background run here), and **Your week**: what the runs in your own sessions came to over the last 7 days, a column a day stacked by outcome (changed code, done without changes, needed you, failed), the merge requests its runs worked on, and where you started work from. A day's column opens your sessions that ran that day. Team statistics are on Insights.
 

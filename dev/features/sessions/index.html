@@ -2028,14 +2028,15 @@
 </table>
 <hr />
 <h2 id="home">Home</h2>
-<p>The Home page (<code>/dashboard/</code>) opens with <strong>Needs you</strong>: what is waiting on you, worst first, up to eight items.</p>
+<p>The Home page (<code>/dashboard/</code>) opens with <strong>Needs you</strong>: what is waiting on you, up to eight items. Questions come first, then failures (Failed, CI still failing, Can't run), then Found issues, then Needs attention; newest first within each.</p>
 <ul>
-<li><strong>Failed</strong> — your session's latest run failed. It leaves once a newer run starts in the session, or once you retry it (a later run on the same repository with the same prompt). A run you cancelled doesn't count.</li>
+<li><strong>Needs input</strong> — your session's latest run asked you a question. It leaves when you answer.</li>
+<li><strong>Failed</strong> — your session's latest run failed. It leaves once a newer run starts in the session, once you retry it (a later run on the same repository with the same prompt), or 14 days after it failed; it stays in Sessions. A run you cancelled doesn't count.</li>
 <li><strong>CI still failing</strong> — DAIV's CI watch on a merge/pull request gave up. Shown for 7 days.</li>
 <li><strong>Can't run</strong> — one of your schedules can't start its runs. It leaves when the schedule starts a run again or you pause it.</li>
-<li><strong>Needs input</strong> — your session's latest run asked you a question. It leaves when you answer.</li>
 <li><strong>Found issues</strong> / <strong>Needs attention</strong> — your session's latest run was classified that way. Shown for 7 days, since a fix made outside DAIV leaves no trace it can see.</li>
 </ul>
+<p>A session counts once, as the first of these it matches: a question in a session whose CI watch gave up shows as Needs input. A session with no activity for 90 days leaves the list.</p>
 <p>Below it are your five most recent sessions, the ways to start work (issue labels, mentions and slash commands on your Git platform; this instance's MCP URL for your editor; Chat and Background run here), and <strong>Your week</strong>: what the runs in your own sessions came to over the last 7 days, a column a day stacked by outcome (changed code, done without changes, needed you, failed), the merge requests its runs worked on, and where you started work from. A day's column opens your sessions that ran that day. Team statistics are on Insights.</p>
 <h2 id="insights">Insights</h2>
 <p><strong>Insights</strong> (<code>/dashboard/insights/</code>) shows how DAIV is used across the repositories you can see, over Today, 7 days (the default), 30 days, 90 days or all time.</p>
@@ -2323,7 +2324,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 27, 2026 12:32:30 UTC">October 27, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 27, 2026 20:17:30 UTC">October 27, 2026</span>
   </span>
 
     
