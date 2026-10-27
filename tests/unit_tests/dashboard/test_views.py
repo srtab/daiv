@@ -99,7 +99,7 @@ class TestDashboardSessionBreakdown:
         activity = member_client.get(reverse("dashboard"), {"period": "30d"}).context["activity"]
 
         date_from = (timezone.localdate() - timedelta(days=29)).isoformat()
-        expected = f"{reverse('session_list')}?trigger=schedule&date_from={date_from}"
+        expected = f"{reverse('session_list')}?date_from={date_from}&trigger=schedule"
         assert activity["segments"][0]["url"] == expected
 
     def test_all_time_links_have_no_date(self, member_user, member_client):

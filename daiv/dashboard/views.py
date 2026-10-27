@@ -1,13 +1,14 @@
-from datetime import date, datetime, time, timedelta
+from datetime import date, timedelta
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q, Sum
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import urlencode
-from django.utils.timezone import localdate, make_aware
+from django.utils.timezone import localdate
 from django.views.generic import TemplateView
 
+from sessions.filters import SessionFilter
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
@@ -33,25 +34,26 @@ PERIOD_DAYS = {key: days for key, _, days in PERIOD_CHOICES}
 DEFAULT_PERIOD = "today"
 
 
+# Hues follow sessions/_origin_badge.html, so a segment matches the badges on the list it opens.
 ORIGIN_SEGMENT_CSS = {
     SessionOrigin.ISSUE_WEBHOOK: "bg-amber-500/50",
     SessionOrigin.MR_WEBHOOK: "bg-cyan-500/50",
     SessionOrigin.PIPELINE_WEBHOOK: "bg-orange-500/40",
-    SessionOrigin.MCP_JOB: "bg-indigo-500/50",
+    SessionOrigin.MCP_JOB: "bg-blue-500/50",
     SessionOrigin.SCHEDULE: "bg-violet-500/40",
-    SessionOrigin.API_JOB: "bg-emerald-500/50",
-    SessionOrigin.UI_JOB: "bg-teal-500/40",
-    SessionOrigin.CHAT: "bg-sky-500/40",
+    SessionOrigin.API_JOB: "bg-indigo-500/50",
+    SessionOrigin.UI_JOB: "bg-emerald-500/50",
+    SessionOrigin.CHAT: "bg-teal-500/40",
     SessionOrigin.DELEGATED_JOB: "bg-fuchsia-500/40",
     SessionOrigin.DELEGATION_RESUME: "bg-pink-500/40",
 }
 
 
-def _session_list_url(cutoff_date: date | None, **filters: str) -> str:
-    """Session list URL limited to the dashboard period."""
-    params = dict(filters)
-    if cutoff_date is not None:
-        params["date_from"] = cutoff_date.isoformat()
+def _period_params(cutoff_date: date | None) -> dict[str, str]:
+    return {"date_from": cutoff_date.isoformat()} if cutoff_date is not None else {}
+
+
+def _session_list_url(params: dict[str, str]) -> str:
     return f"{reverse('session_list')}?{urlencode(params)}"
 
 
@@ -140,33 +142,36 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         }
 
     def _get_session_breakdown(self, cutoff_date: date | None, user: User) -> dict:
-        # Mirrors SessionListView's queryset and SessionFilter's ``date_from``/``trigger``/``status``
-        # so each count equals the length of the list its link opens.
-        sessions = Session.objects.visible_to(user).without_watch_placeholders()
-        if cutoff_date is not None:
-            sessions = sessions.filter(last_active_at__gte=make_aware(datetime.combine(cutoff_date, time.min)))
-
-        origin_counts = dict(sessions.order_by().values_list("origin").annotate(n=Count("pk")))
-        failed = sessions.with_latest_status().filter(latest_run_status=RunStatus.FAILED).count()
+        # Counted through the list's own queryset and filterset, so each count equals the length
+        # of the list its link opens.
+        period = _period_params(cutoff_date)
+        sessions = SessionFilter(period, queryset=Session.objects.listed_for(user)).qs
+        rows = list(
+            sessions
+            .order_by()
+            .values("origin")
+            .annotate(n=Count("pk"), failed=Count("pk", filter=Q(latest_run_status=RunStatus.FAILED)))
+        )
+        origin_counts = {row["origin"]: row["n"] for row in rows}
 
         total = sum(origin_counts.values())
         segments = [
             {
                 "label": SessionOrigin(origin).label,
-                "value": origin_counts[origin],
-                "pct": round(origin_counts[origin] / total * 100, 1),
+                "value": n,
+                "pct": round(n / total * 100, 1),
                 "css": ORIGIN_SEGMENT_CSS[origin],
-                "url": _session_list_url(cutoff_date, trigger=origin),
+                "url": _session_list_url({**period, "trigger": origin}),
             }
             for origin in SessionOrigin.values
-            if origin_counts.get(origin)
+            if (n := origin_counts.get(origin))
         ]
         return {
             "sessions_total": total,
-            "sessions_url": _session_list_url(cutoff_date),
+            "sessions_url": _session_list_url(period),
             "segments": segments,
-            "sessions_failed": failed,
-            "sessions_failed_url": _session_list_url(cutoff_date, status=RunStatus.FAILED),
+            "sessions_failed": sum(row["failed"] for row in rows),
+            "sessions_failed_url": _session_list_url({**period, "status": RunStatus.FAILED}),
         }
 
     def _get_velocity_data(self, cutoff_date: date | None) -> dict | None:

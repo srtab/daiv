@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, datetime, time, timedelta
 
 from django.db.models import Q
 from django.utils import timezone
@@ -22,6 +22,11 @@ RANGE_CHOICES: list[tuple[str, str]] = [
 _RANGE_WINDOWS: dict[str, timedelta] = {"2d": timedelta(days=2), "7d": timedelta(days=7), "30d": timedelta(days=30)}
 
 
+def _local_midnight(day: date) -> datetime:
+    # A bound on the raw column rather than a ``__date`` cast, so the last_active_at index applies.
+    return timezone.make_aware(datetime.combine(day, time.min))
+
+
 class SessionFilter(django_filters.FilterSet):
     # Param names match the old activity deep links (?trigger=, ?status=, ...).
     q = django_filters.CharFilter(method="filter_q")
@@ -33,8 +38,8 @@ class SessionFilter(django_filters.FilterSet):
     batch = django_filters.UUIDFilter(method="filter_batch")
     range = django_filters.ChoiceFilter(choices=RANGE_CHOICES, method="filter_range")
     # Dates filter last_active_at (the column the list sorts on and every row shows).
-    date_from = django_filters.DateFilter(field_name="last_active_at", lookup_expr="date__gte")
-    date_to = django_filters.DateFilter(field_name="last_active_at", lookup_expr="date__lte")
+    date_from = django_filters.DateFilter(method="filter_date_from")
+    date_to = django_filters.DateFilter(method="filter_date_to")
 
     class Meta:
         model = Session
@@ -55,6 +60,12 @@ class SessionFilter(django_filters.FilterSet):
         # IIDs are per-project, so this pools every repository's request of that number unless
         # ``repo`` is also given; the links DAIV publishes always pair the two.
         return queryset.for_merge_request(value)
+
+    def filter_date_from(self, queryset, name, value):
+        return queryset.filter(last_active_at__gte=_local_midnight(value))
+
+    def filter_date_to(self, queryset, name, value):
+        return queryset.filter(last_active_at__lt=_local_midnight(value + timedelta(days=1)))
 
     def filter_range(self, queryset, name, value):
         # Rolling windows; "today" is the local calendar day. The first-party UI never emits
