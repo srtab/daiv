@@ -9,10 +9,10 @@ from django.utils import timezone
 
 import pytest
 from sessions.artifacts import ArtifactKind, content_types_for_kind
-from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, default_scope
+from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, default_scope, resolve_scope, scope_queryset
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
-from accounts.models import User
+from accounts.models import Role, User
 from schedules.models import Frequency, ScheduledJob
 from tests.unit_tests.sessions.conftest import make_artifact
 
@@ -87,6 +87,16 @@ def test_default_scope(data, expected):
 @pytest.mark.django_db
 class TestSessionFilterScope:
     @pytest.fixture
+    def user(self, db):
+        """An admin, so ``all`` shows teammates' sessions without granting repository access."""
+        return User.objects.create_user(
+            username="alice",
+            email="alice@test.com",
+            password="testpass123",  # noqa: S106
+            role=Role.ADMIN,
+        )
+
+    @pytest.fixture
     def teammate(self, db):
         return User.objects.create_user(username="bob", email="bob@test.com", password="x")  # noqa: S106
 
@@ -95,7 +105,8 @@ class TestSessionFilterScope:
         return _create_session(user=user), _create_session(user=teammate)
 
     def _pks(self, data, user):
-        f = SessionFilter(data, queryset=_qs(), request=SimpleNamespace(user=user))
+        queryset = scope_queryset(_qs(), user, resolve_scope(data or {}))
+        f = SessionFilter(data, queryset=queryset, request=SimpleNamespace(user=user))
         return set(f.qs.values_list("pk", flat=True)), f.form.data["scope"]
 
     def test_a_plain_visit_shows_only_mine(self, user, sessions):

@@ -65,7 +65,7 @@ class TestDashboardChatSegment:
         chat_seg = next(s for s in segments if s["label"] == "Chat")
         assert chat_seg["value"] == 2
         sessions_url = reverse("session_list")
-        assert chat_seg["url"] == f"{sessions_url}?trigger={SessionOrigin.CHAT}"
+        assert chat_seg["url"] == f"{sessions_url}?scope=all&trigger={SessionOrigin.CHAT}"
 
     def test_chat_runs_not_double_counted_in_other(self, member_user, member_client):
         # 1 UI_JOB run → goes to Other (not a named trigger segment)

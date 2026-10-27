@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, HttpResponseRedirect
+from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
@@ -97,14 +97,11 @@ class NotificationListView(LoginRequiredMixin, ListView):
 
 
 @method_decorator(require_POST, name="dispatch")
-class MarkNotificationReadView(LoginRequiredMixin, TemplateView):
-    template_name = "notifications/_notification_row.html"
-
+class MarkNotificationReadView(LoginRequiredMixin, View):
     def post(self, request, notification_id):
         notification = get_object_or_404(Notification, id=notification_id, recipient=request.user)
         notification.mark_as_read()
-        attach_outcomes([notification])
-        return self.render_to_response({"notification": notification})
+        return HttpResponse(status=204)
 
 
 @method_decorator(require_POST, name="dispatch")

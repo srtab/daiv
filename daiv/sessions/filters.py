@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.db.models import Q
 from django.utils import timezone
@@ -11,6 +12,10 @@ import django_filters
 from sessions.artifacts import KNOWN_KIND_CONTENT_TYPES, ArtifactKind, content_types_for_kind
 from sessions.models import RunArtifact, RunStatus, Session, SessionOrigin
 
+if TYPE_CHECKING:
+    from accounts.models import User
+    from sessions.managers import SessionQuerySet
+
 RANGE_CHOICES: list[tuple[str, str]] = [
     ("today", _("Today")),
     ("2d", _("Last 2 days")),
@@ -18,7 +23,6 @@ RANGE_CHOICES: list[tuple[str, str]] = [
     ("30d", _("Last 30 days")),
 ]
 
-# Urgency order for the status filter: what waits on the developer comes first.
 STATUS_CHOICES: list[tuple[str, str]] = [
     (status.value, status.label)
     for status in (
@@ -35,13 +39,23 @@ SCOPE_MINE = "mine"
 SCOPE_ALL = "all"
 SCOPE_CHOICES: list[tuple[str, str]] = [(SCOPE_MINE, _("Mine")), (SCOPE_ALL, _("Everyone"))]
 
-# A link that names what it points at must show all of it, teammates' sessions included.
 DEEP_LINK_PARAMS = ("repo", "mr", "schedule", "batch")
 
 
 def default_scope(data) -> str:
     """The scope a URL without a valid ``scope`` gets: ``all`` for a deep link, else ``mine``."""
     return SCOPE_ALL if any(data.get(param) for param in DEEP_LINK_PARAMS) else SCOPE_MINE
+
+
+def resolve_scope(data) -> str:
+    """The scope a request's query params select: an explicit valid ``scope``, else :func:`default_scope`."""
+    scope = data.get("scope")
+    return scope if scope in dict(SCOPE_CHOICES) else default_scope(data)
+
+
+def scope_queryset(queryset: SessionQuerySet, user: User, scope: str) -> SessionQuerySet:
+    """The sessions ``scope`` shows ``user``: the ones they own for ``mine``, all they may see for ``all``."""
+    return queryset.owned_by(user) if scope == SCOPE_MINE else queryset.visible_to(user)
 
 
 # Rolling-window size per range token; "today" is special-cased to local calendar midnight.
@@ -70,15 +84,12 @@ class SessionFilter(django_filters.FilterSet):
 
     def __init__(self, data=None, *args, **kwargs):
         data = data.copy() if data is not None else {}
-        if data.get("scope") not in dict(SCOPE_CHOICES):
-            data["scope"] = default_scope(data)
+        data["scope"] = resolve_scope(data)
         super().__init__(data, *args, **kwargs)
 
     def filter_scope(self, queryset, name, value):
-        user = getattr(self.request, "user", None)
-        if value != SCOPE_MINE or user is None or not user.is_authenticated:
-            return queryset
-        return queryset.owned_by(user)
+        # The view applies the scope as its base queryset (``scope_queryset``); here it is only validated.
+        return queryset
 
     def filter_q(self, queryset, name, value):
         return queryset.filter(Q(title__icontains=value) | Q(repo_id__icontains=value))

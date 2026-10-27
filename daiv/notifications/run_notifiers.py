@@ -165,6 +165,7 @@ def _render_payload(run, envelope) -> tuple[str, str, dict]:
         "status_tone": envelope_tone(status),
         "status": run.status,
         "status_label": envelope.get_status_display(),
+        "envelope_status": status,
         # The classifier's own words, keyed separately from ``body`` (which falls back to the subject)
         # so a channel can tell "no summary" from "a summary that happens to repeat the subject".
         "summary": envelope.summary,

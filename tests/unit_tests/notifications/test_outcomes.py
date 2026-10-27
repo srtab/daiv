@@ -43,6 +43,16 @@ def test_a_run_notification_without_its_envelope_falls_back_to_its_tone(tone, ex
     assert outcome_for(_notification(EventType.JOB_FINISHED, context={"status_tone": tone})).key == expected
 
 
+def test_a_deleted_runs_notification_keeps_the_status_it_stored():
+    context = {"status_tone": "warning", "envelope_status": EnvelopeStatus.NEEDS_INPUT}
+    assert outcome_for(_notification(EventType.JOB_FINISHED, context=context)).key == EnvelopeStatus.NEEDS_INPUT
+
+
+def test_an_older_notification_without_a_stored_status_keeps_its_label():
+    context = {"status_tone": "warning", "status_label": "Found issues"}
+    assert outcome_for(_notification(EventType.JOB_FINISHED, context=context)).label == "Found issues"
+
+
 @pytest.mark.parametrize(
     ("counts", "expected"),
     [

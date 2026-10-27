@@ -3,7 +3,7 @@
    hx-post="{% url 'notifications:mark_read' notification.id %}"
    hx-swap="none"
    hx-on::after-request="window.location.href = this.getAttribute('href')"
-   class="block border-b border-white/[0.06] px-4 py-3 transition hover:bg-white/[0.03] last:border-b-0 {% if not notification.read_at %}bg-white/[0.02]{% endif %}">
+   class="block border-b border-border px-4 py-3 transition hover:bg-surface-3 last:border-b-0 {% if not notification.read_at %}bg-surface-3/50{% endif %}">
   <div class="flex items-start gap-3">
     {% with outcome=notification.outcome %}
     <span class="outcome-icon outcome-icon--{{ outcome.tone }}" data-outcome="{{ outcome.key }}">
@@ -11,18 +11,18 @@
     </span>
     <div class="min-w-0 flex-1">
       <div class="flex items-start justify-between gap-3">
-        <p class="truncate text-sm font-medium text-white">{{ notification.subject }}</p>
+        <p class="truncate text-sm font-medium text-text-strong">{{ notification.subject }}</p>
         {% if not notification.read_at %}
-          <span class="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-emerald-400" aria-label="{% translate 'Unread' %}"></span>
+          <span class="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-accent" aria-label="{% translate 'Unread' %}"></span>
         {% endif %}
       </div>
-      <p class="mt-0.5 line-clamp-2 text-xs text-gray-400">{{ notification.body }}</p>
-      <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-500">
+      <p class="mt-0.5 line-clamp-2 text-xs text-text-muted">{{ notification.body }}</p>
+      <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-faint">
         <span class="outcome-label outcome-label--{{ outcome.tone }}">{{ outcome.label }}</span>
         <span>{{ notification.created|timesince }} {% translate "ago" %}</span>
         {% for d in notification.deliveries.all %}
           {% if d.status == "failed" %}
-          <span class="inline-flex items-center gap-1 text-amber-400">
+          <span class="inline-flex items-center gap-1 text-status-found">
             {% icon "exclamation-triangle" "h-3 w-3" %}{% blocktranslate with channel=d.get_channel_type_display %}{{ channel }} not delivered{% endblocktranslate %}
           </span>
           {% endif %}

@@ -612,8 +612,7 @@ html {
   }
 
   .status-badge-waiting {
-    @apply text-status-found ring-1 ring-inset;
-    background-color: color-mix(in srgb, var(--color-status-found) 14%, transparent);
+    @apply bg-transparent text-status-found ring-1 ring-inset;
     --tw-ring-color: color-mix(in srgb, var(--color-status-found) 45%, transparent);
   }
 

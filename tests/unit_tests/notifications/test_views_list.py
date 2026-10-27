@@ -90,7 +90,7 @@ class TestNotificationListView:
 class TestMarkAsRead:
     def test_marks_single_as_read(self, member_client, notification):
         response = member_client.post(f"/dashboard/notifications/{notification.id}/read/")
-        assert response.status_code in (200, 204)
+        assert response.status_code == 204
         notification.refresh_from_db()
         assert notification.read_at is not None
 

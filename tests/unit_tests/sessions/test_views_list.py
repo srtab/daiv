@@ -294,6 +294,23 @@ class TestSessionListView:
         assert response.context["schedule_name"] == ""
         assert "Secret audit" not in response.content.decode()
 
+    def test_schedule_filter_chip_names_the_schedule_when_mine_has_no_rows(self, admin_client, other_user):
+        schedule = _create_schedule(other_user, "Their audit")
+        _create_session(user=other_user, scheduled_job=schedule)
+
+        response = admin_client.get(reverse("session_list"), {"schedule": str(schedule.pk), "scope": "mine"})
+
+        assert list(response.context["sessions"]) == []
+        assert response.context["schedule_name"] == "Their audit"
+
+    def test_clearing_a_deep_link_chip_keeps_the_scope(self, admin_client):
+        _create_session(repo_id="group/project", merge_request_iid=42)
+
+        html = admin_client.get(reverse("session_list"), {"repo": "group/project", "mr": "42"}).content.decode()
+
+        assert 'href="?scope=all"' in html
+        assert 'href="?repo=group%2Fproject&amp;scope=all"' in html
+
     def test_runs_are_prefetched_newest_first(self, logged_in_client, user, django_assert_num_queries):
         session = _create_session(user=user)
         _create_run(session, status=RunStatus.SUCCESSFUL)

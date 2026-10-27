@@ -2,8 +2,8 @@
 
 A per-run notification is keyed on its run (``source_type == SOURCE_RUN``), and that run's
 ``RunEnvelope`` is written once and never updated, so its status is the outcome the notification
-was sent for. A batch rollup stores its per-status counts; the watch and dispatch notices have a
-single outcome each.
+was sent for; the context also stores it, for when the run is deleted. A batch rollup stores
+its per-status counts; the watch and dispatch notices have a single outcome each.
 """
 
 from __future__ import annotations
@@ -75,10 +75,13 @@ def outcome_for(notification: Notification, envelope_status: str | None = None) 
     status = envelope_status
     if notification.event_type == EventType.JOB_BATCH_FINISHED:
         status = _batch_status(context)
-    # A run deleted since (its envelope cascades away) still has the tone it was sent with.
     if status is None:
-        status = _TONE_STATUSES.get(context.get("status_tone"), EnvelopeStatus.NEEDS_ATTENTION)
-    return ENVELOPE_OUTCOMES.get(status, ENVELOPE_OUTCOMES[EnvelopeStatus.NEEDS_ATTENTION])
+        status = context.get("envelope_status")
+    if status in ENVELOPE_OUTCOMES:
+        return ENVELOPE_OUTCOMES[status]
+    # Sent before ``envelope_status`` was stored and its run since deleted: the tone is all that is left.
+    outcome = ENVELOPE_OUTCOMES[_TONE_STATUSES.get(context.get("status_tone"), EnvelopeStatus.NEEDS_ATTENTION)]
+    return outcome._replace(label=context["status_label"]) if context.get("status_label") else outcome
 
 
 def attach_outcomes(notifications: Iterable[Notification]) -> None:

@@ -120,7 +120,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         scheduled_count = stats["scheduled"]
         api_jobs_count = stats["api_jobs"]
         chat_jobs_count = stats["chat_jobs"]
-        sessions_url = reverse("session_list")
+        sessions_url = f"{reverse('session_list')}?scope=all"
 
         # Non-overlapping segments for the breakdown bar.
         # Trigger types are mutually exclusive, so the trigger-keyed segments never overlap.
@@ -137,14 +137,14 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             - failed_count,
         )
         raw_segments = [
-            ("Issues", issues_count, "bg-amber-500/50", f"{sessions_url}?trigger={SessionOrigin.ISSUE_WEBHOOK}"),
-            ("MR/PR", mrs_count, "bg-cyan-500/50", f"{sessions_url}?trigger={SessionOrigin.MR_WEBHOOK}"),
-            ("MCP Job", mcp_jobs_count, "bg-indigo-500/50", f"{sessions_url}?trigger={SessionOrigin.MCP_JOB}"),
-            ("Scheduled", scheduled_count, "bg-violet-500/40", f"{sessions_url}?trigger={SessionOrigin.SCHEDULE}"),
-            ("API", api_jobs_count, "bg-emerald-500/50", f"{sessions_url}?trigger={SessionOrigin.API_JOB}"),
-            ("Chat", chat_jobs_count, "bg-sky-500/40", f"{sessions_url}?trigger={SessionOrigin.CHAT}"),
+            ("Issues", issues_count, "bg-amber-500/50", f"{sessions_url}&trigger={SessionOrigin.ISSUE_WEBHOOK}"),
+            ("MR/PR", mrs_count, "bg-cyan-500/50", f"{sessions_url}&trigger={SessionOrigin.MR_WEBHOOK}"),
+            ("MCP Job", mcp_jobs_count, "bg-indigo-500/50", f"{sessions_url}&trigger={SessionOrigin.MCP_JOB}"),
+            ("Scheduled", scheduled_count, "bg-violet-500/40", f"{sessions_url}&trigger={SessionOrigin.SCHEDULE}"),
+            ("API", api_jobs_count, "bg-emerald-500/50", f"{sessions_url}&trigger={SessionOrigin.API_JOB}"),
+            ("Chat", chat_jobs_count, "bg-sky-500/40", f"{sessions_url}&trigger={SessionOrigin.CHAT}"),
             ("Other", other_count, "bg-gray-500/30", None),
-            ("Failed", failed_count, "bg-red-500/40", f"{sessions_url}?status={RunStatus.FAILED}"),
+            ("Failed", failed_count, "bg-red-500/40", f"{sessions_url}&status={RunStatus.FAILED}"),
         ]
         segments = []
         for label, value, css, url in raw_segments:

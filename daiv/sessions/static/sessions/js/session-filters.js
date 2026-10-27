@@ -6,10 +6,6 @@
  * only #session-results via the shared swapResults().
  */
 
-// Mirrors sessions.filters.default_scope: a deep link with no explicit scope shows everyone's sessions.
-const SCOPES = ["mine", "all"];
-const DEEP_LINK_PARAMS = ["repo", "mr", "schedule", "batch"];
-
 const { swapResults } = window.createResultsSwap("session-results", {
     errorMessage: "Couldn't update the session list — check your connection and try again.",
     onUrlChanged: () => window.dispatchEvent(new CustomEvent("sessions:url-changed")),
@@ -38,9 +34,11 @@ document.addEventListener("alpine:init", () => {
 
         _readUrl() {
             const p = new URLSearchParams(window.location.search);
+            // Same rule as sessions.filters.resolve_scope, whose values the server renders onto the root.
+            const scopes = this.$root.dataset.scopes.split(" ");
+            const deepLink = this.$root.dataset.deepLinkParams.split(" ").some((key) => p.get(key));
             const scope = p.get("scope");
-            const deepLink = DEEP_LINK_PARAMS.some((key) => p.get(key));
-            this.scope = SCOPES.includes(scope) ? scope : deepLink ? "all" : "mine";
+            this.scope = scopes.includes(scope) ? scope : deepLink ? "all" : "mine";
             this.q = p.get("q") || "";
             this.status = p.get("status") || "";
             this.trigger = p.get("trigger") || "";
