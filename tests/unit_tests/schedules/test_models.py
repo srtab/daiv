@@ -423,3 +423,20 @@ class TestScheduledJobDispatchFailure:
     )
     def test_outlook_follows_whether_the_schedule_will_run_again(self, frequency, is_enabled, expected):
         assert self._job(frequency=frequency, is_enabled=is_enabled).dispatch_failure_outlook == expected
+
+
+@pytest.mark.django_db
+def test_failing_selects_the_schedules_is_failing_holds_for(member_user):
+    def job(name, **fields):
+        return ScheduledJob.objects.create(
+            user=member_user, name=name, prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], **fields
+        )
+
+    now = timezone.now()
+    older = job("older", failing_since=now - timedelta(days=1))
+    retired = job("retired", frequency=Frequency.ONCE, is_enabled=False, failing_since=now)
+    job("paused", is_enabled=False, failing_since=now)
+    job("healthy")
+
+    assert list(ScheduledJob.objects.failing()) == [retired, older]
+    assert all(schedule.is_failing for schedule in ScheduledJob.objects.failing())

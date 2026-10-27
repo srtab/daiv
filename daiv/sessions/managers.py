@@ -140,13 +140,60 @@ class SessionManager(models.Manager.from_queryset(SessionQuerySet)):
     pass
 
 
-class RunManager(models.Manager["Run"]):
-    def _owner_q(self, user: User) -> models.Q:
-        return _started_by_q(user) | models.Q(session__scheduled_job__in=user.subscribed_schedules.values("pk"))
-
+class RunQuerySet(models.QuerySet["Run"]):
     def started_by(self, user: User) -> models.QuerySet[Run]:
         """Runs the user started, by account or by git platform username; not those of a schedule they subscribe to."""
         return self.filter(_started_by_q(user))
+
+    def latest_in_session(self) -> models.QuerySet[Run]:
+        """Runs no later run in their session followed, whoever started it; on a ``created_at`` tie, the higher id."""
+        from sessions.models import Run
+
+        newer = Run.objects.filter(session=models.OuterRef("session")).filter(
+            models.Q(created_at__gt=models.OuterRef("created_at"))
+            | models.Q(created_at=models.OuterRef("created_at"), id__gt=models.OuterRef("id"))
+        )
+        return self.exclude(models.Exists(newer))
+
+    def with_retried(self, user: User) -> models.QuerySet[Run]:
+        """Annotate ``retried``: a later run in another session took the run up again.
+
+        A job's Retry starts a new session, so that is a later run of the same schedule, or a later prompt-driven
+        run ``user`` started on the same repository with the same prompt.
+        """
+        from sessions.models import Run, SessionOrigin
+
+        later = models.Q(created_at__gt=models.OuterRef("created_at")) & ~models.Q(session=models.OuterRef("session"))
+        rerun = Run.objects.filter(later, session__scheduled_job=models.OuterRef("session__scheduled_job"))
+        retry = (
+            Run.objects
+            .started_by(user)
+            .filter(later, trigger_type__in=SessionOrigin.prompt_driven())
+            .filter(repo_id=models.OuterRef("repo_id"), prompt=models.OuterRef("prompt"))
+            .exclude(prompt="")
+        )
+        return self.annotate(retried=models.Exists(rerun) | models.Exists(retry))
+
+    def merge_requests(self) -> list[dict]:
+        """The merge requests these runs worked on, most recently worked on first.
+
+        Each has ``repo_id``, ``iid``, ``title`` (its newest run's session title) and ``url`` (the newest one known).
+        """
+        merge_requests: dict[tuple[str, int], dict] = {}
+        for repo_id, iid, url, title in (
+            self
+            .filter(merge_request_iid__isnull=False)
+            .order_by("-created_at")
+            .values_list("repo_id", "merge_request_iid", "merge_request_web_url", "session__title")
+        ):
+            merge_request = merge_requests.setdefault((repo_id, iid), {"repo_id": repo_id, "iid": iid, "title": title})
+            merge_request["url"] = merge_request.get("url") or url
+        return list(merge_requests.values())
+
+
+class RunManager(models.Manager.from_queryset(RunQuerySet)):
+    def _owner_q(self, user: User) -> models.Q:
+        return _started_by_q(user) | models.Q(session__scheduled_job__in=user.subscribed_schedules.values("pk"))
 
     def visible_to(self, user: User) -> models.QuerySet[Run]:
         """Runs the user may view: ownership OR a repository they can currently read.
