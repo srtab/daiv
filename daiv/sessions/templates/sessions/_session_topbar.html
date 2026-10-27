@@ -63,7 +63,7 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
     </template>
 
     <template x-if="watch && !thread?.merge_request">
-      <span class="session-topbar__ci mr-split__ci" :class="'mr-split__ci--' + watch.tone"
+      <span class="mr-split__ci" :class="'mr-split__ci--' + watch.tone"
             :title="'{{ _("CI")|escapejs }}: ' + watch.label" data-testid="session-ci">
         <span class="mr-split__ci-dot" aria-hidden="true"></span><span class="mr-split__ci-label" x-text="'{{ _("CI")|escapejs }}: ' + watch.label"></span>
       </span>

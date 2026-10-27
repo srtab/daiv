@@ -244,11 +244,10 @@ def retry_urls(runs: Iterable[Run], user: User) -> dict[str, str]:
     return {str(run.id): f"{composer}?{urlencode({'from': run.id})}" for run in retryable if run.repo_id in allowed}
 
 
-def mark_retryable(turns: list[dict[str, Any]], runs: list[Run], user: User) -> None:
-    """SYNC ONLY: stamp ``retry_url`` on the anchor turn of each run ``user`` may retry."""
+def mark_retryable(turns: list[dict[str, Any]], runs: list[Run], user: User) -> dict[str, str]:
+    """SYNC ONLY: stamp ``retry_url`` on the anchor turn of each run ``user`` may retry; returns ``retry_urls``."""
     urls = retry_urls(runs, user)
-    if not urls:
-        return
     for turn in turns:
         if url := urls.get(turn.get("run_id", "")):
             turn["retry_url"] = url
+    return urls

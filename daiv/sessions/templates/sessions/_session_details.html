@@ -31,7 +31,7 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
               <span class="diff-stat__minus" x-text="`−${diffStats.removed}`"></span>
             </span>
           </template>
-          <span x-show="filesTouched.length" x-text="filesTouched.length === 1 ? '{{ _("1 file")|escapejs }}' : `${filesTouched.length} {{ _("files")|escapejs }}`"></span>
+          <span x-show="filesTouched.length" x-text="_filesLabel(filesTouched.length)"></span>
         </div>
       </template>
       <template x-if="watch">
@@ -47,16 +47,15 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
         <dt>{% translate "Status" %}</dt>
         <dd>
           <span x-text="status?.label || '—'">{{ header.latest_run.label|default:"—" }}</span>
-          <template x-if="!streaming && !resuming && !waiting && !_settling && latest?.finished_at">
+          <template x-if="!busy && latest?.finished_at">
             <span class="text-text-faint">· <time :datetime="latest.finished_at" :title="absoluteTime(latest.finished_at)" x-text="relativeTime(latest.finished_at)"></time></span>
           </template>
         </dd>
         <dt>{% translate "Started by" %}</dt>
         <dd>
-          {% if header.issue.url %}
-            <a href="{{ header.issue.url }}" target="_blank" rel="noopener noreferrer">{% blocktranslate with iid=header.issue.iid %}Issue #{{ iid }}{% endblocktranslate %}</a>
-          {% elif header.issue %}
-            {% blocktranslate with iid=header.issue.iid %}Issue #{{ iid }}{% endblocktranslate %}
+          {% if header.issue %}
+            {% blocktranslate with iid=header.issue.iid asvar issue_label %}Issue #{{ iid }}{% endblocktranslate %}
+            {% if header.issue.url %}<a href="{{ header.issue.url }}" target="_blank" rel="noopener noreferrer">{{ issue_label }}</a>{% else %}{{ issue_label }}{% endif %}
           {% elif session.scheduled_job %}
             {% blocktranslate with name=session.scheduled_job.name %}Schedule · {{ name }}{% endblocktranslate %}
           {% else %}

@@ -48,8 +48,8 @@ async def session_turns(request: HttpRequest, thread_id: str):
     def finish_turns():
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
-        mark_retryable(turns, runs, user)
-        return live_run_for(activity.live, session, user), latest_run_payload(runs, user)
+        retry_urls = mark_retryable(turns, runs, user)
+        return live_run_for(activity.live, session, user), latest_run_payload(runs, retry_urls)
 
     live, latest_run = await sync_to_async(finish_turns)()
     return {

@@ -232,7 +232,8 @@
 
   .sidebar__account,
   .account-menu__item,
-  .new-split__item {
+  .new-split__item,
+  .session-menu__item {
     @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px]
            text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
   }
@@ -257,7 +258,8 @@
   }
 
   .new-split__menu,
-  .sidebar__account-menu {
+  .sidebar__account-menu,
+  .session-menu {
     @apply absolute z-40 rounded-xl border border-border bg-surface-2 p-1 shadow-overlay;
   }
 
@@ -315,7 +317,8 @@
 .filter-menu,
 .card__menu-panel,
 .new-split__menu,
-.sidebar__account-menu {
+.sidebar__account-menu,
+.session-menu {
   animation: surface-rise 180ms ease-out backwards;
 }
 
@@ -835,11 +838,11 @@ html {
     background: color-mix(in srgb, var(--color-status-found) 15%, transparent);
   }
   .mr-split__ci {
-    @apply inline-flex items-center gap-1.5 border-l border-border pl-1.5 font-sans text-[11px];
+    @apply inline-flex items-center gap-1.5 font-sans text-[11px];
     color: var(--ci-color);
   }
-  .session-topbar__ci {
-    @apply border-l-0 pl-0;
+  .mr-split__main .mr-split__ci {
+    @apply border-l border-border pl-1.5;
   }
   .session-details__ci {
     @apply flex items-center gap-2 text-[13px];
@@ -860,12 +863,10 @@ html {
   .mr-split__ci--fail { --ci-color: var(--color-status-fail); }
 
   .session-menu {
-    @apply absolute top-full right-0 z-40 mt-2 w-64 rounded-xl border border-border bg-surface-2 p-1 shadow-overlay;
-    animation: surface-rise 180ms ease-out backwards;
+    @apply top-full right-0 mt-2 w-64;
   }
   .session-menu__item {
-    @apply flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-text transition-colors
-      hover:bg-surface-3 focus:bg-surface-3;
+    @apply h-9 py-0 text-text focus:bg-surface-3;
   }
   .session-menu__icon {
     @apply h-4 w-4 shrink-0 text-text-muted;

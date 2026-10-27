@@ -1,5 +1,5 @@
 // A run this page streams or waits on is shown from the chat component's flags; otherwise the status is the
-// server's, refreshed by each turns poll and once a run ends.
+// server's, refreshed by each sessionSync fetch of the turns endpoint.
 document.addEventListener("alpine:init", () => {
   const WIDE = "(min-width: 1100px)";
 
@@ -19,19 +19,17 @@ document.addEventListener("alpine:init", () => {
     else if (frames > 0) (document.hidden ? setTimeout : requestAnimationFrame)(() => whenShown(el, then, frames - 1));
   };
 
-  Alpine.data("sessionPage", ({ turnsUrl, storageKey, labels, runCount }) => ({
+  Alpine.data("sessionPage", ({ storageKey, labels }) => ({
     latest: null,
     watch: null,
-    runCount,
+    runCount: 0,
     detailsOpen: false,
     wide: false,
     _settling: false,
-    _seq: 0,
     _media: null,
     _onMedia: null,
     init() {
-      this.latest = readJSON("session-latest-run");
-      this.watch = readJSON("session-watch");
+      this.applyHeader(readJSON("session-header"));
       this._media = window.matchMedia?.(WIDE) ?? null;
       this.wide = Boolean(this._media?.matches);
       this._onMedia = (event) => {
@@ -74,40 +72,31 @@ document.addEventListener("alpine:init", () => {
     closeSheetDetails() {
       if (!this.wide) this.detailsOpen = false;
     },
+    get _running() {
+      return this.streaming || this.resuming || this._settling;
+    },
+    get busy() {
+      return this._running || this.waiting;
+    },
     get status() {
-      if (this.streaming || this.resuming || this._settling) return { variant: "running", label: labels.running };
+      if (this._running) return { variant: "running", label: labels.running };
       if (this.waiting) return { variant: "queued", label: labels.queued };
       return this.latest;
     },
     get retryUrl() {
-      if (this.streaming || this.resuming || this.waiting || this._settling) return "";
-      return this.latest?.retry_url || "";
+      return this.busy ? "" : this.latest?.retry_url || "";
     },
-    applyPoll(data) {
-      if (!data || data.latest_run === undefined) return;
-      this._seq += 1;
+    // Holds "running" from a run's end until sessionSync's next fetch brings its settled status, rather than
+    // flashing the previous run's.
+    settle() {
+      this._settling = true;
+    },
+    applyHeader(data) {
       this._settling = false;
+      if (!data || data.latest_run === undefined) return;
       this.latest = data.latest_run;
       this.watch = data.watch ?? null;
       this.runCount = data.run_count ?? this.runCount;
-    },
-    // Holds "running" until the run's settled status arrives, rather than flashing the previous run's.
-    async refresh() {
-      const token = ++this._seq;
-      this._settling = true;
-      try {
-        const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (token !== this._seq) return;
-        this.latest = data.latest_run ?? null;
-        this.watch = data.watch ?? null;
-        this.runCount = data.run_count ?? this.runCount;
-      } catch {
-        // The next poll or run end refreshes it again; a stale status is not worth an error.
-      } finally {
-        if (token === this._seq) this._settling = false;
-      }
     },
     async copyLink(url) {
       try {

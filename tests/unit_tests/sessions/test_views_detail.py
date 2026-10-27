@@ -987,7 +987,7 @@ def test_detail_panel_counts_the_runs(member_client, member_user):
     resp = _get_detail(member_client, session)
 
     assert resp.context["header"]["run_count"] == 2
-    assert "runCount: 2" in resp.content.decode()
+    assert b'id="session-header"' in resp.content
     assert 'x-text="runCount"' in _details(resp)
 
 
@@ -1004,18 +1004,13 @@ def test_detail_panel_counts_the_runs(member_client, member_user):
 def test_detail_status_is_the_latest_runs(member_client, member_user, status, variant, label):
     session = _create_session(user=member_user)
     _create_run(session, status=RunStatus.FAILED)
-    latest = _create_run(session, status=status)
+    _create_run(session, status=status)
 
     resp = _get_detail(member_client, session)
 
     payload = resp.context["header"]["latest_run"]
-    assert (payload["id"], payload["status"], payload["label"], payload["variant"]) == (
-        str(latest.id),
-        status,
-        label,
-        variant,
-    )
-    assert b'id="session-latest-run"' in resp.content
+    assert (payload["label"], payload["variant"]) == (label, variant)
+    assert b'id="session-header"' in resp.content
     assert f">{label}</span>" in _topbar(resp)
 
 
@@ -1086,7 +1081,7 @@ def test_detail_hands_the_ci_watch_to_the_page(member_client, member_user):
     resp = _get_detail(member_client, session)
 
     assert resp.context["header"]["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn"}
-    assert b'id="session-watch"' in resp.content
+    assert b'id="session-header"' in resp.content
 
 
 @pytest.mark.django_db
@@ -1122,7 +1117,7 @@ def test_detail_panel_carries_usage_so_the_composer_has_no_usage_sheet(member_cl
     assert 'id="session-details-context"' in _details(resp)
     assert "composer-sheet--context" not in html
     assert "openDetails('context')" in html
-    assert "diffInHeader: true" in html
+    assert "diffInDetails: true" in html
     assert 'class="chat-context"' not in html
 
 
@@ -1142,5 +1137,5 @@ def test_session_new_chat_has_no_top_bar_or_panel(member_client):
     assert b'data-testid="session-topbar"' not in resp.content
     assert b'data-testid="session-details"' not in resp.content
     assert b"composer-sheet--context" in resp.content
-    assert b"diffInHeader: false" in resp.content
+    assert b"diffInDetails: false" in resp.content
     assert b"chat-hero" in resp.content

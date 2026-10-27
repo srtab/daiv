@@ -36,8 +36,7 @@
   {{ session_spend|json_script:"chat-session-spend" }}
 
   {% if session %}
-  {{ header.latest_run|json_script:"session-latest-run" }}
-  {{ header.watch|json_script:"session-watch" }}
+  {{ header|json_script:"session-header" }}
   {% translate "Running" as running_label %}
   {% translate "Queued" as queued_label %}
   <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}', active: {{ is_in_flight|yesno:'true,false' }} })"
@@ -95,7 +94,7 @@
          {# Any run in flight, streamed from the relay or polled until it holds the slot, so the load-time #}
          {# scroll can tell "still working" from "finished" without duplicating that logic in JS. #}
          sessionLive: {{ is_in_flight|yesno:"true,false" }},
-         diffInHeader: {{ session|yesno:"true,false" }},
+         diffInDetails: {{ session|yesno:"true,false" }},
          waitingSince: "{{ waiting_since|default:''|escapejs }}",
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if session %}{
@@ -141,9 +140,10 @@
        x-cloak
        class="session-page">
   <div class="contents"
-       {% if session %}x-data="sessionPage({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', runCount: {{ header.run_count }}, labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}' } })"
-       @daiv:session-turns.window="applyPoll($event.detail)"
-       @daiv:live-run-ended.window="refresh()"{% endif %}>
+       {% if session %}x-data="sessionPage({ storageKey: 'daiv.session-details.{{ request.user.pk }}', labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}' } })"
+       @daiv:session-turns.window="applyHeader($event.detail)"
+       @daiv:session-header.window="applyHeader($event.detail)"
+       @daiv:live-run-ended.window="settle()"{% endif %}>
   {% if session %}
     {% include "sessions/_session_topbar.html" %}
   {% endif %}
@@ -434,11 +434,7 @@
       </div>
 
       {% if not expired %}
-        {% if session %}
-          {% include "chat/_composer.html" with context_target="details" %}
-        {% else %}
-          {% include "chat/_composer.html" %}
-        {% endif %}
+        {% include "chat/_composer.html" %}
       {% endif %}
     </div>
   </div>

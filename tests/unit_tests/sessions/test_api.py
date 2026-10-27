@@ -483,8 +483,6 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.json()["latest_run"] == {
-        "id": str(latest.id),
-        "status": "FAILED",
         "label": "Failed",
         "variant": "failed",
         "finished_at": "",

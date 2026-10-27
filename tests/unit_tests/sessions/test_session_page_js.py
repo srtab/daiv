@@ -19,10 +19,8 @@ import vm from "node:vm";
 
 const { src, initial, watch, wide, stored, storageBlocked, steps } = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
-const fetches = [];
-const pending = [];
 const storage = new Map(stored == null ? [] : [["key", stored]]);
-const json = { "session-latest-run": initial, "session-watch": watch };
+const json = { "session-header": { latest_run: initial, watch, run_count: 1 } };
 const frames = [];
 const scrolled = [];
 const section = {
@@ -44,10 +42,6 @@ const sandbox = {
     getItem: (k) => { if (storageBlocked) throw new Error("blocked"); return storage.get(k) ?? null; },
     setItem: (k, v) => { if (storageBlocked) throw new Error("blocked"); storage.set(k, v); },
   },
-  fetch: (url) => {
-    fetches.push(url);
-    return new Promise((resolve) => pending.push((body) => resolve({ ok: true, json: async () => body })));
-  },
 };
 sandbox.window = { matchMedia: () => ({ matches: wide, addEventListener() {}, removeEventListener() {} }) };
 sandbox.Alpine = { data: (name, factory) => { components[name] = factory; } };
@@ -55,17 +49,14 @@ vm.createContext(sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
 const labels = { running: "Running", queued: "Queued" };
-const page = components.sessionPage({ turnsUrl: "/turns", storageKey: "key", labels, runCount: 1 });
+const page = components.sessionPage({ storageKey: "key", labels });
 Object.assign(page, { streaming: false, resuming: false, waiting: false, $nextTick: (cb) => cb() });
 page.init();
-const settle = () => new Promise((resolve) => setImmediate(resolve));
 const seen = [];
-let refreshing = null;
 for (const [action, value] of steps) {
   if (action === "set") Object.assign(page, value);
-  else if (action === "poll") page.applyPoll(value);
-  else if (action === "run-ended") refreshing = page.refresh();
-  else if (action === "respond") { pending.shift()(value); await refreshing; await settle(); }
+  else if (action === "poll") page.applyHeader(value);
+  else if (action === "run-ended") page.settle();
   else if (action === "toggle") page.toggleDetails();
   else if (action === "open-details") page.openDetails("context");
   else if (action === "frame") { section.shown = value; frames.splice(0).forEach((cb) => cb()); }
@@ -76,11 +67,11 @@ for (const [action, value] of steps) {
     });
   }
 }
-process.stdout.write(JSON.stringify({ seen, fetches: fetches.length, stored: storage.get("key") ?? null }));
+process.stdout.write(JSON.stringify({ seen, stored: storage.get("key") ?? null }));
 """
 
-DONE = {"id": "r1", "status": "SUCCESSFUL", "label": "Done", "variant": "success", "retry_url": "/runs/new/?from=r1"}
-FAILED = {"id": "r2", "status": "FAILED", "label": "Failed", "variant": "failed", "retry_url": ""}
+DONE = {"label": "Done", "variant": "success", "retry_url": "/runs/new/?from=r1"}
+FAILED = {"label": "Failed", "variant": "failed", "retry_url": ""}
 RUNNING = {"variant": "running", "label": "Running"}
 WATCHING = {"state": "watching", "label": "Waiting for CI", "tone": "attn"}
 
@@ -136,12 +127,17 @@ def test_a_run_ending_holds_running_until_its_settled_status_arrives():
         ["run-ended", None],
         ["set", {"streaming": False}],
         ["read", None],
-        ["respond", {"latest_run": FAILED, "watch": None}],
+        ["poll", {"latest_run": FAILED, "watch": None}],
         ["read", None],
     ])
 
     assert [s["status"] for s in result["seen"]] == [RUNNING, FAILED]
-    assert result["fetches"] == 1
+
+
+def test_a_failed_settling_fetch_releases_the_held_status():
+    seen = _run([["run-ended", None], ["read", None], ["poll", None], ["read", None]])["seen"]
+
+    assert [s["status"] for s in seen] == [RUNNING, DONE]
 
 
 def test_a_wide_page_opens_the_panel_as_last_left():
@@ -174,7 +170,7 @@ def test_polls_and_a_settled_run_update_the_run_count():
         ["poll", {"latest_run": DONE, "watch": None, "run_count": 2}],
         ["read", None],
         ["run-ended", None],
-        ["respond", {"latest_run": FAILED, "watch": None, "run_count": 3}],
+        ["poll", {"latest_run": FAILED, "watch": None, "run_count": 3}],
         ["read", None],
     ])
 

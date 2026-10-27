@@ -9,13 +9,13 @@ warning glyph. A model with no resolvable window shows the token count alone —
 with no scale, not an error. The ring is a CSS conic-gradient (see ``.context-meter`` in
 input.css); icons here are masks and cannot be data-driven.
 
-``context_target="details"`` makes the ring open the session details panel's usage section instead of this sheet.
+On a session page the ring opens the session details panel's usage section instead of this sheet.
 {% endcomment %}
 <div class="composer-sheet-anchor" x-show="contextUsage" x-cloak>
   <button type="button"
           class="context-meter"
           :class="contextMeter?.tone ? 'context-meter--' + contextMeter.tone : ''"
-          {% if context_target == "details" %}
+          {% if session %}
           @click.stop="openDetails('context')"
           :aria-expanded="detailsOpen.toString()"
           aria-controls="session-details"
@@ -38,7 +38,7 @@ input.css); icons here are masks and cannot be data-driven.
           aria-hidden="true">{% icon "exclamation-triangle" "h-3 w-3" %}</span>
   </button>
 
-  {% if context_target != "details" %}
+  {% if not session %}
   <div class="composer-sheet composer-sheet--context"
        x-show="sheet === 'context'"
        x-cloak

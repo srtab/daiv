@@ -37,7 +37,7 @@ def _catalog(slug: str, html_url: str, provider: str = "gitlab") -> None:
 
 @pytest.mark.django_db
 def test_latest_run_payload_is_none_without_runs():
-    assert latest_run_payload([], user=None) is None
+    assert latest_run_payload([], {}) is None
 
 
 @pytest.mark.django_db
@@ -54,18 +54,11 @@ def test_latest_run_payload_is_none_without_runs():
 def test_latest_run_payload_describes_the_newest_run(status, variant, label):
     session = _session()
     _run(session, status=RunStatus.FAILED)
-    latest = _run(session, status=status)
+    _run(session, status=status)
 
-    payload = latest_run_payload([*session.runs.order_by("created_at")], user=None)
+    payload = latest_run_payload([*session.runs.order_by("created_at")], {})
 
-    assert payload == {
-        "id": str(latest.id),
-        "status": status,
-        "label": label,
-        "variant": variant,
-        "finished_at": "",
-        "retry_url": "",
-    }
+    assert payload == {"label": label, "variant": variant, "finished_at": "", "retry_url": ""}
 
 
 @pytest.mark.django_db
@@ -74,36 +67,16 @@ def test_latest_run_payload_carries_when_the_run_finished():
     finished = timezone.now()
     run = _run(session, finished_at=finished)
 
-    assert latest_run_payload([run], user=None)["finished_at"] == finished.isoformat()
+    assert latest_run_payload([run], {})["finished_at"] == finished.isoformat()
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("trigger_type", "can_run", "retryable"),
-    [(SessionOrigin.UI_JOB, True, True), (SessionOrigin.UI_JOB, False, False), (SessionOrigin.CHAT, True, False)],
-)
-def test_latest_run_payload_links_retry_only_for_a_retryable_run_the_viewer_can_run(trigger_type, can_run, retryable):
-    session = _session(origin=trigger_type)
-    run = _run(session, trigger_type=trigger_type, status=RunStatus.FAILED, prompt="fix it")
-
-    with patch(
-        "sessions.transcript.runnable_repo_ids", side_effect=lambda user, repo_ids: set(repo_ids) if can_run else set()
-    ):
-        payload = latest_run_payload([run], user=None)
-
-    assert payload["retry_url"] == (f"/dashboard/runs/new/?from={run.id}" if retryable else "")
-
-
-@pytest.mark.django_db
-def test_latest_run_payload_ignores_an_earlier_retryable_run():
+def test_latest_run_payload_links_only_the_latest_runs_retry():
     session = _session(origin=SessionOrigin.UI_JOB)
-    earlier = _run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.FAILED, prompt="fix it")
-    latest = _run(session, trigger_type=SessionOrigin.CHAT, status=RunStatus.SUCCESSFUL)
+    earlier, latest = _run(session), _run(session)
 
-    with patch("sessions.transcript.runnable_repo_ids", side_effect=lambda user, repo_ids: set(repo_ids)):
-        payload = latest_run_payload([earlier, latest], user=None)
-
-    assert payload["retry_url"] == ""
+    assert latest_run_payload([earlier, latest], {str(earlier.id): "/retry-earlier"})["retry_url"] == ""
+    assert latest_run_payload([earlier, latest], {str(latest.id): "/retry-latest"})["retry_url"] == "/retry-latest"
 
 
 @pytest.mark.django_db
@@ -171,9 +144,9 @@ def test_build_session_header_gathers_the_pages_context():
     session = _session(watch_state=WatchState.GREEN)
     runs = [_run(session), _run(session)]
 
-    header = build_session_header(session, runs, user=None)
+    header = build_session_header(session, runs, {})
 
-    assert header["latest_run"]["id"] == str(runs[-1].id)
+    assert header["latest_run"]["label"] == "Done"
     assert header["watch"]["tone"] == "clear"
     assert header["issue"] is None
     assert header["run_count"] == 2
