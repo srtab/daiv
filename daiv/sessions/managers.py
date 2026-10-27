@@ -95,13 +95,17 @@ class SessionQuerySet(models.QuerySet["Session"]):
         has_run = models.Exists(Run.objects.filter(session=models.OuterRef("pk")))
         return self.exclude(~has_run, origin=SessionOrigin.PIPELINE_WEBHOOK)
 
-    def listed_for(self, user: User, *, mine: bool = False, archived: bool = False) -> models.QuerySet[Session]:
-        """The rows the session list shows ``user`` before any filter: their own when ``mine``, else all visible.
-
-        Archived sessions are a list of their own: ``archived`` shows only them, and they are left out otherwise.
-        """
+    def listed_for(self, user: User, *, mine: bool = False) -> models.QuerySet[Session]:
+        """The rows the session list shows ``user`` before any filter: their own when ``mine``, else all visible."""
         sessions = self.owned_by(user) if mine else self.visible_to(user)
-        return sessions.filter(hidden_at__isnull=not archived).without_watch_placeholders().with_latest_status()
+        return sessions.without_watch_placeholders().with_latest_status()
+
+    def archived_for(self, user: User, *, archived: bool = True) -> models.QuerySet[Session]:
+        """The sessions ``user`` archived out of their own list, or with ``archived=False`` the rest."""
+        from sessions.models import HiddenSession
+
+        hidden = models.Exists(HiddenSession.objects.filter(session=models.OuterRef("pk"), user=user))
+        return self.filter(hidden if archived else ~hidden)
 
     def with_latest_status(self) -> models.QuerySet[Session]:
         """Annotate each session with ``latest_run_status`` (status of the newest run).

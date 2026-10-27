@@ -24,6 +24,7 @@ const components = {};
 const fetches = [];
 const pending = [];
 const storage = new Map(stored == null ? [] : [["key", stored]]);
+let clock = 10;
 const json = { "session-latest-run": initial, "session-watch": watch };
 const sandbox = {
   document: {
@@ -34,6 +35,7 @@ const sandbox = {
     getItem: (k) => { if (storageBlocked) throw new Error("blocked"); return storage.get(k) ?? null; },
     setItem: (k, v) => { if (storageBlocked) throw new Error("blocked"); storage.set(k, v); },
   },
+  performance: { now: () => clock },
   fetch: (url, options = {}) => {
     fetches.push({ url, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null,
                    csrf: options.headers?.["X-CSRFToken"] ?? null });
@@ -73,18 +75,21 @@ for (const [action, value] of steps) {
   else if (action === "run-ended") refreshing = page.refresh();
   else if (action === "respond") { pending.shift()(value); await refreshing; await settle(); }
   else if (action === "reply") { pending.shift()(value.body, value.status); await refreshing; await settle(); }
+  else if (action === "reply-at") { pending.splice(value.index, 1)[0](value.body, value.status); await settle(); }
   else if (action === "rename") page.startRename();
   else if (action === "draft") page.titleDraft = value;
   else if (action === "commit") refreshing = page.commitRename();
   else if (action === "cancel") page.cancelRename();
-  else if (action === "ci-toggle") refreshing = page.toggleCiWatch();
+  else if (action === "ci-toggle") refreshing = page.toggleCiWatch(value ?? 7);
+  else if (action === "advance") clock += value;
   else if (action === "archive") refreshing = page.setArchived(value);
   else if (action === "toggle") page.toggleDetails();
   else if (action === "read") {
     seen.push({ status: page.status, retry: page.retryUrl, watch: page.watch, open: page.detailsOpen,
                 title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
                 docTitle: sandbox.document.title,
-                archived: page.archived, hint: page.ciWatchHint, ciDisabled: Boolean(page.ciWatchDisabled) });
+                archived: page.archived, hint: page.ciWatchHint, ciDisabled: Boolean(page.ciWatchDisabled),
+                checked: page.ciWatchOn });
   }
 }
 process.stdout.write(JSON.stringify({
@@ -244,18 +249,30 @@ def test_the_ci_item_describes_the_watch():
     assert _read(watch=None)["hint"] == "Off for this merge request"
 
 
-def test_unticking_turns_the_watch_off_and_takes_the_response():
-    result = _run([["ci-toggle", None], ["reply", {"body": None}], ["read", None]], watch=WATCHING)
+def test_unticking_turns_off_the_watch_the_page_showed_and_takes_the_response():
+    result = _run([["ci-toggle", 7], ["reply", {"body": None}], ["read", None]], watch=WATCHING)
 
-    assert result["requests"][0] == {"url": "/ci-watch", "method": "POST", "body": {"on": False}, "csrf": "tok"}
-    assert result["seen"][0]["watch"] is None
+    body = {"on": False, "merge_request_iid": 7, "seen_state": "watching"}
+    assert result["requests"][0] == {"url": "/ci-watch", "method": "POST", "body": body, "csrf": "tok"}
+    assert (result["seen"][0]["watch"], result["seen"][0]["checked"]) == (None, False)
 
 
 def test_ticking_turns_the_watch_on():
-    result = _run([["ci-toggle", None], ["reply", {"body": WATCHING}], ["read", None]], watch=None)
+    result = _run([["read", None], ["ci-toggle", 5], ["reply", {"body": WATCHING}], ["read", None]], watch=None)
 
-    assert result["requests"][0]["body"] == {"on": True}
-    assert (result["seen"][0]["watch"], result["seen"][0]["hint"]) == (WATCHING, "Watching: Waiting for CI")
+    assert result["requests"][0]["body"] == {"on": True, "merge_request_iid": 5, "seen_state": "off"}
+    before, after = result["seen"]
+    assert (before["checked"], after["checked"], after["hint"]) == (False, True, "Watching: Waiting for CI")
+
+
+@pytest.mark.parametrize("state", ["green", "exhausted", "unclear"])
+def test_a_watch_that_is_over_shows_unticked_and_ticking_starts_a_new_one(state):
+    ended = {"state": state, "label": state.title(), "tone": "fail"}
+    result = _run([["read", None], ["ci-toggle", 7], ["reply", {"body": WATCHING}], ["read", None]], watch=ended)
+
+    assert result["seen"][0]["checked"] is False
+    assert result["requests"][0]["body"] == {"on": True, "merge_request_iid": 7, "seen_state": state}
+    assert result["seen"][1]["watch"] == WATCHING
 
 
 def test_a_lost_race_shows_the_watch_as_it_now_is():
@@ -286,10 +303,53 @@ def test_a_repository_with_the_watch_off_disables_the_item_with_the_reason():
     assert result["fetches"] == 1
 
 
-def test_a_failed_toggle_keeps_the_watch_and_says_so():
-    result = _run([["ci-toggle", None], ["reply", {"status": 502, "body": {}}], ["read", None]], watch=WATCHING)
+@pytest.mark.parametrize(("status", "body"), [(502, {}), (409, {"detail": "Something else"}), (422, {"detail": []})])
+def test_a_failed_toggle_keeps_the_watch_and_says_so(status, body):
+    result = _run([["ci-toggle", None], ["reply", {"status": status, "body": body}], ["read", None]], watch=WATCHING)
 
-    assert (result["seen"][0]["watch"], result["seen"][0]["hint"]) == (WATCHING, "Couldn't change it")
+    seen = result["seen"][0]
+    assert (seen["watch"], seen["hint"], seen["ciDisabled"]) == (WATCHING, "Couldn't change it", False)
+
+
+def test_a_poll_without_a_watch_keeps_the_one_the_page_has():
+    result = _run([["poll", {"latest_run": FAILED}], ["read", None]], watch=WATCHING)
+
+    assert (result["seen"][0]["status"], result["seen"][0]["watch"]) == (FAILED, WATCHING)
+
+
+def test_a_poll_asked_for_before_the_toggle_answered_does_not_undo_it():
+    result = _run(
+        [
+            ["ci-toggle", None],
+            ["reply", {"body": WATCHING}],
+            ["poll", {"latest_run": FAILED, "watch": None, "requestedAt": 9}],
+            ["read", None],
+            ["poll", {"latest_run": FAILED, "watch": None, "requestedAt": 11}],
+            ["read", None],
+        ],
+        watch=None,
+    )
+
+    assert [(s["status"], s["watch"]) for s in result["seen"]] == [(FAILED, WATCHING), (FAILED, None)]
+
+
+def test_a_refresh_sent_before_the_toggle_answered_does_not_undo_it():
+    result = _run(
+        [
+            ["run-ended", None],
+            ["ci-toggle", None],
+            ["reply-at", {"index": 1, "body": WATCHING}],
+            ["reply-at", {"index": 0, "body": {"latest_run": FAILED, "watch": None}}],
+            ["read", None],
+            ["advance", 1],
+            ["run-ended", None],
+            ["respond", {"latest_run": FAILED, "watch": None}],
+            ["read", None],
+        ],
+        watch=None,
+    )
+
+    assert [(s["status"], s["watch"]) for s in result["seen"]] == [(FAILED, WATCHING), (FAILED, None)]
 
 
 # ---------------------------------------------------------------------------

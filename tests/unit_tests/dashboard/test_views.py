@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
 
 
 def _local_noon(days_ago: int) -> datetime:
@@ -81,7 +81,7 @@ class TestDashboardSessionBreakdown:
     def test_archived_sessions_are_not_counted(self, member_user, member_client):
         _make_session(member_user, SessionOrigin.CHAT)
         archived = _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
-        Session.objects.filter(pk=archived.pk).update(hidden_at=timezone.now())
+        HiddenSession.objects.create(session=archived, user=member_user)
 
         activity = member_client.get(reverse("dashboard")).context["activity"]
 

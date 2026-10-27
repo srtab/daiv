@@ -35,6 +35,7 @@ let hold = false;
 
 const sandbox = {
   document: { addEventListener: (name, cb) => { if (name === "alpine:init") cb(); } },
+  performance: { now: () => now },
   console: { warn() {} },
   CustomEvent: class {
     constructor(type, init) { this.type = type; this.detail = init?.detail; this.defaultPrevented = false; }
@@ -107,6 +108,15 @@ def test_it_stays_quiet_while_a_live_run_streams():
 
     assert result["fetches"] == 0
     assert result["events"] == []
+
+
+def test_each_turns_event_says_when_its_request_was_sent():
+    """The session page drops a watch read before its own toggle answered, so it needs the poll's send time."""
+    payload = {"active": True, "live_run": None, "turns": [], "watch": None}
+
+    result = _run({"liveRunId": ""}, [["hold", None], ["advance", 5000], ["advance", 2000], ["release", [0, payload]]])
+
+    assert result["events"][0]["detail"] == {**payload, "requestedAt": 5000}
 
 
 def test_a_new_holder_is_handed_to_the_chat():

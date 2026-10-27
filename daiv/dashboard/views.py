@@ -145,7 +145,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # Counted through the list's own queryset and filterset, so each count equals the length
         # of the list its link opens.
         period = _period_params(cutoff_date)
-        sessions = SessionFilter(period, queryset=Session.objects.listed_for(user)).qs
+        sessions = SessionFilter(period, queryset=Session.objects.listed_for(user), request=self.request).qs
         rows = list(
             sessions
             .order_by()

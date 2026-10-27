@@ -72,10 +72,10 @@ def watch_session(session: Session, iid: int | None) -> Session | None:
     return Session.objects.filter(thread_id=thread_id).only("thread_id", "watch_state").first()
 
 
-async def awatch_session(session: Session, iid: int | None) -> Session | None:
-    """:func:`watch_session` for async callers, always read fresh: the toggle reads it back after writing it."""
+async def awatch_session(session: Session, iid: int | None, *, fresh: bool = False) -> Session | None:
+    """:func:`watch_session` for async callers; ``fresh`` reads the row back even when it is ``session``."""
     thread_id = watch_thread_id(session, iid)
-    if thread_id is None:
+    if thread_id is None or (thread_id == session.thread_id and not fresh):
         return session
     return await Session.objects.filter(thread_id=thread_id).only("thread_id", "watch_state").afirst()
 

@@ -11,7 +11,7 @@ from django.utils.html import escapejs
 import pytest
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
-from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
 
 from tests.unit_tests.sessions.conftest import create_archive, grant_read_access, make_artifact
 
@@ -1157,7 +1157,7 @@ def test_detail_offers_rename_the_ci_toggle_and_archive_to_a_runner(member_clien
 
 
 @pytest.mark.django_db
-def test_detail_shows_a_plain_title_and_no_actions_to_a_viewer_who_cannot_run(member_client, member_user):
+def test_detail_offers_only_archive_to_a_viewer_who_cannot_run(member_client, member_user):
     session = _create_session(user=member_user, title="Fix the login redirect")
 
     with patch("sessions.views.can_run", return_value=False):
@@ -1165,15 +1165,17 @@ def test_detail_shows_a_plain_title_and_no_actions_to_a_viewer_who_cannot_run(me
     topbar = _topbar(resp)
 
     assert 'title="Fix the login redirect">Fix the login redirect</h1>' in topbar
-    for testid in ("session-rename", "session-title-input", "session-ci-toggle", "session-archive"):
+    for testid in ("session-rename", "session-title-input", "session-ci-toggle"):
         assert f'data-testid="{testid}"' not in topbar
-    assert b'data-testid="session-archive-dialog"' not in resp.content
+    assert 'data-testid="session-archive"' in topbar
+    assert b'data-testid="session-archive-dialog"' in resp.content
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("archived", [False, True])
-def test_detail_marks_an_archived_session(member_client, member_user, archived):
-    session = _create_session(user=member_user, hidden_at=timezone.now() if archived else None)
+def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, admin_user, archived):
+    session = _create_session(user=member_user)
+    HiddenSession.objects.create(session=session, user=member_user if archived else admin_user)
 
     resp = _get_detail(member_client, session)
     topbar = _topbar(resp)
@@ -1202,3 +1204,15 @@ def test_detail_reads_the_watch_off_the_merge_requests_thread(member_client, mem
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.context["header"]["watch"]["state"] == WatchState.WATCHING
+
+
+@pytest.mark.django_db
+def test_detail_reads_the_watch_of_a_merge_request_found_by_its_branch(member_client, member_user):
+    from sessions.header import watch_thread_id
+
+    session = _create_session(user=member_user, ref="feature")
+    _create_session(thread_id=watch_thread_id(session, 5), merge_request_iid=5, watch_state=WatchState.FIXING)
+
+    resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
+
+    assert resp.context["header"]["watch"]["state"] == WatchState.FIXING

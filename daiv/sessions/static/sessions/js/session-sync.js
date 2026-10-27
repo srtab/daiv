@@ -47,13 +47,14 @@ document.addEventListener("alpine:init", () => {
       if (this._engaged || this._checking) return;
       this._checking = true;
       try {
+        const requestedAt = performance.now();
         const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
         if (!res.ok) return;
         const data = await res.json();
         if (!data.background) return;
         this._engaged = true;
         this._start();
-        this._apply(data);
+        this._apply(data, requestedAt);
       } catch (e) {
         // A failed check only delays the update: the next run that starts asks again.
       } finally {
@@ -62,6 +63,7 @@ document.addEventListener("alpine:init", () => {
     },
     async poll() {
       const token = ++this._seq;
+      const requestedAt = performance.now();
       try {
         const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
         if (!res.ok) {
@@ -70,15 +72,16 @@ document.addEventListener("alpine:init", () => {
         }
         const data = await res.json();
         if (token !== this._seq) return;
-        this._apply(data);
+        this._apply(data, requestedAt);
       } catch (e) {
         // Transient network errors: keep polling until the failure cap is hit.
         this._onFailure(e && e.message ? e.message : "network error");
       }
     },
-    _apply(data) {
+    // `requestedAt` lets a listener tell a response from before its own write apart from one after it.
+    _apply(data, requestedAt) {
       this._failures = 0;
-      window.dispatchEvent(new CustomEvent("daiv:session-turns", { detail: data }));
+      window.dispatchEvent(new CustomEvent("daiv:session-turns", { detail: { ...data, requestedAt } }));
       if (!data.active) {
         this._stop();
         this._engaged = false;

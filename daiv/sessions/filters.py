@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 
 from django.db.models import Q
+from django.http import QueryDict
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -54,6 +55,19 @@ def _local_midnight(day: date) -> datetime:
     return timezone.make_aware(datetime.combine(day, time.min))
 
 
+class ArchivedFilter(django_filters.BooleanFilter):
+    """Archived sessions are a list of their own: ``true`` shows only the viewer's, anything else leaves them out.
+
+    Runs while unset too, unlike other filters. Archiving is per viewer, so a filterset without a request has none.
+    """
+
+    def filter(self, qs, value):
+        request = self.parent.request
+        if request is None:
+            return qs
+        return qs.archived_for(request.user, archived=value is True)
+
+
 class SessionFilter(django_filters.FilterSet):
     # Param names match the old activity deep links (?trigger=, ?status=, ...).
     q = django_filters.CharFilter(method="filter_q")
@@ -67,12 +81,16 @@ class SessionFilter(django_filters.FilterSet):
     # Dates filter last_active_at (the column the list sorts on and every row shows).
     date_from = django_filters.DateFilter(method="filter_date_from")
     date_to = django_filters.DateFilter(method="filter_date_to")
-    archived = django_filters.BooleanFilter(method="filter_archived")
+    archived = ArchivedFilter()
 
     class Meta:
         model = Session
         # All filters are declared above; disable auto-generation from model fields.
         fields: list[str] = []
+
+    def __init__(self, data=None, *args, **kwargs):
+        # Bound even without params, or the bare list would skip ``archived`` and show archived sessions.
+        super().__init__(QueryDict() if data is None else data, *args, **kwargs)
 
     def filter_q(self, queryset, name, value):
         return queryset.filter(Q(title__icontains=value) | Q(repo_id__icontains=value))
@@ -88,9 +106,6 @@ class SessionFilter(django_filters.FilterSet):
         # IIDs are per-project, so this pools every repository's request of that number unless
         # ``repo`` is also given; the links DAIV publishes always pair the two.
         return queryset.for_merge_request(value)
-
-    def filter_archived(self, queryset, name, value):
-        return queryset.filter(hidden_at__isnull=not value)
 
     def filter_date_from(self, queryset, name, value):
         return queryset.filter(last_active_at__gte=_local_midnight(value))
@@ -110,11 +125,6 @@ class SessionFilter(django_filters.FilterSet):
         else:
             return queryset
         return queryset.filter(last_active_at__gte=start)
-
-
-def wants_archived(data) -> bool:
-    """Whether a request's query params ask for the archived list, read before the filterset binds."""
-    return SessionFilter.base_filters["archived"].field.clean(data.get("archived")) is True
 
 
 class ArtifactFilter(django_filters.FilterSet):

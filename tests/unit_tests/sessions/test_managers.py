@@ -7,7 +7,7 @@ from django.test import TestCase
 import pytest
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
 from sessions.signal_defs import run_ended, run_finished
 
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
@@ -314,22 +314,15 @@ class TestOwnedBy:
 
 
 @pytest.mark.django_db
-class TestListedFor:
-    def _session(self, user, **kwargs):
-        return Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=user, **kwargs)
+class TestArchivedFor:
+    def _session(self, user):
+        return Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=user)
 
-    def test_archived_sessions_are_left_out_by_default(self, other_user):
-        from django.utils import timezone
-
+    def test_it_splits_what_a_user_archived_from_the_rest(self, other_user, member_user):
         shown = self._session(other_user)
-        self._session(other_user, hidden_at=timezone.now())
+        hidden = self._session(other_user)
+        HiddenSession.objects.create(session=hidden, user=other_user)
 
-        assert list(Session.objects.listed_for(other_user, mine=True)) == [shown]
-
-    def test_archived_lists_only_the_archived_sessions(self, other_user):
-        from django.utils import timezone
-
-        self._session(other_user)
-        hidden = self._session(other_user, hidden_at=timezone.now())
-
-        assert list(Session.objects.listed_for(other_user, mine=True, archived=True)) == [hidden]
+        assert list(Session.objects.archived_for(other_user)) == [hidden]
+        assert list(Session.objects.archived_for(other_user, archived=False)) == [shown]
+        assert set(Session.objects.archived_for(member_user, archived=False)) == {shown, hidden}

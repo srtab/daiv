@@ -207,6 +207,21 @@ def test_the_watch_is_read_off_the_merge_requests_thread():
     assert watch_session(mr_thread, 7) is mr_thread
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_awatch_session_reads_its_own_row_back_only_when_asked_fresh():
+    from asgiref.sync import sync_to_async
+    from sessions.header import awatch_session, watch_thread_id
+
+    probe = Session(thread_id="probe", repo_id="group/project")
+    mr_thread = await sync_to_async(_session)(
+        thread_id=watch_thread_id(probe, 7), merge_request_iid=7, watch_state=WatchState.WATCHING
+    )
+    await Session.objects.filter(pk=mr_thread.pk).aupdate(watch_state=WatchState.FIXING)
+
+    assert (await awatch_session(mr_thread, 7)) is mr_thread
+    assert (await awatch_session(mr_thread, 7, fresh=True)).watch_state == WatchState.FIXING
+
+
 @pytest.mark.django_db
 def test_build_session_header_reads_the_watch_of_the_checkpoints_merge_request():
     from sessions.header import watch_thread_id

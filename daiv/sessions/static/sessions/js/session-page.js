@@ -1,10 +1,12 @@
 // The session page's top bar and details panel: the latest run's status and Retry link, the CI watch, and whether
 // the panel is open. A run this page streams or waits on is shown from the chat component's flags; otherwise the
 // status is the server's, refreshed by each turns poll and once a run ends. Rename, the CI toggle and Archive write
-// through the sessions API; their controls are only rendered for someone who may run on the repository.
+// through the sessions API; rename and the CI toggle are only rendered for someone who may run on the repository.
 document.addEventListener("alpine:init", () => {
   // The panel is a column from this width and a bottom sheet below it, the width the composer sheets switch at.
   const WIDE = "(min-width: 1100px)";
+
+  const OPEN_WATCH = ["watching", "fixing"];
 
   const readJSON = (id) => {
     const el = document.getElementById(id);
@@ -31,6 +33,7 @@ document.addEventListener("alpine:init", () => {
     wide: false,
     _settling: false,
     _seq: 0,
+    _watchAt: -Infinity,
     _media: null,
     _onMedia: null,
     init() {
@@ -91,11 +94,22 @@ document.addEventListener("alpine:init", () => {
       this._seq += 1;
       this._settling = false;
       this.latest = data.latest_run;
+      this._takeWatch(data, data.requestedAt);
+    },
+    // A response asked for before the last toggle answered read the watch from before it; one without `watch` has
+    // no merge request on record, so the page keeps its own.
+    _takeWatch(data, requestedAt) {
+      if (!("watch" in data) || requestedAt <= this._watchAt) return;
       this.watch = data.watch ?? null;
+    },
+    _setWatch(watch) {
+      this.watch = watch ?? null;
+      this._watchAt = performance.now();
     },
     // Holds "running" until the run's settled status arrives, rather than flashing the previous run's.
     async refresh() {
       const token = ++this._seq;
+      const requestedAt = performance.now();
       this._settling = true;
       try {
         const res = await fetch(config.turnsUrl, { headers: { Accept: "application/json" } });
@@ -103,7 +117,7 @@ document.addEventListener("alpine:init", () => {
         const data = await res.json();
         if (token !== this._seq) return;
         this.latest = data.latest_run ?? null;
-        this.watch = data.watch ?? null;
+        this._takeWatch(data, requestedAt);
       } catch {
         // The next poll or run end refreshes it again; a stale status is not worth an error.
       } finally {
@@ -151,29 +165,35 @@ document.addEventListener("alpine:init", () => {
       this.title = title;
       document.title = `${title} — ${config.titleSuffix}`;
     },
+    // A green, exhausted or unreadable watch is over: ticking the item again starts a new one.
+    get ciWatchOn() {
+      return OPEN_WATCH.includes(this.watch?.state);
+    },
     get ciWatchHint() {
       if (this.ciWatchDisabled) return this.ciWatchDisabled;
       if (this.ciWatchError) return this.ciWatchError;
       if (!this.watch) return config.labels.watchOff;
-      if (["watching", "fixing"].includes(this.watch.state)) {
-        return config.labels.watching.replace("{state}", this.watch.label);
-      }
+      if (this.ciWatchOn) return config.labels.watching.replace("{state}", this.watch.label);
       return this.watch.label;
     },
-    async toggleCiWatch() {
+    async toggleCiWatch(mergeRequestIid) {
       if (this.ciWatchBusy || this.ciWatchDisabled) return;
       this.ciWatchBusy = true;
       this.ciWatchError = "";
       try {
-        const res = await this._send(config.ciWatchUrl, "POST", { on: !this.watch });
-        if (res.status === 409) {
-          const data = await res.json();
-          this.watch = data.watch ?? null;
+        const res = await this._send(config.ciWatchUrl, "POST", {
+          on: !this.ciWatchOn,
+          merge_request_iid: mergeRequestIid,
+          seen_state: this.watch?.state || "off",
+        });
+        const data = await res.json();
+        if (res.status === 409 && data.reason) {
+          this._setWatch(data.watch);
           if (data.reason === "disabled") this.ciWatchDisabled = data.detail;
           return;
         }
         if (!res.ok) throw new Error(`CI watch toggle failed: ${res.status}`);
-        this.watch = (await res.json()) ?? null;
+        this._setWatch(data);
       } catch {
         this.ciWatchError = config.labels.watchFailed;
       } finally {

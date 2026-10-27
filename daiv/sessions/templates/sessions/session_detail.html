@@ -145,7 +145,7 @@
        x-cloak
        class="session-page">
   <div class="session-page"
-       {% if session %}x-data="sessionPage({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', sessionUrl: '{% url 'api:session_update' session.thread_id %}', ciWatchUrl: '{% url 'api:session_ci_watch' session.thread_id %}', archiveUrl: '{% url 'api:session_archive' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', title: '{{ page_title|escapejs }}', titleSuffix: 'DAIV Sessions', archived: {{ session.hidden_at|yesno:'true,false' }}, labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}', watching: '{{ watching_label|escapejs }}', watchOff: '{{ watch_off_label|escapejs }}', watchFailed: '{{ watch_failed_label|escapejs }}' } })"
+       {% if session %}x-data="sessionPage({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', sessionUrl: '{% url 'api:session_update' session.thread_id %}', ciWatchUrl: '{% url 'api:session_ci_watch' session.thread_id %}', archiveUrl: '{% url 'api:session_archive' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', title: '{{ page_title|escapejs }}', titleSuffix: 'DAIV Sessions', archived: {{ archived|yesno:'true,false' }}, labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}', watching: '{{ watching_label|escapejs }}', watchOff: '{{ watch_off_label|escapejs }}', watchFailed: '{{ watch_failed_label|escapejs }}' } })"
        @daiv:session-turns.window="applyPoll($event.detail)"
        @daiv:live-run-ended.window="refresh()"{% endif %}>
   {% if session %}

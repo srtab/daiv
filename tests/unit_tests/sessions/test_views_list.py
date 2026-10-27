@@ -9,7 +9,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 import pytest
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
@@ -142,18 +142,44 @@ class TestSessionListView:
         assert "setScope('all')" in html
 
     def test_archived_sessions_have_a_list_of_their_own(self, logged_in_client, user):
-        from django.utils import timezone
-
         shown = _create_session(user=user)
-        hidden = _create_session(user=user, hidden_at=timezone.now())
+        hidden = _create_session(user=user)
+        HiddenSession.objects.create(session=hidden, user=user)
 
         default = logged_in_client.get(reverse("session_list"))
         archived = logged_in_client.get(reverse("session_list"), {"archived": "true"})
+        unrecognised = logged_in_client.get(reverse("session_list"), {"archived": "1"})
 
         assert [s.pk for s in default.context["sessions"]] == [shown.pk]
         assert [s.pk for s in archived.context["sessions"]] == [hidden.pk]
+        assert [s.pk for s in unrecognised.context["sessions"]] == [shown.pk]
         assert (default.context["current_archived"], archived.context["current_archived"]) == (False, True)
+        assert unrecognised.context["current_archived"] is False
         assert archived.context["has_active_filters"] is True
+
+    def test_a_filtered_list_says_how_many_archived_sessions_match_too(self, logged_in_client, user):
+        _create_session(user=user, repo_id="group/project", merge_request_iid=7)
+        for _ in range(2):
+            HiddenSession.objects.create(
+                session=_create_session(user=user, repo_id="group/project", merge_request_iid=7), user=user
+            )
+        HiddenSession.objects.create(session=_create_session(user=user, repo_id="group/other"), user=user)
+
+        resp = logged_in_client.get(reverse("session_list"), {"repo": "group/project", "mr": "7"})
+        html = resp.content.decode()
+
+        assert resp.context["archived_matches"] == 2
+        assert "2 archived sessions match too." in html
+        assert "?repo=group%2Fproject&amp;mr=7&amp;archived=true" in html
+
+    def test_an_unfiltered_or_archived_list_does_not_count_archived_matches(self, logged_in_client, user):
+        HiddenSession.objects.create(session=_create_session(user=user), user=user)
+
+        unfiltered = logged_in_client.get(reverse("session_list"))
+        archived = logged_in_client.get(reverse("session_list"), {"archived": "true"})
+
+        assert "archived_matches" not in unfiltered.context
+        assert "archived_matches" not in archived.context
 
     def test_filter_bar_renders_the_archived_toggle(self, logged_in_client, user):
         html = logged_in_client.get(reverse("session_list"), {"archived": "true"}).content.decode()
