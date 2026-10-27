@@ -28,6 +28,7 @@ There is no separate `tailwind.config.js` — all theme configuration lives insi
 | Headings           | `font-semibold` or `font-bold`, `text-text` or `text-text-strong` |
 | Uppercase labels   | `tracking-[0.14em]` to `tracking-[0.2em]`, `font-semibold`, `font-mono` |
 | Tabular figures    | `tabular-nums` wherever digits align or change             |
+| Mono ligatures     | **Off.** Geist Mono's ligatures swallow the space before `--` (`daiv --transport` renders as `daiv--transport`). `input.css` sets `font-variant-ligatures: none` on the `font-mono` utility (so `@apply font-mono` carries it) and on `code`, `kbd`, `samp`, `pre`. Set mono with `font-mono`, never a raw `font-family: var(--font-mono)`; `font-feature-settings` does not turn this ligature off in Chromium. |
 
 ### Color Palette
 

@@ -154,7 +154,7 @@ def _keys(inbox):
 
 @pytest.mark.django_db
 class TestNeedsYouInbox:
-    def test_lists_every_source_worst_first(self, member_user, member_client):
+    def test_lists_every_source_questions_first(self, member_user, member_client):
         _classified_session(member_user, EnvelopeStatus.NEEDS_ATTENTION)
         _classified_session(member_user, EnvelopeStatus.FOUND_ISSUES)
         _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.WAITING_INPUT)
@@ -167,10 +167,10 @@ class TestNeedsYouInbox:
         inbox = _inbox(member_client)
 
         assert _keys(inbox) == [
+            "needs-input",
             "failed",
             "cant-run",
             "ci-still-failing",
-            "needs-input",
             "found-issues",
             "needs-attention",
         ]
@@ -273,9 +273,33 @@ class TestNeedsYouInbox:
         _classified_session(member_user, EnvelopeStatus.NEEDS_ATTENTION, days_ago=8)
         stale_watch = _make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=8)
         Session.objects.filter(pk=stale_watch.pk).update(watch_state=WatchState.EXHAUSTED)
-        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED, days_ago=60)
 
-        assert _keys(_inbox(member_client)) == ["failed", "found-issues"]
+        assert _keys(_inbox(member_client)) == ["found-issues"]
+
+    def test_a_failure_leaves_fourteen_days_after_it_finished(self, member_user, member_client):
+        for days_ago in (13, 15):
+            session = _bare_session(member_user, SessionOrigin.UI_JOB)
+            _add_latest_run(session, RunStatus.FAILED, days_ago=days_ago, prompt=f"Task {days_ago}")
+
+        assert [item.at for item in _inbox(member_client)["items"]] == [_local_noon(13)]
+
+    def test_an_old_question_stays(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.WAITING_INPUT, days_ago=60)
+
+        assert _keys(_inbox(member_client)) == ["needs-input"]
+
+    def test_a_question_outranks_older_and_newer_failures(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED, days_ago=0)
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.WAITING_INPUT, days_ago=1)
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED, days_ago=2)
+
+        assert _keys(_inbox(member_client)) == ["needs-input", "failed", "failed"]
+
+    def test_a_question_in_a_session_whose_ci_watch_gave_up_shows_as_the_question(self, member_user, member_client):
+        session = _make_session(member_user, SessionOrigin.MR_WEBHOOK, status=RunStatus.WAITING_INPUT)
+        Session.objects.filter(pk=session.pk).update(watch_state=WatchState.EXHAUSTED)
+
+        assert _keys(_inbox(member_client)) == ["needs-input"]
 
     def test_all_clear_and_schedules_that_will_not_run_stay_out(self, member_user, member_client):
         _classified_session(member_user, EnvelopeStatus.ALL_CLEAR)
@@ -303,8 +327,9 @@ class TestNeedsYouInbox:
 
         assert len(inbox["items"]) == INBOX_LIMIT
         assert inbox["total"] == INBOX_LIMIT + 3
-        assert _keys(inbox) == ["failed"] * INBOX_LIMIT
-        assert [item.at for item in inbox["items"]] == sorted((item.at for item in inbox["items"]), reverse=True)
+        assert _keys(inbox) == ["needs-input"] + ["failed"] * (INBOX_LIMIT - 1)
+        failures = [item.at for item in inbox["items"][1:]]
+        assert failures == sorted(failures, reverse=True)
         urls = [link["url"] for link in inbox["see_all"]]
         assert urls == [
             f"{reverse('session_list')}?scope=mine&status=FAILED",
