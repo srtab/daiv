@@ -1059,9 +1059,9 @@
         return parts.length ? { tone: "warn", label: [this._labels.stopped, ...parts].join(" · ") } : null;
       }
       // ``diff`` rather than a joined label: added and removed are tinted separately,
-      // the way they are everywhere else a diff is reported.
+      // the way they are everywhere else a diff is reported. A session page's header shows it instead.
       const stats = this.diffStats;
-      if (stats && (stats.added || stats.removed)) {
+      if (!config.diffInHeader && stats && (stats.added || stats.removed)) {
         return { tone: "idle", label: "", diff: stats };
       }
       return parts.length ? { tone: "idle", label: parts.join(" · ") } : null;

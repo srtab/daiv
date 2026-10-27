@@ -33,15 +33,27 @@ def test_summary_strip_and_rail_are_gone(member_client, member_user):
 
 
 @pytest.mark.django_db
-def test_context_row_lives_in_the_dock_above_the_composer(member_client, member_user):
+def test_context_row_lives_in_the_dock_above_the_composer(member_client):
     """Repo and branch belong to the sticky dock, not the scrolling column — the two facts
     people misjudge have to stay on screen."""
-    html = render_thread(member_client, create_session(member_user))
+    html = render_new_chat(member_client)
 
     dock = html.index('class="chat-dock"')
     context_row = html.index('class="chat-context"')
     composer = html.index('class="chat-composer"')
     assert dock < context_row < composer
+
+
+@pytest.mark.django_db
+def test_a_thread_shows_repo_and_branch_in_its_header_not_the_dock(member_client, member_user):
+    """The session header is sticky too, so a second copy in the dock would only repeat it."""
+    html = render_thread(member_client, create_session(member_user))
+
+    assert 'class="chat-context"' not in html
+    start = html.index('data-testid="session-header"')
+    header = html[start : html.index("</header>", start)]
+    assert "session-repo" in header
+    assert "session-branch" in header
 
 
 @pytest.mark.django_db

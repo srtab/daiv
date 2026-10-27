@@ -95,6 +95,7 @@
          {# Any run in flight, streamed from the relay or polled until it holds the slot, so the load-time #}
          {# scroll can tell "still working" from "finished" without duplicating that logic in JS. #}
          sessionLive: {{ is_in_flight|yesno:"true,false" }},
+         diffInHeader: {{ session|yesno:"true,false" }},
          waitingSince: "{{ waiting_since|default:''|escapejs }}",
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if session %}{

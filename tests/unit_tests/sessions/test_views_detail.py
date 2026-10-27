@@ -1069,6 +1069,16 @@ def test_detail_header_omits_the_ci_watch_when_off(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_detail_header_hands_the_diff_to_the_header_not_the_progress_pill(member_client, member_user):
+    session = _create_session(user=member_user)
+
+    html = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": True}).content.decode()
+
+    assert "diffInHeader: true" in html
+    assert 'class="chat-context"' not in html
+
+
+@pytest.mark.django_db
 def test_session_new_chat_has_no_header(member_client):
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_new_chat"))
@@ -1076,4 +1086,5 @@ def test_session_new_chat_has_no_header(member_client):
     assert resp.context["header"] is None
     assert resp.context["breadcrumbs"] == []
     assert b'data-testid="session-header"' not in resp.content
+    assert b"diffInHeader: false" in resp.content
     assert b"chat-hero" in resp.content
