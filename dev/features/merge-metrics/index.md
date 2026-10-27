@@ -28,7 +28,7 @@ sequenceDiagram
 1. **Default branch filter** — Only merges targeting the repository's default branch are recorded. Merges to feature or release branches are ignored.
 1. **Background task** — A task fetches MR-level diff statistics and the pre-squash commit list from the platform API.
 1. **Commit-based attribution** — Each commit's author email is compared against DAIV's known commit email. Lines added/removed are split into DAIV and human contributions. This works correctly even with squash merges because the platform API retains the original commit list.
-1. **Insights** — The metrics are displayed in the "Code velocity" section of the Insights page at `/dashboard/insights/`, using the same period filter (Today / 7 days / 30 days / 90 days / All time, defaulting to 7 days) as the agent activity counters. Until the Home page drops its statistics, admins also see the older Code Velocity block there.
+1. **Insights** — The metrics are displayed in the "Code velocity" section of the Insights page at `/dashboard/insights/`, using the same period filter (Today / 7 days / 30 days / 90 days / All time, defaulting to 7 days) as the agent activity counters.
 
 ______________________________________________________________________
 
