@@ -3,6 +3,7 @@
 
 {% block alpine_stores %}
 <script defer src="{% static 'core/js/nav-events.js' %}"></script>
+<script defer src="{% static 'core/js/menu-button.js' %}"></script>
 {% endblock alpine_stores %}
 
 {% block content %}
@@ -48,6 +49,9 @@
         <span class="brand-mark"></span>
         DAIV
       </a>
+      <div class="ml-auto">
+        {% include "dashboard/_new_split.html" with testid="topbar-new" compact=True %}
+      </div>
     </header>
 
     <main class="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 {% block main_padding_bottom %}pb-10{% endblock %} sm:px-(--app-content-gutter) sm:pt-8">
