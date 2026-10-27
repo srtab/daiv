@@ -36,6 +36,10 @@ class WatchStore:
         )
         return updated == 1
 
+    async def astate(self, thread_id: str) -> str | None:
+        """The watch's state, or ``None`` when the thread has no row yet."""
+        return await Session.objects.filter(thread_id=thread_id).values_list("watch_state", flat=True).afirst()
+
     async def aopen_watch(self, repo_id: str, ref: str) -> Session | None:
         return await (
             Session.objects

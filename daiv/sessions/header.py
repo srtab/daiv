@@ -3,22 +3,26 @@ and retry link, the CI watch on its merge request, and the issue an issue-webhoo
 
 ``latest_run_payload`` and ``watch_payload`` are also what the turns poll returns, so what the page rendered and what
 keeps it current are built by the same code.
+
+The CI watch lives on the merge request's own thread, which a chat or job session that published the merge request
+is not, so ``watch_thread_id`` names the row to read it from and the toggle to write it on.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from codebase.base import GitPlatform
+from codebase.base import GitPlatform, Scope
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
-from sessions.models import SessionOrigin, WatchState
+from sessions.ids import compute_thread_id
+from sessions.models import Session, SessionOrigin, WatchState
 from sessions.templatetags.session_tags import status_variant
 from sessions.transcript import retry_urls
 
 if TYPE_CHECKING:
     from accounts.models import User
-    from sessions.models import Run, Session
+    from sessions.models import Run
 
 _WATCH_TONES = {
     WatchState.WATCHING: "attn",
@@ -44,8 +48,42 @@ def latest_run_payload(runs: list[Run], user: User) -> dict[str, str] | None:
     }
 
 
-def watch_payload(session: Session) -> dict[str, str] | None:
-    """The CI watch on the session's merge request, or ``None`` when nothing is watched."""
+def merge_request_iid(session: Session, runs: list[Run], merge_request: dict | None) -> int | None:
+    """The merge request the page shows: the checkpoint's, else the session's own, else the newest run's."""
+    if iid := (merge_request or {}).get("id"):
+        return iid
+    if session.merge_request_iid:
+        return session.merge_request_iid
+    return next((r.merge_request_iid for r in reversed(runs) if r.merge_request_iid), None)
+
+
+def watch_thread_id(session: Session, iid: int | None) -> str | None:
+    """The thread that holds the CI watch on merge request ``iid``, or ``None`` without one."""
+    if not iid or not session.repo_id:
+        return None
+    return compute_thread_id(repo_slug=session.repo_id, scope=Scope.MERGE_REQUEST, entity_iid=iid)
+
+
+def watch_session(session: Session, iid: int | None) -> Session | None:
+    """SYNC ONLY: the row holding the watch on merge request ``iid``; ``None`` while nothing ever armed one."""
+    thread_id = watch_thread_id(session, iid)
+    if thread_id is None or thread_id == session.thread_id:
+        return session
+    return Session.objects.filter(thread_id=thread_id).only("thread_id", "watch_state").first()
+
+
+async def awatch_session(session: Session, iid: int | None) -> Session | None:
+    """:func:`watch_session` for async callers, always read fresh: the toggle reads it back after writing it."""
+    thread_id = watch_thread_id(session, iid)
+    if thread_id is None:
+        return session
+    return await Session.objects.filter(thread_id=thread_id).only("thread_id", "watch_state").afirst()
+
+
+def watch_payload(session: Session | None) -> dict[str, str] | None:
+    """The CI watch ``session`` holds, or ``None`` when nothing is watched."""
+    if session is None:
+        return None
     tone = _WATCH_TONES.get(session.watch_state)
     if tone is None:
         return None
@@ -78,11 +116,13 @@ def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
     return {"iid": iid, "url": f"{html_url.rstrip('/')}/{path}/{iid}"}
 
 
-def build_session_header(session: Session, runs: list[Run], user: User) -> dict[str, Any]:
-    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first."""
+def build_session_header(
+    session: Session, runs: list[Run], user: User, *, merge_request: dict | None = None
+) -> dict[str, Any]:
+    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first and the checkpoint's ``merge_request``."""
     return {
         "latest_run": latest_run_payload(runs, user),
-        "watch": watch_payload(session),
+        "watch": watch_payload(watch_session(session, merge_request_iid(session, runs, merge_request))),
         "issue": issue_link(session, runs),
         "run_count": len(runs),
     }

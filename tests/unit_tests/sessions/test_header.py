@@ -177,3 +177,43 @@ def test_build_session_header_gathers_the_pages_context():
     assert header["watch"]["tone"] == "clear"
     assert header["issue"] is None
     assert header["run_count"] == 2
+
+
+@pytest.mark.django_db
+def test_merge_request_iid_prefers_the_checkpoints_then_the_sessions_then_the_newest_runs():
+    from sessions.header import merge_request_iid
+
+    session = _session()
+    runs = [_run(session, merge_request_iid=3), _run(session, merge_request_iid=4), _run(session)]
+
+    assert merge_request_iid(session, runs, {"id": 9}) == 9
+    assert merge_request_iid(session, runs, None) == 4
+    session.merge_request_iid = 5
+    assert merge_request_iid(session, runs, None) == 5
+    assert merge_request_iid(_session(), [], None) is None
+
+
+@pytest.mark.django_db
+def test_the_watch_is_read_off_the_merge_requests_thread():
+    """A chat session that published the merge request shows the watch the MR's own thread holds."""
+    from sessions.header import watch_session, watch_thread_id
+
+    session = _session(watch_state=WatchState.OFF)
+    mr_thread = _session(thread_id=watch_thread_id(session, 7), merge_request_iid=7, watch_state=WatchState.FIXING)
+
+    assert watch_session(session, 7) == mr_thread
+    assert watch_session(session, 8) is None
+    assert watch_session(session, None) is session
+    assert watch_session(mr_thread, 7) is mr_thread
+
+
+@pytest.mark.django_db
+def test_build_session_header_reads_the_watch_of_the_checkpoints_merge_request():
+    from sessions.header import watch_thread_id
+
+    session = _session()
+    _session(thread_id=watch_thread_id(session, 7), merge_request_iid=7, watch_state=WatchState.GREEN)
+
+    header = build_session_header(session, [], user=None, merge_request={"id": 7})
+
+    assert header["watch"]["state"] == WatchState.GREEN

@@ -99,6 +99,43 @@ class PipelineWatch:
         )
         return thread_id
 
+    async def aturn_on(
+        self, *, merge_request_iid: int, user_id: int | None = None, sandbox_environment_id: str | None = None
+    ) -> str | None:
+        """Watch a merge request because someone asked to, then judge its head pipeline at once.
+
+        Arms on the merge request's current source branch, read from the platform rather than a session's ``ref``,
+        which lags a branch the agent renamed. Attempts start over: a person asking again is a new budget.
+        Returns the armed thread id, or ``None`` when the repository has the watch off. Raises when the merge
+        request cannot be read.
+        """
+        from sessions.tasks import evaluate_pipeline_watch_task
+
+        if not (await self._apolicy()).enabled:
+            return None
+        merge_request = await self._platform.aread_merge_request(merge_request_iid)
+        armed = await self.aarm(
+            merge_request_iid=merge_request_iid,
+            ref=merge_request.source_branch,
+            was_fix_run=False,
+            user_id=user_id,
+            sandbox_environment_id=sandbox_environment_id,
+        )
+        await evaluate_pipeline_watch_task.aenqueue(repo_id=self.repo_id, ref=merge_request.source_branch)
+        return armed
+
+    async def aturn_off(self, *, merge_request_iid: int, seen_state: str) -> bool:
+        """Stop watching because someone asked to, reporting whether the watch is off now.
+
+        ``seen_state`` is the state the person turned off. The move is conditional on it, so one that lost to a
+        fix run claiming the watch, or to a verdict landing, changes nothing and the caller shows them the new state.
+        """
+        if seen_state == WatchState.OFF:
+            return True
+        return await self._store.atransition(
+            self._thread_id(merge_request_iid), expect=seen_state, watch_state=WatchState.OFF
+        )
+
     async def aexhaust(self, *, merge_request_iid: int, reason: str) -> None:
         """End a watch that cannot make progress, whatever state it is in.
 
@@ -141,6 +178,9 @@ class PipelineWatch:
             return
 
         was_fix_run = await self._store.ais_fix_run(run_id)
+        if was_fix_run and await self._store.astate(self._thread_id(merge_request_iid)) == WatchState.OFF:
+            # Someone turned the watch off while this fix run worked; its re-arm must not turn it back on.
+            return
 
         if not published:
             # A fix run that pushed nothing will get no pipeline and therefore no event, so
