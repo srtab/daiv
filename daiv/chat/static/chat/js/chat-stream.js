@@ -1059,9 +1059,9 @@
         return parts.length ? { tone: "warn", label: [this._labels.stopped, ...parts].join(" · ") } : null;
       }
       // ``diff`` rather than a joined label: added and removed are tinted separately,
-      // the way they are everywhere else a diff is reported.
+      // the way they are everywhere else a diff is reported. A session page shows it in its details panel instead.
       const stats = this.diffStats;
-      if (stats && (stats.added || stats.removed)) {
+      if (!config.diffInDetails && stats && (stats.added || stats.removed)) {
         return { tone: "idle", label: "", diff: stats };
       }
       return parts.length ? { tone: "idle", label: parts.join(" · ") } : null;
@@ -1130,13 +1130,15 @@
 
     // ---------- Spend ---------------------------------------------------
 
-    get spendHeader() {
+    get spendSummary() {
       const s = this.spend;
       if (!s) return "";
-      const parts = [formatBraces(this._labels.turns, { count: s.turns }), exactNumber(s.total_tokens || 0)];
-      const cost = formatCost(s.cost_usd);
-      if (cost) parts.push(cost + (s.cost_is_floor ? "+" : ""));
-      return parts.join(" · ");
+      return [formatBraces(this._labels.turns, { count: s.turns }), exactNumber(s.total_tokens || 0)].join(" · ");
+    },
+
+    get spendTotal() {
+      const cost = formatCost(this.spend?.cost_usd);
+      return cost ? cost + (this.spend.cost_is_floor ? "+" : "") : "";
     },
 
     get spendRows() {

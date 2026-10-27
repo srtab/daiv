@@ -1,4 +1,4 @@
-"""Behavioral tests for ``chat-stream.js`` under node: the ``#run-<id>`` link target."""
+"""Behavioral tests for ``chat-stream.js`` under node: the ``#run-<id>`` link target and the progress pill's diff."""
 
 from __future__ import annotations
 
@@ -137,3 +137,26 @@ def test_revealing_a_run_cancels_a_scroll_to_bottom_already_queued():
     result = run_chat_stream(QUEUED_BODY, {}, prelude=QUEUED_PRELUDE, extra_globals=QUEUED_GLOBALS)
 
     assert result == {"scrolls": ["run-r1"], "autoFollow": False}
+
+
+PILL_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat", diffInDetails: payload.diffInDetails });
+chat.diffStats = { added: 48, removed: 12 };
+chat.filesTouched = payload.files;
+process.stdout.write(JSON.stringify(chat.progressPill));
+"""
+
+
+def _pill(*, diff_in_details: bool, files=()):
+    return run_chat_stream(
+        PILL_BODY, {"diffInDetails": diff_in_details, "files": [{"path": p} for p in files]}, extra_globals=GLOBALS
+    )
+
+
+def test_the_progress_pill_shows_the_diff_where_no_header_does():
+    assert _pill(diff_in_details=False) == {"tone": "idle", "label": "", "diff": {"added": 48, "removed": 12}}
+
+
+def test_a_session_page_takes_the_diff_and_leaves_the_pill_its_counts():
+    assert _pill(diff_in_details=True, files=["a.py", "b.py"]) == {"tone": "idle", "label": "2 files"}
+    assert _pill(diff_in_details=True) is None

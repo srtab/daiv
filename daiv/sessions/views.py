@@ -47,6 +47,7 @@ from sessions.filters import (
     resolve_scope,
 )
 from sessions.forms import AgentRunCreateForm
+from sessions.header import build_session_header
 from sessions.hydration import ahydrate_thread
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
@@ -310,6 +311,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "in_flight_ids": "",
                 "context_usage": None,
                 "session_spend": None,
+                "header": None,
             })
             return ctx
 
@@ -341,7 +343,8 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
         ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
         ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
-        mark_retryable(ctx["turns"], runs, self.request.user)
+        retry_urls = mark_retryable(ctx["turns"], runs, self.request.user)
+        ctx["header"] = build_session_header(session, runs, retry_urls)
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats

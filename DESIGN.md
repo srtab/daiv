@@ -294,6 +294,9 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   icon and the menu opens beside the rail. Keyboard behaviour is the `menuButton` Alpine
   component (`core/js/menu-button.js`); the `session_new` chooser page stays for the
   Sessions list's New button and the empty states.
+- **Page bars and side columns.** A page that needs a bar above its scrolling `<main>` or a column beside it
+  overrides `{% block app_body %}` and renders its own single `<main>` (the session page's top bar and details
+  panel do). Keep that `<main>` the only one: chat scrolling and the sticky composer look it up.
 - **Only the `<nav>` scrolls.** The `<aside>` carries no `overflow`, so the footer
   (API docs, build info, account chip) stays pinned and the account and New menus can
   open past the rail's edge without being clipped.

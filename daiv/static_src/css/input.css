@@ -232,7 +232,8 @@
 
   .sidebar__account,
   .account-menu__item,
-  .new-split__item {
+  .new-split__item,
+  .session-menu__item {
     @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px]
            text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
   }
@@ -257,7 +258,8 @@
   }
 
   .new-split__menu,
-  .sidebar__account-menu {
+  .sidebar__account-menu,
+  .session-menu {
     @apply absolute z-40 rounded-xl border border-border bg-surface-2 p-1 shadow-overlay;
   }
 
@@ -315,7 +317,8 @@
 .filter-menu,
 .card__menu-panel,
 .new-split__menu,
-.sidebar__account-menu {
+.sidebar__account-menu,
+.session-menu {
   animation: surface-rise 180ms ease-out backwards;
 }
 
@@ -781,6 +784,138 @@ html {
     display: flex;
     flex-direction: column;
     min-width: 0;
+  }
+
+  /* Session page: a top bar over a row of the scrolling <main> and the details column. */
+  .session-page {
+    @apply flex min-h-0 min-w-0 flex-1 flex-col;
+  }
+  .session-page__body {
+    @apply flex min-h-0 flex-1;
+  }
+
+  .session-topbar {
+    @apply flex h-13 shrink-0 items-center gap-3 border-b border-border bg-ground px-4 sm:px-(--app-content-gutter);
+  }
+  /* Status sits under the title on phones, beside it from sm: up. */
+  .session-topbar__heading {
+    @apply flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3;
+  }
+  .session-topbar__title {
+    @apply min-w-0 truncate text-[14px] font-semibold text-text-strong;
+  }
+  .session-topbar__status {
+    @apply inline-flex shrink-0 items-center gap-1.5 text-[12px] text-text-muted;
+  }
+  .session-topbar__actions {
+    @apply ml-auto flex shrink-0 items-center gap-2;
+  }
+  .session-topbar__retry {
+    @apply inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-medium
+      text-accent transition-colors hover:bg-surface-3 hover:text-accent-bright;
+  }
+  .session-topbar__icon-btn {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted
+      transition-colors hover:bg-surface-3 hover:text-text;
+  }
+  .session-topbar__icon-btn--on {
+    @apply border-border bg-surface-3 text-text;
+  }
+
+  .mr-split {
+    @apply relative inline-flex h-8;
+  }
+  .mr-split__main {
+    @apply inline-flex items-center gap-1.5 rounded-l-lg border border-border px-2.5 font-mono text-[12px] text-text
+      transition-colors hover:bg-surface-3;
+  }
+  .mr-split__toggle {
+    @apply inline-flex w-7 items-center justify-center rounded-r-lg border border-l-0 border-border text-text-muted
+      transition-colors hover:bg-surface-3 hover:text-text;
+  }
+  .mr-split__draft {
+    @apply rounded-full px-1.5 font-sans text-[11px] font-semibold text-status-found;
+    background: color-mix(in srgb, var(--color-status-found) 15%, transparent);
+  }
+  .mr-split__ci {
+    @apply inline-flex items-center gap-1.5 font-sans text-[11px];
+    color: var(--ci-color);
+  }
+  .mr-split__main .mr-split__ci {
+    @apply border-l border-border pl-1.5;
+  }
+  .session-details__ci {
+    @apply flex items-center gap-2 text-[13px];
+    color: var(--ci-color);
+  }
+  .mr-split__draft--bar,
+  .mr-split__ci-label {
+    @apply max-sm:hidden;
+  }
+  .mr-split__ci-dot {
+    @apply inline-block h-2 w-2 rounded-full;
+    background: var(--ci-color);
+  }
+  .mr-split__ci--attn { --ci-color: var(--color-status-attn); }
+  .mr-split__ci--attn .mr-split__ci-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ci-color); }
+  .mr-split__ci--clear { --ci-color: var(--color-status-clear); }
+  .mr-split__ci--found { --ci-color: var(--color-status-found); }
+  .mr-split__ci--fail { --ci-color: var(--color-status-fail); }
+
+  .session-menu {
+    @apply top-full right-0 mt-2 w-64;
+  }
+  .session-menu__item {
+    @apply h-9 py-0 text-text focus:bg-surface-3;
+  }
+  .session-menu__icon {
+    @apply h-4 w-4 shrink-0 text-text-muted;
+  }
+
+  /* From 1100px, the width the composer sheets turn into popovers at, a column; below it a bottom sheet. */
+  .session-details {
+    @apply fixed bottom-0 z-60 flex max-h-[85dvh] flex-col rounded-t-2xl border-t border-border bg-surface-1
+      shadow-overlay;
+    left: var(--sheet-inset-start, 0px);
+    right: var(--sheet-inset-end, 0px);
+  }
+  @media (min-width: 1100px) {
+    .session-details {
+      @apply static z-auto max-h-none w-80 shrink-0 rounded-none border-t-0 border-l shadow-none;
+      left: auto;
+      right: auto;
+    }
+  }
+  .session-details__head {
+    @apply flex items-center justify-between border-b border-border py-2 pr-2 pl-5;
+  }
+  .session-details__title {
+    @apply text-[14px] font-semibold text-text-strong;
+  }
+  .session-details__body {
+    @apply flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-5;
+  }
+  .session-details__section {
+    @apply flex flex-col gap-2.5;
+  }
+  .session-details__label {
+    @apply font-mono text-[11px] font-medium tracking-[0.14em] text-text-muted uppercase;
+  }
+  .session-details__mr {
+    @apply leading-snug font-medium text-text hover:text-accent-bright;
+  }
+  .session-details__row {
+    @apply flex flex-wrap items-center gap-2.5 font-mono text-[12px] text-text-muted;
+  }
+  .session-details__grid {
+    @apply m-0 grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-[13px];
+  }
+  .session-details__grid dt { @apply text-text-faint; }
+  .session-details__grid dd { @apply m-0 min-w-0 text-text; }
+  .session-details__grid a,
+  .session-details__list a { @apply text-accent hover:text-accent-bright; }
+  .session-details__list {
+    @apply m-0 flex list-none flex-col gap-1.5 p-0 text-[13px];
   }
 
   /* Transcript */
@@ -2391,6 +2526,14 @@ html {
     .context-meter__ring {
       display: none;
     }
+  }
+
+  .context-panel__label-row {
+    @apply flex items-baseline justify-between gap-3;
+  }
+
+  .context-panel__total {
+    @apply font-mono text-[14px] font-semibold tabular-nums text-text-strong;
   }
 
   .context-panel__figure {
