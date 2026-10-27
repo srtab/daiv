@@ -109,7 +109,7 @@ After agents complete, sumarize: `### Critical:` (must fix before merge), `### I
 
 Aggregate by:
 
-- dropping findings with confidence below 50, no changed-line location, malformed evidence, or generic style, formatting, whitespace, or import-order nits;
+- dropping findings with confidence below 40, no changed-line location, malformed evidence, or generic style, formatting, whitespace, or import-order nits;
 - keeping every other finding: do not drop, demote to a question, or move into prose a finding that passes these filters;
 - Accept a new-side location, or a deleted-side location when the deletion itself introduces the issue;
 - preserving a style-related finding when `cr-custom-rules` cites an explicit repository rule requiring it;
