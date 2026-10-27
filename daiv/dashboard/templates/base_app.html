@@ -4,6 +4,7 @@
 {% block alpine_stores %}
 <script defer src="{% static 'core/js/nav-events.js' %}"></script>
 <script defer src="{% static 'core/js/menu-button.js' %}"></script>
+<script defer src="{% static 'core/js/sidebar.js' %}"></script>
 {% endblock alpine_stores %}
 
 {% block content %}
@@ -11,6 +12,7 @@
 <div x-data="{ mobileNavOpen: false }"
      x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }}, latest_running_start: '{{ nav_latest_running_start|escapejs }}' }, runningLabel: '{{ nav_running_label|escapejs }}' })"
      @keydown.escape.window="mobileNavOpen = false"
+     @keydown.window="$store.sidebar.onKey($event)"
      class="flex h-dvh bg-ground">
   {% include "dashboard/_sidebar.html" %}
 
@@ -30,7 +32,7 @@
          x-transition:leave-start="translate-x-0"
          x-transition:leave-end="-translate-x-full"
          class="relative flex h-full w-[85%] max-w-[260px] flex-col bg-surface-1 shadow-overlay">
-      {% include "dashboard/_sidebar.html" with sidebar_root_class="flex min-h-0 w-full flex-1 flex-col" %}
+      {% include "dashboard/_sidebar.html" with sidebar_root_class="flex min-h-0 w-full flex-1 flex-col" sheet=True %}
     </div>
   </div>
 

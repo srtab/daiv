@@ -12,9 +12,12 @@ import re
 from tests.unit_tests.test_picker_popovers import INPUT_CSS, SIDEBAR_TEMPLATE
 from tests.unit_tests.test_template_comments import DAIV_DIR, iter_template_files
 
-RAIL_BLOCK = re.compile(
-    r"@media \(width >= theme\(--breakpoint-md\)\) and \(width < theme\(--breakpoint-lg\)\) \{(.*?)\n\}\n", re.DOTALL
-)
+RAIL_VARIANT = re.compile(r"@custom-variant sidebar-rail \{(.*?)\n\}\n", re.DOTALL)
+RAIL_BLOCK = re.compile(r"\.sidebar--rail \{\n  @variant sidebar-rail \{(.*?)\n  \}\n\}\n", re.DOTALL)
+WIDE_TIER = re.compile(r"^@media \(width >= theme\(--breakpoint-lg\)\) \{(.*?)\n\}\n", re.DOTALL | re.MULTILINE)
+HEAD_SCRIPT = re.compile(r"<head>.*?<script>(.*?)</script>", re.DOTALL)
+BASE_TEMPLATE = DAIV_DIR / "core" / "templates" / "base.html"
+SIDEBAR_JS = DAIV_DIR / "core" / "static" / "core" / "js" / "sidebar.js"
 SIDEBAR_HOOK = re.compile(r"sidebar__[\w-]+")
 NAV_ITEM = re.compile(r'class="sidebar__nav-item[^"]*"(.*?)</a>', re.DOTALL)
 INCLUDE = re.compile(r'{% include "dashboard/([\w.]+)"')
@@ -38,7 +41,7 @@ def test_every_sidebar_hook_is_handled_by_the_rail_tier():
     would inset for the wrong one."""
     rail = RAIL_BLOCK.search(INPUT_CSS.read_text(encoding="utf-8"))
 
-    assert rail, "no rail block bounded by the md/lg breakpoint tokens — the sidebar shows full labels at tablet widths"
+    assert rail, "no `.sidebar--rail` block under the sidebar-rail variant — the sidebar shows full labels on the rail"
     assert "width:" not in rail.group(1), "the rail restates the sidebar's width instead of tiering --app-sidebar-width"
 
     used = set(SIDEBAR_HOOK.findall(_sidebar_sources()))
@@ -48,6 +51,45 @@ def test_every_sidebar_hook_is_handled_by_the_rail_tier():
     assert handled - used == set(), (
         f"the rail tier styles hooks the sidebar no longer carries: {sorted(handled - used)}"
     )
+
+
+def test_the_rail_is_forced_at_tablet_widths_and_opt_in_from_lg():
+    """One set of rail rules, reached two ways: always between md and lg, and from lg up only
+    under the collapse flag. A third copy of the rules would drift from these."""
+    css = INPUT_CSS.read_text(encoding="utf-8")
+    variant = RAIL_VARIANT.search(css)
+
+    assert variant, "no sidebar-rail variant — the rail rules have no shared entry point"
+    branches = variant.group(1)
+    assert "@media (width >= theme(--breakpoint-md)) and (width < theme(--breakpoint-lg))" in branches
+    assert re.search(r'@media \(width >= theme\(--breakpoint-lg\)\) \{\s*:root\[data-sidebar="rail"\] &', branches), (
+        "the collapse flag no longer reaches the rail rules from lg up"
+    )
+    assert css.count("@variant sidebar-rail") == 1, "the rail rules are split across copies"
+
+
+def test_the_collapsed_flag_narrows_the_one_sidebar_width_token():
+    """The sheets' inset reads `--app-sidebar-width`, so the collapse has to change the token
+    rather than the aside's own width."""
+    wide = WIDE_TIER.search(INPUT_CSS.read_text(encoding="utf-8"))
+
+    assert wide, "no lg block widening the sidebar"
+    assert re.search(r":root \{\s*--app-sidebar-width: 15rem;\s*\}", wide.group(1))
+    assert re.search(r':root\[data-sidebar="rail"\] \{\s*--app-sidebar-width: 4rem;\s*\}', wide.group(1))
+
+
+def test_the_head_restores_the_collapse_before_first_paint():
+    """Inline and ahead of the stylesheet, or a collapsed sidebar renders full and then snaps
+    to the rail. It reads the same storage key the store writes."""
+    base = BASE_TEMPLATE.read_text(encoding="utf-8")
+    script = HEAD_SCRIPT.search(base)
+    key = re.search(r'STORAGE_KEY = "([^"]+)"', SIDEBAR_JS.read_text(encoding="utf-8"))
+
+    assert script, "base.html's <head> has no inline script restoring the sidebar"
+    assert base.index(script.group(0)) < base.index("css/styles.css")
+    assert key and f'localStorage.getItem("{key.group(1)}") === "rail"' in script.group(1)
+    assert 'document.documentElement.dataset.sidebar = "rail"' in script.group(1)
+    assert script.group(1).lstrip().startswith("try {"), "blocked storage would throw before first paint"
 
 
 def test_every_sidebar_nav_item_labels_its_text():

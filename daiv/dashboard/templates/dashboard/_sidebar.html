@@ -1,11 +1,30 @@
 {% load avatar_tags i18n icon_tags nav_tags %}
 
 <aside data-testid="app-sidebar"
+       {% if not sheet %}id="app-sidebar"{% endif %}
        class="shrink-0 bg-surface-1 {{ sidebar_root_class|default:'sidebar sidebar--rail hidden w-(--app-sidebar-width) border-r border-border md:flex md:flex-col' }}"
        x-cloak>
   <div class="sidebar__brand flex items-center gap-2.5 px-5 pt-5 pb-5">
     <span class="brand-mark"></span>
     <a href="{% url 'dashboard' %}" class="sidebar__collapsible brand-wordmark">DAIV</a>
+    {% if not sheet %}
+    {% translate "Collapse sidebar" as collapse_label %}
+    {% translate "Expand sidebar" as expand_label %}
+    <button type="button"
+            data-testid="sidebar-toggle"
+            @click="$store.sidebar.toggle()"
+            aria-controls="app-sidebar"
+            aria-expanded="true"
+            :aria-expanded="(!$store.sidebar.rail).toString()"
+            title="{{ collapse_label }} ([)"
+            :title="($store.sidebar.rail ? '{{ expand_label|escapejs }}' : '{{ collapse_label|escapejs }}') + ' ([)'"
+            aria-keyshortcuts="["
+            class="sidebar__toggle ml-auto hidden h-7 w-7 items-center justify-center rounded-md text-text-faint transition-colors hover:bg-surface-3 hover:text-text lg:inline-flex">
+      {% icon "chevron-double-left" "sidebar__toggle-icon h-4 w-4" %}
+      <span class="sidebar__collapsible sr-only">{{ collapse_label }}</span>
+      <span class="sidebar__rail-only sr-only">{{ expand_label }}</span>
+    </button>
+    {% endif %}
   </div>
 
   {# Primary action — promoted out of the nav list (shared chrome, D2). Teal = DO/action. #}
