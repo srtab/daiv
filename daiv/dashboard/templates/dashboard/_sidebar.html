@@ -70,44 +70,23 @@
       <span class="sidebar__collapsible text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
         {% translate "Agent setup" %}
       </span>
-      <span class="sidebar__collapsible mt-0.5 block text-[11px] leading-snug text-text-faint">{{ setup_hint }}</span>
+      <span class="sidebar__collapsible nav-description">{{ setup_hint }}</span>
     </div>
 
-    {% translate "Sandbox environments" as sandbox_label %}
-    {% translate "Where the agent runs commands and tests" as sandbox_desc %}
-    <a href="{% url 'sandbox_envs:list' %}"
-       title="{{ sandbox_label }}: {{ sandbox_desc }}"
-       class="sidebar__nav-item sidebar__nav-item--described {% nav_active 'sandbox_envs' %}">
-      {% icon "sandbox" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible min-w-0 flex-1">
-        <span class="block">{{ sandbox_label }}</span>
-        <span data-testid="nav-description" class="nav-description">{{ sandbox_desc }}</span>
-      </span>
-    </a>
+    {% translate "Sandbox environments" as label %}
+    {% translate "Where the agent runs commands and tests" as description %}
+    {% url 'sandbox_envs:list' as href %}
+    {% include "dashboard/_described_nav_item.html" with section="sandbox_envs" icon="sandbox" %}
 
-    {% translate "MCP servers" as mcp_label %}
-    {% translate "Extra tools the agent can call" as mcp_desc %}
-    <a href="{% url 'mcp_connectors:list' %}"
-       title="{{ mcp_label }}: {{ mcp_desc }}"
-       class="sidebar__nav-item sidebar__nav-item--described {% nav_active 'mcp_servers' %}">
-      {% icon "puzzle-piece" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible min-w-0 flex-1">
-        <span class="block">{{ mcp_label }}</span>
-        <span data-testid="nav-description" class="nav-description">{{ mcp_desc }}</span>
-      </span>
-    </a>
+    {% translate "MCP servers" as label %}
+    {% translate "Extra tools the agent can call" as description %}
+    {% url 'mcp_connectors:list' as href %}
+    {% include "dashboard/_described_nav_item.html" with section="mcp_servers" icon="puzzle-piece" %}
 
-    {% translate "Memory" as memory_label %}
-    {% translate "What the agent has learned about each repository" as memory_desc %}
-    <a href="{% url 'memory:list' %}"
-       title="{{ memory_label }}: {{ memory_desc }}"
-       class="sidebar__nav-item sidebar__nav-item--described {% nav_active 'memory' %}">
-      {% icon "cpu-chip" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible min-w-0 flex-1">
-        <span class="block">{{ memory_label }}</span>
-        <span data-testid="nav-description" class="nav-description">{{ memory_desc }}</span>
-      </span>
-    </a>
+    {% translate "Memory" as label %}
+    {% translate "What the agent has learned about each repository" as description %}
+    {% url 'memory:list' as href %}
+    {% include "dashboard/_described_nav_item.html" with section="memory" icon="cpu-chip" %}
 
     {% if user.is_admin %}
     <div data-testid="nav-admin-group" class="sidebar__group-heading mt-5 mb-1 px-3">

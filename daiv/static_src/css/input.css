@@ -129,26 +129,31 @@
     padding-right: 0.5rem;
   }
 
-  /* The rail is too narrow to open over, so the menu opens beside it. The margin clears the
-     footer's own `px-3` and lands just past the rail's border. */
-  .sidebar--rail .sidebar__account-menu {
-    bottom: 0;
+  /* The rail is too narrow to open over, so the menus open beside it. The margin clears the
+     sidebar's own `px-3` and lands just past the rail's border. */
+  .sidebar--rail .sidebar__account-menu,
+  .sidebar--rail .new-split__menu {
+    right: auto;
     left: 100%;
+    margin-top: 0;
     margin-bottom: 0;
     margin-left: 1.25rem;
   }
 
-  /* Its description is hidden here, so the icon centres like any other item's. */
-  .sidebar--rail .sidebar__nav-item--described {
-    align-items: center;
+  .sidebar--rail .sidebar__account-menu {
+    bottom: 0;
   }
 
+  .sidebar--rail .new-split__menu {
+    top: 0;
+  }
+
+  /* Its description is hidden here, so the icon drops the nudge that aligned it to the label. */
   .sidebar--rail .sidebar__nav-item--described > :first-child {
     margin-top: 0;
   }
 
-  /* Too narrow for two halves side by side: the chevron becomes a strip under the icon,
-     and the menu opens beside the rail like the account menu. */
+  /* Too narrow for two halves side by side: the chevron becomes a strip under the icon. */
   .sidebar--rail .new-split {
     flex-direction: column;
   }
@@ -167,14 +172,6 @@
 
   .sidebar--rail .new-split__chevron {
     transform: rotate(-90deg);
-  }
-
-  .sidebar--rail .new-split__menu {
-    top: 0;
-    right: auto;
-    left: 100%;
-    margin-top: 0;
-    margin-left: 1.25rem;
   }
 
   /* The heading keeps its box so the groups stay separated once its label is hidden. */
@@ -234,7 +231,8 @@
   }
 
   .sidebar__account,
-  .account-menu__item {
+  .account-menu__item,
+  .new-split__item {
     @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px]
            text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
   }
@@ -258,14 +256,17 @@
            transition-colors hover:bg-accent-bright;
   }
 
+  .new-split__menu,
+  .sidebar__account-menu {
+    @apply absolute z-40 rounded-xl border border-border bg-surface-2 p-1 shadow-overlay;
+  }
+
   .new-split__menu {
-    @apply absolute top-full right-0 left-0 z-40 mt-2 min-w-56 rounded-xl border border-border bg-surface-2
-           p-1 shadow-overlay;
+    @apply top-full right-0 left-0 mt-2 min-w-56;
   }
 
   .new-split__item {
-    @apply flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-text-muted
-           transition-colors hover:bg-surface-3 hover:text-text focus:bg-surface-3 focus:text-text;
+    @apply items-start py-2 focus:bg-surface-3 focus:text-text;
   }
 
   .new-split--compact .new-split__main {
@@ -278,8 +279,7 @@
 
   /* Opens upward over the full sidebar and the sheet; the rail tier above moves it beside. */
   .sidebar__account-menu {
-    @apply absolute bottom-full left-0 z-40 mb-2 w-56 rounded-xl border border-border bg-surface-2 p-1
-           shadow-overlay;
+    @apply bottom-full left-0 mb-2 w-56;
   }
 }
 

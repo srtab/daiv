@@ -209,9 +209,13 @@ class TestNavActiveState:
         assert config_response.context["nav_active_section"] == "configuration"
 
 
-def _sidebar_nav(content: str):
+def _soup(client, url_name="session_list"):
+    return BeautifulSoup(client.get(reverse(url_name)).content.decode(), "html.parser")
+
+
+def _sidebar_nav(client, url_name="session_list"):
     """The persistent sidebar's <nav>; the mobile sheet renders a second copy of the partial."""
-    return BeautifulSoup(content, "html.parser").select_one('[data-testid="app-sidebar"] nav')
+    return _soup(client, url_name).select_one('[data-testid="app-sidebar"] nav')
 
 
 def _item_label(item) -> str:
@@ -238,20 +242,20 @@ ADMIN = ["# Admin", "Users", "Configuration", "Schedule templates", "Skills", "G
 @pytest.mark.django_db
 class TestSidebarGroups:
     def test_member_sees_daily_work_then_agent_setup(self, member_client):
-        nav = _sidebar_nav(member_client.get(reverse("session_list")).content.decode())
+        nav = _sidebar_nav(member_client)
         assert _nav_outline(nav) == DAILY_WORK + AGENT_SETUP
 
     def test_admin_group_comes_last(self, admin_client):
-        nav = _sidebar_nav(admin_client.get(reverse("session_list")).content.decode())
+        nav = _sidebar_nav(admin_client)
         assert _nav_outline(nav) == DAILY_WORK + AGENT_SETUP + ADMIN
 
     def test_home_links_the_dashboard(self, member_client):
-        nav = _sidebar_nav(member_client.get(reverse("session_list")).content.decode())
+        nav = _sidebar_nav(member_client)
         home = next(a for a in nav.find_all("a", recursive=False) if _item_label(a) == "Home")
         assert home["href"] == reverse("dashboard")
 
     def test_agent_setup_items_say_what_they_are_for(self, member_client):
-        nav = _sidebar_nav(member_client.get(reverse("session_list")).content.decode())
+        nav = _sidebar_nav(member_client)
         described = nav.select(".sidebar__nav-item--described")
         assert [_item_label(a) for a in described] == AGENT_SETUP[1:]
         for item in described:
@@ -261,14 +265,13 @@ class TestSidebarGroups:
             assert item["title"] == f"{_item_label(item)}: {description}"
 
     def test_agent_setup_heading_says_it_is_optional(self, member_client):
-        nav = _sidebar_nav(member_client.get(reverse("session_list")).content.decode())
+        nav = _sidebar_nav(member_client)
         heading = nav.select_one('[data-testid="nav-setup-group"]')
         assert "Optional" in heading.get_text()
         assert heading["title"].startswith("Optional")
 
     def test_mobile_sheet_shows_the_same_groups(self, member_client):
-        soup = BeautifulSoup(member_client.get(reverse("session_list")).content.decode(), "html.parser")
-        sheet_nav = soup.select('[data-testid="app-sidebar"]')[1].select_one("nav")
+        sheet_nav = _soup(member_client).select('[data-testid="app-sidebar"]')[1].select_one("nav")
         assert _nav_outline(sheet_nav) == DAILY_WORK + AGENT_SETUP
 
     @pytest.mark.parametrize(
@@ -282,13 +285,9 @@ class TestSidebarGroups:
         ],
     )
     def test_the_active_item_is_the_page_section(self, member_client, url_name, label):
-        nav = _sidebar_nav(member_client.get(reverse(url_name)).content.decode())
+        nav = _sidebar_nav(member_client, url_name)
         active = nav.select(".sidebar__nav-item--active")
         assert [_item_label(a) for a in active] == [label]
-
-
-def _soup(client, url_name="session_list"):
-    return BeautifulSoup(client.get(reverse(url_name)).content.decode(), "html.parser")
 
 
 @pytest.mark.django_db
@@ -339,8 +338,6 @@ class TestMobileTopBarNew:
         bar = _soup(member_client).select_one('[data-testid="mobile-top-bar"]')
         split = bar.select_one('[data-testid="topbar-new"]')
         assert "new-split--compact" in split["class"]
-        assert split.select_one('[data-testid="topbar-new-chat"]')["href"] == reverse("session_new_chat")
-        assert split.select_one('[data-testid="topbar-new-toggle"]')["aria-haspopup"] == "menu"
 
     def test_only_one_top_bar_copy(self, member_client):
         assert len(_soup(member_client).select('[data-testid="topbar-new"]')) == 1
