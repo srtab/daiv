@@ -52,7 +52,7 @@ Ignore every other marker. The next run number is the highest valid run plus one
 
 ## 3. Prepare one canonical diff
 
-Create one canonical diff for the resolved scope before dispatching subagents. Write it to a unique file in the current run scratchpad and retain its line count. Pass the same immutable file to every subagent. All subagents must review that same change.
+Create one canonical diff for the resolved scope before dispatching subagents. Write it to a unique file in the current run scratchpad and retain its line count. Pass the same immutable file to every subagent, apart from the slices described below. All subagents must review that same change.
 
 For platform reviews:
 
@@ -60,6 +60,8 @@ For platform reviews:
 - Re-review: use the previous reviewed head to current head range, restricted to paths in the current PR or MR.
 
 For working-tree reviews, ensure the canonical diff contains staged changes, unstaged changes, and complete unified patches for untracked files.
+
+When the canonical diff is longer than 1,000 lines, also split it into slices for `cr-correctness` and `cr-structure`: one slice per 1,000 lines, at most four, each holding whole file patches in diff order with roughly equal line counts. Write each slice to its own file and retain its line count. The slices together must contain every line of the canonical diff exactly once.
 
 If shell access is unavailable, obtain the changed hunks from the platform read tool and provide that canonical diff to the subagent. Do not substitute complete new-side files: that would include pre-existing code outside the review scope. If no trustworthy changed-hunk diff can be obtained, explain that the review could not be completed and stop without a marker.
 
@@ -86,7 +88,7 @@ Select applicable subagents from the concise summary. Identify the kinds of file
 
 Bias toward inclusion when applicability is uncertain. For documentation or asset-only changes, run only `cr-custom-rules` when rules exist; otherwise report that nothing applicable changed.
 
-Dispatch applicable subagents in parallel when supported, with one task per `cr-*` subagent. Fall back to sequential dispatch if necessary.
+Dispatch applicable subagents in parallel when supported, with one task per `cr-*` subagent, except that a sliced diff gets one `cr-correctness` task and one `cr-structure` task per slice. Fall back to sequential dispatch if necessary.
 
 Derive a concise statement of the change's intent from the user's explicit request or, when unavailable, the PR or MR title and description. Do not invent intent.
 
@@ -94,9 +96,9 @@ Each subagent prompt should contain only:
 
 - the exact review scope;
 - the stated change intent, when available;
-- the canonical diff path and line count, or the canonical diff content when no file is available;
+- the canonical diff path and line count, or the canonical diff content when no file is available; a slice task gets its slice's path and line count instead, as its canonical diff;
 - the head SHA when available;
-- the changed paths;
+- the changed paths, including those outside a slice task's slice;
 - the rule-source paths or inline contents for `cr-custom-rules`.
 
 The line count is a completeness aid. Subagents may inspect a large diff in bounded chunks; do not require one tool call to return the entire file.
