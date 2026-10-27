@@ -11,7 +11,6 @@ from urllib.parse import urlencode
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
-from django.db.models import Prefetch
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -157,31 +156,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
         # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
         # gives the SSE dot the real ``Run.id`` to key live updates on.
-        return (
-            Session.objects
-            .listed_for(self.request.user, mine=self.scope == SCOPE_MINE)
-            .select_related("user", "scheduled_job")
-            # Only the columns the row reads (status/duration/MR/cost/SSE id) — skips the fat
-            # prompt/result_summary/error_message/usage_by_model columns. Add a field here if
-            # the row template starts reading it, or it becomes a deferred-field N+1.
-            .prefetch_related(
-                Prefetch(
-                    "runs",
-                    queryset=Run.objects.only(
-                        "id",
-                        "session_id",
-                        "status",
-                        "started_at",
-                        "finished_at",
-                        "merge_request_iid",
-                        "merge_request_web_url",
-                        "cost_usd",
-                        "agent_model",
-                        "created_at",
-                    ).order_by("-created_at", "-id"),
-                )
-            )
-        )
+        return Session.objects.listed_for(self.request.user, mine=self.scope == SCOPE_MINE).with_row_runs()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -193,6 +168,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_trigger_label"] = dict(SessionOrigin.choices).get(context["current_trigger"], "")
         context["current_repo"] = cleaned.get("repo") or ""
         context["current_mr"] = cleaned.get("mr") or ""
+        context["current_ran_on"] = self.request.GET.get("ran_on", "") if cleaned.get("ran_on") else ""
         context["current_schedule"] = cleaned.get("schedule") or ""
         context["current_batch"] = cleaned.get("batch") or ""
         context["current_batch_short"] = str(context["current_batch"])[:8] if context["current_batch"] else ""
@@ -209,6 +185,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
             context["current_trigger"],
             context["current_repo"],
             context["current_mr"],
+            context["current_ran_on"],
             context["current_schedule"],
             context["current_batch"],
             context["current_range"],

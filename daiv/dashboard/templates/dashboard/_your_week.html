@@ -15,10 +15,15 @@ Context:
 
     {% if your_week.chart and not your_week.chart.empty %}
     <p class="mt-2 text-sm text-text-muted">
-        {% blocktranslate trimmed count runs=your_week.runs with sessions=your_week.sessions %}
-        <span class="font-mono font-semibold text-text-strong">{{ runs }}</span> run in {{ sessions }} sessions
+        {% blocktranslate trimmed count runs=your_week.runs %}
+        <span class="font-mono font-semibold text-text-strong">{{ runs }}</span> run
         {% plural %}
-        <span class="font-mono font-semibold text-text-strong">{{ runs }}</span> runs in {{ sessions }} sessions
+        <span class="font-mono font-semibold text-text-strong">{{ runs }}</span> runs
+        {% endblocktranslate %}
+        {% blocktranslate trimmed count sessions=your_week.sessions %}
+        in {{ sessions }} session
+        {% plural %}
+        in {{ sessions }} sessions
         {% endblocktranslate %}
         {% if your_week.merge_requests_total %}
         ·

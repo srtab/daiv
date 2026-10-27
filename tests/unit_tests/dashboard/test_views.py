@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
-from dashboard.views import BOT_USERNAME_CACHE_KEY, INBOX_LIMIT
+from dashboard.views import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY, INBOX_LIMIT
 from notifications.choices import EnvelopeStatus
 from notifications.models import RunEnvelope
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
@@ -16,12 +16,13 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
+from core.conf import settings as core_settings
 from schedules.models import DispatchError, Frequency, ScheduledJob
 
 
 @pytest.fixture(autouse=True)
 def _forget_bot_username():
-    cache.delete(BOT_USERNAME_CACHE_KEY)
+    cache.delete_many([BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY])
 
 
 def _local_noon(days_ago: int) -> datetime:
@@ -70,6 +71,10 @@ def _make_session(user, origin, *, status=RunStatus.SUCCESSFUL, days_ago=0):
     )
     Run.objects.create(session=session, status=status, trigger_type=origin, repo_id="daiv/test", user=user)
     return session
+
+
+def _mcp_url() -> str:
+    return f"{str(core_settings.EXTERNAL_URL).rstrip('/')}/mcp/"
 
 
 def _add_run(session, *, days_ago):
@@ -194,6 +199,47 @@ class TestNeedsYouInbox:
 
         assert _inbox(member_client)["items"] == []
 
+    def test_a_later_run_of_the_schedule_resolves_its_failed_run(self, member_user, member_client):
+        schedule = _failing_schedule(member_user, failing_since=None, dispatch_error="")
+        sessions = [
+            Session.objects.create(
+                thread_id=str(uuid.uuid4()),
+                origin=SessionOrigin.SCHEDULE,
+                repo_id="daiv/test",
+                user=member_user,
+                scheduled_job=schedule,
+            )
+            for _ in range(2)
+        ]
+        _add_latest_run(sessions[0], RunStatus.FAILED, days_ago=1, prompt="Audit")
+        _add_latest_run(sessions[1], RunStatus.SUCCESSFUL, prompt="Audit")
+
+        assert _inbox(member_client)["items"] == []
+
+    def test_a_teammates_run_of_the_same_prompt_is_not_your_retry(self, admin_user, member_user, member_client):
+        failed = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, repo_id="daiv/test", user=member_user
+        )
+        _add_latest_run(failed, RunStatus.FAILED, days_ago=1, prompt="Fix the failing tests")
+        theirs = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, repo_id="daiv/test", user=admin_user
+        )
+        _add_latest_run(theirs, RunStatus.SUCCESSFUL, prompt="Fix the failing tests")
+
+        assert _keys(_inbox(member_client)) == ["failed"]
+
+    def test_a_teammates_question_in_a_thread_you_joined_is_not_yours(self, admin_user, member_user, member_client):
+        shared = _make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=1)
+        Run.objects.create(
+            session=shared,
+            status=RunStatus.WAITING_INPUT,
+            trigger_type=SessionOrigin.MR_WEBHOOK,
+            repo_id="daiv/test",
+            external_username=admin_user.username,
+        )
+
+        assert _inbox(member_client)["items"] == []
+
     def test_a_different_prompt_is_not_a_retry(self, member_user, member_client):
         failed = Session.objects.create(
             thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="daiv/test", user=member_user
@@ -305,7 +351,7 @@ class TestWaysToUse:
         assert "@test-user" in content
         assert "@test-user /plan" in content
         assert "merge request comment" in content
-        assert "claude mcp add daiv --transport http http://testserver/mcp/" in content
+        assert f"claude mcp add daiv --transport http {_mcp_url()}" in content
         assert reverse("api_keys") in content
         assert reverse("session_new_chat") in content
         assert reverse("runs:agent_run_new") in content
@@ -318,10 +364,10 @@ class TestWaysToUse:
         assert "pull request comment" in content
         assert "merge request comment" not in content
 
-    def test_mcp_url_follows_the_host_it_is_served_on(self, member_client):
-        response = member_client.get(reverse("dashboard"), secure=True, HTTP_HOST="daiv.example.com")
+    def test_mcp_url_is_the_external_url_not_the_request_host(self, member_client):
+        response = member_client.get(reverse("dashboard"), HTTP_HOST="daiv-web:8000")
 
-        assert response.context["ways"]["mcp_url"] == "https://daiv.example.com/mcp/"
+        assert response.context["ways"]["mcp_url"] == _mcp_url()
 
     def test_falls_back_to_the_label_when_the_platform_is_unreachable(self, member_client):
         RepoClient.create_instance.side_effect = RuntimeError("platform down")
@@ -329,6 +375,15 @@ class TestWaysToUse:
         ways = member_client.get(reverse("dashboard")).context["ways"]
 
         assert ways["bot_mention"] == "@daiv"
+
+    def test_an_unresolved_username_is_not_looked_up_again_on_every_load(self, member_client):
+        RepoClient.create_instance.side_effect = RuntimeError("platform down")
+        member_client.get(reverse("dashboard"))
+        RepoClient.create_instance.reset_mock()
+
+        member_client.get(reverse("dashboard"))
+
+        RepoClient.create_instance.assert_not_called()
 
     def test_prominent_until_you_have_a_session(self, member_user, member_client):
         before = member_client.get(reverse("dashboard")).content.decode()
@@ -602,6 +657,45 @@ class TestYourWeek:
         assert column["total"] == 1
         assert "scope=mine" in column["url"]
         assert _list_count(member_client, column["url"]) == 1
+
+    def test_a_day_opens_the_sessions_that_ran_that_day_even_if_active_since(self, member_user, member_client):
+        session = _bare_session(member_user)
+        _week_run(session, days_ago=2)
+        _week_run(session)
+
+        column = _week(member_client)["chart"]["columns"][4]
+
+        assert _list_count(member_client, column["url"]) == 1
+
+    def test_counts_only_the_runs_you_started_in_a_shared_thread(self, admin_user, member_user, member_client):
+        session = _bare_session(member_user, SessionOrigin.MR_WEBHOOK)
+        _week_run(session)
+        Run.objects.create(
+            session=session,
+            status=RunStatus.SUCCESSFUL,
+            trigger_type=SessionOrigin.MR_WEBHOOK,
+            repo_id="daiv/test",
+            external_username=admin_user.username,
+        )
+
+        assert _week(member_client)["runs"] == 1
+
+    def test_one_session_is_singular(self, member_user, member_client):
+        session = _bare_session(member_user)
+        _week_run(session)
+        _week_run(session)
+
+        content = " ".join(member_client.get(reverse("dashboard")).content.decode().split())
+
+        assert "in 1 session" in content
+        assert "1 sessions" not in content
+
+    def test_a_merge_request_keeps_the_url_an_older_run_has(self, member_user, member_client):
+        session = _bare_session(member_user)
+        _week_run(session, days_ago=1, merge_request_iid=7, merge_request_web_url="https://x/7")
+        _week_run(session, merge_request_iid=7)
+
+        assert _week(member_client)["merge_requests"][0]["url"] == "https://x/7"
 
     def test_merge_requests_are_listed_once_newest_first(self, member_user, member_client):
         for iid, days_ago in [(1, 5), (2, 4), (3, 3), (4, 2)]:

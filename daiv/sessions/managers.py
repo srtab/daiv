@@ -110,6 +110,27 @@ class SessionQuerySet(models.QuerySet["Session"]):
         latest = Run.objects.filter(session=models.OuterRef("pk")).order_by("-created_at", "-id")
         return self.annotate(latest_run_status=models.Subquery(latest.values("status")[:1]))
 
+    def with_row_runs(self) -> models.QuerySet[Session]:
+        """Prefetch each session's runs, newest first, with only the columns a session row reads.
+
+        Add a field here if ``sessions/_session_row.html`` starts reading it, or it becomes a deferred-field N+1.
+        """
+        from sessions.models import Run
+
+        runs = Run.objects.only(
+            "id",
+            "session_id",
+            "status",
+            "started_at",
+            "finished_at",
+            "merge_request_iid",
+            "merge_request_web_url",
+            "cost_usd",
+            "agent_model",
+            "created_at",
+        ).order_by("-created_at", "-id")
+        return self.select_related("user", "scheduled_job").prefetch_related(models.Prefetch("runs", queryset=runs))
+
 
 # ``by_owner``/``visible_to``/``with_latest_status`` live on the QuerySet so they chain
 # (``Session.objects.visible_to(user).with_latest_status()``); the manager re-exports
@@ -125,6 +146,10 @@ class RunManager(models.Manager["Run"]):
             | models.Q(external_username=user.username)
             | models.Q(session__scheduled_job__in=user.subscribed_schedules.values("pk"))
         )
+
+    def started_by(self, user: User) -> models.QuerySet[Run]:
+        """Runs the user started, by account or by git platform username; not those of a schedule they subscribe to."""
+        return self.filter(models.Q(user=user) | models.Q(external_username=user.username))
 
     def visible_to(self, user: User) -> models.QuerySet[Run]:
         """Runs the user may view: ownership OR a repository they can currently read.

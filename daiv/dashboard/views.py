@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime, timedelta
 from functools import reduce
 from operator import or_
@@ -6,7 +5,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
-from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Subquery, Value, When
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, Value, When
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -20,17 +19,16 @@ from sessions.filters import SCOPE_MINE
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
 from codebase.base import GitPlatform
-from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
+from core.conf import settings as core_settings
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 from dashboard import insights
 from dashboard.context_processors import running_jobs_count
+from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_RETRY_TIMEOUT, resolve_bot_username_task
 from schedules.models import Frequency, ScheduledJob
 
 if TYPE_CHECKING:
     from accounts.models import User
-
-logger = logging.getLogger("daiv.dashboard")
 
 
 def homepage(request):
@@ -42,12 +40,11 @@ def homepage(request):
 INBOX_LIMIT = 8
 RECENT_SESSIONS_LIMIT = 5
 # Findings and a given-up CI watch have no resolving event DAIV can see (a person may fix them by
-# hand), so they age out; a failure or a question stays until a newer run supersedes it.
+# hand), so they age out; a failure or a question stays until a newer run supersedes it, or INBOX_MAX_AGE.
 INBOX_FINDINGS_WINDOW = timedelta(days=7)
+INBOX_MAX_AGE = timedelta(days=90)
 
-BOT_USERNAME_CACHE_KEY = "dashboard:bot-username"
-BOT_USERNAME_TIMEOUT = 60 * 60 * 24
-BOT_USERNAME_RETRY_TIMEOUT = 60 * 5
+BOT_USERNAME_PENDING_KEY = "dashboard:bot-username-pending"
 
 _SEVERITY: dict[str, int] = {status: rank for rank, status in enumerate(EnvelopeStatus.worst_first())}
 _SEVERITY |= {CI_STILL_FAILING.key: _SEVERITY[EnvelopeStatus.FAILED], CANT_RUN.key: _SEVERITY[EnvelopeStatus.FAILED]}
@@ -74,53 +71,47 @@ class InboxItem(NamedTuple):
 
 
 def _inbox_rules(since: datetime) -> list[tuple[Q, Outcome]]:
-    """Each way a session of yours can need you, worst first, so the first match is the one shown."""
+    """Each way a run of yours can leave you something to do, worst first, so the first match is the one shown."""
     return [
         (
-            Q(latest_run_status=RunStatus.FAILED, latest_run_cancel_requested_at__isnull=True, retried=False),
+            Q(status=RunStatus.FAILED, cancel_requested_at__isnull=True, retried=False),
             ENVELOPE_OUTCOMES[EnvelopeStatus.FAILED],
         ),
-        (Q(watch_state=WatchState.EXHAUSTED, last_active_at__gte=since), CI_STILL_FAILING),
-        (Q(latest_run_status=RunStatus.WAITING_INPUT), ENVELOPE_OUTCOMES[EnvelopeStatus.NEEDS_INPUT]),
+        (Q(session__watch_state=WatchState.EXHAUSTED, session__last_active_at__gte=since), CI_STILL_FAILING),
+        (Q(status=RunStatus.WAITING_INPUT), ENVELOPE_OUTCOMES[EnvelopeStatus.NEEDS_INPUT]),
         *(
-            (Q(latest_envelope_status=status, latest_run_finished_at__gte=since), ENVELOPE_OUTCOMES[status])
+            (Q(envelope__status=status, finished_at__gte=since), ENVELOPE_OUTCOMES[status])
             for status in (EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.NEEDS_ATTENTION)
         ),
     ]
 
 
-def _sessions_needing(user: User, since: datetime):
-    """The user's sessions whose newest run left them something to do, annotated with ``inbox_outcome``.
+def _runs_needing(user: User, since: datetime) -> list[dict]:
+    """The user's runs that are the newest in their session and left them something to do, worst first.
 
-    Everything is read off each session's newest run, so a newer run (an answer, a follow-up that
-    succeeded) clears it. A failed job's Retry starts a new session, so a later run on the same
-    repository with the same prompt counts as having retried it.
+    A newer run in the session (an answer, a follow-up that succeeded) clears it, whoever started it.
+    A failed job's Retry starts a new session, so a later run of the same schedule, or a later run of
+    the user's on the same repository with the same prompt, counts as having retried it.
     """
-    latest = Run.objects.filter(session=OuterRef("pk")).order_by("-created_at", "-id")
+    newer = Run.objects.filter(session=OuterRef("session")).filter(
+        Q(created_at__gt=OuterRef("created_at")) | Q(created_at=OuterRef("created_at"), id__gt=OuterRef("id"))
+    )
+    later = Q(created_at__gt=OuterRef("created_at")) & ~Q(session=OuterRef("session"))
+    rerun = Run.objects.filter(later, session__scheduled_job=OuterRef("session__scheduled_job"))
     retry = (
         Run.objects
-        .filter(
-            trigger_type__in=SessionOrigin.prompt_driven(),
-            repo_id=OuterRef("latest_run_repo_id"),
-            prompt=OuterRef("latest_run_prompt"),
-            created_at__gt=OuterRef("latest_run_created_at"),
-        )
-        .exclude(session=OuterRef("pk"))
+        .started_by(user)
+        .filter(later, trigger_type__in=SessionOrigin.prompt_driven())
+        .filter(repo_id=OuterRef("repo_id"), prompt=OuterRef("prompt"))
         .exclude(prompt="")
     )
     rules = _inbox_rules(since)
-    return (
-        Session.objects
-        .listed_for(user, mine=True)
-        .annotate(
-            latest_run_cancel_requested_at=Subquery(latest.values("cancel_requested_at")[:1]),
-            latest_run_finished_at=Subquery(latest.values("finished_at")[:1]),
-            latest_run_created_at=Subquery(latest.values("created_at")[:1]),
-            latest_run_repo_id=Subquery(latest.values("repo_id")[:1]),
-            latest_run_prompt=Subquery(latest.values("prompt")[:1]),
-            latest_envelope_status=Subquery(latest.values("envelope__status")[:1]),
-            retried=Exists(retry),
-        )
+    return list(
+        Run.objects
+        .started_by(user)
+        .filter(session__last_active_at__gte=timezone.now() - INBOX_MAX_AGE)
+        .exclude(Exists(newer))
+        .annotate(retried=Exists(rerun) | Exists(retry))
         .annotate(
             inbox_outcome=Case(*(When(q, then=Value(outcome.key)) for q, outcome in rules), default=None),
             inbox_rank=Case(
@@ -128,7 +119,8 @@ def _sessions_needing(user: User, since: datetime):
             ),
         )
         .filter(inbox_outcome__isnull=False)
-        .order_by("inbox_rank", "-last_active_at")
+        .order_by("inbox_rank", "-session__last_active_at")
+        .values("inbox_outcome", "session_id", "session__title", "session__repo_id", "session__last_active_at")
     )
 
 
@@ -143,18 +135,12 @@ def _failing_schedules(user: User):
 
 
 def _bot_username() -> str:
-    """The account DAIV answers to on the git platform; the label it shares a name with until that is known."""
+    """The account DAIV answers to on the git platform; the label it shares a name with until a task resolves it."""
     username = cache.get(BOT_USERNAME_CACHE_KEY)
-    if username is not None:
-        return username
-    try:
-        username = RepoClient.create_instance().current_user.username
-    except Exception:
-        logger.warning("Couldn't resolve DAIV's git platform username", exc_info=True)
-        cache.set(BOT_USERNAME_CACHE_KEY, BOT_LABEL, BOT_USERNAME_RETRY_TIMEOUT)
-        return BOT_LABEL
-    cache.set(BOT_USERNAME_CACHE_KEY, username, BOT_USERNAME_TIMEOUT)
-    return username
+    if username is None and cache.add(BOT_USERNAME_PENDING_KEY, True, BOT_USERNAME_RETRY_TIMEOUT):
+        resolve_bot_username_task.enqueue()
+        username = cache.get(BOT_USERNAME_CACHE_KEY)
+    return username or BOT_LABEL
 
 
 MR_LIST_LIMIT = 3
@@ -193,15 +179,15 @@ def _started_from() -> list[tuple[str, frozenset[str]]]:
 
 
 def your_week(user: User) -> dict:
-    """What the runs in ``user``'s own sessions came to over the last 7 days, a column a day.
+    """What the runs ``user`` started came to over the last 7 days, a column a day.
 
-    Counts runs, so one session can add to several days; each day opens the sessions active that day.
+    Counts runs, so one session can add to several days; each day opens the sessions that ran that day.
     """
     window = insights.window_for("7d")
-    runs = Run.objects.filter(session__in=Session.objects.listed_for(user, mine=True).values("pk"))
+    runs = Run.objects.started_by(user)
     counted = runs.filter(window.date_q("created_at")).filter(reduce(or_, (q for *_rest, q in WEEK_OUTCOMES)))
     chart = insights.stacked_chart(
-        runs, "created_at", window, WEEK_OUTCOMES, lambda day: _my_sessions_url(**day.list_params(bounded=True))
+        runs, "created_at", window, WEEK_OUTCOMES, lambda day: _my_sessions_url(ran_on=day.end.isoformat())
     )
     totals = counted.aggregate(runs=Count("pk", distinct=True), sessions=Count("session", distinct=True))
 
@@ -212,7 +198,8 @@ def your_week(user: User) -> dict:
         .order_by("-created_at")
         .values_list("repo_id", "merge_request_iid", "merge_request_web_url", "session__title")
     ):
-        merge_requests.setdefault((repo_id, iid), {"repo_id": repo_id, "iid": iid, "url": url, "title": title})
+        merge_request = merge_requests.setdefault((repo_id, iid), {"repo_id": repo_id, "iid": iid, "title": title})
+        merge_request["url"] = merge_request.get("url") or url
 
     triggers = counted.order_by().values("trigger_type").annotate(n=Count("pk"))
     by_trigger = dict(triggers.values_list("trigger_type", "n"))
@@ -254,18 +241,17 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         return context
 
     def _get_inbox(self, user: User) -> dict:
-        since = timezone.now() - INBOX_FINDINGS_WINDOW
-        sessions = _sessions_needing(user, since).only("thread_id", "title", "repo_id", "last_active_at")
+        runs = _runs_needing(user, timezone.now() - INBOX_FINDINGS_WINDOW)
         schedules = _failing_schedules(user)
         items = [
             InboxItem(
-                outcome=_OUTCOMES_BY_KEY[session.inbox_outcome],
-                title=session.title or session.repo_id,
-                detail=session.repo_id if session.title else "",
-                url=reverse("session_detail", kwargs={"thread_id": session.thread_id}),
-                at=session.last_active_at,
+                outcome=_OUTCOMES_BY_KEY[run["inbox_outcome"]],
+                title=run["session__title"] or run["session__repo_id"],
+                detail=run["session__repo_id"] if run["session__title"] else "",
+                url=reverse("session_detail", kwargs={"thread_id": run["session_id"]}),
+                at=run["session__last_active_at"],
             )
-            for session in sessions[:INBOX_LIMIT]
+            for run in runs[:INBOX_LIMIT]
         ] + [
             InboxItem(
                 outcome=CANT_RUN,
@@ -278,53 +264,31 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         ]
         items.sort(key=lambda item: (item.severity, -(item.at.timestamp() if item.at else 0)))
 
-        def see_all(status: str) -> str:
-            return f"{reverse('session_list')}?{urlencode({'scope': SCOPE_MINE, 'status': status})}"
-
-        outcome_counts = dict(
-            sessions.order_by().values("inbox_outcome").annotate(n=Count("pk")).values_list("inbox_outcome", "n")
-        )
+        outcomes = {run["inbox_outcome"] for run in runs}
         schedules_count = schedules.count()
         see_all_links = [
-            {"label": label, "url": see_all(status)}
+            {"label": label, "url": _my_sessions_url(status=status)}
             for label, status, key in (
                 (_("All your failed sessions"), RunStatus.FAILED, EnvelopeStatus.FAILED),
                 (_("All needing your input"), RunStatus.WAITING_INPUT, EnvelopeStatus.NEEDS_INPUT),
             )
-            if key in outcome_counts
+            if key in outcomes
         ]
         if schedules_count:
             see_all_links.append({"label": _("Your schedules"), "url": reverse("schedule_list")})
-        return {
-            "items": items[:INBOX_LIMIT],
-            "total": sum(outcome_counts.values()) + schedules_count,
-            "see_all": see_all_links,
-        }
+        return {"items": items[:INBOX_LIMIT], "total": len(runs) + schedules_count, "see_all": see_all_links}
 
     def _get_recent_sessions(self, user: User) -> list[Session]:
-        runs = Run.objects.only(
-            "id",
-            "session_id",
-            "status",
-            "started_at",
-            "finished_at",
-            "merge_request_iid",
-            "merge_request_web_url",
-            "cost_usd",
-            "agent_model",
-            "created_at",
-        ).order_by("-created_at", "-id")
         return list(
             Session.objects
             .listed_for(user, mine=True)
-            .select_related("user", "scheduled_job")
-            .prefetch_related(Prefetch("runs", queryset=runs))
+            .with_row_runs()
             .order_by("-last_active_at")[:RECENT_SESSIONS_LIMIT]
         )
 
     def _get_ways_to_use(self) -> dict:
         is_github = codebase_settings.CLIENT == GitPlatform.GITHUB
-        mcp_url = self.request.build_absolute_uri("/mcp/")
+        mcp_url = f"{str(core_settings.EXTERNAL_URL).rstrip('/')}/mcp/"
         return {
             "platform_name": "GitHub" if is_github else "GitLab",
             "mr_term": "pull request" if is_github else "merge request",
