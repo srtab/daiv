@@ -87,6 +87,10 @@ class SessionQuerySet(models.QuerySet["Session"]):
         has_run = models.Exists(Run.objects.filter(session=models.OuterRef("pk")))
         return self.exclude(~has_run, origin=SessionOrigin.PIPELINE_WEBHOOK)
 
+    def listed_for(self, user: User) -> models.QuerySet[Session]:
+        """The rows the session list shows ``user`` before any filter is applied."""
+        return self.visible_to(user).without_watch_placeholders().with_latest_status()
+
     def with_latest_status(self) -> models.QuerySet[Session]:
         """Annotate each session with ``latest_run_status`` (status of the newest run).
 

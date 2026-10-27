@@ -63,10 +63,22 @@
             </div>
         </div>
 
-        {# Outcome breakdown bar #}
+        {# Sessions by origin: each count is the length of the session list its link opens. #}
         {% if activity.segments %}
         <div class="mt-6 border-t border-white/[0.04] pt-6">
-            <p class="mb-3 text-[13px] font-medium uppercase tracking-[0.15em] text-gray-500">Outcome breakdown</p>
+            <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                <a href="{{ activity.sessions_url }}" class="group flex items-baseline gap-2 transition-colors">
+                    <span class="text-[13px] font-medium uppercase tracking-[0.15em] text-gray-500 group-hover:text-gray-400">Sessions by origin</span>
+                    <span class="text-sm font-semibold tabular-nums text-white">{{ activity.sessions_total }}</span>
+                </a>
+                {% if activity.sessions_failed %}
+                <a href="{{ activity.sessions_failed_url }}" class="group flex items-center gap-2 transition-colors">
+                    <span class="inline-block h-2.5 w-2.5 rounded-sm bg-red-500/40"></span>
+                    <span class="text-sm text-gray-400 group-hover:text-gray-300">Latest run failed</span>
+                    <span class="text-sm font-semibold tabular-nums text-white">{{ activity.sessions_failed }}</span>
+                </a>
+                {% endif %}
+            </div>
 
             <div class="flex h-3 w-full overflow-hidden rounded-full bg-white/[0.03]">
                 {% for seg in activity.segments %}
@@ -76,19 +88,11 @@
 
             <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2">
                 {% for seg in activity.segments %}
-                {% if seg.url %}
                 <a href="{{ seg.url }}" class="group flex items-center gap-2 transition-colors">
-                {% else %}
-                <span class="flex items-center gap-2">
-                {% endif %}
                     <span class="inline-block h-2.5 w-2.5 rounded-sm {{ seg.css }}"></span>
-                    <span class="text-sm text-gray-400 {% if seg.url %}group-hover:text-gray-300{% endif %}">{{ seg.label }}</span>
+                    <span class="text-sm text-gray-400 group-hover:text-gray-300">{{ seg.label }}</span>
                     <span class="text-sm font-semibold tabular-nums text-white">{{ seg.value }}</span>
-                {% if seg.url %}
                 </a>
-                {% else %}
-                </span>
-                {% endif %}
                 {% endfor %}
             </div>
         </div>

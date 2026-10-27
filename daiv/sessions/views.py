@@ -147,9 +147,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # gives the SSE dot the real ``Run.id`` to key live updates on.
         return (
             Session.objects
-            .visible_to(self.request.user)
-            .without_watch_placeholders()
-            .with_latest_status()
+            .listed_for(self.request.user)
             .select_related("user", "scheduled_job")
             # Only the columns the row reads (status/duration/MR/cost/SSE id) — skips the fat
             # prompt/result_summary/error_message/usage_by_model columns. Add a field here if

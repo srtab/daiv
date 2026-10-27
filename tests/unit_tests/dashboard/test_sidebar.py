@@ -3,6 +3,7 @@ import uuid
 from django.urls import reverse
 
 import pytest
+from bs4 import BeautifulSoup
 from notifications.models import Notification
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
@@ -30,6 +31,22 @@ class TestSidebarSmoke:
         assert b'data-testid="app-sidebar"' in response.content
         assert b'data-testid="app-user-menu"' in response.content
         assert b'data-testid="mobile-top-bar"' in response.content
+
+
+@pytest.mark.django_db
+class TestSidebarDocsLink:
+    def test_footer_links_the_user_docs_with_a_collapsible_label(self, member_client):
+        content = member_client.get(reverse("session_list")).content.decode()
+        link = BeautifulSoup(content, "html.parser").select_one('[data-testid="sidebar-docs-link"]')
+        assert link["href"] == "https://srtab.github.io/daiv/latest/"
+        assert link["target"] == "_blank"
+        assert "sidebar__footer-link" in link["class"]
+        assert link.select_one(".sidebar__collapsible").get_text() == "Help & docs"
+
+    def test_label_is_translated(self, member_client):
+        with catalog({"Help & docs": "Ajuda"}):
+            content = member_client.get(reverse("dashboard")).content.decode()
+        assert '<span class="sidebar__collapsible">Ajuda</span>' in content
 
 
 @pytest.mark.django_db
