@@ -270,6 +270,13 @@ sidebar. Below `md:` the sidebar becomes a sheet, opened from a slim top bar (me
 plus wordmark) that is the only nav entry point on a phone.
 
 - **Tiers.** `< md` sheet + slim top bar; `md–lg` icon rail; `>= lg` full sidebar.
+- **Groups.** Daily work comes first with no heading: Home (URL name `dashboard`), Sessions,
+  Notifications, Artifacts, Schedules. Then **Agent setup** — Sandbox environments, MCP
+  servers, Memory: pages set up once that most teammates can skip, so the heading carries
+  a one-line "optional" hint and each item a `.nav-description` under its label
+  (the item takes `sidebar__nav-item--described`). The rail hides that text, so each
+  item's `title` repeats label and description as its tooltip. Last, **Admin**
+  (`is_admin` only). Order and grouping are pinned by `dashboard/test_sidebar.py`.
 - **Sidebar hooks.** Anything the rail must hide carries `sidebar__collapsible`, and
   anything only the rail shows carries `sidebar__rail-only` (the dot that stands in for the
   unread count). The elements it re-centres carry `sidebar__brand` / `sidebar__cta` /

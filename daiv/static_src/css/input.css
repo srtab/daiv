@@ -138,6 +138,15 @@
     margin-left: 1.25rem;
   }
 
+  /* Its description is hidden here, so the icon centres like any other item's. */
+  .sidebar--rail .sidebar__nav-item--described {
+    align-items: center;
+  }
+
+  .sidebar--rail .sidebar__nav-item--described > :first-child {
+    margin-top: 0;
+  }
+
   /* The heading keeps its box so the groups stay separated once its label is hidden. */
   .sidebar--rail .sidebar__group-heading {
     height: 1.25rem;
@@ -167,6 +176,19 @@
     width: 3px;
     border-radius: 0 0.25rem 0.25rem 0;
     background: var(--color-brand);
+  }
+
+  /* A two-line item (label + description): the icon sits on the label's line. */
+  .sidebar__nav-item--described {
+    @apply items-start;
+  }
+
+  .sidebar__nav-item--described > :first-child {
+    @apply mt-0.5;
+  }
+
+  .nav-description {
+    @apply mt-0.5 block text-[11px] leading-snug text-text-faint;
   }
 
   .nav-badge {
