@@ -189,7 +189,7 @@ def report_findings(findings: Iterable[Finding], head_files: frozenset[str]) -> 
     """The judging-format findings of a report, and the reported findings no head-side location could be read from.
 
     A finding whose location line names several files becomes one finding per file, since the judge matches within a
-    file; one whose location line names no line falls back to the first line its details name.
+    file; one whose location line names no line falls back to the first line its title or details name.
     """
     located: list[dict] = []
     unlocated: list[Finding] = []
@@ -199,7 +199,7 @@ def report_findings(findings: Iterable[Finding], head_files: frozenset[str]) -> 
         if _names_a_line(finding.location):
             locations = parse_locations(finding.location, head_files)
         else:
-            locations = parse_locations(finding.details, head_files)[:1]
+            locations = parse_locations(f"{finding.title}\n{finding.details}", head_files)[:1]
         if not locations:
             unlocated.append(finding)
             continue

@@ -198,6 +198,14 @@ def test_a_finding_whose_location_line_names_no_line_takes_the_first_its_details
     assert (finding["file"], finding["start_line"], unlocated) == ("lib/index.ts", 12, [])
 
 
+def test_a_one_line_entry_takes_the_first_line_its_title_names():
+    report = "### Suggestions\n\n**3.** `lib/index.ts:4-5` says the cache is cleared; `src/engine.ts:9` never is.\n"
+
+    [finding], unlocated = report_findings(parse_report(report), HEAD_FILES)
+
+    assert (finding["file"], finding["start_line"], finding["end_line"], unlocated) == ("lib/index.ts", 4, 5, [])
+
+
 def test_a_finding_on_several_files_becomes_one_judging_finding_per_file():
     report = (
         "### Important Issues\n**1. Raw origin used** — `src/engine.ts:28`, `lib/index.ts:42`\n\nUse the public origin."
