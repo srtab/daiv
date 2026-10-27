@@ -451,7 +451,7 @@ async def test_session_turns_link_a_finished_runs_retry(client, authed):
 
     with (
         patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)),
-        patch("sessions.transcript.can_run", return_value=True),
+        patch("sessions.transcript.runnable_repo_ids", return_value={"group/project"}),
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 

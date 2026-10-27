@@ -219,9 +219,9 @@ Runs started this way are tagged with the **UI Run** origin. A single-repository
 
 ### Retrying a run
 
-A finished run started from a prompt — an API, MCP, UI, scheduled or delegated run — is **retryable**. Chat turns, webhook runs, and the runs DAIV writes the prompt for (a CI fix, a delegation resume) are not. Open the session detail page, find the run in the transcript, and click **Retry this run** (the circular-arrow icon under its prompt) to open the run composer pre-filled with the original run's prompt, repository, ref, and agent model/thinking level. The button shows only while you can still run agents on that repository. Adjust anything before submitting — the retry starts a new session, tagged **UI Run**.
+A done or failed run started from a prompt on a repository — an API, MCP, UI, scheduled or delegated run — is **retryable**; a run paused on a question is not. Chat turns, webhook runs, and the runs DAIV writes the prompt for (a CI fix, a delegation resume) are not. Open the session detail page, find the run in the transcript, and click **Retry this run** (the circular-arrow icon under its prompt) to open the run composer pre-filled with the original run's prompt, repository, ref, and agent model/thinking level. The button shows only while you can still run agents on that repository. Adjust anything before submitting — the retry starts a new session, tagged **UI Run**.
 
-Every run also has a link target on the session page: `<session URL>#run-<run id>` opens the session scrolled to that run. The **Retried from** link on the run composer and each row of the **Artifacts** list use it.
+Every run shown in the transcript also has a link target on the session page, including the runs of a session whose transcript has expired: `<session URL>#run-<run id>` opens the session scrolled to that run. The **Retried from** link on the run composer and each row of the **Artifacts** list use it.
 
 ---
 

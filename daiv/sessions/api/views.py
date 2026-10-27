@@ -12,7 +12,7 @@ from accounts.api.security import AuthBearer
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
 from sessions.hydration import ahydrate_thread
 from sessions.models import Session
-from sessions.transcript import annotate_transcript, artifact_turns, mark_retryable
+from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
 from sessions.turns import build_turns
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
     activity = session_activity(session, runs)
     turns = annotate_transcript(build_turns(hydrated.messages, in_flight=activity.in_flight), runs, activity)
     if not hydrated.messages:
-        turns += await sync_to_async(artifact_turns)(runs, turns)
+        turns += await sync_to_async(expired_run_turns)(runs, turns)
     await sync_to_async(mark_retryable)(turns, runs, request.auth)  # ty: ignore[unresolved-attribute]
     live = await sync_to_async(live_run_for)(activity.live, session, request.auth)  # ty: ignore[unresolved-attribute]
     return {

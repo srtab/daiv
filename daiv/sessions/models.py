@@ -427,10 +427,16 @@ class Run(models.Model):
 
     @property
     def is_retryable(self) -> bool:
-        """Whether the run composer can start this run again: a finished run from a prompt a person or an agent wrote,
-        not a chat turn, a webhook run, or a run DAIV wrote the prompt for."""
+        """Whether the run composer can start this run again: a finished run on a repo, from a prompt a person or an
+        agent wrote, not a chat turn, a webhook run, or a run DAIV wrote the prompt for."""
         not_retried = {SessionOrigin.CHAT} | SessionOrigin.webhooks() | SessionOrigin.daiv_authored()
-        return self.status in RunStatus.terminal() and bool(self.prompt) and self.trigger_type not in not_retried
+        finished = {RunStatus.SUCCESSFUL, RunStatus.FAILED}
+        return (
+            self.status in finished
+            and bool(self.prompt)
+            and bool(self.repo_id)
+            and self.trigger_type not in not_retried
+        )
 
     @property
     def is_cancelled(self) -> bool:

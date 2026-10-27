@@ -414,7 +414,10 @@ def test_agent_result_field_updates_maps_code_changes_only_when_set(code_changes
     ],
 )
 def test_run_is_retryable_by_trigger(trigger_type, retryable):
-    assert Run(trigger_type=trigger_type, status=RunStatus.SUCCESSFUL, prompt="go").is_retryable is retryable
+    assert (
+        Run(trigger_type=trigger_type, status=RunStatus.SUCCESSFUL, prompt="go", repo_id="acme/repo").is_retryable
+        is retryable
+    )
 
 
 @pytest.mark.parametrize(
@@ -422,15 +425,23 @@ def test_run_is_retryable_by_trigger(trigger_type, retryable):
     [
         (RunStatus.SUCCESSFUL, True),
         (RunStatus.FAILED, True),
-        (RunStatus.WAITING_INPUT, True),
+        (RunStatus.WAITING_INPUT, False),
         (RunStatus.READY, False),
         (RunStatus.QUEUED, False),
         (RunStatus.RUNNING, False),
     ],
 )
 def test_run_is_retryable_only_once_finished(status, retryable):
-    assert Run(trigger_type=SessionOrigin.UI_JOB, status=status, prompt="go").is_retryable is retryable
+    assert (
+        Run(trigger_type=SessionOrigin.UI_JOB, status=status, prompt="go", repo_id="acme/repo").is_retryable
+        is retryable
+    )
 
 
 def test_run_without_a_prompt_is_not_retryable():
-    assert Run(trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL, prompt="").is_retryable is False
+    run = Run(trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL, prompt="", repo_id="acme/repo")
+    assert run.is_retryable is False
+
+
+def test_run_without_a_repo_is_not_retryable():
+    assert Run(trigger_type=SessionOrigin.API_JOB, status=RunStatus.SUCCESSFUL, prompt="go").is_retryable is False

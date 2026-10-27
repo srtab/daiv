@@ -394,6 +394,7 @@
     // on the same clock its start came from (client/server skew otherwise leaks).
     _lastFrameAt: 0,
     _scrollQueued: false,
+    _scrollFrame: 0,
     _autoFollow: true,
     // The `run-<id>` element the URL's hash names, until it has rendered and been scrolled to.
     _pendingRunAnchor: "",
@@ -789,7 +790,14 @@
       }
 
       const hash = window.location.hash;
-      if (/^#run-[\w-]+$/.test(hash)) this._pendingRunAnchor = hash.slice(1);
+      if (/^#run-[\w-]+$/.test(hash)) {
+        this._pendingRunAnchor = hash.slice(1);
+        // Once the reader takes over the scroll, a run that renders later must not yank them to it.
+        const disarm = () => (this._pendingRunAnchor = "");
+        for (const name of ["wheel", "touchstart", "keydown", "pointerdown"]) {
+          document.addEventListener(name, disarm, { once: true, passive: true });
+        }
+      }
 
       // Park the viewport on page load. $nextTick waits for Alpine to
       // materialize x-for'd turns into DOM; parkViewport() then settles the
@@ -1858,6 +1866,8 @@
       if (!target) return false;
       this._pendingRunAnchor = "";
       this._autoFollow = false;
+      cancelAnimationFrame(this._scrollFrame);
+      this._scrollQueued = false;
       target.scrollIntoView({ block: "start", behavior: "auto" });
       return true;
     },
@@ -1870,7 +1880,7 @@
       if (!force && !this._autoFollow) return;
       if (this._scrollQueued) return;
       this._scrollQueued = true;
-      requestAnimationFrame(() => {
+      this._scrollFrame = requestAnimationFrame(() => {
         this._scrollQueued = false;
         const el = this._scrollEl;
         if (!el) return;

@@ -16,7 +16,7 @@ from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
 from sessions.executor.lock import LiveRun, SessionActivity
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
-from sessions.transcript import annotate_transcript, artifact_turns, mark_retryable
+from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
 from sessions.turns import build_turns
 
 from core.constants import (
@@ -492,14 +492,14 @@ def _db_session() -> Session:
 
 
 @pytest.mark.django_db
-def test_artifact_turns_synthesizes_a_publish_turn_per_run_with_artifacts():
+def test_expired_run_turns_synthesizes_a_publish_turn_per_run_with_artifacts():
     session = _db_session()
     first, empty, last = _db_run(session), _db_run(session), _db_run(session)
     report = make_artifact(first, filename="report.md", title="Findings")
     chart = make_artifact(first, filename="chart.png")
     page = make_artifact(last, filename="audit.html", title="Audit")
 
-    result = artifact_turns([first, empty, last])
+    result = expired_run_turns([first, empty, last], [])
 
     def segment(artifact):
         return {
@@ -523,43 +523,78 @@ def test_artifact_turns_synthesizes_a_publish_turn_per_run_with_artifacts():
 
 
 @pytest.mark.django_db
-def test_artifact_turn_segments_carry_the_build_turns_tool_call_keys():
+def test_expired_run_turns_artifact_segments_carry_the_build_turns_tool_call_keys():
     run = _db_run(_db_session())
     make_artifact(run)
     built = build_turns([AIMessage(content="", tool_calls=[{"id": "t1", "name": "publish_artifact", "args": {}}])])
 
-    (turn,) = artifact_turns([run])
+    (turn,) = expired_run_turns([run], [])
 
     assert turn.keys() - {"run_id"} == built[0].keys()
     assert turn["segments"][0].keys() == built[0]["segments"][0].keys()
 
 
 @pytest.mark.django_db
-def test_artifact_turns_mark_a_revised_artifact_updated():
+def test_expired_run_turns_mark_a_revised_artifact_updated():
     run = _db_run(_db_session())
     artifact = make_artifact(run)
     RunArtifact.objects.filter(pk=artifact.pk).update(updated_at=timezone.now())
 
-    (turn,) = artifact_turns([run])
+    (turn,) = expired_run_turns([run], [])
 
     assert json.loads(turn["segments"][0]["result"])["status"] == "updated"
 
 
 @pytest.mark.django_db
-def test_artifact_turns_leave_the_anchor_to_a_run_already_shown():
+def test_expired_run_turns_leave_the_anchor_to_a_run_already_shown():
     session = _db_session()
     failed, published = _db_run(session), _db_run(session)
     make_artifact(failed)
     make_artifact(published)
     shown = [{"id": f"run-{failed.id}", "role": "user", "segments": [], "run_id": str(failed.id)}]
 
-    result = artifact_turns([failed, published], shown)
+    result = expired_run_turns([failed, published], shown)
 
     assert [turn.get("run_id") for turn in result] == [None, str(published.id)]
 
 
 @pytest.mark.django_db
-def test_artifact_turns_query_once_for_every_run(django_assert_num_queries):
+def test_expired_run_turns_restore_a_finished_runs_prompt_ahead_of_its_artifacts():
+    session = _db_session()
+    run = Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.UI_JOB,
+        repo_id=session.repo_id,
+        status=RunStatus.SUCCESSFUL,
+        prompt="audit it",
+        finished_at=timezone.now(),
+    )
+    make_artifact(run)
+
+    prompt, artifacts = expired_run_turns([run], [])
+
+    assert (prompt["id"], prompt["run_id"], prompt["segments"][0]["content"]) == (
+        f"run-{run.id}",
+        str(run.id),
+        "audit it",
+    )
+    assert ("run_id" in artifacts, artifacts["received_at"]) == (False, run.finished_at.isoformat())
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", [RunStatus.SUCCESSFUL, RunStatus.QUEUED])
+def test_expired_run_turns_restore_no_prompt_for_a_shown_or_unfinished_run(status):
+    session = _db_session()
+    run = Run.objects.create(
+        session=session, trigger_type=SessionOrigin.UI_JOB, repo_id=session.repo_id, status=status, prompt="go"
+    )
+    shown = [{"id": f"run-{run.id}", "role": "user", "segments": [], "run_id": str(run.id)}]
+
+    assert expired_run_turns([run], shown if status == RunStatus.SUCCESSFUL else []) == []
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_query_once_for_every_run(django_assert_num_queries):
     session = _db_session()
     runs = [_db_run(session) for _ in range(3)]
     for run in runs:
@@ -569,7 +604,7 @@ def test_artifact_turns_query_once_for_every_run(django_assert_num_queries):
     runs = list(Run.objects.filter(pk__in=[r.pk for r in runs]).order_by("created_at"))
 
     with django_assert_num_queries(1):
-        assert len(artifact_turns(runs)) == 3
+        assert len(expired_run_turns(runs, [])) == 3
 
 
 def _retryable(rid, repo_id="group/repo", *, is_retryable=True):
@@ -579,7 +614,7 @@ def _retryable(rid, repo_id="group/repo", *, is_retryable=True):
 def test_mark_retryable_links_the_run_composer_from_the_runs_anchor_turn():
     turns = [{**_user("h1"), "run_id": "r1"}, _assistant("a1")]
 
-    with patch("sessions.transcript.can_run", return_value=True):
+    with patch("sessions.transcript.runnable_repo_ids", return_value={"group/repo"}):
         mark_retryable(turns, [_retryable("r1")], user=None)
 
     assert [t.get("retry_url") for t in turns] == [f"{reverse('runs:agent_run_new')}?from=r1", None]
@@ -588,29 +623,29 @@ def test_mark_retryable_links_the_run_composer_from_the_runs_anchor_turn():
 def test_mark_retryable_skips_a_run_the_viewer_cannot_run_on_the_repo():
     turns = [{**_user("h1"), "run_id": "r1"}]
 
-    with patch("sessions.transcript.can_run", return_value=False) as can_run:
+    with patch("sessions.transcript.runnable_repo_ids", return_value=set()) as runnable:
         mark_retryable(turns, [_retryable("r1")], user="viewer")
 
     assert "retry_url" not in turns[0]
-    can_run.assert_called_once_with("viewer", "group/repo")
+    runnable.assert_called_once_with("viewer", {"group/repo"})
 
 
 def test_mark_retryable_skips_a_run_that_is_not_retryable_without_checking_access():
     turns = [{**_user("h1"), "run_id": "r1"}]
 
-    with patch("sessions.transcript.can_run") as can_run:
+    with patch("sessions.transcript.runnable_repo_ids") as runnable:
         mark_retryable(turns, [_retryable("r1", is_retryable=False)], user=None)
 
     assert "retry_url" not in turns[0]
-    can_run.assert_not_called()
+    runnable.assert_not_called()
 
 
-def test_mark_retryable_checks_access_once_per_repo():
+def test_mark_retryable_checks_every_repo_in_one_call():
     turns = [{**_user(f"h{i}"), "run_id": f"r{i}"} for i in range(3)]
     runs = [_retryable("r0"), _retryable("r1"), _retryable("r2", repo_id="group/other")]
 
-    with patch("sessions.transcript.can_run", return_value=True) as can_run:
+    with patch("sessions.transcript.runnable_repo_ids", return_value={"group/repo"}) as runnable:
         mark_retryable(turns, runs, user=None)
 
-    assert all("retry_url" in t for t in turns)
-    assert can_run.call_count == 2
+    assert [("retry_url" in t) for t in turns] == [True, True, False]
+    runnable.assert_called_once_with(None, {"group/repo", "group/other"})

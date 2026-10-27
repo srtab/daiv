@@ -93,6 +93,25 @@ def test_get_retry_from_other_users_run_is_not_prefilled(member_client, other_us
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"trigger_type": SessionOrigin.CHAT},
+        {"trigger_type": SessionOrigin.PIPELINE_WEBHOOK},
+        {"trigger_type": SessionOrigin.DELEGATION_RESUME},
+        {"status": RunStatus.WAITING_INPUT},
+        {"status": RunStatus.RUNNING},
+    ],
+)
+def test_get_retry_from_non_retryable_run_is_not_prefilled(member_client, member_user, overrides):
+    source = _create_run(member_user, **overrides)
+    resp = member_client.get(NEW_RUN_URL, {"from": str(source.pk)})
+    assert resp.status_code == 200
+    assert resp.context["source_run"] is None
+    assert not resp.context["form"].initial.get("prompt")
+
+
+@pytest.mark.django_db
 def test_get_retry_with_invalid_uuid_is_404(member_client):
     resp = member_client.get(NEW_RUN_URL, {"from": "not-a-uuid"})
     assert resp.status_code == 404

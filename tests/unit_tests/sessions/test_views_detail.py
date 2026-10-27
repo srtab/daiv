@@ -884,7 +884,10 @@ def test_detail_links_retry_only_when_the_viewer_can_run_on_the_repo(member_clie
     with (
         patch("sessions.views.ahydrate_thread", _hydration(messages)),
         patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
-        patch("sessions.transcript.can_run", return_value=can_run),
+        patch(
+            "sessions.transcript.runnable_repo_ids",
+            side_effect=lambda user, repo_ids: set(repo_ids) if can_run else set(),
+        ),
     ):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
