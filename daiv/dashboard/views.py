@@ -1,47 +1,34 @@
 import logging
-from datetime import date, datetime, timedelta
-from typing import NamedTuple
+from datetime import datetime, timedelta
+from functools import reduce
+from operator import or_
+from typing import TYPE_CHECKING, NamedTuple
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
-from django.db.models import (
-    Avg,
-    Case,
-    Count,
-    DurationField,
-    Exists,
-    ExpressionWrapper,
-    F,
-    IntegerField,
-    OuterRef,
-    Prefetch,
-    Q,
-    Subquery,
-    Sum,
-    Value,
-    When,
-)
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Prefetch, Q, Subquery, Value, When
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import urlencode
-from django.utils.timezone import localdate
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
 
 from notifications.choices import EnvelopeStatus
 from notifications.outcomes import CANT_RUN, CI_STILL_FAILING, ENVELOPE_OUTCOMES, Outcome
-from sessions.filters import SCOPE_ALL, SCOPE_MINE, SessionFilter
+from sessions.filters import SCOPE_MINE
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
-from accounts.models import APIKey, User
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
-from codebase.models import MergeMetric
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from dashboard import insights
 from dashboard.context_processors import running_jobs_count
 from schedules.models import Frequency, ScheduledJob
+
+if TYPE_CHECKING:
+    from accounts.models import User
 
 logger = logging.getLogger("daiv.dashboard")
 
@@ -50,62 +37,6 @@ def homepage(request):
     if request.user.is_authenticated:
         return redirect("dashboard")
     return render(request, "dashboard/homepage.html")
-
-
-PERIOD_CHOICES = [
-    ("today", "Today", 0),
-    ("7d", "7 days", 7),
-    ("30d", "30 days", 30),
-    ("90d", "90 days", 90),
-    ("all", "All time", None),
-]
-PERIOD_DAYS = {key: days for key, _, days in PERIOD_CHOICES}
-DEFAULT_PERIOD = "7d"
-
-
-# Hues follow sessions/_origin_badge.html, so a segment matches the badges on the list it opens.
-ORIGIN_SEGMENT_CSS = {
-    SessionOrigin.ISSUE_WEBHOOK: "bg-amber-500/50",
-    SessionOrigin.MR_WEBHOOK: "bg-cyan-500/50",
-    SessionOrigin.PIPELINE_WEBHOOK: "bg-orange-500/40",
-    SessionOrigin.MCP_JOB: "bg-blue-500/50",
-    SessionOrigin.SCHEDULE: "bg-violet-500/40",
-    SessionOrigin.API_JOB: "bg-indigo-500/50",
-    SessionOrigin.UI_JOB: "bg-emerald-500/50",
-    SessionOrigin.CHAT: "bg-teal-500/40",
-    SessionOrigin.DELEGATED_JOB: "bg-fuchsia-500/40",
-    SessionOrigin.DELEGATION_RESUME: "bg-pink-500/40",
-}
-
-
-def _period_params(cutoff_date: date | None) -> dict[str, str]:
-    return {"date_from": cutoff_date.isoformat()} if cutoff_date is not None else {}
-
-
-def _session_list_url(params: dict[str, str]) -> str:
-    return f"{reverse('session_list')}?{urlencode({'scope': SCOPE_ALL, **params})}"
-
-
-def _raw_pct(numerator: int, denominator: int) -> int | None:
-    """Return a ratio as a rounded integer percentage, or None when the denominator is zero."""
-    return round(numerator / denominator * 100) if denominator else None
-
-
-def _format_pct(numerator: int, denominator: int) -> str:
-    """Format a ratio as a rounded percentage string, or a dash when the denominator is zero."""
-    raw = _raw_pct(numerator, denominator)
-    return f"{raw}%" if raw is not None else "—"
-
-
-def _success_rate_css(pct: int | None) -> str:
-    """Text color for a success-rate percentage; the plain strong text when there is none."""
-    if pct is None:
-        return "text-text-strong"
-    if pct >= 90:
-        return "text-status-clear"
-    if pct >= 75:
-        return "text-status-found"
-    return "text-status-fail"
 
 
 INBOX_LIMIT = 8
@@ -226,6 +157,79 @@ def _bot_username() -> str:
     return username
 
 
+MR_LIST_LIMIT = 3
+
+_FLAGGED = Q(envelope__status__in=[EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.NEEDS_ATTENTION])
+# Worst last: the chart stacks the last kind on top.
+WEEK_OUTCOMES = [
+    ("changed", _("Changed code"), "bg-status-clear", Q(status=RunStatus.SUCCESSFUL, code_changes=True) & ~_FLAGGED),
+    ("done", _("Done, no changes"), "bg-text-muted", Q(status=RunStatus.SUCCESSFUL, code_changes=False) & ~_FLAGGED),
+    (
+        "needed",
+        _("Needed you"),
+        "bg-status-found",
+        Q(status=RunStatus.WAITING_INPUT) | (Q(status=RunStatus.SUCCESSFUL) & _FLAGGED),
+    ),
+    ("failed", _("Failed"), "bg-status-fail", Q(status=RunStatus.FAILED, cancel_requested_at__isnull=True)),
+]
+
+
+def _my_sessions_url(**params: str) -> str:
+    return f"{reverse('session_list')}?{urlencode({'scope': SCOPE_MINE, **params})}"
+
+
+def _started_from() -> list[tuple[str, frozenset[str]]]:
+    platform = "GitHub" if codebase_settings.CLIENT == GitPlatform.GITHUB else "GitLab"
+    return [
+        (platform, SessionOrigin.webhooks()),
+        (str(_("Your editor")), frozenset({SessionOrigin.MCP_JOB})),
+        (str(_("Here")), frozenset({SessionOrigin.CHAT, SessionOrigin.UI_JOB})),
+        (str(_("Schedules")), frozenset({SessionOrigin.SCHEDULE})),
+    ]
+
+
+def your_week(user: User) -> dict:
+    """What the runs in ``user``'s own sessions came to over the last 7 days, a column a day.
+
+    Counts runs, so one session can add to several days; each day opens the sessions active that day.
+    """
+    window = insights.window_for("7d")
+    runs = Run.objects.filter(session__in=Session.objects.listed_for(user, mine=True).values("pk"))
+    counted = runs.filter(window.date_q("created_at")).filter(reduce(or_, (q for *_rest, q in WEEK_OUTCOMES)))
+    chart = insights.stacked_chart(
+        runs, "created_at", window, WEEK_OUTCOMES, lambda day: _my_sessions_url(**day.list_params(bounded=True))
+    )
+    totals = counted.aggregate(runs=Count("pk", distinct=True), sessions=Count("session", distinct=True))
+
+    merge_requests = {}
+    for repo_id, iid, url, title in (
+        runs
+        .filter(window.date_q("created_at"), merge_request_iid__isnull=False)
+        .order_by("-created_at")
+        .values_list("repo_id", "merge_request_iid", "merge_request_web_url", "session__title")
+    ):
+        merge_requests.setdefault((repo_id, iid), {"repo_id": repo_id, "iid": iid, "url": url, "title": title})
+
+    triggers = counted.order_by().values("trigger_type").annotate(n=Count("pk"))
+    by_trigger = dict(triggers.values_list("trigger_type", "n"))
+    started_from = [
+        {"label": label, "count": n}
+        for label, origins in _started_from()
+        if (n := sum(by_trigger.get(origin, 0) for origin in origins))
+    ]
+    return {
+        "window": window,
+        "chart": chart,
+        "runs": totals["runs"],
+        "sessions": totals["sessions"],
+        "merge_requests": list(merge_requests.values())[:MR_LIST_LIMIT],
+        "merge_requests_total": len(merge_requests),
+        "merge_requests_more": max(len(merge_requests) - MR_LIST_LIMIT, 0),
+        "merge_requests_more_url": _my_sessions_url(**window.list_params()),
+        "started_from": started_from,
+    }
+
+
 class DashboardView(LoginRequiredMixin, TemplateView):
     template_name = "dashboard/dashboard.html"
 
@@ -240,24 +244,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             for run in session.runs.all()
             if run.status not in RunStatus.terminal()
         )
-        context["my_sessions_url"] = f"{reverse('session_list')}?{urlencode({'scope': SCOPE_MINE})}"
+        context["my_sessions_url"] = _my_sessions_url()
+        context["your_week"] = your_week(user) if context["recent_sessions"] else None
         context["ways"] = self._get_ways_to_use()
-
-        period = self.request.GET.get("period", DEFAULT_PERIOD)
-        if period not in PERIOD_DAYS:
-            period = DEFAULT_PERIOD
-        days = PERIOD_DAYS[period]
-        cutoff_date = localdate() - timedelta(days=max(days - 1, 0)) if days is not None else None
-
-        context["activity"] = self._get_activity_data(cutoff_date, user)
-        context["active_api_keys"] = APIKey.objects.filter(user=user, revoked=False).count()
-        context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
-        context["current_period"] = period
-        context["velocity"] = self._get_velocity_data(cutoff_date) if user.is_admin else None
-        context["active_schedules"] = ScheduledJob.objects.filter(user=user, is_enabled=True).count()
-        if user.is_admin:
-            context["total_users"] = User.objects.count()
-
         return context
 
     def _get_inbox(self, user: User) -> dict:
@@ -347,115 +336,33 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "mcp_command": f"claude mcp add daiv --transport http {mcp_url}",
         }
 
-    def _get_activity_data(self, cutoff_date: date | None, user: User) -> dict:
-        visible = Run.objects.visible_to(user)
-        activities = visible.filter(created_at__date__gte=cutoff_date) if cutoff_date is not None else visible
 
-        successful = Q(status=RunStatus.SUCCESSFUL)
-        failed = Q(status=RunStatus.FAILED)
-        duration_expr = ExpressionWrapper(F("finished_at") - F("started_at"), output_field=DurationField())
+def _period(request, default: str) -> str:
+    period = request.GET.get("period", default)
+    return period if period in insights.PERIOD_DAYS else default
 
-        stats = activities.aggregate(
-            total=Count("id"),
-            successful=Count("id", filter=successful),
-            failed_count=Count("id", filter=failed),
-            code_changes=Count("id", filter=successful & Q(code_changes=True)),
-            avg_duration=Avg(duration_expr, filter=successful),
-        )
 
-        # "Running now" is global (not period-filtered); share the request-memoized helper
-        # with the ``nav`` context processor so the sidebar badge and dashboard card resolve
-        # to a single query per render.
-        running_count = running_jobs_count(self.request, user)
+def _periods() -> list[dict]:
+    return [{"key": key, "label": label} for key, label, _days in insights.PERIOD_CHOICES]
 
-        successful_count = stats["successful"]
-        failed_count = stats["failed_count"]
-        code_changes_count = stats["code_changes"]
-        avg_duration = stats["avg_duration"]
 
-        return {
-            "total": stats["total"],
-            "running": running_count,
-            "success_rate": _format_pct(successful_count, successful_count + failed_count),
-            "success_rate_css": _success_rate_css(_raw_pct(successful_count, successful_count + failed_count)),
-            "failed": failed_count,
-            "code_changes": code_changes_count,
-            "code_changes_pct": _format_pct(code_changes_count, successful_count),
-            "avg_duration_s": avg_duration.total_seconds() if avg_duration is not None else None,
-            **self._get_session_breakdown(cutoff_date, user),
-        }
+class InsightsView(LoginRequiredMixin, TemplateView):
+    template_name = "dashboard/insights.html"
 
-    def _get_session_breakdown(self, cutoff_date: date | None, user: User) -> dict:
-        # Counted through the list's own queryset and filterset, so each count equals the length
-        # of the list its link opens.
-        period = _period_params(cutoff_date)
-        sessions = SessionFilter(period, queryset=Session.objects.listed_for(user)).qs
-        rows = list(
-            sessions
-            .order_by()
-            .values("origin")
-            .annotate(n=Count("pk"), failed=Count("pk", filter=Q(latest_run_status=RunStatus.FAILED)))
-        )
-        origin_counts = {row["origin"]: row["n"] for row in rows}
-
-        total = sum(origin_counts.values())
-        segments = [
-            {
-                "label": SessionOrigin(origin).label,
-                "value": n,
-                "pct": round(n / total * 100, 1),
-                "css": ORIGIN_SEGMENT_CSS[origin],
-                "url": _session_list_url({**period, "trigger": origin}),
-            }
-            for origin in SessionOrigin.values
-            if (n := origin_counts.get(origin))
-        ]
-        return {
-            "sessions_total": total,
-            "sessions_url": _session_list_url(period),
-            "segments": segments,
-            "sessions_failed": sum(row["failed"] for row in rows),
-            "sessions_failed_url": _session_list_url({**period, "status": RunStatus.FAILED}),
-        }
-
-    def _get_velocity_data(self, cutoff_date: date | None) -> dict | None:
-        merges = MergeMetric.objects.all()
-        if cutoff_date is not None:
-            merges = merges.filter(merged_at__date__gte=cutoff_date)
-
-        stats = merges.aggregate(
-            total=Count("id"),
-            total_added=Sum("lines_added", default=0),
-            total_removed=Sum("lines_removed", default=0),
-            daiv_merges=Count("id", filter=Q(daiv_commits__gt=0)),
-            total_commits_sum=Sum("total_commits", default=0),
-            daiv_commits_sum=Sum("daiv_commits", default=0),
-        )
-
-        if not stats["total"]:
-            return None
-
-        total_merges = stats["total"]
-        daiv_merges = stats["daiv_merges"]
-        human_merges = total_merges - daiv_merges
-        total_commits = stats["total_commits_sum"]
-        daiv_commits = stats["daiv_commits_sum"]
-        human_commits = max(0, total_commits - daiv_commits)
-        max_lines = max(stats["total_added"], stats["total_removed"], 1)
-
-        return {
-            "total_merges": total_merges,
-            "lines_added": stats["total_added"],
-            "lines_removed": stats["total_removed"],
-            "net_lines": stats["total_added"] - stats["total_removed"],
-            "daiv_merges_pct": _format_pct(daiv_merges, total_merges),
-            "daiv_merges_pct_raw": min(_raw_pct(daiv_merges, total_merges) or 0, 100),
-            "daiv_merges": daiv_merges,
-            "human_merges": human_merges,
-            "daiv_commits_pct": _format_pct(daiv_commits, total_commits),
-            "daiv_commits_pct_raw": min(_raw_pct(daiv_commits, total_commits) or 0, 100),
-            "daiv_commits": daiv_commits,
-            "human_commits": human_commits,
-            "lines_added_pct": round(stats["total_added"] / max_lines * 100, 1),
-            "lines_removed_pct": round(stats["total_removed"] / max_lines * 100, 1),
-        }
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        period = _period(self.request, insights.DEFAULT_PERIOD)
+        window = insights.window_for(period)
+        previous = window.previous()
+        context.update({
+            "periods": _periods(),
+            "current_period": period,
+            "window": window,
+            "previous_window": previous,
+            "activity": insights.activity(user, window, previous, chart=True),
+            "running": running_jobs_count(self.request, user),
+            "breakdown": insights.session_breakdown(user, window, previous, sparks=True),
+            "velocity": insights.velocity(user, window, chart=True),
+        })
+        return context

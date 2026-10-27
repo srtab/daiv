@@ -49,30 +49,19 @@ class TestHomepage:
 
 
 @pytest.mark.django_db
-class TestDashboardPeriod:
-    def test_seven_days_covers_today_and_the_six_days_before(self, member_user, member_client):
-        inside = _make_run(member_user, SessionOrigin.API_JOB)
-        outside = _make_run(member_user, SessionOrigin.API_JOB)
-        Run.objects.filter(pk=inside.pk).update(created_at=_local_noon(6))
-        Run.objects.filter(pk=outside.pk).update(created_at=_local_noon(7))
-
-        response = member_client.get(reverse("dashboard"), {"period": "7d"})
-
-        assert response.context["activity"]["total"] == 1
-
-    def test_defaults_to_seven_days(self, member_client):
-        response = member_client.get(reverse("dashboard"))
-
-        assert response.context["current_period"] == "7d"
-
-
-@pytest.mark.django_db
 class TestHomeTitle:
     def test_page_is_called_home(self, member_client):
         content = member_client.get(reverse("dashboard")).content.decode()
 
         assert "<title>Home — DAIV</title>" in content
         assert ">Home</h1>" in content
+
+    def test_team_statistics_live_on_insights(self, member_client):
+        response = member_client.get(reverse("dashboard"))
+
+        assert "activity" not in response.context
+        assert "periods" not in response.context
+        assert reverse("insights") in response.content.decode()
 
 
 def _make_session(user, origin, *, status=RunStatus.SUCCESSFUL, days_ago=0):
@@ -83,83 +72,28 @@ def _make_session(user, origin, *, status=RunStatus.SUCCESSFUL, days_ago=0):
     return session
 
 
+def _add_run(session, *, days_ago):
+    return Run.objects.create(
+        session=session,
+        status=RunStatus.SUCCESSFUL,
+        trigger_type=session.origin,
+        repo_id="daiv/test",
+        user=session.user,
+        created_at=_local_noon(days_ago),
+    )
+
+
 def _list_count(client, url: str) -> int:
     return client.get(url).context["paginator"].count
 
 
-@pytest.mark.django_db
-class TestDashboardSessionBreakdown:
-    def test_every_count_matches_the_list_its_link_opens(self, member_user, member_client):
-        _make_session(member_user, SessionOrigin.CHAT, days_ago=6)
-        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
-        _make_session(member_user, SessionOrigin.UI_JOB, days_ago=2)
-        _make_session(member_user, SessionOrigin.ISSUE_WEBHOOK, status=RunStatus.FAILED, days_ago=1)
-        _make_session(member_user, SessionOrigin.API_JOB, days_ago=7)
-        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED, days_ago=8)
-
-        activity = member_client.get(reverse("dashboard"), {"period": "7d"}).context["activity"]
-
-        values = {s["label"]: s["value"] for s in activity["segments"]}
-        assert values == {"Chat": 2, "UI Run": 1, "Issue Webhook": 1}
-        assert activity["sessions_failed"] == 2
-        for segment in activity["segments"]:
-            assert _list_count(member_client, segment["url"]) == segment["value"], segment["label"]
-        assert _list_count(member_client, activity["sessions_failed_url"]) == activity["sessions_failed"]
-        assert _list_count(member_client, activity["sessions_url"]) == activity["sessions_total"] == 4
-
-    def test_a_session_counts_once_however_many_runs_it_holds(self, member_user, member_client):
-        session = _make_session(member_user, SessionOrigin.MR_WEBHOOK)
-        Run.objects.create(
-            session=session,
-            status=RunStatus.FAILED,
-            trigger_type=SessionOrigin.CHAT,
-            repo_id="daiv/test",
-            user=member_user,
-        )
-
-        activity = member_client.get(reverse("dashboard")).context["activity"]
-
-        assert [(s["label"], s["value"]) for s in activity["segments"]] == [("MR/PR Webhook", 1)]
-        assert activity["sessions_failed"] == 1
-
-    def test_links_carry_the_period(self, member_user, member_client):
-        _make_session(member_user, SessionOrigin.SCHEDULE)
-
-        activity = member_client.get(reverse("dashboard"), {"period": "30d"}).context["activity"]
-
-        date_from = (timezone.localdate() - timedelta(days=29)).isoformat()
-        expected = f"{reverse('session_list')}?scope=all&date_from={date_from}&trigger=schedule"
-        assert activity["segments"][0]["url"] == expected
-
-    def test_all_time_links_have_no_date(self, member_user, member_client):
-        _make_session(member_user, SessionOrigin.SCHEDULE, days_ago=400)
-
-        activity = member_client.get(reverse("dashboard"), {"period": "all"}).context["activity"]
-
-        assert activity["segments"][0]["url"] == f"{reverse('session_list')}?scope=all&trigger=schedule"
-
-    def test_counts_include_teammates_sessions_and_so_do_the_lists_they_open(
-        self, admin_user, admin_client, member_user
-    ):
-        _make_session(admin_user, SessionOrigin.CHAT)
-        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
-
-        activity = admin_client.get(reverse("dashboard")).context["activity"]
-
-        (chat,) = activity["segments"]
-        assert chat["value"] == 2
-        assert _list_count(admin_client, chat["url"]) == 2
-        assert _list_count(admin_client, activity["sessions_failed_url"]) == activity["sessions_failed"] == 1
-        assert _list_count(admin_client, reverse("session_list")) == 1
-
-
 def test_every_origin_has_a_segment_colour():
-    from dashboard.views import ORIGIN_SEGMENT_CSS
+    from dashboard.insights import ORIGIN_SEGMENT_CSS
 
     assert set(ORIGIN_SEGMENT_CSS) == set(SessionOrigin)
 
 
-def _add_run(session, status, *, days_ago=0, trigger_type=None, prompt="", **fields):
+def _add_latest_run(session, status, *, days_ago=0, trigger_type=None, prompt="", **fields):
     run = Run.objects.create(
         session=session,
         status=status,
@@ -178,7 +112,7 @@ def _classified_session(user, envelope_status, *, days_ago=0):
     session = Session.objects.create(
         thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id="daiv/test", user=user, title="Scan"
     )
-    run = _add_run(session, RunStatus.SUCCESSFUL, days_ago=days_ago)
+    run = _add_latest_run(session, RunStatus.SUCCESSFUL, days_ago=days_ago)
     RunEnvelope.objects.create(run=run, status=envelope_status)
     return session
 
@@ -240,11 +174,11 @@ class TestNeedsYouInbox:
 
     def test_a_newer_run_resolves_the_session(self, member_user, member_client):
         answered = _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.WAITING_INPUT, days_ago=1)
-        _add_run(answered, RunStatus.RUNNING)
+        _add_latest_run(answered, RunStatus.RUNNING)
         fixed = _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED, days_ago=1)
-        _add_run(fixed, RunStatus.SUCCESSFUL)
+        _add_latest_run(fixed, RunStatus.SUCCESSFUL)
         reclassified = _classified_session(member_user, EnvelopeStatus.FOUND_ISSUES, days_ago=1)
-        _add_run(reclassified, RunStatus.SUCCESSFUL)
+        _add_latest_run(reclassified, RunStatus.SUCCESSFUL)
 
         assert _inbox(member_client)["items"] == []
 
@@ -252,11 +186,11 @@ class TestNeedsYouInbox:
         failed = Session.objects.create(
             thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="daiv/test", user=member_user
         )
-        _add_run(failed, RunStatus.FAILED, days_ago=1, prompt="Fix the flaky test")
+        _add_latest_run(failed, RunStatus.FAILED, days_ago=1, prompt="Fix the flaky test")
         retry = Session.objects.create(
             thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="daiv/test", user=member_user
         )
-        _add_run(retry, RunStatus.RUNNING, prompt="Fix the flaky test")
+        _add_latest_run(retry, RunStatus.RUNNING, prompt="Fix the flaky test")
 
         assert _inbox(member_client)["items"] == []
 
@@ -264,11 +198,11 @@ class TestNeedsYouInbox:
         failed = Session.objects.create(
             thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="daiv/test", user=member_user
         )
-        _add_run(failed, RunStatus.FAILED, days_ago=1, prompt="Fix the flaky test")
+        _add_latest_run(failed, RunStatus.FAILED, days_ago=1, prompt="Fix the flaky test")
         other = Session.objects.create(
             thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="daiv/test", user=member_user
         )
-        _add_run(other, RunStatus.SUCCESSFUL, prompt="Bump the dependencies")
+        _add_latest_run(other, RunStatus.SUCCESSFUL, prompt="Bump the dependencies")
 
         assert _keys(_inbox(member_client)) == ["failed"]
 
@@ -276,7 +210,7 @@ class TestNeedsYouInbox:
         session = Session.objects.create(
             thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="daiv/test", user=member_user
         )
-        _add_run(session, RunStatus.FAILED, cancel_requested_at=timezone.now())
+        _add_latest_run(session, RunStatus.FAILED, cancel_requested_at=timezone.now())
 
         assert _inbox(member_client)["items"] == []
 
@@ -404,3 +338,306 @@ class TestWaysToUse:
         assert "Start work from wherever you already are" in before
         assert "Start work from wherever you already are" not in after
         assert 'data-testid="ways-to-use"' in after
+
+
+def _insights(client, **params):
+    return client.get(reverse("insights"), params).context
+
+
+def _merge(repo_id, *, daiv_commits=0, days_ago=0, iid=None):
+    from codebase.models import MergeMetric
+
+    return MergeMetric.objects.create(
+        repo_id=repo_id,
+        merge_request_iid=iid or MergeMetric.objects.count() + 1,
+        merged_at=_local_noon(days_ago),
+        target_branch="main",
+        source_branch="feature",
+        platform="gitlab",
+        total_commits=4,
+        daiv_commits=daiv_commits,
+        lines_added=10,
+        lines_removed=3,
+    )
+
+
+@pytest.mark.django_db
+class TestInsightsPage:
+    def test_renders_with_seven_days_by_default(self, member_client):
+        response = member_client.get(reverse("insights"))
+
+        assert response.status_code == 200
+        assert response.context["current_period"] == "7d"
+        assert "<title>Insights — DAIV</title>" in response.content.decode()
+
+    def test_compares_with_the_seven_days_before(self, member_user, member_client):
+        for days_ago in (0, 6):
+            _make_session(member_user, SessionOrigin.CHAT, days_ago=days_ago)
+        Run.objects.filter(session__last_active_at=_local_noon(6)).update(created_at=_local_noon(6))
+        earlier = _make_session(member_user, SessionOrigin.CHAT, days_ago=9)
+        Run.objects.filter(session=earlier).update(created_at=_local_noon(9))
+
+        context = _insights(member_client)
+
+        assert context["activity"]["total"] == 2
+        assert context["activity"]["total_change"] == {"direction": "up", "amount": "1", "was": "1"}
+        chat = context["breakdown"]["segments"][0]
+        assert (chat["value"], chat["change"]["was"], chat["change"]["pct"]) == (2, "1", "+100%")
+
+    def test_a_session_active_in_both_periods_counts_in_both(self, member_user, member_client):
+        session = _make_session(member_user, SessionOrigin.CHAT)
+        _add_run(session, days_ago=9)
+
+        (chat,) = _insights(member_client)["breakdown"]["segments"]
+
+        assert (chat["value"], chat["change"]["was"]) == (1, "1")
+
+    def test_a_sub_second_change_in_duration_is_no_change(self, member_user, member_client):
+        current = _make_session(member_user, SessionOrigin.CHAT)
+        earlier = _make_session(member_user, SessionOrigin.CHAT, days_ago=9)
+        then, now = _local_noon(9), timezone.now()
+        Run.objects.filter(session=earlier).update(
+            created_at=then, started_at=then, finished_at=then + timedelta(seconds=62)
+        )
+        Run.objects.filter(session=current).update(started_at=now, finished_at=now + timedelta(seconds=62.4))
+
+        change = _insights(member_client)["activity"]["avg_duration_change"]
+
+        assert change["direction"] == "flat"
+
+    def test_all_time_has_no_comparison(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT)
+
+        context = _insights(member_client, period="all")
+
+        assert context["previous_window"] is None
+        assert context["activity"]["total_change"] is None
+        assert context["breakdown"]["segments"][0]["change"] is None
+
+    def test_every_count_matches_the_list_its_link_opens(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT, days_ago=6)
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
+        _make_session(member_user, SessionOrigin.ISSUE_WEBHOOK, days_ago=8)
+
+        breakdown = _insights(member_client)["breakdown"]
+
+        for segment in breakdown["segments"]:
+            assert _list_count(member_client, segment["url"]) == segment["value"], segment["label"]
+        assert _list_count(member_client, breakdown["sessions_url"]) == breakdown["sessions_total"] == 2
+        assert _list_count(member_client, breakdown["sessions_failed_url"]) == breakdown["sessions_failed"] == 1
+
+    def test_runs_chart_has_a_column_per_day_by_outcome(self, member_user, member_client):
+        changed = _make_session(member_user, SessionOrigin.UI_JOB, days_ago=2)
+        Run.objects.filter(session=changed).update(code_changes=True, created_at=_local_noon(2))
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
+
+        chart = _insights(member_client)["activity"]["chart"]
+
+        assert [c["label"] for c in chart["columns"]][-1] == "Today"
+        assert len(chart["columns"]) == 7
+        assert {item["label"]: item["count"] for item in chart["legend"]} == {
+            "Changed code": 1,
+            "Done, no changes": 0,
+            "Needs input": 0,
+            "Failed": 1,
+        }
+        two_days_ago = chart["columns"][4]
+        assert [(s["label"], s["count"]) for s in two_days_ago["segments"]] == [("Changed code", 1)]
+        assert _list_count(member_client, two_days_ago["url"]) == 1
+
+    def test_success_rate_change_is_in_points_and_was_a_rate(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
+        earlier = _make_session(member_user, SessionOrigin.CHAT, days_ago=9)
+        Run.objects.filter(session=earlier).update(created_at=_local_noon(9))
+
+        change = _insights(member_client)["activity"]["success_rate_change"]
+
+        assert change == {"direction": "down", "amount": "100 pts", "was": "100%"}
+
+    def test_no_runs_shows_an_empty_state_not_a_blank_chart(self, member_client):
+        response = member_client.get(reverse("insights"))
+
+        assert response.context["activity"]["chart"]["empty"] is True
+        content = response.content.decode()
+        assert 'data-testid="runs-chart-empty"' in content
+        assert 'data-testid="runs-chart"' not in content
+
+    def test_today_has_no_over_time_column(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT)
+
+        response = member_client.get(reverse("insights"), {"period": "today"})
+
+        assert response.context["breakdown"]["has_sparks"] is False
+        assert "Over time" not in response.content.decode()
+
+    def test_one_day_has_no_chart(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT)
+
+        assert _insights(member_client, period="today")["activity"]["chart"] is None
+
+    def test_long_periods_group_by_week(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT, days_ago=20)
+
+        chart = _insights(member_client, period="30d")["activity"]["chart"]
+
+        assert 5 <= len(chart["columns"]) <= 6
+
+    def test_sparkline_counts_a_session_on_each_day_it_ran(self, member_user, member_client):
+        session = _make_session(member_user, SessionOrigin.CHAT)
+        _add_run(session, days_ago=1)
+
+        (chat,) = _insights(member_client)["breakdown"]["segments"]
+
+        assert [bar["count"] for bar in chat["spark"]] == [0, 0, 0, 0, 0, 1, 1]
+
+
+@pytest.mark.django_db
+class TestInsightsVelocity:
+    def test_a_member_sees_merges_on_repositories_they_can_read(self, member_user, member_client):
+        from tests.unit_tests.sessions.conftest import grant_read_access
+
+        grant_read_access(member_user, "daiv/readable")
+        _merge("daiv/readable", daiv_commits=2)
+        _merge("daiv/readable")
+        _merge("daiv/hidden", daiv_commits=1)
+
+        velocity = _insights(member_client)["velocity"]
+
+        assert velocity["total_merges"] == 2
+        assert velocity["daiv_merges"] == 1
+        assert velocity["daiv_merges_pct"] == "50%"
+
+    def test_a_member_without_access_sees_no_section(self, member_client):
+        _merge("daiv/hidden")
+
+        response = member_client.get(reverse("insights"))
+
+        assert response.context["velocity"] is None
+        assert 'data-testid="insights-velocity"' not in response.content.decode()
+
+    def test_an_admin_sees_every_repository(self, admin_client):
+        _merge("daiv/one", daiv_commits=1)
+        _merge("daiv/two")
+
+        velocity = _insights(admin_client)["velocity"]
+
+        assert velocity["total_merges"] == 2
+
+    def test_merges_chart_splits_by_daiv_involvement(self, admin_client):
+        _merge("daiv/one", daiv_commits=1, days_ago=1)
+        _merge("daiv/one", days_ago=1)
+        _merge("daiv/one", days_ago=10)
+
+        chart = _insights(admin_client)["velocity"]["chart"]
+
+        assert {item["label"]: item["count"] for item in chart["legend"]} == {"Involved DAIV": 1, "People only": 1}
+        assert chart["columns"][5]["total"] == 2
+
+
+def _week(client):
+    return client.get(reverse("dashboard")).context["your_week"]
+
+
+def _week_run(session, status=RunStatus.SUCCESSFUL, *, days_ago=0, trigger_type=None, **fields):
+    run = Run.objects.create(
+        session=session,
+        status=status,
+        trigger_type=trigger_type or session.origin,
+        repo_id=session.repo_id,
+        user=session.user,
+        **fields,
+    )
+    Run.objects.filter(pk=run.pk).update(created_at=_local_noon(days_ago))
+    return run
+
+
+def _bare_session(user, origin=SessionOrigin.CHAT, *, days_ago=0, title="Work"):
+    return Session.objects.create(
+        thread_id=str(uuid.uuid4()),
+        origin=origin,
+        repo_id="daiv/test",
+        user=user,
+        title=title,
+        last_active_at=_local_noon(days_ago),
+    )
+
+
+@pytest.mark.django_db
+class TestYourWeek:
+    def test_counts_your_runs_by_outcome(self, member_user, member_client):
+        session = _bare_session(member_user)
+        _week_run(session, code_changes=True)
+        _week_run(session)
+        _week_run(session, RunStatus.WAITING_INPUT)
+        flagged = _week_run(session, days_ago=1)
+        RunEnvelope.objects.create(run=flagged, status=EnvelopeStatus.FOUND_ISSUES)
+        _week_run(session, RunStatus.FAILED)
+        _week_run(session, RunStatus.FAILED, cancel_requested_at=timezone.now())
+        _week_run(session, RunStatus.RUNNING)
+
+        week = _week(member_client)
+
+        legend = {item["label"]: item["count"] for item in week["chart"]["legend"]}
+        assert legend == {"Changed code": 1, "Done, no changes": 1, "Needed you": 2, "Failed": 1}
+        assert (week["runs"], week["sessions"]) == (5, 1)
+
+    def test_only_your_sessions_and_the_last_seven_days(self, admin_user, member_user, member_client):
+        mine = _bare_session(member_user, days_ago=7)
+        _week_run(mine, days_ago=6)
+        _week_run(mine, days_ago=7)
+        _week_run(_bare_session(admin_user), RunStatus.FAILED)
+
+        week = _week(member_client)
+
+        assert week["runs"] == 1
+        assert [c["total"] for c in week["chart"]["columns"]] == [1, 0, 0, 0, 0, 0, 0]
+        assert week["chart"]["columns"][-1]["label"] == "Today"
+
+    def test_a_day_opens_your_sessions_active_that_day(self, member_user, member_client):
+        session = _bare_session(member_user, days_ago=2)
+        _week_run(session, days_ago=2)
+
+        column = _week(member_client)["chart"]["columns"][4]
+
+        assert column["total"] == 1
+        assert "scope=mine" in column["url"]
+        assert _list_count(member_client, column["url"]) == 1
+
+    def test_merge_requests_are_listed_once_newest_first(self, member_user, member_client):
+        for iid, days_ago in [(1, 5), (2, 4), (3, 3), (4, 2)]:
+            session = _bare_session(member_user, title=f"Change {iid}")
+            _week_run(session, days_ago=days_ago, merge_request_iid=iid, merge_request_web_url=f"https://x/{iid}")
+            _week_run(session, days_ago=days_ago, merge_request_iid=iid)
+
+        week = _week(member_client)
+
+        assert [mr["iid"] for mr in week["merge_requests"]] == [4, 3, 2]
+        assert (week["merge_requests_total"], week["merge_requests_more"]) == (4, 1)
+        assert week["merge_requests"][0]["title"] == "Change 4"
+
+    def test_started_from_groups_triggers(self, member_user, member_client):
+        session = _bare_session(member_user, SessionOrigin.ISSUE_WEBHOOK)
+        _week_run(session)
+        _week_run(session, trigger_type=SessionOrigin.MR_WEBHOOK)
+        _week_run(session, trigger_type=SessionOrigin.MCP_JOB)
+        _week_run(session, trigger_type=SessionOrigin.CHAT)
+
+        assert _week(member_client)["started_from"] == [
+            {"label": "GitLab", "count": 2},
+            {"label": "Your editor", "count": 1},
+            {"label": "Here", "count": 1},
+        ]
+
+    def test_quiet_week_shows_a_nudge(self, member_user, member_client):
+        _week_run(_bare_session(member_user, days_ago=10), days_ago=10)
+
+        response = member_client.get(reverse("dashboard"))
+
+        assert response.context["your_week"]["chart"]["empty"] is True
+        assert 'data-testid="your-week-empty"' in response.content.decode()
+
+    def test_hidden_when_you_have_no_sessions(self, member_client):
+        response = member_client.get(reverse("dashboard"))
+
+        assert response.context["your_week"] is None
+        assert 'data-testid="your-week"' not in response.content.decode()

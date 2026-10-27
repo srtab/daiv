@@ -1,0 +1,77 @@
+{% load i18n %}
+{% comment %}
+What the runs in the viewer's own sessions came to over the last 7 days.
+
+Context:
+- your_week: the dict ``dashboard.views.your_week`` builds.
+- ways: the Ways to use DAIV dict, for the quiet-week nudge.
+{% endcomment %}
+<section aria-labelledby="your-week-heading" data-testid="your-week"
+         class="rounded-2xl border border-border bg-surface-2 p-5 sm:p-6">
+    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id="your-week-heading" class="text-[15px] font-semibold tracking-tight text-text">{% translate "Your week" %}</h2>
+        <span class="font-mono text-[12px] text-text-faint">{{ your_week.window.label }} · {% translate "your sessions" %}</span>
+    </div>
+
+    {% if your_week.chart and not your_week.chart.empty %}
+    <p class="mt-2 text-sm text-text-muted">
+        {% blocktranslate trimmed count runs=your_week.runs with sessions=your_week.sessions %}
+        <span class="font-mono font-semibold text-text-strong">{{ runs }}</span> run in {{ sessions }} sessions
+        {% plural %}
+        <span class="font-mono font-semibold text-text-strong">{{ runs }}</span> runs in {{ sessions }} sessions
+        {% endblocktranslate %}
+        {% if your_week.merge_requests_total %}
+        ·
+        {% blocktranslate trimmed count total=your_week.merge_requests_total with mr=ways.mr_term %}
+        <span class="font-mono font-semibold text-text-strong">{{ total }}</span> {{ mr }} worked on
+        {% plural %}
+        <span class="font-mono font-semibold text-text-strong">{{ total }}</span> {{ mr }}s worked on
+        {% endblocktranslate %}
+        {% endif %}
+    </p>
+    <div class="mt-4">
+        {% include "dashboard/_stacked_bars.html" with chart=your_week.chart testid="your-week-chart" %}
+    </div>
+
+    {% if your_week.merge_requests %}
+    <div class="mt-5 border-t border-border pt-4">
+        <h3 class="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
+            {% blocktranslate with mr=ways.mr_term %}{{ mr }}s DAIV worked on{% endblocktranslate %}
+        </h3>
+        <ul class="space-y-1">
+            {% for mr in your_week.merge_requests %}
+            <li>
+                <a href="{{ mr.url|default:'#' }}" {% if mr.url %}target="_blank" rel="noopener"{% endif %}
+                   class="flex items-center gap-2.5 py-1 text-[13px] text-text hover:text-text-strong">
+                    <span class="mr-pill shrink-0">!{{ mr.iid }}</span>
+                    <span class="min-w-0 flex-1 truncate">{{ mr.title|default:mr.repo_id }}</span>
+                    <span class="hidden shrink-0 font-mono text-[11.5px] text-text-faint sm:inline">{{ mr.repo_id }}</span>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% if your_week.merge_requests_more %}
+        <a href="{{ your_week.merge_requests_more_url }}" class="mt-1 inline-block text-[13px] text-text-muted hover:text-text">
+            {% blocktranslate with more=your_week.merge_requests_more %}{{ more }} more{% endblocktranslate %} &rarr;
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if your_week.started_from %}
+    <div class="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-border pt-4 text-[13px] text-text-muted">
+        <span class="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">{% translate "Started from" %}</span>
+        {% for source in your_week.started_from %}
+        <span>{{ source.label }} <span class="font-mono font-semibold text-text">{{ source.count }}</span></span>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="mt-4 rounded-xl border border-border px-4 py-6 text-center" data-testid="your-week-empty">
+        <p class="text-sm font-medium text-text">{% translate "No runs this week" %}</p>
+        <p class="mt-1 text-[13px] text-text-muted">
+            {% blocktranslate with label=ways.labels.0.name %}Label an issue <code class="rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[12px] text-text">{{ label }}</code>, ask from your editor, or start a chat.{% endblocktranslate %}
+        </p>
+    </div>
+    {% endif %}
+</section>
