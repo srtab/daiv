@@ -69,7 +69,14 @@ def _make_session(user, origin, *, status=RunStatus.SUCCESSFUL, days_ago=0):
     session = Session.objects.create(
         thread_id=str(uuid.uuid4()), origin=origin, repo_id="daiv/test", user=user, last_active_at=_local_noon(days_ago)
     )
-    Run.objects.create(session=session, status=status, trigger_type=origin, repo_id="daiv/test", user=user)
+    Run.objects.create(
+        session=session,
+        status=status,
+        trigger_type=origin,
+        repo_id="daiv/test",
+        user=user,
+        created_at=_local_noon(days_ago),
+    )
     return session
 
 
