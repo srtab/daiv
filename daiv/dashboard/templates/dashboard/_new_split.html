@@ -11,6 +11,7 @@ The New split button: the main part starts a chat, the chevron opens the other w
      class="new-split{% if compact %} new-split--compact{% endif %}">
   <a href="{% url 'session_new_chat' %}"
      data-testid="{{ testid }}-chat"
+     title="{% translate 'New chat' %}"
      class="new-split__main sidebar__cta">
     <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-ink/15">
       {% icon "squares-plus" "h-3.5 w-3.5" %}

@@ -121,7 +121,8 @@ Use Tailwind's default spacing scale. Common values:
 - **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px).
   The app shell itself reflows at **768px** (`md:` — sidebar → sheet + slim top
   bar) and **1024px** (`lg:` — icon rail → full sidebar). `--app-sidebar-width` *is*
-  that second tier — 4rem, widened to 15rem in a `:root` switch at `lg:` — so the
+  that second tier — 4rem, widened to 15rem in a `:root` switch at `lg:`, and back to 4rem
+  there when the user collapses it (`:root[data-sidebar="rail"]`) — so the
   sidebar's width lives in one place and everything keyed to it (the `--sheet-inset-*`
   switch, which tracks `md:` rather than `sm:`) follows both tiers for free.
 - **Flat elevation.** Depth is built from the `surface-1 → surface-2 → surface-3`
@@ -294,7 +295,9 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   badges and the account menu. The choice is per browser (`localStorage` key `daiv.sidebar`):
   an inline script in `base.html`'s `<head>` sets `data-sidebar="rail"` on `<html>` before
   first paint, and the `sidebar` store (`core/js/sidebar.js`) owns it from there. The `[`
-  shortcut stands down while typing, with a modifier held, or while a dialog, sheet or menu is open.
+  shortcut works only while its button is shown, and stands down while typing, with Ctrl or
+  Meta held, or while a dialog, sheet or menu is open. Every rail icon carries a `title`, its
+  name and tooltip once the label is hidden.
 - **Groups.** Daily work comes first with no heading: Home (URL name `dashboard`), Sessions,
   Notifications, Artifacts, Schedules. Then **Agent setup** — Sandbox environments, MCP
   servers, Memory: pages set up once that most teammates can skip, so the heading carries
@@ -495,7 +498,8 @@ Mobile-first approach. Common patterns:
 ```
 
 Breakpoints are viewport-relative, but from `md:` up a page sits next to the shell —
-a 64px icon rail, then the full `--app-sidebar-width` (15rem) from `lg:` — so the
+a 64px icon rail, then `--app-sidebar-width` (15rem from `lg:`, or 4rem when the user
+collapses it) — so the
 content area a rule switches on is always narrower than the width the rule names.
 Where the switch depends on whether two blocks still fit (a title and its actions, a
 list row and its controls), wrap on content instead: see §Page Header.

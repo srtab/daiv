@@ -8,14 +8,13 @@
  *     <button @click="$store.sidebar.toggle()" :aria-expanded="(!$store.sidebar.rail).toString()">
  *     <div @keydown.window="$store.sidebar.onKey($event)">
  *
- * `[` toggles it, except while typing, with a modifier held, or while a dialog, sheet or
- * menu is showing: the key belongs to whatever has focus then.
+ * `[` toggles it while its button is on screen, except while typing, with Ctrl or Meta held
+ * (AltGr and Option still type `[` on many layouts), or while a dialog, sheet or menu is showing.
  */
 document.addEventListener("alpine:init", () => {
   const STORAGE_KEY = "daiv.sidebar";
-  const WIDE = "(min-width: 64rem)";
   const TYPING = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
-  // The floating-surface roster in `input.css`, plus anything announcing itself as a dialog or menu.
+  // The floating-surface roster in `input.css` (test_sidebar_js.py keeps them in step), plus dialogs and menus.
   const SURFACES = [
     "dialog[open]",
     '[role="dialog"]',
@@ -33,10 +32,14 @@ document.addEventListener("alpine:init", () => {
     ".session-details",
   ].join(", ");
 
+  function shown(el) {
+    return el.checkVisibility?.() ?? el.getClientRects().length > 0;
+  }
+
   function surfaceOpen() {
     // A static one is a column, not a surface: the session details panel from 1100px.
     return [...document.querySelectorAll(SURFACES)].some(
-      (el) => el.checkVisibility() && getComputedStyle(el).position !== "static",
+      (el) => shown(el) && getComputedStyle(el).position !== "static",
     );
   }
 
@@ -55,9 +58,10 @@ document.addEventListener("alpine:init", () => {
     },
 
     onKey(event) {
-      if (event.key !== "[" || event.defaultPrevented) return;
-      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
-      if (!window.matchMedia(WIDE).matches) return;
+      if (event.key !== "[" || event.repeat || event.defaultPrevented) return;
+      if ((event.ctrlKey || event.metaKey) && !event.getModifierState?.("AltGraph")) return;
+      const button = document.querySelector(".sidebar__toggle");
+      if (!button || !shown(button)) return;
       const target = event.target;
       if (target?.isContentEditable || target?.closest?.(TYPING)) return;
       if (surfaceOpen()) return;

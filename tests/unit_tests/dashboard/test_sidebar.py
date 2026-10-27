@@ -393,6 +393,10 @@ class TestCollapseToggle:
         assert "core/js/sidebar.js" in content
         assert '@keydown.window="$store.sidebar.onKey($event)"' in content
 
-    def test_the_head_restores_the_collapse_on_every_page(self, member_client):
-        head = member_client.get(reverse("dashboard")).content.decode().split("</head>", 1)[0]
-        assert 'localStorage.getItem("daiv.sidebar") === "rail"' in head
+    def test_every_rail_icon_keeps_a_name_and_tooltip(self, admin_client):
+        """The rail hides each label, so the `title` is what names the icon and shows on hover."""
+        sidebar = _soup(admin_client, "dashboard").select_one("#app-sidebar")
+        links = sidebar.select(".sidebar__nav-item, .sidebar__footer-link, .sidebar__cta")
+        untitled = [link["href"] for link in links if not link.get("title", "").strip()]
+        assert len(links) > 10
+        assert not untitled

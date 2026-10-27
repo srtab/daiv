@@ -35,12 +35,14 @@
   <nav class="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-4">
     {# Daily work — no group label #}
     <a href="{% url 'dashboard' %}"
+       title="{% translate 'Home' %}"
        class="sidebar__nav-item {% nav_active 'dashboard' %}">
       {% icon "squares-2x2" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Home" %}</span>
     </a>
 
     <a href="{% url 'session_list' %}"
+       title="{% translate 'Sessions' %}"
        class="sidebar__nav-item {% nav_active 'sessions' %}">
       {% icon "chat-bubble" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible flex-1">{% translate "Sessions" %}</span>
@@ -54,6 +56,7 @@
 
     <a href="{% url 'notifications:list' %}"
        data-testid="nav-notifications"
+       title="{% translate 'Notifications' %}"
        class="sidebar__nav-item {% nav_active 'notifications' %}">
       <span class="relative inline-flex shrink-0">
         {% icon "bell" "h-4 w-4" %}
@@ -69,18 +72,21 @@
     </a>
 
     <a href="{% url 'artifact_list' %}"
+       title="{% translate 'Artifacts' %}"
        class="sidebar__nav-item {% nav_active 'artifacts' %}">
       {% icon "document-text" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Artifacts" %}</span>
     </a>
 
     <a href="{% url 'schedule_list' %}"
+       title="{% translate 'Schedules' %}"
        class="sidebar__nav-item {% nav_active 'schedules' %}">
       {% icon "clock" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Schedules" %}</span>
     </a>
 
     <a href="{% url 'insights' %}"
+       title="{% translate 'Insights' %}"
        class="sidebar__nav-item {% nav_active 'insights' %}">
       {% icon "chart-bar" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Insights" %}</span>
@@ -121,30 +127,35 @@
     </div>
 
     <a href="{% url 'user_list' %}"
+       title="{% translate 'Users' %}"
        class="sidebar__nav-item {% nav_active 'users' %}">
       {% icon "users" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Users" %}</span>
     </a>
 
     <a href="{% url 'site_configuration_index' %}"
+       title="{% translate 'Configuration' %}"
        class="sidebar__nav-item {% nav_active 'configuration' %}">
       {% icon "cog-6-tooth" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Configuration" %}</span>
     </a>
 
     <a href="{% url 'schedule_template_list' %}"
+       title="{% translate 'Schedule templates' %}"
        class="sidebar__nav-item {% nav_active 'schedule_templates' %}">
       {% icon "clock" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Schedule templates" %}</span>
     </a>
 
     <a href="{% url 'skills:list' %}"
+       title="{% translate 'Skills' %}"
        class="sidebar__nav-item {% nav_active 'skills' %}">
       {% icon "beaker" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Skills" %}</span>
     </a>
 
     <a href="{% url 'mcp_connectors:global_list' %}"
+       title="{% translate 'Global MCP servers' %}"
        class="sidebar__nav-item {% nav_active 'mcp_servers_global' %}">
       {% icon "puzzle-piece" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Global MCP servers" %}</span>
@@ -162,11 +173,13 @@
        target="_blank"
        rel="noopener"
        data-testid="sidebar-docs-link"
+       title="{% translate 'Help & docs' %}"
        class="sidebar__footer-link flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-text-faint transition-colors hover:text-text-muted">
       {% icon "document-text" "h-3.5 w-3.5 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Help & docs" %}</span>
     </a>
     <a href="{% url 'api:openapi-view' %}"
+       title="{% translate 'API documentation' %}"
        class="sidebar__footer-link flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-text-faint transition-colors hover:text-text-muted">
       {% icon "code-bracket" "h-3.5 w-3.5 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "API documentation" %}</span>
