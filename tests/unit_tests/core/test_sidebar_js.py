@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from tests.unit_tests.jsdriver import requires_node, run_node
-from tests.unit_tests.test_picker_popovers import INPUT_CSS
+from tests.unit_tests.test_picker_popovers import surface_rise_roster
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
 SIDEBAR_JS = DAIV_DIR / "core" / "static" / "core" / "js" / "sidebar.js"
@@ -28,7 +28,6 @@ const dataset = initial ? { sidebar: initial } : {};
 const element = (s) => ({
   ...(legacy ? {} : { checkVisibility: () => s.visible }),
   getClientRects: () => (s.visible ? [{}] : []),
-  position: s.position,
 });
 
 const sandbox = {
@@ -38,12 +37,11 @@ const sandbox = {
     querySelector: () => element({ visible: wide }),
     querySelectorAll: () => surfaces.map(element),
   },
-  getComputedStyle: (el) => ({ position: el.position }),
   localStorage: {
     setItem: (k, v) => { if (storage === "blocked") throw new Error("SecurityError"); stored[k] = v; },
+    removeItem: (k) => { if (storage === "blocked") throw new Error("SecurityError"); delete stored[k]; },
   },
 };
-sandbox.window = sandbox;
 sandbox.Alpine = { store: (name, value) => (stores[name] = value) };
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
@@ -60,11 +58,9 @@ for (const action of actions) {
       closest: () => (typing && typing !== "contenteditable" ? {} : null),
     };
     const { altGraph, ...key } = action.key;
-    const modifiers = { ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, repeat: false };
     const getModifierState = (name) => name === "AltGraph" && Boolean(altGraph);
     const preventDefault = () => { prevented = true; };
-    const event = { key: "[", ...modifiers, defaultPrevented: false, ...key };
-    sidebar.onKey({ ...event, target, preventDefault, getModifierState });
+    sidebar.onKey({ key: "[", ...key, target, preventDefault, getModifierState });
     seen.push(prevented);
   }
 }
@@ -74,16 +70,7 @@ process.stdout.write(JSON.stringify({ rail: sidebar.rail, attr: dataset.sidebar 
 
 def drive(actions, *, initial=None, wide=True, legacy=False, storage="ok", surfaces=()):
     """``wide`` is whether the toggle button is on screen, which is what the shortcut follows."""
-    payload = {
-        "src": str(SIDEBAR_JS),
-        "initial": initial,
-        "wide": wide,
-        "legacy": legacy,
-        "storage": storage,
-        "surfaces": list(surfaces),
-        "actions": actions,
-    }
-    return run_node(HARNESS, payload)
+    return run_node(HARNESS, {**locals(), "src": str(SIDEBAR_JS), "surfaces": list(surfaces)})
 
 
 @requires_node
@@ -95,10 +82,10 @@ def test_starts_from_the_attribute_the_head_script_set():
 @requires_node
 def test_the_toggle_flips_the_attribute_and_remembers_it():
     collapsed = drive([{"click": True}])
-    expanded = drive([{"click": True}], initial="rail")
+    expanded = drive([{"click": True}, {"click": True}])
 
     assert (collapsed["attr"], collapsed["stored"]) == ("rail", {"daiv.sidebar": "rail"})
-    assert (expanded["attr"], expanded["stored"]) == (None, {"daiv.sidebar": "full"})
+    assert (expanded["attr"], expanded["stored"]) == (None, {})
 
 
 @requires_node
@@ -141,7 +128,7 @@ def test_a_held_key_toggles_once():
 @requires_node
 def test_works_where_check_visibility_is_missing():
     assert drive([{"key": {}}], legacy=True)["rail"] is True
-    assert drive([{"key": {}}], legacy=True, surfaces=[{"visible": True, "position": "absolute"}])["rail"] is False
+    assert drive([{"key": {}}], legacy=True, surfaces=[{"visible": True}])["rail"] is False
 
 
 @requires_node
@@ -164,23 +151,17 @@ def test_without_its_button_on_screen_there_is_nothing_to_collapse():
 
 @requires_node
 def test_an_open_dialog_sheet_or_menu_keeps_the_key():
-    state = drive([{"key": {}}], surfaces=[{"visible": True, "position": "absolute"}])
+    state = drive([{"key": {}}], surfaces=[{"visible": True}])
     assert (state["rail"], state["prevented"]) == (False, [False])
 
 
 @requires_node
-def test_hidden_surfaces_and_the_details_column_do_not_block_it():
-    """The session details panel is a static column from 1100px, not something open over the page."""
-    surfaces = [{"visible": False, "position": "fixed"}, {"visible": True, "position": "static"}]
-    assert drive([{"key": {}}], surfaces=surfaces)["rail"] is True
+def test_hidden_surfaces_do_not_block_it():
+    assert drive([{"key": {}}], surfaces=[{"visible": False}])["rail"] is True
 
 
 def test_the_surface_list_covers_the_css_roster():
     """A surface enrolled in the `surface-rise` roster but missing here would let `[`
     collapse the sidebar under it."""
-    css = INPUT_CSS.read_text(encoding="utf-8")
-    roster = re.search(r"((?:^\.[\w-]+,\n)+^\.[\w-]+) \{\n  animation: surface-rise", css, re.MULTILINE)
     listed = set(re.findall(r'"(\.[\w-]+)"', SIDEBAR_JS.read_text(encoding="utf-8")))
-
-    assert roster, "the surface-rise roster moved; update this guard"
-    assert set(re.findall(r"\.[\w-]+", roster.group(1))) - listed == set()
+    assert surface_rise_roster() - listed == set()

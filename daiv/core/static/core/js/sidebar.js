@@ -14,7 +14,8 @@
 document.addEventListener("alpine:init", () => {
   const STORAGE_KEY = "daiv.sidebar";
   const TYPING = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
-  // The floating-surface roster in `input.css` (test_sidebar_js.py keeps them in step), plus dialogs and menus.
+  // The floating-surface roster in `input.css` (test_sidebar_js.py keeps them in step), plus dialogs, menus
+  // and the scrim every bottom sheet renders.
   const SURFACES = [
     "dialog[open]",
     '[role="dialog"]',
@@ -29,7 +30,7 @@ document.addEventListener("alpine:init", () => {
     ".new-split__menu",
     ".sidebar__account-menu",
     ".session-menu",
-    ".session-details",
+    ".sheet-backdrop",
   ].join(", ");
 
   function shown(el) {
@@ -37,10 +38,7 @@ document.addEventListener("alpine:init", () => {
   }
 
   function surfaceOpen() {
-    // A static one is a column, not a surface: the session details panel from 1100px.
-    return [...document.querySelectorAll(SURFACES)].some(
-      (el) => shown(el) && getComputedStyle(el).position !== "static",
-    );
+    return [...document.querySelectorAll(SURFACES)].some(shown);
   }
 
   Alpine.store("sidebar", {
@@ -51,7 +49,8 @@ document.addEventListener("alpine:init", () => {
       if (this.rail) document.documentElement.dataset.sidebar = "rail";
       else delete document.documentElement.dataset.sidebar;
       try {
-        localStorage.setItem(STORAGE_KEY, this.rail ? "rail" : "full");
+        if (this.rail) localStorage.setItem(STORAGE_KEY, "rail");
+        else localStorage.removeItem(STORAGE_KEY);
       } catch {
         // Blocked storage only means the next page load starts expanded.
       }
@@ -60,10 +59,10 @@ document.addEventListener("alpine:init", () => {
     onKey(event) {
       if (event.key !== "[" || event.repeat || event.defaultPrevented) return;
       if ((event.ctrlKey || event.metaKey) && !event.getModifierState?.("AltGraph")) return;
-      const button = document.querySelector(".sidebar__toggle");
-      if (!button || !shown(button)) return;
       const target = event.target;
       if (target?.isContentEditable || target?.closest?.(TYPING)) return;
+      const button = document.querySelector(".sidebar__toggle");
+      if (!button || !shown(button)) return;
       if (surfaceOpen()) return;
       event.preventDefault();
       this.toggle();

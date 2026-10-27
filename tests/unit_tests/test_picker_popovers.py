@@ -252,12 +252,17 @@ def test_a_new_surface_forces_a_look_at_the_group():
     )
 
 
+def surface_rise_roster() -> set[str]:
+    """The selectors of the one grouped `surface-rise` rule in input.css."""
+    css = INPUT_CSS.read_text(encoding="utf-8")
+    roster_start = css.index(".surface-rise,")
+    return {part.strip() for part in css[roster_start : css.index("{", roster_start)].split(",")}
+
+
 def test_every_surface_class_is_on_the_surface_rise_roster():
     """A surface that appears without motion reads as a repaint glitch next to the ones that
     rise; membership is the one grouped rule at the top of input.css."""
-    css = INPUT_CSS.read_text(encoding="utf-8")
-    roster_start = css.index(".surface-rise,")
-    entries = {part.strip() for part in css[roster_start : css.index("{", roster_start)].split(",")}
+    entries = surface_rise_roster()
 
     missing = [name for name in sorted(SURFACE_CONTAINERS) if f".{name}" not in entries]
     assert not missing, f"not on the `surface-rise` roster in input.css: {missing}"

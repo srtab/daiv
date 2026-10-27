@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 
+from tests.unit_tests.core.test_sidebar_js import SIDEBAR_JS
 from tests.unit_tests.test_picker_popovers import INPUT_CSS, SIDEBAR_TEMPLATE
 from tests.unit_tests.test_template_comments import DAIV_DIR, iter_template_files
 
@@ -17,7 +18,6 @@ RAIL_BLOCK = re.compile(r"\.sidebar--rail \{\n  @variant sidebar-rail \{(.*?)\n 
 WIDE_TIER = re.compile(r"^@media \(width >= theme\(--breakpoint-lg\)\) \{(.*?)\n\}\n", re.DOTALL | re.MULTILINE)
 HEAD_SCRIPT = re.compile(r"<head>.*?<script>(.*?)</script>", re.DOTALL)
 BASE_TEMPLATE = DAIV_DIR / "core" / "templates" / "base.html"
-SIDEBAR_JS = DAIV_DIR / "core" / "static" / "core" / "js" / "sidebar.js"
 SIDEBAR_HOOK = re.compile(r"sidebar__[\w-]+")
 NAV_ITEM = re.compile(r'class="sidebar__nav-item[^"]*"(.*?)</a>', re.DOTALL)
 INCLUDE = re.compile(r'{% include "dashboard/([\w.]+)"')
