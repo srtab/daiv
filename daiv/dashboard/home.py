@@ -29,14 +29,21 @@ if TYPE_CHECKING:
 
 INBOX_LIMIT = 8
 RECENT_SESSIONS_LIMIT = 5
-# Findings and a given-up CI watch have no resolving event DAIV can see (a person may fix them by
-# hand), so they age out; a failure or a question stays until a newer run supersedes it, or INBOX_MAX_AGE.
+# Each item stays until a newer run supersedes it, but findings and a given-up CI watch leave after 7 days and a
+# failure 14 days after it finished; a question leaves only at INBOX_MAX_AGE, a schedule when it can run again.
 INBOX_FINDINGS_WINDOW = timedelta(days=7)
+INBOX_FAILED_WINDOW = timedelta(days=14)
 INBOX_MAX_AGE = timedelta(days=90)
 MR_LIST_LIMIT = 3
 
-_SEVERITY: dict[str, int] = {status: rank for rank, status in enumerate(EnvelopeStatus.worst_first())}
-_SEVERITY |= {CI_STILL_FAILING.key: _SEVERITY[EnvelopeStatus.FAILED], CANT_RUN.key: _SEVERITY[EnvelopeStatus.FAILED]}
+# Not EnvelopeStatus.worst_first(): a question blocks a run and takes seconds to answer, so it leads the inbox.
+_INBOX_RANKS: tuple[tuple[str, ...], ...] = (
+    (EnvelopeStatus.NEEDS_INPUT,),
+    (EnvelopeStatus.FAILED, CI_STILL_FAILING.key, CANT_RUN.key),
+    (EnvelopeStatus.FOUND_ISSUES,),
+    (EnvelopeStatus.NEEDS_ATTENTION,),
+)
+_SEVERITY: dict[str, int] = {key: rank for rank, keys in enumerate(_INBOX_RANKS) for key in keys}
 _OUTCOMES_BY_KEY = {outcome.key: outcome for outcome in (*ENVELOPE_OUTCOMES.values(), CI_STILL_FAILING, CANT_RUN)}
 
 SLASH_COMMANDS = [
@@ -77,15 +84,18 @@ def my_sessions_url(**params: str) -> str:
     return insights.session_list_url(params, scope=SCOPE_MINE)
 
 
-def _inbox_rules(since: datetime) -> list[tuple[Q, Outcome]]:
-    """Each way a run of yours can leave you something to do, worst first, so the first match is the one shown."""
+def _inbox_rules(now: datetime) -> list[tuple[Q, Outcome]]:
+    """Each way a run of yours can leave you something to do, in inbox order, so the first match is the one shown."""
+    since = now - INBOX_FINDINGS_WINDOW
+    failed_since = now - INBOX_FAILED_WINDOW
     return [
+        (Q(status=RunStatus.WAITING_INPUT), ENVELOPE_OUTCOMES[EnvelopeStatus.NEEDS_INPUT]),
         (
-            Q(status=RunStatus.FAILED, cancel_requested_at__isnull=True, retried=False),
+            Q(status=RunStatus.FAILED, cancel_requested_at__isnull=True, retried=False)
+            & (Q(finished_at__gte=failed_since) | Q(finished_at__isnull=True, created_at__gte=failed_since)),
             ENVELOPE_OUTCOMES[EnvelopeStatus.FAILED],
         ),
         (Q(session__watch_state=WatchState.EXHAUSTED, session__last_active_at__gte=since), CI_STILL_FAILING),
-        (Q(status=RunStatus.WAITING_INPUT), ENVELOPE_OUTCOMES[EnvelopeStatus.NEEDS_INPUT]),
         *(
             (Q(envelope__status=status, finished_at__gte=since), ENVELOPE_OUTCOMES[status])
             for status in (EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.NEEDS_ATTENTION)
@@ -94,9 +104,9 @@ def _inbox_rules(since: datetime) -> list[tuple[Q, Outcome]]:
 
 
 def _runs_needing(user: User) -> list[dict]:
-    """The user's runs that are the newest in their session and left them something to do, worst first."""
+    """The user's runs that are the newest in their session and left them something to do, in inbox order."""
     now = timezone.now()
-    rules = _inbox_rules(now - INBOX_FINDINGS_WINDOW)
+    rules = _inbox_rules(now)
     return list(
         Run.objects
         .started_by(user)
@@ -116,7 +126,7 @@ def _runs_needing(user: User) -> list[dict]:
 
 
 def inbox(user: User) -> dict:
-    """Needs you: what is waiting on ``user``, worst first, with links to the full lists behind it."""
+    """Needs you: what is waiting on ``user``, questions first, with links to the full lists behind it."""
     runs = _runs_needing(user)
     schedules = list(ScheduledJob.objects.filter(user=user).failing().order_by("-failing_since"))
     items = [
