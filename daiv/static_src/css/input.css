@@ -331,21 +331,12 @@
   }
 }
 
-/* The roster of floating surfaces — one rule, so enrolling a surface is one edit.
-   `.surface-rise` is the hook for the dropdowns built from utilities alone; the rest
-   already have a component class. Any new one belongs here — a surface that appears
-   without motion reads as a repaint glitch next to these. Alpine's `x-transition` must
-   not be used alongside: it drives `opacity` and `transform` from inline styles and the
+/* Every floating surface carries `data-surface` on its container — the one hook, so enrolling
+   a surface is one attribute, and `core/js/sidebar.js` finds open ones by it too. A surface
+   that appears without motion reads as a repaint glitch next to these. Alpine's `x-transition`
+   must not be used alongside: it drives `opacity` and `transform` from inline styles and the
    two fight over the same frames. */
-.surface-rise,
-.picker-popover,
-.composer-sheet,
-.composer-autocomplete,
-.filter-menu,
-.card__menu-panel,
-.new-split__menu,
-.sidebar__account-menu,
-.session-menu {
+[data-surface] {
   animation: surface-rise 180ms ease-out backwards;
 }
 

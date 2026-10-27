@@ -39,6 +39,7 @@ The New split button: the main part starts a chat, the chevron opens the other w
        role="menu"
        aria-label="{% translate 'Start something new' %}"
        @keydown="onMenuKey($event)"
+       data-surface
        class="new-split__menu">
     <a href="{% url 'session_new_chat' %}" role="menuitem" tabindex="-1" class="new-split__item">
       {% icon "chat-bubble" "mt-0.5 h-4 w-4 shrink-0" %}

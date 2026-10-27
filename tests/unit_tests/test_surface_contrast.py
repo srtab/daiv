@@ -32,8 +32,8 @@ SURFACE_BACKGROUND = re.compile(
 )
 THEME_TOKEN = re.compile(r"(--color-[\w-]+):\s*(#[0-9a-fA-F]{3,6}|var\(--color-[\w-]+\))\s*;")
 
-# The sheet/popover half of the `surface-rise` roster in input.css — the surfaces that open
-# over the page rather than sitting in it. `.card__menu-panel` is on the roster too but is a
+# The sheet/popover half of the `data-surface` containers — the surfaces that open over the
+# page rather than sitting in it. `.card__menu-panel` is a surface too but is a
 # dropdown on its own darker background, with no shared rows to measure.
 SURFACES = frozenset({".composer-sheet", ".composer-autocomplete", ".picker-popover", ".filter-menu"})
 

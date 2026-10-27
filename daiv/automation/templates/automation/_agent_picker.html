@@ -165,6 +165,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
     <div x-show="open" x-cloak
          @click.outside="close()"
          @keydown.escape.window="close()"
+         data-surface
          class="picker-popover">
 
         {% include "core/_sheet_head.html" with title=_("Model") close_expr="close()" %}

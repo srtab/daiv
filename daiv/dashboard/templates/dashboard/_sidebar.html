@@ -213,7 +213,7 @@
         {% icon "chevron-up-down" "sidebar__collapsible h-3.5 w-3.5 shrink-0 text-text-faint" %}
       </button>
 
-      <div x-show="open" x-cloak class="sidebar__account-menu">
+      <div x-show="open" x-cloak data-surface class="sidebar__account-menu">
         <p class="truncate px-2.5 py-2 text-xs text-text-faint">{{ user.email }}</p>
         <a href="{% url 'user_channels' %}" class="account-menu__item">
           {% icon "envelope" "h-4 w-4 shrink-0" %}

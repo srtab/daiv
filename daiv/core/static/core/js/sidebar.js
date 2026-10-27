@@ -14,24 +14,8 @@
 document.addEventListener("alpine:init", () => {
   const STORAGE_KEY = "daiv.sidebar";
   const TYPING = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
-  // The floating-surface roster in `input.css` (test_sidebar_js.py keeps them in step), plus dialogs, menus
-  // and the scrim every bottom sheet renders.
-  const SURFACES = [
-    "dialog[open]",
-    '[role="dialog"]',
-    '[role="menu"]',
-    '[aria-modal="true"]',
-    ".surface-rise",
-    ".picker-popover",
-    ".composer-sheet",
-    ".composer-autocomplete",
-    ".filter-menu",
-    ".card__menu-panel",
-    ".new-split__menu",
-    ".sidebar__account-menu",
-    ".session-menu",
-    ".sheet-backdrop",
-  ].join(", ");
+  // `.sheet-backdrop` catches the session details panel: a sheet below 1100px, a column above, so no `data-surface`.
+  const SURFACES = '[data-surface], dialog[open], [role="dialog"], [role="menu"], [aria-modal="true"], .sheet-backdrop';
 
   function shown(el) {
     return el.checkVisibility?.() ?? el.getClientRects().length > 0;

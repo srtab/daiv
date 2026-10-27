@@ -32,14 +32,14 @@ SURFACE_SCRIPTS = (
 EXPECTED_SURFACES = 10
 
 # Surfaces that carry their own container class (`.picker-popover` is matched by CONTAINER
-# instead). A new kind of surface belongs here, not just on the `surface-rise` roster. The
+# instead). A new kind of surface belongs here, not just tagged `data-surface`. The
 # lookahead keeps the match on the container itself, so `composer-sheet__body` and
 # `composer-sheet-anchor` don't count and adding a modifier to a container doesn't stop it
 # counting.
 SURFACE_CLASSES = ("composer-sheet", "composer-autocomplete")
 SURFACE_CLASS = re.compile(r'class="(?:{})(?![-\w])'.format("|".join(SURFACE_CLASSES)))
 
-# The `surface-rise` roster by name — every class that *is* a floating surface container,
+# The floating surfaces by class name — every class that *is* a `data-surface` container,
 # which is what a guard on their z-order or their ancestors has to look for. `.picker-popover`
 # is matched by CONTAINER rather than SURFACE_CLASS, so it doesn't reach SURFACE_CLASSES above.
 SURFACE_CONTAINERS = frozenset({
@@ -252,20 +252,27 @@ def test_a_new_surface_forces_a_look_at_the_group():
     )
 
 
-def surface_rise_roster() -> set[str]:
-    """The selectors of the one grouped `surface-rise` rule in input.css."""
-    css = INPUT_CSS.read_text(encoding="utf-8")
-    roster_start = css.index(".surface-rise,")
-    return {part.strip() for part in css[roster_start : css.index("{", roster_start)].split(",")}
+def test_every_surface_carries_the_surface_hook():
+    """`data-surface` is what makes a surface rise (input.css) and what the sidebar's `[` shortcut
+    treats as open (core/js/sidebar.js). A container without it appears without motion, which reads
+    as a repaint glitch next to the ones that rise."""
+    names = sorted({*SURFACE_CONTAINERS, "new-split__menu", "session-menu"})
+    containers = re.compile(r'class="(?:[^"]*\s)?({})(?![\w-])'.format("|".join(map(re.escape, names))))
+    missing = [
+        f"{path.relative_to(DAIV_DIR)}: .{match.group(1)}"
+        for path in iter_template_files()
+        if path.suffix == ".html"
+        for tag in re.findall(r"<div\s[^>]*>", path.read_text(encoding="utf-8"))
+        if (match := containers.search(tag)) and "data-surface" not in tag
+    ]
+    assert not missing, "surfaces without `data-surface`:\n" + "\n".join(missing)
 
 
-def test_every_surface_class_is_on_the_surface_rise_roster():
-    """A surface that appears without motion reads as a repaint glitch next to the ones that
-    rise; membership is the one grouped rule at the top of input.css."""
-    entries = surface_rise_roster()
-
-    missing = [name for name in sorted(SURFACE_CONTAINERS) if f".{name}" not in entries]
-    assert not missing, f"not on the `surface-rise` roster in input.css: {missing}"
+def test_the_surface_hook_alone_carries_the_rise():
+    """One selector, so enrolling a surface stays one attribute, not an attribute and a CSS edit."""
+    css = re.sub(r"/\*.*?\*/", "", INPUT_CSS.read_text(encoding="utf-8"), flags=re.DOTALL)
+    rules = re.findall(r"([^{}]+)\{\s*animation: surface-rise\b", css)
+    assert [rule.strip() for rule in rules] == ["[data-surface]"]
 
 
 def test_the_group_helper_loads_before_the_component_definitions():

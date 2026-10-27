@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 
 from tests.unit_tests.jsdriver import requires_node, run_node
-from tests.unit_tests.test_picker_popovers import surface_rise_roster
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
 SIDEBAR_JS = DAIV_DIR / "core" / "static" / "core" / "js" / "sidebar.js"
@@ -160,8 +159,8 @@ def test_hidden_surfaces_do_not_block_it():
     assert drive([{"key": {}}], surfaces=[{"visible": False}])["rail"] is True
 
 
-def test_the_surface_list_covers_the_css_roster():
-    """A surface enrolled in the `surface-rise` roster but missing here would let `[`
-    collapse the sidebar under it."""
-    listed = set(re.findall(r'"(\.[\w-]+)"', SIDEBAR_JS.read_text(encoding="utf-8")))
-    assert surface_rise_roster() - listed == set()
+def test_open_surfaces_are_found_by_the_shared_hook():
+    """`data-surface` is the hook every floating surface carries (see input.css), so a new one
+    blocks `[` without an edit here."""
+    surfaces = re.search(r"const SURFACES = '([^']+)'", SIDEBAR_JS.read_text(encoding="utf-8"))
+    assert surfaces and "[data-surface]" in surfaces.group(1).split(", ")

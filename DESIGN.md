@@ -296,7 +296,8 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   an inline script in `base.html`'s `<head>` sets `data-sidebar="rail"` on `<html>` before
   first paint, and the `sidebar` store (`core/js/sidebar.js`) owns it from there. The `[`
   shortcut works only while its button is shown, and stands down while typing, with Ctrl or
-  Meta held, or while a dialog, sheet or menu is open. Every rail icon carries a `title`, its
+  Meta held, or while a dialog, sheet or menu is open — any visible `data-surface`, the hook
+  every floating surface carries and the one selector `surface-rise` animates. Every rail icon carries a `title`, its
   name and tooltip once the label is hidden.
 - **Groups.** Daily work comes first with no heading: Home (URL name `dashboard`), Sessions,
   Notifications, Artifacts, Schedules. Then **Agent setup** — Sandbox environments, MCP

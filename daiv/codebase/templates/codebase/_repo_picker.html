@@ -110,6 +110,7 @@ Parameters:
     <div x-show="popover === 'repo'" x-cloak
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
+         data-surface
          class="picker-popover picker-popover--inset">
         {% include "core/_sheet_head.html" with title=_("Repository") close_expr="closePopover()" %}
         <input type="search" name="q" autofocus autocomplete="off"
@@ -156,6 +157,7 @@ Parameters:
     <div x-show="popover === 'branch'" x-cloak
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
+         data-surface
          class="picker-popover picker-popover--inset">
         {% include "core/_sheet_head.html" with title=_("Branch") close_expr="closePopover()" %}
         <input type="search" name="q" autofocus autocomplete="off"
