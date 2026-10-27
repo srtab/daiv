@@ -206,6 +206,14 @@ def test_a_one_line_entry_takes_the_first_line_its_title_names():
     assert (finding["file"], finding["start_line"], finding["end_line"], unlocated) == ("lib/index.ts", 4, 5, [])
 
 
+def test_bold_section_lines_count_as_section_headings():
+    report = "## Code Review\n\n**Important Issues**\n\n**1. Cache never cleared** — `lib/index.ts:4`\n\nIt grows.\n"
+
+    [finding], _ = report_findings(reviewbench.parse_review(report), HEAD_FILES)
+
+    assert (finding["file"], finding["start_line"]) == ("lib/index.ts", 4)
+
+
 def test_a_finding_on_several_files_becomes_one_judging_finding_per_file():
     report = (
         "### Important Issues\n**1. Raw origin used** — `src/engine.ts:28`, `lib/index.ts:42`\n\nUse the public origin."

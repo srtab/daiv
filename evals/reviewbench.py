@@ -73,6 +73,7 @@ _PATH_LINES = re.compile(r"(?P<path>[\w./@+\[\]-]*[\w@+\]-]):(?P<start>\d+)(?:\s
 _BLOB_LINES = re.compile(r"/blob/[0-9a-f]{7,40}/(?P<path>[^\s)#?]+)#L(?P<start>\d+)(?:-L(?P<end>\d+))?")
 # ``parse_report`` gives the last finding every line up to the report's end, closing prose included.
 _THEMATIC_BREAK = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$", re.MULTILINE)
+_BOLD_SECTION = re.compile(r"^\*\*((?:Critical|Important|Suggestion|Question|Recommended)[^*\n]*)\*\*$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -183,6 +184,11 @@ def _tracked_file(path: str, head_files: frozenset[str]) -> str | None:
         return path
     candidates = [file for file in head_files if file.endswith(f"/{path}")]
     return candidates[0] if len(candidates) == 1 else None
+
+
+def parse_review(report: str) -> list[Finding]:
+    """``parse_report`` for a report whose section headings may be bold lines rather than markdown headings."""
+    return parse_report(_BOLD_SECTION.sub(r"### \1", report))
 
 
 def report_findings(findings: Iterable[Finding], head_files: frozenset[str]) -> tuple[list[dict], list[Finding]]:
@@ -337,7 +343,7 @@ async def main(
             failed.append(key)
             print(f"[{key}] the final message is not a review report", file=sys.stderr)  # noqa: T201
             continue
-        findings, unlocated = report_findings(parse_report(outcome.report), outcome.head_files)
+        findings, unlocated = report_findings(parse_review(outcome.report), outcome.head_files)
         findings_path.write_text(json.dumps(findings_payload(entry, model_name, findings, outcome.usage), indent=2))
         print(  # noqa: T201
             f"[{key}] {len(findings)} finding(s), {len(unlocated)} without a head-side location"
