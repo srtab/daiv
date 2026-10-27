@@ -48,11 +48,13 @@ from sessions.filters import (
     resolve_scope,
 )
 from sessions.forms import AgentRunCreateForm
+from sessions.header import build_session_header
 from sessions.hydration import ahydrate_thread
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
+from sessions.templatetags.session_tags import session_title
 from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
 from sessions.turns import build_turns
 from slash_commands.composer import composer_command_rows
@@ -274,7 +276,7 @@ class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):
         return [{"label": "Sessions", "url": reverse("session_list")}, {"label": "New", "url": None}]
 
 
-class SessionDetailView(LoginRequiredMixin, DetailView):
+class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
     """Renders the session transcript page, or the empty state for the ``session_new_chat`` route."""
 
     model = Session
@@ -291,6 +293,14 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         if "thread_id" not in self.kwargs:
             return None  # empty state (session_new_chat route)
         return super().get_object(queryset)
+
+    def get_breadcrumbs(self) -> list[Breadcrumb]:
+        if self.object is None:
+            return []
+        return [
+            {"label": str(_("Sessions")), "url": reverse("session_list")},
+            {"label": session_title(self.object), "url": None},
+        ]
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
@@ -333,6 +343,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "in_flight_ids": "",
                 "context_usage": None,
                 "session_spend": None,
+                "header": None,
             })
             return ctx
 
@@ -365,6 +376,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
         ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
         mark_retryable(ctx["turns"], runs, self.request.user)
+        ctx["header"] = build_session_header(session, runs, self.request.user)
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats

@@ -717,6 +717,46 @@ html {
     min-width: 0;
   }
 
+  /* Session header: sticky at the top of <main>, the scroll container, so it stays in view while the
+     viewport is parked on the latest answer. Below the dock (z-35), whose sheets open over it. */
+  .session-header {
+    /* Sticky offsets start inside <main>'s padding (pt-6 / sm:pt-8 in base_app.html); these cancel it. */
+    @apply sticky -top-6 z-30 -mx-1 flex flex-col gap-1.5 border-b border-border bg-ground px-1 pt-3 pb-2.5 sm:-top-8;
+  }
+  .session-header__top { @apply flex min-w-0 items-center gap-3; }
+  .session-header__title {
+    @apply min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-text-strong sm:text-lg;
+  }
+  .session-header__retry {
+    @apply inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[12.5px]
+      font-medium text-accent transition-colors hover:bg-surface-3 hover:text-accent-bright;
+  }
+  /* One swipeable line on phones, so the header stays two rows; wraps from sm: up. */
+  .session-header__meta {
+    @apply relative flex min-w-0 flex-nowrap items-center gap-x-2.5 gap-y-1.5 overflow-x-auto text-[12px] whitespace-nowrap
+      text-text-muted sm:flex-wrap sm:overflow-visible;
+    scrollbar-width: none;
+  }
+  .session-header__meta > * { @apply shrink-0; }
+  .session-header__meta .session-repo,
+  .session-header__meta .session-branch { @apply max-w-[220px] sm:shrink; }
+  .session-header__link {
+    @apply inline-flex shrink-0 items-center gap-1 font-mono text-[11.5px] text-text-muted;
+  }
+  a.session-header__link { @apply transition-colors hover:text-accent-bright; }
+  .session-header__draft {
+    @apply rounded-full bg-amber-900/40 px-1.5 text-[10px] font-semibold tracking-[0.05em] text-amber-200 uppercase;
+  }
+  .session-header__watch {
+    @apply inline-flex shrink-0 items-center gap-1 font-mono text-[11.5px];
+    color: var(--watch-color);
+  }
+  .session-header__watch--attn { --watch-color: var(--color-status-attn); }
+  .session-header__watch--clear { --watch-color: var(--color-status-clear); }
+  .session-header__watch--found { --watch-color: var(--color-status-found); }
+  .session-header__watch--fail { --watch-color: var(--color-status-fail); }
+  .session-header__owner { @apply shrink-0; }
+
   /* Transcript */
 
   .chat-transcript {
@@ -937,7 +977,7 @@ html {
     /* Breathing room left above a turn the page scrolls to, so it reads as the
        top of a block rather than as content clipped by the viewport edge.
        Consumed by chat-stream.js's parkViewport() via scrollIntoView(). */
-    scroll-margin-top: 1rem;
+    scroll-margin-top: calc(var(--session-header-h, 0px) + 1rem);
   }
 
   .chat-turn__body {
@@ -1176,6 +1216,7 @@ html {
 
   .chat-run-status {
     @apply mx-auto my-2 flex max-w-2xl items-center gap-2 rounded-lg border px-3 py-2 text-sm;
+    scroll-margin-top: calc(var(--session-header-h, 0px) + 1rem);
   }
   .chat-run-status__icon { @apply shrink-0; }
   .chat-run-status--failed {

@@ -11,6 +11,10 @@
 <span class="rounded-full bg-amber-900/40 px-2.5 py-0.5 text-xs font-medium text-amber-300">Issue</span>
 {% elif origin == "mr_webhook" %}
 <span class="rounded-full bg-cyan-900/40 px-2.5 py-0.5 text-xs font-medium text-cyan-300">MR/PR</span>
+{% elif origin == "pipeline_webhook" %}
+<span class="rounded-full bg-cyan-900/40 px-2.5 py-0.5 text-xs font-medium text-cyan-300">CI fix</span>
+{% elif origin == "delegated_job" or origin == "delegation_resume" %}
+<span class="rounded-full bg-indigo-900/40 px-2.5 py-0.5 text-xs font-medium text-indigo-300">{{ origin_display }}</span>
 {% elif origin == "ui_job" %}
 <span class="rounded-full bg-emerald-900/40 px-2.5 py-0.5 text-xs font-medium text-emerald-300">UI Run</span>
 {% endif %}

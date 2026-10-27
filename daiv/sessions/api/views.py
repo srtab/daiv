@@ -10,6 +10,7 @@ from ninja.security import django_auth
 
 from accounts.api.security import AuthBearer
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
+from sessions.header import latest_run_payload
 from sessions.hydration import ahydrate_thread
 from sessions.models import Session
 from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
@@ -35,7 +36,8 @@ async def _get_visible_session(user, thread_id: str) -> Session:
 async def session_turns(request: HttpRequest, thread_id: str):
     """Re-hydrated transcript of an in-flight session, which the detail page polls while no run streams to it.
     ``live_run`` names the slot holder, so the page can stream that run from the relay instead; ``background``
-    tells a page that rendered idle whether a run that started since is one it should follow."""
+    tells a page that rendered idle whether a run that started since is one it should follow; ``latest_run`` keeps the
+    page header's status and Retry link current."""
     session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
@@ -47,15 +49,16 @@ async def session_turns(request: HttpRequest, thread_id: str):
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
         mark_retryable(turns, runs, user)
-        return live_run_for(activity.live, session, user)
+        return live_run_for(activity.live, session, user), latest_run_payload(runs, user)
 
-    live = await sync_to_async(finish_turns)()
+    live, latest_run = await sync_to_async(finish_turns)()
     return {
         "turns": turns,
         "active": activity.in_flight,
         "background": background_in_flight(activity, runs),
         "waiting_since": activity.waiting_since.isoformat() if activity.waiting_since else None,
         "expired": hydrated.expired,
+        "latest_run": latest_run,
         "live_run": {"id": live.id, "stoppable": live.stoppable, "started_at": live.started_at.isoformat()}
         if live
         else None,

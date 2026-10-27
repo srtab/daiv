@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -894,3 +895,185 @@ def test_detail_links_retry_only_when_the_viewer_can_run_on_the_repo(member_clie
     first = resp.context["turns"][0]
     expected = f"{reverse('runs:agent_run_new')}?from={run.id}" if can_run else None
     assert (first["run_id"], first.get("retry_url")) == (str(run.id), expected)
+
+
+# ---------------------------------------------------------------------------
+# session header
+# ---------------------------------------------------------------------------
+
+
+def _get_detail(client, session: Session, *, merge_request=None, runnable: bool = True):
+    with (
+        patch("sessions.views.ahydrate_thread", _null_hydration()),
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=merge_request)),
+        patch(
+            "sessions.transcript.runnable_repo_ids",
+            side_effect=lambda user, repo_ids: set(repo_ids) if runnable else set(),
+        ),
+    ):
+        return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+
+def _header_html(resp) -> str:
+    html = resp.content.decode()
+    start = html.index('data-testid="session-header"')
+    return html[start : html.index("</header>", start)]
+
+
+@pytest.mark.django_db
+def test_detail_breadcrumb_leads_back_to_sessions(member_client, member_user):
+    session = _create_session(user=member_user, title="Fix the login redirect")
+
+    resp = _get_detail(member_client, session)
+
+    assert resp.context["breadcrumbs"] == [
+        {"label": "Sessions", "url": reverse("session_list")},
+        {"label": "Fix the login redirect", "url": None},
+    ]
+    assert b'data-testid="app-breadcrumb"' in resp.content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("origin", "badge"),
+    [
+        (SessionOrigin.CHAT, "Chat"),
+        (SessionOrigin.UI_JOB, "UI Run"),
+        (SessionOrigin.SCHEDULE, "Schedule"),
+        (SessionOrigin.ISSUE_WEBHOOK, "Issue"),
+        (SessionOrigin.MR_WEBHOOK, "MR/PR"),
+        (SessionOrigin.PIPELINE_WEBHOOK, "CI fix"),
+        (SessionOrigin.DELEGATED_JOB, "Delegated Run"),
+    ],
+)
+def test_detail_header_shows_title_origin_repo_and_owner(member_client, member_user, origin, badge):
+    session = _create_session(user=member_user, origin=origin, title="Fix the login redirect", ref="feat/login")
+    _create_run(session, trigger_type=origin)
+
+    header = _header_html(_get_detail(member_client, session))
+
+    assert "Fix the login redirect</h1>" in header
+    assert re.search(rf">\s*(<span[^>]*></span>\s*)?{re.escape(badge)}\s*</span>", header)
+    assert "group/project" in header
+    assert "feat/login" in header
+    assert "avatar" in header
+
+
+@pytest.mark.django_db
+def test_detail_header_falls_back_to_the_platform_username_without_an_owner(member_client, member_user):
+    session = _create_session(origin=SessionOrigin.MR_WEBHOOK, external_username="octocat")
+    grant_read_access(member_user, session.repo_id)
+
+    assert "octocat" in _header_html(_get_detail(member_client, session))
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "variant", "label"),
+    [
+        (RunStatus.RUNNING, "running", "Running"),
+        (RunStatus.SUCCESSFUL, "success", "Done"),
+        (RunStatus.FAILED, "failed", "Failed"),
+        (RunStatus.WAITING_INPUT, "waiting", "Needs input"),
+    ],
+)
+def test_detail_header_status_is_the_latest_runs(member_client, member_user, status, variant, label):
+    session = _create_session(user=member_user)
+    _create_run(session, status=RunStatus.FAILED)
+    latest = _create_run(session, status=status)
+
+    resp = _get_detail(member_client, session)
+
+    assert resp.context["header"]["latest_run"] | {"retry_url": ""} == {
+        "id": str(latest.id),
+        "status": status,
+        "label": label,
+        "variant": variant,
+        "retry_url": "",
+    }
+    assert b'id="session-header-latest-run"' in resp.content
+
+
+@pytest.mark.django_db
+def test_detail_header_links_the_issue_an_issue_session_addresses(member_client, member_user, create_db_task_result):
+    from codebase.models import RepositoryCatalog
+
+    session = _create_session(user=member_user, origin=SessionOrigin.ISSUE_WEBHOOK)
+    task = create_db_task_result()
+    task.args_kwargs = {"args": [], "kwargs": {"issue_iid": 42}}
+    task.save(update_fields=["args_kwargs"])
+    _create_run(session, trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result=task)
+    RepositoryCatalog.objects.create(
+        provider="gitlab",
+        slug="group/project",
+        html_url="https://gitlab.example/group/project",
+        synced_at=timezone.now(),
+    )
+
+    header = _header_html(_get_detail(member_client, session))
+
+    assert 'href="https://gitlab.example/group/project/-/issues/42"' in header
+    assert "#42" in header
+
+
+@pytest.mark.django_db
+def test_detail_header_has_no_issue_link_for_other_origins(member_client, member_user):
+    session = _create_session(user=member_user, origin=SessionOrigin.UI_JOB)
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB)
+
+    resp = _get_detail(member_client, session)
+
+    assert resp.context["header"]["issue"] is None
+    assert "session-header__link" not in _header_html(resp)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("trigger_type", "prompt", "runnable", "shown"),
+    [
+        (SessionOrigin.UI_JOB, "fix it", True, True),
+        (SessionOrigin.UI_JOB, "fix it", False, False),
+        (SessionOrigin.CHAT, "fix it", True, False),
+        (SessionOrigin.UI_JOB, "", True, False),
+    ],
+)
+def test_detail_header_retry_is_for_a_retryable_latest_run_the_viewer_can_run(
+    member_client, member_user, trigger_type, prompt, runnable, shown
+):
+    session = _create_session(user=member_user, origin=SessionOrigin.UI_JOB)
+    run = _create_run(session, trigger_type=trigger_type, status=RunStatus.FAILED, prompt=prompt)
+
+    resp = _get_detail(member_client, session, runnable=runnable)
+
+    expected = f"{reverse('runs:agent_run_new')}?from={run.id}" if shown else ""
+    assert resp.context["header"]["latest_run"]["retry_url"] == expected
+    assert (f"?from={run.id}" in _header_html(resp)) is shown
+
+
+@pytest.mark.django_db
+def test_detail_header_shows_the_ci_watch(member_client, member_user):
+    session = _create_session(user=member_user, origin=SessionOrigin.CHAT, watch_state=WatchState.FIXING)
+    _create_run(session)
+
+    header = _header_html(_get_detail(member_client, session))
+
+    assert "session-header__watch--attn" in header
+    assert "Fixing" in header
+
+
+@pytest.mark.django_db
+def test_detail_header_omits_the_ci_watch_when_off(member_client, member_user):
+    session = _create_session(user=member_user)
+
+    assert "session-header__watch" not in _header_html(_get_detail(member_client, session))
+
+
+@pytest.mark.django_db
+def test_session_new_chat_has_no_header(member_client):
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_new_chat"))
+
+    assert resp.context["header"] is None
+    assert resp.context["breadcrumbs"] == []
+    assert b'data-testid="session-header"' not in resp.content
+    assert b"chat-hero" in resp.content

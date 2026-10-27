@@ -24,6 +24,7 @@
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
   {% if session %}
   <script defer src="{% static 'sessions/js/session-sync.js' %}"></script>
+  <script defer src="{% static 'sessions/js/session-header.js' %}"></script>
   {% endif %}
   {% include "sandbox_envs/_scripts.html" %}
 {% endblock alpine_plugins %}
@@ -141,6 +142,10 @@
 
     <div class="chat-column"
          :class="{ 'chat-column--empty': !thread && turns.length === 0 }">
+      {% if session %}
+        {% include "core/_breadcrumb.html" %}
+        {% include "sessions/_session_header.html" %}
+      {% endif %}
       {% if watch_only %}
         <div class="mb-4 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-gray-300">
           {% blocktranslate with iid=session.merge_request_iid state=session.get_watch_state_display %}This session tracks CI on !{{ iid }} ({{ state }}). It gets a transcript once DAIV runs a fix or someone comments on the merge request.{% endblocktranslate %}
