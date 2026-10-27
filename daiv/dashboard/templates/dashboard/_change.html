@@ -1,0 +1,19 @@
+{% load i18n %}
+{% comment %}
+How a headline number moved since the previous period.
+
+Context:
+- change: a dict from ``dashboard.insights._change`` (direction, amount, was), or None to render nothing.
+{% endcomment %}
+{% if change %}
+<p class="mt-1.5 font-mono text-[12px] text-text-muted" data-testid="change">
+    {% if change.direction == "up" %}
+    <span aria-hidden="true">▲</span><span class="sr-only">{% translate "Up" %}</span> {{ change.amount }}
+    {% elif change.direction == "down" %}
+    <span aria-hidden="true">▼</span><span class="sr-only">{% translate "Down" %}</span> {{ change.amount }}
+    {% else %}
+    {% translate "No change" %}
+    {% endif %}
+    <span class="text-text-faint">· {% blocktranslate with was=change.was %}was {{ was }}{% endblocktranslate %}</span>
+</p>
+{% endif %}

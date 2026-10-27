@@ -37,6 +37,15 @@ Each session is tagged with the origin that created it:
 
 ---
 
+## Insights
+
+**Insights** (`/dashboard/insights/`) shows how DAIV is used across the repositories you can see, over Today, 7 days (the default), 30 days, 90 days or all time.
+
+- **Agent activity** — runs, success rate, runs that changed code and average duration, each compared with the period of the same length just before (the page names both). Running now is live and not compared.
+- **Runs over time** — a column per day (weeks for 30 and 90 days, months for all time), stacked by outcome: changed code, done without changes, needs input, failed. A column opens the sessions active in its days. Hidden for Today.
+- **Sessions by origin** — each origin's sessions this period and the period before, the change, and a small bar per day. Every count opens the session list it counts.
+- **Code velocity** — see [Merge Metrics](merge-metrics.md).
+
 ## Sessions list
 
 The sessions list shows all sessions in reverse chronological order. Each row displays:

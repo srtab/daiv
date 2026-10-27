@@ -13,6 +13,7 @@ logger = logging.getLogger("daiv.dashboard")
 
 SECTION_URL_NAMES: dict[str, set[str]] = {
     "dashboard": {"dashboard"},
+    "insights": {"insights"},
     "sessions": {
         "session_list",
         "session_new",
