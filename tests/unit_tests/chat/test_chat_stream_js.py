@@ -140,23 +140,23 @@ def test_revealing_a_run_cancels_a_scroll_to_bottom_already_queued():
 
 
 PILL_BODY = """
-const chat = registry.chat({ endpoint: "/api/chat", diffInHeader: payload.diffInHeader });
+const chat = registry.chat({ endpoint: "/api/chat", diffInDetails: payload.diffInDetails });
 chat.diffStats = { added: 48, removed: 12 };
 chat.filesTouched = payload.files;
 process.stdout.write(JSON.stringify(chat.progressPill));
 """
 
 
-def _pill(*, diff_in_header: bool, files=()):
+def _pill(*, diff_in_details: bool, files=()):
     return run_chat_stream(
-        PILL_BODY, {"diffInHeader": diff_in_header, "files": [{"path": p} for p in files]}, extra_globals=GLOBALS
+        PILL_BODY, {"diffInDetails": diff_in_details, "files": [{"path": p} for p in files]}, extra_globals=GLOBALS
     )
 
 
 def test_the_progress_pill_shows_the_diff_where_no_header_does():
-    assert _pill(diff_in_header=False) == {"tone": "idle", "label": "", "diff": {"added": 48, "removed": 12}}
+    assert _pill(diff_in_details=False) == {"tone": "idle", "label": "", "diff": {"added": 48, "removed": 12}}
 
 
 def test_a_session_page_takes_the_diff_and_leaves_the_pill_its_counts():
-    assert _pill(diff_in_header=True, files=["a.py", "b.py"]) == {"tone": "idle", "label": "2 files"}
-    assert _pill(diff_in_header=True) is None
+    assert _pill(diff_in_details=True, files=["a.py", "b.py"]) == {"tone": "idle", "label": "2 files"}
+    assert _pill(diff_in_details=True) is None

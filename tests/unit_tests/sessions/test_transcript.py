@@ -609,9 +609,10 @@ def test_mark_retryable_links_the_run_composer_from_the_runs_anchor_turn():
     turns = [{**_user("h1"), "run_id": "r1"}, _assistant("a1")]
 
     with patch("sessions.transcript.runnable_repo_ids", return_value={"group/repo"}):
-        mark_retryable(turns, [_retryable("r1")], user=None)
+        urls = mark_retryable(turns, [_retryable("r1")], user=None)
 
     assert [t.get("retry_url") for t in turns] == [f"{reverse('runs:agent_run_new')}?from=r1", None]
+    assert urls == {"r1": f"{reverse('runs:agent_run_new')}?from=r1"}
 
 
 def test_mark_retryable_skips_a_run_the_viewer_cannot_run_on_the_repo():

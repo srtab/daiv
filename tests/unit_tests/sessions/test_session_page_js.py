@@ -25,12 +25,24 @@ const fetches = [];
 const pending = [];
 const storage = new Map(stored == null ? [] : [["key", stored]]);
 let clock = 10;
-const json = { "session-latest-run": initial, "session-watch": watch };
+const json = { "session-header": { latest_run: initial, watch, run_count: 1 } };
+const frames = [];
+const scrolled = [];
+const section = {
+  shown: false,
+  getClientRects() { return this.shown ? [{}] : []; },
+  scrollIntoView() { scrolled.push("context"); },
+};
 const sandbox = {
   document: {
+    hidden: false,
     addEventListener: (name, cb) => { if (name === "alpine:init") cb(); },
-    getElementById: (id) => (id in json ? { textContent: JSON.stringify(json[id]) } : null),
+    getElementById: (id) => {
+      if (id === "session-details-context") return section;
+      return id in json ? { textContent: JSON.stringify(json[id]) } : null;
+    },
   },
+  requestAnimationFrame: (cb) => frames.push(cb),
   localStorage: {
     getItem: (k) => { if (storageBlocked) throw new Error("blocked"); return storage.get(k) ?? null; },
     setItem: (k, v) => { if (storageBlocked) throw new Error("blocked"); storage.set(k, v); },
@@ -54,7 +66,7 @@ const labels = {
   watchFailed: "Couldn't change it",
 };
 const page = components.sessionPage({
-  turnsUrl: "/turns", sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", storageKey: "key",
+  sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", storageKey: "key",
   title: "Old", titleSuffix: "DAIV Sessions", archived, labels,
 });
 const focused = [];
@@ -66,30 +78,30 @@ Object.assign(page, {
   },
 });
 page.init();
-const settle = () => new Promise((resolve) => setImmediate(resolve));
+const flush = () => new Promise((resolve) => setImmediate(resolve));
 const seen = [];
-let refreshing = null;
+let sending = null;
 for (const [action, value] of steps) {
   if (action === "set") Object.assign(page, value);
-  else if (action === "poll") page.applyPoll(value);
-  else if (action === "run-ended") refreshing = page.refresh();
-  else if (action === "respond") { pending.shift()(value); await refreshing; await settle(); }
-  else if (action === "reply") { pending.shift()(value.body, value.status); await refreshing; await settle(); }
-  else if (action === "reply-at") { pending.splice(value.index, 1)[0](value.body, value.status); await settle(); }
+  else if (action === "poll") page.applyHeader(value);
+  else if (action === "run-ended") page.settle();
+  else if (action === "reply") { pending.shift()(value.body, value.status); await sending; await flush(); }
   else if (action === "rename") page.startRename();
   else if (action === "draft") page.titleDraft = value;
-  else if (action === "commit") refreshing = page.commitRename();
+  else if (action === "commit") sending = page.commitRename();
   else if (action === "cancel") page.cancelRename();
-  else if (action === "ci-toggle") refreshing = page.toggleCiWatch(value ?? 7);
-  else if (action === "advance") clock += value;
-  else if (action === "archive") refreshing = page.setArchived(value);
+  else if (action === "ci-toggle") sending = page.toggleCiWatch(value ?? 7);
+  else if (action === "archive") sending = page.setArchived(value);
   else if (action === "toggle") page.toggleDetails();
+  else if (action === "open-details") page.openDetails("context");
+  else if (action === "frame") { section.shown = value; frames.splice(0).forEach((cb) => cb()); }
   else if (action === "read") {
-    seen.push({ status: page.status, retry: page.retryUrl, watch: page.watch, open: page.detailsOpen,
-                title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
-                docTitle: sandbox.document.title,
-                archived: page.archived, hint: page.ciWatchHint, ciDisabled: Boolean(page.ciWatchDisabled),
-                checked: page.ciWatchOn });
+    seen.push({
+      status: page.status, retry: page.retryUrl, watch: page.watch, open: page.detailsOpen, runs: page.runCount,
+      scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
+      docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
+      ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn,
+    });
   }
 }
 process.stdout.write(JSON.stringify({
@@ -97,8 +109,8 @@ process.stdout.write(JSON.stringify({
 }));
 """
 
-DONE = {"id": "r1", "status": "SUCCESSFUL", "label": "Done", "variant": "success", "retry_url": "/runs/new/?from=r1"}
-FAILED = {"id": "r2", "status": "FAILED", "label": "Failed", "variant": "failed", "retry_url": ""}
+DONE = {"label": "Done", "variant": "success", "retry_url": "/runs/new/?from=r1"}
+FAILED = {"label": "Failed", "variant": "failed", "retry_url": ""}
 RUNNING = {"variant": "running", "label": "Running"}
 WATCHING = {"state": "watching", "label": "Waiting for CI", "tone": "attn"}
 
@@ -124,7 +136,13 @@ def _read(**kwargs) -> dict:
 def test_it_shows_the_server_rendered_latest_run_and_watch():
     seen = _read(watch=WATCHING)
 
-    assert (seen["status"], seen["retry"], seen["watch"]) == (DONE, "/runs/new/?from=r1", WATCHING)
+    assert (seen["status"], seen["retry"], seen["watch"], seen["runs"], seen["scrolled"]) == (
+        DONE,
+        "/runs/new/?from=r1",
+        WATCHING,
+        1,
+        0,
+    )
 
 
 def test_a_session_without_runs_has_no_status():
@@ -150,12 +168,17 @@ def test_a_run_ending_holds_running_until_its_settled_status_arrives():
         ["run-ended", None],
         ["set", {"streaming": False}],
         ["read", None],
-        ["respond", {"latest_run": FAILED, "watch": None}],
+        ["poll", {"latest_run": FAILED, "watch": None}],
         ["read", None],
     ])
 
     assert [s["status"] for s in result["seen"]] == [RUNNING, FAILED]
-    assert result["fetches"] == 1
+
+
+def test_a_failed_settling_fetch_releases_the_held_status():
+    seen = _run([["run-ended", None], ["read", None], ["poll", None], ["read", None]])["seen"]
+
+    assert [s["status"] for s in seen] == [RUNNING, DONE]
 
 
 def test_a_wide_page_opens_the_panel_as_last_left():
@@ -181,6 +204,25 @@ def test_blocked_storage_starts_closed_and_still_toggles():
     result = _run([["read", None], ["toggle", None], ["read", None]], storage_blocked=True)
 
     assert [s["open"] for s in result["seen"]] == [False, True]
+
+
+def test_polls_and_a_settled_run_update_the_run_count():
+    result = _run([
+        ["poll", {"latest_run": DONE, "watch": None, "run_count": 2}],
+        ["read", None],
+        ["run-ended", None],
+        ["poll", {"latest_run": FAILED, "watch": None, "run_count": 3}],
+        ["read", None],
+    ])
+
+    assert [s["runs"] for s in result["seen"]] == [2, 3]
+
+
+def test_opening_a_section_scrolls_once_the_panel_is_shown():
+    steps = [["open-details", None], ["read", None], ["frame", False], ["read", None], ["frame", True], ["read", None]]
+    seen = _run(steps, wide=False)["seen"]
+
+    assert [(s["open"], s["scrolled"]) for s in seen] == [(True, 0), (True, 0), (True, 1)]
 
 
 # ---------------------------------------------------------------------------
@@ -325,25 +367,6 @@ def test_a_poll_asked_for_before_the_toggle_answered_does_not_undo_it():
             ["poll", {"latest_run": FAILED, "watch": None, "requestedAt": 9}],
             ["read", None],
             ["poll", {"latest_run": FAILED, "watch": None, "requestedAt": 11}],
-            ["read", None],
-        ],
-        watch=None,
-    )
-
-    assert [(s["status"], s["watch"]) for s in result["seen"]] == [(FAILED, WATCHING), (FAILED, None)]
-
-
-def test_a_refresh_sent_before_the_toggle_answered_does_not_undo_it():
-    result = _run(
-        [
-            ["run-ended", None],
-            ["ci-toggle", None],
-            ["reply-at", {"index": 1, "body": WATCHING}],
-            ["reply-at", {"index": 0, "body": {"latest_run": FAILED, "watch": None}}],
-            ["read", None],
-            ["advance", 1],
-            ["run-ended", None],
-            ["respond", {"latest_run": FAILED, "watch": None}],
             ["read", None],
         ],
         watch=None,

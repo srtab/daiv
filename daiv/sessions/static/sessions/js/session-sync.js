@@ -24,9 +24,21 @@ document.addEventListener("alpine:init", () => {
     },
     resume() {
       // A dormant page's own chat turn ending is not a reason to poll, and settling would reload it.
-      if (!this._engaged) return;
+      if (!this._engaged) return this._refreshHeader();
       this._start();
       this.poll();
+    },
+    // One fetch for the top bar only, dispatched even on failure so the page stops holding "running".
+    async _refreshHeader() {
+      let data = null;
+      const requestedAt = performance.now();
+      try {
+        const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
+        if (res.ok) data = await res.json();
+      } catch (e) {
+        // The next run end or poll refreshes it; a stale status is not worth an error.
+      }
+      window.dispatchEvent(new CustomEvent("daiv:session-header", { detail: data && { ...data, requestedAt } }));
     },
     _start() {
       if (!this._timer) this._timer = setInterval(() => this.poll(), 5000);

@@ -1,8 +1,10 @@
 import uuid
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from django.db.models import Q
 from django.test import TestCase
+from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
@@ -11,6 +13,7 @@ from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigi
 from sessions.signal_defs import run_ended, run_finished
 
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
+from schedules.models import ScheduledJob
 from tests.unit_tests.sessions.conftest import make_task_result
 
 
@@ -311,6 +314,79 @@ class TestOwnedBy:
         )
 
         assert list(Session.objects.owned_by(other_user)) == [session]
+
+
+def _run_at(session, created_at, **fields) -> Run:
+    run = Run.objects.create(
+        session=session, trigger_type=session.origin, repo_id=session.repo_id, user=session.user, **fields
+    )
+    Run.objects.filter(pk=run.pk).update(created_at=created_at)
+    return run
+
+
+def _session(user, origin=SessionOrigin.UI_JOB, **fields) -> Session:
+    return Session.objects.create(thread_id=str(uuid.uuid4()), origin=origin, repo_id="acme/api", user=user, **fields)
+
+
+@pytest.mark.django_db
+class TestStartedBy:
+    def test_matches_the_account_or_the_platform_username(self, member_user, other_user):
+        by_account = _run_at(_session(member_user), timezone.now())
+        by_username = _run_at(_session(None), timezone.now(), external_username=member_user.username)
+        _run_at(_session(other_user), timezone.now())
+
+        assert set(Run.objects.started_by(member_user)) == {by_account, by_username}
+
+
+@pytest.mark.django_db
+class TestLatestInSession:
+    def test_keeps_only_the_newest_run_of_each_session(self, member_user):
+        now = timezone.now()
+        session = _session(member_user)
+        _run_at(session, now - timedelta(hours=1))
+        newest = _run_at(session, now)
+        other = _run_at(_session(member_user), now - timedelta(days=1))
+
+        assert set(Run.objects.latest_in_session()) == {newest, other}
+
+    def test_a_tie_on_created_at_goes_to_the_higher_id(self, member_user):
+        now = timezone.now()
+        session = _session(member_user)
+        runs = sorted([_run_at(session, now), _run_at(session, now)], key=lambda run: run.id)
+
+        assert list(Run.objects.latest_in_session()) == [runs[-1]]
+
+
+@pytest.mark.django_db
+class TestWithRetried:
+    def _retried(self, run, user) -> bool:
+        return Run.objects.with_retried(user).get(pk=run.pk).retried
+
+    def test_a_later_run_with_the_same_prompt_and_repository_retries_it(self, member_user):
+        now = timezone.now()
+        failed = _run_at(_session(member_user), now - timedelta(hours=1), prompt="Fix it")
+        _run_at(_session(member_user), now, prompt="Fix it")
+
+        assert self._retried(failed, member_user) is True
+
+    def test_a_different_prompt_or_an_empty_one_does_not(self, member_user):
+        now = timezone.now()
+        failed = _run_at(_session(member_user), now - timedelta(hours=1), prompt="Fix it")
+        _run_at(_session(member_user), now, prompt="Something else")
+        empty = _run_at(_session(member_user), now - timedelta(hours=1))
+        _run_at(_session(member_user), now)
+
+        assert (self._retried(failed, member_user), self._retried(empty, member_user)) == (False, False)
+
+    def test_a_later_run_of_the_same_schedule_retries_it(self, member_user):
+        schedule = ScheduledJob.objects.create(
+            user=member_user, name="s", prompt="p", repos=[{"repo_id": "acme/api", "ref": ""}]
+        )
+        now = timezone.now()
+        failed = _run_at(_session(member_user, SessionOrigin.SCHEDULE, scheduled_job=schedule), now - timedelta(1))
+        _run_at(_session(member_user, SessionOrigin.SCHEDULE, scheduled_job=schedule), now)
+
+        assert self._retried(failed, member_user) is True
 
 
 @pytest.mark.django_db

@@ -125,7 +125,15 @@ def _validate_frequency_fields(
         raise ValidationError({"run_at": _("Date and time only applies to one-off schedules.")})
 
 
-class ScheduledJobManager(models.Manager["ScheduledJob"]):
+class ScheduledJobQuerySet(models.QuerySet["ScheduledJob"]):
+    def failing(self) -> models.QuerySet[ScheduledJob]:
+        """Schedules :attr:`ScheduledJob.is_failing` holds for."""
+        return self.filter(failing_since__isnull=False).filter(
+            models.Q(is_enabled=True) | models.Q(frequency=Frequency.ONCE)
+        )
+
+
+class ScheduledJobManager(models.Manager.from_queryset(ScheduledJobQuerySet)):
     def by_owner(self, user: User) -> models.QuerySet[ScheduledJob]:
         """Return scheduled jobs visible to the given user.
 

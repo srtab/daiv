@@ -1,9 +1,7 @@
-// The session page's top bar and details panel: the latest run's status and Retry link, the CI watch, and whether
-// the panel is open. A run this page streams or waits on is shown from the chat component's flags; otherwise the
-// status is the server's, refreshed by each turns poll and once a run ends. Rename, the CI toggle and Archive write
+// A run this page streams or waits on is shown from the chat component's flags; otherwise the status is the
+// server's, refreshed by each sessionSync fetch of the turns endpoint. Rename, the CI toggle and Archive write
 // through the sessions API; rename and the CI toggle are only rendered for someone who may run on the repository.
 document.addEventListener("alpine:init", () => {
-  // The panel is a column from this width and a bottom sheet below it, the width the composer sheets switch at.
   const WIDE = "(min-width: 1100px)";
 
   const OPEN_WATCH = ["watching", "fixing"];
@@ -18,9 +16,16 @@ document.addEventListener("alpine:init", () => {
     }
   };
 
+  // x-show reveals on the next animation frame, so a scroll sent from $nextTick can land on a hidden panel.
+  const whenShown = (el, then, frames = 10) => {
+    if (el.getClientRects().length) then();
+    else if (frames > 0) (document.hidden ? setTimeout : requestAnimationFrame)(() => whenShown(el, then, frames - 1));
+  };
+
   Alpine.data("sessionPage", (config) => ({
     latest: null,
     watch: null,
+    runCount: 0,
     title: config.title || "",
     titleDraft: "",
     titleWidth: 0,
@@ -32,13 +37,11 @@ document.addEventListener("alpine:init", () => {
     detailsOpen: false,
     wide: false,
     _settling: false,
-    _seq: 0,
     _watchAt: -Infinity,
     _media: null,
     _onMedia: null,
     init() {
-      this.latest = readJSON("session-latest-run");
-      this.watch = readJSON("session-watch");
+      this.applyHeader(readJSON("session-header"));
       this._media = window.matchMedia?.(WIDE) ?? null;
       this.wide = Boolean(this._media?.matches);
       this._onMedia = (event) => {
@@ -75,25 +78,36 @@ document.addEventListener("alpine:init", () => {
     },
     openDetails(section) {
       this.setDetails(true);
-      this.$nextTick(() => document.getElementById(`session-details-${section}`)?.scrollIntoView({ block: "start" }));
+      const el = document.getElementById(`session-details-${section}`);
+      if (el) whenShown(el, () => el.scrollIntoView({ block: "start" }));
     },
     closeSheetDetails() {
       if (!this.wide) this.detailsOpen = false;
     },
+    get _running() {
+      return this.streaming || this.resuming || this._settling;
+    },
+    get busy() {
+      return this._running || this.waiting;
+    },
     get status() {
-      if (this.streaming || this.resuming || this._settling) return { variant: "running", label: config.labels.running };
+      if (this._running) return { variant: "running", label: config.labels.running };
       if (this.waiting) return { variant: "queued", label: config.labels.queued };
       return this.latest;
     },
     get retryUrl() {
-      if (this.streaming || this.resuming || this.waiting || this._settling) return "";
-      return this.latest?.retry_url || "";
+      return this.busy ? "" : this.latest?.retry_url || "";
     },
-    applyPoll(data) {
-      if (!data || data.latest_run === undefined) return;
-      this._seq += 1;
+    // Holds "running" from a run's end until sessionSync's next fetch brings its settled status, rather than
+    // flashing the previous run's.
+    settle() {
+      this._settling = true;
+    },
+    applyHeader(data) {
       this._settling = false;
+      if (!data || data.latest_run === undefined) return;
       this.latest = data.latest_run;
+      this.runCount = data.run_count ?? this.runCount;
       this._takeWatch(data, data.requestedAt);
     },
     // A response asked for before the last toggle answered read the watch from before it; one without `watch` has
@@ -105,24 +119,6 @@ document.addEventListener("alpine:init", () => {
     _setWatch(watch) {
       this.watch = watch ?? null;
       this._watchAt = performance.now();
-    },
-    // Holds "running" until the run's settled status arrives, rather than flashing the previous run's.
-    async refresh() {
-      const token = ++this._seq;
-      const requestedAt = performance.now();
-      this._settling = true;
-      try {
-        const res = await fetch(config.turnsUrl, { headers: { Accept: "application/json" } });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (token !== this._seq) return;
-        this.latest = data.latest_run ?? null;
-        this._takeWatch(data, requestedAt);
-      } catch {
-        // The next poll or run end refreshes it again; a stale status is not worth an error.
-      } finally {
-        if (token === this._seq) this._settling = false;
-      }
     },
     async _send(url, method, body) {
       return fetch(url, {

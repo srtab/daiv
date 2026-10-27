@@ -23,6 +23,7 @@ document.addEventListener("alpine:init", () => {
         to: "",
         repo: "",
         mr: "",
+        ranOn: "",
         schedule: "",
         batch: "",
         archived: false,
@@ -45,6 +46,7 @@ document.addEventListener("alpine:init", () => {
             this.to = p.get("date_to") || "";
             this.repo = p.get("repo") || "";
             this.mr = p.get("mr") || "";
+            this.ranOn = p.get("ran_on") || "";
             this.schedule = p.get("schedule") || "";
             this.batch = p.get("batch") || "";
             this.archived = p.get("archived") === "true";
@@ -75,6 +77,7 @@ document.addEventListener("alpine:init", () => {
             set("date_to", this.to);
             set("repo", this.repo);
             set("mr", this.mr);
+            set("ran_on", this.ranOn);
             set("schedule", this.schedule);
             set("batch", this.batch);
             set("archived", this.archived ? "true" : "");
@@ -138,6 +141,7 @@ document.addEventListener("alpine:init", () => {
             this.to = "";
             this.repo = "";
             this.mr = "";
+            this.ranOn = "";
             this.schedule = "";
             this.batch = "";
             this.archived = false;
@@ -171,6 +175,7 @@ document.addEventListener("alpine:init", () => {
                 this.to ||
                 this.repo ||
                 this.mr ||
+                this.ranOn ||
                 this.schedule ||
                 this.batch ||
                 this.archived

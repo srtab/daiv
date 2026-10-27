@@ -1061,7 +1061,7 @@
       // ``diff`` rather than a joined label: added and removed are tinted separately,
       // the way they are everywhere else a diff is reported. A session page shows it in its details panel instead.
       const stats = this.diffStats;
-      if (!config.diffInHeader && stats && (stats.added || stats.removed)) {
+      if (!config.diffInDetails && stats && (stats.added || stats.removed)) {
         return { tone: "idle", label: "", diff: stats };
       }
       return parts.length ? { tone: "idle", label: parts.join(" · ") } : null;
@@ -1139,10 +1139,6 @@
     get spendTotal() {
       const cost = formatCost(this.spend?.cost_usd);
       return cost ? cost + (this.spend.cost_is_floor ? "+" : "") : "";
-    },
-
-    get spendHeader() {
-      return [this.spendSummary, this.spendTotal].filter(Boolean).join(" · ");
     },
 
     get spendRows() {

@@ -18,6 +18,19 @@ if TYPE_CHECKING:
     from sessions.models import Run, RunArtifact, Session
 
 
+_NEWEST_FIRST = ("-created_at", "-id")
+
+
+def _started_by_q(user: User) -> models.Q:
+    return models.Q(user=user) | models.Q(external_username=user.username)
+
+
+def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]:
+    from sessions.models import Run
+
+    return Run.objects.filter(session=session).order_by(*_NEWEST_FIRST)
+
+
 class SessionQuerySet(models.QuerySet["Session"]):
     def _owner_q(self, user: User) -> models.Q:
         """Ownership predicate shared by ``by_owner``/``visible_to``.
@@ -29,12 +42,9 @@ class SessionQuerySet(models.QuerySet["Session"]):
         """
         from sessions.models import Run
 
-        run_match = Run.objects.filter(session=models.OuterRef("pk")).filter(
-            models.Q(user=user) | models.Q(external_username=user.username)
-        )
+        run_match = Run.objects.started_by(user).filter(session=models.OuterRef("pk"))
         return (
-            models.Q(user=user)
-            | models.Q(external_username=user.username)
+            _started_by_q(user)
             | models.Q(scheduled_job__in=user.subscribed_schedules.values("pk"))
             | models.Exists(run_match)
         )
@@ -112,10 +122,29 @@ class SessionQuerySet(models.QuerySet["Session"]):
 
         NULL for chat-only sessions that predate run tracking.
         """
+        latest = _session_runs_newest_first(models.OuterRef("pk"))
+        return self.annotate(latest_run_status=models.Subquery(latest.values("status")[:1]))
+
+    def with_row_runs(self) -> models.QuerySet[Session]:
+        """Prefetch each session's runs, newest first, with only the columns a session row reads.
+
+        Add a field here if ``sessions/_session_row.html`` starts reading it, or it becomes a deferred-field N+1.
+        """
         from sessions.models import Run
 
-        latest = Run.objects.filter(session=models.OuterRef("pk")).order_by("-created_at", "-id")
-        return self.annotate(latest_run_status=models.Subquery(latest.values("status")[:1]))
+        runs = Run.objects.only(
+            "id",
+            "session_id",
+            "status",
+            "started_at",
+            "finished_at",
+            "merge_request_iid",
+            "merge_request_web_url",
+            "cost_usd",
+            "agent_model",
+            "created_at",
+        ).order_by(*_NEWEST_FIRST)
+        return self.select_related("user", "scheduled_job").prefetch_related(models.Prefetch("runs", queryset=runs))
 
 
 # ``by_owner``/``visible_to``/``with_latest_status`` live on the QuerySet so they chain
@@ -125,13 +154,39 @@ class SessionManager(models.Manager.from_queryset(SessionQuerySet)):
     pass
 
 
-class RunManager(models.Manager["Run"]):
-    def _owner_q(self, user: User) -> models.Q:
-        return (
-            models.Q(user=user)
-            | models.Q(external_username=user.username)
-            | models.Q(session__scheduled_job__subscribers=user)
+class RunQuerySet(models.QuerySet["Run"]):
+    def started_by(self, user: User) -> models.QuerySet[Run]:
+        """Runs the user started, by account or by git platform username; not those of a schedule they subscribe to."""
+        return self.filter(_started_by_q(user))
+
+    def latest_in_session(self) -> models.QuerySet[Run]:
+        """Each session's newest run, whoever started it: the run ``with_latest_status`` reads the status of."""
+        newest = _session_runs_newest_first(models.OuterRef("session")).values("pk")[:1]
+        return self.filter(pk=models.Subquery(newest))
+
+    def with_retried(self, user: User) -> models.QuerySet[Run]:
+        """Annotate ``retried``: a later run in another session took the run up again.
+
+        A job's Retry starts a new session, so that is a later run of the same schedule, or a later prompt-driven
+        run ``user`` started on the same repository with the same prompt.
+        """
+        from sessions.models import SessionOrigin
+
+        later = models.Q(created_at__gt=models.OuterRef("created_at")) & ~models.Q(session=models.OuterRef("session"))
+        rerun = self.model.objects.filter(later, session__scheduled_job=models.OuterRef("session__scheduled_job"))
+        retry = (
+            self.model.objects
+            .started_by(user)
+            .filter(later, trigger_type__in=SessionOrigin.prompt_driven())
+            .filter(repo_id=models.OuterRef("repo_id"), prompt=models.OuterRef("prompt"))
+            .exclude(prompt="")
         )
+        return self.annotate(retried=models.Exists(rerun) | models.Exists(retry))
+
+
+class RunManager(models.Manager.from_queryset(RunQuerySet)):
+    def _owner_q(self, user: User) -> models.Q:
+        return _started_by_q(user) | models.Q(session__scheduled_job__in=user.subscribed_schedules.values("pk"))
 
     def visible_to(self, user: User) -> models.QuerySet[Run]:
         """Runs the user may view: ownership OR a repository they can currently read.
@@ -145,7 +200,7 @@ class RunManager(models.Manager["Run"]):
         # (and its codebase.* / allauth graph) in at app-load time.
         from codebase.authorization import viewable_repo_ids_subquery
 
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
+        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user)))
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)

@@ -233,10 +233,14 @@ def test_an_engaged_page_does_not_check(live_run_id):
     assert result["fetches"] == 0
 
 
-def test_an_idle_page_ignores_its_own_chat_turn_ending():
-    result = _idle([["event", "daiv:live-run-ended"], ["advance", 15000]])
+def test_an_idle_pages_own_chat_turn_ending_refreshes_only_the_header():
+    payload = {"active": False, "live_run": None, "latest_run": None, "turns": []}
 
-    assert result["fetches"] == 0
+    result = _idle([["respond", payload], ["event", "daiv:live-run-ended"], ["advance", 15000]])
+
+    assert result["fetches"] == 1
+    assert [e["type"] for e in result["events"]] == ["daiv:live-run-ended", "daiv:session-header"]
+    assert result["events"][1]["detail"] == {**payload, "requestedAt": 0}
     assert result["reloads"] == 0
 
 

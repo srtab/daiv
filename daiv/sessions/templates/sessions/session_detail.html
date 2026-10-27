@@ -36,8 +36,7 @@
   {{ session_spend|json_script:"chat-session-spend" }}
 
   {% if session %}
-  {{ header.latest_run|json_script:"session-latest-run" }}
-  {{ header.watch|json_script:"session-watch" }}
+  {{ header|json_script:"session-header" }}
   {% translate "Running" as running_label %}
   {% translate "Queued" as queued_label %}
   {% translate "Watching: {state}" as watching_label %}
@@ -99,7 +98,7 @@
          {# Any run in flight, streamed from the relay or polled until it holds the slot, so the load-time #}
          {# scroll can tell "still working" from "finished" without duplicating that logic in JS. #}
          sessionLive: {{ is_in_flight|yesno:"true,false" }},
-         diffInHeader: {{ session|yesno:"true,false" }},
+         diffInDetails: {{ session|yesno:"true,false" }},
          waitingSince: "{{ waiting_since|default:''|escapejs }}",
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if session %}{
@@ -144,10 +143,11 @@
        @daiv:session-settled.window="holdReload($event)"
        x-cloak
        class="session-page">
-  <div class="session-page"
-       {% if session %}x-data="sessionPage({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', sessionUrl: '{% url 'api:session_update' session.thread_id %}', ciWatchUrl: '{% url 'api:session_ci_watch' session.thread_id %}', archiveUrl: '{% url 'api:session_archive' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', title: '{{ page_title|escapejs }}', titleSuffix: 'DAIV Sessions', archived: {{ archived|yesno:'true,false' }}, labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}', watching: '{{ watching_label|escapejs }}', watchOff: '{{ watch_off_label|escapejs }}', watchFailed: '{{ watch_failed_label|escapejs }}' } })"
-       @daiv:session-turns.window="applyPoll($event.detail)"
-       @daiv:live-run-ended.window="refresh()"{% endif %}>
+  <div class="contents"
+       {% if session %}x-data="sessionPage({ sessionUrl: '{% url 'api:session_update' session.thread_id %}', ciWatchUrl: '{% url 'api:session_ci_watch' session.thread_id %}', archiveUrl: '{% url 'api:session_archive' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', title: '{{ page_title|escapejs }}', titleSuffix: 'DAIV Sessions', archived: {{ archived|yesno:'true,false' }}, labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}', watching: '{{ watching_label|escapejs }}', watchOff: '{{ watch_off_label|escapejs }}', watchFailed: '{{ watch_failed_label|escapejs }}' } })"
+       @daiv:session-turns.window="applyHeader($event.detail)"
+       @daiv:session-header.window="applyHeader($event.detail)"
+       @daiv:live-run-ended.window="settle()"{% endif %}>
   {% if session %}
     {% include "sessions/_session_topbar.html" %}
   {% endif %}
