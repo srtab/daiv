@@ -28,12 +28,18 @@ document.addEventListener("alpine:init", () => {
       this._start();
       this.poll();
     },
+    // `requestedAt` lets a listener tell a response from before its own write apart from one after it.
+    async _fetchTurns() {
+      const requestedAt = performance.now();
+      const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return { ...(await res.json()), requestedAt };
+    },
     // One fetch for the top bar only, dispatched even on failure so the page stops holding "running".
     async _refreshHeader() {
       let data = null;
       try {
-        const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
-        if (res.ok) data = await res.json();
+        data = await this._fetchTurns();
       } catch (e) {
         // The next run end or poll refreshes it; a stale status is not worth an error.
       }
@@ -58,9 +64,7 @@ document.addEventListener("alpine:init", () => {
       if (this._engaged || this._checking) return;
       this._checking = true;
       try {
-        const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
-        if (!res.ok) return;
-        const data = await res.json();
+        const data = await this._fetchTurns();
         if (!data.background) return;
         this._engaged = true;
         this._start();
@@ -74,12 +78,7 @@ document.addEventListener("alpine:init", () => {
     async poll() {
       const token = ++this._seq;
       try {
-        const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
-        if (!res.ok) {
-          this._onFailure(`HTTP ${res.status}`);
-          return;
-        }
-        const data = await res.json();
+        const data = await this._fetchTurns();
         if (token !== this._seq) return;
         this._apply(data);
       } catch (e) {

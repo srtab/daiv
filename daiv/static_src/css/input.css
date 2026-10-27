@@ -871,6 +871,86 @@ html {
   .session-menu__icon {
     @apply h-4 w-4 shrink-0 text-text-muted;
   }
+  .session-menu__divider {
+    @apply -mx-1 my-1 h-px bg-border;
+  }
+  .session-menu__item--danger,
+  .session-menu__item--danger .session-menu__icon {
+    @apply text-status-fail;
+  }
+  /* A checkbox item carries a second line, so it grows past the fixed row height. */
+  .session-menu__item--check {
+    @apply h-auto items-start py-2;
+  }
+  .session-menu__item--check[aria-disabled="true"] {
+    @apply cursor-not-allowed hover:bg-transparent;
+  }
+  .session-menu__check {
+    @apply mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-text-faint
+      text-accent-ink;
+  }
+  .session-menu__item--check[aria-checked="true"] .session-menu__check {
+    @apply border-accent bg-accent;
+  }
+  .session-menu__item--check[aria-disabled="true"] .session-menu__check {
+    @apply opacity-50;
+  }
+  .session-menu__hint {
+    @apply block text-[12px] text-text-muted;
+  }
+
+  /* The title renames in place: a pencil on hover or focus, then an input the same size. */
+  /* The pull lives on the flex item, not the button: a negative margin inside a `max-w-full` box truncates early. */
+  .session-topbar__title--editable {
+    @apply -ml-1.5;
+  }
+  .session-title {
+    @apply inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left
+      transition-colors hover:bg-surface-2 focus-visible:bg-surface-2;
+  }
+  .session-title__pencil {
+    @apply h-3.5 w-3.5 shrink-0 text-text-faint opacity-0 transition-opacity;
+  }
+  .session-title:hover .session-title__pencil,
+  .session-title:focus-visible .session-title__pencil {
+    @apply opacity-100;
+  }
+  .session-title__input {
+    @apply -ml-1.5 max-w-full min-w-24 rounded-md border-0 bg-surface-2 px-1.5 py-0.5 text-[14px] font-semibold
+      text-text-strong outline-2 -outline-offset-1 outline-accent outline-solid;
+  }
+  .session-topbar__meta {
+    @apply flex shrink-0 items-center gap-2;
+  }
+  .session-topbar__archived {
+    @apply inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-px text-[11px]
+      font-medium text-text-muted;
+  }
+
+  /* A small modal question, on the native <dialog> for its focus trap, Escape and inert page. */
+  .confirm-dialog {
+    @apply m-auto w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-border bg-surface-2 p-5 text-text
+      shadow-overlay;
+  }
+  .confirm-dialog::backdrop {
+    @apply bg-black/60;
+  }
+  .confirm-dialog__title {
+    @apply text-[15px] font-semibold text-text-strong;
+  }
+  .confirm-dialog__body {
+    @apply mt-2 text-[13px] text-text-muted;
+  }
+  .confirm-dialog__actions {
+    @apply mt-5 flex justify-end gap-2;
+  }
+  .confirm-dialog__button {
+    @apply inline-flex h-8 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-text
+      transition-colors hover:bg-surface-3;
+  }
+  .confirm-dialog__button--danger {
+    @apply border-transparent bg-status-fail text-ground hover:bg-status-fail/85;
+  }
 
   /* From 1100px, the width the composer sheets turn into popovers at, a column; below it a bottom sheet. */
   .session-details {

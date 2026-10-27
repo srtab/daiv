@@ -199,6 +199,25 @@ Centered card for "nothing here yet" and "can't show this" states, classes in `i
 </div>
 ```
 
+### Confirm Dialog
+
+A small yes/no question before a destructive action, on the native `<dialog>` opened with
+`showModal()`, which gives the focus trap, `Esc` and the inert page for free. Classes are in
+`input.css`; the session page's Archive (`sessions/_session_topbar.html`) is the reference:
+
+```html
+<dialog id="…" class="confirm-dialog" aria-labelledby="…-title" aria-describedby="…-body">
+    <h2 id="…-title" class="confirm-dialog__title">…</h2>
+    <p id="…-body" class="confirm-dialog__body">…</p>
+    <form method="dialog" class="confirm-dialog__actions">
+        <button type="submit" class="confirm-dialog__button" autofocus>Cancel</button>
+        <button type="button" class="confirm-dialog__button confirm-dialog__button--danger">…</button>
+    </form>
+</dialog>
+```
+
+Cancel takes the initial focus, so `Enter` never confirms by accident.
+
 ### Page Header
 
 Every page title with actions at its top right is a `.page-header` holding exactly two

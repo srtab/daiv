@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load i18n icon_tags static %}
+{% load i18n icon_tags session_tags static %}
 
 {% block title %}{% if session.title %}{{ session.title }} — {% endif %}DAIV Sessions{% endblock %}
 
@@ -39,6 +39,10 @@
   {{ header|json_script:"session-header" }}
   {% translate "Running" as running_label %}
   {% translate "Queued" as queued_label %}
+  {% translate "Watching: {state}" as watching_label %}
+  {% translate "Off for this merge request" as watch_off_label %}
+  {% translate "Couldn't change the CI watch; try again" as watch_failed_label %}
+  {% session_title session as page_title %}
   <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}', active: {{ is_in_flight|yesno:'true,false' }} })"
        @daiv:live-run-ended.window="resume()"
        style="display:none" aria-hidden="true"></div>
@@ -140,7 +144,7 @@
        x-cloak
        class="session-page">
   <div class="contents"
-       {% if session %}x-data="sessionPage({ storageKey: 'daiv.session-details.{{ request.user.pk }}', labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}' } })"
+       {% if session %}x-data="sessionPage({ sessionUrl: '{% url 'api:session_update' session.thread_id %}', ciWatchUrl: '{% url 'api:session_ci_watch' session.thread_id %}', archiveUrl: '{% url 'api:session_archive' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', title: '{{ page_title|escapejs }}', titleSuffix: 'DAIV Sessions', archived: {{ archived|yesno:'true,false' }}, labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}', watching: '{{ watching_label|escapejs }}', watchOff: '{{ watch_off_label|escapejs }}', watchFailed: '{{ watch_failed_label|escapejs }}' } })"
        @daiv:session-turns.window="applyHeader($event.detail)"
        @daiv:session-header.window="applyHeader($event.detail)"
        @daiv:live-run-ended.window="settle()"{% endif %}>

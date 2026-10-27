@@ -1,4 +1,4 @@
-"""The package's only git-platform I/O, and its three deliberately different error policies."""
+"""The package's only git-platform I/O, and its deliberately different error policies."""
 
 from types import SimpleNamespace
 
@@ -55,6 +55,23 @@ async def test_a_read_failure_propagates():
 
     with pytest.raises(RuntimeError):
         await WatchPlatform("group/repo", BrokenClient()).aread_pipeline(ref="daiv/branch", pipeline_id=42)
+
+
+async def test_a_merge_request_read_returns_the_merge_request():
+    client = FakeClient(head_sha="feed")
+    merge_request = await WatchPlatform("group/repo", client).aread_merge_request(7)
+
+    assert client.calls == [("get_merge_request", "group/repo", 7)]
+    assert merge_request.sha == "feed"
+
+
+async def test_a_merge_request_read_failure_propagates():
+    class BrokenClient(FakeClient):
+        def get_merge_request(self, repo_id, merge_request_id):
+            raise RuntimeError("platform down")
+
+    with pytest.raises(RuntimeError):
+        await WatchPlatform("group/repo", BrokenClient()).aread_merge_request(7)
 
 
 async def test_a_pipeline_at_the_head_correlates():

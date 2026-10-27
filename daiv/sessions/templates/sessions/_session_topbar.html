@@ -1,15 +1,37 @@
 {% load i18n icon_tags session_tags %}
 {% comment %}
 Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request and CI read state the stream and poll update.
+``can_act`` (run access to the repository) shows rename and the CI toggle; Archive only changes the viewer's own list.
 {% endcomment %}
 {% session_title session as title %}
 <header class="session-topbar" data-testid="session-topbar">
-  <div class="session-topbar__heading">
-    <h1 class="session-topbar__title" title="{{ title }}">{{ title }}</h1>
-    <span class="session-topbar__status" x-show="status" x-cloak data-testid="session-status">
-      <span class="status-dot" :class="'status-dot-' + (status?.variant || 'pending')"></span>
-      <span x-text="status?.label || ''">{{ header.latest_run.label }}</span>
-    </span>
+  <div class="session-topbar__heading" {% if can_act %}:class="{ 'flex-1': editingTitle }"{% endif %}>
+    {% if can_act %}
+      <h1 class="session-topbar__title session-topbar__title--editable" x-show="!editingTitle" :title="title" title="{{ title }}">
+        <button type="button" class="session-title" x-ref="titleButton" @click="startRename()"
+                aria-label="{% translate 'Rename session' %}" data-testid="session-rename">
+          <span class="truncate" x-text="title">{{ title }}</span>{% icon "pencil" "session-title__pencil" %}
+        </button>
+      </h1>
+      <input type="text" class="session-title__input" x-ref="titleInput" x-show="editingTitle" x-cloak
+             x-model="titleDraft" maxlength="{{ max_title_length }}" :style="titleWidth && { width: titleWidth + 'px' }"
+             @keydown.enter.prevent="commitRename()"
+             @keydown.escape.prevent.stop="cancelRename()"
+             @blur="commitRename()"
+             aria-label="{% translate 'Session title' %}" data-testid="session-title-input">
+    {% else %}
+      <h1 class="session-topbar__title" title="{{ title }}">{{ title }}</h1>
+    {% endif %}
+    <div class="session-topbar__meta">
+      <span class="session-topbar__status" x-show="status" x-cloak data-testid="session-status">
+        <span class="status-dot" :class="'status-dot-' + (status?.variant || 'pending')"></span>
+        <span x-text="status?.label || ''">{{ header.latest_run.label }}</span>
+      </span>
+      <span class="session-topbar__archived" x-show="archived" {% if not archived %}x-cloak{% endif %}
+            data-testid="session-archived">
+        {% icon "archive-box" "h-3 w-3" %}{% translate "Archived" %}
+      </span>
+    </div>
   </div>
 
   <div class="session-topbar__actions">
@@ -58,6 +80,21 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
              :href="'{% url 'session_list' %}?repo={{ session.repo_id|urlencode }}&mr=' + thread.merge_request.id">
             {% icon "list-bullet" "session-menu__icon" %}<span x-text="'{{ _("Other sessions on")|escapejs }} !' + thread.merge_request.id"></span>
           </a>
+          {% if can_act %}
+            <div class="session-menu__divider" role="separator" x-show="thread.merge_request.id"></div>
+            <button type="button" role="menuitemcheckbox" tabindex="-1"
+                    class="session-menu__item session-menu__item--check"
+                    x-show="thread.merge_request.id"
+                    :aria-checked="ciWatchOn.toString()"
+                    :aria-disabled="(ciWatchDisabled || ciWatchBusy).toString()"
+                    @click="toggleCiWatch(thread.merge_request.id)" data-testid="session-ci-toggle">
+              <span class="session-menu__check" aria-hidden="true">{% icon "check" "h-3 w-3" %}</span>
+              <span class="min-w-0">
+                {% translate "Fix CI failures" %}
+                <span class="session-menu__hint" x-text="ciWatchHint"></span>
+              </span>
+            </button>
+          {% endif %}
         </div>
       </div>
     </template>
@@ -112,7 +149,26 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
             {% icon "arrow-top-right-on-square" "h-3.5 w-3.5 text-text-faint" %}
           </a>
         {% endif %}
+        <div class="session-menu__divider" role="separator"></div>
+        <button type="button" role="menuitem" tabindex="-1" class="session-menu__item"
+                :class="{ 'session-menu__item--danger': !archived }"
+                @click="close(true); archived ? setArchived(false) : askArchive()"
+                data-testid="session-archive">
+          {% icon "archive-box" "session-menu__icon" %}<span x-text="archived ? '{{ _("Unarchive")|escapejs }}' : '{{ _("Archive")|escapejs }}'">{% if archived %}{% translate "Unarchive" %}{% else %}{% translate "Archive" %}{% endif %}</span>
+        </button>
       </div>
     </div>
   </div>
 </header>
+<dialog id="session-archive-dialog" class="confirm-dialog" aria-labelledby="session-archive-dialog-title"
+        aria-describedby="session-archive-dialog-body" data-testid="session-archive-dialog">
+  <h2 id="session-archive-dialog-title" class="confirm-dialog__title">{% translate "Archive this session?" %}</h2>
+  <p id="session-archive-dialog-body" class="confirm-dialog__body">
+    {% translate "It leaves your session list; the Archived filter still finds it. Others still see it, and you can keep working in it." %}
+  </p>
+  <form method="dialog" class="confirm-dialog__actions">
+    <button type="submit" value="cancel" class="confirm-dialog__button" autofocus>{% translate "Cancel" %}</button>
+    <button type="button" class="confirm-dialog__button confirm-dialog__button--danger"
+            @click="$el.closest('dialog').close(); setArchived(true)">{% translate "Archive" %}</button>
+  </form>
+</dialog>

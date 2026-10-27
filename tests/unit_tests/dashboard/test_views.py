@@ -12,7 +12,7 @@ from dashboard.home import INBOX_LIMIT
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
 from notifications.models import RunEnvelope
-from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
@@ -339,6 +339,14 @@ class TestRecentSessions:
         assert "claude-test-model" not in home
         assert "claude-test-model" in listed
 
+    def test_leaves_out_what_you_archived(self, member_user, member_client):
+        shown = _make_session(member_user, SessionOrigin.CHAT, days_ago=1)
+        HiddenSession.objects.create(session=_make_session(member_user, SessionOrigin.CHAT), user=member_user)
+
+        response = member_client.get(reverse("dashboard"))
+
+        assert [s.pk for s in response.context["recent_sessions"]] == [shown.pk]
+
     def test_hidden_when_you_have_none(self, admin_user, member_client):
         _make_session(admin_user, SessionOrigin.CHAT)
 
@@ -488,6 +496,16 @@ class TestInsightsPage:
             assert _list_count(member_client, segment["url"]) == segment["value"], segment["label"]
         assert _list_count(member_client, breakdown["sessions_url"]) == breakdown["sessions_total"] == 2
         assert _list_count(member_client, breakdown["sessions_failed_url"]) == breakdown["sessions_failed"] == 1
+
+    def test_sessions_you_archived_are_not_counted(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT)
+        archived = _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
+        HiddenSession.objects.create(session=archived, user=member_user)
+
+        breakdown = _insights(member_client)["breakdown"]
+
+        assert (breakdown["sessions_total"], breakdown["sessions_failed"]) == (1, 0)
+        assert _list_count(member_client, breakdown["sessions_url"]) == 1
 
     def test_runs_chart_has_a_column_per_day_by_outcome(self, member_user, member_client):
         changed = _make_session(member_user, SessionOrigin.UI_JOB, days_ago=2)

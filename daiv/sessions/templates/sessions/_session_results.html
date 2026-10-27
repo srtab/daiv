@@ -38,3 +38,9 @@
     {% endif %}
 </div>
 {% endif %}
+{% if archived_matches %}
+<p class="mt-4 text-center text-sm text-gray-400" data-testid="archived-matches">
+    {% blocktranslate count n=archived_matches %}{{ n }} archived session matches too.{% plural %}{{ n }} archived sessions match too.{% endblocktranslate %}
+    <a href="{% querystring archived='true' page=None %}" class="text-gray-300 underline hover:text-white">{% translate "Show archived" %}</a>
+</p>
+{% endif %}

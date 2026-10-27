@@ -26,6 +26,7 @@ document.addEventListener("alpine:init", () => {
         ranOn: "",
         schedule: "",
         batch: "",
+        archived: false,
 
         init() {
             this._readUrl();
@@ -48,6 +49,7 @@ document.addEventListener("alpine:init", () => {
             this.ranOn = p.get("ran_on") || "";
             this.schedule = p.get("schedule") || "";
             this.batch = p.get("batch") || "";
+            this.archived = p.get("archived") === "true";
         },
 
         _labelFor(kind, value) {
@@ -78,6 +80,7 @@ document.addEventListener("alpine:init", () => {
             set("ran_on", this.ranOn);
             set("schedule", this.schedule);
             set("batch", this.batch);
+            set("archived", this.archived ? "true" : "");
             const qs = params.toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
             this.open = null;
@@ -121,6 +124,10 @@ document.addEventListener("alpine:init", () => {
             this.to = "";
             this._apply();
         },
+        toggleArchived() {
+            this.archived = !this.archived;
+            this._apply();
+        },
         clearParam(...keys) {
             keys.forEach((key) => (this[key] = ""));
             this._apply();
@@ -137,6 +144,7 @@ document.addEventListener("alpine:init", () => {
             this.ranOn = "";
             this.schedule = "";
             this.batch = "";
+            this.archived = false;
             this._apply();
         },
 
@@ -169,7 +177,8 @@ document.addEventListener("alpine:init", () => {
                 this.mr ||
                 this.ranOn ||
                 this.schedule ||
-                this.batch
+                this.batch ||
+                this.archived
             );
         },
     }));

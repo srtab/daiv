@@ -53,6 +53,7 @@ from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
+from sessions.titling import MAX_TITLE_LENGTH
 from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
 from sessions.turns import build_turns
 from slash_commands.composer import composer_command_rows
@@ -146,6 +147,13 @@ class SessionListView(LoginRequiredMixin, FilterView):
     def scope(self) -> str:
         return resolve_scope(self.request.GET)
 
+    @cached_property
+    def archived(self) -> bool:
+        return self.request.GET.get("archived") == "true"
+
+    def _listed(self, *, archived: bool) -> QuerySet[Session]:
+        return Session.objects.listed_for(self.request.user, mine=self.scope == SCOPE_MINE, archived=archived)
+
     def get_template_names(self) -> list[str]:
         # HTMX requests get just the results fragment so the filter bar and page
         # chrome stay put; a normal GET renders the full page (deep-link / no-JS safe).
@@ -157,7 +165,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
         # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
         # gives the SSE dot the real ``Run.id`` to key live updates on.
-        return Session.objects.listed_for(self.request.user, mine=self.scope == SCOPE_MINE).with_row_runs()
+        return self._listed(archived=self.archived).with_row_runs()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -180,6 +188,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
         context["current_to"] = self.request.GET.get("date_to", "")
+        context["current_archived"] = self.archived
         context["has_active_filters"] = any([
             context["current_q"],
             context["current_status"],
@@ -192,7 +201,11 @@ class SessionListView(LoginRequiredMixin, FilterView):
             context["current_range"],
             context["current_from"],
             context["current_to"],
+            context["current_archived"],
         ])
+        if context["has_active_filters"] and not self.archived:
+            archived = SessionFilter(self.request.GET, queryset=self._listed(archived=True))
+            context["archived_matches"] = archived.qs.count()
         context["origins"] = SessionOrigin.choices
         context["statuses"] = STATUS_CHOICES
         context["scopes"] = SCOPE_CHOICES
@@ -344,7 +357,10 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
         ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
         retry_urls = mark_retryable(ctx["turns"], runs, self.request.user)
-        ctx["header"] = build_session_header(session, runs, retry_urls)
+        ctx["header"] = build_session_header(session, runs, retry_urls, merge_request=merge_request)
+        ctx["can_act"] = can_run(self.request.user, session.repo_id)
+        ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
+        ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats

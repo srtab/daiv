@@ -580,6 +580,26 @@ class RunArtifact(models.Model):
         return artifact_kind(self.content_type)
 
 
+class HiddenSession(models.Model):
+    """A session one user archived out of their own session list; everyone else still lists it."""
+
+    session = models.ForeignKey(
+        Session, on_delete=models.CASCADE, related_name="hidden_by", verbose_name=_("session"), db_index=False
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="hidden_sessions", verbose_name=_("user")
+    )
+    hidden_at = models.DateTimeField(_("archived at"), default=timezone.now, editable=False)
+
+    class Meta:
+        verbose_name = _("Archived Session")
+        verbose_name_plural = _("Archived Sessions")
+        constraints = [models.UniqueConstraint(fields=["session", "user"], name="hidden_session_unique")]
+
+    def __str__(self) -> str:
+        return f"Session {self.session_id} archived by {self.user_id}"
+
+
 class SessionArchive(models.Model):
     """One context of a session's agent state, as of the last run archived into it.
 

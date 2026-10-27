@@ -8,6 +8,7 @@ from django.utils import timezone
 import pytest
 from sessions.header import build_session_header, issue_link, latest_run_payload, watch_payload
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.pipeline_watch.store import watch_thread_id
 
 from codebase.base import GitPlatform
 from codebase.models import RepositoryCatalog
@@ -119,24 +120,23 @@ def test_issue_link_is_only_for_issue_webhook_sessions():
     assert issue_link(session, [_issue_run(session, 7)]) is None
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("state", "label", "tone"),
+    ("state", "label", "tone", "is_open"),
     [
-        (WatchState.WATCHING, "Waiting for CI", "attn"),
-        (WatchState.FIXING, "Fixing", "attn"),
-        (WatchState.GREEN, "Green", "clear"),
-        (WatchState.EXHAUSTED, "Attempts exhausted", "fail"),
-        (WatchState.UNCLEAR, "CI unreadable", "found"),
+        (WatchState.WATCHING, "Waiting for CI", "attn", True),
+        (WatchState.FIXING, "Fixing", "attn", True),
+        (WatchState.GREEN, "Green", "clear", False),
+        (WatchState.EXHAUSTED, "Attempts exhausted", "fail", False),
+        (WatchState.UNCLEAR, "CI unreadable", "found", False),
     ],
 )
-def test_watch_payload_tones_the_ci_watch(state, label, tone):
-    assert watch_payload(_session(watch_state=state)) == {"state": state, "label": label, "tone": tone}
+def test_watch_payload_tones_the_ci_watch(state, label, tone, is_open):
+    assert watch_payload(state) == {"state": state, "label": label, "tone": tone, "open": is_open}
 
 
-@pytest.mark.django_db
-def test_watch_payload_is_none_when_nothing_is_watched():
-    assert watch_payload(_session(watch_state=WatchState.OFF)) is None
+@pytest.mark.parametrize("state", [WatchState.OFF, None])
+def test_watch_payload_is_none_when_nothing_is_watched(state):
+    assert watch_payload(state) is None
 
 
 @pytest.mark.django_db
@@ -150,3 +150,58 @@ def test_build_session_header_gathers_the_pages_context():
     assert header["watch"]["tone"] == "clear"
     assert header["issue"] is None
     assert header["run_count"] == 2
+
+
+@pytest.mark.django_db
+def test_merge_request_iid_prefers_the_checkpoints_then_the_sessions_then_the_newest_runs():
+    from sessions.header import merge_request_iid
+
+    session = _session()
+    runs = [_run(session, merge_request_iid=3), _run(session, merge_request_iid=4), _run(session)]
+
+    assert merge_request_iid(session, runs, {"id": 9}) == 9
+    assert merge_request_iid(session, runs, None) == 4
+    session.merge_request_iid = 5
+    assert merge_request_iid(session, runs, None) == 5
+    assert merge_request_iid(_session(), [], None) is None
+
+
+@pytest.mark.django_db
+def test_the_watch_is_read_off_the_merge_requests_thread():
+    """A chat session that published the merge request shows the watch the MR's own thread holds."""
+    from sessions.header import watch_state
+
+    session = _session(watch_state=WatchState.OFF)
+    mr_thread = _session(
+        thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.FIXING
+    )
+
+    assert watch_state(session, 7) == WatchState.FIXING
+    assert watch_state(session, 8) is None
+    assert watch_state(session, None) == WatchState.OFF
+    assert watch_state(mr_thread, 7) == WatchState.FIXING
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_awatch_state_reads_the_merge_requests_thread_but_not_the_session_itself():
+    from asgiref.sync import sync_to_async
+    from sessions.header import awatch_state
+
+    session = await sync_to_async(_session)(watch_state=WatchState.OFF)
+    mr_thread = await sync_to_async(_session)(
+        thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.WATCHING
+    )
+    await Session.objects.filter(pk=mr_thread.pk).aupdate(watch_state=WatchState.FIXING)
+
+    assert await awatch_state(session, 7) == WatchState.FIXING
+    assert await awatch_state(mr_thread, 7) == WatchState.WATCHING
+
+
+@pytest.mark.django_db
+def test_build_session_header_reads_the_watch_of_the_checkpoints_merge_request():
+    session = _session()
+    _session(thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.GREEN)
+
+    header = build_session_header(session, [], {}, merge_request={"id": 7})
+
+    assert header["watch"]["state"] == WatchState.GREEN

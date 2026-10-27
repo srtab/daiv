@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 import pytest
+from asgiref.sync import sync_to_async
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import WatchStore
 
@@ -120,3 +121,13 @@ async def test_a_pipeline_webhook_run_is_a_fix_run():
 
     assert await store.ais_fix_run(str(run.pk)) is True
     assert await store.ais_fix_run(str(other.pk)) is False
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_state_read_is_none_without_a_row():
+    await _make("stated", watch_state=WatchState.GREEN)
+
+    assert await WatchStore().astate("stated") == WatchState.GREEN
+    assert await WatchStore().astate("missing") is None
+    assert await sync_to_async(WatchStore().state)("stated") == WatchState.GREEN
+    assert await sync_to_async(WatchStore().state)("missing") is None

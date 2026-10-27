@@ -82,15 +82,15 @@ async def reconcile_pipeline_watches_cron_task():
 def generate_title_task(pk: str, prompt: str, repo_id: str, ref: str = "") -> None:
     """Overwrite a chat Session's heuristic title with an LLM-generated one.
 
+    The write lands only while the title is still the heuristic one ``prompt`` gave it, so a rename is kept.
+
     Failures propagate to django-tasks (which logs + marks the task failed); the heuristic title set synchronously
     remains.
     """
     from sessions.models import Session
-    from sessions.titling import TitlerNotConfiguredError, generate_title
+    from sessions.titling import TitlerNotConfiguredError, generate_title, heuristic_title
 
-    try:
-        session = Session.objects.get(pk=pk)
-    except Session.DoesNotExist:
+    if not Session.objects.filter(pk=pk).exists():
         logger.warning("generate_title_task: session with pk=%s not found, skipping", pk)
         return
 
@@ -107,8 +107,8 @@ def generate_title_task(pk: str, prompt: str, repo_id: str, ref: str = "") -> No
         )
         return
 
-    session.title = title
-    session.save(update_fields=["title"])
+    if not Session.objects.filter(pk=pk, title=heuristic_title(prompt)).update(title=title):
+        logger.info("generate_title_task: session pk=%s was renamed, keeping its title", pk)
 
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_TITLING)

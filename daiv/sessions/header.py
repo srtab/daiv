@@ -3,6 +3,9 @@ and retry link, the CI watch on its merge request, and the issue an issue-webhoo
 
 ``latest_run_payload`` and ``watch_payload`` are also what the turns poll returns, so what the page rendered and what
 keeps it current are built by the same code.
+
+The CI watch lives on the merge request's own thread, which a chat or job session that published the merge request
+is not, so ``watch_state`` reads it off that row.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
 from sessions.models import SessionOrigin, WatchState
+from sessions.pipeline_watch.store import WatchStore, watch_thread_id
 from sessions.templatetags.session_tags import status_variant
 
 if TYPE_CHECKING:
@@ -43,12 +47,41 @@ def latest_run_payload(runs: list[Run], retry_urls: dict[str, str]) -> dict[str,
     }
 
 
-def watch_payload(session: Session) -> dict[str, str] | None:
-    """The CI watch on the session's merge request, or ``None`` when nothing is watched."""
-    tone = _WATCH_TONES.get(session.watch_state)
+def merge_request_iid(session: Session, runs: list[Run], merge_request: dict | None) -> int | None:
+    """The merge request the page shows: the checkpoint's, else the session's own, else the newest run's."""
+    if iid := (merge_request or {}).get("id"):
+        return iid
+    if session.merge_request_iid:
+        return session.merge_request_iid
+    return next((r.merge_request_iid for r in reversed(runs) if r.merge_request_iid), None)
+
+
+def _other_watch_thread(session: Session, iid: int | None) -> str | None:
+    """The thread holding the CI watch on merge request ``iid``, or ``None`` when ``session`` holds it itself."""
+    if not iid or not session.repo_id:
+        return None
+    thread_id = watch_thread_id(session.repo_id, iid)
+    return None if thread_id == session.thread_id else thread_id
+
+
+def watch_state(session: Session, iid: int | None) -> str | None:
+    """SYNC ONLY: the state of the CI watch on merge request ``iid``; ``None`` while nothing ever armed one."""
+    thread_id = _other_watch_thread(session, iid)
+    return session.watch_state if thread_id is None else WatchStore().state(thread_id)
+
+
+async def awatch_state(session: Session, iid: int | None) -> str | None:
+    """:func:`watch_state` for async callers."""
+    thread_id = _other_watch_thread(session, iid)
+    return session.watch_state if thread_id is None else await WatchStore().astate(thread_id)
+
+
+def watch_payload(state: str | None) -> dict[str, Any] | None:
+    """The CI watch in ``state``, or ``None`` when nothing is watched; ``open`` while it still waits on or fixes CI."""
+    tone = _WATCH_TONES.get(state)
     if tone is None:
         return None
-    return {"state": session.watch_state, "label": str(session.get_watch_state_display()), "tone": tone}
+    return {"state": state, "label": str(WatchState(state).label), "tone": tone, "open": state in WatchState.open()}
 
 
 def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
@@ -77,11 +110,13 @@ def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
     return {"iid": iid, "url": f"{html_url.rstrip('/')}/{path}/{iid}"}
 
 
-def build_session_header(session: Session, runs: list[Run], retry_urls: dict[str, str]) -> dict[str, Any]:
-    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first."""
+def build_session_header(
+    session: Session, runs: list[Run], retry_urls: dict[str, str], *, merge_request: dict | None = None
+) -> dict[str, Any]:
+    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first and the ``merge_request`` the page shows."""
     return {
         "latest_run": latest_run_payload(runs, retry_urls),
-        "watch": watch_payload(session),
+        "watch": watch_payload(watch_state(session, merge_request_iid(session, runs, merge_request))),
         "issue": issue_link(session, runs),
         "run_count": len(runs),
     }

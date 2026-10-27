@@ -11,7 +11,7 @@ from django.utils.html import escapejs
 import pytest
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
-from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
 
 from tests.unit_tests.sessions.conftest import create_archive, grant_read_access, make_artifact
 
@@ -934,7 +934,7 @@ def test_detail_has_a_top_bar_and_no_breadcrumb(member_client, member_user):
 
     resp = _get_detail(member_client, session)
 
-    assert "Fix the login redirect</h1>" in _topbar(resp)
+    assert 'x-text="title">Fix the login redirect</span>' in _topbar(resp)
     assert b'data-testid="app-breadcrumb"' not in resp.content
     assert "breadcrumbs" not in resp.context
 
@@ -1080,7 +1080,7 @@ def test_detail_hands_the_ci_watch_to_the_page(member_client, member_user):
 
     resp = _get_detail(member_client, session)
 
-    assert resp.context["header"]["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn"}
+    assert resp.context["header"]["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn", "open": True}
     assert b'id="session-header"' in resp.content
 
 
@@ -1139,3 +1139,85 @@ def test_session_new_chat_has_no_top_bar_or_panel(member_client):
     assert b"composer-sheet--context" in resp.content
     assert b"diffInDetails: false" in resp.content
     assert b"chat-hero" in resp.content
+
+
+@pytest.mark.django_db
+def test_detail_offers_rename_the_ci_toggle_and_archive_to_a_runner(member_client, member_user):
+    session = _create_session(user=member_user, title="Fix the login redirect")
+
+    resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
+    topbar = _topbar(resp)
+    html = resp.content.decode()
+
+    assert 'data-testid="session-rename"' in topbar
+    assert 'data-testid="session-title-input"' in topbar
+    assert 'role="menuitemcheckbox"' in topbar
+    assert "Fix CI failures" in topbar
+    assert 'data-testid="session-archive"' in topbar
+    assert 'data-testid="session-archive-dialog"' in html
+    assert f"sessionUrl: '{reverse('api:session_update', kwargs={'thread_id': session.thread_id})}'" in html
+    assert f"ciWatchUrl: '{reverse('api:session_ci_watch', kwargs={'thread_id': session.thread_id})}'" in html
+    assert f"archiveUrl: '{reverse('api:session_archive', kwargs={'thread_id': session.thread_id})}'" in html
+    assert "title: 'Fix the login redirect'" in html
+
+
+@pytest.mark.django_db
+def test_detail_offers_only_archive_to_a_viewer_who_cannot_run(member_client, member_user):
+    session = _create_session(user=member_user, title="Fix the login redirect")
+
+    with patch("sessions.views.can_run", return_value=False):
+        resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
+    topbar = _topbar(resp)
+
+    assert 'title="Fix the login redirect">Fix the login redirect</h1>' in topbar
+    for testid in ("session-rename", "session-title-input", "session-ci-toggle"):
+        assert f'data-testid="{testid}"' not in topbar
+    assert 'data-testid="session-archive"' in topbar
+    assert b'data-testid="session-archive-dialog"' in resp.content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("archived", [False, True])
+def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, admin_user, archived):
+    session = _create_session(user=member_user)
+    HiddenSession.objects.create(session=session, user=member_user if archived else admin_user)
+
+    resp = _get_detail(member_client, session)
+    topbar = _topbar(resp)
+    note = topbar[: topbar.index('data-testid="session-archived"')].rsplit("<span", 1)[1]
+
+    assert ("x-cloak" not in note) is archived
+    assert f"archived: {'true' if archived else 'false'}," in resp.content.decode()
+    item = topbar[topbar.index('data-testid="session-archive"') :]
+    assert (">Unarchive</span>" in item) is archived
+
+
+@pytest.mark.django_db
+def test_detail_reads_the_watch_off_the_merge_requests_thread(member_client, member_user):
+    from sessions.pipeline_watch.store import watch_thread_id
+
+    session = _create_session(user=member_user)
+    _create_session(thread_id=watch_thread_id(session.repo_id, 5), merge_request_iid=5, watch_state=WatchState.WATCHING)
+
+    with (
+        patch(
+            "sessions.views.ahydrate_thread",
+            AsyncMock(return_value=HydratedThread([], False, {"id": 5, "source_branch": "b"}, None, None)),
+        ),
+        patch("sessions.transcript.runnable_repo_ids", return_value=set()),
+    ):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.context["header"]["watch"]["state"] == WatchState.WATCHING
+
+
+@pytest.mark.django_db
+def test_detail_reads_the_watch_of_a_merge_request_found_by_its_branch(member_client, member_user):
+    from sessions.pipeline_watch.store import watch_thread_id
+
+    session = _create_session(user=member_user, ref="feature")
+    _create_session(thread_id=watch_thread_id(session.repo_id, 5), merge_request_iid=5, watch_state=WatchState.FIXING)
+
+    resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
+
+    assert resp.context["header"]["watch"]["state"] == WatchState.FIXING
