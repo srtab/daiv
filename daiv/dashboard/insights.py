@@ -128,13 +128,17 @@ def _pct(numerator: int, denominator: int) -> int | None:
     return round(numerator / denominator * 100) if denominator else None
 
 
-def _change(current, previous, *, text=str, unit: str = "") -> dict | None:
-    """How ``current`` moved from ``previous``, for the line under a number; None when there is nothing to compare."""
+def _change(current, previous, *, text=str, unit: str = "", was_unit: str | None = None) -> dict | None:
+    """How ``current`` moved from ``previous``, for the line under a number; None when there is nothing to compare.
+
+    ``was_unit`` defaults to ``unit``; a rate differs, its change is in points and its earlier value a percentage.
+    """
     if current is None or previous is None:
         return None
     delta = current - previous
     direction = "up" if delta > 0 else "down" if delta < 0 else "flat"
-    return {"direction": direction, "amount": f"{text(abs(delta))}{unit}", "was": f"{text(previous)}{unit}"}
+    was_unit = unit if was_unit is None else was_unit
+    return {"direction": direction, "amount": f"{text(abs(delta))}{unit}", "was": f"{text(previous)}{was_unit}"}
 
 
 def _visible_runs(user: User) -> QuerySet[Run]:
@@ -181,7 +185,7 @@ def activity(user: User, window: Window) -> dict:
         "total_change": change("total"),
         "success_rate": f"{current['success_rate']}%" if current["success_rate"] is not None else "—",
         "success_rate_css": success_rate_css(current["success_rate"]),
-        "success_rate_change": change("success_rate", unit=" pts"),
+        "success_rate_change": change("success_rate", unit=" pts", was_unit="%"),
         "failed": current["failed"],
         "code_changes": current["code_changes"],
         "code_changes_pct": f"{p}%" if (p := _pct(current["code_changes"], current["successful"])) is not None else "—",
@@ -260,7 +264,12 @@ def _stacked_chart(by_bucket: dict[date, dict[str, int]], window: Window, kinds:
         {"label": label, "css": css, "count": sum(c.get(key, 0) for c in by_bucket.values())}
         for key, label, css, _q in kinds
     ]
-    return {"columns": columns, "legend": legend, "height_px": CHART_HEIGHT_PX}
+    return {
+        "columns": columns,
+        "legend": legend,
+        "height_px": CHART_HEIGHT_PX,
+        "empty": not any(column["total"] for column in columns),
+    }
 
 
 def _runs_chart(runs: QuerySet[Run], window: Window) -> dict | None:
@@ -325,6 +334,7 @@ def session_breakdown(user: User, window: Window) -> dict:
         "sessions_failed": sum(row["failed"] for row in rows),
         "sessions_failed_url": session_list_url({**period, "status": RunStatus.FAILED}),
         "previous_window": previous_window,
+        "has_sparks": any(segment["spark"] for segment in segments),
     }
 
 

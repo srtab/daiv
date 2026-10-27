@@ -71,6 +71,9 @@ class TestChange:
     def test_down_with_unit(self):
         assert _change(90, 92, unit=" pts") == {"direction": "down", "amount": "2 pts", "was": "92 pts"}
 
+    def test_a_rate_changes_in_points_and_was_a_percentage(self):
+        assert _change(72, 100, unit=" pts", was_unit="%") == {"direction": "down", "amount": "28 pts", "was": "100%"}
+
     def test_nothing_to_compare(self):
         assert _change(5, None) is None
         assert _change(None, 5) is None

@@ -214,6 +214,31 @@ class TestInsightsPage:
         assert [(s["label"], s["count"]) for s in two_days_ago["segments"]] == [("Changed code", 1)]
         assert _list_count(member_client, two_days_ago["url"]) == 1
 
+    def test_success_rate_change_is_in_points_and_was_a_rate(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
+        earlier = _make_session(member_user, SessionOrigin.CHAT, days_ago=9)
+        Run.objects.filter(session=earlier).update(created_at=_local_noon(9))
+
+        change = _insights(member_client)["activity"]["success_rate_change"]
+
+        assert change == {"direction": "down", "amount": "100 pts", "was": "100%"}
+
+    def test_no_runs_shows_an_empty_state_not_a_blank_chart(self, member_client):
+        response = member_client.get(reverse("insights"))
+
+        assert response.context["activity"]["chart"]["empty"] is True
+        content = response.content.decode()
+        assert 'data-testid="runs-chart-empty"' in content
+        assert 'data-testid="runs-chart"' not in content
+
+    def test_today_has_no_over_time_column(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT)
+
+        response = member_client.get(reverse("insights"), {"period": "today"})
+
+        assert response.context["breakdown"]["has_sparks"] is False
+        assert "Over time" not in response.content.decode()
+
     def test_one_day_has_no_chart(self, member_user, member_client):
         _make_session(member_user, SessionOrigin.CHAT)
 
