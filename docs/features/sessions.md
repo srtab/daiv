@@ -47,7 +47,7 @@ The Home page (`/dashboard/`) opens with **Needs you**: what is waiting on you, 
 - **Needs input** — your session's latest run asked you a question. It leaves when you answer.
 - **Found issues** / **Needs attention** — your session's latest run was classified that way. Shown for 7 days, since a fix made outside DAIV leaves no trace it can see.
 
-Below it are your five most recent sessions, the ways to start work (issue labels, mentions and slash commands on your Git platform; this instance's MCP URL for your editor; Chat and Run here), and the activity statistics, which default to the last 7 days.
+Below it are your five most recent sessions, the ways to start work (issue labels, mentions and slash commands on your Git platform; this instance's MCP URL for your editor; Chat and Background run here), and the activity statistics, which default to the last 7 days.
 
 ## Sessions list
 
