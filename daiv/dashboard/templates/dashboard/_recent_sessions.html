@@ -1,0 +1,13 @@
+{% load i18n %}
+<section aria-labelledby="recent-sessions-heading" data-testid="recent-sessions"
+         x-data="sessionStream('{% url "session_stream" %}', '{{ recent_in_flight_ids }}')">
+    <div class="mb-3 flex items-baseline justify-between gap-3">
+        <h2 id="recent-sessions-heading" class="text-[15px] font-semibold tracking-tight text-text">{% translate "Your recent sessions" %}</h2>
+        <a href="{{ my_sessions_url }}" class="text-sm text-text-muted transition-colors hover:text-text">{% translate "All your sessions" %} &rarr;</a>
+    </div>
+    <div class="overflow-hidden rounded-2xl border border-border bg-surface-2 [&>.session-row:first-child]:border-t-0">
+        {% for session in recent_sessions %}
+        {% include "sessions/_session_row.html" with session=session compact=True %}
+        {% endfor %}
+    </div>
+</section>

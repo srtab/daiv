@@ -123,6 +123,13 @@
                class="filter-chip__x" aria-label="{% translate 'Clear merge request filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
+        {% if current_ran_on %}
+        <span class="filter-chip" x-show="!!ranOn">
+            <span>{% blocktranslate with day=current_ran_on %}Ran on {{ day }}{% endblocktranslate %}</span>
+            <a href="{% querystring ran_on=None page=None scope=current_scope %}" @click.prevent="clearParam('ranOn')"
+               class="filter-chip__x" aria-label="{% translate 'Clear run day filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
+        </span>
+        {% endif %}
         {% if current_schedule %}
         <span class="filter-chip" x-show="!!schedule">
             <span>{% blocktranslate with name=schedule_name %}Schedule: {{ name }}{% endblocktranslate %}</span>

@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 import django_filters
 
 from sessions.artifacts import KNOWN_KIND_CONTENT_TYPES, ArtifactKind, content_types_for_kind
-from sessions.models import RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
 RANGE_CHOICES: list[tuple[str, str]] = [
     ("today", _("Today")),
@@ -67,6 +67,7 @@ class SessionFilter(django_filters.FilterSet):
     # Dates filter last_active_at (the column the list sorts on and every row shows).
     date_from = django_filters.DateFilter(method="filter_date_from")
     date_to = django_filters.DateFilter(method="filter_date_to")
+    ran_on = django_filters.DateFilter(method="filter_ran_on")
 
     class Meta:
         model = Session
@@ -93,6 +94,11 @@ class SessionFilter(django_filters.FilterSet):
 
     def filter_date_to(self, queryset, name, value):
         return queryset.filter(last_active_at__lt=local_midnight(value + timedelta(days=1)))
+
+    def filter_ran_on(self, queryset, name, value):
+        start = local_midnight(value)
+        ran = Run.objects.filter(created_at__gte=start, created_at__lt=local_midnight(value + timedelta(days=1)))
+        return queryset.filter(pk__in=ran.values("session_id"))
 
     def filter_range(self, queryset, name, value):
         # Rolling windows; "today" is the local calendar day. The first-party UI never emits
