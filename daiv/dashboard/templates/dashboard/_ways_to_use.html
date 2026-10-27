@@ -25,11 +25,11 @@ Context:
                 {% blocktranslate with platform=ways.platform_name %}On {{ platform }}{% endblocktranslate %}
             </h3>
             <p class="mt-2 text-[13px] text-text-muted">{% translate "Add a label to an issue:" %}</p>
-            <ul class="mt-2 space-y-1.5">
+            <ul class="mt-2 space-y-2">
                 {% for label in ways.labels %}
-                <li class="flex flex-wrap items-baseline gap-x-2 text-[13px]">
+                <li class="text-[13px]">
                     <code class="rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[12px] text-text">{{ label.name }}</code>
-                    <span class="text-text-muted">{{ label.help }}</span>
+                    <span class="mt-0.5 block text-text-muted">{{ label.help }}</span>
                 </li>
                 {% endfor %}
             </ul>

@@ -7,7 +7,7 @@
     </div>
     <div class="overflow-hidden rounded-2xl border border-border bg-surface-2 [&>.session-row:first-child]:border-t-0">
         {% for session in recent_sessions %}
-        {% include "sessions/_session_row.html" with session=session %}
+        {% include "sessions/_session_row.html" with session=session compact=True %}
         {% endfor %}
     </div>
 </section>

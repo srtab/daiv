@@ -341,6 +341,16 @@ class TestRecentSessions:
         assert [s.pk for s in response.context["recent_sessions"]] == [s.pk for s in mine[:5]]
         assert response.context["my_sessions_url"] == f"{reverse('session_list')}?scope=mine"
 
+    def test_rows_leave_the_model_to_the_full_list(self, member_user, member_client):
+        session = _make_session(member_user, SessionOrigin.CHAT)
+        Run.objects.filter(session=session).update(agent_model="claude-test-model")
+
+        home = member_client.get(reverse("dashboard")).content.decode()
+        listed = member_client.get(reverse("session_list")).content.decode()
+
+        assert "claude-test-model" not in home
+        assert "claude-test-model" in listed
+
     def test_hidden_when_you_have_none(self, admin_user, member_client):
         _make_session(admin_user, SessionOrigin.CHAT)
 
