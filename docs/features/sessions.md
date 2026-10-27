@@ -209,13 +209,13 @@ You can launch an agent background run without typing in the chat workspace. Cli
 The composer accepts:
 
 - **Prompt** — what you want the agent to do
-- **Repositories** — one or more repositories. Submitting one prompt across multiple repositories creates a [batch](#filtering): each repository runs as an independent session, and after submission you land on the batch-filtered Sessions list.
+- **Repositories** — one or more repositories. Submitting one prompt across multiple repositories creates a [batch](#filtering): each repository runs as an independent session.
 - **Ref** — the starting branch each run reads from, and the target branch of any merge/pull request it opens (defaults to the repository's default branch)
 - **Sandbox environment** — the named [sandbox environment](sandbox-environments.md) the run executes in
 - **Agent model and thinking level** — per-run overrides (leave empty to inherit the repo defaults)
 - Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, needs-input, failed). To silence a run, pass `muted` via the [Jobs API](jobs-api.md) or [MCP endpoint](mcp-endpoint.md); for scheduled runs, use the schedule's Mute toggle.
 
-Runs started this way are tagged with the **UI Run** origin. A single-repository submission takes you straight to the session detail page; a multi-repository submission takes you to the batch-filtered list.
+Runs started this way are tagged with the **UI Run** origin. Every submission, single- or multi-repository, takes you to the batch-filtered Sessions list, where each new session has its own row.
 
 ### Retrying a run
 
