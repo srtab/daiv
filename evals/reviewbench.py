@@ -4,9 +4,10 @@ Each pull request's base and head are fetched by sha from its ``review-bench/<ow
 judge reads, shallow down to their merge base, and the review runs on a detached head checkout in a git-capable sandbox
 with its network off, no MCP servers and no web tools: the upstream pull request's review comments are a golden-set
 source, so a reviewer that can reach GitHub can read the answers. Findings land in
-``<output-dir>/findings/<pr key>.json``, the raw reports in ``reports/`` and the agent's messages, detector reports
-included, in ``transcripts/``; a pull request whose findings file exists is skipped, so a rerun resumes. Score them
-from a ReviewBench checkout with ``npm run judge -- --candidate <output-dir>/findings``.
+``<output-dir>/findings/<pr key>.json``, the raw reports in ``reports/``, the agent's messages, detector reports
+included, in ``transcripts/`` and the model usage per agent, the review agent and each code-review detector, in
+``usage/``; a pull request whose findings file exists is skipped, so a rerun resumes. Score them from a ReviewBench
+checkout with ``npm run judge -- --candidate <output-dir>/findings``.
 """
 
 import argparse
@@ -15,9 +16,12 @@ import json
 import re
 import sys
 import tempfile
+import threading
 import traceback
 import uuid
+from collections import defaultdict
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
@@ -32,14 +36,21 @@ from git import GitCommandError, Repo
 if not apps.ready:
     django.setup()
 
+from langchain_core.callbacks import BaseCallbackHandler  # noqa: E402
 from langchain_core.messages import AIMessage, messages_to_dict  # noqa: E402
+from langchain_core.tracers.context import register_configure_hook  # noqa: E402
 from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 from sandbox_envs.services import build_sandbox_spec  # noqa: E402
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings  # noqa: E402
 from automation.agent.context import set_runtime_ctx  # noqa: E402
 from automation.agent.graph import create_daiv_agent  # noqa: E402
-from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata  # noqa: E402
+from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH  # noqa: E402
+from automation.agent.usage_tracking import (  # noqa: E402
+    CostAwareUsageMetadataCallbackHandler,
+    build_usage_summary,
+    track_usage_metadata,
+)
 from automation.agent.utils import build_langsmith_config  # noqa: E402
 from automation.agent.validators import validate_agent_override  # noqa: E402
 from automation.agent.workspace.sandbox import SandboxWorkspace  # noqa: E402
@@ -51,7 +62,11 @@ from evals.swe_client import SWERepoClient  # noqa: E402
 from tests.integration_tests.code_review_grading import is_degraded, is_review_report, parse_report  # noqa: E402
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable
+    from collections.abc import Generator, Iterable, Mapping
+    from uuid import UUID
+
+    from langchain_core.messages import BaseMessage
+    from langchain_core.outputs import LLMResult
 
     from automation.agent.usage_tracking import UsageSummary
     from codebase.base import Repository
@@ -67,6 +82,7 @@ REPORTED_SEVERITIES = frozenset({"Critical", "Important", "Suggestion"})
 CORPUS_FILES = {"test": "corpus/test/test.json", "full": "corpus/manifest.json"}
 FETCH_DEPTH = 64
 MAX_DEEPENINGS = 6
+REVIEW_AGENT = "review"
 
 _URL = re.compile(r"https?://\S+")
 _PATH_LINES = re.compile(r"(?P<path>[\w./@+\[\]-]*[\w@+\]-]):(?P<start>\d+)(?:\s*[-–]\s*L?(?P<end>\d+))?")
@@ -89,6 +105,54 @@ class Review:
     head_files: frozenset[str]
     usage: dict[str, float]
     transcript: list[dict] = field(default_factory=list)
+    usage_by_agent: dict[str, dict[str, float]] = field(default_factory=dict)
+
+
+class AgentUsageHandler(BaseCallbackHandler):
+    """Model usage per agent: a call is a detector's when its charter opens the system prompt, else the reviewer's."""
+
+    def __init__(self, openings: Mapping[str, str]) -> None:
+        self.openings = openings
+        self.by_agent: dict[str, CostAwareUsageMetadataCallbackHandler] = defaultdict(
+            CostAwareUsageMetadataCallbackHandler
+        )
+        self._agent_by_run: dict[UUID, str] = {}
+        self._lock = threading.Lock()
+
+    def on_chat_model_start(
+        self, serialized: dict, messages: list[list[BaseMessage]], *, run_id: UUID, **kwargs: object
+    ) -> None:
+        system = next((message.text for message in messages[0] if message.type == "system"), "") if messages else ""
+        agent = next((name for name, opening in self.openings.items() if opening in system), REVIEW_AGENT)
+        with self._lock:
+            self._agent_by_run[run_id] = agent
+
+    def on_llm_end(self, response: LLMResult, *, run_id: UUID, **kwargs: object) -> None:
+        with self._lock:
+            handler = self.by_agent[self._agent_by_run.pop(run_id, REVIEW_AGENT)]
+        handler.on_llm_end(response, run_id=run_id, **kwargs)
+
+
+_agent_usage_var: ContextVar[AgentUsageHandler | None] = ContextVar("reviewbench_agent_usage", default=None)
+register_configure_hook(_agent_usage_var, inheritable=True)
+
+
+@contextmanager
+def track_agent_usage() -> Generator[AgentUsageHandler]:
+    handler = AgentUsageHandler(detector_openings())
+    token = _agent_usage_var.set(handler)
+    try:
+        yield handler
+    finally:
+        _agent_usage_var.reset(token)
+
+
+def detector_openings() -> dict[str, str]:
+    """Each code-review detector's charter opening line, which starts the system prompt of the detector's calls."""
+    return {
+        charter.stem: next(line for line in charter.read_text().split("---", 2)[2].splitlines() if line.strip())
+        for charter in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md"))
+    }
 
 
 class ReviewBenchRepoClient(SWERepoClient):
@@ -273,7 +337,7 @@ async def review(entry: dict, model_name: str, thinking_level: str | None) -> Re
                 extra_metadata={"reviewbench_pr": pr_key(entry)},
                 configurable={"thread_id": str(uuid.uuid4())},
             )
-            with track_usage_metadata() as handler:
+            with track_usage_metadata() as handler, track_agent_usage() as agent_usage:
                 result = await agent.ainvoke(
                     {"messages": [{"role": "user", "content": review_request(entry)}]}, context=ctx, config=config
                 )
@@ -286,16 +350,20 @@ async def review(entry: dict, model_name: str, thinking_level: str | None) -> Re
         head_files=head_files,
         usage=_usage(build_usage_summary(handler), monotonic() - started),
         transcript=messages_to_dict(messages),
+        usage_by_agent={
+            agent: _usage(build_usage_summary(agent_handler)) for agent, agent_handler in agent_usage.by_agent.items()
+        },
     )
 
 
-def _usage(summary: UsageSummary, elapsed_seconds: float) -> dict[str, float]:
+def _usage(summary: UsageSummary, elapsed_seconds: float | None = None) -> dict[str, float]:
     usage: dict[str, float] = {
         "prompt_tokens": summary.input_tokens,
         "completion_tokens": summary.output_tokens,
         "total_tokens": summary.total_tokens,
-        "time_in_ms": round(elapsed_seconds * 1000),
     }
+    if elapsed_seconds is not None:
+        usage["time_in_ms"] = round(elapsed_seconds * 1000)
     if summary.cost_usd is not None:
         usage["cost_usd"] = float(Decimal(summary.cost_usd))
     return usage
@@ -313,8 +381,10 @@ async def main(
     if site_settings.sandbox_api_key is None:
         raise SystemExit("The review needs the sandbox: configure its API key in the site settings first.")
 
-    findings_dir, reports_dir, transcripts_dir = (output_dir / name for name in ("findings", "reports", "transcripts"))
-    for directory in (findings_dir, reports_dir, transcripts_dir):
+    findings_dir, reports_dir, transcripts_dir, usage_dir = (
+        output_dir / name for name in ("findings", "reports", "transcripts", "usage")
+    )
+    for directory in (findings_dir, reports_dir, transcripts_dir, usage_dir):
         directory.mkdir(parents=True, exist_ok=True)
     entries = load_corpus(reviewbench_dir, set_name, pr_indices)
     failed: list[str] = []
@@ -339,6 +409,7 @@ async def main(
 
         (reports_dir / f"{key}.md").write_text(outcome.report)
         (transcripts_dir / f"{key}.json").write_text(json.dumps(outcome.transcript, indent=1, default=str))
+        (usage_dir / f"{key}.json").write_text(json.dumps(outcome.usage_by_agent, indent=2, sort_keys=True))
         if not is_review_report(outcome.report):
             failed.append(key)
             print(f"[{key}] the final message is not a review report", file=sys.stderr)  # noqa: T201

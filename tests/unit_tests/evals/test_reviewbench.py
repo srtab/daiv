@@ -1,13 +1,26 @@
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from git import Repo
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
 
+from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES
 from codebase.base import GitPlatform, Repository
 from evals import reviewbench
-from evals.reviewbench import Location, Review, ReviewBenchRepoClient, parse_locations, report_findings, review_request
+from evals.reviewbench import (
+    AgentUsageHandler,
+    Location,
+    Review,
+    ReviewBenchRepoClient,
+    detector_openings,
+    parse_locations,
+    report_findings,
+    review_request,
+)
 from tests.integration_tests.code_review_grading import parse_report
 
 HEAD_FILES = frozenset({"src/engine.ts", "src/rules/index.ts", "lib/index.ts", "src/routes/[id]/page.ts", "README.md"})
@@ -228,6 +241,38 @@ def test_a_finding_on_several_files_becomes_one_judging_finding_per_file():
     assert len({finding["message"] for finding in findings}) == 1
 
 
+def _model_call(handler: AgentUsageHandler, system: str, input_tokens: int) -> None:
+    run_id = uuid4()
+    handler.on_chat_model_start({}, [[SystemMessage(system), HumanMessage("Review the diff.")]], run_id=run_id)
+    message = AIMessage(
+        "No findings.",
+        response_metadata={"model_name": "model-a"},
+        usage_metadata={"input_tokens": input_tokens, "output_tokens": 1, "total_tokens": input_tokens + 1},
+    )
+    handler.on_llm_end(LLMResult(generations=[[ChatGeneration(message=message)]]), run_id=run_id)
+
+
+def test_a_model_call_counts_toward_the_detector_whose_charter_opens_its_system_prompt():
+    handler = AgentUsageHandler({"cr-tests": "You are a senior test engineer.", "cr-security": "You are a security."})
+
+    _model_call(handler, "You are a senior test engineer.\n\nA test you would have written...", 100)
+    _model_call(handler, "You are a senior test engineer.\n\nA test you would have written...", 20)
+    _model_call(handler, "You are DAIV, a coding agent.", 7)
+
+    assert {agent: usage.usage_metadata["model-a"]["input_tokens"] for agent, usage in handler.by_agent.items()} == {
+        "cr-tests": 120,
+        "review": 7,
+    }
+
+
+def test_every_detector_has_its_own_charter_opening():
+    openings = detector_openings()
+
+    assert set(openings) == set(CODE_REVIEW_DETECTOR_NAMES)
+    assert len(set(openings.values())) == len(openings)
+    assert not any(opening.startswith(("name:", "---")) for opening in openings.values())
+
+
 @pytest.fixture
 def reviewbench_dir(tmp_path) -> Path:
     corpus = tmp_path / "rb" / "corpus" / "test"
@@ -237,7 +282,12 @@ def reviewbench_dir(tmp_path) -> Path:
 
 
 def _patched_main(report: str):
-    outcome = Review(report=report, head_files=HEAD_FILES, usage={"time_in_ms": 5})
+    outcome = Review(
+        report=report,
+        head_files=HEAD_FILES,
+        usage={"time_in_ms": 5},
+        usage_by_agent={"review": {"cost_usd": 0.2}, "cr-tests": {"cost_usd": 0.05}},
+    )
     review = AsyncMock(return_value=outcome)
     patches = (
         patch.object(reviewbench, "validate_agent_override", MagicMock()),
@@ -260,6 +310,10 @@ async def test_a_reviewed_pull_request_writes_a_judging_input_file_and_a_rerun_s
     assert [finding["file"] for finding in written["findings"]] == ["src/engine.ts"]
     assert written["usage"] == {"time_in_ms": 5}
     assert (tmp_path / "out" / "reports" / f"{KEY}.md").read_text() == REPORT
+    assert json.loads((tmp_path / "out" / "usage" / f"{KEY}.json").read_text()) == {
+        "review": {"cost_usd": 0.2},
+        "cr-tests": {"cost_usd": 0.05},
+    }
 
 
 async def test_a_final_message_that_is_no_review_fails_the_pull_request_instead_of_scoring_it_empty(
