@@ -28,24 +28,23 @@ sequenceDiagram
 2. **Default branch filter** — Only merges targeting the repository's default branch are recorded. Merges to feature or release branches are ignored.
 3. **Background task** — A task fetches MR-level diff statistics and the pre-squash commit list from the platform API.
 4. **Commit-based attribution** — Each commit's author email is compared against DAIV's known commit email. Lines added/removed are split into DAIV and human contributions. This works correctly even with squash merges because the platform API retains the original commit list.
-5. **Dashboard** — The metrics are displayed in the "Code Velocity" section of the dashboard at `/dashboard/` (visible to admin users only), using the same period filter (Today / 7 days / 30 days / 90 days / All time, defaulting to Today) as the agent activity counters.
+5. **Insights** — The metrics are displayed in the "Code velocity" section of the Insights page at `/dashboard/insights/`, using the same period filter (Today / 7 days / 30 days / 90 days / All time, defaulting to 7 days) as the agent activity counters. Until the Home page drops its statistics, admins also see the older Code Velocity block there.
 
 ---
 
-## Dashboard
+## Insights
 
-The Code Velocity section is visible to admin users only. It shows a merges-and-lines block plus a separate **DAIV attribution** sub-section:
+Everyone sees the Code velocity section, counted over the repositories they can read (admins: every repository). It is hidden when there were no merges in the period.
 
 | Metric | Description |
 |--------|-------------|
-| **Total merges** | MRs/PRs merged into default branches |
-| **Lines added** | Total lines added across all merges |
-| **Lines removed** | Total lines removed across all merges |
-| **Net change** | Lines added minus lines removed |
-| **MRs involving DAIV** | Percentage of merges containing at least one DAIV-authored commit, shown alongside DAIV vs human MR counts |
-| **Commits authored by DAIV** | Percentage of commits authored by DAIV, shown alongside DAIV vs human commit counts |
+| **Merges** | MRs/PRs merged into default branches |
+| **Involved DAIV** | Share of merges with at least one DAIV-authored commit, with both counts |
+| **Commits by DAIV** | Share of commits authored by DAIV, with both counts |
+| **Lines changed** | Lines added and removed across all merges |
+| **Merges over time** | Merges per day (weeks for 30 and 90 days, months for all time), split into those that involved DAIV and those by people only; hidden for Today |
 
-All metrics respect the period filter at the top of the dashboard.
+All metrics respect the period filter at the top of the page.
 
 ---
 

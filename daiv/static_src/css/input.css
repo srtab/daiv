@@ -420,6 +420,12 @@ html {
   }
 }
 
+@layer components {
+  .stat-value {
+    @apply font-mono text-[34px] font-semibold leading-none tabular-nums;
+  }
+}
+
 /* -- Button component styles -------------------------------------------- */
 
 @layer components {

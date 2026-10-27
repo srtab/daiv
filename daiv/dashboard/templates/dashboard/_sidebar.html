@@ -61,6 +61,12 @@
       <span class="sidebar__collapsible">{% translate "Schedules" %}</span>
     </a>
 
+    <a href="{% url 'insights' %}"
+       class="sidebar__nav-item {% nav_active 'insights' %}">
+      {% icon "chart-bar" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Insights" %}</span>
+    </a>
+
     {% comment %}
     Pages someone sets up once and most teammates never open. The description says what
     each is for; `title` carries it to the rail, which hides the text.
