@@ -285,3 +285,62 @@ class TestSidebarGroups:
         nav = _sidebar_nav(member_client.get(reverse(url_name)).content.decode())
         active = nav.select(".sidebar__nav-item--active")
         assert [_item_label(a) for a in active] == [label]
+
+
+def _soup(client, url_name="session_list"):
+    return BeautifulSoup(client.get(reverse(url_name)).content.decode(), "html.parser")
+
+
+@pytest.mark.django_db
+class TestNewSplitButton:
+    @pytest.mark.parametrize("testid", ["nav-new", "topbar-new"])
+    def test_main_part_starts_a_chat(self, member_client, testid):
+        split = _soup(member_client).select_one(f'[data-testid="{testid}"]')
+        assert split.select_one(f'[data-testid="{testid}-chat"]')["href"] == reverse("session_new_chat")
+
+    @pytest.mark.parametrize("testid", ["nav-new", "topbar-new"])
+    def test_menu_offers_chat_and_background_run(self, member_client, testid):
+        split = _soup(member_client).select_one(f'[data-testid="{testid}"]')
+        items = split.select('[role="menu"] [role="menuitem"]')
+        assert [(a["href"], a.select_one("span span").get_text(strip=True)) for a in items] == [
+            (reverse("session_new_chat"), "Chat"),
+            (reverse("runs:agent_run_new"), "Background run"),
+        ]
+        # Items are reached with the arrow keys, not Tab (menu button pattern).
+        assert all(a["tabindex"] == "-1" for a in items)
+
+    def test_toggle_is_a_keyboard_menu_button(self, member_client):
+        split = _soup(member_client).select_one('[data-testid="nav-new"]')
+        toggle = split.select_one('[data-testid="nav-new-toggle"]')
+        assert toggle.name == "button"
+        assert toggle["aria-haspopup"] == "menu"
+        assert toggle["aria-label"]
+        assert toggle[":aria-expanded"] == "open.toString()"
+        assert toggle[":aria-controls"] == split.select_one('[role="menu"]')[":id"]
+        assert split["x-data"] == "menuButton"
+        assert split["@keydown.escape"] == "onEscape($event)"
+
+    def test_component_script_is_loaded(self, member_client):
+        assert "core/js/menu-button.js" in member_client.get(reverse("dashboard")).content.decode()
+
+    def test_rail_hides_the_label_but_keeps_the_icon(self, member_client):
+        main = _soup(member_client).select_one('[data-testid="nav-new-chat"]')
+        assert "sidebar__cta" in main["class"]
+        assert main.select_one(".sidebar__collapsible").get_text(strip=True) == "New chat"
+
+    def test_sidebar_no_longer_routes_through_the_chooser(self, member_client):
+        sidebar = _soup(member_client).select_one('[data-testid="app-sidebar"]')
+        assert not sidebar.select(f'a[href="{reverse("session_new")}"]')
+
+
+@pytest.mark.django_db
+class TestMobileTopBarNew:
+    def test_top_bar_holds_the_new_split_button(self, member_client):
+        bar = _soup(member_client).select_one('[data-testid="mobile-top-bar"]')
+        split = bar.select_one('[data-testid="topbar-new"]')
+        assert "new-split--compact" in split["class"]
+        assert split.select_one('[data-testid="topbar-new-chat"]')["href"] == reverse("session_new_chat")
+        assert split.select_one('[data-testid="topbar-new-toggle"]')["aria-haspopup"] == "menu"
+
+    def test_only_one_top_bar_copy(self, member_client):
+        assert len(_soup(member_client).select('[data-testid="topbar-new"]')) == 1

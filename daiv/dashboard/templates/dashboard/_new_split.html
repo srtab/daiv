@@ -1,0 +1,57 @@
+{% load i18n icon_tags %}
+{% comment %}
+The New split button: the main part starts a chat, the chevron opens the other ways in.
+`testid` names this copy (the sidebar renders twice, the top bar once); `compact` is the top bar's size.
+{% endcomment %}
+<div x-data="menuButton"
+     x-id="['new-menu']"
+     @keydown.escape="onEscape($event)"
+     @click.outside="close()"
+     data-testid="{{ testid }}"
+     class="new-split{% if compact %} new-split--compact{% endif %}">
+  <a href="{% url 'session_new_chat' %}"
+     data-testid="{{ testid }}-chat"
+     class="new-split__main {% if not compact %}sidebar__cta{% endif %}">
+    <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-ink/15">
+      {% icon "squares-plus" "h-3.5 w-3.5" %}
+    </span>
+    <span class="{% if not compact %}sidebar__collapsible {% endif %}flex-1">{% translate "New chat" %}</span>
+  </a>
+  <button type="button"
+          x-ref="trigger"
+          @click="toggle()"
+          @keydown.arrow-down.prevent="show(0)"
+          @keydown.arrow-up.prevent="show(-1)"
+          aria-haspopup="menu"
+          :aria-expanded="open.toString()"
+          :aria-controls="$id('new-menu')"
+          aria-label="{% translate 'More ways to start' %}"
+          data-testid="{{ testid }}-toggle"
+          class="new-split__toggle">
+    {% icon "chevron-down" "new-split__chevron h-3.5 w-3.5" %}
+  </button>
+
+  <div x-ref="menu"
+       x-show="open"
+       x-cloak
+       :id="$id('new-menu')"
+       role="menu"
+       aria-label="{% translate 'Start something new' %}"
+       @keydown="onMenuKey($event)"
+       class="new-split__menu">
+    <a href="{% url 'session_new_chat' %}" role="menuitem" tabindex="-1" class="new-split__item">
+      {% icon "chat-bubble" "mt-0.5 h-4 w-4 shrink-0" %}
+      <span class="min-w-0">
+        <span class="block font-medium text-text">{% translate "Chat" %}</span>
+        <span class="block text-[12px] text-text-faint">{% translate "Work with the agent, turn by turn" %}</span>
+      </span>
+    </a>
+    <a href="{% url 'runs:agent_run_new' %}" role="menuitem" tabindex="-1" class="new-split__item">
+      {% icon "bolt" "mt-0.5 h-4 w-4 shrink-0" %}
+      <span class="min-w-0">
+        <span class="block font-medium text-text">{% translate "Background run" %}</span>
+        <span class="block text-[12px] text-text-faint">{% translate "Hand off a task, get notified when it's done" %}</span>
+      </span>
+    </a>
+  </div>
+</div>

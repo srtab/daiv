@@ -147,6 +147,36 @@
     margin-top: 0;
   }
 
+  /* Too narrow for two halves side by side: the chevron becomes a strip under the icon,
+     and the menu opens beside the rail like the account menu. */
+  .sidebar--rail .new-split {
+    flex-direction: column;
+  }
+
+  .sidebar--rail .new-split__main {
+    border-radius: 0.5rem 0.5rem 0 0;
+  }
+
+  .sidebar--rail .new-split__toggle {
+    border-left: 0;
+    border-top: 1px solid color-mix(in srgb, var(--color-accent-ink) 20%, transparent);
+    border-radius: 0 0 0.5rem 0.5rem;
+    padding-top: 0.125rem;
+    padding-bottom: 0.125rem;
+  }
+
+  .sidebar--rail .new-split__chevron {
+    transform: rotate(-90deg);
+  }
+
+  .sidebar--rail .new-split__menu {
+    top: 0;
+    right: auto;
+    left: 100%;
+    margin-top: 0;
+    margin-left: 1.25rem;
+  }
+
   /* The heading keeps its box so the groups stay separated once its label is hidden. */
   .sidebar--rail .sidebar__group-heading {
     height: 1.25rem;
@@ -213,6 +243,39 @@
     @apply px-2;
   }
 
+  /* The New split button: sidebar size by default, `--compact` in the mobile top bar. */
+  .new-split {
+    @apply relative flex rounded-lg bg-accent text-accent-ink;
+  }
+
+  .new-split__main {
+    @apply flex min-w-0 flex-1 items-center gap-2.5 rounded-l-lg px-3 py-2.5 text-sm font-semibold
+           tracking-tight transition-colors hover:bg-accent-bright;
+  }
+
+  .new-split__toggle {
+    @apply flex shrink-0 items-center justify-center rounded-r-lg border-l border-accent-ink/20 px-2.5
+           transition-colors hover:bg-accent-bright;
+  }
+
+  .new-split__menu {
+    @apply absolute top-full right-0 left-0 z-40 mt-2 min-w-56 rounded-xl border border-border bg-surface-2
+           p-1 shadow-overlay;
+  }
+
+  .new-split__item {
+    @apply flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-text-muted
+           transition-colors hover:bg-surface-3 hover:text-text focus:bg-surface-3 focus:text-text;
+  }
+
+  .new-split--compact .new-split__main {
+    @apply h-11 gap-2 px-2.5 py-0;
+  }
+
+  .new-split--compact .new-split__menu {
+    @apply left-auto w-64;
+  }
+
   /* Opens upward over the full sidebar and the sheet; the rail tier above moves it beside. */
   .sidebar__account-menu {
     @apply absolute bottom-full left-0 z-40 mb-2 w-56 rounded-xl border border-border bg-surface-2 p-1
@@ -251,6 +314,7 @@
 .composer-autocomplete,
 .filter-menu,
 .card__menu-panel,
+.new-split__menu,
 .sidebar__account-menu {
   animation: surface-rise 180ms ease-out backwards;
 }

@@ -9,15 +9,9 @@
   </div>
 
   {# Primary action — promoted out of the nav list (shared chrome, D2). Teal = DO/action. #}
-  <a href="{% url 'session_new' %}"
-     data-testid="nav-new-cta"
-     class="sidebar__cta group mx-3 mb-5 flex items-center gap-2.5 rounded-lg bg-accent px-3 py-2.5 text-sm font-semibold tracking-tight text-accent-ink transition-colors hover:bg-accent-bright">
-    <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-ink/15">
-      {% icon "squares-plus" "h-3.5 w-3.5" %}
-    </span>
-    <span class="sidebar__collapsible flex-1">{% translate "New" %}</span>
-    <span aria-hidden="true" class="sidebar__collapsible text-accent-ink/70 transition-transform duration-200 group-hover:translate-x-0.5">&rarr;</span>
-  </a>
+  <div class="mx-3 mb-5">
+    {% include "dashboard/_new_split.html" with testid="nav-new" compact=False %}
+  </div>
 
   <nav class="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-4">
     {# Daily work — no group label #}
