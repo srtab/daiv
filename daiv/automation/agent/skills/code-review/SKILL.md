@@ -63,6 +63,8 @@ For working-tree reviews, ensure the canonical diff contains staged changes, uns
 
 When the canonical diff is longer than 1,000 lines, also split it into slices for `cr-correctness` and `cr-structure`: one slice per 1,000 lines, at most four, each holding whole file patches in diff order with roughly equal line counts. Write each slice to its own file and retain its line count. The slices together must contain every line of the canonical diff exactly once.
 
+When test files changed, also write a test slice for `cr-tests`: the whole patches of the changed test files only, in diff order. Retain its line count.
+
 If shell access is unavailable, obtain the changed hunks from the platform read tool and provide that canonical diff to the subagent. Do not substitute complete new-side files: that would include pre-existing code outside the review scope. If no trustworthy changed-hunk diff can be obtained, explain that the review could not be completed and stop without a marker.
 
 Preserve paths without shell interpolation; use NUL-delimited changed-path lists when supported so spaces, renames, and unusual filenames remain intact.
@@ -82,6 +84,7 @@ Select applicable subagents from the concise summary. Identify the kinds of file
 |---|---|
 | `cr-correctness` | behavior, source, tests, configuration, schemas, migrations, dependencies, CI, or infrastructure changed |
 | `cr-structure` | source structure, public interfaces, types, modules, data models, or multi-file design changed |
+| `cr-tests` | test files changed |
 | `cr-security` | authentication, authorization, input, trust boundaries, secrets, dependencies, configuration, CI, deployment, file access, commands, or data exposure may be affected |
 | `cr-performance` | database access, collections, loops, network or file I/O, caching, serialization, async work, concurrency, or resource use may be affected |
 | `cr-custom-rules` | `.agents/review-rules.md`, `AGENTS.md`, or `.agents/AGENTS.md` exists locally or in the reviewed repository; provide each source as an accessible absolute path or inline content |
@@ -96,7 +99,7 @@ Each subagent prompt should contain only:
 
 - the exact review scope;
 - the stated change intent, when available;
-- the canonical diff path and line count, or the canonical diff content when no file is available; a slice task gets its slice's path and line count instead, as its canonical diff;
+- the canonical diff path and line count, or the canonical diff content when no file is available; a slice task gets its slice's path and line count instead, as its canonical diff, and `cr-tests` gets the test slice's;
 - the head SHA when available;
 - the changed paths, including those outside a slice task's slice;
 - the rule-source paths or inline contents for `cr-custom-rules`.
