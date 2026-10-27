@@ -1076,7 +1076,7 @@ class TestShippedDetectorCharters:
         from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
 
         expected_severities = {
-            "cr-correctness.md": {"Critical", "Important"},
+            "cr-correctness.md": {"Critical", "Important", "Suggestion"},
             "cr-security.md": {"Critical", "Important"},
             "cr-performance.md": {"Critical", "Important"},
             "cr-structure.md": {"Important", "Suggestion"},
@@ -1201,7 +1201,7 @@ class TestShippedDetectorCharters:
                     )
 
         skill = (_CODE_REVIEW_SKILL_PATH / "SKILL.md").read_text(encoding="utf-8")
-        assert "dropping findings with confidence below 80" in skill, "SKILL.md step 5 lost the confidence filter"
+        assert "dropping findings with confidence below 50" in skill, "SKILL.md step 5 lost the confidence filter"
 
 
 class TestBuiltinCodeReviewDetectors:

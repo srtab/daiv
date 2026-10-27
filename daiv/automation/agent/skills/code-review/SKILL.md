@@ -109,10 +109,11 @@ After agents complete, sumarize: `### Critical:` (must fix before merge), `### I
 
 Aggregate by:
 
-- dropping findings with confidence below 80, no changed-line location, malformed evidence, or generic style, formatting, whitespace, or import-order nits;
+- dropping findings with confidence below 50, no changed-line location, malformed evidence, or generic style, formatting, whitespace, or import-order nits;
+- keeping every other finding: do not drop, demote to a question, or move into prose a finding that passes these filters;
 - Accept a new-side location, or a deleted-side location when the deletion itself introduces the issue;
 - preserving a style-related finding when `cr-custom-rules` cites an explicit repository rule requiring it;
-- deduplicating the surviving findings with the same underlying issue;
+- deduplicating the surviving findings with the same underlying issue, keeping every affected site the detectors named;
 - keeping the higher subagent-provided severity when duplicates disagree;
 - keeping relevant questions separate from findings; questions do not require a confidence score or location, although they should include a location when one is applicable;
 - removing the internal `Confidence` field.
@@ -163,6 +164,8 @@ Report rules:
 
 - Omit empty sections.
 - Number entries sequentially within each section.
+- Put each entry's location on its title line, as the template shows. When the issue occurs at several sites, list every one there, comma-separated. Code cited only for contrast, such as a sibling that does it correctly, belongs in the details, not on the title line.
+- After the last section, add only what the template shows: the platform footer. Put any concern worth raising in a section entry; do not add closing prose, side notes, or a summary of checks that came back clean.
 - Include Recommended Actions only when Critical or Important findings exist.
 - When usable reports completed but no findings or questions survive aggregation, use `No findings — no reported issues met the review threshold.`
 - When no findings survive and some subagents were unavailable, use `No findings — none confirmed by the detectors that completed.` Keep the `No findings` prefix: Step 2 treats a comment without it as an invalid marker and re-reviews the whole change.

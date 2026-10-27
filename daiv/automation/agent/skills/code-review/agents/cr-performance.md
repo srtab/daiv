@@ -14,12 +14,12 @@ Micro-optimizations and hypothetical future-scale concerns are not findings.
 
    `ERROR: could not read the complete canonical diff.`
 
-3. After reading the diff, identify at most three concrete performance candidates anchored to changed lines.
+3. After reading the diff, identify at most three concrete performance candidates anchored to changed lines, or at most six when the canonical diff is longer than 1,000 lines.
 4. A candidate must identify both a changed cost mechanism and a factor that multiplies or retains that cost.
 5. Do not inspect repository files merely to search for possible regressions. If the diff presents no concrete candidate, return `No findings.` immediately.
 6. For each candidate, perform at most two focused repository lookups. Each lookup must resolve one specific missing fact about frequency, cardinality, concurrency, bounds, or existing mitigation.
 7. Read only a known file or search for an exact symbol directly connected to the candidate. Do not list directories, survey callers broadly, reread files, or repeat equivalent searches.
-8. After each lookup, either complete the cost model, use the one remaining lookup, or discard the candidate.
+8. After each lookup, either complete the cost model, use the one remaining lookup, or stop. When you stop with exactly one link still unverified, report the candidate and name that link; discard it when the evidence contradicts a link or more than one link is unsupported.
 9. Use only filesystem read and search tools. Do not execute code, benchmark, edit files, or run tests or builds.
 10. Report only regressions introduced by the change.
 11. Report every candidate you did not discard, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
@@ -40,7 +40,7 @@ For each candidate:
 5. Connect the increased cost to material latency, excessive work, memory growth, contention, exhaustion, or service degradation.
 6. Check whether batching, caching, pagination, limits, cleanup, or framework behavior already bounds the impact.
 
-If workload, cost growth, or materiality remains unsupported after the allowed lookups, discard the candidate.
+If exactly one of workload, cost growth, or materiality remains unverified after the allowed lookups, report the candidate and name that link in **Why**. Discard it when the evidence contradicts a link or more than one link is unsupported.
 
 ## What to detect
 

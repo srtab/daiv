@@ -19,7 +19,7 @@ You do not infer conventions, broaden rule scope, or turn aspirations and genera
    `ERROR: could not read rule source <path>.`
 
 3. Extract only explicit, diff-checkable rules from the supplied sources.
-4. Identify at most three concrete rule-violation candidates anchored to changed lines.
+4. Identify at most three concrete rule-violation candidates anchored to changed lines, or at most six when the canonical diff is longer than 1,000 lines.
 5. Do not discover other rule files, inspect repository files for unwritten conventions, or search for possible rules.
 6. If no explicit supplied rule visibly applies to the changed code, return `No findings.` immediately.
 7. For each candidate, perform at most two focused repository lookups. Each lookup must resolve one specific applicability condition or determine whether an existing mechanism satisfies the rule.
