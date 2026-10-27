@@ -311,3 +311,25 @@ class TestOwnedBy:
         )
 
         assert list(Session.objects.owned_by(other_user)) == [session]
+
+
+@pytest.mark.django_db
+class TestListedFor:
+    def _session(self, user, **kwargs):
+        return Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=user, **kwargs)
+
+    def test_archived_sessions_are_left_out_by_default(self, other_user):
+        from django.utils import timezone
+
+        shown = self._session(other_user)
+        self._session(other_user, hidden_at=timezone.now())
+
+        assert list(Session.objects.listed_for(other_user, mine=True)) == [shown]
+
+    def test_archived_lists_only_the_archived_sessions(self, other_user):
+        from django.utils import timezone
+
+        self._session(other_user)
+        hidden = self._session(other_user, hidden_at=timezone.now())
+
+        assert list(Session.objects.listed_for(other_user, mine=True, archived=True)) == [hidden]

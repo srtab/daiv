@@ -141,6 +141,27 @@ class TestSessionListView:
         assert "setScope('mine')" in html
         assert "setScope('all')" in html
 
+    def test_archived_sessions_have_a_list_of_their_own(self, logged_in_client, user):
+        from django.utils import timezone
+
+        shown = _create_session(user=user)
+        hidden = _create_session(user=user, hidden_at=timezone.now())
+
+        default = logged_in_client.get(reverse("session_list"))
+        archived = logged_in_client.get(reverse("session_list"), {"archived": "true"})
+
+        assert [s.pk for s in default.context["sessions"]] == [shown.pk]
+        assert [s.pk for s in archived.context["sessions"]] == [hidden.pk]
+        assert (default.context["current_archived"], archived.context["current_archived"]) == (False, True)
+        assert archived.context["has_active_filters"] is True
+
+    def test_filter_bar_renders_the_archived_toggle(self, logged_in_client, user):
+        html = logged_in_client.get(reverse("session_list"), {"archived": "true"}).content.decode()
+        control = html[html.index('data-testid="filter-archived"') - 400 : html.index('data-testid="filter-archived"')]
+
+        assert 'aria-pressed="true"' in control
+        assert "toggleArchived()" in control
+
     def test_hides_ci_watch_placeholder_until_a_run_lands(self, logged_in_client, user):
         placeholder = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=7)
         fixed = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=8)

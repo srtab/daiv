@@ -67,6 +67,7 @@ class SessionFilter(django_filters.FilterSet):
     # Dates filter last_active_at (the column the list sorts on and every row shows).
     date_from = django_filters.DateFilter(method="filter_date_from")
     date_to = django_filters.DateFilter(method="filter_date_to")
+    archived = django_filters.BooleanFilter(method="filter_archived")
 
     class Meta:
         model = Session
@@ -88,6 +89,9 @@ class SessionFilter(django_filters.FilterSet):
         # ``repo`` is also given; the links DAIV publishes always pair the two.
         return queryset.for_merge_request(value)
 
+    def filter_archived(self, queryset, name, value):
+        return queryset.filter(hidden_at__isnull=not value)
+
     def filter_date_from(self, queryset, name, value):
         return queryset.filter(last_active_at__gte=_local_midnight(value))
 
@@ -106,6 +110,11 @@ class SessionFilter(django_filters.FilterSet):
         else:
             return queryset
         return queryset.filter(last_active_at__gte=start)
+
+
+def wants_archived(data) -> bool:
+    """Whether a request's query params ask for the archived list, read before the filterset binds."""
+    return SessionFilter.base_filters["archived"].field.clean(data.get("archived")) is True
 
 
 class ArtifactFilter(django_filters.FilterSet):

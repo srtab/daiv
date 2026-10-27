@@ -46,6 +46,7 @@ from sessions.filters import (
     ArtifactFilter,
     SessionFilter,
     resolve_scope,
+    wants_archived,
 )
 from sessions.forms import AgentRunCreateForm
 from sessions.header import build_session_header
@@ -54,6 +55,7 @@ from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
+from sessions.titling import MAX_TITLE_LENGTH
 from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
 from sessions.turns import build_turns
 from slash_commands.composer import composer_command_rows
@@ -160,7 +162,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # gives the SSE dot the real ``Run.id`` to key live updates on.
         return (
             Session.objects
-            .listed_for(self.request.user, mine=self.scope == SCOPE_MINE)
+            .listed_for(self.request.user, mine=self.scope == SCOPE_MINE, archived=wants_archived(self.request.GET))
             .select_related("user", "scheduled_job")
             # Only the columns the row reads (status/duration/MR/cost/SSE id) — skips the fat
             # prompt/result_summary/error_message/usage_by_model columns. Add a field here if
@@ -204,6 +206,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
         context["current_to"] = self.request.GET.get("date_to", "")
+        context["current_archived"] = bool(cleaned.get("archived"))
         context["has_active_filters"] = any([
             context["current_q"],
             context["current_status"],
@@ -215,6 +218,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
             context["current_range"],
             context["current_from"],
             context["current_to"],
+            context["current_archived"],
         ])
         context["origins"] = SessionOrigin.choices
         context["statuses"] = STATUS_CHOICES
@@ -367,7 +371,11 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
         ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
         mark_retryable(ctx["turns"], runs, self.request.user)
-        ctx["header"] = build_session_header(session, runs, self.request.user)
+        ctx["header"] = build_session_header(
+            session, runs, self.request.user, merge_request=hydrated.merge_request_payload
+        )
+        ctx["can_act"] = can_run(self.request.user, session.repo_id)
+        ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats

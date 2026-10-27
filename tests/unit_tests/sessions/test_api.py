@@ -491,3 +491,320 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
         "retry_url": f"/dashboard/runs/new/?from={latest.id}",
     }
     assert resp.json()["watch"] is None
+
+
+# ---------------------------------------------------------------------------
+# session actions: rename, CI watch, archive
+# ---------------------------------------------------------------------------
+
+
+def _watch_thread_id(iid: int, repo_id: str = "group/project") -> str:
+    from sessions.ids import compute_thread_id
+
+    from codebase.base import Scope
+
+    return compute_thread_id(repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=iid)
+
+
+def _hydrated_with_mr(iid: int | None = 7) -> HydratedThread:
+    merge_request = {"id": iid, "source_branch": "daiv/branch"} if iid else None
+    return HydratedThread([], False, merge_request, None, None)
+
+
+@pytest.fixture
+def watch_world(monkeypatch):
+    """The CI watch's outside world: the policy switch, the merge request's branch, and the queued evaluations."""
+    from types import SimpleNamespace
+
+    from sessions.pipeline_watch.policy import WatchPolicy
+    from sessions.pipeline_watch.service import PipelineWatch
+
+    from codebase.repo_config import RepositoryConfig
+
+    world = SimpleNamespace(enabled=True, branch="daiv/branch", read_error=None, evaluations=[])
+
+    async def aread_merge_request(merge_request_iid):
+        if world.read_error is not None:
+            raise world.read_error
+        return SimpleNamespace(merge_request_id=merge_request_iid, source_branch=world.branch)
+
+    def make(repo_id):
+        config = RepositoryConfig(**{"pipeline_watch": {"enabled": world.enabled}})
+        platform = SimpleNamespace(aread_merge_request=aread_merge_request)
+        return PipelineWatch(repo_id, platform=platform, policy=WatchPolicy(config))
+
+    class FakeTask:
+        async def aenqueue(self, **kwargs):
+            world.evaluations.append(kwargs)
+
+    monkeypatch.setattr("sessions.api.views.PipelineWatch", make)
+    monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeTask())
+    return world
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [("patch", "", {"title": "New"}), ("post", "/ci-watch", {"on": True}), ("post", "/archive", {"archived": True})],
+)
+def test_session_actions_reject_anonymous_callers(method, path, body):
+    from django.test import Client
+
+    resp = getattr(Client(), method)(f"/api/sessions/{uuid.uuid4()}{path}", data=body, content_type="application/json")
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_session_actions_need_the_csrf_token_from_a_browser(member_user):
+    """The page posts with the cookie session, so the token the page sends is what stops a cross-site write."""
+    from django.middleware.csrf import CSRF_SESSION_KEY, _get_new_csrf_string
+    from django.test import Client
+
+    session = _create_session(user=member_user, title="Old")
+    browser = Client(enforce_csrf_checks=True)
+    browser.force_login(member_user)
+    url = f"/api/sessions/{session.thread_id}"
+
+    refused = browser.patch(url, data={"title": "New"}, content_type="application/json")
+    token = _get_new_csrf_string()
+    store = browser.session
+    store[CSRF_SESSION_KEY] = token
+    store.save()
+    accepted = browser.patch(url, data={"title": "New"}, content_type="application/json", HTTP_X_CSRFTOKEN=token)
+
+    assert (refused.status_code, accepted.status_code) == (403, 200)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("path", "body"), [("", {"title": "New"}), ("/ci-watch", {"on": False}), ("/archive", {"archived": True})]
+)
+async def test_session_actions_404_on_a_session_the_caller_cannot_see(client, authed, path, body):
+    _key_obj, raw, _user = authed
+    other = await User.objects.acreate_user(username="other-act", email="other-act@example.com", password="x")  # noqa: S106
+    session = await sync_to_async(_create_session)(user=other, title="Theirs")
+    method = client.patch if path == "" else client.post
+
+    resp = await method(f"/sessions/{session.thread_id}{path}", json=body, headers=_auth_headers(raw))
+
+    assert resp.status_code == 404
+    await session.arefresh_from_db()
+    assert (session.title, session.hidden_at) == ("Theirs", None)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("path", "body"), [("", {"title": "New"}), ("/ci-watch", {"on": False}), ("/archive", {"archived": True})]
+)
+async def test_session_actions_403_for_a_reader_who_cannot_run_on_the_repo(client, authed, path, body):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, title="Mine")
+    method = client.patch if path == "" else client.post
+
+    with patch("sessions.api.views.can_run", return_value=False):
+        resp = await method(f"/sessions/{session.thread_id}{path}", json=body, headers=_auth_headers(raw))
+
+    assert resp.status_code == 403
+    await session.arefresh_from_db()
+    assert (session.title, session.hidden_at) == ("Mine", None)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_rename_trims_caps_and_saves_only_the_title(client, authed):
+    from sessions.titling import MAX_TITLE_LENGTH
+
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, title="Old", ref="main")
+    await Session.objects.filter(pk=session.pk).aupdate(ref="feature")
+
+    resp = await client.patch(
+        f"/sessions/{session.thread_id}", json={"title": "  " + "x" * 200 + "  "}, headers=_auth_headers(raw)
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"title": "x" * MAX_TITLE_LENGTH}
+    await session.arefresh_from_db()
+    assert (session.title, session.ref) == ("x" * MAX_TITLE_LENGTH, "feature")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("title", ["", "   \n\t"])
+async def test_session_rename_refuses_a_blank_title(client, authed, title):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, title="Old")
+
+    resp = await client.patch(f"/sessions/{session.thread_id}", json={"title": title}, headers=_auth_headers(raw))
+
+    assert resp.status_code == 422
+    await session.arefresh_from_db()
+    assert session.title == "Old"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_archive_sets_and_clears_hidden_at(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    url = f"/sessions/{session.thread_id}/archive"
+
+    archived = await client.post(url, json={"archived": True}, headers=_auth_headers(raw))
+    await session.arefresh_from_db()
+    hidden_at = session.hidden_at
+    restored = await client.post(url, json={"archived": False}, headers=_auth_headers(raw))
+    await session.arefresh_from_db()
+
+    assert archived.json() == {"archived": True, "hidden_at": hidden_at.isoformat()}
+    assert restored.json() == {"archived": False, "hidden_at": None}
+    assert session.hidden_at is None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("state", ["watching", "fixing", "green", "exhausted", "unclear"])
+async def test_session_ci_watch_off_ends_the_watch_on_the_merge_requests_thread(client, authed, watch_world, state):
+    """A chat session that published the merge request shows and toggles the watch its MR thread holds."""
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    watch_row = await sync_to_async(_create_session)(
+        thread_id=_watch_thread_id(7), origin=SessionOrigin.MR_WEBHOOK, merge_request_iid=7, watch_state=state
+    )
+
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=_hydrated_with_mr(7))):
+        resp = await client.post(
+            f"/sessions/{session.thread_id}/ci-watch", json={"on": False}, headers=_auth_headers(raw)
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() is None
+    await watch_row.arefresh_from_db()
+    assert watch_row.watch_state == "off"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_off_reports_a_fix_run_that_claimed_the_watch_first(client, authed, watch_world):
+    from sessions.models import WatchState
+    from sessions.pipeline_watch.store import WatchStore
+
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(
+        user=user,
+        origin=SessionOrigin.MR_WEBHOOK,
+        thread_id=_watch_thread_id(7),
+        merge_request_iid=7,
+        watch_state=WatchState.WATCHING,
+    )
+    real_transition = WatchStore.atransition
+
+    async def fix_run_claims_first(self, thread_id, **kwargs):
+        await Session.objects.filter(thread_id=thread_id).aupdate(watch_state=WatchState.FIXING)
+        return await real_transition(self, thread_id, **kwargs)
+
+    with (
+        patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=_hydrated_with_mr(None))),
+        patch.object(WatchStore, "atransition", fix_run_claims_first),
+    ):
+        resp = await client.post(
+            f"/sessions/{session.thread_id}/ci-watch", json={"on": False}, headers=_auth_headers(raw)
+        )
+
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "changed"
+    assert resp.json()["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn"}
+    await session.arefresh_from_db()
+    assert session.watch_state == WatchState.FIXING
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_on_arms_the_merge_request_and_asks_for_an_evaluation(client, authed, watch_world):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    watch_world.branch = "daiv/renamed"
+
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=_hydrated_with_mr(7))):
+        resp = await client.post(
+            f"/sessions/{session.thread_id}/ci-watch", json={"on": True}, headers=_auth_headers(raw)
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"state": "watching", "label": "Waiting for CI", "tone": "attn"}
+    watch_row = await Session.objects.aget(thread_id=_watch_thread_id(7))
+    assert (watch_row.ref, watch_row.user_id, watch_row.watch_attempts) == ("daiv/renamed", user.pk, 0)
+    assert watch_world.evaluations == [{"repo_id": "group/project", "ref": "daiv/renamed"}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_on_leaves_an_open_watch_alone(client, authed, watch_world):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    await sync_to_async(_create_session)(
+        thread_id=_watch_thread_id(7),
+        origin=SessionOrigin.MR_WEBHOOK,
+        merge_request_iid=7,
+        watch_state="fixing",
+        watch_attempts=2,
+    )
+
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=_hydrated_with_mr(7))):
+        resp = await client.post(
+            f"/sessions/{session.thread_id}/ci-watch", json={"on": True}, headers=_auth_headers(raw)
+        )
+
+    assert resp.json()["state"] == "fixing"
+    watch_row = await Session.objects.aget(thread_id=_watch_thread_id(7))
+    assert watch_row.watch_attempts == 2
+    assert watch_world.evaluations == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_on_is_refused_when_the_repository_has_the_watch_off(client, authed, watch_world):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    watch_world.enabled = False
+
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=_hydrated_with_mr(7))):
+        resp = await client.post(
+            f"/sessions/{session.thread_id}/ci-watch", json={"on": True}, headers=_auth_headers(raw)
+        )
+
+    assert resp.status_code == 409
+    assert resp.json() == {"detail": "CI fixes are turned off for this repository", "reason": "disabled", "watch": None}
+    assert not await Session.objects.filter(thread_id=_watch_thread_id(7)).aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_on_reports_an_unreadable_merge_request(client, authed, watch_world):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    watch_world.read_error = RuntimeError("platform down")
+
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=_hydrated_with_mr(7))):
+        resp = await client.post(
+            f"/sessions/{session.thread_id}/ci-watch", json={"on": True}, headers=_auth_headers(raw)
+        )
+
+    assert resp.status_code == 502
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_needs_a_merge_request(client, authed, watch_world):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=_hydrated_with_mr(None))):
+        resp = await client.post(
+            f"/sessions/{session.thread_id}/ci-watch", json={"on": True}, headers=_auth_headers(raw)
+        )
+
+    assert resp.status_code == 409
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_report_the_watch_the_merge_requests_thread_holds(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    await sync_to_async(_create_session)(
+        thread_id=_watch_thread_id(7), origin=SessionOrigin.MR_WEBHOOK, merge_request_iid=7, watch_state="green"
+    )
+
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=_hydrated_with_mr(7))):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.json()["watch"] == {"state": "green", "label": "Green", "tone": "clear"}

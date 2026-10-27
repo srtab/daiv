@@ -78,6 +78,16 @@ class TestDashboardSessionBreakdown:
         assert _list_count(member_client, activity["sessions_failed_url"]) == activity["sessions_failed"]
         assert _list_count(member_client, activity["sessions_url"]) == activity["sessions_total"] == 4
 
+    def test_archived_sessions_are_not_counted(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT)
+        archived = _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
+        Session.objects.filter(pk=archived.pk).update(hidden_at=timezone.now())
+
+        activity = member_client.get(reverse("dashboard")).context["activity"]
+
+        assert (activity["sessions_total"], activity["sessions_failed"]) == (1, 0)
+        assert _list_count(member_client, activity["sessions_url"]) == 1
+
     def test_a_session_counts_once_however_many_runs_it_holds(self, member_user, member_client):
         session = _make_session(member_user, SessionOrigin.MR_WEBHOOK)
         Run.objects.create(

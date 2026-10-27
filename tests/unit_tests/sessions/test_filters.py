@@ -7,7 +7,7 @@ from django.utils import timezone
 
 import pytest
 from sessions.artifacts import ArtifactKind, content_types_for_kind
-from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, resolve_scope
+from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, resolve_scope, wants_archived
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
@@ -86,8 +86,23 @@ def test_resolve_scope(data, expected):
     assert resolve_scope(data) == expected
 
 
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [({}, False), ({"archived": "true"}, True), ({"archived": "false"}, False), ({"archived": "x"}, False)],
+)
+def test_wants_archived(data, expected):
+    assert wants_archived(data) is expected
+
+
 @pytest.mark.django_db
 class TestSessionFilter:
+    def test_archived_filter_keeps_only_the_archived(self, user):
+        shown = _create_session()
+        hidden = _create_session(hidden_at=timezone.now())
+
+        assert list(SessionFilter({"archived": "true"}, queryset=_qs()).qs) == [hidden]
+        assert list(SessionFilter({"archived": "false"}, queryset=_qs()).qs) == [shown]
+
     def test_no_params_returns_all(self, user):
         a = _create_session()
         b = _create_session()

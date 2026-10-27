@@ -6,6 +6,8 @@ Alpine's merged scope; here they are plain properties on the component, which is
 
 from __future__ import annotations
 
+import pytest
+
 from tests.unit_tests.jsdriver import requires_node, run_node
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
@@ -17,7 +19,7 @@ HARNESS = """
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const { src, initial, watch, wide, stored, storageBlocked, steps } = JSON.parse(readFileSync(0, "utf8"));
+const { src, initial, watch, wide, stored, storageBlocked, archived, steps } = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
 const fetches = [];
 const pending = [];
@@ -32,19 +34,35 @@ const sandbox = {
     getItem: (k) => { if (storageBlocked) throw new Error("blocked"); return storage.get(k) ?? null; },
     setItem: (k, v) => { if (storageBlocked) throw new Error("blocked"); storage.set(k, v); },
   },
-  fetch: (url) => {
-    fetches.push(url);
-    return new Promise((resolve) => pending.push((body) => resolve({ ok: true, json: async () => body })));
+  fetch: (url, options = {}) => {
+    fetches.push({ url, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null,
+                   csrf: options.headers?.["X-CSRFToken"] ?? null });
+    return new Promise((resolve) => pending.push((body, status = 200) =>
+      resolve({ ok: status < 400, status, json: async () => body })));
   },
 };
+sandbox.document.title = "Old — DAIV Sessions";
 sandbox.window = { matchMedia: () => ({ matches: wide, addEventListener() {}, removeEventListener() {} }) };
 sandbox.Alpine = { data: (name, factory) => { components[name] = factory; } };
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
-const labels = { running: "Running", queued: "Queued" };
-const page = components.sessionPage({ turnsUrl: "/turns", storageKey: "key", labels });
-Object.assign(page, { streaming: false, resuming: false, waiting: false, $nextTick: (cb) => cb() });
+const labels = {
+  running: "Running", queued: "Queued", watching: "Watching: {state}", watchOff: "Off for this merge request",
+  watchFailed: "Couldn't change it",
+};
+const page = components.sessionPage({
+  turnsUrl: "/turns", sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", storageKey: "key",
+  title: "Old", titleSuffix: "DAIV Sessions", archived, labels,
+});
+const focused = [];
+Object.assign(page, {
+  streaming: false, resuming: false, waiting: false, csrfToken: "tok", $nextTick: (cb) => cb(),
+  $refs: {
+    titleInput: { focus: () => focused.push("input"), select() {} },
+    titleButton: { focus: () => focused.push("button"), getBoundingClientRect: () => ({ width: 312 }) },
+  },
+});
 page.init();
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const seen = [];
@@ -54,12 +72,24 @@ for (const [action, value] of steps) {
   else if (action === "poll") page.applyPoll(value);
   else if (action === "run-ended") refreshing = page.refresh();
   else if (action === "respond") { pending.shift()(value); await refreshing; await settle(); }
+  else if (action === "reply") { pending.shift()(value.body, value.status); await refreshing; await settle(); }
+  else if (action === "rename") page.startRename();
+  else if (action === "draft") page.titleDraft = value;
+  else if (action === "commit") refreshing = page.commitRename();
+  else if (action === "cancel") page.cancelRename();
+  else if (action === "ci-toggle") refreshing = page.toggleCiWatch();
+  else if (action === "archive") refreshing = page.setArchived(value);
   else if (action === "toggle") page.toggleDetails();
   else if (action === "read") {
-    seen.push({ status: page.status, retry: page.retryUrl, watch: page.watch, open: page.detailsOpen });
+    seen.push({ status: page.status, retry: page.retryUrl, watch: page.watch, open: page.detailsOpen,
+                title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
+                docTitle: sandbox.document.title,
+                archived: page.archived, hint: page.ciWatchHint, ciDisabled: Boolean(page.ciWatchDisabled) });
   }
 }
-process.stdout.write(JSON.stringify({ seen, fetches: fetches.length, stored: storage.get("key") ?? null }));
+process.stdout.write(JSON.stringify({
+  seen, fetches: fetches.length, requests: fetches, focused, stored: storage.get("key") ?? null,
+}));
 """
 
 DONE = {"id": "r1", "status": "SUCCESSFUL", "label": "Done", "variant": "success", "retry_url": "/runs/new/?from=r1"}
@@ -68,7 +98,7 @@ RUNNING = {"variant": "running", "label": "Running"}
 WATCHING = {"state": "watching", "label": "Waiting for CI", "tone": "attn"}
 
 
-def _run(steps, *, initial=DONE, watch=None, wide=True, stored=None, storage_blocked=False) -> dict:
+def _run(steps, *, initial=DONE, watch=None, wide=True, stored=None, storage_blocked=False, archived=False) -> dict:
     payload = {
         "src": str(SESSION_PAGE_JS),
         "initial": initial,
@@ -76,6 +106,7 @@ def _run(steps, *, initial=DONE, watch=None, wide=True, stored=None, storage_blo
         "wide": wide,
         "stored": stored,
         "storageBlocked": storage_blocked,
+        "archived": archived,
         "steps": steps,
     }
     return run_node(HARNESS, payload)
@@ -86,12 +117,9 @@ def _read(**kwargs) -> dict:
 
 
 def test_it_shows_the_server_rendered_latest_run_and_watch():
-    assert _read(watch=WATCHING) | {"open": None} == {
-        "status": DONE,
-        "retry": "/runs/new/?from=r1",
-        "watch": WATCHING,
-        "open": None,
-    }
+    seen = _read(watch=WATCHING)
+
+    assert (seen["status"], seen["retry"], seen["watch"]) == (DONE, "/runs/new/?from=r1", WATCHING)
 
 
 def test_a_session_without_runs_has_no_status():
@@ -148,3 +176,139 @@ def test_blocked_storage_starts_closed_and_still_toggles():
     result = _run([["read", None], ["toggle", None], ["read", None]], storage_blocked=True)
 
     assert [s["open"] for s in result["seen"]] == [False, True]
+
+
+# ---------------------------------------------------------------------------
+# rename
+# ---------------------------------------------------------------------------
+
+
+def test_renaming_saves_the_trimmed_title_and_updates_the_page():
+    result = _run([
+        ["rename", None],
+        ["read", None],
+        ["draft", "  New name  "],
+        ["commit", None],
+        ["read", None],
+        ["reply", {"body": {"title": "New name"}}],
+        ["read", None],
+    ])
+
+    editing, saving, saved = result["seen"]
+    assert (editing["editing"], editing["titleWidth"], saving["editing"]) == (True, 312, False)
+    assert (saving["title"], saved["title"], saved["docTitle"]) == ("New name", "New name", "New name — DAIV Sessions")
+    assert result["requests"] == [{"url": "/session", "method": "PATCH", "body": {"title": "New name"}, "csrf": "tok"}]
+    assert result["focused"] == ["input"]
+
+
+def test_enter_then_the_blur_it_causes_saves_once():
+    result = _run([["rename", None], ["draft", "New"], ["commit", None], ["commit", None]])
+
+    assert result["fetches"] == 1
+
+
+@pytest.mark.parametrize("draft", ["", "   ", "Old"])
+def test_a_blank_or_unchanged_title_keeps_the_old_one_without_saving(draft):
+    result = _run([["rename", None], ["draft", draft], ["commit", None], ["read", None]])
+
+    assert (result["seen"][0]["title"], result["fetches"]) == ("Old", 0)
+
+
+def test_escape_cancels_and_returns_focus_to_the_title():
+    result = _run([["rename", None], ["draft", "New"], ["cancel", None], ["commit", None], ["read", None]])
+
+    assert (result["seen"][0]["title"], result["seen"][0]["editing"], result["fetches"]) == ("Old", False, 0)
+    assert result["focused"] == ["input", "button"]
+
+
+def test_a_refused_rename_puts_the_old_title_back():
+    result = _run([
+        ["rename", None],
+        ["draft", "New"],
+        ["commit", None],
+        ["reply", {"status": 403, "body": {"detail": "no"}}],
+        ["read", None],
+    ])
+
+    assert (result["seen"][0]["title"], result["seen"][0]["docTitle"]) == ("Old", "Old — DAIV Sessions")
+
+
+# ---------------------------------------------------------------------------
+# Fix CI failures
+# ---------------------------------------------------------------------------
+
+
+def test_the_ci_item_describes_the_watch():
+    assert _read(watch=WATCHING)["hint"] == "Watching: Waiting for CI"
+    assert _read(watch={"state": "green", "label": "Green", "tone": "clear"})["hint"] == "Green"
+    assert _read(watch=None)["hint"] == "Off for this merge request"
+
+
+def test_unticking_turns_the_watch_off_and_takes_the_response():
+    result = _run([["ci-toggle", None], ["reply", {"body": None}], ["read", None]], watch=WATCHING)
+
+    assert result["requests"][0] == {"url": "/ci-watch", "method": "POST", "body": {"on": False}, "csrf": "tok"}
+    assert result["seen"][0]["watch"] is None
+
+
+def test_ticking_turns_the_watch_on():
+    result = _run([["ci-toggle", None], ["reply", {"body": WATCHING}], ["read", None]], watch=None)
+
+    assert result["requests"][0]["body"] == {"on": True}
+    assert (result["seen"][0]["watch"], result["seen"][0]["hint"]) == (WATCHING, "Watching: Waiting for CI")
+
+
+def test_a_lost_race_shows_the_watch_as_it_now_is():
+    fixing = {"state": "fixing", "label": "Fixing", "tone": "attn"}
+    result = _run(
+        [
+            ["ci-toggle", None],
+            ["reply", {"status": 409, "body": {"reason": "changed", "watch": fixing}}],
+            ["read", None],
+        ],
+        watch=WATCHING,
+    )
+
+    assert (result["seen"][0]["watch"], result["seen"][0]["ciDisabled"]) == (fixing, False)
+
+
+def test_a_repository_with_the_watch_off_disables_the_item_with_the_reason():
+    refused = {"detail": "CI fixes are turned off for this repository", "reason": "disabled", "watch": None}
+    result = _run([
+        ["ci-toggle", None],
+        ["reply", {"status": 409, "body": refused}],
+        ["ci-toggle", None],
+        ["read", None],
+    ])
+
+    seen = result["seen"][0]
+    assert (seen["watch"], seen["ciDisabled"], seen["hint"]) == (None, True, refused["detail"])
+    assert result["fetches"] == 1
+
+
+def test_a_failed_toggle_keeps_the_watch_and_says_so():
+    result = _run([["ci-toggle", None], ["reply", {"status": 502, "body": {}}], ["read", None]], watch=WATCHING)
+
+    assert (result["seen"][0]["watch"], result["seen"][0]["hint"]) == (WATCHING, "Couldn't change it")
+
+
+# ---------------------------------------------------------------------------
+# archive
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("archived", [True, False])
+def test_archiving_and_unarchiving_post_the_choice(archived):
+    result = _run(
+        [["archive", archived], ["read", None], ["reply", {"body": {"archived": archived}}], ["read", None]],
+        archived=not archived,
+    )
+
+    assert result["requests"][0] == {"url": "/archive", "method": "POST", "body": {"archived": archived}, "csrf": "tok"}
+    assert [s["archived"] for s in result["seen"]] == [archived, archived]
+
+
+def test_a_refused_archive_restores_the_state():
+    result = _run([["archive", True], ["reply", {"status": 403, "body": {}}], ["read", None]])
+
+    assert result["seen"][0]["archived"] is False

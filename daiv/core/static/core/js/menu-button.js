@@ -18,7 +18,7 @@ document.addEventListener("alpine:init", () => {
     open: false,
 
     items() {
-      return [...this.$refs.menu.querySelectorAll('[role="menuitem"]')];
+      return [...this.$refs.menu.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"]')];
     },
 
     focusAt(index) {
