@@ -18,6 +18,33 @@ RANGE_CHOICES: list[tuple[str, str]] = [
     ("30d", _("Last 30 days")),
 ]
 
+STATUS_CHOICES: list[tuple[str, str]] = [
+    (status.value, status.label)
+    for status in (
+        RunStatus.WAITING_INPUT,
+        RunStatus.FAILED,
+        RunStatus.RUNNING,
+        RunStatus.QUEUED,
+        RunStatus.READY,
+        RunStatus.SUCCESSFUL,
+    )
+]
+
+SCOPE_MINE = "mine"
+SCOPE_ALL = "all"
+SCOPE_CHOICES: list[tuple[str, str]] = [(SCOPE_MINE, _("Mine")), (SCOPE_ALL, _("Everyone"))]
+
+DEEP_LINK_PARAMS = ("repo", "mr", "schedule", "batch")
+
+
+def resolve_scope(data) -> str:
+    """The scope a request's query params select: an explicit valid ``scope``, else ``all`` for a deep link."""
+    scope = data.get("scope")
+    if scope in dict(SCOPE_CHOICES):
+        return scope
+    return SCOPE_ALL if any(data.get(param) for param in DEEP_LINK_PARAMS) else SCOPE_MINE
+
+
 # Rolling-window size per range token; "today" is special-cased to local calendar midnight.
 _RANGE_WINDOWS: dict[str, timedelta] = {"2d": timedelta(days=2), "7d": timedelta(days=7), "30d": timedelta(days=30)}
 
@@ -30,7 +57,7 @@ def _local_midnight(day: date) -> datetime:
 class SessionFilter(django_filters.FilterSet):
     # Param names match the old activity deep links (?trigger=, ?status=, ...).
     q = django_filters.CharFilter(method="filter_q")
-    status = django_filters.ChoiceFilter(choices=RunStatus.choices, method="filter_status")
+    status = django_filters.ChoiceFilter(choices=STATUS_CHOICES, method="filter_status")
     trigger = django_filters.ChoiceFilter(field_name="origin", choices=SessionOrigin.choices)
     repo = django_filters.CharFilter(field_name="repo_id")  # deep-link back-compat: clearable chip, no widget to set it
     mr = django_filters.NumberFilter(method="filter_mr")

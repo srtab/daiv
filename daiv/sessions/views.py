@@ -38,7 +38,15 @@ from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
 from sessions.executor.lock import live_run_for, session_activity
-from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
+from sessions.filters import (
+    RANGE_CHOICES,
+    SCOPE_CHOICES,
+    SCOPE_MINE,
+    STATUS_CHOICES,
+    ArtifactFilter,
+    SessionFilter,
+    resolve_scope,
+)
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
@@ -134,6 +142,10 @@ class SessionListView(LoginRequiredMixin, FilterView):
     # silently drop that filter, not blank the whole list.
     strict = False
 
+    @cached_property
+    def scope(self) -> str:
+        return resolve_scope(self.request.GET)
+
     def get_template_names(self) -> list[str]:
         # HTMX requests get just the results fragment so the filter bar and page
         # chrome stay put; a normal GET renders the full page (deep-link / no-JS safe).
@@ -147,7 +159,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # gives the SSE dot the real ``Run.id`` to key live updates on.
         return (
             Session.objects
-            .listed_for(self.request.user)
+            .listed_for(self.request.user, mine=self.scope == SCOPE_MINE)
             .select_related("user", "scheduled_job")
             # Only the columns the row reads (status/duration/MR/cost/SSE id) — skips the fat
             # prompt/result_summary/error_message/usage_by_model columns. Add a field here if
@@ -175,6 +187,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context = super().get_context_data(**kwargs)
         form = context["filter"].form
         cleaned = form.cleaned_data if form.is_valid() else {}
+        context["current_scope"] = self.scope
         context["current_status"] = cleaned.get("status") or ""
         context["current_trigger"] = cleaned.get("trigger") or ""
         context["current_trigger_label"] = dict(SessionOrigin.choices).get(context["current_trigger"], "")
@@ -203,13 +216,18 @@ class SessionListView(LoginRequiredMixin, FilterView):
             context["current_to"],
         ])
         context["origins"] = SessionOrigin.choices
-        context["statuses"] = RunStatus.choices
+        context["statuses"] = STATUS_CHOICES
+        context["scopes"] = SCOPE_CHOICES
         context["ranges"] = RANGE_CHOICES
 
-        # The page rows are already scoped to this user and the schedule, so they name the chip.
         if context["current_schedule"]:
-            first = next(iter(context["sessions"]), None)
-            context["schedule_name"] = first.scheduled_job.name if first else ""
+            context["schedule_name"] = (
+                Session.objects
+                .visible_to(self.request.user)
+                .filter(scheduled_job_id=context["current_schedule"])
+                .values_list("scheduled_job__name", flat=True)
+                .first()
+            ) or ""
 
         # In-flight RUN ids across the page's sessions, for the SSE status stream.
         page_ids = [s.pk for s in context["sessions"]]

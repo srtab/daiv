@@ -604,11 +604,16 @@ html {
   }
 
   .status-badge-queued {
+    @apply bg-gray-800/60 text-gray-300;
+  }
+
+  .status-badge-warning {
     @apply bg-amber-900/40 text-amber-300;
   }
 
   .status-badge-waiting {
-    @apply bg-amber-400/15 text-amber-200 ring-1 ring-inset ring-amber-400/40;
+    @apply bg-transparent text-status-found ring-1 ring-inset;
+    --tw-ring-color: color-mix(in srgb, var(--color-status-found) 45%, transparent);
   }
 
   .status-badge-pending {
@@ -622,6 +627,24 @@ html {
     @apply inline-flex shrink-0 items-center gap-1 rounded-full border border-white/[0.08]
       bg-white/[0.02] px-2 py-0.5 text-[11px] text-gray-300;
   }
+}
+
+/* -- Notification outcome ------------------------------------------------- */
+
+@layer components {
+  .outcome-icon {
+    @apply mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg;
+    color: var(--outcome-color);
+    background-color: color-mix(in srgb, var(--outcome-color) 14%, transparent);
+  }
+  .outcome-label {
+    @apply font-medium;
+    color: var(--outcome-color);
+  }
+  .outcome--clear { --outcome-color: var(--color-status-clear); }
+  .outcome--found { --outcome-color: var(--color-status-found); }
+  .outcome--attn { --outcome-color: var(--color-status-attn); }
+  .outcome--fail { --outcome-color: var(--color-status-fail); }
 }
 
 /* -- Status dot variants -------------------------------------------------- */
@@ -644,12 +667,13 @@ html {
     animation: pulse-dot 2s ease-in-out infinite;
   }
 
+  /* Shape carries the state alongside colour: hollow ring = queued, diamond = needs input. */
   .status-dot-queued {
-    @apply bg-amber-400;
+    @apply bg-transparent ring-[1.5px] ring-inset ring-gray-400;
   }
 
   .status-dot-waiting {
-    @apply bg-amber-300;
+    @apply rotate-45 rounded-[1.5px] bg-status-found;
   }
 
   .status-dot-pending {
@@ -3342,12 +3366,11 @@ html {
     @apply h-9 w-full rounded-xl border border-white/[0.06] bg-[#0b1018]
       pl-9 pr-3 text-sm text-gray-300 placeholder:text-gray-500;
   }
+  /* Wraps rather than scrolls: a hidden-scrollbar overflow cut off the last items on a phone. */
   .filter-seg {
-    @apply inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-xl
+    @apply inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-xl
       border border-white/[0.06] bg-white/[0.02] p-1;
-    scrollbar-width: none;
   }
-  .filter-seg::-webkit-scrollbar { display: none; }
   .filter-seg-item {
     @apply inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium
       text-gray-400 transition-colors hover:text-gray-200;

@@ -99,7 +99,7 @@ class TestDashboardSessionBreakdown:
         activity = member_client.get(reverse("dashboard"), {"period": "30d"}).context["activity"]
 
         date_from = (timezone.localdate() - timedelta(days=29)).isoformat()
-        expected = f"{reverse('session_list')}?date_from={date_from}&trigger=schedule"
+        expected = f"{reverse('session_list')}?scope=all&date_from={date_from}&trigger=schedule"
         assert activity["segments"][0]["url"] == expected
 
     def test_all_time_links_have_no_date(self, member_user, member_client):
@@ -107,7 +107,21 @@ class TestDashboardSessionBreakdown:
 
         activity = member_client.get(reverse("dashboard"), {"period": "all"}).context["activity"]
 
-        assert activity["segments"][0]["url"] == f"{reverse('session_list')}?trigger=schedule"
+        assert activity["segments"][0]["url"] == f"{reverse('session_list')}?scope=all&trigger=schedule"
+
+    def test_counts_include_teammates_sessions_and_so_do_the_lists_they_open(
+        self, admin_user, admin_client, member_user
+    ):
+        _make_session(admin_user, SessionOrigin.CHAT)
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
+
+        activity = admin_client.get(reverse("dashboard")).context["activity"]
+
+        (chat,) = activity["segments"]
+        assert chat["value"] == 2
+        assert _list_count(admin_client, chat["url"]) == 2
+        assert _list_count(admin_client, activity["sessions_failed_url"]) == activity["sessions_failed"] == 1
+        assert _list_count(admin_client, reverse("session_list")) == 1
 
 
 def test_every_origin_has_a_segment_colour():

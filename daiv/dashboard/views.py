@@ -8,7 +8,7 @@ from django.utils.http import urlencode
 from django.utils.timezone import localdate
 from django.views.generic import TemplateView
 
-from sessions.filters import SessionFilter
+from sessions.filters import SCOPE_ALL, SessionFilter
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
@@ -54,7 +54,7 @@ def _period_params(cutoff_date: date | None) -> dict[str, str]:
 
 
 def _session_list_url(params: dict[str, str]) -> str:
-    return f"{reverse('session_list')}?{urlencode(params)}"
+    return f"{reverse('session_list')}?{urlencode({'scope': SCOPE_ALL, **params})}"
 
 
 def _raw_pct(numerator: int, denominator: int) -> int | None:

@@ -7,7 +7,7 @@ from django.utils import timezone
 
 import pytest
 from sessions.artifacts import ArtifactKind, content_types_for_kind
-from sessions.filters import ArtifactFilter, SessionFilter
+from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, resolve_scope
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
@@ -49,6 +49,41 @@ def _create_run(session: Session, **kwargs) -> Run:
 def _qs():
     """Base queryset with the annotation required by filter_status."""
     return Session.objects.with_latest_status()
+
+
+def test_status_choices_put_what_waits_on_the_developer_first():
+    assert [value for value, _label in STATUS_CHOICES] == [
+        RunStatus.WAITING_INPUT,
+        RunStatus.FAILED,
+        RunStatus.RUNNING,
+        RunStatus.QUEUED,
+        RunStatus.READY,
+        RunStatus.SUCCESSFUL,
+    ]
+
+
+def test_status_choices_cover_every_run_status():
+    assert sorted(value for value, _label in STATUS_CHOICES) == sorted(RunStatus.values)
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        ({}, "mine"),
+        ({"q": "fix", "status": "FAILED"}, "mine"),
+        ({"repo": "group/project"}, "all"),
+        ({"mr": "42"}, "all"),
+        ({"schedule": "7"}, "all"),
+        ({"batch": str(uuid.UUID(int=1))}, "all"),
+        ({"repo": ""}, "mine"),
+        ({"repo": "group/project", "scope": "mine"}, "mine"),
+        ({"scope": "all"}, "all"),
+        ({"scope": "everyone"}, "mine"),
+        ({"scope": "everyone", "repo": "group/project"}, "all"),
+    ],
+)
+def test_resolve_scope(data, expected):
+    assert resolve_scope(data) == expected
 
 
 @pytest.mark.django_db

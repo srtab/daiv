@@ -35,9 +35,17 @@ class SessionQuerySet(models.QuerySet["Session"]):
         return (
             models.Q(user=user)
             | models.Q(external_username=user.username)
-            | models.Q(scheduled_job__subscribers=user)
+            | models.Q(scheduled_job__in=user.subscribed_schedules.values("pk"))
             | models.Exists(run_match)
         )
+
+    def owned_by(self, user: User) -> models.QuerySet[Session]:
+        """Sessions the user owns, admins included: the session list's "Mine" scope.
+
+        Unlike :meth:`by_owner` this is a view filter, not a visibility boundary, so an admin's
+        "Mine" is their own sessions rather than everything they may see.
+        """
+        return self.filter(self._owner_q(user))
 
     def by_owner(self, user: User) -> models.QuerySet[Session]:
         """Sessions the user owns (ownership only).
@@ -49,7 +57,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         """
         if user.is_admin:
             return self.all()
-        return self.filter(self._owner_q(user)).distinct()
+        return self.owned_by(user)
 
     def visible_to(self, user: User) -> models.QuerySet[Session]:
         """Sessions the user may view: ownership OR a repository they can currently read.
@@ -64,7 +72,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         # (and its codebase.* / allauth graph) in at app-load time.
         from codebase.authorization import viewable_repo_ids_subquery
 
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
+        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user)))
 
     def for_merge_request(self, iid: int) -> models.QuerySet[Session]:
         """Sessions that touched merge request ``iid``, whichever way they learned of it.
@@ -87,9 +95,10 @@ class SessionQuerySet(models.QuerySet["Session"]):
         has_run = models.Exists(Run.objects.filter(session=models.OuterRef("pk")))
         return self.exclude(~has_run, origin=SessionOrigin.PIPELINE_WEBHOOK)
 
-    def listed_for(self, user: User) -> models.QuerySet[Session]:
-        """The rows the session list shows ``user`` before any filter is applied."""
-        return self.visible_to(user).without_watch_placeholders().with_latest_status()
+    def listed_for(self, user: User, *, mine: bool = False) -> models.QuerySet[Session]:
+        """The rows the session list shows ``user`` before any filter: their own when ``mine``, else all visible."""
+        sessions = self.owned_by(user) if mine else self.visible_to(user)
+        return sessions.without_watch_placeholders().with_latest_status()
 
     def with_latest_status(self) -> models.QuerySet[Session]:
         """Annotate each session with ``latest_run_status`` (status of the newest run).
