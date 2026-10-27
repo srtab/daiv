@@ -803,45 +803,142 @@ html {
     min-width: 0;
   }
 
-  /* Session header: sticky at the top of <main>, the scroll container, so it stays in view while the
-     viewport is parked on the latest answer. Below the dock (z-35), whose sheets open over it. */
-  .session-header {
-    /* Sticky offsets start inside <main>'s padding (pt-6 / sm:pt-8 in base_app.html); these cancel it. */
-    @apply sticky -top-6 z-30 -mx-1 flex flex-col gap-1.5 border-b border-border bg-ground px-1 pt-3 pb-2.5 sm:-top-8;
+  /* Session page: a top bar over a row of the scrolling <main> and the details column. */
+  .session-page {
+    @apply flex min-h-0 min-w-0 flex-1 flex-col;
   }
-  .session-header__top { @apply flex min-w-0 items-center gap-3; }
-  .session-header__title {
-    @apply min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-text-strong sm:text-lg;
+  .session-page__body {
+    @apply flex min-h-0 flex-1;
   }
-  .session-header__retry {
-    @apply inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[12.5px]
-      font-medium text-accent transition-colors hover:bg-surface-3 hover:text-accent-bright;
+
+  .session-topbar {
+    @apply flex h-13 shrink-0 items-center gap-3 border-b border-border bg-ground px-4 sm:px-(--app-content-gutter);
   }
-  /* One swipeable line on phones, so the header stays two rows; wraps from sm: up. */
-  .session-header__meta {
-    @apply relative flex min-w-0 flex-nowrap items-center gap-x-2.5 gap-y-1.5 overflow-x-auto text-[12px] whitespace-nowrap
-      text-text-muted sm:flex-wrap sm:overflow-visible;
-    scrollbar-width: none;
+  /* Status sits under the title on phones, beside it from sm: up. */
+  .session-topbar__heading {
+    @apply flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3;
   }
-  .session-header__meta > * { @apply shrink-0; }
-  .session-header__meta .session-repo,
-  .session-header__meta .session-branch { @apply max-w-[220px] sm:shrink; }
-  .session-header__link {
-    @apply inline-flex shrink-0 items-center gap-1 font-mono text-[11.5px] text-text-muted;
+  .session-topbar__title {
+    @apply min-w-0 truncate text-[14px] font-semibold text-text-strong;
   }
-  a.session-header__link { @apply transition-colors hover:text-accent-bright; }
-  .session-header__draft {
-    @apply rounded-full bg-amber-900/40 px-1.5 text-[10px] font-semibold tracking-[0.05em] text-amber-200 uppercase;
+  .session-topbar__status {
+    @apply inline-flex shrink-0 items-center gap-1.5 text-[12px] text-text-muted;
   }
-  .session-header__watch {
-    @apply inline-flex shrink-0 items-center gap-1 font-mono text-[11.5px];
-    color: var(--watch-color);
+  .session-topbar__actions {
+    @apply ml-auto flex shrink-0 items-center gap-2;
   }
-  .session-header__watch--attn { --watch-color: var(--color-status-attn); }
-  .session-header__watch--clear { --watch-color: var(--color-status-clear); }
-  .session-header__watch--found { --watch-color: var(--color-status-found); }
-  .session-header__watch--fail { --watch-color: var(--color-status-fail); }
-  .session-header__owner { @apply shrink-0; }
+  .session-topbar__retry {
+    @apply inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-medium
+      text-accent transition-colors hover:bg-surface-3 hover:text-accent-bright;
+  }
+  .session-topbar__icon-btn {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted
+      transition-colors hover:bg-surface-3 hover:text-text;
+  }
+  .session-topbar__icon-btn--on {
+    @apply border-border bg-surface-3 text-text;
+  }
+
+  .mr-split {
+    @apply relative inline-flex h-8;
+  }
+  .mr-split__main {
+    @apply inline-flex items-center gap-1.5 rounded-l-lg border border-border px-2.5 font-mono text-[12px] text-text
+      transition-colors hover:bg-surface-3;
+  }
+  .mr-split__toggle {
+    @apply inline-flex w-7 items-center justify-center rounded-r-lg border border-l-0 border-border text-text-muted
+      transition-colors hover:bg-surface-3 hover:text-text;
+  }
+  .mr-split__draft {
+    @apply rounded-full px-1.5 font-sans text-[11px] font-semibold text-status-found;
+    background: color-mix(in srgb, var(--color-status-found) 15%, transparent);
+  }
+  .mr-split__ci {
+    @apply inline-flex items-center gap-1.5 border-l border-border pl-1.5 font-sans text-[11px];
+    color: var(--ci-color);
+  }
+  .session-details__ci {
+    @apply flex items-center gap-2 text-[13px];
+    color: var(--ci-color);
+  }
+  .mr-split__draft--bar,
+  .mr-split__ci-label {
+    @apply max-sm:hidden;
+  }
+  .mr-split__ci-dot {
+    @apply inline-block h-2 w-2 rounded-full;
+    background: var(--ci-color);
+  }
+  .mr-split__ci--attn { --ci-color: var(--color-status-attn); }
+  .mr-split__ci--attn .mr-split__ci-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ci-color); }
+  .mr-split__ci--clear { --ci-color: var(--color-status-clear); }
+  .mr-split__ci--found { --ci-color: var(--color-status-found); }
+  .mr-split__ci--fail { --ci-color: var(--color-status-fail); }
+
+  .session-menu {
+    @apply absolute top-full right-0 z-40 mt-2 w-64 rounded-xl border border-border bg-surface-2 p-1 shadow-overlay;
+    animation: surface-rise 180ms ease-out backwards;
+  }
+  .session-menu__item {
+    @apply flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-text transition-colors
+      hover:bg-surface-3 focus:bg-surface-3;
+  }
+  .session-menu__icon {
+    @apply h-4 w-4 shrink-0 text-text-muted;
+  }
+
+  /* From 1100px, the width the composer sheets turn into popovers at, a column; below it a bottom sheet. */
+  .session-details {
+    @apply fixed bottom-0 z-60 flex max-h-[85dvh] flex-col rounded-t-2xl border-t border-border bg-surface-1
+      shadow-overlay;
+    left: var(--sheet-inset-start, 0px);
+    right: var(--sheet-inset-end, 0px);
+  }
+  @media (min-width: 1100px) {
+    .session-details {
+      @apply static z-auto max-h-none w-80 shrink-0 rounded-none border-t-0 border-l shadow-none;
+      left: auto;
+      right: auto;
+    }
+  }
+  .session-details__head {
+    @apply flex items-center justify-between border-b border-border py-2 pr-2 pl-5;
+  }
+  .session-details__title {
+    @apply text-[14px] font-semibold text-text-strong;
+  }
+  .session-details__body {
+    @apply flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-5;
+  }
+  .session-details__section {
+    @apply flex flex-col gap-2.5;
+  }
+  .session-details__label {
+    @apply font-mono text-[11px] font-medium tracking-[0.14em] text-text-muted uppercase;
+  }
+  .session-details__label-row {
+    @apply flex items-baseline justify-between gap-3;
+  }
+  .session-details__total {
+    @apply font-mono text-[14px] font-semibold tabular-nums text-text-strong;
+  }
+  .session-details__mr {
+    @apply leading-snug font-medium text-text hover:text-accent-bright;
+  }
+  .session-details__row {
+    @apply flex flex-wrap items-center gap-2.5 font-mono text-[12px] text-text-muted;
+  }
+  .session-details__grid {
+    @apply m-0 grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-[13px];
+  }
+  .session-details__grid dt { @apply text-text-faint; }
+  .session-details__grid dd { @apply m-0 min-w-0 text-text; }
+  .session-details__grid a,
+  .session-details__list a { @apply text-accent hover:text-accent-bright; }
+  .session-details__list {
+    @apply m-0 flex list-none flex-col gap-1.5 p-0 text-[13px];
+  }
 
   /* Transcript */
 
@@ -1063,7 +1160,7 @@ html {
     /* Breathing room left above a turn the page scrolls to, so it reads as the
        top of a block rather than as content clipped by the viewport edge.
        Consumed by chat-stream.js's parkViewport() via scrollIntoView(). */
-    scroll-margin-top: calc(var(--session-header-h, 0px) + 1rem);
+    scroll-margin-top: 1rem;
   }
 
   .chat-turn__body {
@@ -1302,7 +1399,6 @@ html {
 
   .chat-run-status {
     @apply mx-auto my-2 flex max-w-2xl items-center gap-2 rounded-lg border px-3 py-2 text-sm;
-    scroll-margin-top: calc(var(--session-header-h, 0px) + 1rem);
   }
   .chat-run-status__icon { @apply shrink-0; }
   .chat-run-status--failed {

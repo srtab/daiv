@@ -1,8 +1,8 @@
-"""What the session detail page's header shows beyond the session's own columns: the latest run's status and retry
-link, the issue an issue-webhook session addresses, and the tone of its CI watch.
+"""What the session page's top bar and details panel show beyond the session's own columns: the latest run's status
+and retry link, the CI watch on its merge request, and the issue an issue-webhook session addresses.
 
-``latest_run_payload`` is also what the turns poll returns, so the header the page rendered and the one it keeps
-current are built by the same code.
+``latest_run_payload`` and ``watch_payload`` are also what the turns poll returns, so what the page rendered and what
+keeps it current are built by the same code.
 """
 
 from __future__ import annotations
@@ -39,8 +39,17 @@ def latest_run_payload(runs: list[Run], user: User) -> dict[str, str] | None:
         "status": latest.status,
         "label": str(latest.get_status_display()),
         "variant": status_variant(latest.status),
+        "finished_at": latest.finished_at.isoformat() if latest.finished_at else "",
         "retry_url": retry_urls([latest], user).get(str(latest.id), ""),
     }
+
+
+def watch_payload(session: Session) -> dict[str, str] | None:
+    """The CI watch on the session's merge request, or ``None`` when nothing is watched."""
+    tone = _WATCH_TONES.get(session.watch_state)
+    if tone is None:
+        return None
+    return {"state": session.watch_state, "label": str(session.get_watch_state_display()), "tone": tone}
 
 
 def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
@@ -73,6 +82,7 @@ def build_session_header(session: Session, runs: list[Run], user: User) -> dict[
     """SYNC ONLY: the header's context, for ``runs`` ordered oldest first."""
     return {
         "latest_run": latest_run_payload(runs, user),
+        "watch": watch_payload(session),
         "issue": issue_link(session, runs),
-        "watch_tone": _WATCH_TONES.get(session.watch_state, ""),
+        "run_count": len(runs),
     }

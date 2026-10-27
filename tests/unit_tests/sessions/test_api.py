@@ -487,5 +487,7 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
         "status": "FAILED",
         "label": "Failed",
         "variant": "failed",
+        "finished_at": "",
         "retry_url": f"/dashboard/runs/new/?from={latest.id}",
     }
+    assert resp.json()["watch"] is None

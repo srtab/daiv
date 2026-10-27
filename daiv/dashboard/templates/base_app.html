@@ -54,6 +54,8 @@
       </div>
     </header>
 
+    {# A page that needs a bar or a side column beside its scrolling <main> replaces the whole body. #}
+    {% block app_body %}
     <main class="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 {% block main_padding_bottom %}pb-10{% endblock %} sm:px-(--app-content-gutter) sm:pt-8">
       {# container_width tier — allowed: max-w-3xl (narrow) | max-w-6xl (default) | max-w-screen-2xl (wide) | max-w-none (fluid) #}
       <div class="mx-auto {% block container_width %}max-w-6xl{% endblock %}">
@@ -61,6 +63,7 @@
         {% block app_content %}{% endblock %}
       </div>
     </main>
+    {% endblock app_body %}
   </div>
 </div>
 {% endblock content %}

@@ -1,0 +1,111 @@
+{% load i18n icon_tags session_tags %}
+{% comment %}
+Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request and CI read state the stream and poll update.
+{% endcomment %}
+{% session_title session as title %}
+<header class="session-topbar" data-testid="session-topbar">
+  <div class="session-topbar__heading">
+    <h1 class="session-topbar__title" title="{{ title }}">{{ title }}</h1>
+    <span class="session-topbar__status" x-show="status" x-cloak data-testid="session-status">
+      <span class="status-dot" :class="'status-dot-' + (status?.variant || 'pending')"></span>
+      <span x-text="status?.label || ''">{{ header.latest_run.label }}</span>
+    </span>
+  </div>
+
+  <div class="session-topbar__actions">
+    <template x-if="thread?.merge_request">
+      <div class="mr-split" x-data="menuButton" x-id="['mr-menu']"
+           @keydown.escape="onEscape($event)" @click.outside="close()" data-testid="session-mr">
+        <a class="mr-split__main"
+           :href="thread.merge_request.url || null"
+           target="_blank" rel="noopener noreferrer"
+           :title="[thread.merge_request.title, watch ? '{{ _("CI")|escapejs }}: ' + watch.label : ''].filter(Boolean).join(' · ')">
+          {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
+          <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% translate "MR" %}'"></span>
+          <span class="mr-split__draft mr-split__draft--bar" x-show="thread.merge_request.draft">{% translate "Draft" %}</span>
+          <template x-if="watch">
+            <span class="mr-split__ci" :class="'mr-split__ci--' + watch.tone">
+              <span class="mr-split__ci-dot" aria-hidden="true"></span><span class="mr-split__ci-label">{% translate "CI" %}</span>
+            </span>
+          </template>
+        </a>
+        <button type="button" class="mr-split__toggle"
+                x-ref="trigger"
+                @click="toggle()"
+                @keydown.arrow-down.prevent="show(0)"
+                @keydown.arrow-up.prevent="show(-1)"
+                aria-haspopup="menu"
+                :aria-expanded="open.toString()"
+                :aria-controls="$id('mr-menu')"
+                aria-label="{% translate 'Merge request actions' %}">
+          {% icon "chevron-down" "h-3.5 w-3.5" %}
+        </button>
+        <div x-ref="menu" x-show="open" x-cloak :id="$id('mr-menu')" role="menu"
+             aria-label="{% translate 'Merge request actions' %}"
+             @keydown="onMenuKey($event)" class="session-menu">
+          <a role="menuitem" tabindex="-1" class="session-menu__item"
+             :href="thread.merge_request.url || null" target="_blank" rel="noopener noreferrer"
+             x-show="thread.merge_request.url">
+            {% icon "arrow-top-right-on-square" "session-menu__icon" %}{% if git_platform == "github" %}{% translate "Open on GitHub" %}{% else %}{% translate "Open on GitLab" %}{% endif %}
+          </a>
+          <button type="button" role="menuitem" tabindex="-1" class="session-menu__item"
+                  x-show="thread.merge_request.url"
+                  @click="copyLink(thread.merge_request.url); close(true)">
+            {% icon "link" "session-menu__icon" %}{% translate "Copy link" %}
+          </button>
+          <a role="menuitem" tabindex="-1" class="session-menu__item"
+             x-show="thread.merge_request.id"
+             :href="'{% url 'session_list' %}?repo={{ session.repo_id|urlencode }}&mr=' + thread.merge_request.id">
+            {% icon "list-bullet" "session-menu__icon" %}<span x-text="'{{ _("Other sessions on")|escapejs }} !' + thread.merge_request.id"></span>
+          </a>
+        </div>
+      </div>
+    </template>
+
+    <a class="session-topbar__retry" x-show="retryUrl" x-cloak :href="retryUrl"
+       {% if header.latest_run.retry_url %}href="{{ header.latest_run.retry_url }}"{% endif %}
+       title="{% translate 'Retry the latest run' %}">
+      {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
+    </a>
+
+    <button type="button" class="session-topbar__icon-btn"
+            :class="{ 'session-topbar__icon-btn--on': detailsOpen }"
+            @click="toggleDetails()"
+            :aria-expanded="detailsOpen.toString()"
+            aria-controls="session-details"
+            aria-label="{% translate 'Session details' %}"
+            title="{% translate 'Session details' %}">
+      {% icon "sidebar-right" "h-4 w-4" %}
+    </button>
+
+    <div class="relative" x-data="menuButton" x-id="['session-menu']"
+         @keydown.escape="onEscape($event)" @click.outside="close()">
+      <button type="button" class="session-topbar__icon-btn"
+              x-ref="trigger"
+              @click="toggle()"
+              @keydown.arrow-down.prevent="show(0)"
+              @keydown.arrow-up.prevent="show(-1)"
+              aria-haspopup="menu"
+              :aria-expanded="open.toString()"
+              :aria-controls="$id('session-menu')"
+              aria-label="{% translate 'Session actions' %}">
+        {% icon "ellipsis-horizontal" "h-4 w-4" %}
+      </button>
+      <div x-ref="menu" x-show="open" x-cloak :id="$id('session-menu')" role="menu"
+           aria-label="{% translate 'Session actions' %}"
+           @keydown="onMenuKey($event)" class="session-menu">
+        <button type="button" role="menuitem" tabindex="-1" class="session-menu__item"
+                @click="copyLink('{% url 'session_detail' session.thread_id %}'); close(true)">
+          {% icon "link" "session-menu__icon" %}{% translate "Copy session link" %}
+        </button>
+        {% if header.issue.url %}
+          <a role="menuitem" tabindex="-1" class="session-menu__item"
+             href="{{ header.issue.url }}" target="_blank" rel="noopener noreferrer">
+            {% icon "exclamation-circle" "session-menu__icon" %}<span class="flex-1">{% blocktranslate with iid=header.issue.iid %}Open issue #{{ iid }}{% endblocktranslate %}</span>
+            {% icon "arrow-top-right-on-square" "h-3.5 w-3.5 text-text-faint" %}
+          </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</header>

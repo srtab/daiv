@@ -13,9 +13,15 @@ input.css); icons here are masks and cannot be data-driven.
   <button type="button"
           class="context-meter"
           :class="contextMeter?.tone ? 'context-meter--' + contextMeter.tone : ''"
+          {% if session %}
+          @click.stop="openDetails('context')"
+          :aria-expanded="detailsOpen.toString()"
+          aria-controls="session-details"
+          {% else %}
           @click.stop="toggleSheet('context')"
           :aria-expanded="sheet === 'context'"
           aria-haspopup="dialog"
+          {% endif %}
           :aria-label="contextMeter?.aria || ''">
     <span class="context-meter__ring"
           x-show="contextMeter?.hasWindow"
@@ -30,6 +36,8 @@ input.css); icons here are masks and cannot be data-driven.
           aria-hidden="true">{% icon "exclamation-triangle" "h-3 w-3" %}</span>
   </button>
 
+  {# A session page shows usage in its details panel. #}
+  {% if not session %}
   <div class="composer-sheet composer-sheet--context"
        x-show="sheet === 'context'"
        x-cloak
@@ -79,4 +87,5 @@ input.css); icons here are masks and cannot be data-driven.
       </p>
     </div>
   </div>
+  {% endif %}
 </div>

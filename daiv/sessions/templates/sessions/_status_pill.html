@@ -1,11 +1,10 @@
 {% comment %}
 Status pill for a session run. Required: variant, label.
-Pass pk+status (list rows) to wire up in-place Alpine updates, or variant_expr+label_expr (Alpine expressions)
-to bind the pill to component state. Otherwise static.
+Pass pk+status (list rows) to wire up in-place Alpine updates. Otherwise static.
 {% endcomment %}
-<span class="status-badge{% if not variant_expr %} status-badge-{{ variant }}{% endif %} inline-flex items-center gap-1.5"
-      {% if pk %}:class="statusClass('{{ pk }}', '{{ status }}')"{% elif variant_expr %}:class="'status-badge-' + ({{ variant_expr }})"{% endif %}>
-    <span class="status-dot{% if not variant_expr %} status-dot-{{ variant }}{% endif %}"
-          {% if pk %}:class="dotClass('{{ pk }}', '{{ status }}')"{% elif variant_expr %}:class="'status-dot-' + ({{ variant_expr }})"{% endif %}></span>
-    <span {% if pk %}x-text="statusLabel('{{ pk }}', '{{ label|escapejs }}')"{% elif label_expr %}x-text="{{ label_expr }}"{% endif %}>{{ label }}</span>
+<span class="status-badge status-badge-{{ variant }} inline-flex items-center gap-1.5"
+      {% if pk %}:class="statusClass('{{ pk }}', '{{ status }}')"{% endif %}>
+    <span class="status-dot status-dot-{{ variant }}"
+          {% if pk %}:class="dotClass('{{ pk }}', '{{ status }}')"{% endif %}></span>
+    <span {% if pk %}x-text="statusLabel('{{ pk }}', '{{ label|escapejs }}')"{% endif %}>{{ label }}</span>
 </span>

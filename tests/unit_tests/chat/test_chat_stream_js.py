@@ -157,6 +157,6 @@ def test_the_progress_pill_shows_the_diff_where_no_header_does():
     assert _pill(diff_in_header=False) == {"tone": "idle", "label": "", "diff": {"added": 48, "removed": 12}}
 
 
-def test_a_session_header_takes_the_diff_and_leaves_the_pill_its_counts():
+def test_a_session_page_takes_the_diff_and_leaves_the_pill_its_counts():
     assert _pill(diff_in_header=True, files=["a.py", "b.py"]) == {"tone": "idle", "label": "2 files"}
     assert _pill(diff_in_header=True) is None

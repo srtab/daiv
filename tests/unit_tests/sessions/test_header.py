@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.utils import timezone
 
 import pytest
-from sessions.header import build_session_header, issue_link, latest_run_payload
+from sessions.header import build_session_header, issue_link, latest_run_payload, watch_payload
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
 from codebase.base import GitPlatform
@@ -58,7 +58,23 @@ def test_latest_run_payload_describes_the_newest_run(status, variant, label):
 
     payload = latest_run_payload([*session.runs.order_by("created_at")], user=None)
 
-    assert payload == {"id": str(latest.id), "status": status, "label": label, "variant": variant, "retry_url": ""}
+    assert payload == {
+        "id": str(latest.id),
+        "status": status,
+        "label": label,
+        "variant": variant,
+        "finished_at": "",
+        "retry_url": "",
+    }
+
+
+@pytest.mark.django_db
+def test_latest_run_payload_carries_when_the_run_finished():
+    session = _session()
+    finished = timezone.now()
+    run = _run(session, finished_at=finished)
+
+    assert latest_run_payload([run], user=None)["finished_at"] == finished.isoformat()
 
 
 @pytest.mark.django_db
@@ -132,17 +148,32 @@ def test_issue_link_is_only_for_issue_webhook_sessions():
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("state", "tone"),
+    ("state", "label", "tone"),
     [
-        (WatchState.OFF, ""),
-        (WatchState.WATCHING, "attn"),
-        (WatchState.FIXING, "attn"),
-        (WatchState.GREEN, "clear"),
-        (WatchState.EXHAUSTED, "fail"),
-        (WatchState.UNCLEAR, "found"),
+        (WatchState.WATCHING, "Waiting for CI", "attn"),
+        (WatchState.FIXING, "Fixing", "attn"),
+        (WatchState.GREEN, "Green", "clear"),
+        (WatchState.EXHAUSTED, "Attempts exhausted", "fail"),
+        (WatchState.UNCLEAR, "CI unreadable", "found"),
     ],
 )
-def test_build_session_header_tones_the_ci_watch(state, tone):
-    session = _session(watch_state=state)
+def test_watch_payload_tones_the_ci_watch(state, label, tone):
+    assert watch_payload(_session(watch_state=state)) == {"state": state, "label": label, "tone": tone}
 
-    assert build_session_header(session, [], user=None) == {"latest_run": None, "issue": None, "watch_tone": tone}
+
+@pytest.mark.django_db
+def test_watch_payload_is_none_when_nothing_is_watched():
+    assert watch_payload(_session(watch_state=WatchState.OFF)) is None
+
+
+@pytest.mark.django_db
+def test_build_session_header_gathers_the_pages_context():
+    session = _session(watch_state=WatchState.GREEN)
+    runs = [_run(session), _run(session)]
+
+    header = build_session_header(session, runs, user=None)
+
+    assert header["latest_run"]["id"] == str(runs[-1].id)
+    assert header["watch"]["tone"] == "clear"
+    assert header["issue"] is None
+    assert header["run_count"] == 2
