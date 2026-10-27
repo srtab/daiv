@@ -28,7 +28,7 @@ sequenceDiagram
 2. **Default branch filter** — Only merges targeting the repository's default branch are recorded. Merges to feature or release branches are ignored.
 3. **Background task** — A task fetches MR-level diff statistics and the pre-squash commit list from the platform API.
 4. **Commit-based attribution** — Each commit's author email is compared against DAIV's known commit email. Lines added/removed are split into DAIV and human contributions. This works correctly even with squash merges because the platform API retains the original commit list.
-5. **Dashboard** — The metrics are displayed in the "Code Velocity" section of the dashboard at `/dashboard/` (visible to admin users only), using the same period filter (Today / 7 days / 30 days / 90 days / All time, defaulting to Today) as the agent activity counters.
+5. **Dashboard** — The metrics are displayed in the "Code Velocity" section of the Home page at `/dashboard/` (visible to admin users only), using the same period filter (Today / 7 days / 30 days / 90 days / All time, defaulting to 7 days) as the agent activity counters.
 
 ---
 
@@ -45,7 +45,7 @@ The Code Velocity section is visible to admin users only. It shows a merges-and-
 | **MRs involving DAIV** | Percentage of merges containing at least one DAIV-authored commit, shown alongside DAIV vs human MR counts |
 | **Commits authored by DAIV** | Percentage of commits authored by DAIV, shown alongside DAIV vs human commit counts |
 
-All metrics respect the period filter at the top of the dashboard.
+All metrics respect the period filter above the agent activity counters on the Home page.
 
 ---
 

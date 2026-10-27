@@ -37,6 +37,18 @@ Each session is tagged with the origin that created it:
 
 ---
 
+## Home
+
+The Home page (`/dashboard/`) opens with **Needs you**: what is waiting on you, worst first, up to eight items.
+
+- **Failed** — your session's latest run failed. It leaves once a newer run starts in the session, or once you retry it (a later run on the same repository with the same prompt). A run you cancelled doesn't count.
+- **CI still failing** — DAIV's CI watch on a merge/pull request gave up. Shown for 7 days.
+- **Can't run** — one of your schedules can't start its runs. It leaves when the schedule starts a run again or you pause it.
+- **Needs input** — your session's latest run asked you a question. It leaves when you answer.
+- **Found issues** / **Needs attention** — your session's latest run was classified that way. Shown for 7 days, since a fix made outside DAIV leaves no trace it can see.
+
+Below it are your five most recent sessions, the ways to start work (issue labels, mentions and slash commands on your Git platform; this instance's MCP URL for your editor; Chat and Run here), and the activity statistics, which default to the last 7 days.
+
 ## Sessions list
 
 The sessions list shows all sessions in reverse chronological order. Each row displays:

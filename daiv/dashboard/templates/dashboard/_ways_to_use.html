@@ -1,0 +1,99 @@
+{% load i18n icon_tags %}
+{% comment %}
+The three ways into DAIV, specific to this instance.
+
+Context:
+- ways: the dict ``DashboardView._get_ways_to_use`` builds.
+- prominent: True lays the three out side by side with their details open; False stacks them for a side column.
+{% endcomment %}
+<section aria-labelledby="ways-heading" data-testid="ways-to-use"
+         class="rounded-2xl border border-border bg-surface-2 {% if prominent %}p-6{% else %}p-5{% endif %}">
+    <h2 id="ways-heading" class="font-semibold tracking-tight text-text {% if prominent %}text-[18px]{% else %}text-[15px]{% endif %}">
+        {% translate "Ways to use DAIV" %}
+    </h2>
+    {% if prominent %}
+    <p class="mt-1 text-[14px] text-text-muted">
+        {% translate "Start work from wherever you already are. Everything you start shows up here." %}
+    </p>
+    {% endif %}
+
+    <div class="mt-5 grid gap-6 {% if prominent %}lg:grid-cols-3{% endif %}">
+        {# Git platform #}
+        <div class="min-w-0" data-testid="ways-git">
+            <h3 class="flex items-center gap-2 text-[14px] font-semibold text-text-strong">
+                {% icon ways.platform_icon "h-4 w-4 text-text-muted" %}
+                {% blocktranslate with platform=ways.platform_name %}On {{ platform }}{% endblocktranslate %}
+            </h3>
+            <p class="mt-2 text-[13px] text-text-muted">{% translate "Add a label to an issue:" %}</p>
+            <ul class="mt-2 space-y-1.5">
+                {% for label in ways.labels %}
+                <li class="flex flex-wrap items-baseline gap-x-2 text-[13px]">
+                    <code class="rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[12px] text-text">{{ label.name }}</code>
+                    <span class="text-text-muted">{{ label.help }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            <p class="mt-3 text-[13px] text-text-muted">
+                {% blocktranslate with mention=ways.bot_mention mr=ways.mr_term %}Or mention <code class="rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[12px] text-text">{{ mention }}</code> in an issue or {{ mr }} comment, with a slash command:{% endblocktranslate %}
+            </p>
+            <details class="group mt-2" {% if prominent %}open{% endif %}>
+                <summary class="cursor-pointer list-none text-[13px] text-text-muted transition-colors hover:text-text [&::-webkit-details-marker]:hidden">
+                    <span class="inline-flex items-center gap-1">
+                        {% icon "chevron-right" "h-3 w-3 transition-transform group-open:rotate-90" %}
+                        {% translate "Slash commands" %}
+                    </span>
+                </summary>
+                <ul class="mt-2 space-y-1.5">
+                    {% for command in ways.slash_commands %}
+                    <li class="text-[13px]">
+                        <code class="font-mono text-[12px] text-text">{{ ways.bot_mention }} {{ command.name }}</code>
+                        <span class="block text-text-muted">{{ command.help }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </details>
+        </div>
+
+        {# Editor #}
+        <div class="min-w-0 {% if not prominent %}border-t border-border pt-5{% endif %}" data-testid="ways-editor">
+            <h3 class="flex items-center gap-2 text-[14px] font-semibold text-text-strong">
+                {% icon "code-bracket" "h-4 w-4 text-text-muted" %}
+                {% translate "From your editor" %}
+            </h3>
+            <p class="mt-2 text-[13px] text-text-muted">
+                {% translate "Connect an MCP client, such as Claude Code, Cursor or Codex, and hand tasks to DAIV without leaving it:" %}
+            </p>
+            <pre class="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-ground px-3 py-2 font-mono text-[12px] text-text">{{ ways.mcp_command }}</pre>
+            {{ ways.mcp_command|json_script:"mcp-add-command" }}
+            <div class="mt-2">
+                {% translate "Copy command" as copy_label %}
+                {% include "sessions/_copy_markdown_button.html" with source_id="mcp-add-command" label=copy_label %}
+            </div>
+            <p class="mt-3 text-[13px] text-text-muted">
+                {% url 'api_keys' as api_keys_url %}
+                {% blocktranslate with url=ways.mcp_url %}Other clients use <code class="break-all font-mono text-[12px] text-text">{{ url }}</code>. Signing in opens your browser; for scripts and CI, send an <a href="{{ api_keys_url }}" class="text-accent hover:text-accent-bright">API key</a> as a bearer token.{% endblocktranslate %}
+            </p>
+        </div>
+
+        {# Dashboard #}
+        <div class="min-w-0 {% if not prominent %}border-t border-border pt-5{% endif %}" data-testid="ways-dashboard">
+            <h3 class="flex items-center gap-2 text-[14px] font-semibold text-text-strong">
+                {% icon "squares-2x2" "h-4 w-4 text-text-muted" %}
+                {% translate "Right here" %}
+            </h3>
+            <p class="mt-2 text-[13px] text-text-muted">
+                {% translate "Chat to work with the agent turn by turn, or start a run to hand off a task on one or more repositories." %}
+            </p>
+            <div class="mt-3 flex flex-wrap gap-2">
+                <a href="{% url 'session_new_chat' %}"
+                   class="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-bright">
+                    {% icon "chat-bubble" "h-4 w-4" %}{% translate "New chat" %}
+                </a>
+                <a href="{% url 'runs:agent_run_new' %}"
+                   class="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-3 px-3.5 py-1.5 text-sm font-medium text-text transition-colors hover:text-text-strong">
+                    {% icon "bolt" "h-4 w-4" %}{% translate "New run" %}
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
