@@ -18,6 +18,10 @@ if TYPE_CHECKING:
     from sessions.models import Run, RunArtifact, Session
 
 
+def _started_by_q(user: User) -> models.Q:
+    return models.Q(user=user) | models.Q(external_username=user.username)
+
+
 class SessionQuerySet(models.QuerySet["Session"]):
     def _owner_q(self, user: User) -> models.Q:
         """Ownership predicate shared by ``by_owner``/``visible_to``.
@@ -29,12 +33,9 @@ class SessionQuerySet(models.QuerySet["Session"]):
         """
         from sessions.models import Run
 
-        run_match = Run.objects.filter(session=models.OuterRef("pk")).filter(
-            models.Q(user=user) | models.Q(external_username=user.username)
-        )
+        run_match = Run.objects.started_by(user).filter(session=models.OuterRef("pk"))
         return (
-            models.Q(user=user)
-            | models.Q(external_username=user.username)
+            _started_by_q(user)
             | models.Q(scheduled_job__in=user.subscribed_schedules.values("pk"))
             | models.Exists(run_match)
         )
@@ -141,15 +142,11 @@ class SessionManager(models.Manager.from_queryset(SessionQuerySet)):
 
 class RunManager(models.Manager["Run"]):
     def _owner_q(self, user: User) -> models.Q:
-        return (
-            models.Q(user=user)
-            | models.Q(external_username=user.username)
-            | models.Q(session__scheduled_job__in=user.subscribed_schedules.values("pk"))
-        )
+        return _started_by_q(user) | models.Q(session__scheduled_job__in=user.subscribed_schedules.values("pk"))
 
     def started_by(self, user: User) -> models.QuerySet[Run]:
         """Runs the user started, by account or by git platform username; not those of a schedule they subscribe to."""
-        return self.filter(models.Q(user=user) | models.Q(external_username=user.username))
+        return self.filter(_started_by_q(user))
 
     def visible_to(self, user: User) -> models.QuerySet[Run]:
         """Runs the user may view: ownership OR a repository they can currently read.

@@ -9,7 +9,6 @@ from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, Val
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.http import urlencode
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
 
@@ -161,14 +160,19 @@ WEEK_OUTCOMES = [
 
 
 def _my_sessions_url(**params: str) -> str:
-    return f"{reverse('session_list')}?{urlencode({'scope': SCOPE_MINE, **params})}"
+    return insights.session_list_url(params, scope=SCOPE_MINE)
+
+
+def _platform_terms() -> tuple[str, str]:
+    if codebase_settings.CLIENT == GitPlatform.GITHUB:
+        return "GitHub", "pull request"
+    return "GitLab", "merge request"
 
 
 def _started_from() -> list[tuple[str, frozenset[str]]]:
     """Every trigger in exactly one group, so the counts add up to the week's runs."""
-    platform = "GitHub" if codebase_settings.CLIENT == GitPlatform.GITHUB else "GitLab"
     groups = [
-        (platform, SessionOrigin.webhooks() | {SessionOrigin.PIPELINE_WEBHOOK}),
+        (_platform_terms()[0], SessionOrigin.webhooks() | {SessionOrigin.PIPELINE_WEBHOOK}),
         (str(_("Your editor")), frozenset({SessionOrigin.MCP_JOB})),
         (str(_("Here")), frozenset({SessionOrigin.CHAT, SessionOrigin.UI_JOB})),
         (str(_("Schedules")), frozenset({SessionOrigin.SCHEDULE})),
@@ -189,7 +193,7 @@ def your_week(user: User) -> dict:
     chart = insights.stacked_chart(
         runs, "created_at", window, WEEK_OUTCOMES, lambda day: _my_sessions_url(ran_on=day.end.isoformat())
     )
-    totals = counted.aggregate(runs=Count("pk", distinct=True), sessions=Count("session", distinct=True))
+    sessions = counted.aggregate(n=Count("session", distinct=True))["n"]
 
     merge_requests = {}
     for repo_id, iid, url, title in (
@@ -211,8 +215,8 @@ def your_week(user: User) -> dict:
     return {
         "window": window,
         "chart": chart,
-        "runs": totals["runs"],
-        "sessions": totals["sessions"],
+        "runs": sum(by_trigger.values()),
+        "sessions": sessions,
         "merge_requests": list(merge_requests.values())[:MR_LIST_LIMIT],
         "merge_requests_total": len(merge_requests),
         "merge_requests_more": max(len(merge_requests) - MR_LIST_LIMIT, 0),
@@ -242,7 +246,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
     def _get_inbox(self, user: User) -> dict:
         runs = _runs_needing(user, timezone.now() - INBOX_FINDINGS_WINDOW)
-        schedules = _failing_schedules(user)
+        schedules = list(_failing_schedules(user))
         items = [
             InboxItem(
                 outcome=_OUTCOMES_BY_KEY[run["inbox_outcome"]],
@@ -265,7 +269,6 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         items.sort(key=lambda item: (item.severity, -(item.at.timestamp() if item.at else 0)))
 
         outcomes = {run["inbox_outcome"] for run in runs}
-        schedules_count = schedules.count()
         see_all_links = [
             {"label": label, "url": _my_sessions_url(status=status)}
             for label, status, key in (
@@ -274,9 +277,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             )
             if key in outcomes
         ]
-        if schedules_count:
+        if schedules:
             see_all_links.append({"label": _("Your schedules"), "url": reverse("schedule_list")})
-        return {"items": items[:INBOX_LIMIT], "total": len(runs) + schedules_count, "see_all": see_all_links}
+        return {"items": items[:INBOX_LIMIT], "total": len(runs) + len(schedules), "see_all": see_all_links}
 
     def _get_recent_sessions(self, user: User) -> list[Session]:
         return list(
@@ -287,12 +290,12 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         )
 
     def _get_ways_to_use(self) -> dict:
-        is_github = codebase_settings.CLIENT == GitPlatform.GITHUB
+        platform_name, mr_term = _platform_terms()
         mcp_url = f"{str(core_settings.EXTERNAL_URL).rstrip('/')}/mcp/"
         return {
-            "platform_name": "GitHub" if is_github else "GitLab",
-            "mr_term": "pull request" if is_github else "merge request",
-            "platform_icon": "github" if is_github else "gitlab",
+            "platform_name": platform_name,
+            "mr_term": mr_term,
+            "platform_icon": str(codebase_settings.CLIENT),
             "bot_mention": f"@{_bot_username()}",
             "labels": [
                 {"name": BOT_LABEL, "help": _("Plans, then waits for your go-ahead")},
@@ -305,13 +308,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         }
 
 
-def _period(request, default: str) -> str:
-    period = request.GET.get("period", default)
-    return period if period in insights.PERIOD_DAYS else default
-
-
-def _periods() -> list[dict]:
-    return [{"key": key, "label": label} for key, label, _days in insights.PERIOD_CHOICES]
+def _period(request) -> str:
+    period = request.GET.get("period", insights.DEFAULT_PERIOD)
+    return period if period in insights.PERIOD_DAYS else insights.DEFAULT_PERIOD
 
 
 class InsightsView(LoginRequiredMixin, TemplateView):
@@ -320,17 +319,17 @@ class InsightsView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
-        period = _period(self.request, insights.DEFAULT_PERIOD)
+        period = _period(self.request)
         window = insights.window_for(period)
         previous = window.previous()
         context.update({
-            "periods": _periods(),
+            "periods": [{"key": key, "label": label} for key, label, _days in insights.PERIOD_CHOICES],
             "current_period": period,
             "window": window,
             "previous_window": previous,
-            "activity": insights.activity(user, window, previous, chart=True),
+            "activity": insights.activity(user, window, previous),
             "running": running_jobs_count(self.request, user),
-            "breakdown": insights.session_breakdown(user, window, previous, sparks=True),
-            "velocity": insights.velocity(user, window, chart=True),
+            "breakdown": insights.session_breakdown(user, window, previous),
+            "velocity": insights.velocity(user, window),
         })
         return context

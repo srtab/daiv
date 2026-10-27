@@ -133,8 +133,8 @@ def window_for(period: str) -> Window:
     return Window(today - timedelta(days=days - 1) if days is not None else None, today)
 
 
-def session_list_url(params: dict[str, str]) -> str:
-    return f"{reverse('session_list')}?{urlencode({'scope': SCOPE_ALL, **params})}"
+def session_list_url(params: dict[str, str], scope: str = SCOPE_ALL) -> str:
+    return f"{reverse('session_list')}?{urlencode({'scope': scope, **params})}"
 
 
 def pct(numerator: int, denominator: int) -> int | None:
@@ -197,8 +197,8 @@ def success_rate_css(pct: int | None) -> str:
     return "text-status-fail"
 
 
-def activity(user: User, window: Window, previous: Window | None = None, *, chart: bool = False) -> dict:
-    """Run numbers over ``window``, each compared with ``previous`` when given; ``chart`` adds the runs chart."""
+def activity(user: User, window: Window, previous: Window | None) -> dict:
+    """Run numbers and the runs chart over ``window``, each number compared with ``previous`` when given."""
     runs = Run.objects.visible_to(user)
     current = _run_stats(runs.filter(window.date_q("created_at")))
     before = _run_stats(runs.filter(previous.date_q("created_at"))) if previous is not None else None
@@ -217,7 +217,7 @@ def activity(user: User, window: Window, previous: Window | None = None, *, char
         "code_changes_change": change("code_changes"),
         "avg_duration_s": current["avg_duration_s"],
         "avg_duration_change": change("avg_duration_s", text=duration),
-        "chart": _runs_chart(runs, window) if chart else None,
+        "chart": _runs_chart(runs, window),
     }
 
 
@@ -318,8 +318,8 @@ def _runs_chart(runs: QuerySet[Run], window: Window) -> dict | None:
     )
 
 
-def session_breakdown(user: User, window: Window, previous: Window | None = None, *, sparks: bool = False) -> dict:
-    """Sessions per origin over ``window``, compared with ``previous`` when given; ``sparks`` adds a per-bucket bar.
+def session_breakdown(user: User, window: Window, previous: Window | None) -> dict:
+    """Sessions per origin over ``window`` with a per-bucket bar each, compared with ``previous`` when given.
 
     Counted through the list's own queryset and filterset, so each count equals the length of the list its
     link opens.
@@ -343,7 +343,7 @@ def session_breakdown(user: User, window: Window, previous: Window | None = None
             listed.filter(Exists(ran)).order_by().values("origin").annotate(n=Count("pk")).values_list("origin", "n")
         )
 
-    origin_sparks = _origin_sparks(sessions, window) if sparks else {}
+    origin_sparks = _origin_sparks(sessions, window)
     segments = []
     for origin in SessionOrigin.values:
         n = origin_counts.get(origin)
@@ -397,7 +397,7 @@ def _origin_sparks(sessions: QuerySet[Session], window: Window) -> dict[str, lis
     return sparks
 
 
-def velocity(user: User, window: Window, *, chart: bool = False) -> dict | None:
+def velocity(user: User, window: Window) -> dict | None:
     """Merges into default branches of the repositories ``user`` can read; None when there were none."""
     merges = MergeMetric.objects.visible_to(user)
     stats = merges.filter(window.date_q("merged_at")).aggregate(
@@ -419,5 +419,5 @@ def velocity(user: User, window: Window, *, chart: bool = False) -> dict | None:
         "daiv_commits_pct": format_pct(pct(stats["daiv_commits"], stats["total_commits"])),
         "lines_added": stats["lines_added"],
         "lines_removed": stats["lines_removed"],
-        "chart": stacked_chart(merges, "merged_at", window, MERGE_KINDS) if chart else None,
+        "chart": stacked_chart(merges, "merged_at", window, MERGE_KINDS),
     }
