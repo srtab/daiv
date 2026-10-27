@@ -120,7 +120,7 @@ Aggregate by:
 
 Aggregate silently. Which subagents ran, which succeeded, what each returned, and how many findings survived are working notes, not report content: they appear in the message only as the `_Review unavailable for: <dimensions>._` line.
 
-Keep a `cr-custom-rules` finding's `Rule:` citation. If one or more applicable subagents were unavailable, briefly name those dimensions in the final report. If every applicable subagent was unavailable, explain that the review could not be completed and return no marker.
+Keep a `cr-custom-rules` finding's `Rule:` citation. If one or more applicable subagents were unavailable, briefly name those dimensions in the final report. Unavailable means dispatched without a usable report; a subagent whose dispatch condition did not hold, such as `cr-custom-rules` without a rule source, is not applicable and is not named. If every applicable subagent was unavailable, explain that the review could not be completed and return no marker.
 
 ## 6. Return the report
 
