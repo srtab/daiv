@@ -23,11 +23,23 @@ const fetches = [];
 const pending = [];
 const storage = new Map(stored == null ? [] : [["key", stored]]);
 const json = { "session-latest-run": initial, "session-watch": watch };
+const frames = [];
+const scrolled = [];
+const section = {
+  shown: false,
+  getClientRects() { return this.shown ? [{}] : []; },
+  scrollIntoView() { scrolled.push("context"); },
+};
 const sandbox = {
   document: {
+    hidden: false,
     addEventListener: (name, cb) => { if (name === "alpine:init") cb(); },
-    getElementById: (id) => (id in json ? { textContent: JSON.stringify(json[id]) } : null),
+    getElementById: (id) => {
+      if (id === "session-details-context") return section;
+      return id in json ? { textContent: JSON.stringify(json[id]) } : null;
+    },
   },
+  requestAnimationFrame: (cb) => frames.push(cb),
   localStorage: {
     getItem: (k) => { if (storageBlocked) throw new Error("blocked"); return storage.get(k) ?? null; },
     setItem: (k, v) => { if (storageBlocked) throw new Error("blocked"); storage.set(k, v); },
@@ -43,7 +55,7 @@ vm.createContext(sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
 const labels = { running: "Running", queued: "Queued" };
-const page = components.sessionPage({ turnsUrl: "/turns", storageKey: "key", labels });
+const page = components.sessionPage({ turnsUrl: "/turns", storageKey: "key", labels, runCount: 1 });
 Object.assign(page, { streaming: false, resuming: false, waiting: false, $nextTick: (cb) => cb() });
 page.init();
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -55,8 +67,13 @@ for (const [action, value] of steps) {
   else if (action === "run-ended") refreshing = page.refresh();
   else if (action === "respond") { pending.shift()(value); await refreshing; await settle(); }
   else if (action === "toggle") page.toggleDetails();
+  else if (action === "open-details") page.openDetails("context");
+  else if (action === "frame") { section.shown = value; frames.splice(0).forEach((cb) => cb()); }
   else if (action === "read") {
-    seen.push({ status: page.status, retry: page.retryUrl, watch: page.watch, open: page.detailsOpen });
+    seen.push({
+      status: page.status, retry: page.retryUrl, watch: page.watch, open: page.detailsOpen, runs: page.runCount,
+      scrolled: scrolled.length,
+    });
   }
 }
 process.stdout.write(JSON.stringify({ seen, fetches: fetches.length, stored: storage.get("key") ?? null }));
@@ -91,6 +108,8 @@ def test_it_shows_the_server_rendered_latest_run_and_watch():
         "retry": "/runs/new/?from=r1",
         "watch": WATCHING,
         "open": None,
+        "runs": 1,
+        "scrolled": 0,
     }
 
 
@@ -148,3 +167,22 @@ def test_blocked_storage_starts_closed_and_still_toggles():
     result = _run([["read", None], ["toggle", None], ["read", None]], storage_blocked=True)
 
     assert [s["open"] for s in result["seen"]] == [False, True]
+
+
+def test_polls_and_a_settled_run_update_the_run_count():
+    result = _run([
+        ["poll", {"latest_run": DONE, "watch": None, "run_count": 2}],
+        ["read", None],
+        ["run-ended", None],
+        ["respond", {"latest_run": FAILED, "watch": None, "run_count": 3}],
+        ["read", None],
+    ])
+
+    assert [s["runs"] for s in result["seen"]] == [2, 3]
+
+
+def test_opening_a_section_scrolls_once_the_panel_is_shown():
+    steps = [["open-details", None], ["read", None], ["frame", False], ["read", None], ["frame", True], ["read", None]]
+    seen = _run(steps, wide=False)["seen"]
+
+    assert [(s["open"], s["scrolled"]) for s in seen] == [(True, 0), (True, 0), (True, 1)]

@@ -491,3 +491,4 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
         "retry_url": f"/dashboard/runs/new/?from={latest.id}",
     }
     assert resp.json()["watch"] is None
+    assert resp.json()["run_count"] == 2

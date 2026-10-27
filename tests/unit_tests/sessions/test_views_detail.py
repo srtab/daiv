@@ -987,6 +987,8 @@ def test_detail_panel_counts_the_runs(member_client, member_user):
     resp = _get_detail(member_client, session)
 
     assert resp.context["header"]["run_count"] == 2
+    assert "runCount: 2" in resp.content.decode()
+    assert 'x-text="runCount"' in _details(resp)
 
 
 @pytest.mark.django_db
@@ -1085,6 +1087,14 @@ def test_detail_hands_the_ci_watch_to_the_page(member_client, member_user):
 
     assert resp.context["header"]["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn"}
     assert b'id="session-watch"' in resp.content
+
+
+@pytest.mark.django_db
+def test_detail_shows_the_ci_watch_without_a_merge_request_payload(member_client, member_user):
+    resp = _get_detail(member_client, _create_session(user=member_user, watch_state=WatchState.WATCHING))
+
+    assert 'x-if="watch && !thread?.merge_request"' in _topbar(resp)
+    assert 'x-show="thread?.merge_request || watch"' in _details(resp)
 
 
 @pytest.mark.django_db

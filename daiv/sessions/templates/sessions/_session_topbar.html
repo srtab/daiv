@@ -62,6 +62,13 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
       </div>
     </template>
 
+    <template x-if="watch && !thread?.merge_request">
+      <span class="session-topbar__ci mr-split__ci" :class="'mr-split__ci--' + watch.tone"
+            :title="'{{ _("CI")|escapejs }}: ' + watch.label" data-testid="session-ci">
+        <span class="mr-split__ci-dot" aria-hidden="true"></span><span class="mr-split__ci-label" x-text="'{{ _("CI")|escapejs }}: ' + watch.label"></span>
+      </span>
+    </template>
+
     <a class="session-topbar__retry" x-show="retryUrl" x-cloak :href="retryUrl"
        {% if header.latest_run.retry_url %}href="{{ header.latest_run.retry_url }}"{% endif %}
        title="{% translate 'Retry the latest run' %}">

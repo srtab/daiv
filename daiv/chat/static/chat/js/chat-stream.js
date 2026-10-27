@@ -1141,10 +1141,6 @@
       return cost ? cost + (this.spend.cost_is_floor ? "+" : "") : "";
     },
 
-    get spendHeader() {
-      return [this.spendSummary, this.spendTotal].filter(Boolean).join(" · ");
-    },
-
     get spendRows() {
       return Array.isArray(this.spend?.by_model) ? this.spend.by_model : [];
     },

@@ -140,8 +140,8 @@
        @daiv:session-settled.window="holdReload($event)"
        x-cloak
        class="session-page">
-  <div class="session-page"
-       {% if session %}x-data="sessionPage({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}' } })"
+  <div class="contents"
+       {% if session %}x-data="sessionPage({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', runCount: {{ header.run_count }}, labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}' } })"
        @daiv:session-turns.window="applyPoll($event.detail)"
        @daiv:live-run-ended.window="refresh()"{% endif %}>
   {% if session %}
@@ -434,7 +434,11 @@
       </div>
 
       {% if not expired %}
-        {% include "chat/_composer.html" %}
+        {% if session %}
+          {% include "chat/_composer.html" with context_target="details" %}
+        {% else %}
+          {% include "chat/_composer.html" %}
+        {% endif %}
       {% endif %}
     </div>
   </div>

@@ -858,6 +858,9 @@ html {
     @apply inline-flex items-center gap-1.5 border-l border-border pl-1.5 font-sans text-[11px];
     color: var(--ci-color);
   }
+  .session-topbar__ci {
+    @apply border-l-0 pl-0;
+  }
   .session-details__ci {
     @apply flex items-center gap-2 text-[13px];
     color: var(--ci-color);
@@ -916,12 +919,6 @@ html {
   }
   .session-details__label {
     @apply font-mono text-[11px] font-medium tracking-[0.14em] text-text-muted uppercase;
-  }
-  .session-details__label-row {
-    @apply flex items-baseline justify-between gap-3;
-  }
-  .session-details__total {
-    @apply font-mono text-[14px] font-semibold tabular-nums text-text-strong;
   }
   .session-details__mr {
     @apply leading-snug font-medium text-text hover:text-accent-bright;
@@ -2548,6 +2545,14 @@ html {
     .context-meter__ring {
       display: none;
     }
+  }
+
+  .context-panel__label-row {
+    @apply flex items-baseline justify-between gap-3;
+  }
+
+  .context-panel__total {
+    @apply font-mono text-[14px] font-semibold tabular-nums text-text-strong;
   }
 
   .context-panel__figure {

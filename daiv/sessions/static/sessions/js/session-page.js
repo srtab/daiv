@@ -1,8 +1,6 @@
-// The session page's top bar and details panel: the latest run's status and Retry link, the CI watch, and whether
-// the panel is open. A run this page streams or waits on is shown from the chat component's flags; otherwise the
-// status is the server's, refreshed by each turns poll and once a run ends.
+// A run this page streams or waits on is shown from the chat component's flags; otherwise the status is the
+// server's, refreshed by each turns poll and once a run ends.
 document.addEventListener("alpine:init", () => {
-  // The panel is a column from this width and a bottom sheet below it, the width the composer sheets switch at.
   const WIDE = "(min-width: 1100px)";
 
   const readJSON = (id) => {
@@ -15,9 +13,16 @@ document.addEventListener("alpine:init", () => {
     }
   };
 
-  Alpine.data("sessionPage", ({ turnsUrl, storageKey, labels }) => ({
+  // x-show reveals on the next animation frame, so a scroll sent from $nextTick can land on a hidden panel.
+  const whenShown = (el, then, frames = 10) => {
+    if (el.getClientRects().length) then();
+    else if (frames > 0) (document.hidden ? setTimeout : requestAnimationFrame)(() => whenShown(el, then, frames - 1));
+  };
+
+  Alpine.data("sessionPage", ({ turnsUrl, storageKey, labels, runCount }) => ({
     latest: null,
     watch: null,
+    runCount,
     detailsOpen: false,
     wide: false,
     _settling: false,
@@ -63,7 +68,8 @@ document.addEventListener("alpine:init", () => {
     },
     openDetails(section) {
       this.setDetails(true);
-      this.$nextTick(() => document.getElementById(`session-details-${section}`)?.scrollIntoView({ block: "start" }));
+      const el = document.getElementById(`session-details-${section}`);
+      if (el) whenShown(el, () => el.scrollIntoView({ block: "start" }));
     },
     closeSheetDetails() {
       if (!this.wide) this.detailsOpen = false;
@@ -83,6 +89,7 @@ document.addEventListener("alpine:init", () => {
       this._settling = false;
       this.latest = data.latest_run;
       this.watch = data.watch ?? null;
+      this.runCount = data.run_count ?? this.runCount;
     },
     // Holds "running" until the run's settled status arrives, rather than flashing the previous run's.
     async refresh() {
@@ -95,6 +102,7 @@ document.addEventListener("alpine:init", () => {
         if (token !== this._seq) return;
         this.latest = data.latest_run ?? null;
         this.watch = data.watch ?? null;
+        this.runCount = data.run_count ?? this.runCount;
       } catch {
         // The next poll or run end refreshes it again; a stale status is not worth an error.
       } finally {

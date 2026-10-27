@@ -34,7 +34,6 @@ PERIOD_DAYS = {key: days for key, _, days in PERIOD_CHOICES}
 DEFAULT_PERIOD = "today"
 
 
-# Hues follow sessions/_origin_badge.html, so a segment matches the badges on the list it opens.
 ORIGIN_SEGMENT_CSS = {
     SessionOrigin.ISSUE_WEBHOOK: "bg-amber-500/50",
     SessionOrigin.MR_WEBHOOK: "bg-cyan-500/50",
