@@ -43,7 +43,7 @@ uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl                # PR-body t
 - `daiv/accounts/` — identity only: users, sign-in (allauth adapters, OAuth), API keys, user admin, and the `accounts/_avatar.html` partial (+ `avatar_tags`) other apps include
 - `daiv/dashboard/` — the app shell: dashboard and homepage views, the `nav` context processor, the nav SSE badges (`api/views.py`), `nav_tags`, and the `base_app.html` layout every signed-in page extends. It is top layer: a lower app's template gets request-wide values from that app's own context processor (e.g. `codebase.context_processors.git_platform`), and a view whose URL belongs to another sidebar section sets `request.nav_view_name` to that section's URL name
 - `daiv/configuration/` — the site-configuration UI (forms, views, templates); the data it edits (`SiteConfiguration`, `Provider`, `site_settings`) stays in `core` because lower layers read it
-- `evals/` — eval suite, **not** run by `make test`
+- `evals/` — eval suite, **not** run by `make test`; `/code-review` on ReviewBench: how to run and judge it, the experiment log and the judged baseline to compare against are in `evals/results/reviewbench/README.md`
 - UI rules live in `DESIGN.md` (icon system, layout tokens, floating surfaces) and `docs/` (mkdocs) — consult before touching templates/CSS.
 
 ## Invariants / footguns

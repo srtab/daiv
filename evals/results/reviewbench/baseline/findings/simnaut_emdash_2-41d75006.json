@@ -1,0 +1,228 @@
+{
+  "pr": {
+    "repo": "https://github.com/simnaut/emdash",
+    "pr_number": 2,
+    "base": "5beb0ddc334deb862ba90cedbf03f052b58e4974",
+    "head": "41d750067fc7a39eb29f6a530cf0d4ae0f8bdb41"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "packages/core/src/astro/routes/api/auth/oauth/[provider]/callback.ts",
+      "start_line": 139,
+      "end_line": 148,
+      "message": "First-user admin gate is a flag read with no atomic claim.\n\n- Concurrent callbacks both see the flag unset and both get `ADMIN`.\n- The flag is unset while a user exists. A crash between `createUser` and the flag write leaves this state, and the next OAuth login then gets `ADMIN`.\n\nFix: one predicate (flag and zero users), with user creation and the flag write made atomic or conditional. Remove the race-safety comments that are not backed by code. Confidence 55, static. I did not confirm whether `findOrCreateOAuthUser` independently refuses a second admin row.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/routes/callback.ts",
+      "start_line": 125,
+      "end_line": 131,
+      "message": "First-user admin gate is a flag read with no atomic claim.\n\n- Concurrent callbacks both see the flag unset and both get `ADMIN`.\n- The flag is unset while a user exists. A crash between `createUser` and the flag write leaves this state, and the next OAuth login then gets `ADMIN`.\n\nFix: one predicate (flag and zero users), with user creation and the flag write made atomic or conditional. Remove the race-safety comments that are not backed by code. Confidence 55, static. I did not confirm whether `findOrCreateOAuthUser` independently refuses a second admin row.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/core/src/astro/routes/api/setup/admin-verify.ts",
+      "start_line": 74,
+      "end_line": 88,
+      "message": "First-user admin gate is a flag read with no atomic claim.\n\n- Concurrent callbacks both see the flag unset and both get `ADMIN`.\n- The flag is unset while a user exists. A crash between `createUser` and the flag write leaves this state, and the next OAuth login then gets `ADMIN`.\n\nFix: one predicate (flag and zero users), with user creation and the flag write made atomic or conditional. Remove the race-safety comments that are not backed by code. Confidence 55, static. I did not confirm whether `findOrCreateOAuthUser` independently refuses a second admin row.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/core/src/astro/routes/api/setup/admin-verify.ts",
+      "start_line": 85,
+      "end_line": 88,
+      "message": "Passkey verify bypasses `finalizeSetup`, so the setup-complete rule now has two implementations.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/db-store.ts",
+      "start_line": 43,
+      "end_line": 52,
+      "message": "Anonymous AT Protocol login persists OAuth state rows that never expire.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/routes/login.ts",
+      "start_line": 27,
+      "end_line": 28,
+      "message": "AT Protocol origin comes from the request Host, unlike the GitHub and Google flows.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/routes/setup-admin.ts",
+      "start_line": 55,
+      "end_line": 56,
+      "message": "AT Protocol origin comes from the request Host, unlike the GitHub and Google flows.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/oauth-client.ts",
+      "start_line": 107,
+      "end_line": 107,
+      "message": "AT Protocol origin comes from the request Host, unlike the GitHub and Google flows.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/routes/callback.ts",
+      "start_line": 137,
+      "end_line": 138,
+      "message": "Setup email is never persisted on the AT Protocol path, and the synthetic address is marked verified.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/routes/setup-admin.ts",
+      "start_line": 46,
+      "end_line": 52,
+      "message": "Setup email is never persisted on the AT Protocol path, and the synthetic address is marked verified.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/routes/client-metadata.ts",
+      "start_line": 19,
+      "end_line": 21,
+      "message": "OAuth client metadata is hand-duplicated.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/oauth-client.ts",
+      "start_line": 162,
+      "end_line": 163,
+      "message": "OAuth client metadata is hand-duplicated.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/admin/src/components/LoginPage.tsx",
+      "start_line": 273,
+      "end_line": 273,
+      "message": "Provider identity and OAuth URL are duplicated, which defeats the pluggable design.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/admin/tests/components/LoginPage.test.tsx",
+      "start_line": 22,
+      "end_line": 22,
+      "message": "Two admin tests will fail against head (static, not run).\n\n- `packages/admin/tests/components/LoginPage.test.tsx:22, 34, 134\u2013149` mocks `fetchManifest`. `LoginPage.tsx:178` now uses `fetchAuthMode`, and line 330 reads `authInfo?.signupEnabled`.\n- `packages/admin/tests/components/SetupWizard.test.tsx:136` expects `getByText(\"Passkey\")`, but `SetupWizard.tsx:376` now renders \"Sign In\".\n\nNeither test file is in the PR's changed list. The PR body's claim of passing admin tests does not hold for these two files.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/tsconfig.json",
+      "start_line": 6,
+      "end_line": 6,
+      "message": "`noUncheckedIndexedAccess` is disabled in the new package.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/tests/auth.test.ts",
+      "start_line": 53,
+      "end_line": 55,
+      "message": "The `publicRoutes` test does not pin the list.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/admin.tsx",
+      "start_line": 122,
+      "end_line": 122,
+      "message": "`packages/auth-atproto/src/admin.tsx:122`: `SetupStep` discards the required `onComplete`, under a comment that says it is called. Confidence 85.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/routes/setup-admin.ts",
+      "start_line": 57,
+      "end_line": 59,
+      "message": "OAuth client bootstrap repeats in four routes (`storage.ts:28`; callers at `callback.ts:57\u201358`, `login.ts:31\u201332`, `setup-admin.ts:57\u201359`). `getAtprotoStorage` returns `Promise<any>`, and its null branch silently falls back to in-memory stores. Confidence 65.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/src/auth.ts",
+      "start_line": 52,
+      "end_line": 59,
+      "message": "`defaultRole` has no effect unless an allowlist is set (`packages/auth-atproto/src/auth.ts:52\u201359`; `callback.ts:158\u2013159`). Confidence 55.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/admin/src/components/LoginPage.tsx",
+      "start_line": 272,
+      "end_line": 272,
+      "message": "`packages/admin/src/components/LoginPage.tsx:272` and `SetupWizard.tsx:341` use different \"opens form\" predicates (`!!LoginForm` vs `!!LoginForm || !!SetupStep`), and the provider button grid is duplicated. Latent until a provider exports only `SetupStep`. Confidence 45.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/admin/src/components/LoginPage.tsx",
+      "start_line": 311,
+      "end_line": 311,
+      "message": "Bare literals bypass Lingui: `LoginPage.tsx:311` \"Back to login\" and `SetupWizard.tsx:332` \"Or continue with\". The latter duplicates a msgid that `LoginPage.tsx` already extracts (~261). Confidence 90.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/core/src/auth/types.ts",
+      "start_line": 158,
+      "end_line": 158,
+      "message": "The admin-export contract is declared in three places: `packages/core/src/auth/types.ts:158`, `virtual-modules.d.ts:106`, and the admin context. Confidence 75.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/core/src/auth/types.ts",
+      "start_line": 116,
+      "end_line": 116,
+      "message": "Route injection and public exposure are separate lists (`packages/core/src/auth/types.ts:116, 123`). The AT Protocol setup route is public only through core's `PUBLIC_API_PREFIXES` (`packages/core/src/astro/middleware/auth.ts:64`). Confidence 45.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/core/src/astro/routes/api/auth/mode.ts",
+      "start_line": 38,
+      "end_line": 38,
+      "message": "`packages/core/src/astro/routes/api/auth/mode.ts:38` returns all provider descriptors. The admin registry filters on `adminEntry` (`virtual-modules.ts:170`). Confirm whether LoginPage renders from `providers`. Confidence 45.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/core/src/api/route-utils.ts",
+      "start_line": 12,
+      "end_line": 12,
+      "message": "`packages/core/src/api/route-utils.ts:12` re-exports the raw `OptionsRepository`, so a provider can write `emdash:setup_complete` directly. Related to item 2. Confidence 45.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/core/package.json",
+      "start_line": 207,
+      "end_line": 207,
+      "message": "Core declares an optional peer dependency on `@emdash-cms/auth-atproto` (`packages/core/package.json:207, 215`), but no core source imports it. The AT Protocol Zod schemas (`atprotoLoginBody`, `setupAtprotoAdminBody`) sit in core's public `./api/schemas` (`api/schemas/setup.ts:39\u201346`) and are used only by auth-atproto. auth-atproto imports `emdash/api/route-utils` (`callback.ts:29`). Confidence 70.",
+      "producer": "daiv"
+    },
+    {
+      "file": "pnpm-lock.yaml",
+      "start_line": 241,
+      "end_line": 241,
+      "message": "`pnpm-lock.yaml:241` adds an importer for `demos/my-site`, which does not exist (`demos/` contains cloudflare, playground, plugins-demo, postgres, preview, simple). Confidence 65.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/admin/src/index.ts",
+      "start_line": 34,
+      "end_line": 35,
+      "message": "Barrel files mix type exports into value blocks, against `AGENTS.md` (\"Separate export type from value exports\"): `packages/admin/src/index.ts:34\u201335` and `packages/auth/src/index.ts:116`. Confidence 65.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/admin/src/components/LoginPage.tsx",
+      "start_line": 22,
+      "end_line": 22,
+      "message": "`LoginPage.tsx:22` imports `../lib/api` without `.js`. The `AGENTS.md` rule requires `.js`, but the admin package's existing code does not follow it (`SetupWizard.tsx:20`). Confidence 50.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/auth-atproto/tests/resolve-handle.test.ts",
+      "start_line": 13,
+      "end_line": 25,
+      "message": "Test gaps:\n\n- `packages/auth-atproto/tests/resolve-handle.test.ts:13\u201325` asserts only `toBeNull()`, so an always-null implementation passes. There is no success-path test. Confidence 85.\n    - `packages/auth-atproto/tests/oauth-client.test.ts:66\u201386` (loopback) never asserts `redirect_uris` or `scope`, unlike the HTTPS block. Confidence 80.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 12103349,
+    "completion_tokens": 814791,
+    "total_tokens": 12918140,
+    "time_in_ms": 1217495,
+    "cost_usd": 1.47068026
+  }
+}
