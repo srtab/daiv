@@ -63,6 +63,9 @@ msgstr "Competências"
 msgid "MCP servers"
 msgstr "Servidores MCP"
 
+msgid "Help & docs"
+msgstr "Ajuda e documentação"
+
 msgid "API documentation"
 msgstr "Documentação da API"
 

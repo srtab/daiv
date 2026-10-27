@@ -1,15 +1,15 @@
 from datetime import date, timedelta
-from urllib.parse import urlencode
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q, Sum
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.http import urlencode
 from django.utils.timezone import localdate
 from django.views.generic import TemplateView
 
-from sessions.filters import SCOPE_ALL
-from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.filters import SCOPE_ALL, SessionFilter
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from codebase.models import MergeMetric
@@ -32,6 +32,29 @@ PERIOD_CHOICES = [
 ]
 PERIOD_DAYS = {key: days for key, _, days in PERIOD_CHOICES}
 DEFAULT_PERIOD = "today"
+
+
+# Hues follow sessions/_origin_badge.html, so a segment matches the badges on the list it opens.
+ORIGIN_SEGMENT_CSS = {
+    SessionOrigin.ISSUE_WEBHOOK: "bg-amber-500/50",
+    SessionOrigin.MR_WEBHOOK: "bg-cyan-500/50",
+    SessionOrigin.PIPELINE_WEBHOOK: "bg-orange-500/40",
+    SessionOrigin.MCP_JOB: "bg-blue-500/50",
+    SessionOrigin.SCHEDULE: "bg-violet-500/40",
+    SessionOrigin.API_JOB: "bg-indigo-500/50",
+    SessionOrigin.UI_JOB: "bg-emerald-500/50",
+    SessionOrigin.CHAT: "bg-teal-500/40",
+    SessionOrigin.DELEGATED_JOB: "bg-fuchsia-500/40",
+    SessionOrigin.DELEGATION_RESUME: "bg-pink-500/40",
+}
+
+
+def _period_params(cutoff_date: date | None) -> dict[str, str]:
+    return {"date_from": cutoff_date.isoformat()} if cutoff_date is not None else {}
+
+
+def _session_list_url(params: dict[str, str]) -> str:
+    return f"{reverse('session_list')}?{urlencode({'scope': SCOPE_ALL, **params})}"
 
 
 def _raw_pct(numerator: int, denominator: int) -> int | None:
@@ -86,24 +109,12 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
         successful = Q(status=RunStatus.SUCCESSFUL)
         failed = Q(status=RunStatus.FAILED)
-        issue_trigger = Q(trigger_type=SessionOrigin.ISSUE_WEBHOOK)
-        mr_trigger = Q(trigger_type=SessionOrigin.MR_WEBHOOK)
-        mcp_trigger = Q(trigger_type=SessionOrigin.MCP_JOB)
-        schedule_trigger = Q(trigger_type=SessionOrigin.SCHEDULE)
-        api_trigger = Q(trigger_type=SessionOrigin.API_JOB)
-        chat_trigger = Q(trigger_type=SessionOrigin.CHAT)
         duration_expr = ExpressionWrapper(F("finished_at") - F("started_at"), output_field=DurationField())
 
         stats = activities.aggregate(
             total=Count("id"),
             successful=Count("id", filter=successful),
             failed_count=Count("id", filter=failed),
-            issues=Count("id", filter=issue_trigger & ~failed),
-            mrs=Count("id", filter=mr_trigger & ~failed),
-            mcp_jobs=Count("id", filter=mcp_trigger & ~failed),
-            scheduled=Count("id", filter=schedule_trigger & ~failed),
-            api_jobs=Count("id", filter=api_trigger & ~failed),
-            chat_jobs=Count("id", filter=chat_trigger & ~failed),
             code_changes=Count("id", filter=successful & Q(code_changes=True)),
             avg_duration=Avg(duration_expr, filter=successful),
         )
@@ -113,61 +124,13 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # to a single query per render.
         running_count = running_jobs_count(self.request, user)
 
-        total = stats["total"]
         successful_count = stats["successful"]
         failed_count = stats["failed_count"]
-        issues_count = stats["issues"]
-        mrs_count = stats["mrs"]
-        mcp_jobs_count = stats["mcp_jobs"]
-        scheduled_count = stats["scheduled"]
-        api_jobs_count = stats["api_jobs"]
-        chat_jobs_count = stats["chat_jobs"]
-        sessions_url = reverse("session_list")
-
-        def sessions_link(**params) -> str:
-            return f"{sessions_url}?{urlencode({'scope': SCOPE_ALL, **params})}"
-
-        # Non-overlapping segments for the breakdown bar.
-        # Trigger types are mutually exclusive, so the trigger-keyed segments never overlap.
-        # Each segment excludes failed; "Other" absorbs the remainder (e.g. UI jobs).
-        other_count = max(
-            0,
-            total
-            - issues_count
-            - mrs_count
-            - mcp_jobs_count
-            - scheduled_count
-            - api_jobs_count
-            - chat_jobs_count
-            - failed_count,
-        )
-        raw_segments = [
-            ("Issues", issues_count, "bg-amber-500/50", sessions_link(trigger=SessionOrigin.ISSUE_WEBHOOK)),
-            ("MR/PR", mrs_count, "bg-cyan-500/50", sessions_link(trigger=SessionOrigin.MR_WEBHOOK)),
-            ("MCP Job", mcp_jobs_count, "bg-indigo-500/50", sessions_link(trigger=SessionOrigin.MCP_JOB)),
-            ("Scheduled", scheduled_count, "bg-violet-500/40", sessions_link(trigger=SessionOrigin.SCHEDULE)),
-            ("API", api_jobs_count, "bg-emerald-500/50", sessions_link(trigger=SessionOrigin.API_JOB)),
-            ("Chat", chat_jobs_count, "bg-sky-500/40", sessions_link(trigger=SessionOrigin.CHAT)),
-            ("Other", other_count, "bg-gray-500/30", None),
-            ("Failed", failed_count, "bg-red-500/40", sessions_link(status=RunStatus.FAILED)),
-        ]
-        segments = []
-        for label, value, css, url in raw_segments:
-            if value <= 0:
-                continue
-            segments.append({
-                "label": label,
-                "value": value,
-                "pct": round(value / total * 100, 1) if total else 0,
-                "css": css,
-                "url": url,
-            })
-
         code_changes_count = stats["code_changes"]
         avg_duration = stats["avg_duration"]
 
         return {
-            "total": total,
+            "total": stats["total"],
             "running": running_count,
             "success_rate": _format_pct(successful_count, successful_count + failed_count),
             "success_rate_css": _success_rate_css(_raw_pct(successful_count, successful_count + failed_count)),
@@ -175,8 +138,40 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "code_changes": code_changes_count,
             "code_changes_pct": _format_pct(code_changes_count, successful_count),
             "avg_duration_s": avg_duration.total_seconds() if avg_duration is not None else None,
-            "activity_url": sessions_link(),
+            **self._get_session_breakdown(cutoff_date, user),
+        }
+
+    def _get_session_breakdown(self, cutoff_date: date | None, user: User) -> dict:
+        # Counted through the list's own queryset and filterset, so each count equals the length
+        # of the list its link opens.
+        period = _period_params(cutoff_date)
+        sessions = SessionFilter(period, queryset=Session.objects.listed_for(user)).qs
+        rows = list(
+            sessions
+            .order_by()
+            .values("origin")
+            .annotate(n=Count("pk"), failed=Count("pk", filter=Q(latest_run_status=RunStatus.FAILED)))
+        )
+        origin_counts = {row["origin"]: row["n"] for row in rows}
+
+        total = sum(origin_counts.values())
+        segments = [
+            {
+                "label": SessionOrigin(origin).label,
+                "value": n,
+                "pct": round(n / total * 100, 1),
+                "css": ORIGIN_SEGMENT_CSS[origin],
+                "url": _session_list_url({**period, "trigger": origin}),
+            }
+            for origin in SessionOrigin.values
+            if (n := origin_counts.get(origin))
+        ]
+        return {
+            "sessions_total": total,
+            "sessions_url": _session_list_url(period),
             "segments": segments,
+            "sessions_failed": sum(row["failed"] for row in rows),
+            "sessions_failed_url": _session_list_url({**period, "status": RunStatus.FAILED}),
         }
 
     def _get_velocity_data(self, cutoff_date: date | None) -> dict | None:

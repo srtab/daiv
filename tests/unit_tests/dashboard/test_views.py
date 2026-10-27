@@ -46,41 +46,71 @@ class TestDashboardPeriod:
         assert response.context["activity"]["total"] == 1
 
 
+def _make_session(user, origin, *, status=RunStatus.SUCCESSFUL, days_ago=0):
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=origin, repo_id="daiv/test", user=user, last_active_at=_local_noon(days_ago)
+    )
+    Run.objects.create(session=session, status=status, trigger_type=origin, repo_id="daiv/test", user=user)
+    return session
+
+
+def _list_count(client, url: str) -> int:
+    return client.get(url).context["paginator"].count
+
+
 @pytest.mark.django_db
-class TestDashboardChatSegment:
-    """Dashboard breakdown bar must include a Chat tile (not silently absorb it into Other)."""
+class TestDashboardSessionBreakdown:
+    def test_every_count_matches_the_list_its_link_opens(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT, days_ago=6)
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
+        _make_session(member_user, SessionOrigin.UI_JOB, days_ago=2)
+        _make_session(member_user, SessionOrigin.ISSUE_WEBHOOK, status=RunStatus.FAILED, days_ago=1)
+        _make_session(member_user, SessionOrigin.API_JOB, days_ago=7)
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED, days_ago=8)
 
-    def test_chat_segment_appears_with_correct_count_and_url(self, member_user, member_client):
-        _make_run(member_user, SessionOrigin.CHAT)
-        _make_run(member_user, SessionOrigin.CHAT)
-        _make_run(member_user, SessionOrigin.API_JOB)
+        activity = member_client.get(reverse("dashboard"), {"period": "7d"}).context["activity"]
 
-        response = member_client.get(reverse("dashboard"))
-        assert response.status_code == 200
+        values = {s["label"]: s["value"] for s in activity["segments"]}
+        assert values == {"Chat": 2, "UI Run": 1, "Issue Webhook": 1}
+        assert activity["sessions_failed"] == 2
+        for segment in activity["segments"]:
+            assert _list_count(member_client, segment["url"]) == segment["value"], segment["label"]
+        assert _list_count(member_client, activity["sessions_failed_url"]) == activity["sessions_failed"]
+        assert _list_count(member_client, activity["sessions_url"]) == activity["sessions_total"] == 4
 
-        segments = response.context["activity"]["segments"]
-        labels = [s["label"] for s in segments]
-        assert "Chat" in labels
+    def test_a_session_counts_once_however_many_runs_it_holds(self, member_user, member_client):
+        session = _make_session(member_user, SessionOrigin.MR_WEBHOOK)
+        Run.objects.create(
+            session=session,
+            status=RunStatus.FAILED,
+            trigger_type=SessionOrigin.CHAT,
+            repo_id="daiv/test",
+            user=member_user,
+        )
 
-        chat_seg = next(s for s in segments if s["label"] == "Chat")
-        assert chat_seg["value"] == 2
-        sessions_url = reverse("session_list")
-        assert chat_seg["url"] == f"{sessions_url}?scope=all&trigger={SessionOrigin.CHAT}"
+        activity = member_client.get(reverse("dashboard")).context["activity"]
 
-    def test_chat_runs_not_double_counted_in_other(self, member_user, member_client):
-        # 1 UI_JOB run → goes to Other (not a named trigger segment)
-        # 2 CHAT runs → go to Chat segment, NOT Other
-        _make_run(member_user, SessionOrigin.UI_JOB)
-        _make_run(member_user, SessionOrigin.CHAT)
-        _make_run(member_user, SessionOrigin.CHAT)
+        assert [(s["label"], s["value"]) for s in activity["segments"]] == [("MR/PR Webhook", 1)]
+        assert activity["sessions_failed"] == 1
 
-        response = member_client.get(reverse("dashboard"))
-        assert response.status_code == 200
+    def test_links_carry_the_period(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.SCHEDULE)
 
-        segments = response.context["activity"]["segments"]
-        seg_by_label = {s["label"]: s["value"] for s in segments}
+        activity = member_client.get(reverse("dashboard"), {"period": "30d"}).context["activity"]
 
-        # Chat counts correctly
-        assert seg_by_label.get("Chat", 0) == 2
-        # Other gets only the UI_JOB run (1), not the chat runs
-        assert seg_by_label.get("Other", 0) == 1
+        date_from = (timezone.localdate() - timedelta(days=29)).isoformat()
+        expected = f"{reverse('session_list')}?scope=all&date_from={date_from}&trigger=schedule"
+        assert activity["segments"][0]["url"] == expected
+
+    def test_all_time_links_have_no_date(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.SCHEDULE, days_ago=400)
+
+        activity = member_client.get(reverse("dashboard"), {"period": "all"}).context["activity"]
+
+        assert activity["segments"][0]["url"] == f"{reverse('session_list')}?scope=all&trigger=schedule"
+
+
+def test_every_origin_has_a_segment_colour():
+    from dashboard.views import ORIGIN_SEGMENT_CSS
+
+    assert set(ORIGIN_SEGMENT_CSS) == set(SessionOrigin)

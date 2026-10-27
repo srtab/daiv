@@ -158,13 +158,8 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
         # gives the SSE dot the real ``Run.id`` to key live updates on.
         return (
-            (
-                Session.objects.owned_by(self.request.user)
-                if self.scope == SCOPE_MINE
-                else Session.objects.visible_to(self.request.user)
-            )
-            .without_watch_placeholders()
-            .with_latest_status()
+            Session.objects
+            .listed_for(self.request.user, mine=self.scope == SCOPE_MINE)
             .select_related("user", "scheduled_job")
             # Only the columns the row reads (status/duration/MR/cost/SSE id) — skips the fat
             # prompt/result_summary/error_message/usage_by_model columns. Add a field here if
