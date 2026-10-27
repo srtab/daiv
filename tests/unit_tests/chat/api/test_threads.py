@@ -213,3 +213,19 @@ async def test_chat_session_stamps_mcp_overrides(member_user):
     )
     assert created is True
     assert session.mcp_overrides == {"x": "on"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_or_create_enqueues_the_titler_with_the_heuristic_title(mock_generate_title_task):
+    from chat.api import threads
+
+    user = await User.objects.acreate_user(username="u-title-1", email="title1@x.com", password="x")  # noqa: S106
+
+    session, _ = await ChatSessionService.get_or_create_for_user(
+        user=user, thread_id="t-title-1", repo_id="acme/x", ref="main", input_data=_fake_input(["add login"])
+    )
+
+    threads.generate_title_task.aenqueue.assert_awaited_once_with(
+        pk="t-title-1", prompt="add login", repo_id="acme/x", ref="main", expected_title=session.title
+    )
+    await user.adelete()

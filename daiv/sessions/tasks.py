@@ -79,8 +79,11 @@ async def reconcile_pipeline_watches_cron_task():
 
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_TITLING)
-def generate_title_task(pk: str, prompt: str, repo_id: str, ref: str = "") -> None:
+def generate_title_task(pk: str, prompt: str, repo_id: str, ref: str = "", expected_title: str | None = None) -> None:
     """Overwrite a chat Session's heuristic title with an LLM-generated one.
+
+    The write lands only while the title is still ``expected_title``, the heuristic one it was enqueued with, so a
+    rename made before the LLM answers is kept. A task enqueued without it compares against the title it starts with.
 
     Failures propagate to django-tasks (which logs + marks the task failed); the heuristic title set synchronously
     remains.
@@ -107,8 +110,9 @@ def generate_title_task(pk: str, prompt: str, repo_id: str, ref: str = "") -> No
         )
         return
 
-    session.title = title
-    session.save(update_fields=["title"])
+    expected = session.title if expected_title is None else expected_title
+    if not Session.objects.filter(pk=pk, title=expected).update(title=title):
+        logger.info("generate_title_task: session pk=%s was renamed, keeping its title", pk)
 
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_TITLING)

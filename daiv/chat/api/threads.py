@@ -104,7 +104,9 @@ class ChatSessionService:
         session, created = await Session.objects.aget_or_create(thread_id=thread_id, defaults=defaults)
         if created and first_message:
             try:
-                await generate_title_task.aenqueue(pk=session.thread_id, prompt=first_message, repo_id=repo_id, ref=ref)
+                await generate_title_task.aenqueue(
+                    pk=session.thread_id, prompt=first_message, repo_id=repo_id, ref=ref, expected_title=session.title
+                )
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to enqueue title task for session %s", session.thread_id)
         return session, created
