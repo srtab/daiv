@@ -192,7 +192,7 @@ class TestInsightsPage:
         assert context["activity"]["total"] == 2
         assert context["activity"]["total_change"] == {"direction": "up", "amount": "1", "was": "1"}
         chat = context["breakdown"]["segments"][0]
-        assert (chat["value"], chat["previous"], chat["change_pct"]) == (2, 1, "+100%")
+        assert (chat["value"], chat["change"]["was"], chat["change"]["pct"]) == (2, "1", "+100%")
 
     def test_a_session_active_in_both_periods_counts_in_both(self, member_user, member_client):
         session = _make_session(member_user, SessionOrigin.CHAT)
@@ -200,7 +200,7 @@ class TestInsightsPage:
 
         (chat,) = _insights(member_client)["breakdown"]["segments"]
 
-        assert (chat["value"], chat["previous"]) == (1, 1)
+        assert (chat["value"], chat["change"]["was"]) == (1, "1")
 
     def test_a_sub_second_change_in_duration_is_no_change(self, member_user, member_client):
         current = _make_session(member_user, SessionOrigin.CHAT)
@@ -315,7 +315,7 @@ class TestInsightsVelocity:
 
         assert velocity["total_merges"] == 2
         assert velocity["daiv_merges"] == 1
-        assert velocity["daiv_merges_pct"] == 50
+        assert velocity["daiv_merges_pct"] == "50%"
 
     def test_a_member_without_access_sees_no_section(self, member_client):
         _merge("daiv/hidden")

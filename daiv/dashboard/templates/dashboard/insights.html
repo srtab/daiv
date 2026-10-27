@@ -31,27 +31,27 @@
 
     <div class="mt-5 grid grid-cols-2 gap-6 lg:grid-cols-5">
         <div>
-            <p class="font-mono text-[34px] font-semibold leading-none tabular-nums text-text-strong">{{ activity.total }}</p>
+            <p class="stat-value text-text-strong">{{ activity.total }}</p>
             <p class="mt-2 text-sm text-text-muted">{% translate "runs" %}</p>
             {% include "dashboard/_change.html" with change=activity.total_change %}
         </div>
         <div>
-            <p class="font-mono text-[34px] font-semibold leading-none tabular-nums {{ activity.success_rate_css }}">{{ activity.success_rate }}</p>
+            <p class="stat-value {{ activity.success_rate_css }}">{{ activity.success_rate }}</p>
             <p class="mt-2 text-sm text-text-muted">{% translate "success rate" %}</p>
             {% include "dashboard/_change.html" with change=activity.success_rate_change %}
         </div>
         <div>
-            <p class="font-mono text-[34px] font-semibold leading-none tabular-nums text-status-attn">{{ running }}</p>
+            <p class="stat-value text-status-attn">{{ running }}</p>
             <p class="mt-2 text-sm text-text-muted">{% translate "running now" %}</p>
             <p class="mt-1.5 text-[12px] text-text-faint">{% translate "live, not compared" %}</p>
         </div>
         <div>
-            <p class="font-mono text-[34px] font-semibold leading-none tabular-nums text-text-strong">{{ activity.code_changes }}</p>
+            <p class="stat-value text-text-strong">{{ activity.code_changes }}</p>
             <p class="mt-2 text-sm text-text-muted">{% translate "changed code" %} <span class="text-text-faint">({{ activity.code_changes_pct }})</span></p>
             {% include "dashboard/_change.html" with change=activity.code_changes_change %}
         </div>
         <div>
-            <p class="font-mono text-[34px] font-semibold leading-none tabular-nums text-text-strong">{{ activity.avg_duration_s|duration|default:"—" }}</p>
+            <p class="stat-value text-text-strong">{{ activity.avg_duration_s|duration|default:"—" }}</p>
             <p class="mt-2 text-sm text-text-muted">{% translate "avg duration" %}</p>
             {% include "dashboard/_change.html" with change=activity.avg_duration_change %}
         </div>
@@ -121,8 +121,8 @@
                         </td>
                         <td class="py-2 text-right"><a href="{{ seg.url }}" class="font-mono font-semibold tabular-nums text-text-strong hover:text-accent-bright">{{ seg.value }}</a></td>
                         {% if previous_window %}
-                        <td class="hidden py-2 pl-6 text-right font-mono tabular-nums text-text-faint sm:table-cell">{{ seg.previous }}</td>
-                        <td class="whitespace-nowrap py-2 pl-4 font-mono text-[13px] text-text-muted sm:pl-6">{% include "dashboard/_change_inline.html" with change=seg.change pct=seg.change_pct %}</td>
+                        <td class="hidden py-2 pl-6 text-right font-mono tabular-nums text-text-faint sm:table-cell">{{ seg.change.was }}</td>
+                        <td class="whitespace-nowrap py-2 pl-4 font-mono text-[13px] text-text-muted sm:pl-6">{% include "dashboard/_change_inline.html" with change=seg.change %}</td>
                         {% endif %}
                         {% if breakdown.has_sparks %}
                         <td class="hidden py-2 pl-6 sm:table-cell">
@@ -141,8 +141,8 @@
                         <td class="py-2 font-medium text-text">{% translate "All origins" %}</td>
                         <td class="py-2 text-right font-mono font-semibold tabular-nums text-text-strong">{{ breakdown.sessions_total }}</td>
                         {% if previous_window %}
-                        <td class="hidden py-2 pl-6 text-right font-mono tabular-nums text-text-faint sm:table-cell">{{ breakdown.sessions_previous }}</td>
-                        <td class="whitespace-nowrap py-2 pl-4 font-mono text-[13px] text-text-muted sm:pl-6">{% include "dashboard/_change_inline.html" with change=breakdown.sessions_change pct=breakdown.sessions_change_pct %}</td>
+                        <td class="hidden py-2 pl-6 text-right font-mono tabular-nums text-text-faint sm:table-cell">{{ breakdown.sessions_change.was }}</td>
+                        <td class="whitespace-nowrap py-2 pl-4 font-mono text-[13px] text-text-muted sm:pl-6">{% include "dashboard/_change_inline.html" with change=breakdown.sessions_change %}</td>
                         {% endif %}
                         {% if breakdown.has_sparks %}<td class="hidden sm:table-cell"></td>{% endif %}
                     </tr>
@@ -161,17 +161,17 @@
 
     <div class="mt-5 grid grid-cols-2 gap-6 lg:grid-cols-4">
         <div>
-            <p class="font-mono text-[34px] font-semibold leading-none tabular-nums text-text-strong">{{ velocity.total_merges }}</p>
+            <p class="stat-value text-text-strong">{{ velocity.total_merges }}</p>
             <p class="mt-2 text-sm text-text-muted">{% translate "merges" %}</p>
         </div>
         <div>
-            <p class="font-mono text-[34px] font-semibold leading-none tabular-nums text-text-strong">{{ velocity.daiv_merges_pct }}%</p>
+            <p class="stat-value text-text-strong">{{ velocity.daiv_merges_pct }}</p>
             <p class="mt-2 text-sm text-text-muted">
                 {% blocktranslate with daiv=velocity.daiv_merges total=velocity.total_merges %}involved DAIV <span class="text-text-faint">({{ daiv }} of {{ total }})</span>{% endblocktranslate %}
             </p>
         </div>
         <div>
-            <p class="font-mono text-[34px] font-semibold leading-none tabular-nums text-text-strong">{% if velocity.daiv_commits_pct is not None %}{{ velocity.daiv_commits_pct }}%{% else %}—{% endif %}</p>
+            <p class="stat-value text-text-strong">{{ velocity.daiv_commits_pct }}</p>
             <p class="mt-2 text-sm text-text-muted">
                 {% blocktranslate with daiv=velocity.daiv_commits total=velocity.total_commits %}of commits by DAIV <span class="text-text-faint">({{ daiv }} of {{ total }})</span>{% endblocktranslate %}
             </p>

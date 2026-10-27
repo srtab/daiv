@@ -95,7 +95,7 @@ class SessionStreamView(View):
         """
         terminal = RunStatus.terminal()
         # Authorize the requested ids once: run visibility is stable for the life of the
-        # stream, so re-running the (distinct-join) visibility filter every tick is wasted work.
+        # stream, so re-running the visibility filter every tick is wasted work.
         # Restricting ``tracking`` to visible ids also lets the loop finish cleanly instead
         # of spinning to the duration cap on ids the caller can't see. ``visible_to`` resolves the
         # caller's platform identity with a sync DB read, so build the queryset off-loop.

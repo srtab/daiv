@@ -3,8 +3,7 @@
 A count's change from the previous period, for a table cell.
 
 Context:
-- change: a dict from ``dashboard.insights._change``, or None to render nothing.
-- pct: the signed percentage, or "" when there is none.
+- change: a dict from ``dashboard.insights._change`` (direction, amount, was; optional pct), or None to render nothing.
 {% endcomment %}
 {% if change %}
 {% if change.direction == "up" %}
@@ -14,5 +13,5 @@ Context:
 {% else %}
 <span class="text-text-faint">{% translate "No change" %}</span>
 {% endif %}
-{% if pct %}<span class="text-text-faint">({{ pct }})</span>{% endif %}
+{% if change.pct %}<span class="text-text-faint">({{ change.pct }})</span>{% endif %}
 {% endif %}

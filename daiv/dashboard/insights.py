@@ -5,8 +5,7 @@ A window ending today is compared with the previous one cut at the same time of 
 Session counts go through the session list's own queryset and filterset, so each count equals the
 length of the list its link opens. That list filters on ``last_active_at``, which later activity moves
 on, so the previous period's counts and the per-bucket sparklines count sessions with a run in the
-window instead. Code velocity reads the ``MergeMetric`` rows of the repositories the viewer can read;
-an admin reads them all.
+window instead. Code velocity reads ``MergeMetric.objects.visible_to``.
 """
 
 from __future__ import annotations
@@ -27,10 +26,11 @@ from sessions.filters import SCOPE_ALL, SessionFilter, local_midnight
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.templatetags.session_tags import duration
 
-from codebase.authorization import viewable_repo_ids_subquery
 from codebase.models import MergeMetric
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.db.models import QuerySet
 
     from accounts.models import User
@@ -45,7 +45,6 @@ PERIOD_CHOICES = [
 PERIOD_DAYS = {key: days for key, _label, days in PERIOD_CHOICES}
 DEFAULT_PERIOD = "7d"
 
-# Hues follow sessions/_origin_badge.html, so a segment matches the badges on the list it opens.
 ORIGIN_SEGMENT_CSS = {
     SessionOrigin.ISSUE_WEBHOOK: "bg-amber-500/50",
     SessionOrigin.MR_WEBHOOK: "bg-cyan-500/50",
@@ -96,7 +95,7 @@ class Window:
     def previous(self) -> Window | None:
         if self.start is None:
             return None
-        length = self.end - self.start + timedelta(days=1)
+        length = timedelta(days=self.days)
         return Window(self.start - length, self.start - timedelta(days=1), min(self.upper, timezone.now()) - length)
 
     @property
@@ -112,6 +111,9 @@ class Window:
         if self.days is None:
             return "month"
         return "day" if self.days <= 7 else "week"
+
+    def trunc(self, field: str) -> Trunc:
+        return Trunc(field, self.bucket, output_field=DateField(), tzinfo=timezone.get_current_timezone())
 
     def date_q(self, field: str) -> Q:
         q = Q(**{f"{field}__lt": self.upper})
@@ -139,8 +141,8 @@ def pct(numerator: int, denominator: int) -> int | None:
     return round(numerator / denominator * 100) if denominator else None
 
 
-def format_pct(numerator: int, denominator: int) -> str:
-    return f"{p}%" if (p := pct(numerator, denominator)) is not None else "—"
+def format_pct(percentage: int | None) -> str:
+    return f"{percentage}%" if percentage is not None else "—"
 
 
 def _change(current, previous, *, text=str, unit: str = "", was_unit: str | None = None) -> dict | None:
@@ -156,9 +158,17 @@ def _change(current, previous, *, text=str, unit: str = "", was_unit: str | None
     return {"direction": direction, "amount": f"{text(abs(delta))}{unit}", "was": f"{text(previous)}{was_unit}"}
 
 
-def _visible_runs(user: User) -> QuerySet[Run]:
-    # ``visible_to`` is DISTINCT over a join; grouping it directly would count a run once per joined row.
-    return Run.objects.filter(pk__in=Run.objects.visible_to(user).values("pk"))
+def _count_change(current: int, previous: int | None) -> dict | None:
+    """``_change`` plus the signed percentage a table row shows beside it."""
+    if (change := _change(current, previous)) is not None:
+        change["pct"] = _signed_pct(current, previous)
+    return change
+
+
+def _signed_pct(current: int, previous: int | None) -> str:
+    if not previous or current == previous:
+        return ""
+    return f"{'+' if current > previous else '−'}{pct(abs(current - previous), previous)}%"
 
 
 def _run_stats(runs: QuerySet[Run]) -> dict:
@@ -187,30 +197,32 @@ def success_rate_css(pct: int | None) -> str:
     return "text-status-fail"
 
 
-def activity(user: User, window: Window, *, trends: bool = True) -> dict:
-    """Run numbers over ``window``; ``trends`` adds the comparison with the previous window and the runs chart."""
-    runs = _visible_runs(user)
+def activity(user: User, window: Window, previous: Window | None = None, *, chart: bool = False) -> dict:
+    """Run numbers over ``window``, each compared with ``previous`` when given; ``chart`` adds the runs chart."""
+    runs = Run.objects.visible_to(user)
     current = _run_stats(runs.filter(window.date_q("created_at")))
-    previous_window = window.previous() if trends else None
-    previous = _run_stats(runs.filter(previous_window.date_q("created_at"))) if previous_window else None
+    before = _run_stats(runs.filter(previous.date_q("created_at"))) if previous is not None else None
 
     def change(key, **kwargs):
-        return _change(current[key], previous[key] if previous else None, **kwargs)
+        return _change(current[key], before[key] if before else None, **kwargs)
 
     return {
         "total": current["total"],
         "total_change": change("total"),
-        "success_rate": format_pct(current["successful"], current["successful"] + current["failed"]),
+        "success_rate": format_pct(current["success_rate"]),
         "success_rate_css": success_rate_css(current["success_rate"]),
         "success_rate_change": change("success_rate", unit=" pts", was_unit="%"),
-        "failed": current["failed"],
         "code_changes": current["code_changes"],
-        "code_changes_pct": format_pct(current["code_changes"], current["successful"]),
+        "code_changes_pct": format_pct(pct(current["code_changes"], current["successful"])),
         "code_changes_change": change("code_changes"),
         "avg_duration_s": current["avg_duration_s"],
         "avg_duration_change": change("avg_duration_s", text=duration),
-        "chart": _runs_chart(runs, window) if trends else None,
+        "chart": _runs_chart(runs, window) if chart else None,
     }
+
+
+def _next_month(day: date) -> date:
+    return date(day.year + day.month // 12, day.month % 12 + 1, 1)
 
 
 def _bucket_starts(window: Window, first: date | None) -> list[date]:
@@ -225,7 +237,7 @@ def _bucket_starts(window: Window, first: date | None) -> list[date]:
     starts, month = [], date(start.year, start.month, 1)
     while month <= window.end:
         starts.append(month)
-        month = date(month.year + month.month // 12, month.month % 12 + 1, 1)
+        month = _next_month(month)
     return starts
 
 
@@ -235,7 +247,7 @@ def _bucket_window(bucket_start: date, window: Window) -> Window:
     elif window.bucket == "week":
         end = bucket_start + timedelta(days=6)
     else:
-        end = date(bucket_start.year + bucket_start.month // 12, bucket_start.month % 12 + 1, 1) - timedelta(days=1)
+        end = _next_month(bucket_start) - timedelta(days=1)
     return Window(max(bucket_start, window.start or bucket_start), min(end, window.end))
 
 
@@ -247,13 +259,21 @@ def _bucket_label(bucket_start: date, window: Window) -> str:
 
 
 def _grouped(rows: QuerySet, field: str, window: Window, kinds: list) -> dict[date, dict[str, int]]:
-    bucket = Trunc(field, window.bucket, output_field=DateField(), tzinfo=timezone.get_current_timezone())
     counts = {key: Count("pk", filter=q) for key, _label, _css, q in kinds}
-    grouped = rows.filter(window.date_q(field)).annotate(bucket=bucket).order_by().values("bucket").annotate(**counts)
+    grouped = (
+        rows
+        .filter(window.date_q(field))
+        .annotate(bucket=window.trunc(field))
+        .order_by()
+        .values("bucket")
+        .annotate(**counts)
+    )
     return {row.pop("bucket"): row for row in grouped}
 
 
-def _stacked_chart(rows: QuerySet, field: str, window: Window, kinds: list, url_for) -> dict | None:
+def _stacked_chart(
+    rows: QuerySet, field: str, window: Window, kinds: list, url_for: Callable[[Window], str] | None = None
+) -> dict | None:
     """Columns of stacked segments, worst kind on top, sized to the tallest column; None for a one-column window."""
     if window.days == 1:
         return None
@@ -278,7 +298,7 @@ def _stacked_chart(rows: QuerySet, field: str, window: Window, kinds: list, url_
             "height_px": round(total / tallest * CHART_HEIGHT_PX),
             "segments": segments,
             "title": ", ".join([f"{label}: {total}", *(f"{s['label']} {s['count']}" for s in segments)]),
-            "url": url_for(_bucket_window(start, window)),
+            "url": url_for(_bucket_window(start, window)) if url_for else "",
         })
     legend = [
         {"label": label, "css": css, "count": sum(c.get(key, 0) for c in by_bucket.values())}
@@ -298,8 +318,8 @@ def _runs_chart(runs: QuerySet[Run], window: Window) -> dict | None:
     )
 
 
-def session_breakdown(user: User, window: Window, *, trends: bool = True) -> dict:
-    """Sessions per origin over ``window``; ``trends`` adds the previous window's count and a per-bucket sparkline.
+def session_breakdown(user: User, window: Window, previous: Window | None = None, *, sparks: bool = False) -> dict:
+    """Sessions per origin over ``window``, compared with ``previous`` when given; ``sparks`` adds a per-bucket bar.
 
     Counted through the list's own queryset and filterset, so each count equals the length of the list its
     link opens.
@@ -316,38 +336,31 @@ def session_breakdown(user: User, window: Window, *, trends: bool = True) -> dic
     origin_counts = {row["origin"]: row["n"] for row in rows}
     total = sum(origin_counts.values())
 
-    previous_window = window.previous() if trends else None
-    previous_counts = {}
-    if previous_window is not None:
-        ran = Run.objects.filter(previous_window.date_q("created_at"), session=OuterRef("pk"))
+    previous_counts = None
+    if previous is not None:
+        ran = Run.objects.filter(previous.date_q("created_at"), session=OuterRef("pk"))
         previous_counts = dict(
             listed.filter(Exists(ran)).order_by().values("origin").annotate(n=Count("pk")).values_list("origin", "n")
         )
 
-    sparks = _origin_sparks(sessions, window) if trends else {}
+    origin_sparks = _origin_sparks(sessions, window) if sparks else {}
     segments = []
     for origin in SessionOrigin.values:
         n = origin_counts.get(origin)
         if not n:
             continue
-        previous = previous_counts.get(origin, 0) if previous_window is not None else None
         segments.append({
             "label": SessionOrigin(origin).label,
             "value": n,
-            "previous": previous,
-            "change": _change(n, previous),
-            "change_pct": _signed_pct(n, previous),
+            "change": _count_change(n, previous_counts.get(origin, 0) if previous_counts is not None else None),
             "pct": round(n / total * 100, 1),
             "css": ORIGIN_SEGMENT_CSS[origin],
             "url": session_list_url({**period, "trigger": origin}),
-            "spark": sparks.get(origin, []),
+            "spark": origin_sparks.get(origin, []),
         })
-    previous_total = sum(previous_counts.values()) if previous_window is not None else None
     return {
         "sessions_total": total,
-        "sessions_previous": previous_total,
-        "sessions_change": _change(total, previous_total),
-        "sessions_change_pct": _signed_pct(total, previous_total),
+        "sessions_change": _count_change(total, sum(previous_counts.values()) if previous_counts is not None else None),
         "sessions_url": session_list_url(period),
         "segments": segments,
         "sessions_failed": sum(row["failed"] for row in rows),
@@ -356,29 +369,24 @@ def session_breakdown(user: User, window: Window, *, trends: bool = True) -> dic
     }
 
 
-def _signed_pct(current: int, previous: int | None) -> str:
-    if not previous or current == previous:
-        return ""
-    return f"{'+' if current > previous else '−'}{pct(abs(current - previous), previous)}%"
-
-
 def _origin_sparks(sessions: QuerySet[Session], window: Window) -> dict[str, list[dict]]:
     """Per origin, how many of ``sessions`` had a run in each bucket."""
-    runs = Run.objects.filter(window.date_q("created_at"), session__in=sessions.values("pk"))
-    starts = _bucket_starts(window, None if window.start else _first_day(runs))
-    if len(starts) < 2:
+    if window.days == 1:
         return {}
-    bucket = Trunc("created_at", window.bucket, output_field=DateField(), tzinfo=timezone.get_current_timezone())
-    counts: dict[str, dict[date, int]] = {}
     per_bucket_rows = (
-        runs
-        .annotate(bucket=bucket)
+        Run.objects
+        .filter(window.date_q("created_at"), session__in=sessions.values("pk"))
+        .annotate(bucket=window.trunc("created_at"))
         .order_by()
         .values("session__origin", "bucket")
         .annotate(n=Count("session", distinct=True))
     )
+    counts: dict[str, dict[date, int]] = {}
     for row in per_bucket_rows:
         counts.setdefault(row["session__origin"], {})[row["bucket"]] = row["n"]
+    starts = _bucket_starts(window, min((bucket for per in counts.values() for bucket in per), default=None))
+    if len(starts) < 2:
+        return {}
     sparks = {}
     for origin, per_bucket in counts.items():
         tallest = max(per_bucket.values())
@@ -389,20 +397,9 @@ def _origin_sparks(sessions: QuerySet[Session], window: Window) -> dict[str, lis
     return sparks
 
 
-def _first_day(runs: QuerySet[Run]) -> date | None:
-    first = runs.order_by("created_at").values_list("created_at", flat=True).first()
-    return timezone.localdate(first) if first is not None else None
-
-
-def merges_for(user: User) -> QuerySet[MergeMetric]:
-    if user.is_admin:
-        return MergeMetric.objects.all()
-    return MergeMetric.objects.filter(repo_id__in=viewable_repo_ids_subquery(user))
-
-
-def velocity(user: User, window: Window) -> dict | None:
+def velocity(user: User, window: Window, *, chart: bool = False) -> dict | None:
     """Merges into default branches of the repositories ``user`` can read; None when there were none."""
-    merges = merges_for(user)
+    merges = MergeMetric.objects.visible_to(user)
     stats = merges.filter(window.date_q("merged_at")).aggregate(
         total=Count("id"),
         lines_added=Sum("lines_added", default=0),
@@ -416,11 +413,11 @@ def velocity(user: User, window: Window) -> dict | None:
     return {
         "total_merges": stats["total"],
         "daiv_merges": stats["daiv_merges"],
-        "daiv_merges_pct": pct(stats["daiv_merges"], stats["total"]),
+        "daiv_merges_pct": format_pct(pct(stats["daiv_merges"], stats["total"])),
         "daiv_commits": stats["daiv_commits"],
         "total_commits": stats["total_commits"],
-        "daiv_commits_pct": pct(stats["daiv_commits"], stats["total_commits"]),
+        "daiv_commits_pct": format_pct(pct(stats["daiv_commits"], stats["total_commits"])),
         "lines_added": stats["lines_added"],
         "lines_removed": stats["lines_removed"],
-        "chart": _stacked_chart(merges, "merged_at", window, MERGE_KINDS, lambda bucket: ""),
+        "chart": _stacked_chart(merges, "merged_at", window, MERGE_KINDS) if chart else None,
     }

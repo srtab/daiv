@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.db import models
 from django.utils import timezone
@@ -8,6 +9,9 @@ from django_extensions.db.models import TimeStampedModel
 
 from codebase.base import RepoAccessLevel
 from codebase.conf import settings as codebase_settings
+
+if TYPE_CHECKING:
+    from accounts.models import User
 
 
 class PlatformType(models.TextChoices):
@@ -20,6 +24,16 @@ class PlatformType(models.TextChoices):
 # from it so the two can never silently drift; a new tier without a label here fails loudly.
 _ACCESS_LEVEL_LABELS = {RepoAccessLevel.READ: _("Read"), RepoAccessLevel.WRITE: _("Write")}
 ACCESS_LEVEL_CHOICES = [(level.value, _ACCESS_LEVEL_LABELS[level]) for level in RepoAccessLevel]
+
+
+class MergeMetricQuerySet(models.QuerySet):
+    def visible_to(self, user: User) -> MergeMetricQuerySet:
+        """Merges on the repositories ``user`` can read; an admin reads them all. SYNC ONLY."""
+        if user.is_admin:
+            return self.all()
+        from codebase.authorization import viewable_repo_ids_subquery
+
+        return self.filter(repo_id__in=viewable_repo_ids_subquery(user))
 
 
 class MergeMetric(TimeStampedModel):
@@ -52,6 +66,8 @@ class MergeMetric(TimeStampedModel):
     target_branch = models.CharField(_("target branch"), max_length=255)
     source_branch = models.CharField(_("source branch"), max_length=255)
     platform = models.CharField(_("platform"), max_length=10, choices=PlatformType.choices)
+
+    objects = MergeMetricQuerySet.as_manager()
 
     class Meta:
         verbose_name = _("Merge Metric")

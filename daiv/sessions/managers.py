@@ -123,7 +123,7 @@ class RunManager(models.Manager["Run"]):
         return (
             models.Q(user=user)
             | models.Q(external_username=user.username)
-            | models.Q(session__scheduled_job__subscribers=user)
+            | models.Q(session__scheduled_job__in=user.subscribed_schedules.values("pk"))
         )
 
     def visible_to(self, user: User) -> models.QuerySet[Run]:
@@ -138,7 +138,7 @@ class RunManager(models.Manager["Run"]):
         # (and its codebase.* / allauth graph) in at app-load time.
         from codebase.authorization import viewable_repo_ids_subquery
 
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
+        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user)))
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)
