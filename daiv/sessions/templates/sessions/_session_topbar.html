@@ -64,6 +64,7 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
         </button>
         <div x-ref="menu" x-show="open" x-cloak :id="$id('mr-menu')" role="menu"
              aria-label="{% translate 'Merge request actions' %}"
+             data-surface
              @keydown="onMenuKey($event)" class="session-menu">
           <a role="menuitem" tabindex="-1" class="session-menu__item"
              :href="thread.merge_request.url || null" target="_blank" rel="noopener noreferrer"
@@ -137,6 +138,7 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
       </button>
       <div x-ref="menu" x-show="open" x-cloak :id="$id('session-menu')" role="menu"
            aria-label="{% translate 'Session actions' %}"
+           data-surface
            @keydown="onMenuKey($event)" class="session-menu">
         <button type="button" role="menuitem" tabindex="-1" class="session-menu__item"
                 @click="copyLink('{% url 'session_detail' session.thread_id %}'); close(true)">

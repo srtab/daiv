@@ -18,6 +18,7 @@
             {% icon "ellipsis-horizontal" "h-4 w-4" %}
         </button>
         <div x-show="open" @click.outside="open = false" x-cloak
+             data-surface
              class="card__menu-panel">
             {% if schedule.is_fired_one_off %}
             {% include "schedules/_schedule_duplicate_action.html" %}

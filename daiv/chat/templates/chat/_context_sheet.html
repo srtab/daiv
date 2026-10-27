@@ -39,7 +39,7 @@ On a session page the ring opens the session details panel's usage section inste
   </button>
 
   {% if not session %}
-  <div class="composer-sheet composer-sheet--context"
+  <div data-surface class="composer-sheet composer-sheet--context"
        x-show="sheet === 'context'"
        x-cloak
        @click.outside="closeSheet()"

@@ -180,6 +180,7 @@ Parameters:
          @keydown.arrow-down.prevent="moveHighlight(1)"
          @keydown.arrow-up.prevent="moveHighlight(-1)"
          @keydown.enter.prevent="selectHighlighted()"
+         data-surface
          class="picker-popover picker-popover--wide">
 
         {% include "core/_sheet_head.html" with title=_("Environment") close_expr="close()" %}

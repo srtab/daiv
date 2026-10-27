@@ -343,3 +343,60 @@ class TestMobileTopBarNew:
 
     def test_only_one_top_bar_copy(self, member_client):
         assert len(_soup(member_client).select('[data-testid="topbar-new"]')) == 1
+
+
+@pytest.mark.django_db
+class TestCollapseToggle:
+    def test_sits_by_the_brand_and_controls_the_sidebar(self, member_client):
+        soup = _soup(member_client)
+        toggle = soup.select_one('[data-testid="sidebar-toggle"]')
+        assert toggle.name == "button"
+        assert toggle["type"] == "button"
+        assert "sidebar__brand" in toggle.parent["class"]
+        assert toggle["aria-controls"] == "app-sidebar"
+        assert soup.select_one("#app-sidebar")["data-testid"] == "app-sidebar"
+        assert toggle["@click"] == "$store.sidebar.toggle()"
+
+    def test_reports_its_state_and_starts_expanded(self, member_client):
+        toggle = _soup(member_client).select_one('[data-testid="sidebar-toggle"]')
+        assert toggle["aria-expanded"] == "true"
+        assert toggle[":aria-expanded"] == "(!$store.sidebar.rail).toString()"
+        assert toggle["aria-keyshortcuts"] == "["
+
+    def test_names_the_action_for_each_state(self, member_client):
+        """The rail tier swaps which name is rendered, so the accessible name is right
+        before Alpine boots as well."""
+        toggle = _soup(member_client).select_one('[data-testid="sidebar-toggle"]')
+        assert toggle.select_one(".sidebar__collapsible.sr-only").get_text() == "Collapse sidebar"
+        assert toggle.select_one(".sidebar__rail-only.sr-only").get_text() == "Expand sidebar"
+        assert "Expand sidebar" in toggle[":title"]
+        assert toggle.select_one(".sidebar__toggle-icon")
+
+    def test_only_shown_from_lg_up(self, member_client):
+        classes = _soup(member_client).select_one('[data-testid="sidebar-toggle"]')["class"]
+        assert {"hidden", "lg:inline-flex"} <= set(classes)
+
+    def test_label_is_translated(self, member_client):
+        with catalog({"Collapse sidebar": "Recolher barra lateral", "Expand sidebar": "Expandir barra lateral"}):
+            toggle = _soup(member_client, "dashboard").select_one('[data-testid="sidebar-toggle"]')
+        assert toggle.select_one(".sidebar__collapsible").get_text() == "Recolher barra lateral"
+        assert "Expandir barra lateral" in toggle[":title"]
+
+    def test_the_mobile_sheet_has_no_toggle_or_duplicate_id(self, member_client):
+        soup = _soup(member_client)
+        assert len(soup.select('[data-testid="app-sidebar"]')) == 2
+        assert len(soup.select("#app-sidebar")) == 1
+        assert len(soup.select('[data-testid="sidebar-toggle"]')) == 1
+
+    def test_the_shortcut_and_store_are_wired_into_the_shell(self, member_client):
+        content = member_client.get(reverse("dashboard")).content.decode()
+        assert "core/js/sidebar.js" in content
+        assert '@keydown.window="$store.sidebar.onKey($event)"' in content
+
+    def test_every_rail_icon_keeps_a_name_and_tooltip(self, admin_client):
+        """The rail hides each label, so the `title` is what names the icon and shows on hover."""
+        sidebar = _soup(admin_client, "dashboard").select_one("#app-sidebar")
+        links = sidebar.select(".sidebar__nav-item, .sidebar__footer-link, .sidebar__cta")
+        untitled = [link["href"] for link in links if not link.get("title", "").strip()]
+        assert len(links) > 10
+        assert not untitled
