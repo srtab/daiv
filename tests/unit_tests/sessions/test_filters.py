@@ -167,6 +167,21 @@ class TestSessionFilter:
         assert before.pk not in pks
         assert after.pk not in pks
 
+    def test_ran_on_matches_a_run_that_day_not_the_last_activity(self, user):
+        day = timezone.localdate() - timedelta(days=3)
+        ran_that_day = _create_session()
+        Run.objects.filter(pk=_create_run(ran_that_day).pk).update(
+            created_at=timezone.make_aware(datetime.combine(day, time(12)))
+        )
+        other_day = _create_session()
+        Run.objects.filter(pk=_create_run(other_day).pk).update(
+            created_at=timezone.make_aware(datetime.combine(day - timedelta(days=1), time(12)))
+        )
+
+        pks = list(SessionFilter({"ran_on": day.isoformat()}, queryset=_qs()).qs.values_list("pk", flat=True))
+
+        assert pks == [ran_that_day.pk]
+
     def test_invalid_date_is_ignored(self, user):
         a = _create_session()
         f = SessionFilter({"date_from": "not-a-date"}, queryset=_qs())

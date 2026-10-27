@@ -365,28 +365,6 @@ html {
   animation: fade-up 0.5s ease-out backwards;
 }
 
-@keyframes number-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.95);
-  }
-}
-
-.animate-number {
-  animation: number-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
-}
-
-@keyframes bar-grow {
-  from {
-    transform: scaleX(0);
-  }
-}
-
-.animate-bar {
-  animation: bar-grow 0.7s cubic-bezier(0.22, 1, 0.36, 1) backwards;
-  transform-origin: left;
-}
-
 @keyframes pulse-dot {
   0%, 100% {
     opacity: 1;
@@ -394,10 +372,6 @@ html {
   50% {
     opacity: 0.3;
   }
-}
-
-.pulse-dot {
-  animation: pulse-dot 2s ease-in-out infinite;
 }
 
 /* -- Page header --------------------------------------------------------- */
@@ -417,6 +391,12 @@ html {
 
   .page-header__actions {
     @apply flex flex-wrap items-center gap-2;
+  }
+}
+
+@layer components {
+  .stat-value {
+    @apply font-mono text-[34px] font-semibold leading-none tabular-nums;
   }
 }
 

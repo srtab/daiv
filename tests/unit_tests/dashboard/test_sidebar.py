@@ -187,6 +187,7 @@ class TestNavActiveState:
         "url_name,expected_section",
         [
             ("dashboard", "dashboard"),
+            ("insights", "insights"),
             ("session_list", "sessions"),
             ("schedule_list", "schedules"),
             ("sandbox_envs:list", "sandbox_envs"),
@@ -234,7 +235,7 @@ def _nav_outline(nav) -> list[str]:
     return outline
 
 
-DAILY_WORK = ["Home", "Sessions", "Notifications", "Artifacts", "Schedules"]
+DAILY_WORK = ["Home", "Sessions", "Notifications", "Artifacts", "Schedules", "Insights"]
 AGENT_SETUP = ["# Agent setup", "Sandbox environments", "MCP servers", "Memory"]
 ADMIN = ["# Admin", "Users", "Configuration", "Schedule templates", "Skills", "Global MCP servers"]
 
@@ -278,6 +279,7 @@ class TestSidebarGroups:
         "url_name,label",
         [
             ("dashboard", "Home"),
+            ("insights", "Insights"),
             ("session_list", "Sessions"),
             ("sandbox_envs:list", "Sandbox environments"),
             ("mcp_connectors:list", "MCP servers"),
