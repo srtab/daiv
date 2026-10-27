@@ -1,8 +1,233 @@
+---
+version: alpha
+name: DAIV
+description: Dark-only, server-rendered UI for an autonomous coding agent. Violet marks who; teal marks what you can do.
+colors:
+  ground: "#0D1117"
+  surface-1: "#10151D"
+  surface-2: "#161C26"
+  surface-3: "#1E2733"
+  border: "#232B36"
+  text: "#E6EDF3"
+  text-strong: "#FFFFFF"
+  text-muted: "#9AA4B0"
+  text-faint: "#767F8E"
+  brand: "#8B5CF6"
+  brand-bright: "#A78BFA"
+  accent: "#2DD4BF"
+  accent-bright: "#5FE6D4"
+  accent-ink: "#04211D"
+  primary: "{colors.accent}"
+  focus: "{colors.accent-bright}"
+  status-clear: "#3FB950"
+  status-found: "#D6A036"
+  status-attn: "#38BDF8"
+  status-fail: "#F85149"
+typography:
+  body:
+    fontFamily: Geist
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 1.5
+  body-sm:
+    fontFamily: Geist
+    fontSize: 13px
+    fontWeight: 400
+    lineHeight: 1.5
+  caption:
+    fontFamily: Geist
+    fontSize: 11px
+    fontWeight: 400
+    lineHeight: 1.375
+  heading-page:
+    fontFamily: Geist
+    fontSize: 24px
+    fontWeight: 700
+    letterSpacing: -0.025em
+  heading-section:
+    fontFamily: Geist
+    fontSize: 15px
+    fontWeight: 600
+    letterSpacing: -0.025em
+  wordmark:
+    fontFamily: Geist
+    fontSize: 17px
+    fontWeight: 700
+    letterSpacing: -0.025em
+  action:
+    fontFamily: Geist
+    fontSize: 14px
+    fontWeight: 600
+    letterSpacing: -0.025em
+  data:
+    fontFamily: Geist Mono
+    fontSize: 12px
+    fontWeight: 400
+  label-caps:
+    fontFamily: Geist Mono
+    fontSize: 11px
+    fontWeight: 600
+    letterSpacing: 0.14em
+  stat:
+    fontFamily: Geist Mono
+    fontSize: 34px
+    fontWeight: 600
+    lineHeight: 1
+rounded:
+  md: 0.375rem
+  lg: 0.5rem
+  xl: 0.75rem
+  2xl: 1rem
+  full: 9999px
+spacing:
+  unit: 0.25rem
+  xs: 0.375rem
+  sm: 0.5rem
+  md: 0.75rem
+  lg: 1rem
+  xl: 1.5rem
+  2xl: 2rem
+  page-x: 1rem
+  gutter: 1.5rem
+components:
+  page:
+    backgroundColor: "{colors.ground}"
+    textColor: "{colors.text}"
+    typography: "{typography.body}"
+  page-heading:
+    backgroundColor: "{colors.ground}"
+    textColor: "{colors.text-strong}"
+    typography: "{typography.heading-page}"
+  daiv-notice-author:
+    backgroundColor: "{colors.ground}"
+    textColor: "{colors.brand-bright}"
+  sidebar-nav-item:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.body}"
+    rounded: "{rounded.lg}"
+  sidebar-nav-item-hover:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text}"
+  sidebar-nav-item-active-rail:
+    backgroundColor: "{colors.brand}"
+    width: 3px
+  sidebar-nav-description:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-faint}"
+    typography: "{typography.caption}"
+  brand-mark:
+    backgroundColor: "{colors.brand}"
+    rounded: "{rounded.md}"
+    size: 1.5rem
+  brand-wordmark:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-strong}"
+    typography: "{typography.wordmark}"
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.accent-ink}"
+    typography: "{typography.action}"
+    rounded: "{rounded.lg}"
+  button-primary-hover:
+    backgroundColor: "{colors.accent-bright}"
+    textColor: "{colors.accent-ink}"
+  link:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.accent}"
+  link-hover:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.accent-bright}"
+  card:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.2xl}"
+    padding: "{spacing.xl}"
+  card-row-hover:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.text-strong}"
+  outcome-label-clear:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-clear}"
+  outcome-label-found:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-found}"
+  outcome-label-attn:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-attn}"
+  outcome-label-fail:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-fail}"
+  menu:
+    backgroundColor: "{colors.surface-2}"
+    rounded: "{rounded.xl}"
+    padding: "{spacing.unit}"
+  menu-item:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.lg}"
+  menu-item-hover:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.text}"
+  menu-item-danger:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-fail}"
+  menu-divider:
+    backgroundColor: "{colors.border}"
+    height: 1px
+  confirm-dialog:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.2xl}"
+    padding: 1.25rem
+  confirm-dialog-title:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-strong}"
+    typography: "{typography.heading-section}"
+  confirm-dialog-button-danger:
+    backgroundColor: "{colors.status-fail}"
+    textColor: "{colors.ground}"
+    rounded: "{rounded.lg}"
+    height: 2rem
+  stat-value:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-strong}"
+    typography: "{typography.stat}"
+  section-label:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.label-caps}"
+  data-row:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.data}"
+---
+
 # Design System Rules
 
 This document defines the design system for DAIV's UI. Follow these rules when creating or modifying any template, component, or style.
 
-## Stack
+## Overview
+
+The UI is dark-only and server-rendered. Two hues carry meaning: violet `brand` marks *who*
+(DAIV, its mark, the active nav rail) and teal `accent` marks *what you can do* — it owns
+"clickable". Depth comes from a ramp of surfaces and hairline borders, not shadows. Data —
+counts, timestamps, repo tags — is set in Geist Mono, prose in Geist.
+
+The front matter above holds the tokens in Google's [design.md](https://github.com/google-labs-code/design.md)
+format, so agents and design tools can read them. `input.css`'s `@theme` owns the values:
+
+- The front matter mirrors its `--color-*` set and `--app-content-gutter`;
+  `tests/unit_tests/test_design_md.py` fails when they drift. Change a value in `input.css`
+  first, then here.
+- `make lint-design` runs the official linter (version pinned in the `Makefile`) and fails on
+  any error or warning, CI included.
+- `components` is where the linter measures contrast: it checks each entry's `textColor` on
+  its `backgroundColor` against WCAG AA. A new text/background pairing gets an entry, so the
+  check sees it.
+
+### Stack
 
 | Layer         | Technology                           | Notes                                          |
 |---------------|--------------------------------------|-------------------------------------------------|
@@ -14,53 +239,38 @@ This document defines the design system for DAIV's UI. Follow these rules when c
 
 There is no separate `tailwind.config.js` — all theme configuration lives inside `input.css` using Tailwind v4's `@theme` block.
 
-## Token Definitions
-
-### Typography
-
-| Token              | Value                                                       |
-|--------------------|-------------------------------------------------------------|
-| Sans family        | `"Geist"`, ui-sans-serif, system-ui, sans-serif (`font-sans`) — prose, headings, section headers, body |
-| Mono family        | `"Geist Mono"`, ui-monospace, SFMono-Regular, monospace (`font-mono`) — all *data*: counts, timestamps, repo tags, uppercase eyebrow/label roles |
-| Hosting            | **Self-hosted woff2** at `daiv/static/fonts/geist/` (variable weight `100 900`, `font-display: swap`, latin subset covers ã ç õ é). `@font-face` lives in `input.css`. **No font CDN.** |
-| Body text          | `text-[14px]` regular, `text-text` or `text-text-muted`    |
-| Small / meta text  | `text-[13px]` or `text-[12px]`, often `font-mono`           |
-| Headings           | `font-semibold` or `font-bold`, `text-text` or `text-text-strong` |
-| Uppercase labels   | `tracking-[0.14em]` to `tracking-[0.2em]`, `font-semibold`, `font-mono` |
-| Tabular figures    | `tabular-nums` wherever digits align or change             |
-| Mono ligatures     | **Off.** Geist Mono's ligatures swallow the space before `--` (`daiv --transport` renders as `daiv--transport`). `input.css` sets `font-variant-ligatures: none` on the `font-mono` utility (so `@apply font-mono` carries it) and on `code`, `kbd`, `samp`, `pre`. Set mono with `font-mono`, never a raw `font-family: var(--font-mono)`; `font-feature-settings` does not turn this ligature off in Chromium. |
-
-### Color Palette
+## Colors
 
 The UI is **dark-mode only** (no light theme). The app shell and every new or
 restyled surface use the **semantic design-token layer** below; older pages still
 use the raw Tailwind utilities in the legacy table that follows. Prefer the tokens.
 
-#### Semantic Design Tokens (Tailwind v4 `@theme`)
+### Semantic Design Tokens (Tailwind v4 `@theme`)
 
 Declared as `--color-*` / `--font-*` / `--shadow-*` in `input.css`'s `@theme`
 block, so utilities generate automatically (`bg-ground`, `text-text-muted`,
 `border-border`, `text-status-found`, `font-mono`, `shadow-overlay`, …). `input.css`
-declares each value exactly once and the table below documents the roles; **nothing
-else restates a value.**
+declares each value; the front matter's `colors` mirrors them and the table below
+documents the roles.
 
-| Token | Value | Role |
-|---|---|---|
-| `ground` | `#0D1117` | base plane (`bg-ground` on `<body>`) |
-| `surface-1` | `#10151D` | sidebar + mobile top bar |
-| `surface-2` | `#161C26` | cards + hero |
-| `surface-3` | `#1E2733` | hover / inset chips |
-| `border` | `#232B36` | 1px hairline separators |
-| `text` / `text-strong` / `text-muted` / `text-faint` | `#E6EDF3` / `#FFFFFF` / `#9AA4B0` / `#767F8E` | text ramp |
-| `brand` / `brand-bright` | `#8B5CF6` / `#A78BFA` | violet — WHO/brand & mark only, **never a CTA** |
-| `accent` / `accent-bright` / `accent-ink` | `#2DD4BF` / `#5FE6D4` / `#04211D` | teal — DO/action; owns "clickable" |
-| `focus` | = `accent-bright` | focus ring — reads the accent token, so the teal ramp moves as one |
-| `status-clear` / `status-found` / `status-attn` / `status-fail` | `#3FB950` / `#D6A036` / `#38BDF8` / `#F85149` | green / amber / cyan / red — each AA-legible on `ground`; a status color never signals "clickable" |
+| Token | Role |
+|---|---|
+| `ground` | base plane (`bg-ground` on `<body>`) |
+| `surface-1` | sidebar + mobile top bar |
+| `surface-2` | cards + hero |
+| `surface-3` | hover / inset chips |
+| `border` | 1px hairline separators |
+| `text` / `text-strong` / `text-muted` / `text-faint` | text ramp |
+| `brand` / `brand-bright` | violet — WHO/brand & mark only, **never a CTA** |
+| `accent` / `accent-bright` / `accent-ink` | teal — DO/action; owns "clickable" |
+| `primary` | front matter only: names `accent`, the action color, because the design.md spec requires a `primary` |
+| `focus` | focus ring — reads the accent token, so the teal ramp moves as one |
+| `status-clear` / `status-found` / `status-attn` / `status-fail` | green / amber / cyan / red — each AA-legible on `ground`; a status color never signals "clickable" |
 
 Weak-tint status backgrounds = the status token at ~14–16% alpha via
 `color-mix(in srgb, <token> 14%, transparent)`; such tints carry no text.
 
-#### Legacy raw utilities (pages not yet on the tokens)
+### Legacy raw utilities (pages not yet on the tokens)
 
 These are what most pages still use. The last column is the token each row becomes, so
 migrating a page is mechanical rather than a judgement call — take the whole page at once,
@@ -93,26 +303,23 @@ error→`status-fail`). New surfaces use the tokens.
 | Error      | `border-red-800/50`       | `bg-red-950/80`        | `text-red-200`     |
 | Info       | `border-gray-800/50`      | `bg-gray-900/80`       | `text-gray-300`    |
 
-### Spacing Scale
+## Typography
 
-Use Tailwind's default spacing scale. Common values:
+The front matter's `typography` scale names these roles (`body`, `data`, `label-caps`, `stat`, …).
 
-- **Page padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — see §Layout
-- **Section gaps**: `gap-6`, `mt-8`
-- **Card padding**: `p-6`
-- **Component gaps**: `gap-4`, `gap-3`, `gap-2`
-- **Inline spacing**: `gap-2`, `gap-1.5`
+| Token              | Value                                                       |
+|--------------------|-------------------------------------------------------------|
+| Sans family        | `"Geist"`, ui-sans-serif, system-ui, sans-serif (`font-sans`) — prose, headings, section headers, body |
+| Mono family        | `"Geist Mono"`, ui-monospace, SFMono-Regular, monospace (`font-mono`) — all *data*: counts, timestamps, repo tags, uppercase eyebrow/label roles |
+| Hosting            | **Self-hosted woff2** at `daiv/static/fonts/geist/` (variable weight `100 900`, `font-display: swap`, latin subset covers ã ç õ é). `@font-face` lives in `input.css`. **No font CDN.** |
+| Body text          | `text-[14px]` regular, `text-text` or `text-text-muted`    |
+| Small / meta text  | `text-[13px]` or `text-[12px]`, often `font-mono`           |
+| Headings           | `font-semibold` or `font-bold`, `text-text` or `text-text-strong` |
+| Uppercase labels   | `tracking-[0.14em]` to `tracking-[0.2em]`, `font-semibold`, `font-mono` |
+| Tabular figures    | `tabular-nums` wherever digits align or change             |
+| Mono ligatures     | **Off.** Geist Mono's ligatures swallow the space before `--` (`daiv --transport` renders as `daiv--transport`). `input.css` sets `font-variant-ligatures: none` on the `font-mono` utility (so `@apply font-mono` carries it) and on `code`, `kbd`, `samp`, `pre`. Set mono with `font-mono`, never a raw `font-family: var(--font-mono)`; `font-feature-settings` does not turn this ligature off in Chromium. |
 
-### Border Radius
-
-| Element         | Radius          |
-|-----------------|-----------------|
-| Cards           | `rounded-2xl`   |
-| Buttons/inputs  | `rounded-xl`    |
-| Small controls  | `rounded-lg`    |
-| Badges/pills    | `rounded-full`  |
-
-### Layout
+## Layout
 
 - **Content width — `container_width` tier system.** `base_app.html` exposes a
   `{% block container_width %}` whose allowed values are `max-w-3xl` (narrow),
@@ -126,10 +333,6 @@ Use Tailwind's default spacing scale. Common values:
   there when the user collapses it (`:root[data-sidebar="rail"]`) — so the
   sidebar's width lives in one place and everything keyed to it (the `--sheet-inset-*`
   switch, which tracks `md:` rather than `sm:`) follows both tiers for free.
-- **Flat elevation.** Depth is built from the `surface-1 → surface-2 → surface-3`
-  ramp plus hairline `border-border` — **persistent surfaces carry no box-shadow.**
-  The single sanctioned shadow (`shadow-overlay`, `0 16px 40px -24px rgba(0,0,0,.85)`)
-  is reserved for transient overlays (menus / popovers / dialogs).
 - **Focus & keyboard.** A global `:focus-visible` teal ring
   (`outline: 2px solid var(--color-focus); outline-offset: 2px`) applies to every
   interactive element that doesn't draw its own — the chat composer and the pickers
@@ -138,7 +341,59 @@ Use Tailwind's default spacing scale. Common values:
   drawer/popover. No command palette.
 - Grid columns: single on mobile, multi-column at `sm:` and `lg:`
 
-## Component Library
+### Spacing Scale
+
+Use Tailwind's default spacing scale (the front matter's `spacing`). Common values:
+
+- **Page padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — see §Layout
+- **Section gaps**: `gap-6`, `mt-8`
+- **Card padding**: `p-6`
+- **Component gaps**: `gap-4`, `gap-3`, `gap-2`
+- **Inline spacing**: `gap-2`, `gap-1.5`
+
+### Responsive Design
+
+Mobile-first approach. Common patterns:
+
+```html
+<!-- Single column on mobile, 2 columns on sm, 3 on lg -->
+<div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+
+<!-- Stack on mobile, row on sm -->
+<div class="flex flex-col gap-4 sm:flex-row sm:items-center">
+```
+
+Breakpoints are viewport-relative, but from `md:` up a page sits next to the shell —
+a 64px icon rail, then `--app-sidebar-width` (15rem from `lg:`, or 4rem when the user
+collapses it) — so the
+content area a rule switches on is always narrower than the width the rule names.
+Where the switch depends on whether two blocks still fit (a title and its actions, a
+list row and its controls), wrap on content instead: see §Page Header.
+
+A `position: fixed` surface has the same problem with no layout to lean on: it measures
+the viewport, not the column it belongs to. From `md:` up — the width the sidebar
+appears at — bottom sheets (pickers and the composer's own) are therefore inset to the
+content column instead, so one never opens across the sidebar. The `--sheet-inset-*`
+switch in `input.css` is keyed to `--breakpoint-md` for exactly that reason: move the
+sidebar's tier and that switch moves with it.
+
+## Elevation & Depth
+
+**Flat elevation.** Depth is built from the `surface-1 → surface-2 → surface-3` ramp plus
+hairline `border-border` — **persistent surfaces carry no box-shadow.** The single
+sanctioned shadow (`shadow-overlay`, `0 16px 40px -24px rgba(0,0,0,.85)`) is reserved for
+transient overlays (menus / popovers / dialogs).
+
+## Shapes
+
+| Element         | Radius          |
+|-----------------|-----------------|
+| Cards           | `rounded-2xl`   |
+| Buttons/inputs  | `rounded-xl`    |
+| Small controls  | `rounded-lg`    |
+| Badges/pills    | `rounded-full`  |
+
+## Components
 
 All components are Django templates. Reusable partials are **underscore-prefixed** (`_component.html`).
 
@@ -354,6 +609,20 @@ Use the `.prose-dark` component class for rendered markdown inside dark containe
 
 Defined in `input.css` under `@layer components`. Handles headings, lists, links, code blocks, blockquotes, tables, and horizontal rules.
 
+## Do's and Don'ts
+
+### Accessibility
+
+- Use semantic HTML: `<nav>`, `<main>`, `<header>`, `<footer>`, `<section>`
+- Add `aria-label` on navigation landmarks
+- Focus is global: `input.css` puts a teal `:focus-visible` ring on everything. Only
+  opt out (`focus:outline-none`) when replacing it with an equally visible ring
+- Ensure color contrast: `text`, `text-muted` and every `status-*` token are AA-legible
+  on `ground`, `surface-1` and `surface-2`. `text-faint` is AA only on `ground` and
+  `surface-1` — not on a card. On `surface-3` (hover), `text-faint` and `status-fail`
+  fall below AA. Check anything else by adding it to the front matter's `components`
+- Use `x-cloak` to prevent flash of unstyled Alpine content
+
 ## Icon System
 
 Icons are SVGs rendered via a CSS-mask technique for easy theming with `currentColor`.
@@ -477,42 +746,6 @@ All pages extend `core/templates/base.html`, which provides:
 - Page templates: `name.html` (no prefix)
 - Located in each app's `templates/<app>/` directory
 
-## Accessibility
-
-- Use semantic HTML: `<nav>`, `<main>`, `<header>`, `<footer>`, `<section>`
-- Add `aria-label` on navigation landmarks
-- Focus is global: `input.css` puts a teal `:focus-visible` ring on everything. Only
-  opt out (`focus:outline-none`) when replacing it with an equally visible ring
-- Ensure color contrast: the `text` / `text-muted` / `text-faint` ramp and every
-  `status-*` token are AA-legible on `ground`; check anything outside them
-- Use `x-cloak` to prevent flash of unstyled Alpine content
-
-## Responsive Design
-
-Mobile-first approach. Common patterns:
-
-```html
-<!-- Single column on mobile, 2 columns on sm, 3 on lg -->
-<div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-
-<!-- Stack on mobile, row on sm -->
-<div class="flex flex-col gap-4 sm:flex-row sm:items-center">
-```
-
-Breakpoints are viewport-relative, but from `md:` up a page sits next to the shell —
-a 64px icon rail, then `--app-sidebar-width` (15rem from `lg:`, or 4rem when the user
-collapses it) — so the
-content area a rule switches on is always narrower than the width the rule names.
-Where the switch depends on whether two blocks still fit (a title and its actions, a
-list row and its controls), wrap on content instead: see §Page Header.
-
-A `position: fixed` surface has the same problem with no layout to lean on: it measures
-the viewport, not the column it belongs to. From `md:` up — the width the sidebar
-appears at — bottom sheets (pickers and the composer's own) are therefore inset to the
-content column instead, so one never opens across the sidebar. The `--sheet-inset-*`
-switch in `input.css` is keyed to `--breakpoint-md` for exactly that reason: move the
-sidebar's tier and that switch moves with it.
-
 ## File Paths Reference
 
 | What                    | Path                                          |
@@ -529,3 +762,4 @@ sidebar's tier and that switch moves with it.
 | Icon SVGs               | `daiv/core/static/core/img/icons/`            |
 | Icon template tag       | `daiv/core/templatetags/icon_tags.py`         |
 | Repo + branch picker    | `daiv/codebase/templates/codebase/_repo_picker.html` |
+| Front matter ↔ `@theme` check | `tests/unit_tests/test_design_md.py`    |

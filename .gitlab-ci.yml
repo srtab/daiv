@@ -19,6 +19,13 @@ lint:
   script:
     - make lint
 
+lint:design:
+  stage: static
+  interruptible: true
+  image: node:24
+  script:
+    - make lint-design
+
 unit:
   stage: test
   interruptible: true
