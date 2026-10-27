@@ -11,7 +11,7 @@ colors:
   text: "#E6EDF3"
   text-strong: "#FFFFFF"
   text-muted: "#9AA4B0"
-  text-faint: "#767F8E"
+  text-faint: "#878F9C"
   brand: "#8B5CF6"
   brand-bright: "#A78BFA"
   accent: "#2DD4BF"
@@ -22,7 +22,7 @@ colors:
   status-clear: "#3FB950"
   status-found: "#D6A036"
   status-attn: "#38BDF8"
-  status-fail: "#F85149"
+  status-fail: "#F8564E"
 typography:
   body:
     fontFamily: Geist
@@ -146,6 +146,14 @@ components:
   card-row-hover:
     backgroundColor: "{colors.surface-3}"
     textColor: "{colors.text-strong}"
+  card-meta:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-faint}"
+    typography: "{typography.data}"
+  card-row-hover-meta:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.text-faint}"
+    typography: "{typography.data}"
   outcome-label-clear:
     backgroundColor: "{colors.surface-2}"
     textColor: "{colors.status-clear}"
@@ -157,6 +165,9 @@ components:
     textColor: "{colors.status-attn}"
   outcome-label-fail:
     backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-fail}"
+  outcome-label-fail-hover:
+    backgroundColor: "{colors.surface-3}"
     textColor: "{colors.status-fail}"
   menu:
     backgroundColor: "{colors.surface-2}"
@@ -172,6 +183,9 @@ components:
     textColor: "{colors.text}"
   menu-item-danger:
     backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-fail}"
+  menu-item-danger-hover:
+    backgroundColor: "{colors.surface-3}"
     textColor: "{colors.status-fail}"
   menu-divider:
     backgroundColor: "{colors.border}"
@@ -265,7 +279,7 @@ documents the roles.
 | `accent` / `accent-bright` / `accent-ink` | teal — DO/action; owns "clickable" |
 | `primary` | front matter only: names `accent`, the action color, because the design.md spec requires a `primary` |
 | `focus` | focus ring — reads the accent token, so the teal ramp moves as one |
-| `status-clear` / `status-found` / `status-attn` / `status-fail` | green / amber / cyan / red — each AA-legible on `ground`; a status color never signals "clickable" |
+| `status-clear` / `status-found` / `status-attn` / `status-fail` | green / amber / cyan / red — each AA-legible on `ground` and every surface; a status color never signals "clickable" |
 
 Weak-tint status backgrounds = the status token at ~14–16% alpha via
 `color-mix(in srgb, <token> 14%, transparent)`; such tints carry no text.
@@ -617,10 +631,9 @@ Defined in `input.css` under `@layer components`. Handles headings, lists, links
 - Add `aria-label` on navigation landmarks
 - Focus is global: `input.css` puts a teal `:focus-visible` ring on everything. Only
   opt out (`focus:outline-none`) when replacing it with an equally visible ring
-- Ensure color contrast: `text`, `text-muted` and every `status-*` token are AA-legible
-  on `ground`, `surface-1` and `surface-2`. `text-faint` is AA only on `ground` and
-  `surface-1` — not on a card. On `surface-3` (hover), `text-faint` and `status-fail`
-  fall below AA. Check anything else by adding it to the front matter's `components`
+- Ensure color contrast: the whole text ramp and every `status-*` token are AA-legible
+  on `ground` and on every surface, hover (`surface-3`) included. Check anything else
+  by adding it to the front matter's `components`
 - Use `x-cloak` to prevent flash of unstyled Alpine content
 
 ## Icon System

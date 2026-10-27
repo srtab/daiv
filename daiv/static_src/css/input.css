@@ -36,7 +36,7 @@
   --color-text: #e6edf3; /* primary content */
   --color-text-strong: #ffffff; /* the single most-important number only */
   --color-text-muted: #9aa4b0; /* secondary meta */
-  --color-text-faint: #767f8e; /* timestamps / captions (AA-fixed) */
+  --color-text-faint: #878f9c; /* timestamps / captions (AA on every surface) */
 
   --color-brand: #8b5cf6; /* violet — WHO / brand fills & mark only, never a CTA */
   --color-brand-bright: #a78bfa; /* violet text/glyphs needing an AA lift */
@@ -50,7 +50,7 @@
   --color-status-clear: #3fb950; /* all-clear (green) */
   --color-status-found: #d6a036; /* found-issues / "fix it" (amber) */
   --color-status-attn: #38bdf8; /* needs-attention / "review this" (cyan) */
-  --color-status-fail: #f85149; /* failed tooling / "retry" (red) */
+  --color-status-fail: #f8564e; /* failed tooling / "retry" (red) */
 
   /* Flat elevation: persistent surfaces carry NO shadow. This single overlay shadow is
      reserved for transient overlays (menus / popovers / dialogs). */
