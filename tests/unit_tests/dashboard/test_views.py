@@ -54,6 +54,17 @@ def _make_session(user, origin, *, status=RunStatus.SUCCESSFUL, days_ago=0):
     return session
 
 
+def _add_run(session, *, days_ago):
+    return Run.objects.create(
+        session=session,
+        status=RunStatus.SUCCESSFUL,
+        trigger_type=session.origin,
+        repo_id="daiv/test",
+        user=session.user,
+        created_at=_local_noon(days_ago),
+    )
+
+
 def _list_count(client, url: str) -> int:
     return client.get(url).context["paginator"].count
 
@@ -92,6 +103,15 @@ class TestDashboardSessionBreakdown:
 
         assert [(s["label"], s["value"]) for s in activity["segments"]] == [("MR/PR Webhook", 1)]
         assert activity["sessions_failed"] == 1
+
+    def test_home_skips_the_comparison_and_charts(self, member_user, member_client):
+        _make_session(member_user, SessionOrigin.CHAT)
+
+        activity = member_client.get(reverse("dashboard"), {"period": "7d"}).context["activity"]
+
+        assert activity["total_change"] is None
+        assert activity["chart"] is None
+        assert activity["segments"][0]["spark"] == []
 
     def test_links_carry_the_period(self, member_user, member_client):
         _make_session(member_user, SessionOrigin.SCHEDULE)
@@ -174,6 +194,27 @@ class TestInsightsPage:
         chat = context["breakdown"]["segments"][0]
         assert (chat["value"], chat["previous"], chat["change_pct"]) == (2, 1, "+100%")
 
+    def test_a_session_active_in_both_periods_counts_in_both(self, member_user, member_client):
+        session = _make_session(member_user, SessionOrigin.CHAT)
+        _add_run(session, days_ago=9)
+
+        (chat,) = _insights(member_client)["breakdown"]["segments"]
+
+        assert (chat["value"], chat["previous"]) == (1, 1)
+
+    def test_a_sub_second_change_in_duration_is_no_change(self, member_user, member_client):
+        current = _make_session(member_user, SessionOrigin.CHAT)
+        earlier = _make_session(member_user, SessionOrigin.CHAT, days_ago=9)
+        then, now = _local_noon(9), timezone.now()
+        Run.objects.filter(session=earlier).update(
+            created_at=then, started_at=then, finished_at=then + timedelta(seconds=62)
+        )
+        Run.objects.filter(session=current).update(started_at=now, finished_at=now + timedelta(seconds=62.4))
+
+        change = _insights(member_client)["activity"]["avg_duration_change"]
+
+        assert change["direction"] == "flat"
+
     def test_all_time_has_no_comparison(self, member_user, member_client):
         _make_session(member_user, SessionOrigin.CHAT)
 
@@ -251,12 +292,13 @@ class TestInsightsPage:
 
         assert 5 <= len(chart["columns"]) <= 6
 
-    def test_sparkline_has_a_bar_per_day(self, member_user, member_client):
-        _make_session(member_user, SessionOrigin.CHAT, days_ago=1)
+    def test_sparkline_counts_a_session_on_each_day_it_ran(self, member_user, member_client):
+        session = _make_session(member_user, SessionOrigin.CHAT)
+        _add_run(session, days_ago=1)
 
         (chat,) = _insights(member_client)["breakdown"]["segments"]
 
-        assert [bar["count"] for bar in chat["spark"]] == [0, 0, 0, 0, 0, 1, 0]
+        assert [bar["count"] for bar in chat["spark"]] == [0, 0, 0, 0, 0, 1, 1]
 
 
 @pytest.mark.django_db

@@ -49,7 +49,7 @@ def resolve_scope(data) -> str:
 _RANGE_WINDOWS: dict[str, timedelta] = {"2d": timedelta(days=2), "7d": timedelta(days=7), "30d": timedelta(days=30)}
 
 
-def _local_midnight(day: date) -> datetime:
+def local_midnight(day: date) -> datetime:
     # A bound on the raw column rather than a ``__date`` cast, so the last_active_at index applies.
     return timezone.make_aware(datetime.combine(day, time.min))
 
@@ -89,10 +89,10 @@ class SessionFilter(django_filters.FilterSet):
         return queryset.for_merge_request(value)
 
     def filter_date_from(self, queryset, name, value):
-        return queryset.filter(last_active_at__gte=_local_midnight(value))
+        return queryset.filter(last_active_at__gte=local_midnight(value))
 
     def filter_date_to(self, queryset, name, value):
-        return queryset.filter(last_active_at__lt=_local_midnight(value + timedelta(days=1)))
+        return queryset.filter(last_active_at__lt=local_midnight(value + timedelta(days=1)))
 
     def filter_range(self, queryset, name, value):
         # Rolling windows; "today" is the local calendar day. The first-party UI never emits

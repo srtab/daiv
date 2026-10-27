@@ -1,7 +1,10 @@
-from datetime import date
+from datetime import date, datetime, timedelta
+
+from django.utils import timezone
 
 import pytest
 from dashboard.insights import Window, _bucket_starts, _change, _signed_pct, window_for
+from sessions.filters import local_midnight
 
 
 class TestWindow:
@@ -12,15 +15,18 @@ class TestWindow:
 
         assert (window.start, window.end) == (date(2026, 10, 21), date(2026, 10, 27))
 
-    def test_previous_is_the_same_length_just_before(self):
+    def test_previous_is_the_same_length_just_before(self, monkeypatch):
+        monkeypatch.setattr("django.utils.timezone.now", lambda: timezone.make_aware(datetime(2026, 11, 5, 9)))
         window = Window(date(2026, 10, 21), date(2026, 10, 27))
 
-        assert window.previous() == Window(date(2026, 10, 14), date(2026, 10, 20))
+        assert window.previous() == Window(date(2026, 10, 14), date(2026, 10, 20), local_midnight(date(2026, 10, 21)))
 
-    def test_today_compares_with_yesterday(self):
+    def test_today_compares_with_yesterday_up_to_the_same_time(self, monkeypatch):
+        now = timezone.make_aware(datetime(2026, 10, 27, 9, 30))
+        monkeypatch.setattr("django.utils.timezone.now", lambda: now)
         window = Window(date(2026, 10, 27), date(2026, 10, 27))
 
-        assert window.previous() == Window(date(2026, 10, 26), date(2026, 10, 26))
+        assert window.previous() == Window(date(2026, 10, 26), date(2026, 10, 26), now - timedelta(days=1))
 
     def test_all_time_has_nothing_to_compare_with(self):
         assert Window(None, date(2026, 10, 27)).previous() is None

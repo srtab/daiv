@@ -58,7 +58,7 @@
     </div>
     {% if previous_window %}
     <p class="mt-4 text-[12px] text-text-faint">
-        {% blocktranslate with current=window.label previous=previous_window.label %}Changes compare {{ current }} with the period before, {{ previous }}.{% endblocktranslate %}
+        {% blocktranslate with current=window.label previous=previous_window.label %}Changes compare {{ current }} with the period before, {{ previous }}, up to the same time of day.{% endblocktranslate %}
     </p>
     {% endif %}
 
@@ -102,8 +102,8 @@
                     <tr class="text-left font-mono text-[11px] uppercase tracking-[0.1em] text-text-faint">
                         <th scope="col" class="pb-2 font-semibold">{% translate "Origin" %}</th>
                         <th scope="col" class="pb-2 text-right font-semibold">{{ window.label }}</th>
-                        {% if breakdown.previous_window %}
-                        <th scope="col" class="hidden pb-2 pl-6 text-right font-semibold sm:table-cell">{{ breakdown.previous_window.label }}</th>
+                        {% if previous_window %}
+                        <th scope="col" class="hidden pb-2 pl-6 text-right font-semibold sm:table-cell">{{ previous_window.label }}</th>
                         <th scope="col" class="pb-2 pl-4 font-semibold sm:pl-6">{% translate "Change" %}</th>
                         {% endif %}
                         {% if breakdown.has_sparks %}
@@ -120,7 +120,7 @@
                             </a>
                         </td>
                         <td class="py-2 text-right"><a href="{{ seg.url }}" class="font-mono font-semibold tabular-nums text-text-strong hover:text-accent-bright">{{ seg.value }}</a></td>
-                        {% if breakdown.previous_window %}
+                        {% if previous_window %}
                         <td class="hidden py-2 pl-6 text-right font-mono tabular-nums text-text-faint sm:table-cell">{{ seg.previous }}</td>
                         <td class="whitespace-nowrap py-2 pl-4 font-mono text-[13px] text-text-muted sm:pl-6">{% include "dashboard/_change_inline.html" with change=seg.change pct=seg.change_pct %}</td>
                         {% endif %}
@@ -140,7 +140,7 @@
                     <tr class="border-t-2 border-border">
                         <td class="py-2 font-medium text-text">{% translate "All origins" %}</td>
                         <td class="py-2 text-right font-mono font-semibold tabular-nums text-text-strong">{{ breakdown.sessions_total }}</td>
-                        {% if breakdown.previous_window %}
+                        {% if previous_window %}
                         <td class="hidden py-2 pl-6 text-right font-mono tabular-nums text-text-faint sm:table-cell">{{ breakdown.sessions_previous }}</td>
                         <td class="whitespace-nowrap py-2 pl-4 font-mono text-[13px] text-text-muted sm:pl-6">{% include "dashboard/_change_inline.html" with change=breakdown.sessions_change pct=breakdown.sessions_change_pct %}</td>
                         {% endif %}

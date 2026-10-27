@@ -24,17 +24,6 @@ def homepage(request):
 HOME_DEFAULT_PERIOD = "today"
 
 
-def _raw_pct(numerator: int, denominator: int) -> int | None:
-    """Return a ratio as a rounded integer percentage, or None when the denominator is zero."""
-    return round(numerator / denominator * 100) if denominator else None
-
-
-def _format_pct(numerator: int, denominator: int) -> str:
-    """Format a ratio as a rounded percentage string, or a dash when the denominator is zero."""
-    raw = _raw_pct(numerator, denominator)
-    return f"{raw}%" if raw is not None else "—"
-
-
 def _period(request, default: str) -> str:
     period = request.GET.get("period", default)
     return period if period in insights.PERIOD_DAYS else default
@@ -56,9 +45,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
         user = self.request.user
         context["activity"] = {
-            **insights.activity(user, window),
+            **insights.activity(user, window, trends=False),
             "running": running_jobs_count(self.request, user),
-            **insights.session_breakdown(user, window),
+            **insights.session_breakdown(user, window, trends=False),
         }
         context["active_api_keys"] = APIKey.objects.filter(user=user, revoked=False).count()
         context["periods"] = _periods()
@@ -100,12 +89,12 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "lines_added": stats["total_added"],
             "lines_removed": stats["total_removed"],
             "net_lines": stats["total_added"] - stats["total_removed"],
-            "daiv_merges_pct": _format_pct(daiv_merges, total_merges),
-            "daiv_merges_pct_raw": min(_raw_pct(daiv_merges, total_merges) or 0, 100),
+            "daiv_merges_pct": insights.format_pct(daiv_merges, total_merges),
+            "daiv_merges_pct_raw": min(insights.pct(daiv_merges, total_merges) or 0, 100),
             "daiv_merges": daiv_merges,
             "human_merges": human_merges,
-            "daiv_commits_pct": _format_pct(daiv_commits, total_commits),
-            "daiv_commits_pct_raw": min(_raw_pct(daiv_commits, total_commits) or 0, 100),
+            "daiv_commits_pct": insights.format_pct(daiv_commits, total_commits),
+            "daiv_commits_pct_raw": min(insights.pct(daiv_commits, total_commits) or 0, 100),
             "daiv_commits": daiv_commits,
             "human_commits": human_commits,
             "lines_added_pct": round(stats["total_added"] / max_lines * 100, 1),
