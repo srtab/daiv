@@ -399,49 +399,30 @@ def test_agent_result_field_updates_maps_code_changes_only_when_set(code_changes
 
 
 @pytest.mark.parametrize(
-    ("trigger_type", "retryable"),
+    ("overrides", "retryable"),
     [
-        (SessionOrigin.API_JOB, True),
-        (SessionOrigin.MCP_JOB, True),
-        (SessionOrigin.UI_JOB, True),
-        (SessionOrigin.SCHEDULE, True),
-        (SessionOrigin.DELEGATED_JOB, True),
-        (SessionOrigin.CHAT, False),
-        (SessionOrigin.ISSUE_WEBHOOK, False),
-        (SessionOrigin.MR_WEBHOOK, False),
-        (SessionOrigin.PIPELINE_WEBHOOK, False),
-        (SessionOrigin.DELEGATION_RESUME, False),
+        *[({"trigger_type": t}, True) for t in sorted(SessionOrigin.retryable())],
+        *[({"trigger_type": t}, False) for t in sorted(set(SessionOrigin.values) - SessionOrigin.retryable())],
+        ({"status": RunStatus.FAILED}, True),
+        *[
+            ({"status": s}, False)
+            for s in (RunStatus.WAITING_INPUT, RunStatus.READY, RunStatus.QUEUED, RunStatus.RUNNING)
+        ],
+        ({"prompt": ""}, False),
+        ({"repo_id": ""}, False),
     ],
 )
-def test_run_is_retryable_by_trigger(trigger_type, retryable):
-    assert (
-        Run(trigger_type=trigger_type, status=RunStatus.SUCCESSFUL, prompt="go", repo_id="acme/repo").is_retryable
-        is retryable
-    )
+def test_run_is_retryable(overrides, retryable):
+    fields = {"trigger_type": SessionOrigin.UI_JOB, "status": RunStatus.SUCCESSFUL, "prompt": "go", "repo_id": "a/b"}
+    assert Run(**{**fields, **overrides}).is_retryable is retryable
 
 
-@pytest.mark.parametrize(
-    ("status", "retryable"),
-    [
-        (RunStatus.SUCCESSFUL, True),
-        (RunStatus.FAILED, True),
-        (RunStatus.WAITING_INPUT, False),
-        (RunStatus.READY, False),
-        (RunStatus.QUEUED, False),
-        (RunStatus.RUNNING, False),
-    ],
-)
-def test_run_is_retryable_only_once_finished(status, retryable):
-    assert (
-        Run(trigger_type=SessionOrigin.UI_JOB, status=status, prompt="go", repo_id="acme/repo").is_retryable
-        is retryable
-    )
-
-
-def test_run_without_a_prompt_is_not_retryable():
-    run = Run(trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL, prompt="", repo_id="acme/repo")
-    assert run.is_retryable is False
-
-
-def test_run_without_a_repo_is_not_retryable():
-    assert Run(trigger_type=SessionOrigin.API_JOB, status=RunStatus.SUCCESSFUL, prompt="go").is_retryable is False
+def test_retryable_triggers_are_the_prompt_driven_jobs_and_schedules():
+    expected = {
+        SessionOrigin.API_JOB,
+        SessionOrigin.MCP_JOB,
+        SessionOrigin.UI_JOB,
+        SessionOrigin.SCHEDULE,
+        SessionOrigin.DELEGATED_JOB,
+    }
+    assert SessionOrigin.retryable() == expected

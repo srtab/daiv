@@ -240,7 +240,8 @@ def mark_retryable(turns: list[dict[str, Any]], runs: list[Run], user: User) -> 
     if not retryable:
         return
     allowed = runnable_repo_ids(user, {run.repo_id for run in retryable.values()})
+    composer = reverse("runs:agent_run_new")
     for turn in turns:
         run = retryable.get(turn.get("run_id", ""))
         if run is not None and run.repo_id in allowed:
-            turn["retry_url"] = f"{reverse('runs:agent_run_new')}?{urlencode({'from': run.id})}"
+            turn["retry_url"] = f"{composer}?{urlencode({'from': run.id})}"

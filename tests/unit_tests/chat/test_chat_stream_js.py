@@ -47,9 +47,7 @@ def _load(*, hash_: str, live: bool = False, rendered=(), turns=None, polls=()):
         "live": live,
         "rendered": list(rendered),
         "turns": turns if turns is not None else [_turn("h1")],
-        "polls": [
-            {"rendered": list(poll[0]), "turns": poll[1], "input": poll[2] if len(poll) > 2 else ""} for poll in polls
-        ],
+        "polls": [{"rendered": [], "input": "", **poll} for poll in polls],
     }
     return run_chat_stream(BODY, payload, extra_globals=GLOBALS)
 
@@ -83,7 +81,10 @@ def test_a_run_that_renders_on_a_later_poll_is_scrolled_to_once():
     result = _load(
         hash_="#run-r2",
         live=True,
-        polls=[(["run-r2"], [_turn("h1"), _turn("h2")]), ([], [_turn("h1"), _turn("h2"), _turn("h3")])],
+        polls=[
+            {"rendered": ["run-r2"], "turns": [_turn("h1"), _turn("h2")]},
+            {"turns": [_turn("h1"), _turn("h2"), _turn("h3")]},
+        ],
     )
 
     assert result["scrolled"] == ["bottom", "run-r2", "bottom"]
@@ -94,7 +95,11 @@ def test_a_hash_that_names_no_run_keeps_the_default_scroll():
 
 
 def test_a_reader_who_takes_over_the_scroll_is_not_pulled_to_a_run_that_renders_later():
-    result = _load(hash_="#run-r2", live=True, polls=[(["run-r2"], [_turn("h1"), _turn("h2")], "wheel")])
+    result = _load(
+        hash_="#run-r2",
+        live=True,
+        polls=[{"rendered": ["run-r2"], "turns": [_turn("h1"), _turn("h2")], "input": "wheel"}],
+    )
 
     assert result["scrolled"] == ["bottom", "bottom"]
 

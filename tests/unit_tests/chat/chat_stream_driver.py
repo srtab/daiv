@@ -33,7 +33,7 @@ const sandbox = {
   // `queueMicrotask` is not reached by the module as it stands; it is here so that a
   // reintroduced per-flush cache fails on what a suite asserts rather than on a missing
   // global, which reads as a broken harness instead of the regression it is.
-  crypto, setInterval, clearInterval, queueMicrotask,
+  crypto, setInterval, clearInterval, queueMicrotask, AbortController,
   CSS: { supports: () => true },
   document: {
     getElementById: () => null,

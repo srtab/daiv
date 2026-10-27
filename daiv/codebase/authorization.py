@@ -141,16 +141,7 @@ def assert_can_run(user: User, repo_ids: Iterable[str]) -> None:
         RepositoryAccessDenied: carrying the denied repo ids.
     """
     repo_ids = list(repo_ids)
-    if user.is_admin:
-        return
-    uid = _resolve_uid(user)
-    if uid is None:
-        raise RepositoryAccessDenied(repo_ids)
-    writable = set(
-        _fresh_rows(uid)
-        .filter(repo_id__in=repo_ids, access_level=RepoAccessLevel.WRITE)
-        .values_list("repo_id", flat=True)
-    )
+    writable = runnable_repo_ids(user, repo_ids)
     denied = [repo_id for repo_id in repo_ids if repo_id not in writable]
     if denied:
         raise RepositoryAccessDenied(denied)

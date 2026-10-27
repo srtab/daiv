@@ -393,11 +393,11 @@
     // Emit time of the last relay frame, so a thought closed by the turn ending is stamped
     // on the same clock its start came from (client/server skew otherwise leaks).
     _lastFrameAt: 0,
-    _scrollQueued: false,
     _scrollFrame: 0,
     _autoFollow: true,
     // The `run-<id>` element the URL's hash names, until it has rendered and been scrolled to.
     _pendingRunAnchor: "",
+    _runAnchorWatch: null,
     _thinkingTimer: null,
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
@@ -793,9 +793,10 @@
       if (/^#run-[\w-]+$/.test(hash)) {
         this._pendingRunAnchor = hash.slice(1);
         // Once the reader takes over the scroll, a run that renders later must not yank them to it.
-        const disarm = () => (this._pendingRunAnchor = "");
+        this._runAnchorWatch = new AbortController();
+        const disarm = () => this._settleRunAnchor();
         for (const name of ["wheel", "touchstart", "keydown", "pointerdown"]) {
-          document.addEventListener(name, disarm, { once: true, passive: true });
+          document.addEventListener(name, disarm, { signal: this._runAnchorWatch.signal, passive: true });
         }
       }
 
@@ -815,6 +816,7 @@
       if (this._thinkingTimer) clearInterval(this._thinkingTimer);
       if (this._nowTimer) clearInterval(this._nowTimer);
       if (this._source) this._source.close();
+      this._settleRunAnchor();
     },
 
     // ---------- Run stream (EventSource against the relay) -------------
@@ -1864,12 +1866,18 @@
       if (!this._pendingRunAnchor) return false;
       const target = document.getElementById(this._pendingRunAnchor);
       if (!target) return false;
-      this._pendingRunAnchor = "";
+      this._settleRunAnchor();
       this._autoFollow = false;
       cancelAnimationFrame(this._scrollFrame);
-      this._scrollQueued = false;
+      this._scrollFrame = 0;
       target.scrollIntoView({ block: "start", behavior: "auto" });
       return true;
+    },
+
+    _settleRunAnchor() {
+      this._pendingRunAnchor = "";
+      this._runAnchorWatch?.abort();
+      this._runAnchorWatch = null;
     },
 
     runAnchorId(turn) {
@@ -1878,10 +1886,9 @@
 
     scrollToBottom({ force = false } = {}) {
       if (!force && !this._autoFollow) return;
-      if (this._scrollQueued) return;
-      this._scrollQueued = true;
+      if (this._scrollFrame) return;
       this._scrollFrame = requestAnimationFrame(() => {
-        this._scrollQueued = false;
+        this._scrollFrame = 0;
         const el = this._scrollEl;
         if (!el) return;
         el.scrollTo({

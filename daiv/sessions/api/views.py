@@ -41,10 +41,15 @@ async def session_turns(request: HttpRequest, thread_id: str):
     runs = [r async for r in session.runs.order_by("created_at")]
     activity = session_activity(session, runs)
     turns = annotate_transcript(build_turns(hydrated.messages, in_flight=activity.in_flight), runs, activity)
-    if not hydrated.messages:
-        turns += await sync_to_async(expired_run_turns)(runs, turns)
-    await sync_to_async(mark_retryable)(turns, runs, request.auth)  # ty: ignore[unresolved-attribute]
-    live = await sync_to_async(live_run_for)(activity.live, session, request.auth)  # ty: ignore[unresolved-attribute]
+    user = request.auth  # ty: ignore[unresolved-attribute]
+
+    def finish_turns():
+        if not hydrated.messages:
+            turns.extend(expired_run_turns(runs, turns))
+        mark_retryable(turns, runs, user)
+        return live_run_for(activity.live, session, user)
+
+    live = await sync_to_async(finish_turns)()
     return {
         "turns": turns,
         "active": activity.in_flight,

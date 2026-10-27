@@ -481,10 +481,9 @@ def test_recovered_failed_run_anchors_its_prompt_not_its_marker():
     assert (prompt["run_id"], "run_id" in marker) == ("r1", False)
 
 
-def _db_run(session: Session) -> Run:
-    return Run.objects.create(
-        session=session, trigger_type=SessionOrigin.UI_JOB, repo_id=session.repo_id, status=RunStatus.SUCCESSFUL
-    )
+def _db_run(session: Session, **kwargs) -> Run:
+    fields = {"trigger_type": SessionOrigin.UI_JOB, "repo_id": session.repo_id, "status": RunStatus.SUCCESSFUL}
+    return Run.objects.create(session=session, **{**fields, **kwargs})
 
 
 def _db_session() -> Session:
@@ -560,15 +559,7 @@ def test_expired_run_turns_leave_the_anchor_to_a_run_already_shown():
 
 @pytest.mark.django_db
 def test_expired_run_turns_restore_a_finished_runs_prompt_ahead_of_its_artifacts():
-    session = _db_session()
-    run = Run.objects.create(
-        session=session,
-        trigger_type=SessionOrigin.UI_JOB,
-        repo_id=session.repo_id,
-        status=RunStatus.SUCCESSFUL,
-        prompt="audit it",
-        finished_at=timezone.now(),
-    )
+    run = _db_run(_db_session(), prompt="audit it", finished_at=timezone.now())
     make_artifact(run)
 
     prompt, artifacts = expired_run_turns([run], [])
@@ -582,15 +573,18 @@ def test_expired_run_turns_restore_a_finished_runs_prompt_ahead_of_its_artifacts
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("status", [RunStatus.SUCCESSFUL, RunStatus.QUEUED])
-def test_expired_run_turns_restore_no_prompt_for_a_shown_or_unfinished_run(status):
-    session = _db_session()
-    run = Run.objects.create(
-        session=session, trigger_type=SessionOrigin.UI_JOB, repo_id=session.repo_id, status=status, prompt="go"
-    )
+def test_expired_run_turns_restore_no_prompt_for_a_run_already_shown():
+    run = _db_run(_db_session(), prompt="go")
     shown = [{"id": f"run-{run.id}", "role": "user", "segments": [], "run_id": str(run.id)}]
 
-    assert expired_run_turns([run], shown if status == RunStatus.SUCCESSFUL else []) == []
+    assert expired_run_turns([run], shown) == []
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_restore_no_prompt_for_an_unfinished_run():
+    run = _db_run(_db_session(), prompt="go", status=RunStatus.QUEUED)
+
+    assert expired_run_turns([run], []) == []
 
 
 @pytest.mark.django_db
