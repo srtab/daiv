@@ -5,8 +5,7 @@ from functools import reduce
 from operator import or_
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.core.cache import cache
-from django.db.models import Case, Count, IntegerField, Q, Value, When
+from django.db.models import Case, Count, IntegerField, Q, QuerySet, Value, When
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -21,7 +20,7 @@ from codebase.conf import settings as codebase_settings
 from core.conf import settings as core_settings
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 from dashboard import insights
-from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_RETRY_TIMEOUT, resolve_bot_username_task
+from dashboard.tasks import bot_username
 from schedules.models import ScheduledJob
 
 if TYPE_CHECKING:
@@ -35,8 +34,6 @@ RECENT_SESSIONS_LIMIT = 5
 INBOX_FINDINGS_WINDOW = timedelta(days=7)
 INBOX_MAX_AGE = timedelta(days=90)
 MR_LIST_LIMIT = 3
-
-BOT_USERNAME_PENDING_KEY = "dashboard:bot-username-pending"
 
 _SEVERITY: dict[str, int] = {status: rank for rank, status in enumerate(EnvelopeStatus.worst_first())}
 _SEVERITY |= {CI_STILL_FAILING.key: _SEVERITY[EnvelopeStatus.FAILED], CANT_RUN.key: _SEVERITY[EnvelopeStatus.FAILED]}
@@ -121,7 +118,7 @@ def _runs_needing(user: User) -> list[dict]:
 def inbox(user: User) -> dict:
     """Needs you: what is waiting on ``user``, worst first, with links to the full lists behind it."""
     runs = _runs_needing(user)
-    schedules = list(ScheduledJob.objects.filter(user=user).failing())
+    schedules = list(ScheduledJob.objects.filter(user=user).failing().order_by("-failing_since"))
     items = [
         InboxItem(
             outcome=_OUTCOMES_BY_KEY[run["inbox_outcome"]],
@@ -189,6 +186,20 @@ def _started_from() -> list[tuple[str, frozenset[str]]]:
     return [*groups, (str(_("Delegated by the agent")), frozenset(SessionOrigin.values) - grouped)]
 
 
+def _merge_requests(runs: QuerySet[Run]) -> list[dict]:
+    """One entry per merge request ``runs`` worked on, newest first, titled by its newest run's session."""
+    merge_requests: dict[tuple[str, int], dict] = {}
+    for repo_id, iid, url, title in (
+        runs
+        .filter(merge_request_iid__isnull=False)
+        .order_by("-created_at")
+        .values_list("repo_id", "merge_request_iid", "merge_request_web_url", "session__title")
+    ):
+        merge_request = merge_requests.setdefault((repo_id, iid), {"repo_id": repo_id, "iid": iid, "title": title})
+        merge_request["url"] = merge_request.get("url") or url
+    return list(merge_requests.values())
+
+
 def your_week(user: User) -> dict:
     """What the runs ``user`` started came to over the last 7 days, a column a day.
 
@@ -202,7 +213,7 @@ def your_week(user: User) -> dict:
         runs, "created_at", window, WEEK_OUTCOMES, lambda day: my_sessions_url(ran_on=day.end.isoformat())
     )
     sessions = counted.aggregate(n=Count("session", distinct=True))["n"]
-    merge_requests = in_window.merge_requests()
+    merge_requests = _merge_requests(in_window)
     triggers = counted.order_by().values("trigger_type").annotate(n=Count("pk"))
     by_trigger = dict(triggers.values_list("trigger_type", "n"))
     started_from = [
@@ -223,15 +234,6 @@ def your_week(user: User) -> dict:
     }
 
 
-def _bot_username() -> str:
-    """The account DAIV answers to on the git platform; the label it shares a name with until a task resolves it."""
-    username = cache.get(BOT_USERNAME_CACHE_KEY)
-    if username is None and cache.add(BOT_USERNAME_PENDING_KEY, True, BOT_USERNAME_RETRY_TIMEOUT):
-        resolve_bot_username_task.enqueue()
-        username = cache.get(BOT_USERNAME_CACHE_KEY)
-    return username or BOT_LABEL
-
-
 def ways_to_use() -> dict:
     """The three ways into DAIV, specific to this instance's git platform, bot account and URL."""
     platform_name, mr_term = _platform_terms()
@@ -240,7 +242,7 @@ def ways_to_use() -> dict:
         "platform_name": platform_name,
         "mr_term": mr_term,
         "platform_icon": str(codebase_settings.CLIENT),
-        "bot_mention": f"@{_bot_username()}",
+        "bot_mention": f"@{bot_username()}",
         "labels": [
             {"name": BOT_LABEL, "help": _("Plans, then waits for your go-ahead")},
             {"name": BOT_AUTO_LABEL, "help": _("Plans and implements without waiting")},

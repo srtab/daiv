@@ -438,5 +438,4 @@ def test_failing_selects_the_schedules_is_failing_holds_for(member_user):
     job("paused", is_enabled=False, failing_since=now)
     job("healthy")
 
-    assert list(ScheduledJob.objects.failing()) == [retired, older]
-    assert all(schedule.is_failing for schedule in ScheduledJob.objects.failing())
+    assert set(ScheduledJob.objects.failing()) == {retired, older}

@@ -8,8 +8,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
-from dashboard.home import BOT_USERNAME_PENDING_KEY, INBOX_LIMIT
-from dashboard.tasks import BOT_USERNAME_CACHE_KEY
+from dashboard.home import INBOX_LIMIT
+from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
 from notifications.models import RunEnvelope
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState

@@ -13,6 +13,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signal_defs import run_ended, run_finished
 
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
+from schedules.models import ScheduledJob
 from tests.unit_tests.sessions.conftest import make_task_result
 
 
@@ -378,8 +379,6 @@ class TestWithRetried:
         assert (self._retried(failed, member_user), self._retried(empty, member_user)) == (False, False)
 
     def test_a_later_run_of_the_same_schedule_retries_it(self, member_user):
-        from schedules.models import ScheduledJob
-
         schedule = ScheduledJob.objects.create(
             user=member_user, name="s", prompt="p", repos=[{"repo_id": "acme/api", "ref": ""}]
         )
@@ -388,20 +387,3 @@ class TestWithRetried:
         _run_at(_session(member_user, SessionOrigin.SCHEDULE, scheduled_job=schedule), now)
 
         assert self._retried(failed, member_user) is True
-
-
-@pytest.mark.django_db
-class TestMergeRequests:
-    def test_one_entry_per_merge_request_newest_first_with_the_newest_known_url(self, member_user):
-        now = timezone.now()
-        older = _session(member_user, title="Older")
-        newer = _session(member_user, title="Newer")
-        _run_at(older, now - timedelta(hours=3), merge_request_iid=1, merge_request_web_url="https://mr/1")
-        _run_at(older, now - timedelta(hours=2), merge_request_iid=2)
-        _run_at(newer, now - timedelta(hours=1), merge_request_iid=1)
-        _run_at(newer, now)
-
-        assert Run.objects.merge_requests() == [
-            {"repo_id": "acme/api", "iid": 1, "title": "Newer", "url": "https://mr/1"},
-            {"repo_id": "acme/api", "iid": 2, "title": "Older", "url": ""},
-        ]

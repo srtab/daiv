@@ -127,12 +127,9 @@ def _validate_frequency_fields(
 
 class ScheduledJobQuerySet(models.QuerySet["ScheduledJob"]):
     def failing(self) -> models.QuerySet[ScheduledJob]:
-        """Schedules :attr:`ScheduledJob.is_failing` holds for, most recently failing first."""
-        return (
-            self
-            .filter(failing_since__isnull=False)
-            .filter(models.Q(is_enabled=True) | models.Q(frequency=Frequency.ONCE))
-            .order_by("-failing_since")
+        """Schedules :attr:`ScheduledJob.is_failing` holds for."""
+        return self.filter(failing_since__isnull=False).filter(
+            models.Q(is_enabled=True) | models.Q(frequency=Frequency.ONCE)
         )
 
 

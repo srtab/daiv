@@ -18,8 +18,17 @@ if TYPE_CHECKING:
     from sessions.models import Run, RunArtifact, Session
 
 
+_NEWEST_FIRST = ("-created_at", "-id")
+
+
 def _started_by_q(user: User) -> models.Q:
     return models.Q(user=user) | models.Q(external_username=user.username)
+
+
+def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]:
+    from sessions.models import Run
+
+    return Run.objects.filter(session=session).order_by(*_NEWEST_FIRST)
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
@@ -106,9 +115,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
 
         NULL for chat-only sessions that predate run tracking.
         """
-        from sessions.models import Run
-
-        latest = Run.objects.filter(session=models.OuterRef("pk")).order_by("-created_at", "-id")
+        latest = _session_runs_newest_first(models.OuterRef("pk"))
         return self.annotate(latest_run_status=models.Subquery(latest.values("status")[:1]))
 
     def with_row_runs(self) -> models.QuerySet[Session]:
@@ -129,7 +136,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
             "cost_usd",
             "agent_model",
             "created_at",
-        ).order_by("-created_at", "-id")
+        ).order_by(*_NEWEST_FIRST)
         return self.select_related("user", "scheduled_job").prefetch_related(models.Prefetch("runs", queryset=runs))
 
 
@@ -146,14 +153,9 @@ class RunQuerySet(models.QuerySet["Run"]):
         return self.filter(_started_by_q(user))
 
     def latest_in_session(self) -> models.QuerySet[Run]:
-        """Runs no later run in their session followed, whoever started it; on a ``created_at`` tie, the higher id."""
-        from sessions.models import Run
-
-        newer = Run.objects.filter(session=models.OuterRef("session")).filter(
-            models.Q(created_at__gt=models.OuterRef("created_at"))
-            | models.Q(created_at=models.OuterRef("created_at"), id__gt=models.OuterRef("id"))
-        )
-        return self.exclude(models.Exists(newer))
+        """Each session's newest run, whoever started it: the run ``with_latest_status`` reads the status of."""
+        newest = _session_runs_newest_first(models.OuterRef("session")).values("pk")[:1]
+        return self.filter(pk=models.Subquery(newest))
 
     def with_retried(self, user: User) -> models.QuerySet[Run]:
         """Annotate ``retried``: a later run in another session took the run up again.
@@ -161,34 +163,18 @@ class RunQuerySet(models.QuerySet["Run"]):
         A job's Retry starts a new session, so that is a later run of the same schedule, or a later prompt-driven
         run ``user`` started on the same repository with the same prompt.
         """
-        from sessions.models import Run, SessionOrigin
+        from sessions.models import SessionOrigin
 
         later = models.Q(created_at__gt=models.OuterRef("created_at")) & ~models.Q(session=models.OuterRef("session"))
-        rerun = Run.objects.filter(later, session__scheduled_job=models.OuterRef("session__scheduled_job"))
+        rerun = self.model.objects.filter(later, session__scheduled_job=models.OuterRef("session__scheduled_job"))
         retry = (
-            Run.objects
+            self.model.objects
             .started_by(user)
             .filter(later, trigger_type__in=SessionOrigin.prompt_driven())
             .filter(repo_id=models.OuterRef("repo_id"), prompt=models.OuterRef("prompt"))
             .exclude(prompt="")
         )
         return self.annotate(retried=models.Exists(rerun) | models.Exists(retry))
-
-    def merge_requests(self) -> list[dict]:
-        """The merge requests these runs worked on, most recently worked on first.
-
-        Each has ``repo_id``, ``iid``, ``title`` (its newest run's session title) and ``url`` (the newest one known).
-        """
-        merge_requests: dict[tuple[str, int], dict] = {}
-        for repo_id, iid, url, title in (
-            self
-            .filter(merge_request_iid__isnull=False)
-            .order_by("-created_at")
-            .values_list("repo_id", "merge_request_iid", "merge_request_web_url", "session__title")
-        ):
-            merge_request = merge_requests.setdefault((repo_id, iid), {"repo_id": repo_id, "iid": iid, "title": title})
-            merge_request["url"] = merge_request.get("url") or url
-        return list(merge_requests.values())
 
 
 class RunManager(models.Manager.from_queryset(RunQuerySet)):

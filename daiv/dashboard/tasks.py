@@ -4,10 +4,12 @@ from django.core.cache import cache
 from django.tasks import task
 
 from codebase.clients import RepoClient
+from core.constants import BOT_LABEL
 
 logger = logging.getLogger("daiv.dashboard")
 
 BOT_USERNAME_CACHE_KEY = "dashboard:bot-username"
+BOT_USERNAME_PENDING_KEY = "dashboard:bot-username-pending"
 BOT_USERNAME_TIMEOUT = 60 * 60 * 24
 BOT_USERNAME_RETRY_TIMEOUT = 60 * 5
 
@@ -21,3 +23,12 @@ def resolve_bot_username_task() -> None:
         logger.warning("Couldn't resolve DAIV's git platform username", exc_info=True)
         return
     cache.set(BOT_USERNAME_CACHE_KEY, username, BOT_USERNAME_TIMEOUT)
+
+
+def bot_username() -> str:
+    """The account DAIV answers to on the git platform; the label it shares a name with until the task resolves it."""
+    username = cache.get(BOT_USERNAME_CACHE_KEY)
+    if username is None and cache.add(BOT_USERNAME_PENDING_KEY, True, BOT_USERNAME_RETRY_TIMEOUT):
+        resolve_bot_username_task.enqueue()
+        username = cache.get(BOT_USERNAME_CACHE_KEY)
+    return username or BOT_LABEL
