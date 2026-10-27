@@ -288,7 +288,13 @@ scrolling `<main>`. There is no top bar from `md:` up — everything global live
 sidebar. Below `md:` the sidebar becomes a sheet, opened from a slim top bar (menu button,
 wordmark and the New split button) that is the only nav entry point on a phone.
 
-- **Tiers.** `< md` sheet + slim top bar; `md–lg` icon rail; `>= lg` full sidebar.
+- **Tiers.** `< md` sheet + slim top bar; `md–lg` icon rail; `>= lg` full sidebar, which the
+  collapse toggle (`sidebar__toggle`, by the brand, `lg:` only; shortcut `[`) folds back to the
+  same icon rail — never to zero, since from `md:` up the sidebar is the only home of New, the
+  badges and the account menu. The choice is per browser (`localStorage` key `daiv.sidebar`):
+  an inline script in `base.html`'s `<head>` sets `data-sidebar="rail"` on `<html>` before
+  first paint, and the `sidebar` store (`core/js/sidebar.js`) owns it from there. The `[`
+  shortcut stands down while typing, with a modifier held, or while a dialog, sheet or menu is open.
 - **Groups.** Daily work comes first with no heading: Home (URL name `dashboard`), Sessions,
   Notifications, Artifacts, Schedules. Then **Agent setup** — Sandbox environments, MCP
   servers, Memory: pages set up once that most teammates can skip, so the heading carries
@@ -296,11 +302,15 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   (the item takes `sidebar__nav-item--described`). The rail hides that text, so each
   item's `title` repeats label and description as its tooltip. Last, **Admin**
   (`is_admin` only). Order and grouping are pinned by `dashboard/test_sidebar.py`.
-- **Sidebar hooks.** Anything the rail must hide carries `sidebar__collapsible`, and
+- **Sidebar hooks.** The rail's rules are written once, under the `sidebar-rail` custom
+  variant in `input.css`: forced between `md` and `lg`, and from `lg` up under
+  `:root[data-sidebar="rail"]`, which also sets `--app-sidebar-width` to 4rem so the sheet
+  inset follows. Anything the rail must hide carries `sidebar__collapsible`, and
   anything only the rail shows carries `sidebar__rail-only` (the dot that stands in for the
   unread count). The elements it re-centres carry `sidebar__brand` / `sidebar__cta` /
-  `sidebar__nav-item` / `sidebar__footer-link` / `sidebar__account`, and a group heading
-  keeps its box via `sidebar__group-heading`. A new nav item wraps its text in
+  `sidebar__nav-item` / `sidebar__footer-link` / `sidebar__account`, a group heading
+  keeps its box via `sidebar__group-heading`, and the toggle stacks under the mark with its
+  chevron (`sidebar__toggle-icon`) turned outward. A new nav item wraps its text in
   `sidebar__collapsible`, or the label overflows the 4rem rail. The mobile sheet includes
   the same partial *without* `sidebar--rail`, so it keeps its labels. A nav item's
   appearance is the `.sidebar__nav-item` component class, not a utility chain, and its
