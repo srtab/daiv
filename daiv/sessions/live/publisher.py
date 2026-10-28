@@ -22,8 +22,8 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from ag_ui.core.events import BaseEvent
-    from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
+    from langgraph.graph.state import CompiledStateGraph
 
     from automation.agent.context import RuntimeCtx
 
@@ -83,7 +83,7 @@ async def publish_event(run_relay: RunRelay, event: BaseEvent) -> None:
 
 
 async def ainvoke_live(
-    agent: CompiledAgent,
+    agent: CompiledStateGraph[Any, RuntimeCtx],
     graph_input: dict[str, Any],
     *,
     config: RunnableConfig,

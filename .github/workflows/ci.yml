@@ -39,6 +39,31 @@ jobs:
       - name: Validate DESIGN.md
         run: make lint-design
 
+  typing:
+    name: typing
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install the project
+        run: uv sync --locked
+
+      - name: Run type checking
+        run: make lint-typing
+
   tests:
     name: tests
     runs-on: ubuntu-latest
