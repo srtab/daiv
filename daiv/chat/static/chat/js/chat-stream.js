@@ -348,6 +348,8 @@
     // from the first render — assigning a *new* key onto an existing reactive
     // proxy after init doesn't always re-render templates.
     thread: config.thread ? { ...config.thread, merge_request: loadInitialMergeRequest() } : null,
+    // Set by sessionPage's Archive through Alpine's merged scope; an archived session takes no follow-ups.
+    archived: Boolean(config.archived),
     selectedSandboxEnvId: config.selectedSandboxEnvId || "",
     // Locked-pill labels for the composer chips. Server-side ``_composer.html`` renders
     // the static text at template time, which on a brand-new chat is the empty-thread
@@ -1227,7 +1229,7 @@
 
     // Open only in the transcript's last message turn, with no run in flight; anything later means answered.
     isQuestionOpen(ti) {
-      if (this.streaming || this.resuming) return false;
+      if (this.archived || this.streaming || this.resuming) return false;
       for (let i = ti + 1; i < this.turns.length; i++) {
         const role = this.turns[i].role;
         if (role === "user" || role === "assistant") return false;
@@ -1428,7 +1430,7 @@
     // ---------- User actions ------------------------------------------
 
     canSend(text = this.draftMessage) {
-      if (!text.trim() || this.waiting) return false;
+      if (!text.trim() || this.waiting || this.archived) return false;
       if (this.thread) return true;
       return !!(this.draftRepoId && this.draftRef);
     },

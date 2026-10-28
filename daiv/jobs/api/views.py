@@ -23,19 +23,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.jobs")
 
 _THREAD_NOT_FOUND = "thread_id not found"
+_THREAD_ARCHIVED = "thread_id is archived; unarchive the session to continue it"
 
 jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
 
 
 async def _validate_thread_id(thread_id: UUID, user: User) -> tuple[bool, str | None]:
-    """Return (ok, error_detail). One opaque message regardless of cause (unknown or not owned).
+    """Return (ok, error_detail). One opaque message whether unknown or not owned; its own when ``user`` archived it.
 
     Schema-layer validation already constrains ``thread_id`` to a well-formed UUID, so no
     UUID parsing is needed here — a non-existent ID is indistinguishable from a non-owned one.
     """
-    owned = await Session.objects.by_owner(user).filter(thread_id=str(thread_id)).aexists()
-    if not owned:
+    owned = Session.objects.by_owner(user).filter(thread_id=str(thread_id))
+    if not await owned.aexists():
         return False, _THREAD_NOT_FOUND
+    if await owned.archived_for(user).aexists():
+        return False, _THREAD_ARCHIVED
     return True, None
 
 
@@ -44,7 +47,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     """Submit a batch of 1-20 agent jobs. Each repository runs as an independent job.
 
     If ``thread_id`` is supplied, the new job continues an existing thread: exactly one
-    repo must be provided and the session owning that thread must belong to the caller.
+    repo must be provided and the session owning that thread must belong to the caller, who has not archived it.
     If a prior run on the thread is still in flight, the new Run is created in ``QUEUED``
     state and will be released FIFO when the prior run terminates.
     """

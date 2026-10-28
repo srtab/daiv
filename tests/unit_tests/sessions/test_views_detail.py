@@ -1148,7 +1148,10 @@ def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, 
     note = topbar[: topbar.index('data-testid="session-archived"')].rsplit("<span", 1)[1]
 
     assert ("x-cloak" not in note) is archived
-    assert f"archived: {'true' if archived else 'false'}," in resp.content.decode()
+    html = resp.content.decode()
+    assert f"archived: {'true' if archived else 'false'}," in html
+    assert 'x-show="archived" data-testid="composer-archived"' in html
+    assert 'x-show="!archived"' in html
     item = topbar[topbar.index('data-testid="session-archive"') :]
     assert (">Unarchive</span>" in item) is archived
 

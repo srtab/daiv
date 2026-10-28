@@ -28,7 +28,6 @@ document.addEventListener("alpine:init", () => {
     titleDraft: "",
     titleWidth: 0,
     editingTitle: false,
-    archived: Boolean(config.archived),
     ciWatchBusy: false,
     ciWatchDisabled: "",
     ciWatchError: "",

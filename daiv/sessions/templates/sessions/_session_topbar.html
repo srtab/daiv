@@ -1,7 +1,7 @@
 {% load i18n icon_tags session_tags %}
 {% comment %}
 Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request and CI read state the stream and poll update.
-``can_act`` (run access to the repository) shows rename and the CI toggle; Archive only changes the viewer's own list.
+``can_act`` (run access to the repository) shows rename and the CI toggle; Archive changes only the viewer's lists and composer.
 {% endcomment %}
 {% session_title session as title %}
 <header class="session-topbar" data-testid="session-topbar">
@@ -160,7 +160,7 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
         aria-describedby="session-archive-dialog-body" data-testid="session-archive-dialog">
   <h2 id="session-archive-dialog-title" class="confirm-dialog__title">{% translate "Archive this session?" %}</h2>
   <p id="session-archive-dialog-body" class="confirm-dialog__body">
-    {% translate "It leaves your session list; the Archived filter still finds it. Others still see it, and you can keep working in it." %}
+    {% translate "It leaves your session list and Home, and takes no follow-ups from you until you unarchive it. The Archived filter still finds it, and others still see it." %}
   </p>
   <form method="dialog" class="confirm-dialog__actions">
     <button type="submit" value="cancel" class="confirm-dialog__button" autofocus>{% translate "Cancel" %}</button>
