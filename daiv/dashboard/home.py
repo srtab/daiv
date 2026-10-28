@@ -111,6 +111,7 @@ def _runs_needing(user: User) -> list[dict]:
     return list(
         Run.objects
         .started_by(user)
+        .not_archived_by(user)
         .filter(session__last_active_at__gte=now - INBOX_MAX_AGE)
         .latest_in_session()
         .with_retried(user)
@@ -217,7 +218,7 @@ def your_week(user: User) -> dict:
     Counts runs, so one session can add to several days; each day opens the sessions that ran that day.
     """
     window = insights.window_for("7d")
-    runs = Run.objects.started_by(user)
+    runs = Run.objects.started_by(user).not_archived_by(user)
     in_window = runs.filter(window.date_q("created_at"))
     counted = in_window.filter(reduce(or_, (q for *_rest, q in WEEK_OUTCOMES)))
     chart = insights.stacked_chart(

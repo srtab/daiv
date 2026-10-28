@@ -61,7 +61,15 @@ box (``_command_menu.html``).
   </div>
   {% endif %}
 
+  {% if session %}
+  <div class="chat-archived" x-show="archived" data-testid="composer-archived">
+    <span class="flex items-center gap-2">{% icon "archive-box" "h-3.5 w-3.5 shrink-0 text-gray-400" %}{% translate "This session is archived." %}</span>
+    <button type="button" class="btn-primary rounded-md px-2.5 py-1 text-xs" @click="setArchived(false)">{% translate "Unarchive" %}</button>
+  </div>
+  {% endif %}
+
   <form @submit.prevent="submit()"
+        x-show="!archived"
         class="chat-composer"
         :class="{ 'chat-composer--sending': (streaming || resuming || waiting) }">
 

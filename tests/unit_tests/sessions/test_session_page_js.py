@@ -1,7 +1,7 @@
 """Drive ``session-page.js``'s real Alpine state under Node.
 
-The component sits inside ``chat({…})``, whose ``streaming`` / ``resuming`` / ``waiting`` flags it reads through
-Alpine's merged scope; here they are plain properties on the component, which is how that scope resolves them.
+The component sits inside ``chat({…})``, whose ``streaming`` / ``resuming`` / ``waiting`` / ``archived`` flags it uses
+through Alpine's merged scope; here they are plain properties on the component, which is how that scope resolves them.
 """
 
 from __future__ import annotations
@@ -67,11 +67,11 @@ const labels = {
 };
 const page = components.sessionPage({
   sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", storageKey: "key",
-  title: "Old", titleSuffix: "DAIV Sessions", archived, labels,
+  title: "Old", titleSuffix: "DAIV Sessions", labels,
 });
 const focused = [];
 Object.assign(page, {
-  streaming: false, resuming: false, waiting: false, csrfToken: "tok", $nextTick: (cb) => cb(),
+  streaming: false, resuming: false, waiting: false, archived, csrfToken: "tok", $nextTick: (cb) => cb(),
   $refs: {
     titleInput: { focus: () => focused.push("input"), select() {} },
     titleButton: { focus: () => focused.push("button"), getBoundingClientRect: () => ({ width: 312 }) },

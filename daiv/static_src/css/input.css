@@ -2293,6 +2293,11 @@ html {
     color: #64748b;
   }
 
+  .chat-archived {
+    @apply mx-auto flex w-fit max-w-full flex-wrap items-center gap-3 rounded-lg border border-white/10
+           bg-white/[0.04] px-3 py-1.5 text-[13px] text-gray-300;
+  }
+
   .chat-composer {
     position: relative;
     margin: 0;
