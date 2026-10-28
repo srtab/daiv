@@ -144,11 +144,13 @@ DAIV uses pytest for testing:
 
 ### Type Checking
 
-We use [ty](https://github.com/astral-sh/ty) for static type checking but we don't enforce it, we encourage you to use it to improve your code quality:
+DAIV uses [ty](https://github.com/astral-sh/ty) for static type checking, and CI fails on any error or warning:
 
 ```bash
 make lint-typing
 ```
+
+It checks against the full project environment, so `make lint-typing` installs the project's dependencies first. Files that still fail are exempted in the `[[tool.ty.overrides]]` list in `pyproject.toml`. When you fix one, remove it from the list; never add a file to get a change through.
 
 ## Making Contributions
 

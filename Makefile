@@ -65,7 +65,7 @@ lint-fix:
 	$(MAKE) --no-print-directory lint-imports
 
 lint-typing:
-	uv run --only-group=dev ty check daiv
+	uv run ty check daiv
 
 makemessages:
 	uv run django-admin makemessages --ignore=*/node_modules/* --ignore=.venv --no-location --no-wrap --all
