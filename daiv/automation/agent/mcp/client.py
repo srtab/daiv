@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import logging
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any
 
 import httpx2
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 from langchain_core._api import suppress_langchain_beta_warning
+from langchain_core.tools import StructuredTool, ToolException
+from langgraph.errors import GraphBubbleUp
 from mcp.shared.exceptions import MCPError
 
-from .errors import status_message
+from .errors import SOFT_FAILURES, classify, status_message
 
 with suppress_langchain_beta_warning():
     from langchain.mcp import as_langchain_tool
@@ -17,8 +21,15 @@ if TYPE_CHECKING:
     from fastmcp.client.logging import LogMessage
     from langchain_core.tools.base import BaseTool
 
+logger = logging.getLogger("daiv.tools")
+
 # mcp's own defaults; httpx2's 5s read timeout would cut off slow tool calls.
 _DEFAULT_TIMEOUT = httpx2.Timeout(30.0, read=300.0)
+# Fits a base64 screenshot (mcp's 1 MiB default does not) within Anthropic's 5 MiB image limit.
+# The legacy SSE transport keeps mcp's hardcoded 1 MiB.
+_MAX_STREAMABLE_HTTP_EVENT_SIZE = 5 * 1024 * 1024
+
+_call_status: ContextVar[StatusRecorder | None] = ContextVar("mcp_call_status", default=None)
 
 
 class StatusRecorder:
@@ -34,6 +45,15 @@ class StatusRecorder:
     async def __call__(self, response: httpx2.Response) -> None:
         if response.request.method == "POST":
             self.last = response if response.is_error else None
+
+
+async def _record_call_status(response: httpx2.Response) -> None:
+    """Record ``response`` for the tool call that sent it.
+
+    Streamable HTTP sends each request in its sender's ``contextvars`` context, so concurrent calls don't mix.
+    """
+    if (recorder := _call_status.get()) is not None:
+        await recorder(response)
 
 
 async def _drop_server_log(message: LogMessage) -> None:
@@ -66,12 +86,17 @@ def build_client(
             timeout=timeout or _DEFAULT_TIMEOUT,
             auth=auth,
             transport=http_transport,
-            event_hooks={"response": [recorder]},
+            event_hooks={"response": [recorder, _record_call_status]},
             **kwargs,
         )
 
     if transport == "http":
-        mcp_transport = StreamableHttpTransport(url, headers=headers, httpx_client_factory=httpx_client_factory)
+        mcp_transport = StreamableHttpTransport(
+            url,
+            headers=headers,
+            httpx_client_factory=httpx_client_factory,
+            max_sse_event_size=_MAX_STREAMABLE_HTTP_EVENT_SIZE,
+        )
     elif transport == "sse":
         mcp_transport = SSETransport(url, headers=headers, httpx_client_factory=httpx_client_factory)
     else:
@@ -89,12 +114,70 @@ async def list_tools(client: StatusTrackingClient) -> list[BaseTool]:
             if client.initialize_result is not None:
                 # A handshake-era server: skip the rejected ``server/discover`` probe on every tool-call reconnect.
                 client.mode = "legacy"
-            return [await as_langchain_tool(tool, client) for tool in await client.list_tools()]
+            tools = [await as_langchain_tool(tool, client) for tool in await client.list_tools()]
     except Exception as exc:
-        failed = client.status_recorder.last
-        if failed is not None and _is_http_shaped(exc):
-            raise httpx2.HTTPStatusError(status_message(failed), request=failed.request, response=failed) from exc
+        if (restored := _restore_status(client.status_recorder, exc)) is not None:
+            raise restored from exc
         raise
+    for tool in tools:
+        _report_call_failures(tool, client)
+    return tools
+
+
+def read_only_hint(tool: BaseTool) -> bool | None:
+    """MCP's optional ``readOnlyHint`` annotation; ``None`` means the server left it unannotated."""
+    node: Any = tool.metadata
+    for key in ("mcp", "tool", "annotations"):
+        node = node.get(key) if isinstance(node, dict) else None
+    return node.get("read_only_hint") if isinstance(node, dict) else None
+
+
+class MCPCallError(ToolException):
+    """A tool call that failed before the server answered, e.g. a dropped stream or an HTTP error."""
+
+
+def _report_call_failures(tool: BaseTool, client: StatusTrackingClient) -> None:
+    """Turn a failed call of ``tool`` into an error ``ToolMessage`` instead of an exception that ends the run.
+
+    ``langchain.mcp`` handles only the results a server marks ``isError``; every other failure escapes the ToolNode.
+    """
+    if not isinstance(tool, StructuredTool) or tool.coroutine is None or not callable(tool.handle_tool_error):
+        raise TypeError(f"langchain.mcp built tool {tool.name!r} in an unexpected shape")
+    call, handle_server_error = tool.coroutine, tool.handle_tool_error
+    tracks_status = isinstance(client.transport, StreamableHttpTransport)
+    retry_note = (
+        "" if read_only_hint(tool) else "\nThe server may have run it anyway: check its effect before retrying."
+    )
+
+    async def coroutine(**arguments):
+        recorder = StatusRecorder() if tracks_status else None
+        token = _call_status.set(recorder)
+        try:
+            return await call(**arguments)
+        except ToolException, GraphBubbleUp:
+            raise
+        except Exception as exc:  # never BaseException: CancelledError must propagate
+            failure = classify(_restore_status(recorder, exc) or exc)
+            if failure.kinds <= SOFT_FAILURES:
+                logger.error("MCP tool %r failed: %s", tool.name, failure.message)
+            else:
+                logger.exception("MCP tool %r failed: %s", tool.name, failure.message)
+            raise MCPCallError(f"The MCP tool call failed: {failure.message}{retry_note}") from exc
+        finally:
+            _call_status.reset(token)
+
+    def handle_tool_error(error: ToolException):
+        return str(error) if isinstance(error, MCPCallError) else handle_server_error(error)
+
+    tool.coroutine = coroutine
+    tool.handle_tool_error = handle_tool_error
+
+
+def _restore_status(recorder: StatusRecorder | None, exc: Exception) -> httpx2.HTTPStatusError | None:
+    failed = recorder.last if recorder is not None else None
+    if failed is not None and _is_http_shaped(exc):
+        return httpx2.HTTPStatusError(status_message(failed), request=failed.request, response=failed)
+    return None
 
 
 def _is_http_shaped(exc: BaseException) -> bool:

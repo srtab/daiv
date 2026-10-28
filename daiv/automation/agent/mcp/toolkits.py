@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from .client import build_client, list_tools
 from .conf import settings
-from .errors import FailureKind, classify
+from .errors import SOFT_FAILURES, FailureKind, classify
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -16,8 +16,6 @@ if TYPE_CHECKING:
     from automation.agent.mcp.schemas import UserMcpServer
 
 logger = logging.getLogger("daiv.tools")
-
-_SOFT_FAILURES = frozenset({FailureKind.TIMEOUT, FailureKind.SERVER_ERROR, FailureKind.STREAM_BROKEN})
 
 
 async def _load_server_tools(name: str, server: UserMcpServer) -> list[BaseTool]:
@@ -30,7 +28,7 @@ async def _load_server_tools(name: str, server: UserMcpServer) -> list[BaseTool]
         )
     except Exception as exc:  # never BaseException: CancelledError must propagate
         failure = classify(exc)
-        if failure.kinds <= _SOFT_FAILURES:
+        if failure.kinds <= SOFT_FAILURES:
             detail = (
                 f"timed out after {settings.TOOL_LOAD_TIMEOUT:g}s"
                 if failure.kinds == {FailureKind.TIMEOUT}
