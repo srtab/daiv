@@ -2031,7 +2031,7 @@
 <p>The Home page (<code>/dashboard/</code>) opens with <strong>Needs you</strong>: what is waiting on you, up to eight items. Questions come first, then failures (Failed, CI still failing, Can't run), then Found issues, then Needs attention; newest first within each.</p>
 <ul>
 <li><strong>Needs input</strong> — your session's latest run asked you a question. It leaves when you answer.</li>
-<li><strong>Failed</strong> — your session's latest run failed. It leaves once a newer run starts in the session, once you retry it (a later run on the same repository with the same prompt), or 14 days after it failed; it stays in Sessions. A run you cancelled doesn't count.</li>
+<li><strong>Failed</strong> — your session's latest run failed. It leaves once a newer run starts in the session (<strong>Retry</strong> starts one), once you run the same prompt on the same repository again, or 14 days after it failed; it stays in Sessions. A run you cancelled doesn't count.</li>
 <li><strong>CI still failing</strong> — DAIV's CI watch on a merge/pull request gave up. Shown for 7 days.</li>
 <li><strong>Can't run</strong> — one of your schedules can't start its runs. It leaves when the schedule starts a run again or you pause it.</li>
 <li><strong>Found issues</strong> / <strong>Needs attention</strong> — your session's latest run was classified that way. Shown for 7 days, since a fix made outside DAIV leaves no trace it can see.</li>
@@ -2250,8 +2250,8 @@
 </ul>
 <p>Runs started this way are tagged with the <strong>UI Run</strong> origin. Every submission, single- or multi-repository, takes you to the batch-filtered Sessions list, where each new session has its own row.</p>
 <h3 id="retrying-a-run">Retrying a run</h3>
-<p>A done or failed run started from a prompt on a repository — an API, MCP, UI, scheduled or delegated run — is <strong>retryable</strong>; a run paused on a question is not. Chat turns, webhook runs, and the runs DAIV writes the prompt for (a CI fix, a delegation resume) are not. Open the session detail page, find the run in the transcript, and click <strong>Retry this run</strong> (the circular-arrow icon under its prompt) to open the run composer pre-filled with the original run's prompt, repository, ref, and agent model/thinking level. The button shows only while you can still run agents on that repository. Adjust anything before submitting — the retry starts a new session, tagged <strong>UI Run</strong>.</p>
-<p>Every run shown in the transcript also has a link target on the session page, including the runs of a session whose transcript has expired: <code>&lt;session URL&gt;#run-&lt;run id&gt;</code> opens the session scrolled to that run. The <strong>Retried from</strong> link on the run composer and each row of the <strong>Artifacts</strong> list use it.</p>
+<p>When the latest run in a session fails, its red failure marker in the transcript has a <strong>Retry</strong> button. It sends your next message in the same session: <em>The previous run failed. Please try again.</em> when the run got far enough to be in the conversation, or the run's own prompt again when it failed before that. Only the newest run offers it, and not while a run is working or queued. It shows for chat turns and for API, MCP, UI and scheduled runs; webhook runs and runs delegated by another session report back through their own flow, so they don't offer it. You need to own the session and be able to run agents on its repository, and it must not be archived. A run that was stopped (by you, by the session that delegated it, or by an interruption) shows a grey marker without <strong>Retry</strong>; send a message to carry on.</p>
+<p>Every run shown in the transcript also has a link target on the session page, including the runs of a session whose transcript has expired: <code>&lt;session URL&gt;#run-&lt;run id&gt;</code> opens the session scrolled to that run. Each row of the <strong>Artifacts</strong> list uses it.</p>
 <hr />
 <h2 id="result-retention">Result retention</h2>
 <p>Run records are permanent, but the underlying task result (which holds the full output and traceback) is subject to the task backend's retention policy. When the task result is pruned, the run still shows a denormalized summary and error message captured at completion time, along with the token usage and cost figures — these survive pruning.</p>
@@ -2324,7 +2324,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 27, 2026 20:17:30 UTC">October 27, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 28, 2026 23:26:41 UTC">October 28, 2026</span>
   </span>
 
     
