@@ -1,6 +1,6 @@
 # Makefile
 
-.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-imports lint-typing evals eval-prompts tailwind-build tailwind-watch
+.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-imports lint-design lint-typing evals eval-prompts tailwind-build tailwind-watch
 
 help:
 	@echo "Available commands:"
@@ -10,6 +10,7 @@ help:
 	@echo "  make lint-check     - Run lint check only (ruff)"
 	@echo "  make lint-format    - Check code formatting"
 	@echo "  make lint-imports   - Check app import layering (import-linter)"
+	@echo "  make lint-design    - Validate DESIGN.md against the design.md spec (needs Node)"
 	@echo "  make lint-fix       - Fix linting and formatting issues"
 	@echo "  make lint-typing    - Run type checking with ty"
 	@echo "  make lock           - Update uv lock"
@@ -56,6 +57,12 @@ lint-format:
 
 lint-imports:
 	PYTHONPATH=daiv uv run --only-group=dev lint-imports
+
+DESIGNMD := @google/design.md@0.4.0
+
+# The CLI exits 0 on warnings (contrast, orphaned tokens); the gate fails on those too.
+lint-design:
+	npx --yes $(DESIGNMD) lint DESIGN.md | tee /dev/stderr | node -e 'const { summary: s } = JSON.parse(require("fs").readFileSync(0, "utf8")); process.exit(s.errors + s.warnings ? 1 : 0)'
 
 lint-fix:
 	uv run --only-group=dev ruff check . --fix

@@ -16,6 +16,7 @@ make lint           # check only (no fixes); CI gate
 #   rm -rf .ruff_cache && uv run --only-group=dev ruff check --no-cache .
 make lint-typing    # ty, daiv/ only
 make lint-imports   # app layering contracts in .importlinter; part of lint and lint-fix
+make lint-design    # official design.md linter on DESIGN.md (npx, needs Node; not part of lint); fails on warnings too
 
 # Test layout — one test file per application file: tests for
 # `accounts/adapter.py` go in `test_adapter.py`, `accounts/emails.py` in

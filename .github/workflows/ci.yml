@@ -36,6 +36,9 @@ jobs:
       - name: Run linting
         run: make lint
 
+      - name: Validate DESIGN.md
+        run: make lint-design
+
   tests:
     name: tests
     runs-on: ubuntu-latest
