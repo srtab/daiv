@@ -316,18 +316,27 @@ class GitHubClient(RepoClient):
             yield repo
 
     def _mint_installation_token(self, repository: Repository) -> str:
-        """Mint a short-lived installation token with ``contents: write`` on this repository only.
+        """Mint a short-lived installation token scoped to this repository only.
 
         An unscoped installation token is valid for *every* repository the installation covers, so
         both the clone credential and the egress-proxy secret would carry cross-repo write access.
         PyGithub's ``get_access_token`` cannot restrict the token (no ``repository_ids`` support),
         so the same REST endpoint is called directly through the integration's app-authenticated
-        requester, mirroring ``get_access_token``'s headers."""
+        requester, mirroring ``get_access_token``'s headers.
+
+        It carries ``contents: write``, plus ``workflows: write`` when the installation grants it, since
+        GitHub refuses a push that changes ``.github/workflows/`` without it. The grant is read fresh on
+        each mint: requesting a permission the installation no longer has fails the mint, and this client
+        lives as long as the process."""
+        permissions = {"contents": "write"}
+        installation = self._integration.get_app_installation(self.client_installation.id)
+        if installation.permissions.get("workflows") == "write":
+            permissions["workflows"] = "write"
         _headers, response = self._integration.requester.requestJsonAndCheck(
             "POST",
             f"/app/installations/{self.client_installation.id}/access_tokens",
             headers={"Accept": Consts.mediaTypeIntegrationPreview},
-            input={"permissions": {"contents": "write"}, "repository_ids": [repository.pk]},
+            input={"permissions": permissions, "repository_ids": [repository.pk]},
         )
         # requestJsonAndCheck raises GithubException on non-2xx, but a 2xx whose body lacks "token"
         # (API contract drift) would otherwise surface as a bare, contextless KeyError far downstream.
@@ -339,16 +348,16 @@ class GitHubClient(RepoClient):
         return response["token"]
 
     def _git_egress_token(self, repository: Repository) -> str | None:
-        """Mint a short-lived installation token scoped to ``contents: write`` on this repository.
+        """Mint the same repository-scoped installation token used to clone (see :meth:`_mint_installation_token`).
 
         The egress proxy injects this token over the ``Authorization`` header for *every* request to
         the platform host (the platform rule matches all methods and forces interception) — which is
         also why the token must be repository-scoped: anything running in the sandbox can send
         authenticated requests to that host. DAIV's publish push runs from inside the sandbox and
         goes through the same path, so the injected token must be **write**-capable or the push is
-        rejected. It matches the ``contents: write`` token used to clone. The agent is still
-        prevented from pushing ad-hoc from ``bash`` by the command policy, not by withholding write
-        scope here."""
+        rejected. When the installation grants ``workflows: write`` the token carries it too, so code in
+        the sandbox can then change workflow files as well. The agent is still prevented from pushing
+        ad-hoc from ``bash`` by the command policy, not by withholding write scope here."""
         return self._mint_installation_token(repository)
 
     # Issue
