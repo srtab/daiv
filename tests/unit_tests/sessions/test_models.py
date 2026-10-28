@@ -396,33 +396,3 @@ def test_artifact_visible_to_follows_session_visibility(admin_user, member_user,
 def test_agent_result_field_updates_maps_code_changes_only_when_set(code_changes, expected):
     """False is left out so a later empty result never clears a flag an earlier sync recorded."""
     assert agent_result_field_updates(parse_agent_result({"code_changes": code_changes})) == expected
-
-
-@pytest.mark.parametrize(
-    ("overrides", "retryable"),
-    [
-        *[({"trigger_type": t}, True) for t in sorted(SessionOrigin.retryable())],
-        *[({"trigger_type": t}, False) for t in sorted(set(SessionOrigin.values) - SessionOrigin.retryable())],
-        ({"status": RunStatus.FAILED}, True),
-        *[
-            ({"status": s}, False)
-            for s in (RunStatus.WAITING_INPUT, RunStatus.READY, RunStatus.QUEUED, RunStatus.RUNNING)
-        ],
-        ({"prompt": ""}, False),
-        ({"repo_id": ""}, False),
-    ],
-)
-def test_run_is_retryable(overrides, retryable):
-    fields = {"trigger_type": SessionOrigin.UI_JOB, "status": RunStatus.SUCCESSFUL, "prompt": "go", "repo_id": "a/b"}
-    assert Run(**{**fields, **overrides}).is_retryable is retryable
-
-
-def test_retryable_triggers_are_the_prompt_driven_jobs_and_schedules():
-    expected = {
-        SessionOrigin.API_JOB,
-        SessionOrigin.MCP_JOB,
-        SessionOrigin.UI_JOB,
-        SessionOrigin.SCHEDULE,
-        SessionOrigin.DELEGATED_JOB,
-    }
-    assert SessionOrigin.retryable() == expected

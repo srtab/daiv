@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
+from django.core.exceptions import PermissionDenied, SuspiciousOperation
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -54,7 +54,7 @@ from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
+from sessions.transcript import annotate_transcript, expired_run_turns
 from sessions.turns import build_turns
 from slash_commands.composer import composer_command_rows
 
@@ -356,8 +356,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
         ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
         ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
-        retry_urls = mark_retryable(ctx["turns"], runs, self.request.user)
-        ctx["header"] = build_session_header(session, runs, retry_urls, merge_request=merge_request)
+        ctx["header"] = build_session_header(session, runs, merge_request=merge_request)
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
         ctx["max_title_length"] = MAX_TITLE_LENGTH
@@ -554,45 +553,15 @@ class ArtifactListView(LoginRequiredMixin, FilterView):
 class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
     """Serve the "Start a run" page and submit new UI-initiated agent runs.
 
-    ``GET /runs/new/`` renders a blank form. ``GET /runs/new/?from=<pk>``
-    pre-fills the form from a retryable source Run. ``POST`` enqueues
-    ``run_job_task`` and creates a Run, redirecting to the session detail page.
+    ``GET /runs/new/`` renders a blank form. ``POST`` enqueues ``run_job_task`` and creates a Run, redirecting to the
+    session detail page.
     """
 
     template_name = "sessions/agent_run_form.html"
     form_class = AgentRunCreateForm
 
-    @cached_property
-    def source_run(self) -> Run | None:
-        # Cached per-request: ``get_initial`` and ``get_context_data`` both read this on retry GETs.
-        source_id = self.request.GET.get("from")
-        if not source_id:
-            return None
-        try:
-            source = Run.objects.visible_to(self.request.user).select_related("session").filter(pk=source_id).first()
-        except (ValueError, ValidationError) as err:
-            raise Http404("Invalid run id.") from err
-        # A visible run on a repo the caller can no longer run on must not prefill a
-        # retry form — submission would be rejected downstream anyway. Fall back to blank.
-        if source is not None and (not source.is_retryable or not can_run(self.request.user, source.repo_id)):
-            return None
-        return source
-
-    def get_initial(self) -> dict:
-        initial: dict = {}
-        source = self.source_run
-        if source is not None:
-            initial.update({
-                "prompt": source.prompt,
-                "repos": [{"repo_id": source.repo_id, "ref": source.ref}],
-                "agent_model": source.agent_model,
-                "agent_thinking_level": source.agent_thinking_level,
-            })
-        return initial
-
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["source_run"] = self.source_run
         ctx.update(env_picker_context(ctx["form"]))
         ctx.update(agent_picker_context(ctx["form"]))
         ctx.update(mcp_picker_context(ctx["form"]))
@@ -601,11 +570,6 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["user"] = self.request.user
-        # Hand the retry source's stored overrides to the form rather than resolving them here:
-        # the mixin already builds the pool this seeding has to be relative to.
-        source = self.source_run
-        if source is not None and source.session_id:
-            kwargs["mcp_overrides"] = source.session.mcp_overrides
         return kwargs
 
     def form_valid(self, form):

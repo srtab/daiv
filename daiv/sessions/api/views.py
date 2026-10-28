@@ -16,7 +16,7 @@ from sessions.hydration import ahydrate_thread
 from sessions.models import HiddenSession, Session, WatchState
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
+from sessions.transcript import annotate_transcript, expired_run_turns
 from sessions.turns import build_turns
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ async def _get_visible_session(user, thread_id: str) -> Session:
 
 
 async def _get_runnable_session(user, thread_id: str) -> Session:
-    """A visible session whose repository ``user`` may run on: the rule Retry follows, for the page's other actions."""
+    """A visible session whose repository ``user`` may run on: the rule the page's actions follow."""
     session = await _get_visible_session(user, thread_id)
     if not await sync_to_async(can_run)(user, session.repo_id):
         raise HttpError(403, "You need run access to this session's repository")
@@ -131,8 +131,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
     def finish_turns():
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
-        retry_urls = mark_retryable(turns, runs, user)
-        return live_run_for(activity.live, session, user), latest_run_payload(runs, retry_urls)
+        return live_run_for(activity.live, session, user), latest_run_payload(runs)
 
     live, latest_run = await sync_to_async(finish_turns)()
     response = {

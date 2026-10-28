@@ -1,5 +1,5 @@
-"""What the session page's top bar and details panel show beyond the session's own columns: the latest run's status
-and retry link, the CI watch on its merge request, and the issue an issue-webhook session addresses.
+"""What the session page's top bar and details panel show beyond the session's own columns: the latest run's status,
+the CI watch on its merge request, and the issue an issue-webhook session addresses.
 
 ``latest_run_payload`` and ``watch_payload`` are also what the turns poll returns, so what the page rendered and what
 keeps it current are built by the same code.
@@ -31,11 +31,8 @@ _WATCH_TONES = {
 }
 
 
-def latest_run_payload(runs: list[Run], retry_urls: dict[str, str]) -> dict[str, str] | None:
-    """The newest of ``runs`` (oldest first) as the header's status pill and Retry link reads it.
-
-    ``retry_urls`` is what ``mark_retryable`` returned for the same runs.
-    """
+def latest_run_payload(runs: list[Run]) -> dict[str, str] | None:
+    """The newest of ``runs`` (oldest first) as the header's status pill reads it."""
     if not runs:
         return None
     latest = runs[-1]
@@ -43,7 +40,6 @@ def latest_run_payload(runs: list[Run], retry_urls: dict[str, str]) -> dict[str,
         "label": str(latest.get_status_display()),
         "variant": status_variant(latest.status),
         "finished_at": latest.finished_at.isoformat() if latest.finished_at else "",
-        "retry_url": retry_urls.get(str(latest.id), ""),
     }
 
 
@@ -110,12 +106,10 @@ def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
     return {"iid": iid, "url": f"{html_url.rstrip('/')}/{path}/{iid}"}
 
 
-def build_session_header(
-    session: Session, runs: list[Run], retry_urls: dict[str, str], *, merge_request: dict | None = None
-) -> dict[str, Any]:
+def build_session_header(session: Session, runs: list[Run], *, merge_request: dict | None = None) -> dict[str, Any]:
     """SYNC ONLY: the header's context, for ``runs`` ordered oldest first and the ``merge_request`` the page shows."""
     return {
-        "latest_run": latest_run_payload(runs, retry_urls),
+        "latest_run": latest_run_payload(runs),
         "watch": watch_payload(watch_state(session, merge_request_iid(session, runs, merge_request))),
         "issue": issue_link(session, runs),
         "run_count": len(runs),

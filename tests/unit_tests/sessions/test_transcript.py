@@ -5,10 +5,8 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import patch
 
 from django.contrib.sites.models import Site
-from django.urls import reverse
 from django.utils import timezone
 
 import pytest
@@ -16,7 +14,7 @@ from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
 from sessions.executor.lock import LiveRun, SessionActivity
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
-from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
+from sessions.transcript import annotate_transcript, expired_run_turns
 from sessions.turns import build_turns
 
 from core.constants import (
@@ -599,48 +597,3 @@ def test_expired_run_turns_query_once_for_every_run(django_assert_num_queries):
 
     with django_assert_num_queries(1):
         assert len(expired_run_turns(runs, [])) == 3
-
-
-def _retryable(rid, repo_id="group/repo", *, is_retryable=True):
-    return SimpleNamespace(id=rid, repo_id=repo_id, is_retryable=is_retryable)
-
-
-def test_mark_retryable_links_the_run_composer_from_the_runs_anchor_turn():
-    turns = [{**_user("h1"), "run_id": "r1"}, _assistant("a1")]
-
-    with patch("sessions.transcript.runnable_repo_ids", return_value={"group/repo"}):
-        urls = mark_retryable(turns, [_retryable("r1")], user=None)
-
-    assert [t.get("retry_url") for t in turns] == [f"{reverse('runs:agent_run_new')}?from=r1", None]
-    assert urls == {"r1": f"{reverse('runs:agent_run_new')}?from=r1"}
-
-
-def test_mark_retryable_skips_a_run_the_viewer_cannot_run_on_the_repo():
-    turns = [{**_user("h1"), "run_id": "r1"}]
-
-    with patch("sessions.transcript.runnable_repo_ids", return_value=set()) as runnable:
-        mark_retryable(turns, [_retryable("r1")], user="viewer")
-
-    assert "retry_url" not in turns[0]
-    runnable.assert_called_once_with("viewer", {"group/repo"})
-
-
-def test_mark_retryable_skips_a_run_that_is_not_retryable_without_checking_access():
-    turns = [{**_user("h1"), "run_id": "r1"}]
-
-    with patch("sessions.transcript.runnable_repo_ids") as runnable:
-        mark_retryable(turns, [_retryable("r1", is_retryable=False)], user=None)
-
-    assert "retry_url" not in turns[0]
-    runnable.assert_not_called()
-
-
-def test_mark_retryable_checks_every_repo_in_one_call():
-    turns = [{**_user(f"h{i}"), "run_id": f"r{i}"} for i in range(3)]
-    runs = [_retryable("r0"), _retryable("r1"), _retryable("r2", repo_id="group/other")]
-
-    with patch("sessions.transcript.runnable_repo_ids", return_value={"group/repo"}) as runnable:
-        mark_retryable(turns, runs, user=None)
-
-    assert [("retry_url" in t) for t in turns] == [True, True, False]
-    runnable.assert_called_once_with(None, {"group/repo", "group/other"})

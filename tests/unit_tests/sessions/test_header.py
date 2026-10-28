@@ -38,7 +38,7 @@ def _catalog(slug: str, html_url: str, provider: str = "gitlab") -> None:
 
 @pytest.mark.django_db
 def test_latest_run_payload_is_none_without_runs():
-    assert latest_run_payload([], {}) is None
+    assert latest_run_payload([]) is None
 
 
 @pytest.mark.django_db
@@ -57,9 +57,9 @@ def test_latest_run_payload_describes_the_newest_run(status, variant, label):
     _run(session, status=RunStatus.FAILED)
     _run(session, status=status)
 
-    payload = latest_run_payload([*session.runs.order_by("created_at")], {})
+    payload = latest_run_payload([*session.runs.order_by("created_at")])
 
-    assert payload == {"label": label, "variant": variant, "finished_at": "", "retry_url": ""}
+    assert payload == {"label": label, "variant": variant, "finished_at": ""}
 
 
 @pytest.mark.django_db
@@ -68,16 +68,7 @@ def test_latest_run_payload_carries_when_the_run_finished():
     finished = timezone.now()
     run = _run(session, finished_at=finished)
 
-    assert latest_run_payload([run], {})["finished_at"] == finished.isoformat()
-
-
-@pytest.mark.django_db
-def test_latest_run_payload_links_only_the_latest_runs_retry():
-    session = _session(origin=SessionOrigin.UI_JOB)
-    earlier, latest = _run(session), _run(session)
-
-    assert latest_run_payload([earlier, latest], {str(earlier.id): "/retry-earlier"})["retry_url"] == ""
-    assert latest_run_payload([earlier, latest], {str(latest.id): "/retry-latest"})["retry_url"] == "/retry-latest"
+    assert latest_run_payload([run])["finished_at"] == finished.isoformat()
 
 
 @pytest.mark.django_db
@@ -144,7 +135,7 @@ def test_build_session_header_gathers_the_pages_context():
     session = _session(watch_state=WatchState.GREEN)
     runs = [_run(session), _run(session)]
 
-    header = build_session_header(session, runs, {})
+    header = build_session_header(session, runs)
 
     assert header["latest_run"]["label"] == "Done"
     assert header["watch"]["tone"] == "clear"
@@ -202,6 +193,6 @@ def test_build_session_header_reads_the_watch_of_the_checkpoints_merge_request()
     session = _session()
     _session(thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.GREEN)
 
-    header = build_session_header(session, [], {}, merge_request={"id": 7})
+    header = build_session_header(session, [], merge_request={"id": 7})
 
     assert header["watch"]["state"] == WatchState.GREEN

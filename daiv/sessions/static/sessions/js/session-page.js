@@ -93,9 +93,6 @@ document.addEventListener("alpine:init", () => {
       if (this.waiting) return { variant: "queued", label: config.labels.queued };
       return this.latest;
     },
-    get retryUrl() {
-      return this.busy ? "" : this.latest?.retry_url || "";
-    },
     // Holds "running" from a run's end until sessionSync's next fetch brings its settled status, rather than
     // flashing the previous run's.
     settle() {

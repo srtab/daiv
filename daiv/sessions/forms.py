@@ -112,8 +112,8 @@ class AgentRunFieldsMixin(forms.Form):
         # editing a member's schedule sees the member's USER-scoped servers.
         self.mcp_owner = owner or user
         self.mcp_pool = build_selection_pool(getattr(self.mcp_owner, "pk", None))
-        # ``mcp_overrides`` is for the instance-less forms (a retry prefills from the source run's
-        # session); ``ModelForm`` subclasses fall back to the row being edited. Resolved once and
+        # ``mcp_overrides`` is for the instance-less forms (a copied schedule prefills from its
+        # source); ``ModelForm`` subclasses fall back to the row being edited. Resolved once and
         # unconditionally: ``clean()`` reads it too, and a bound form has to agree with an unbound one.
         self.stored_mcp_overrides = mcp_overrides or getattr(getattr(self, "instance", None), "mcp_overrides", {}) or {}
         if "mcp_servers" in self.fields and not self.is_bound:

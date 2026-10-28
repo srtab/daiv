@@ -4,20 +4,15 @@
 already-fetched run rows) so the segmentation logic is unit-testable without the database,
 mirroring ``sessions.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
 and messages, then zip them here; for a checkpoint with no messages, ``expired_run_turns``
-restores the prompts and queries the artifacts it no longer carries, and ``mark_retryable``
-queries the viewer's repository access.
+restores the prompts and queries the artifacts it no longer carries.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urlencode
-
-from django.urls import reverse
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
-from codebase.authorization import runnable_repo_ids
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
     CANCELLED_BY_USER_MESSAGE,
@@ -32,7 +27,6 @@ from sessions.turns import tool_call_segment
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from accounts.models import User
     from sessions.models import Run
 
 logger = logging.getLogger("daiv.sessions")
@@ -229,25 +223,3 @@ def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[
             _anchor(run_turns, run)
         result.extend(run_turns)
     return result
-
-
-def retry_urls(runs: Iterable[Run], user: User) -> dict[str, str]:
-    """SYNC ONLY: the run composer's retry link for each of ``runs`` that ``user`` may retry, keyed by run id.
-
-    Decided here rather than in the browser: ``runnable_repo_ids`` needs the user's synced repository access.
-    """
-    retryable = [run for run in runs if run.is_retryable]
-    if not retryable:
-        return {}
-    allowed = runnable_repo_ids(user, {run.repo_id for run in retryable})
-    composer = reverse("runs:agent_run_new")
-    return {str(run.id): f"{composer}?{urlencode({'from': run.id})}" for run in retryable if run.repo_id in allowed}
-
-
-def mark_retryable(turns: list[dict[str, Any]], runs: list[Run], user: User) -> dict[str, str]:
-    """SYNC ONLY: stamp ``retry_url`` on the anchor turn of each run ``user`` may retry; returns ``retry_urls``."""
-    urls = retry_urls(runs, user)
-    for turn in turns:
-        if url := urls.get(turn.get("run_id", "")):
-            turn["retry_url"] = url
-    return urls

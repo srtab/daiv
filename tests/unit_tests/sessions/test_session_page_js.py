@@ -97,7 +97,7 @@ for (const [action, value] of steps) {
   else if (action === "frame") { section.shown = value; frames.splice(0).forEach((cb) => cb()); }
   else if (action === "read") {
     seen.push({
-      status: page.status, retry: page.retryUrl, watch: page.watch, open: page.detailsOpen, runs: page.runCount,
+      status: page.status, watch: page.watch, open: page.detailsOpen, runs: page.runCount,
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
       ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn,
@@ -109,8 +109,8 @@ process.stdout.write(JSON.stringify({
 }));
 """
 
-DONE = {"label": "Done", "variant": "success", "retry_url": "/runs/new/?from=r1"}
-FAILED = {"label": "Failed", "variant": "failed", "retry_url": ""}
+DONE = {"label": "Done", "variant": "success"}
+FAILED = {"label": "Failed", "variant": "failed"}
 RUNNING = {"variant": "running", "label": "Running"}
 WATCHING = {"state": "watching", "label": "Waiting for CI", "tone": "attn", "open": True}
 
@@ -136,24 +136,18 @@ def _read(**kwargs) -> dict:
 def test_it_shows_the_server_rendered_latest_run_and_watch():
     seen = _read(watch=WATCHING)
 
-    assert (seen["status"], seen["retry"], seen["watch"], seen["runs"], seen["scrolled"]) == (
-        DONE,
-        "/runs/new/?from=r1",
-        WATCHING,
-        1,
-        0,
-    )
+    assert (seen["status"], seen["watch"], seen["runs"], seen["scrolled"]) == (DONE, WATCHING, 1, 0)
 
 
 def test_a_session_without_runs_has_no_status():
     assert _read(initial=None)["status"] is None
 
 
-def test_a_streamed_or_queued_run_overrides_the_status_and_hides_retry():
+def test_a_streamed_or_queued_run_overrides_the_status():
     steps = [["set", {"streaming": True}], ["read", None], ["set", {"streaming": False, "waiting": True}]]
     seen = _run([*steps, ["read", None]])["seen"]
 
-    assert [(s["status"], s["retry"]) for s in seen] == [(RUNNING, ""), ({"variant": "queued", "label": "Queued"}, "")]
+    assert [s["status"] for s in seen] == [RUNNING, {"variant": "queued", "label": "Queued"}]
 
 
 def test_each_poll_replaces_the_latest_run_and_the_watch():

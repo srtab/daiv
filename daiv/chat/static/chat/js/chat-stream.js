@@ -272,6 +272,7 @@
   const NO_PREFERENCE = "No preference";
   const SKIP_ANSWER = "Skip these questions — use your best judgment and state the assumptions you made.";
   const MULTI_ANSWER_SEP = ", ";
+  const RETRY_MESSAGE = "The previous run failed. Please try again.";
   const answerPrefix = (question) => `**${question.header}** — `;
 
   // Only consider write_todos calls from the current ask. Walking backwards and bailing at
@@ -1308,6 +1309,18 @@
       await this.submit(SKIP_ANSWER);
     },
 
+    // Only the newest run can be retried: a later prompt or run marker means the session moved on.
+    canRetry(turn, ti) {
+      if (turn.role !== "run_status" || turn.status !== "failed") return false;
+      if (this.streaming || this.resuming || this.waiting) return false;
+      return !this.turns.slice(ti + 1).some((t) => t.role === "user" || t.role === "run_status");
+    },
+
+    async retryRun() {
+      if (this.streaming || this.resuming) return;
+      await this.submit(RETRY_MESSAGE);
+    },
+
     isTurnVisible(turn, isLast) {
       if (turn.role === "run_status") return true;
       if (this.visibleSegments(turn).length) return true;
@@ -1364,7 +1377,7 @@
     // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
     turnHasActions(turn, ti) {
       if (turn.role === "run_status") return false;
-      return !!turn.sent_at || !!turn.received_at || !!turn.retry_url || this.canCopyTurn(turn, ti);
+      return !!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn, ti);
     },
 
     // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.
