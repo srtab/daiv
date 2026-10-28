@@ -21,12 +21,11 @@
   --app-sidebar-width: 4rem;
   --app-content-gutter: 1.5rem;
 
-  /* Dark-only semantic token layer, declared once here — DESIGN.md's front matter mirrors
-     the values (test_design_md.py checks) and documents the roles. They live in the
-     Tailwind v4 `--color-*` namespace so the utilities generate (bg-ground,
-     text-text-muted, border-border, …). There is no light variant. The `status-*` ramp
-     is declared ahead of the surfaces that read it; Tailwind emits nothing for a token
-     no utility uses. */
+  /* Dark-only semantic token layer, declared once here — DESIGN.md mirrors the values and
+     documents the roles. They live in the Tailwind v4 `--color-*` namespace so the
+     utilities generate (bg-ground, text-text-muted, border-border, …). There is no light
+     variant. The `status-*` ramp is declared ahead of the surfaces that read it; Tailwind
+     emits nothing for a token no utility uses. */
   --color-ground: #0d1117; /* base plane */
   --color-surface-1: #10151d; /* sidebar + mobile top bar */
   --color-surface-2: #161c26; /* cards + hero */

@@ -149,3 +149,34 @@ def test_surface_text_clears_aa_on_the_surface_background():
         if (ratio := _contrast(colour, background)) < AA_NORMAL_TEXT
     }
     assert not failing, f"below AA on {background}: {failing}"
+
+
+TEXT_TOKENS = (
+    "text",
+    "text-strong",
+    "text-muted",
+    "text-faint",
+    "brand-bright",
+    "accent",
+    "accent-bright",
+    "status-clear",
+    "status-found",
+    "status-attn",
+    "status-fail",
+)
+SURFACE_TOKENS = ("ground", "surface-1", "surface-2", "surface-3")
+
+
+def test_text_tokens_clear_aa_on_every_surface():
+    """DESIGN.md promises any text token on any surface, hover included, so a retune that
+    breaks one pairing fails here instead of in whichever template renders it."""
+    tokens = theme_colours()
+    pairs = [(text, surface) for text in TEXT_TOKENS for surface in SURFACE_TOKENS]
+    pairs += [("accent-ink", "accent"), ("accent-ink", "accent-bright")]
+
+    failing = {
+        f"{text} on {surface}": round(ratio, 2)
+        for text, surface in pairs
+        if (ratio := _contrast(tokens[f"--color-{text}"], tokens[f"--color-{surface}"])) < AA_NORMAL_TEXT
+    }
+    assert not failing, f"below AA: {failing}"

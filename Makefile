@@ -59,15 +59,10 @@ lint-imports:
 	PYTHONPATH=daiv uv run --only-group=dev lint-imports
 
 DESIGNMD := @google/design.md@0.4.0
-DESIGNMD_GATE = const report = JSON.parse(require("fs").readFileSync(0, "utf8"));
-DESIGNMD_GATE += const failing = report.findings.filter((f) => f.severity !== "info");
-DESIGNMD_GATE += for (const f of failing) console.error(f.severity + " " + (f.path ?? "-") + ": " + f.message);
-DESIGNMD_GATE += console.log("DESIGN.md: " + report.summary.errors + " errors, " + report.summary.warnings + " warnings");
-DESIGNMD_GATE += process.exit(failing.length ? 1 : 0);
 
 # The CLI exits 0 on warnings (contrast, orphaned tokens); the gate fails on those too.
 lint-design:
-	npx --yes $(DESIGNMD) lint DESIGN.md | node -e '$(DESIGNMD_GATE)'
+	npx --yes $(DESIGNMD) lint DESIGN.md | tee /dev/stderr | node -e 'const { summary: s } = JSON.parse(require("fs").readFileSync(0, "utf8")); process.exit(s.errors + s.warnings ? 1 : 0)'
 
 lint-fix:
 	uv run --only-group=dev ruff check . --fix
