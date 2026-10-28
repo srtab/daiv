@@ -316,7 +316,7 @@ class GitHubClient(RepoClient):
             yield repo
 
     def _mint_installation_token(self, repository: Repository) -> str:
-        """Mint a short-lived installation token with ``contents: write`` on this repository only.
+        """Mint a short-lived installation token scoped to this repository only.
 
         An unscoped installation token is valid for *every* repository the installation covers, so
         both the clone credential and the egress-proxy secret would carry cross-repo write access.
@@ -324,10 +324,10 @@ class GitHubClient(RepoClient):
         so the same REST endpoint is called directly through the integration's app-authenticated
         requester, mirroring ``get_access_token``'s headers.
 
-        ``workflows: write`` is added when the installation grants it, since GitHub refuses a push that
-        changes ``.github/workflows/`` without it. The grant is read fresh on each mint: requesting a
-        permission the installation no longer has fails the mint, and this client lives as long as the
-        process."""
+        It carries ``contents: write``, plus ``workflows: write`` when the installation grants it, since
+        GitHub refuses a push that changes ``.github/workflows/`` without it. The grant is read fresh on
+        each mint: requesting a permission the installation no longer has fails the mint, and this client
+        lives as long as the process."""
         permissions = {"contents": "write"}
         installation = self._integration.get_app_installation(self.client_installation.id)
         if installation.permissions.get("workflows") == "write":

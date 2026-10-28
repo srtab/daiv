@@ -533,6 +533,12 @@ def _is_push_stale_error_text(output: str) -> bool:
     )
 
 
+def _is_push_workflow_permission_error_text(output: str) -> bool:
+    """Check if git push output is GitHub refusing a change under ``.github/workflows/`` because the token
+    lacks the ``workflows`` permission (a ``[remote rejected]``, so it never carries an auth marker)."""
+    return "to create or update workflow" in output.lower()
+
+
 def _raise_for_transport_failure(args: list[str], result: GitResult) -> None:
     """Raise a typed error for an auth/permission or unreachable-host git failure; return otherwise.
 
@@ -568,7 +574,7 @@ def _raise_for_push_failure(push_args: list[str], result: GitResult) -> NoReturn
     anything else → the raw ``GitCommandError``.
     """
     _raise_for_transport_failure(push_args, result)
-    if "to create or update workflow" in result.output.lower():
+    if _is_push_workflow_permission_error_text(result.output):
         logger.warning("git push rejected for a workflow change: %s", result.output)
         raise GitPushPermissionError(
             "GitHub rejected the push because it changes a file under .github/workflows/ and DAIV's token "

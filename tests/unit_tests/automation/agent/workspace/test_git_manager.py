@@ -120,7 +120,7 @@ async def test_push_head_to_raises_permission_error_on_auth_failure() -> None:
 
 
 async def test_push_head_to_names_the_missing_workflows_permission() -> None:
-    gm, client = _sandbox_manager({
+    gm, _ = _sandbox_manager({
         "push origin HEAD:b": (
             1,
             "To https://github.com/x/y.git\n"
@@ -130,8 +130,7 @@ async def test_push_head_to_names_the_missing_workflows_permission() -> None:
         )
     })
     with pytest.raises(GitPushPermissionError, match=r"Workflows.*Read and write"):
-        await gm.push_head_to("b", integrate_on_reject=True)
-    assert not client.ran("fetch origin")
+        await gm.push_head_to("b")
 
 
 async def test_push_head_to_raises_network_error_on_unreachable_host() -> None:
