@@ -125,6 +125,7 @@ def test_pre_checkpoint_failure_synthesizes_user_turn_and_marker():
         "id": "run-r2",
         "role": "user",
         "segments": [{"type": "text", "content": "please fix X"}],
+        "rebuilt": True,
         "run_id": "r2",
     }
 
@@ -211,6 +212,7 @@ def test_synthetic_turns_marker_only_when_no_prompt():
         "role": "run_status",
         "status": "failed",
         "message": RUN_FAILED_MESSAGE,
+        "rebuilt": True,
         "run_id": "r1",
     }
 

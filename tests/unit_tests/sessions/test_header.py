@@ -38,7 +38,7 @@ def _catalog(slug: str, html_url: str, provider: str = "gitlab") -> None:
 
 @pytest.mark.django_db
 def test_latest_run_payload_is_none_without_runs():
-    assert latest_run_payload([]) is None
+    assert latest_run_payload([], "") is None
 
 
 @pytest.mark.django_db
@@ -59,7 +59,13 @@ def test_latest_run_payload_describes_the_newest_run(status, variant, label):
 
     payload = latest_run_payload([*session.runs.order_by("created_at")], "again")
 
-    assert payload == {"id": str(latest.id), "label": label, "variant": variant, "finished_at": "", "retry": "again"}
+    assert payload == {
+        "marker_id": f"run-status-{latest.id}",
+        "label": label,
+        "variant": variant,
+        "finished_at": "",
+        "retry": "again",
+    }
 
 
 @pytest.mark.django_db
@@ -78,11 +84,13 @@ def test_retry_for_needs_a_viewer_who_owns_the_session_and_can_run_on_it(member_
 
 
 @pytest.mark.django_db
-def test_retry_for_skips_the_access_checks_when_nothing_is_retryable(member_user):
+@pytest.mark.parametrize(("status", "can_act"), [(RunStatus.SUCCESSFUL, None), (RunStatus.FAILED, True)])
+def test_retry_for_asks_for_run_access_only_when_it_has_to(member_user, status, can_act):
     session = _session(user=member_user)
+    runs = [_run(session, status=status, prompt="fix it")]
 
     with patch("sessions.header.can_run") as can_run:
-        assert retry_for(session, [_run(session)], [], member_user) == ""
+        retry_for(session, runs, [], member_user, can_act=can_act)
 
     can_run.assert_not_called()
 
@@ -93,7 +101,7 @@ def test_latest_run_payload_carries_when_the_run_finished():
     finished = timezone.now()
     run = _run(session, finished_at=finished)
 
-    assert latest_run_payload([run])["finished_at"] == finished.isoformat()
+    assert latest_run_payload([run], "")["finished_at"] == finished.isoformat()
 
 
 @pytest.mark.django_db
@@ -160,7 +168,7 @@ def test_build_session_header_gathers_the_pages_context():
     session = _session(watch_state=WatchState.GREEN)
     runs = [_run(session), _run(session)]
 
-    header = build_session_header(session, runs)
+    header = build_session_header(session, runs, retry="")
 
     assert header["latest_run"]["label"] == "Done"
     assert header["watch"]["tone"] == "clear"
@@ -218,6 +226,6 @@ def test_build_session_header_reads_the_watch_of_the_checkpoints_merge_request()
     session = _session()
     _session(thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.GREEN)
 
-    header = build_session_header(session, [], merge_request={"id": 7})
+    header = build_session_header(session, [], retry="", merge_request={"id": 7})
 
     assert header["watch"]["state"] == WatchState.GREEN

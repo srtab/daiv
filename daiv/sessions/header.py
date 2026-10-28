@@ -19,7 +19,7 @@ from codebase.models import RepositoryCatalog
 from sessions.models import Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import WatchStore, watch_thread_id
 from sessions.templatetags.session_tags import status_variant
-from sessions.transcript import retry_message
+from sessions.transcript import marker_id, retry_message
 
 if TYPE_CHECKING:
     from accounts.models import User
@@ -34,16 +34,23 @@ _WATCH_TONES = {
 }
 
 
-def retry_for(session: Session, runs: list[Run], turns: list[dict[str, Any]], user: User) -> str:
-    """SYNC ONLY: ``retry_message`` for a ``user`` the chat endpoint lets post to ``session``, else empty."""
+def retry_for(
+    session: Session, runs: list[Run], turns: list[dict[str, Any]], user: User, *, can_act: bool | None = None
+) -> str:
+    """SYNC ONLY: ``retry_message`` for a ``user`` the chat endpoint lets post to ``session``, else empty.
+
+    ``can_act`` is ``can_run`` on the session's repository, for a caller that already has it.
+    """
     if not (message := retry_message(turns, runs)):
         return ""
-    if not can_run(user, session.repo_id) or not Session.objects.by_owner(user).filter(pk=session.pk).exists():
+    if can_act is None:
+        can_act = can_run(user, session.repo_id)
+    if not can_act or not Session.objects.by_owner(user).filter(pk=session.pk).exists():
         return ""
     return message
 
 
-def latest_run_payload(runs: list[Run], retry: str = "") -> dict[str, str] | None:
+def latest_run_payload(runs: list[Run], retry: str) -> dict[str, str] | None:
     """The newest of ``runs`` (oldest first) as the header's status pill and the Retry on its marker read it.
 
     ``retry`` is what ``retry_for`` returned for the same runs.
@@ -52,7 +59,7 @@ def latest_run_payload(runs: list[Run], retry: str = "") -> dict[str, str] | Non
         return None
     latest = runs[-1]
     return {
-        "id": str(latest.id),
+        "marker_id": marker_id(latest),
         "label": str(latest.get_status_display()),
         "variant": status_variant(latest.status),
         "finished_at": latest.finished_at.isoformat() if latest.finished_at else "",
@@ -124,7 +131,7 @@ def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
 
 
 def build_session_header(
-    session: Session, runs: list[Run], *, retry: str = "", merge_request: dict | None = None
+    session: Session, runs: list[Run], *, retry: str, merge_request: dict | None = None
 ) -> dict[str, Any]:
     """SYNC ONLY: the header's context, for ``runs`` ordered oldest first and the ``merge_request`` the page shows."""
     return {

@@ -109,6 +109,7 @@ class _Turn:
     """What a chat turn has recorded so far, filled in as the executor reaches each step."""
 
     chat_run: Run | None = None
+    announced: bool = False
     usage: CostAwareUsageMetadataCallbackHandler | None = None
     response: str = ""
     error: str | None = None
@@ -181,6 +182,8 @@ class ChatRunStreamer:
                 )
             ) as stream:
                 async for event in stream:
+                    if (record := self._announce(turn)) is not None:
+                        yield record
                     yield event
             finished = True
         except _ReportedRunError:
@@ -209,9 +212,20 @@ class ChatRunStreamer:
             # The exception stays in the server log: its text can carry internal names and paths.
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)
             turn.error = RUN_FAILED_MESSAGE
+            if (record := self._announce(turn)) is not None:
+                yield record
             yield RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
         finally:
             await self._end_turn(turn, succeeded=finished)
+
+    @staticmethod
+    def _announce(turn: _Turn) -> CustomEvent | None:
+        """A ``run_record`` event naming the turn's ``Run`` row, once it exists, so the page keys this run's live
+        marker as a reload renders it; ``None`` before the row exists and after it was announced."""
+        if turn.chat_run is None or turn.announced:
+            return None
+        turn.announced = True
+        return CustomEvent(type=EventType.CUSTOM, name="run_record", value={"id": str(turn.chat_run.pk)})
 
     def _run_spec(self) -> RunSpec:
         return RunSpec(

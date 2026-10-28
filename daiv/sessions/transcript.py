@@ -64,15 +64,12 @@ def _marker(run: Run) -> dict[str, Any] | None:
         message = RUN_FAILED_MESSAGE
         aborted = False
     status: RunStatusValue = "aborted" if aborted else "failed"
-    return {"id": _marker_id(run), "role": "run_status", "status": status, "message": message}
+    return {"id": marker_id(run), "role": "run_status", "status": status, "message": message}
 
 
-def _marker_id(run: Run) -> str:
+def marker_id(run: Run) -> str:
+    """The id of ``run``'s run-status marker; the live page names the marker it pushes the same way."""
     return f"run-status-{run.id}"
-
-
-def _prompt_turn_id(run: Run) -> str:
-    return f"run-{run.id}"
 
 
 def _stamp_run_times(seg_turns: list[dict[str, Any]], run: Run) -> None:
@@ -101,7 +98,7 @@ def _prompt_turns(run: Run, *, pending: bool = False) -> list[dict[str, Any]]:
     """``run``'s prompt as a user turn, flagged ``pending`` while the run waits to start; none without a prompt."""
     if not run.prompt:
         return []
-    user_turn = {"id": _prompt_turn_id(run), "role": "user", "segments": [{"type": "text", "content": run.prompt}]}
+    user_turn = {"id": f"run-{run.id}", "role": "user", "segments": [{"type": "text", "content": run.prompt}]}
     if run.created_at is not None:
         user_turn["sent_at"] = run.created_at.isoformat()
     if pending:
@@ -112,9 +109,9 @@ def _prompt_turns(run: Run, *, pending: bool = False) -> list[dict[str, Any]]:
 
 def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     """A run that produced no visible user turn. Recover a FAILED run's prompt as a
-    user turn plus its marker; a non-failed run with no turn contributes nothing."""
+    user turn plus its marker, flagged ``rebuilt``; a non-failed run with no turn contributes nothing."""
     marker = _marker(run)
-    return [] if marker is None else [*_prompt_turns(run), marker]
+    return [] if marker is None else [{**turn, "rebuilt": True} for turn in (*_prompt_turns(run), marker)]
 
 
 def _anchor(run_turns: list[dict[str, Any]], run: Run) -> list[dict[str, Any]]:
@@ -241,7 +238,7 @@ def retry_message(turns: list[dict[str, Any]], runs: list[Run]) -> str:
 
     Offered on a run that failed rather than stopped, from a ``SessionOrigin.retryable`` trigger. Retry posts a chat
     turn, which hands the agent only its own message: a run whose turns are in the checkpoint gets
-    ``RETRY_MESSAGE``, and one rebuilt from its row by ``_synthetic_turns`` has its prompt sent again.
+    ``RETRY_MESSAGE``, and one ``rebuilt`` from its row has its prompt sent again.
     """
     if not runs:
         return ""
@@ -249,8 +246,9 @@ def retry_message(turns: list[dict[str, Any]], runs: list[Run]) -> str:
     marker = _marker(run)
     if marker is None or marker["status"] != "failed" or run.trigger_type not in SessionOrigin.retryable():
         return ""
-    rebuilt = {_prompt_turn_id(run), _marker_id(run)}
-    if any(turn.get("run_id") == str(run.id) and turn.get("id") not in rebuilt for turn in turns):
+    run_id = str(run.id)
+    anchor = next((turn for turn in turns if turn.get("run_id") == run_id), None)
+    if anchor is not None and not anchor.get("rebuilt"):
         return RETRY_MESSAGE
     # A chat run's stored prompt is cut at the cap, so one that long may not be the whole message.
     if run.trigger_type == SessionOrigin.CHAT and len(run.prompt) >= CHAT_PROMPT_MAX_LENGTH:

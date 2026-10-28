@@ -384,8 +384,6 @@
     streaming: false,
     resuming: !!config.activeRunId,
     waitingSince: config.waitingSince || "",
-    // The marker this page pushed for the server failing its latest run, which the session page offers Retry on.
-    runErrorMarkerId: "",
     runStoppable: config.liveRunStoppable ?? true,
     _source: null,
     _activeRun: null,
@@ -1445,7 +1443,6 @@
     async submit(text = null) {
       const message = text ?? this.draftMessage;
       if (!this.canSend(message) || this.streaming || this.resuming) return;
-      this.runErrorMarkerId = "";
 
       // Read the picker's selection before creating the thread: the live picker is
       // ``x-if``'d on ``!thread``, so assigning ``thread`` first schedules its removal
@@ -1724,7 +1721,7 @@
         } else if (evt.code === "run_interrupted") {
           this._pushRunStatus("aborted", evt.message || "Run was interrupted before completing.");
         } else {
-          this.runErrorMarkerId = this._pushRunStatus("failed", evt.message || "Run failed.");
+          this._pushRunStatus("failed", evt.message || "Run failed.");
         }
       } else if (type === AGUI.CUSTOM && evt.name === "ref_fallback") {
         // The pinned branch was merged/deleted; the server fell back to the default branch
@@ -1732,6 +1729,8 @@
         const v = evt.value || {};
         if (v.using) this._applyRepoState({ ref: v.using });
         console.debug("chat: ref_fallback %o → %o", v.requested, v.using);
+      } else if (type === AGUI.CUSTOM && evt.name === "run_record") {
+        if (this._activeRun && evt.value?.id) this._activeRun.recordId = evt.value.id;
       } else if (type === AGUI.CUSTOM && evt.name === "resolved_env") {
         // Server resolved Auto → real env for this run. Swap the locked pill text in
         // place when the user is still on Auto client-side; an explicit mid-flight
@@ -1797,9 +1796,14 @@
       }
     },
 
+    // Keyed by the Run row once the server names it, so the marker matches the one a reload renders.
+    _runStatusId() {
+      const run = this._activeRun;
+      return `run-status-${run ? run.recordId || run.runId : uuid()}`;
+    },
+
     _pushRunStatus(status, message) {
-      const runId = this._activeRun ? this._activeRun.runId : uuid();
-      const id = `run-status-${runId}`;
+      const id = this._runStatusId();
       const existing = this.turns.find((t) => t.id === id);
       if (existing) {
         existing.status = status;
@@ -1808,12 +1812,12 @@
         this.turns.push({ id, role: "run_status", status, message });
       }
       this.scrollToBottom();
-      return id;
     },
 
     _hasRunStatusMarker() {
-      const runId = this._activeRun ? this._activeRun.runId : null;
-      return runId != null && this.turns.some((t) => t.id === `run-status-${runId}`);
+      if (!this._activeRun) return false;
+      const id = this._runStatusId();
+      return this.turns.some((t) => t.id === id);
     },
 
     _appendTextSegment(turn, content) {

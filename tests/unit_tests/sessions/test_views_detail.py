@@ -1046,14 +1046,11 @@ def test_detail_hands_the_latest_runs_retry_to_the_page(member_client, member_us
     session = _create_session(user=member_user)
     run = _create_run(session, status=RunStatus.FAILED, prompt="fix it")
 
-    with patch("sessions.header.can_run", return_value=True):
+    with patch("sessions.views.can_run", return_value=True):
         resp = _get_detail(member_client, session)
 
-    assert (resp.context["header"]["latest_run"]["id"], resp.context["header"]["latest_run"]["retry"]) == (
-        str(run.id),
-        "fix it",
-    )
-    assert 'data-testid="run-retry"' in resp.content.decode()
+    latest = resp.context["header"]["latest_run"]
+    assert (latest["marker_id"], latest["retry"]) == (f"run-status-{run.id}", "fix it")
 
 
 @pytest.mark.django_db

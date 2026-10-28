@@ -356,9 +356,9 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
         ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
         ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
-        retry = retry_for(session, runs, ctx["turns"], self.request.user)
-        ctx["header"] = build_session_header(session, runs, retry=retry, merge_request=merge_request)
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
+        retry = retry_for(session, runs, ctx["turns"], self.request.user, can_act=ctx["can_act"])
+        ctx["header"] = build_session_header(session, runs, retry=retry, merge_request=merge_request)
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
         ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""

@@ -70,10 +70,8 @@ const page = components.sessionPage({
   title: "Old", titleSuffix: "DAIV Sessions", archived, labels,
 });
 const focused = [];
-const submitted = [];
 Object.assign(page, {
   streaming: false, resuming: false, waiting: false, csrfToken: "tok", $nextTick: (cb) => cb(),
-  runErrorMarkerId: "", submit: async (text) => { submitted.push(text); },
   $refs: {
     titleInput: { focus: () => focused.push("input"), select() {} },
     titleButton: { focus: () => focused.push("button"), getBoundingClientRect: () => ({ width: 312 }) },
@@ -98,7 +96,6 @@ for (const [action, value] of steps) {
   else if (action === "open-details") page.openDetails("context");
   else if (action === "frame") { section.shown = value; frames.splice(0).forEach((cb) => cb()); }
   else if (action === "offers-retry") seen.push(value.map((marker) => page.canRetry(marker)));
-  else if (action === "retry") await page.retryRun();
   else if (action === "read") {
     seen.push({
       status: page.status, watch: page.watch, open: page.detailsOpen, runs: page.runCount,
@@ -109,7 +106,7 @@ for (const [action, value] of steps) {
   }
 }
 process.stdout.write(JSON.stringify({
-  seen, fetches: fetches.length, requests: fetches, focused, stored: storage.get("key") ?? null, submitted,
+  seen, fetches: fetches.length, requests: fetches, focused, stored: storage.get("key") ?? null,
 }));
 """
 
@@ -395,33 +392,23 @@ def test_a_refused_archive_restores_the_state():
     assert result["seen"][0]["archived"] is False
 
 
-RETRYABLE = {"id": "r2", "label": "Failed", "variant": "failed", "retry": "Please try again."}
+RETRYABLE = {"marker_id": "run-status-r2", "label": "Failed", "variant": "failed", "retry": "Please try again."}
 
 
-def _failed(marker_id, status="failed"):
-    return {"id": marker_id, "role": "run_status", "status": status}
+def _marker(marker_id):
+    return {"id": marker_id, "role": "run_status", "status": "failed"}
 
 
-def test_retry_is_offered_on_the_latest_runs_failure_marker_only():
-    markers = [_failed("run-status-r2"), _failed("run-status-r1"), _failed("run-status-r2", status="aborted")]
+def test_retry_is_offered_on_the_latest_runs_marker_only():
+    markers = [_marker("run-status-r2"), _marker("run-status-r1")]
 
-    assert _run([["offers-retry", markers]], initial=RETRYABLE)["seen"] == [[True, False, False]]
-
-
-def test_retry_is_offered_on_the_marker_a_live_failure_pushed():
-    steps = [["set", {"runErrorMarkerId": "run-status-client"}], ["offers-retry", [_failed("run-status-client")]]]
-
-    assert _run(steps, initial=RETRYABLE)["seen"] == [[True]]
+    assert _run([["offers-retry", markers]], initial=RETRYABLE)["seen"] == [[True, False]]
 
 
 def test_no_retry_when_the_server_offers_none():
-    assert _run([["offers-retry", [_failed("run-status-r2")]]], initial={**RETRYABLE, "retry": ""})["seen"] == [[False]]
+    assert _run([["offers-retry", [_marker("run-status-r2")]]], initial={**RETRYABLE, "retry": ""})["seen"] == [[False]]
 
 
 @pytest.mark.parametrize("step", [["set", {"streaming": True}], ["set", {"waiting": True}], ["run-ended", None]])
 def test_no_retry_while_a_run_is_busy_or_settling(step):
-    assert _run([step, ["offers-retry", [_failed("run-status-r2")]]], initial=RETRYABLE)["seen"] == [[False]]
-
-
-def test_retry_sends_the_servers_message():
-    assert _run([["retry", None]], initial=RETRYABLE)["submitted"] == ["Please try again."]
+    assert _run([step, ["offers-retry", [_marker("run-status-r2")]]], initial=RETRYABLE)["seen"] == [[False]]
