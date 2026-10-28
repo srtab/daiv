@@ -432,35 +432,6 @@ async def test_session_turns_says_whether_background_work_is_in_flight(client, a
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_session_turns_link_a_finished_runs_retry(client, authed):
-    from langchain_core.messages import AIMessage, HumanMessage
-
-    _key_obj, raw, user = authed
-    session = await Session.objects.acreate(
-        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=user
-    )
-    run = await Run.objects.acreate(
-        session=session,
-        trigger_type=SessionOrigin.UI_JOB,
-        repo_id="group/project",
-        status=RunStatus.SUCCESSFUL,
-        prompt="fix it",
-    )
-    messages = [HumanMessage(content="fix it", id="m-1"), AIMessage(content="done", id="m-2")]
-    hydrated = HydratedThread(messages, False, None, None, None)
-
-    with (
-        patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)),
-        patch("sessions.transcript.runnable_repo_ids", return_value={"group/project"}),
-    ):
-        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
-
-    first, reply = resp.json()["turns"]
-    assert (first["run_id"], first["retry_url"]) == (str(run.id), f"/dashboard/runs/new/?from={run.id}")
-    assert "retry_url" not in reply
-
-
-@pytest.mark.django_db(transaction=True)
 async def test_session_turns_report_the_latest_run_for_the_page_header(client, authed):
     _key_obj, raw, user = authed
     session = await Session.objects.acreate(
@@ -478,15 +449,16 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
 
     with (
         patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)),
-        patch("sessions.transcript.runnable_repo_ids", return_value={"group/project"}),
+        patch("sessions.header.can_run", return_value=True),
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.json()["latest_run"] == {
+        "marker_id": f"run-status-{latest.id}",
         "label": "Failed",
         "variant": "failed",
         "finished_at": "",
-        "retry_url": f"/dashboard/runs/new/?from={latest.id}",
+        "retry": "fix it",
     }
     assert "watch" not in resp.json()
     assert resp.json()["run_count"] == 2

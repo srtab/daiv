@@ -42,7 +42,7 @@ Each session is tagged with the origin that created it:
 The Home page (`/dashboard/`) opens with **Needs you**: what is waiting on you, up to eight items. Questions come first, then failures (Failed, CI still failing, Can't run), then Found issues, then Needs attention; newest first within each.
 
 - **Needs input** — your session's latest run asked you a question. It leaves when you answer.
-- **Failed** — your session's latest run failed. It leaves once a newer run starts in the session, once you retry it (a later run on the same repository with the same prompt), or 14 days after it failed; it stays in Sessions. A run you cancelled doesn't count.
+- **Failed** — your session's latest run failed. It leaves once a newer run starts in the session (**Retry** starts one), once you run the same prompt on the same repository again, or 14 days after it failed; it stays in Sessions. A run you cancelled doesn't count.
 - **CI still failing** — DAIV's CI watch on a merge/pull request gave up. Shown for 7 days.
 - **Can't run** — one of your schedules can't start its runs. It leaves when the schedule starts a run again or you pause it.
 - **Found issues** / **Needs attention** — your session's latest run was classified that way. Shown for 7 days, since a fix made outside DAIV leaves no trace it can see.
@@ -242,9 +242,9 @@ Runs started this way are tagged with the **UI Run** origin. Every submission, s
 
 ### Retrying a run
 
-A done or failed run started from a prompt on a repository — an API, MCP, UI, scheduled or delegated run — is **retryable**; a run paused on a question is not. Chat turns, webhook runs, and the runs DAIV writes the prompt for (a CI fix, a delegation resume) are not. Open the session detail page, find the run in the transcript, and click **Retry this run** (the circular-arrow icon under its prompt) to open the run composer pre-filled with the original run's prompt, repository, ref, and agent model/thinking level. The button shows only while you can still run agents on that repository. Adjust anything before submitting — the retry starts a new session, tagged **UI Run**.
+When the latest run in a session fails, its red failure marker in the transcript has a **Retry** button. It sends your next message in the same session: *The previous run failed. Please try again.* when the run got far enough to be in the conversation, or the run's own prompt again when it failed before that. Only the newest run offers it, and not while a run is working or queued. It shows for chat turns and for API, MCP, UI and scheduled runs; webhook runs and runs delegated by another session report back through their own flow, so they don't offer it. You need to own the session and be able to run agents on its repository, and it must not be archived. A run that was stopped (by you, by the session that delegated it, or by an interruption) shows a grey marker without **Retry**; send a message to carry on.
 
-Every run shown in the transcript also has a link target on the session page, including the runs of a session whose transcript has expired: `<session URL>#run-<run id>` opens the session scrolled to that run. The **Retried from** link on the run composer and each row of the **Artifacts** list use it.
+Every run shown in the transcript also has a link target on the session page, including the runs of a session whose transcript has expired: `<session URL>#run-<run id>` opens the session scrolled to that run. Each row of the **Artifacts** list uses it.
 
 ---
 

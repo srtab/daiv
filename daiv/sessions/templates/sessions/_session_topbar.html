@@ -107,12 +107,6 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
       </span>
     </template>
 
-    <a class="session-topbar__retry" x-show="retryUrl" x-cloak :href="retryUrl"
-       {% if header.latest_run.retry_url %}href="{{ header.latest_run.retry_url }}"{% endif %}
-       title="{% translate 'Retry the latest run' %}">
-      {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
-    </a>
-
     <button type="button" class="session-topbar__icon-btn"
             :class="{ 'session-topbar__icon-btn--on': detailsOpen }"
             @click="toggleDetails()"

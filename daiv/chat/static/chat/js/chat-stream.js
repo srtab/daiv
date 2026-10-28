@@ -1366,7 +1366,7 @@
     // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
     turnHasActions(turn, ti) {
       if (turn.role === "run_status") return false;
-      return !!turn.sent_at || !!turn.received_at || !!turn.retry_url || this.canCopyTurn(turn, ti);
+      return !!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn, ti);
     },
 
     // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.
@@ -1731,6 +1731,8 @@
         const v = evt.value || {};
         if (v.using) this._applyRepoState({ ref: v.using });
         console.debug("chat: ref_fallback %o → %o", v.requested, v.using);
+      } else if (type === AGUI.CUSTOM && evt.name === "run_record") {
+        if (this._activeRun && evt.value?.id) this._activeRun.recordId = evt.value.id;
       } else if (type === AGUI.CUSTOM && evt.name === "resolved_env") {
         // Server resolved Auto → real env for this run. Swap the locked pill text in
         // place when the user is still on Auto client-side; an explicit mid-flight
@@ -1796,9 +1798,14 @@
       }
     },
 
+    // Keyed by the Run row once the server names it, so the marker matches the one a reload renders.
+    _runStatusId() {
+      const run = this._activeRun;
+      return `run-status-${run ? run.recordId || run.runId : uuid()}`;
+    },
+
     _pushRunStatus(status, message) {
-      const runId = this._activeRun ? this._activeRun.runId : uuid();
-      const id = `run-status-${runId}`;
+      const id = this._runStatusId();
       const existing = this.turns.find((t) => t.id === id);
       if (existing) {
         existing.status = status;
@@ -1810,8 +1817,9 @@
     },
 
     _hasRunStatusMarker() {
-      const runId = this._activeRun ? this._activeRun.runId : null;
-      return runId != null && this.turns.some((t) => t.id === `run-status-${runId}`);
+      if (!this._activeRun) return false;
+      const id = this._runStatusId();
+      return this.turns.some((t) => t.id === id);
     },
 
     _appendTextSegment(turn, content) {

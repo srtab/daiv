@@ -5,18 +5,16 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import patch
 
 from django.contrib.sites.models import Site
-from django.urls import reverse
 from django.utils import timezone
 
 import pytest
 from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
 from sessions.executor.lock import LiveRun, SessionActivity
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
-from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
+from sessions.models import CHAT_PROMPT_MAX_LENGTH, Run, RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.transcript import RETRY_MESSAGE, annotate_transcript, expired_run_turns, retry_message
 from sessions.turns import build_turns
 
 from core.constants import (
@@ -127,6 +125,7 @@ def test_pre_checkpoint_failure_synthesizes_user_turn_and_marker():
         "id": "run-r2",
         "role": "user",
         "segments": [{"type": "text", "content": "please fix X"}],
+        "rebuilt": True,
         "run_id": "r2",
     }
 
@@ -213,6 +212,7 @@ def test_synthetic_turns_marker_only_when_no_prompt():
         "role": "run_status",
         "status": "failed",
         "message": RUN_FAILED_MESSAGE,
+        "rebuilt": True,
         "run_id": "r1",
     }
 
@@ -601,46 +601,50 @@ def test_expired_run_turns_query_once_for_every_run(django_assert_num_queries):
         assert len(expired_run_turns(runs, [])) == 3
 
 
-def _retryable(rid, repo_id="group/repo", *, is_retryable=True):
-    return SimpleNamespace(id=rid, repo_id=repo_id, is_retryable=is_retryable)
+def _failed(rid="r1", **kwargs):
+    return _run(rid, **{"status": RunStatus.FAILED, "error_message": RUN_FAILED_MESSAGE, "prompt": "fix it", **kwargs})
 
 
-def test_mark_retryable_links_the_run_composer_from_the_runs_anchor_turn():
-    turns = [{**_user("h1"), "run_id": "r1"}, _assistant("a1")]
+def test_retry_message_asks_again_when_the_failed_run_is_in_the_checkpoint():
+    runs = [_failed(message_id="h1")]
 
-    with patch("sessions.transcript.runnable_repo_ids", return_value={"group/repo"}):
-        urls = mark_retryable(turns, [_retryable("r1")], user=None)
-
-    assert [t.get("retry_url") for t in turns] == [f"{reverse('runs:agent_run_new')}?from=r1", None]
-    assert urls == {"r1": f"{reverse('runs:agent_run_new')}?from=r1"}
+    assert retry_message(annotate_transcript([_user("h1", "fix it"), _assistant("a1")], runs), runs) == RETRY_MESSAGE
 
 
-def test_mark_retryable_skips_a_run_the_viewer_cannot_run_on_the_repo():
-    turns = [{**_user("h1"), "run_id": "r1"}]
+@pytest.mark.parametrize("trigger_type", [SessionOrigin.CHAT, SessionOrigin.UI_JOB])
+def test_retry_message_resends_the_prompt_of_a_run_that_never_checkpointed(trigger_type):
+    runs = [_failed(message_id="h1", trigger_type=trigger_type)]
 
-    with patch("sessions.transcript.runnable_repo_ids", return_value=set()) as runnable:
-        mark_retryable(turns, [_retryable("r1")], user="viewer")
-
-    assert "retry_url" not in turns[0]
-    runnable.assert_called_once_with("viewer", {"group/repo"})
+    assert retry_message(annotate_transcript([], runs), runs) == "fix it"
 
 
-def test_mark_retryable_skips_a_run_that_is_not_retryable_without_checking_access():
-    turns = [{**_user("h1"), "run_id": "r1"}]
+def test_retry_message_offers_nothing_for_a_cut_chat_prompt_that_never_checkpointed():
+    runs = [_failed(message_id="h1", prompt="x" * CHAT_PROMPT_MAX_LENGTH)]
 
-    with patch("sessions.transcript.runnable_repo_ids") as runnable:
-        mark_retryable(turns, [_retryable("r1", is_retryable=False)], user=None)
-
-    assert "retry_url" not in turns[0]
-    runnable.assert_not_called()
+    assert retry_message(annotate_transcript([], runs), runs) == ""
 
 
-def test_mark_retryable_checks_every_repo_in_one_call():
-    turns = [{**_user(f"h{i}"), "run_id": f"r{i}"} for i in range(3)]
-    runs = [_retryable("r0"), _retryable("r1"), _retryable("r2", repo_id="group/other")]
+def test_retry_message_looks_at_the_newest_run_only():
+    runs = [_failed("r1", message_id="h1"), _run("r2", message_id="h2")]
+    turns = annotate_transcript([_user("h1"), _assistant("a1"), _user("h2"), _assistant("a2")], runs)
 
-    with patch("sessions.transcript.runnable_repo_ids", return_value={"group/repo"}) as runnable:
-        mark_retryable(turns, runs, user=None)
+    assert retry_message(turns, runs) == ""
 
-    assert [("retry_url" in t) for t in turns] == [True, True, False]
-    runnable.assert_called_once_with(None, {"group/repo", "group/other"})
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        _run("r1", status=RunStatus.FAILED, error_message=CANCELLED_BY_USER_MESSAGE, prompt="fix it"),
+        _run("r1", status=RunStatus.FAILED, error_message=INTERRUPTED_MESSAGE, prompt="fix it"),
+        _failed(trigger_type=SessionOrigin.API_JOB, is_cancelled=True),
+        _failed(trigger_type=SessionOrigin.ISSUE_WEBHOOK),
+        _failed(trigger_type=SessionOrigin.DELEGATED_JOB),
+    ],
+    ids=["user-cancel", "interrupted", "coordinator-cancel", "issue-webhook", "delegated"],
+)
+def test_retry_message_offers_nothing_for_a_stopped_run_or_one_a_chat_turn_cannot_stand_in_for(run):
+    assert retry_message(annotate_transcript([], [run]), [run]) == ""
+
+
+def test_retry_message_offers_nothing_without_runs():
+    assert retry_message([], []) == ""

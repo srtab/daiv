@@ -178,8 +178,8 @@ class RunQuerySet(models.QuerySet["Run"]):
     def with_retried(self, user: User) -> models.QuerySet[Run]:
         """Annotate ``retried``: a later run in another session took the run up again.
 
-        A job's Retry starts a new session, so that is a later run of the same schedule, or a later prompt-driven
-        run ``user`` started on the same repository with the same prompt.
+        That is a later run of the same schedule, or a later prompt-driven run ``user`` started on the same
+        repository with the same prompt.
         """
         from sessions.models import SessionOrigin
 
