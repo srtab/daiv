@@ -409,6 +409,8 @@ def test_no_retry_when_the_server_offers_none():
     assert _run([["offers-retry", [_marker("run-status-r2")]]], initial={**RETRYABLE, "retry": ""})["seen"] == [[False]]
 
 
-@pytest.mark.parametrize("step", [["set", {"streaming": True}], ["set", {"waiting": True}], ["run-ended", None]])
-def test_no_retry_while_a_run_is_busy_or_settling(step):
+@pytest.mark.parametrize(
+    "step", [["set", {"streaming": True}], ["set", {"waiting": True}], ["run-ended", None], ["set", {"archived": True}]]
+)
+def test_no_retry_while_a_run_is_busy_or_settling_or_the_session_is_archived(step):
     assert _run([step, ["offers-retry", [_marker("run-status-r2")]]], initial=RETRYABLE)["seen"] == [[False]]

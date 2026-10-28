@@ -93,7 +93,7 @@ document.addEventListener("alpine:init", () => {
       return this.latest;
     },
     canRetry(turn) {
-      return !this.busy && Boolean(this.latest?.retry) && turn.id === this.latest.marker_id;
+      return !this.busy && !this.archived && Boolean(this.latest?.retry) && turn.id === this.latest.marker_id;
     },
     // Holds "running" from a run's end until sessionSync's next fetch brings its settled status, rather than
     // flashing the previous run's.
