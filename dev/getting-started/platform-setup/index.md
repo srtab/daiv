@@ -184,6 +184,7 @@ DAIV uses GitHub App authentication to securely interact with your repositories.
    - Issues: **Read & Write** (to read and comment on issues)
    - Pull requests: **Read & Write** (to create and update pull requests)
    - Actions: **Read-only** (to read workflow runs and job logs for [Pipeline Watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md))
+   - Workflows: **Read & Write** (optional; lets DAIV push changes to files under `.github/workflows/`, such as a conflict resolved there. Code running in the sandbox can then change workflows too, and they run with the repository's Actions secrets)
    - Metadata: **Read-only** (automatically selected)
    - **Subscribe to events:**
    - ✅ Push
