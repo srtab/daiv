@@ -36,6 +36,9 @@ jobs:
       - name: Run linting
         run: make lint
 
+      - name: Validate DESIGN.md
+        run: make lint-design
+
   typing:
     name: typing
     runs-on: ubuntu-latest

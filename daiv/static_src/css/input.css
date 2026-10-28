@@ -21,11 +21,11 @@
   --app-sidebar-width: 4rem;
   --app-content-gutter: 1.5rem;
 
-  /* Dark-only semantic token layer, declared once here — DESIGN.md documents the roles,
-     nothing else restates a value. They live in the Tailwind v4 `--color-*` namespace so
-     the utilities generate (bg-ground, text-text-muted, border-border, …). There is no
-     light variant. The `status-*` ramp is declared ahead of the surfaces that read it;
-     Tailwind emits nothing for a token no utility uses. */
+  /* Dark-only semantic token layer, declared once here — DESIGN.md mirrors the values and
+     documents the roles. They live in the Tailwind v4 `--color-*` namespace so the
+     utilities generate (bg-ground, text-text-muted, border-border, …). There is no light
+     variant. The `status-*` ramp is declared ahead of the surfaces that read it; Tailwind
+     emits nothing for a token no utility uses. */
   --color-ground: #0d1117; /* base plane */
   --color-surface-1: #10151d; /* sidebar + mobile top bar */
   --color-surface-2: #161c26; /* cards + hero */
@@ -35,7 +35,7 @@
   --color-text: #e6edf3; /* primary content */
   --color-text-strong: #ffffff; /* the single most-important number only */
   --color-text-muted: #9aa4b0; /* secondary meta */
-  --color-text-faint: #767f8e; /* timestamps / captions (AA-fixed) */
+  --color-text-faint: #878f9c; /* timestamps / captions (AA on every surface) */
 
   --color-brand: #8b5cf6; /* violet — WHO / brand fills & mark only, never a CTA */
   --color-brand-bright: #a78bfa; /* violet text/glyphs needing an AA lift */
@@ -49,7 +49,7 @@
   --color-status-clear: #3fb950; /* all-clear (green) */
   --color-status-found: #d6a036; /* found-issues / "fix it" (amber) */
   --color-status-attn: #38bdf8; /* needs-attention / "review this" (cyan) */
-  --color-status-fail: #f85149; /* failed tooling / "retry" (red) */
+  --color-status-fail: #f8564e; /* failed tooling / "retry" (red) */
 
   /* Flat elevation: persistent surfaces carry NO shadow. This single overlay shadow is
      reserved for transient overlays (menus / popovers / dialogs). */

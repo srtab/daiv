@@ -108,6 +108,7 @@ DAIV uses [ruff](https://github.com/astral-sh/ruff) for linting and formatting:
 - **Formatting**: `make lint-format`
 - **Linting and formatting**: `make lint`
 - **Fix linting and formatting issues**: `make lint-fix`
+- **Validate `DESIGN.md`** against the [design.md](https://github.com/google-labs-code/design.md) spec: `make lint-design` (needs Node; CI runs it)
 
 Our code formatting configuration includes:
 
