@@ -119,6 +119,20 @@ async def test_push_head_to_raises_permission_error_on_auth_failure() -> None:
         await gm.push_head_to("b")
 
 
+async def test_push_head_to_names_the_missing_workflows_permission() -> None:
+    gm, _ = _sandbox_manager({
+        "push origin HEAD:b": (
+            1,
+            "To https://github.com/x/y.git\n"
+            " ! [remote rejected]   HEAD -> b (refusing to allow a GitHub App to create or update workflow "
+            "`.github/workflows/ci.yml` without `workflows` permission)\n"
+            "error: failed to push some refs to 'https://github.com/x/y.git'\n",
+        )
+    })
+    with pytest.raises(GitPushPermissionError, match=r"Workflows.*Read and write"):
+        await gm.push_head_to("b")
+
+
 async def test_push_head_to_raises_network_error_on_unreachable_host() -> None:
     gm, _ = _sandbox_manager({
         "push origin HEAD:b": (128, "fatal: unable to access 'https://...': Could not resolve host: gitlab.example.com")
