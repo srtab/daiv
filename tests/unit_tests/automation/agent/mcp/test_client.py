@@ -134,15 +134,6 @@ class TestListTools:
 
         assert classify(exc_info.value).message == "HTTP 503 Service Unavailable for url 'http://test/sse'"
 
-    async def test_connect_failure_is_not_relabelled_by_a_stale_recorded_status(self):
-        client = build_client("http", "http://127.0.0.1:1/mcp", None)
-        client.status_recorder.last = httpx2.Response(503, request=httpx2.Request("POST", "http://elsewhere/mcp"))
-
-        with pytest.raises(Exception) as exc_info:  # noqa: PT011
-            await list_tools(client)
-
-        assert not isinstance(exc_info.value, httpx2.HTTPStatusError)
-
     async def test_lists_tools_from_a_legacy_server(self):
         async with serve(stateless=False, routes=LEGACY_SERVER) as gate:
             tools = await list_tools(client_for(gate))
@@ -195,6 +186,20 @@ def _tool_call(name: str, **args) -> dict:
     return {"id": "call-1", "name": name, "args": args, "type": "tool_call"}
 
 
+async def _call_big(size: int):
+    server = MCPServer(name="bulky")
+
+    @server.tool()
+    def big() -> str:
+        """Answer with a large payload."""
+        return "x" * size
+
+    # Only a legacy server answers tool calls over SSE; a modern one replies with plain JSON.
+    async with serve(server, routes=LEGACY_SERVER) as gate:
+        tools = await list_tools(client_for(gate))
+        return await tools[0].ainvoke(_tool_call("big"))
+
+
 def _fail_write_with_503_and_others_with_a_protocol_error(request):
     if request["params"]["name"] == "write":
         return http_status(503)(request)
@@ -202,28 +207,26 @@ def _fail_write_with_503_and_others_with_a_protocol_error(request):
 
 
 class TestToolCallFailures:
-    async def test_protocol_failure_becomes_an_error_tool_message(self, caplog):
-        async with serve(routes={"tools/call": jsonrpc_error("upstream exploded")}) as gate:
+    @pytest.mark.parametrize(
+        ("route", "expected", "traceback"),
+        [
+            pytest.param(jsonrpc_error("upstream exploded"), "upstream exploded", True, id="protocol-error"),
+            pytest.param(
+                http_status(503), "HTTP 503 Service Unavailable for url 'http://test/mcp'", False, id="http-error"
+            ),
+        ],
+    )
+    async def test_failure_becomes_an_error_tool_message_logged_at_error(self, caplog, route, expected, traceback):
+        async with serve(routes={"tools/call": route}) as gate:
             echo = next(tool for tool in await list_tools(client_for(gate)) if tool.name == "echo")
             with caplog.at_level("WARNING", logger="daiv.tools"):
                 message = await echo.ainvoke(_tool_call("echo", text="hi"))
 
         assert message.status == "error"
-        assert "upstream exploded" in message.content
+        assert expected in message.content
         assert "may have run it" not in message.content
         records = [r for r in caplog.records if r.name == "daiv.tools"]
-        assert [(r.levelname, r.exc_info is not None) for r in records] == [("ERROR", True)]
-
-    async def test_http_failure_reports_its_status_at_error_level(self, caplog):
-        async with serve(routes={"tools/call": http_status(503)}) as gate:
-            echo = next(tool for tool in await list_tools(client_for(gate)) if tool.name == "echo")
-            with caplog.at_level("WARNING", logger="daiv.tools"):
-                message = await echo.ainvoke(_tool_call("echo", text="hi"))
-
-        assert message.status == "error"
-        assert "HTTP 503 Service Unavailable for url 'http://test/mcp'" in message.content
-        records = [r for r in caplog.records if r.name == "daiv.tools"]
-        assert [(r.levelname, r.exc_info is None) for r in records] == [("ERROR", True)]
+        assert [(r.levelname, bool(r.exc_info)) for r in records] == [("ERROR", traceback)]
 
     async def test_failed_write_tool_warns_that_it_may_have_run(self):
         async with serve(routes={"tools/call": jsonrpc_error("upstream exploded")}) as gate:
@@ -257,16 +260,8 @@ class TestToolCallFailures:
 
     async def test_sse_result_over_the_size_cap_becomes_an_error_tool_message(self, monkeypatch):
         monkeypatch.setattr("automation.agent.mcp.client._MAX_STREAMABLE_HTTP_EVENT_SIZE", 64 * 1024)
-        server = MCPServer(name="bulky")
 
-        @server.tool()
-        def big() -> str:
-            """Answer with a payload over the cap."""
-            return "x" * (128 * 1024)
-
-        async with serve(server, routes=LEGACY_SERVER) as gate:
-            tools = await list_tools(client_for(gate))
-            message = await tools[0].ainvoke(_tool_call("big"))
+        message = await _call_big(128 * 1024)
 
         assert message.status == "error"
         assert "exceeded the 65536 byte limit" in message.content
@@ -321,18 +316,9 @@ class TestToolCallFailures:
         assert message.content[0]["text"] == "Error executing tool boom"
 
     async def test_sse_result_larger_than_one_mib_arrives_whole(self):
-        server = MCPServer(name="bulky")
         size = 2 * 1024 * 1024
 
-        @server.tool()
-        def big() -> str:
-            """Answer with a large payload."""
-            return "x" * size
-
-        # Only a legacy server answers tool calls over SSE; a modern one replies with plain JSON.
-        async with serve(server, routes=LEGACY_SERVER) as gate:
-            tools = await list_tools(client_for(gate))
-            message = await tools[0].ainvoke(_tool_call("big"))
+        message = await _call_big(size)
 
         assert message.status == "success"
         assert len(message.content[0]["text"]) == size

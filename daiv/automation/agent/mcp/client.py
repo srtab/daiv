@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +19,8 @@ with suppress_langchain_beta_warning():
     from langchain.mcp import as_langchain_tool
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from fastmcp.client.logging import LogMessage
     from langchain_core.tools.base import BaseTool
 
@@ -56,14 +59,22 @@ async def _record_call_status(response: httpx2.Response) -> None:
         await recorder(response)
 
 
+@contextmanager
+def _recording_status(recorder: StatusRecorder | None) -> Generator[None]:
+    token = _call_status.set(recorder)
+    try:
+        yield
+    finally:
+        _call_status.reset(token)
+
+
 async def _drop_server_log(message: LogMessage) -> None:
     """fastmcp's default handler would re-emit server-chosen log levels on its own unfiltered logger."""
 
 
 class StatusTrackingClient(Client):
-    def __init__(self, transport, status_recorder: StatusRecorder):
+    def __init__(self, transport):
         super().__init__(transport, log_handler=_drop_server_log)
-        self.status_recorder = status_recorder
 
 
 def build_client(
@@ -73,7 +84,6 @@ def build_client(
 
     ``http_transport`` is the test seam (e.g. ``httpx2.ASGITransport``); ``None`` in production.
     """
-    recorder = StatusRecorder()
 
     def httpx_client_factory(
         headers: dict[str, str] | None = None,
@@ -86,7 +96,7 @@ def build_client(
             timeout=timeout or _DEFAULT_TIMEOUT,
             auth=auth,
             transport=http_transport,
-            event_hooks={"response": [recorder, _record_call_status]},
+            event_hooks={"response": [_record_call_status]},
             **kwargs,
         )
 
@@ -101,7 +111,7 @@ def build_client(
         mcp_transport = SSETransport(url, headers=headers, httpx_client_factory=httpx_client_factory)
     else:
         raise ValueError(f"Unsupported transport: {transport!r}")
-    return StatusTrackingClient(mcp_transport, recorder)
+    return StatusTrackingClient(mcp_transport)
 
 
 async def list_tools(client: StatusTrackingClient) -> list[BaseTool]:
@@ -109,14 +119,16 @@ async def list_tools(client: StatusTrackingClient) -> list[BaseTool]:
 
     mcp 2.x hides a failed POST's status behind a generic ``MCPError``, so it is restored from the recorder.
     """
+    recorder = StatusRecorder()
     try:
-        async with client:
-            if client.initialize_result is not None:
-                # A handshake-era server: skip the rejected ``server/discover`` probe on every tool-call reconnect.
-                client.mode = "legacy"
-            tools = [await as_langchain_tool(tool, client) for tool in await client.list_tools()]
+        with _recording_status(recorder):
+            async with client:
+                if client.initialize_result is not None:
+                    # A handshake-era server: skip the rejected ``server/discover`` probe on every tool-call reconnect.
+                    client.mode = "legacy"
+                tools = [await as_langchain_tool(tool, client) for tool in await client.list_tools()]
     except Exception as exc:
-        if (restored := _restore_status(client.status_recorder, exc)) is not None:
+        if (restored := _restore_status(recorder, exc)) is not None:
             raise restored from exc
         raise
     for tool in tools:
@@ -151,20 +163,17 @@ def _report_call_failures(tool: BaseTool, client: StatusTrackingClient) -> None:
 
     async def coroutine(**arguments):
         recorder = StatusRecorder() if tracks_status else None
-        token = _call_status.set(recorder)
         try:
-            return await call(**arguments)
+            with _recording_status(recorder):
+                return await call(**arguments)
         except ToolException, GraphBubbleUp:
             raise
         except Exception as exc:  # never BaseException: CancelledError must propagate
             failure = classify(_restore_status(recorder, exc) or exc)
-            if failure.kinds <= SOFT_FAILURES:
-                logger.error("MCP tool %r failed: %s", tool.name, failure.message)
-            else:
-                logger.exception("MCP tool %r failed: %s", tool.name, failure.message)
+            logger.error(
+                "MCP tool %r failed: %s", tool.name, failure.message, exc_info=not failure.kinds <= SOFT_FAILURES
+            )
             raise MCPCallError(f"The MCP tool call failed: {failure.message}{retry_note}") from exc
-        finally:
-            _call_status.reset(token)
 
     def handle_tool_error(error: ToolException):
         return str(error) if isinstance(error, MCPCallError) else handle_server_error(error)
