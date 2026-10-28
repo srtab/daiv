@@ -115,6 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed DAIV on GitHub failing to push any change to a file under `.github/workflows/`, such as resolving a conflict in a workflow, even when the GitHub App has the **Workflows** permission. Its git token now carries that permission when the installation grants it, and without the grant the run fails with a message naming the missing permission instead of an unexpected error.
 - Fixed a job left `READY` forever when its submitter stopped before queueing it (a client that disconnected mid-submit, for example), which on an API or MCP thread also kept every later job on that thread queued. The `sync_stuck_runs` sweep now fails such a job ten minutes after it was created and releases its thread's queue.
 - Fixed the session page letting you send a message while the session's run was still waiting to start, which started a chat turn ahead of the queued job. The composer now stays locked until the run starts, a chat turn sent meanwhile, from another tab or the API, gets a `409`, and the page shows the run's prompt as pending with a "Waiting in queue" line in place of the boxed queue card.
 - Fixed concurrent GitHub API calls able to send each other's request: the GitHub client is shared by the whole process, and PyGithub kept each request on the shared connection between building and sending it, so two calls at once, such as two webhooks, could both send the same request and one of them act on the other's response.
