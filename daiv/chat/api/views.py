@@ -215,6 +215,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     # ``thread.user_id != user.id`` equality check and the ChatThreadFromActivity bridge.
     if not created and not await Session.objects.by_owner(user).filter(pk=session.pk).aexists():
         raise HttpError(403, "Thread not found")
+    if not created and await session.hidden_by.filter(user=user).aexists():
+        raise HttpError(400, "You archived this session. Unarchive it to send follow-ups.")
 
     # Re-validate the pinned override before any other gate: a Provider row may
     # have been disabled or renamed since the session was created, OR a thinking

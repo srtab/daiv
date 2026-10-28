@@ -56,6 +56,7 @@ for (const step of script) {
   if (step.op === "toggle") chat.toggleQuestionOption(seg, step.qi, step.label);
   if (step.op === "type") chat.setQuestionText(seg, step.qi, step.value);
   if (step.op === "streaming") chat.streaming = step.value;
+  if (step.op === "archived") chat.archived = step.value;
   if (step.op === "setDraft") chat.draftMessage = step.value;
   if (step.op === "answer") await chat.answerQuestion(seg);
   if (step.op === "skip") await chat.skipQuestion();
@@ -68,6 +69,7 @@ for (const step of script) {
     highlighted: chat.questionsOf(seg).map((q, qi) =>
       (q.options || []).filter((o) => chat.isOptionSelected(seg, qi, o.label, 1)).map((o) => o.label)),
     draft: chat.draftMessage,
+    canSend: chat.canSend("follow-up"),
   };
 }
 out.sent = sent;
@@ -103,6 +105,12 @@ def test_the_card_closes_while_a_run_is_in_flight_or_once_the_user_replied():
     assert _drive([{"op": "streaming", "value": True}, {"op": "read", "key": "s"}])["s"]["open"] is False
     reply = {"id": "u-2", "role": "user", "segments": [{"type": "text", "content": "x"}]}
     assert _drive([{"op": "read", "key": "s"}], extra_turns=[reply])["s"]["open"] is False
+
+
+def test_archiving_closes_the_card_and_the_composer():
+    out = _drive([{"op": "read", "key": "before"}, {"op": "archived", "value": True}, {"op": "read", "key": "after"}])
+    assert (out["before"]["open"], out["before"]["canSend"]) == (True, True)
+    assert (out["after"]["open"], out["after"]["canSend"]) == (False, False)
 
 
 def test_answer_composes_one_line_per_question():

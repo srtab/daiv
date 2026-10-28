@@ -318,6 +318,17 @@ class TestNeedsYouInbox:
         assert inbox["items"] == []
         assert inbox["total"] == 0
 
+    def test_leaves_out_what_you_archived(self, admin_user, member_user, member_client):
+        asking = _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.WAITING_INPUT)
+        failed = _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
+        HiddenSession.objects.create(session=asking, user=member_user)
+        HiddenSession.objects.create(session=failed, user=admin_user)
+
+        inbox = _inbox(member_client)
+
+        assert _keys(inbox) == ["failed"]
+        assert inbox["total"] == 1
+
     def test_caps_the_list_and_links_to_the_lists_it_came_from(self, member_user, member_client):
         for days_ago in range(INBOX_LIMIT + 2):
             _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED, days_ago=days_ago)
@@ -686,6 +697,17 @@ class TestYourWeek:
         legend = {item["label"]: item["count"] for item in week["chart"]["legend"]}
         assert legend == {"Changed code": 1, "Done, no changes": 1, "Needed you": 2, "Failed": 1}
         assert (week["runs"], week["sessions"]) == (5, 1)
+
+    def test_leaves_out_sessions_you_archived(self, member_user, member_client):
+        _week_run(_bare_session(member_user))
+        archived = _bare_session(member_user, title="Archived work")
+        _week_run(archived, RunStatus.FAILED, merge_request_iid=7)
+        HiddenSession.objects.create(session=archived, user=member_user)
+
+        week = _week(member_client)
+
+        assert (week["runs"], week["sessions"]) == (1, 1)
+        assert week["merge_requests"] == []
 
     def test_only_your_sessions_and_the_last_seven_days(self, admin_user, member_user, member_client):
         mine = _bare_session(member_user, days_ago=7)
