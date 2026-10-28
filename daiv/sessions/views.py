@@ -47,7 +47,7 @@ from sessions.filters import (
     resolve_scope,
 )
 from sessions.forms import AgentRunCreateForm
-from sessions.header import build_session_header
+from sessions.header import build_session_header, retry_for
 from sessions.hydration import ahydrate_thread
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
@@ -356,7 +356,8 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
         ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
         ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
-        ctx["header"] = build_session_header(session, runs, merge_request=merge_request)
+        retry = retry_for(session, runs, ctx["turns"], self.request.user)
+        ctx["header"] = build_session_header(session, runs, retry=retry, merge_request=merge_request)
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
         ctx["max_title_length"] = MAX_TITLE_LENGTH

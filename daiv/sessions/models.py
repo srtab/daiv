@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.sessions")
 
+CHAT_PROMPT_MAX_LENGTH = 2000
+
 
 class RunStatus(models.TextChoices):
     QUEUED = "QUEUED", _("Queued")
@@ -66,6 +68,13 @@ class SessionOrigin(models.TextChoices):
     def prompt_driven(cls) -> frozenset[str]:
         """Job triggers created from an explicit prompt (API / MCP / UI batch submits and an agent's delegation)."""
         return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB})
+
+    @classmethod
+    def retryable(cls) -> frozenset[str]:
+        """Triggers whose failed run a follow-up chat turn in the same session retries: chat, and the jobs and
+        schedules a person started. A webhook run reports back through its own flow and a delegated run to its
+        coordinator, which a chat turn does neither of."""
+        return frozenset({cls.CHAT, cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.SCHEDULE})
 
     @classmethod
     def daiv_authored(cls) -> frozenset[str]:

@@ -13,8 +13,8 @@ import pytest
 from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
 from sessions.executor.lock import LiveRun, SessionActivity
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
-from sessions.transcript import annotate_transcript, expired_run_turns
+from sessions.models import CHAT_PROMPT_MAX_LENGTH, Run, RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.transcript import RETRY_MESSAGE, annotate_transcript, expired_run_turns, retry_message
 from sessions.turns import build_turns
 
 from core.constants import (
@@ -597,3 +597,52 @@ def test_expired_run_turns_query_once_for_every_run(django_assert_num_queries):
 
     with django_assert_num_queries(1):
         assert len(expired_run_turns(runs, [])) == 3
+
+
+def _failed(rid="r1", **kwargs):
+    return _run(rid, **{"status": RunStatus.FAILED, "error_message": RUN_FAILED_MESSAGE, "prompt": "fix it", **kwargs})
+
+
+def test_retry_message_asks_again_when_the_failed_run_is_in_the_checkpoint():
+    runs = [_failed(message_id="h1")]
+
+    assert retry_message(annotate_transcript([_user("h1", "fix it"), _assistant("a1")], runs), runs) == RETRY_MESSAGE
+
+
+@pytest.mark.parametrize("trigger_type", [SessionOrigin.CHAT, SessionOrigin.UI_JOB])
+def test_retry_message_resends_the_prompt_of_a_run_that_never_checkpointed(trigger_type):
+    runs = [_failed(message_id="h1", trigger_type=trigger_type)]
+
+    assert retry_message(annotate_transcript([], runs), runs) == "fix it"
+
+
+def test_retry_message_offers_nothing_for_a_cut_chat_prompt_that_never_checkpointed():
+    runs = [_failed(message_id="h1", prompt="x" * CHAT_PROMPT_MAX_LENGTH)]
+
+    assert retry_message(annotate_transcript([], runs), runs) == ""
+
+
+def test_retry_message_looks_at_the_newest_run_only():
+    runs = [_failed("r1", message_id="h1"), _run("r2", message_id="h2")]
+    turns = annotate_transcript([_user("h1"), _assistant("a1"), _user("h2"), _assistant("a2")], runs)
+
+    assert retry_message(turns, runs) == ""
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        _run("r1", status=RunStatus.FAILED, error_message=CANCELLED_BY_USER_MESSAGE, prompt="fix it"),
+        _run("r1", status=RunStatus.FAILED, error_message=INTERRUPTED_MESSAGE, prompt="fix it"),
+        _failed(trigger_type=SessionOrigin.API_JOB, is_cancelled=True),
+        _failed(trigger_type=SessionOrigin.ISSUE_WEBHOOK),
+        _failed(trigger_type=SessionOrigin.DELEGATED_JOB),
+    ],
+    ids=["user-cancel", "interrupted", "coordinator-cancel", "issue-webhook", "delegated"],
+)
+def test_retry_message_offers_nothing_for_a_stopped_run_or_one_a_chat_turn_cannot_stand_in_for(run):
+    assert retry_message(annotate_transcript([], [run]), [run]) == ""
+
+
+def test_retry_message_offers_nothing_without_runs():
+    assert retry_message([], []) == ""

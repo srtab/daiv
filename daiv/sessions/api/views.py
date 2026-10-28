@@ -11,7 +11,7 @@ from ninja.security import django_auth
 from accounts.api.security import AuthBearer
 from codebase.authorization import can_run
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
-from sessions.header import awatch_state, latest_run_payload, merge_request_iid, watch_payload
+from sessions.header import awatch_state, latest_run_payload, merge_request_iid, retry_for, watch_payload
 from sessions.hydration import ahydrate_thread
 from sessions.models import HiddenSession, Session, WatchState
 from sessions.pipeline_watch.service import PipelineWatch
@@ -131,7 +131,9 @@ async def session_turns(request: HttpRequest, thread_id: str):
     def finish_turns():
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
-        return live_run_for(activity.live, session, user), latest_run_payload(runs)
+        return live_run_for(activity.live, session, user), latest_run_payload(
+            runs, retry_for(session, runs, turns, user)
+        )
 
     live, latest_run = await sync_to_async(finish_turns)()
     response = {

@@ -1042,6 +1042,21 @@ def test_detail_shows_the_ci_watch_without_a_merge_request_payload(member_client
 
 
 @pytest.mark.django_db
+def test_detail_hands_the_latest_runs_retry_to_the_page(member_client, member_user):
+    session = _create_session(user=member_user)
+    run = _create_run(session, status=RunStatus.FAILED, prompt="fix it")
+
+    with patch("sessions.header.can_run", return_value=True):
+        resp = _get_detail(member_client, session)
+
+    assert (resp.context["header"]["latest_run"]["id"], resp.context["header"]["latest_run"]["retry"]) == (
+        str(run.id),
+        "fix it",
+    )
+    assert 'data-testid="run-retry"' in resp.content.decode()
+
+
+@pytest.mark.django_db
 def test_detail_has_no_ci_watch_when_off(member_client, member_user):
     resp = _get_detail(member_client, _create_session(user=member_user))
 

@@ -18,7 +18,14 @@ from sessions.live import relay
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import SubagentEventFilter
 from sessions.live.publisher import close_graph_stream, sanitize_run_error
-from sessions.models import Run, RunStatus, SessionOrigin, agent_result_field_updates, usage_field_updates
+from sessions.models import (
+    CHAT_PROMPT_MAX_LENGTH,
+    Run,
+    RunStatus,
+    SessionOrigin,
+    agent_result_field_updates,
+    usage_field_updates,
+)
 
 from automation.agent.usage_tracking import build_usage_summary
 from codebase.base import Scope
@@ -49,7 +56,7 @@ async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str,
         trigger_type=SessionOrigin.CHAT,
         status=RunStatus.RUNNING,
         user_id=user_id,
-        prompt=prompt[:2000],
+        prompt=prompt[:CHAT_PROMPT_MAX_LENGTH],
         message_id=message_id,
         repo_id=repo_id,
         ref=ref,

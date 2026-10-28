@@ -438,7 +438,7 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
         thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=user
     )
     await Run.objects.acreate(session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="group/project")
-    await Run.objects.acreate(
+    latest = await Run.objects.acreate(
         session=session,
         trigger_type=SessionOrigin.UI_JOB,
         repo_id="group/project",
@@ -447,10 +447,19 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
     )
     hydrated = HydratedThread([], False, None, None, None)
 
-    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
+    with (
+        patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)),
+        patch("sessions.header.can_run", return_value=True),
+    ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
-    assert resp.json()["latest_run"] == {"label": "Failed", "variant": "failed", "finished_at": ""}
+    assert resp.json()["latest_run"] == {
+        "id": str(latest.id),
+        "label": "Failed",
+        "variant": "failed",
+        "finished_at": "",
+        "retry": "fix it",
+    }
     assert "watch" not in resp.json()
     assert resp.json()["run_count"] == 2
 

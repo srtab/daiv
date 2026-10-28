@@ -93,6 +93,15 @@ document.addEventListener("alpine:init", () => {
       if (this.waiting) return { variant: "queued", label: config.labels.queued };
       return this.latest;
     },
+    // The server offers Retry on the latest run only; a run that failed live has the marker the stream pushed,
+    // whose id is the page's, not the run's.
+    canRetry(turn) {
+      if (this.busy || !this.latest?.retry || turn.status !== "failed") return false;
+      return turn.id === `run-status-${this.latest.id}` || turn.id === this.runErrorMarkerId;
+    },
+    retryRun() {
+      return this.submit(this.latest.retry);
+    },
     // Holds "running" from a run's end until sessionSync's next fetch brings its settled status, rather than
     // flashing the previous run's.
     settle() {

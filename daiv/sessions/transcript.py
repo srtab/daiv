@@ -4,7 +4,8 @@
 already-fetched run rows) so the segmentation logic is unit-testable without the database,
 mirroring ``sessions.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
 and messages, then zip them here; for a checkpoint with no messages, ``expired_run_turns``
-restores the prompts and queries the artifacts it no longer carries.
+restores the prompts and queries the artifacts it no longer carries. ``retry_message`` reads the
+annotated turns for what the newest run's Retry sends.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from core.constants import (
 )
 from sessions.artifacts import published_tool_result
 from sessions.executor.lock import SessionActivity
-from sessions.models import RunArtifact, RunStatus, SessionOrigin
+from sessions.models import CHAT_PROMPT_MAX_LENGTH, RunArtifact, RunStatus, SessionOrigin
 from sessions.turns import tool_call_segment
 
 if TYPE_CHECKING:
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from sessions.models import Run
 
 logger = logging.getLogger("daiv.sessions")
+
+RETRY_MESSAGE = "The previous run failed. Please try again."
 
 # Closed value set for a run-status marker's ``status`` key: ``failed`` renders the red
 # error chip, ``aborted`` the neutral "stopped" one. Mirrored client-side in
@@ -61,7 +64,15 @@ def _marker(run: Run) -> dict[str, Any] | None:
         message = RUN_FAILED_MESSAGE
         aborted = False
     status: RunStatusValue = "aborted" if aborted else "failed"
-    return {"id": f"run-status-{run.id}", "role": "run_status", "status": status, "message": message}
+    return {"id": _marker_id(run), "role": "run_status", "status": status, "message": message}
+
+
+def _marker_id(run: Run) -> str:
+    return f"run-status-{run.id}"
+
+
+def _prompt_turn_id(run: Run) -> str:
+    return f"run-{run.id}"
 
 
 def _stamp_run_times(seg_turns: list[dict[str, Any]], run: Run) -> None:
@@ -90,7 +101,7 @@ def _prompt_turns(run: Run, *, pending: bool = False) -> list[dict[str, Any]]:
     """``run``'s prompt as a user turn, flagged ``pending`` while the run waits to start; none without a prompt."""
     if not run.prompt:
         return []
-    user_turn = {"id": f"run-{run.id}", "role": "user", "segments": [{"type": "text", "content": run.prompt}]}
+    user_turn = {"id": _prompt_turn_id(run), "role": "user", "segments": [{"type": "text", "content": run.prompt}]}
     if run.created_at is not None:
         user_turn["sent_at"] = run.created_at.isoformat()
     if pending:
@@ -223,3 +234,25 @@ def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[
             _anchor(run_turns, run)
         result.extend(run_turns)
     return result
+
+
+def retry_message(turns: list[dict[str, Any]], runs: list[Run]) -> str:
+    """What Retry on the newest of ``runs`` sends, for ``turns`` annotated from them; empty when it offers none.
+
+    Offered on a run that failed rather than stopped, from a ``SessionOrigin.retryable`` trigger. Retry posts a chat
+    turn, which hands the agent only its own message: a run whose turns are in the checkpoint gets
+    ``RETRY_MESSAGE``, and one rebuilt from its row by ``_synthetic_turns`` has its prompt sent again.
+    """
+    if not runs:
+        return ""
+    run = runs[-1]
+    marker = _marker(run)
+    if marker is None or marker["status"] != "failed" or run.trigger_type not in SessionOrigin.retryable():
+        return ""
+    rebuilt = {_prompt_turn_id(run), _marker_id(run)}
+    if any(turn.get("run_id") == str(run.id) and turn.get("id") not in rebuilt for turn in turns):
+        return RETRY_MESSAGE
+    # A chat run's stored prompt is cut at the cap, so one that long may not be the whole message.
+    if run.trigger_type == SessionOrigin.CHAT and len(run.prompt) >= CHAT_PROMPT_MAX_LENGTH:
+        return ""
+    return run.prompt

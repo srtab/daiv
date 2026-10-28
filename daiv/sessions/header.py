@@ -1,5 +1,5 @@
-"""What the session page's top bar and details panel show beyond the session's own columns: the latest run's status,
-the CI watch on its merge request, and the issue an issue-webhook session addresses.
+"""What the session page's top bar and details panel show beyond the session's own columns: the latest run's status
+and what its Retry sends, the CI watch on its merge request, and the issue an issue-webhook session addresses.
 
 ``latest_run_payload`` and ``watch_payload`` are also what the turns poll returns, so what the page rendered and what
 keeps it current are built by the same code.
@@ -12,15 +12,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from codebase.authorization import can_run
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
-from sessions.models import SessionOrigin, WatchState
+from sessions.models import Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import WatchStore, watch_thread_id
 from sessions.templatetags.session_tags import status_variant
+from sessions.transcript import retry_message
 
 if TYPE_CHECKING:
-    from sessions.models import Run, Session
+    from accounts.models import User
+    from sessions.models import Run
 
 _WATCH_TONES = {
     WatchState.WATCHING: "attn",
@@ -31,15 +34,29 @@ _WATCH_TONES = {
 }
 
 
-def latest_run_payload(runs: list[Run]) -> dict[str, str] | None:
-    """The newest of ``runs`` (oldest first) as the header's status pill reads it."""
+def retry_for(session: Session, runs: list[Run], turns: list[dict[str, Any]], user: User) -> str:
+    """SYNC ONLY: ``retry_message`` for a ``user`` the chat endpoint lets post to ``session``, else empty."""
+    if not (message := retry_message(turns, runs)):
+        return ""
+    if not can_run(user, session.repo_id) or not Session.objects.by_owner(user).filter(pk=session.pk).exists():
+        return ""
+    return message
+
+
+def latest_run_payload(runs: list[Run], retry: str = "") -> dict[str, str] | None:
+    """The newest of ``runs`` (oldest first) as the header's status pill and the Retry on its marker read it.
+
+    ``retry`` is what ``retry_for`` returned for the same runs.
+    """
     if not runs:
         return None
     latest = runs[-1]
     return {
+        "id": str(latest.id),
         "label": str(latest.get_status_display()),
         "variant": status_variant(latest.status),
         "finished_at": latest.finished_at.isoformat() if latest.finished_at else "",
+        "retry": retry,
     }
 
 
@@ -106,10 +123,12 @@ def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
     return {"iid": iid, "url": f"{html_url.rstrip('/')}/{path}/{iid}"}
 
 
-def build_session_header(session: Session, runs: list[Run], *, merge_request: dict | None = None) -> dict[str, Any]:
+def build_session_header(
+    session: Session, runs: list[Run], *, retry: str = "", merge_request: dict | None = None
+) -> dict[str, Any]:
     """SYNC ONLY: the header's context, for ``runs`` ordered oldest first and the ``merge_request`` the page shows."""
     return {
-        "latest_run": latest_run_payload(runs),
+        "latest_run": latest_run_payload(runs, retry),
         "watch": watch_payload(watch_state(session, merge_request_iid(session, runs, merge_request))),
         "issue": issue_link(session, runs),
         "run_count": len(runs),

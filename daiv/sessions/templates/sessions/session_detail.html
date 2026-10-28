@@ -205,10 +205,12 @@
                     <template x-if="turn.status !== 'aborted'">{% icon "exclamation-triangle" "h-4 w-4" %}</template>
                   </span>
                   <span class="chat-run-status__text" x-text="turn.message"></span>
-                  <button type="button" class="chat-run-status__retry" x-show="canRetry(turn, ti)" @click="retryRun()"
-                          data-testid="run-retry">
-                    {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
-                  </button>
+                  {% if session %}
+                    <button type="button" class="chat-run-status__retry" x-show="canRetry(turn)" @click="retryRun()"
+                            data-testid="run-retry">
+                      {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
+                    </button>
+                  {% endif %}
                 </div>
               </template>
               <template x-if="turn.role !== 'run_status'">

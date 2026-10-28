@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.utils import timezone
 
 import pytest
-from sessions.header import build_session_header, issue_link, latest_run_payload, watch_payload
+from sessions.header import build_session_header, issue_link, latest_run_payload, retry_for, watch_payload
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import watch_thread_id
 
@@ -55,11 +55,36 @@ def test_latest_run_payload_is_none_without_runs():
 def test_latest_run_payload_describes_the_newest_run(status, variant, label):
     session = _session()
     _run(session, status=RunStatus.FAILED)
-    _run(session, status=status)
+    latest = _run(session, status=status)
 
-    payload = latest_run_payload([*session.runs.order_by("created_at")])
+    payload = latest_run_payload([*session.runs.order_by("created_at")], "again")
 
-    assert payload == {"label": label, "variant": variant, "finished_at": ""}
+    assert payload == {"id": str(latest.id), "label": label, "variant": variant, "finished_at": "", "retry": "again"}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("owner", "runnable", "offered"), [(True, True, True), (False, True, False), (True, False, False)]
+)
+def test_retry_for_needs_a_viewer_who_owns_the_session_and_can_run_on_it(member_user, owner, runnable, offered):
+    session = _session(user=member_user if owner else None)
+    runs = [_run(session, status=RunStatus.FAILED, prompt="fix it")]
+
+    with patch("sessions.header.can_run", return_value=runnable) as can_run:
+        retry = retry_for(session, runs, [], member_user)
+
+    assert retry == ("fix it" if offered else "")
+    can_run.assert_called_once_with(member_user, "group/project")
+
+
+@pytest.mark.django_db
+def test_retry_for_skips_the_access_checks_when_nothing_is_retryable(member_user):
+    session = _session(user=member_user)
+
+    with patch("sessions.header.can_run") as can_run:
+        assert retry_for(session, [_run(session)], [], member_user) == ""
+
+    can_run.assert_not_called()
 
 
 @pytest.mark.django_db

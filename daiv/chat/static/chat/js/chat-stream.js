@@ -272,7 +272,6 @@
   const NO_PREFERENCE = "No preference";
   const SKIP_ANSWER = "Skip these questions — use your best judgment and state the assumptions you made.";
   const MULTI_ANSWER_SEP = ", ";
-  const RETRY_MESSAGE = "The previous run failed. Please try again.";
   const answerPrefix = (question) => `**${question.header}** — `;
 
   // Only consider write_todos calls from the current ask. Walking backwards and bailing at
@@ -385,6 +384,8 @@
     streaming: false,
     resuming: !!config.activeRunId,
     waitingSince: config.waitingSince || "",
+    // The marker this page pushed for the server failing its latest run, which the session page offers Retry on.
+    runErrorMarkerId: "",
     runStoppable: config.liveRunStoppable ?? true,
     _source: null,
     _activeRun: null,
@@ -1309,18 +1310,6 @@
       await this.submit(SKIP_ANSWER);
     },
 
-    // Only the newest run can be retried: a later prompt or run marker means the session moved on.
-    canRetry(turn, ti) {
-      if (turn.role !== "run_status" || turn.status !== "failed") return false;
-      if (this.streaming || this.resuming || this.waiting) return false;
-      return !this.turns.slice(ti + 1).some((t) => t.role === "user" || t.role === "run_status");
-    },
-
-    async retryRun() {
-      if (this.streaming || this.resuming) return;
-      await this.submit(RETRY_MESSAGE);
-    },
-
     isTurnVisible(turn, isLast) {
       if (turn.role === "run_status") return true;
       if (this.visibleSegments(turn).length) return true;
@@ -1456,6 +1445,7 @@
     async submit(text = null) {
       const message = text ?? this.draftMessage;
       if (!this.canSend(message) || this.streaming || this.resuming) return;
+      this.runErrorMarkerId = "";
 
       // Read the picker's selection before creating the thread: the live picker is
       // ``x-if``'d on ``!thread``, so assigning ``thread`` first schedules its removal
@@ -1734,7 +1724,7 @@
         } else if (evt.code === "run_interrupted") {
           this._pushRunStatus("aborted", evt.message || "Run was interrupted before completing.");
         } else {
-          this._pushRunStatus("failed", evt.message || "Run failed.");
+          this.runErrorMarkerId = this._pushRunStatus("failed", evt.message || "Run failed.");
         }
       } else if (type === AGUI.CUSTOM && evt.name === "ref_fallback") {
         // The pinned branch was merged/deleted; the server fell back to the default branch
@@ -1818,6 +1808,7 @@
         this.turns.push({ id, role: "run_status", status, message });
       }
       this.scrollToBottom();
+      return id;
     },
 
     _hasRunStatusMarker() {
