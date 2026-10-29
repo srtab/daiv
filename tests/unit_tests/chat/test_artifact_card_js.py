@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import json
 
-from tests.unit_tests.chat.chat_stream_driver import CHAT_STREAM_JS, run_chat_stream
+from tests.unit_tests.chat.chat_stream_driver import run_chat_stream
 from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
 
-TOOL_RENDERERS_JS = CHAT_STREAM_JS.parent / "tool-renderers.js"
-
 BODY = """
-vm.runInContext(readFileSync(payload.renderers, "utf8"), sandbox);
 const chat = registry.chat({ endpoint: "/api/chat" });
 chat.$watch = () => {};
 chat.$nextTick = () => {};
@@ -52,8 +49,7 @@ def _rows(*assistant_turns: list[dict]) -> list:
     for i, segments in enumerate(assistant_turns):
         turns.append({"id": f"u-{i}", "role": "user", "segments": [{"type": "text", "content": "go"}]})
         turns.append({"id": f"a-{i}", "role": "assistant", "segments": segments})
-    payload = {"turns": turns, "renderers": str(TOOL_RENDERERS_JS)}
-    return run_chat_stream(BODY, payload, extra_globals="surfaceGroup: { join: () => () => {} },")
+    return run_chat_stream(BODY, {"turns": turns}, extra_globals="surfaceGroup: { join: () => () => {} },")
 
 
 def test_an_earlier_row_shows_what_a_later_revision_published():

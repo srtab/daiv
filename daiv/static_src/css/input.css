@@ -1255,7 +1255,8 @@ html {
     scroll-margin-top: 1rem;
   }
 
-  .chat-turn__body {
+  .chat-turn__body,
+  .run-items {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -1809,13 +1810,8 @@ html {
     line-height: 1;
   }
 
-  .chat-phase__spinner {
-    width: 10px;
-    height: 10px;
-    border-radius: 999px;
-    border: 1.5px solid currentColor;
-    border-top-color: transparent;
-    animation: spin 0.9s linear infinite;
+  .chat-phase .chat-spinner {
+    color: inherit;
   }
 
   .chat-phase__suffix {
@@ -1925,16 +1921,6 @@ html {
   /* Where parkViewport() lands a finished session: room above it reads as the top of the answer. */
   [data-run-ending] {
     scroll-margin-top: 1rem;
-  }
-
-  .run-items {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    min-width: 0;
-    font-size: 14.5px;
-    line-height: 1.65;
-    color: #e2e8f0;
   }
 
   .run-fold__summary,
@@ -2119,11 +2105,8 @@ html {
     font-size: 10.5px;
   }
 
-  .step-row__badge--success { background: rgba(52, 211, 153, 0.1); color: #34d399; }
-  .step-row__badge--danger  { background: rgba(248, 113, 113, 0.1); color: #f87171; }
   .step-row__badge--warn    { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
   .step-row__badge--info    { background: rgba(96, 165, 250, 0.1); color: #60a5fa; }
-  .step-row__badge--violet  { background: rgba(167, 139, 250, 0.12); color: #c4b5fd; }
   .step-row__badge--neutral { background: rgba(255, 255, 255, 0.04); color: #94a3b8; }
 
   .step-row__chev {

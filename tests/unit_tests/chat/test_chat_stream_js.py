@@ -10,7 +10,18 @@ from sessions.models import RunStatus, SessionOrigin
 from sessions.transcript import annotate_transcript
 
 from tests.unit_tests.chat.chat_stream_driver import REACTIVITY, run_chat_stream
-from tests.unit_tests.chat.transcript_fixtures import asst, bash, question, read, text, thinking, tool_call, user
+from tests.unit_tests.chat.transcript_fixtures import (
+    asst,
+    bash,
+    delegate,
+    question,
+    read,
+    refused_question,
+    text,
+    thinking,
+    tool_call,
+    user,
+)
 from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
@@ -188,7 +199,7 @@ chat.streaming = turns.some((t) => t.streaming);
 chat.init();
 const live = () => chat.turns.findLast((t) => t.streaming) ?? chat.turns[chat.turns.length - 1];
 const segment = (id) => chat.turns.flatMap((t) => t.segments || []).find((s) => s.id === id);
-const stepsOf = (item) => (item.kind === "group" ? item.steps : item.kind === "step" ? [item.step] : []);
+const stepsOf = (item) => (item.kind === "group" ? item.steps : item.kind === "step" ? [item] : []);
 const running = (block) => {
   for (const item of block.items) {
     const step = stepsOf(item).find((s) => s.seg.status === "running");
@@ -474,10 +485,9 @@ def test_a_page_loaded_live_folds_each_run_as_its_stream_finishes():
 
 
 def test_a_lone_step_a_special_call_with_a_row_and_a_refused_question_render_as_step_rows():
-    delegate = tool_call("d1", "delegate_jobs", {"jobs": []}, result='{"batch_id": "b1", "jobs": []}')
     phase = {"type": "publish_phase", "id": "p1", "label": "Committing changes", "status": "running"}
-    refused = tool_call("q1", "ask_user_question", {"questions": []}, result="error: ask alone", status="error")
-    segs = [read("c1"), text("x"), read("c2"), read("c3"), delegate, phase, refused, question("q2")]
+    segs = [read("c1"), text("x"), read("c2"), read("c3"), delegate("d1"), phase, refused_question("q1")]
+    segs.append(question("q2"))
     rows = _drive([user("u1"), asst("a1", *segs, streaming=True)], script=["stepRows"])[0]
     assert rows == [
         ["step", ["s-c1"]],

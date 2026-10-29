@@ -240,9 +240,9 @@
                     </div>
                   </template>
                 </div>
-                <template x-if="block.anchor.author !== 'daiv' && turnHasActions(block.anchor, block.anchorIndex)">
+                <template x-if="block.anchor.author !== 'daiv' && turnHasActions(block.anchor)">
                   <div class="chat-turn__actions">
-                    {% include "sessions/_copy_turn_button.html" with turn="block.anchor" ti="block.anchorIndex" %}
+                    {% include "sessions/_copy_turn_button.html" with turn="block.anchor" %}
                     <template x-if="block.anchor.pending">
                       <span class="chat-turn__pending">{% icon "clock" "h-3 w-3" %}{% translate "Pending" %}</span>
                     </template>
@@ -279,36 +279,15 @@
               </details>
             </template>
 
-            <template x-if="!block.folded && block.items.length">
-              <div class="run-items" data-run-ending>
-                <template x-for="item in block.items" :key="item.key">
-                  {% include "sessions/_run_item.html" %}
-                </template>
-              </div>
-            </template>
-
-            <template x-if="block.endingText.length">
-              <div class="run-items" data-run-ending>
-                <template x-for="item in block.endingText" :key="item.key">
-                  {% include "sessions/_run_item.html" %}
-                </template>
-              </div>
-            </template>
-
-            <template x-if="block.cards.length">
-              <div class="run-items" data-run-cards>
-                <template x-for="item in block.cards" :key="item.key">
-                  {% include "sessions/_run_item.html" %}
-                </template>
-              </div>
-            </template>
-
-            <template x-if="block.endingTail.length">
-              <div class="run-items">
-                <template x-for="item in block.endingTail" :key="item.key">
-                  {% include "sessions/_run_item.html" %}
-                </template>
-              </div>
+            <template x-for="(list, li) in [block.folded ? [] : block.items, block.endingText, block.cards, block.endingTail]"
+                      :key="li">
+              <template x-if="list.length">
+                <div class="run-items" :data-run-ending="li < 2 ? '' : false">
+                  <template x-for="item in list" :key="item.key">
+                    {% include "sessions/_run_item.html" %}
+                  </template>
+                </div>
+              </template>
             </template>
 
             <template x-for="status in block.statuses" :key="status.id">
@@ -325,8 +304,8 @@
 
             <template x-if="runHasActions(block)">
               <div class="chat-turn__actions run-block__actions">
-                <template x-if="block.closingTurn">
-                  {% include "sessions/_copy_turn_button.html" with turn="block.closingTurn" ti="block.closingTurnIndex" %}
+                <template x-if="block.copyTurn">
+                  {% include "sessions/_copy_turn_button.html" with turn="block.copyTurn" %}
                 </template>
                 <template x-if="block.retryUrl">
                   <a class="chat-turn__action-btn" :href="block.retryUrl" title="{% translate 'Retry this run' %}">
@@ -336,11 +315,11 @@
                     </span>
                   </a>
                 </template>
-                <template x-if="block.lastTurn?.sent_at || block.lastTurn?.received_at">
+                <template x-if="block.lastTurn?.received_at">
                   <time class="chat-turn__time"
-                        :datetime="block.lastTurn.sent_at || block.lastTurn.received_at"
-                        :title="absoluteTime(block.lastTurn.sent_at || block.lastTurn.received_at)"
-                        x-text="relativeTime(block.lastTurn.sent_at || block.lastTurn.received_at)"></time>
+                        :datetime="block.lastTurn.received_at"
+                        :title="absoluteTime(block.lastTurn.received_at)"
+                        x-text="relativeTime(block.lastTurn.received_at)"></time>
                 </template>
               </div>
             </template>

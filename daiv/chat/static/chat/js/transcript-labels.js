@@ -74,8 +74,7 @@
 
   const payload = loadPayload();
   const overrides = payload.labels && typeof payload.labels === "object" ? payload.labels : {};
-  const iconBase = typeof payload.icon_base === "string" ? payload.icon_base : "/static/core/img/icons/";
-  const iconUrls = payload.icons && typeof payload.icons === "object" ? payload.icons : {};
+  const icons = payload.icons && typeof payload.icons === "object" ? payload.icons : {};
 
   const fill = (template, values) =>
     template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
@@ -94,23 +93,7 @@
     return fill(count === 1 ? value[0] : value[1], { count, ...vars });
   };
 
-  const escapeAttr = (s) =>
-    String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#x27;");
-
-  const iconHTML = (name, cls) => {
-    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(String(name))) return "";
-    const url = Object.hasOwn(iconUrls, name) ? iconUrls[name] : iconBase + name + ".svg";
-    return (
-      `<span class="inline-block ${escapeAttr(cls || "")}" style="background-color: currentColor; ` +
-      `-webkit-mask: url('${url}') no-repeat center / contain; ` +
-      `mask: url('${url}') no-repeat center / contain;"></span>`
-    );
-  };
+  const iconHTML = (name) => (Object.hasOwn(icons, name) ? icons[name] : "");
 
   const duration = (sec) => {
     if (sec < 60) return `${sec}s`;
@@ -119,5 +102,5 @@
     return `${Math.floor(min / 60)}h ${min % 60}m`;
   };
 
-  window.TranscriptLabels = { defaults: DEFAULTS, t, tn, iconHTML, duration };
+  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration };
 })();

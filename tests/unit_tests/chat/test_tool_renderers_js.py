@@ -7,6 +7,7 @@ import json
 import pytest
 
 from tests.unit_tests.chat.transcript_driver import run_transcript
+from tests.unit_tests.chat.transcript_fixtures import tool_call
 from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
@@ -18,8 +19,7 @@ def _row_seg(seg: dict, servers: list[str] | None = None) -> dict:
 
 
 def _row(name: str, args: dict, *, result: str | None = None, status: str = "done", servers=None) -> dict:
-    seg = {"type": "tool_call", "id": "c1", "name": name, "args": json.dumps(args), "result": result, "status": status}
-    return _row_seg(seg, servers)
+    return _row_seg(tool_call("c1", name, args, result=result, status=status), servers)
 
 
 def test_read_file_row():

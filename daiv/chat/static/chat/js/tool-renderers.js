@@ -14,7 +14,7 @@
 //     -> the parsed publish_artifact success result, or null
 //
 // Every extraction is defensive: if JSON doesn't parse or expected keys are missing,
-// we return a neutral signature/body rather than throwing. Unknown tools fall
+// we return a neutral row/body rather than throwing. Unknown tools fall
 // through to a generic "name + JSON-pretty args + raw result" view.
 
 (() => {
@@ -82,27 +82,18 @@
 
   const badge = (text, tone) => ({ text: String(text), tone });
 
-  // --- per-tool signature extractors -------------------------------------
+  // --- per-tool row details ---------------------------------------------
 
-  const sigReadFile = (args, result, argsStr) => {
-    const path = pickKeyOrPartial(args, ["path", "file_path"], argsStr) ?? "";
+  const readRange = (args) => {
     const start = args.line_start ?? args.start_line ?? args.offset;
     let end = args.line_end ?? args.end_line;
     if (end == null && start != null && args.limit != null) {
       end = Number(start) + Number(args.limit) - 1;
     }
-    const badges = [];
-    if (start != null && end != null) {
-      badges.push(badge(`${start}–${end}`, "neutral"));
-    } else if (start != null) {
-      badges.push(badge(`from ${start}`, "neutral"));
-    } else if (end != null) {
-      badges.push(badge(`to ${end}`, "neutral"));
-    }
-    if (result && ERROR_PREFIX_RE.test(String(result).trim())) {
-      badges.push(badge("error", "danger"));
-    }
-    return { label: "read_file", path, badges };
+    if (start != null && end != null) return `${start}–${end}`;
+    if (start != null) return `from ${start}`;
+    if (end != null) return `to ${end}`;
+    return "";
   };
 
   const isUnifiedDiff = (result) => /^@@|^(---|\+\+\+)\s/m.test(String(result ?? ""));
@@ -134,44 +125,25 @@
     return { plus, minus };
   };
 
-  const sigGrep = (args, result, argsStr) => {
-    const pattern = pickKeyOrPartial(args, ["pattern", "query", "regex"], argsStr) ?? "";
-    const path = pickKeyOrPartial(args, ["path", "scope", "include"], argsStr) ?? "";
+  const grepBadges = (args, result, argsStr) => {
     const mode = pickKeyOrPartial(args, ["output_mode"], argsStr) ?? "files_with_matches";
     const text = String(result ?? "").trim();
-    const badges = [];
-    if (text === "No matches found") {
-      badges.push(badge("no matches", "warn"));
-    } else if (text && !text.toLowerCase().startsWith("invalid regex")) {
-      const lines = text.split("\n").filter((l) => l.trim().length);
-      let hits = 0;
-      let label = "hits";
-      if (mode === "count") {
-        hits = lines.reduce((acc, l) => {
-          const m = l.match(/:\s*(\d+)\s*$/);
-          return m ? acc + Number(m[1]) : acc;
-        }, 0);
-        label = "matches";
-      } else if (mode === "content") {
-        hits = lines.filter((l) => /^\s+\d+:/.test(l)).length;
-        label = "matches";
-      } else {
-        hits = lines.length;
-        label = "files";
-      }
-      if (hits) badges.push(badge(`${hits} ${label}`, "warn"));
+    if (text === "No matches found") return [badge("no matches", "warn")];
+    if (!text || text.toLowerCase().startsWith("invalid regex")) return [];
+    const lines = text.split("\n").filter((l) => l.trim().length);
+    let hits = lines.length;
+    let label = "files";
+    if (mode === "count") {
+      hits = lines.reduce((acc, l) => {
+        const m = l.match(/:\s*(\d+)\s*$/);
+        return m ? acc + Number(m[1]) : acc;
+      }, 0);
+      label = "matches";
+    } else if (mode === "content") {
+      hits = lines.filter((l) => /^\s+\d+:/.test(l)).length;
+      label = "matches";
     }
-    const glob = pickKeyOrPartial(args, ["glob"], argsStr) ?? "";
-    const scope = [path, glob].filter(Boolean).join(" / ");
-    const target = scope ? ` in ${scope}` : "";
-    return { label: "grep", path: `"${truncate(pattern, 60)}"${target}`, badges };
-  };
-
-  const sigGlob = (args, result, argsStr) => {
-    const pattern = pickKeyOrPartial(args, ["pattern", "glob", "path"], argsStr) ?? "";
-    const count = parseLsEntries(result).length;
-    const badges = count ? [badge(`${count} files`, "neutral")] : [];
-    return { label: "glob", path: pattern, badges };
+    return hits ? [badge(`${hits} ${label}`, "warn")] : [];
   };
 
   // The `ls` and `glob` tools serialize their result with `str(list_of_paths)`,
@@ -194,11 +166,9 @@
     return text.split("\n").map((l) => l.trim()).filter(Boolean);
   };
 
-  const sigLs = (args, result, argsStr) => {
-    const path = pickKeyOrPartial(args, ["path", "dir"], argsStr) ?? "";
+  const countBadges = (result, noun) => {
     const count = parseLsEntries(result).length;
-    const badges = count ? [badge(`${count} entries`, "neutral")] : [];
-    return { label: "ls", path, badges };
+    return count ? [badge(`${count} ${noun}`, "neutral")] : [];
   };
 
   // Bash success result comes in two shapes: the current
@@ -228,26 +198,10 @@
 
   const parseBashResult = (result) => parseBashSuccess(result)?.commands ?? null;
 
-  const sigSkill = (args) => {
+  const skillDetail = (args) => {
     const name = pickKey(args, ["skill", "name"]) ?? "";
     const skillArgs = pickKey(args, ["skill_args", "args"]) ?? "";
-    return {
-      label: "skill",
-      path: name ? `${name}${skillArgs ? " " + truncate(String(skillArgs), 60) : ""}` : "",
-      badges: [],
-    };
-  };
-
-  const BUILTIN_SUBAGENTS = new Set(["general-purpose", "explore"]);
-
-  const sigTask = (args) => {
-    const subagent = pickKey(args, ["subagent_type", "agent", "type"]) ?? "";
-    const description = pickKey(args, ["description", "title"]) ?? "";
-    const badges = [];
-    if (subagent) {
-      badges.push(badge(subagent, BUILTIN_SUBAGENTS.has(subagent) ? "violet" : "info"));
-    }
-    return { label: "task", path: truncate(description, 120), badges };
+    return name ? `${name}${skillArgs ? " " + truncate(String(skillArgs), 60) : ""}` : "";
   };
 
   // `new URL` throws on partial streaming values; fall back to the raw string.
@@ -275,18 +229,6 @@
   // calls are distinguishable without expanding.
   const CLI_ID_FLAGS = new Set(["--iid", "--id", "--mr-iid", "--issue-iid", "--pipeline-id", "--discussion-id"]);
 
-  const sigWebFetch = (args, result, argsStr) => {
-    const url = pickKeyOrPartial(args, ["url"], argsStr) ?? "";
-    const badges = [];
-    const text = String(result ?? "");
-    if (REDIRECT_TAG_RE.test(text)) {
-      badges.push(badge("redirect", "warn"));
-    } else if (text && ERROR_PREFIX_RE.test(text.trim())) {
-      badges.push(badge("error", "danger"));
-    }
-    return { label: "web_fetch", path: summarizeUrl(url), badges };
-  };
-
   // web_search returns a JSON array of `{title, link, content}` objects.
   // Returns null if the result isn't (yet) parseable JSON — caller falls back
   // to a generic body. We also accept the legacy "no relevant results found…"
@@ -302,23 +244,18 @@
     }
   };
 
-  const sigWebSearch = (args, result, argsStr) => {
-    const query = pickKeyOrPartial(args, ["query"], argsStr) ?? "";
+  const webSearchBadges = (result) => {
     const text = String(result ?? "").trim();
-    const badges = [];
-    if (text) {
-      const parsed = parseWebSearchResults(text);
-      if (parsed != null) {
-        // Subtract the synthetic "Suggested answer" entry (link="") so the
-        // count reflects real hits the user might click.
-        const hits = parsed.filter((r) => r && r.link).length;
-        badges.push(hits ? badge(`${hits} results`, "info") : badge("no results", "warn"));
-      } else if (/^no relevant results found/i.test(text)) {
-        // Pre-JSON transcripts.
-        badges.push(badge("no results", "warn"));
-      }
+    if (!text) return [];
+    const parsed = parseWebSearchResults(text);
+    if (parsed != null) {
+      // Subtract the synthetic "Suggested answer" entry (link="") so the
+      // count reflects real hits the user might click.
+      const hits = parsed.filter((r) => r && r.link).length;
+      return [hits ? badge(`${hits} results`, "info") : badge("no results", "warn")];
     }
-    return { label: "web_search", path: query ? `"${truncate(query, 80)}"` : "", badges };
+    // Pre-JSON transcripts.
+    return /^no relevant results found/i.test(text) ? [badge("no results", "warn")] : [];
   };
 
   // Server runs the real shlex parse; whitespace split is enough for the row.
@@ -337,39 +274,6 @@
       }
     }
     return head;
-  };
-
-  const cliResultBadges = (text) => {
-    const badges = [];
-    if (text && ERROR_PREFIX_RE.test(text)) badges.push(badge("error", "danger"));
-    if (TRUNCATED_SENTINEL_RE.test(text)) badges.push(badge("truncated", "warn"));
-    return badges;
-  };
-
-  const sigGitlab = (args, result, argsStr) => {
-    const subcommand = pickKeyOrPartial(args, ["subcommand"], argsStr) ?? "";
-    const text = String(result ?? "").trim();
-    const badges = [];
-    // "simplified" is the default; only the costlier "detailed" mode rates a chip.
-    if (pickKey(args, ["output_mode"]) === "detailed") badges.push(badge("detailed", "info"));
-    badges.push(...cliResultBadges(text));
-    return { label: "gitlab", path: truncate(summarizeSubcommand(subcommand), 120), badges };
-  };
-
-  const sigGh = (args, result, argsStr) => {
-    const subcommand = pickKeyOrPartial(args, ["subcommand"], argsStr) ?? "";
-    const text = String(result ?? "").trim();
-    return {
-      label: "gh",
-      path: truncate(summarizeSubcommand(subcommand), 120),
-      badges: cliResultBadges(text),
-    };
-  };
-
-  const sigFetchArtifact = (args, result, argsStr) => {
-    const target = pickKeyOrPartial(args, ["path"], argsStr) || pickKeyOrPartial(args, ["artifact_id"], argsStr) || "";
-    const failed = ERROR_PREFIX_RE.test(String(result ?? "").trim());
-    return { label: "fetch_artifact", path: target, badges: failed ? [badge("error", "danger")] : [] };
   };
 
   // publish_artifact returns JSON ({"status":"published"|"updated","url":...}) on success and an
@@ -449,9 +353,6 @@
 
   const joinDetail = (...parts) => parts.filter(Boolean).join(" · ");
 
-  const rowBadges = (sig) =>
-    sig.badges.filter((b) => b.text !== "error" && !/^[+−]\d/.test(b.text));
-
   const toolPath = (args, argsStr) => pickKeyOrPartial(args, ["path", "file_path"], argsStr) ?? "";
 
   const bashExit = (result) => {
@@ -461,16 +362,37 @@
     return { known: true, code: bad ? Number(bad.exit_code) : null };
   };
 
-  // Each builder returns { icon, key | phrase, vars?, detail?, diff?, badges?, category }.
+  // gitlab and gh rows: the brand names the row, and the subcommand is its detail.
+  const platformRow = (name, icon) => ({ args, result, argsStr }) => {
+    const subcommand = pickKeyOrPartial(args, ["subcommand"], argsStr) ?? "";
+    // "simplified" is the default; only the costlier "detailed" mode rates a chip.
+    const badges = pickKey(args, ["output_mode"]) === "detailed" ? [badge("detailed", "info")] : [];
+    if (TRUNCATED_SENTINEL_RE.test(String(result ?? ""))) badges.push(badge("truncated", "warn"));
+    return {
+      icon,
+      phrase: name,
+      detail: truncate(summarizeSubcommand(subcommand), 120),
+      badges,
+      category: { key: "platform", name },
+    };
+  };
+
+  const jobsRow = (key) => ({ args }) => ({
+    icon: "share",
+    key,
+    detail: String(pickKey(args, ["batch_id"]) ?? ""),
+    category: { key: "jobs" },
+  });
+
+  // Each builder returns { icon, key | phrase, vars?, detail?, diff?, badges?, failed?, category }.
   const ROW_BY_TOOL = {
-    read_file: ({ args, result, argsStr }) => {
+    read_file: ({ args, argsStr }) => {
       const path = toolPath(args, argsStr);
-      const range = sigReadFile(args, result, argsStr).badges.find((b) => b.tone === "neutral");
       return {
         icon: "document-text",
         key: "read",
         vars: { name: basename(path) },
-        detail: joinDetail(repoDir(path), range?.text),
+        detail: joinDetail(repoDir(path), readRange(args)),
         category: { key: "read" },
       };
     },
@@ -498,39 +420,33 @@
         category: { key: "create" },
       };
     },
-    grep: (a) => {
-      const pattern = pickKeyOrPartial(a.args, ["pattern", "query", "regex"], a.argsStr) ?? "";
-      const path = pickKeyOrPartial(a.args, ["path", "scope", "include"], a.argsStr) ?? "";
-      const glob = pickKeyOrPartial(a.args, ["glob"], a.argsStr) ?? "";
+    grep: ({ args, result, argsStr }) => {
+      const pattern = pickKeyOrPartial(args, ["pattern", "query", "regex"], argsStr) ?? "";
+      const path = pickKeyOrPartial(args, ["path", "scope", "include"], argsStr) ?? "";
+      const glob = pickKeyOrPartial(args, ["glob"], argsStr) ?? "";
       return {
         icon: "magnifying-glass",
         key: "grep",
         vars: { pattern: truncate(pattern, 60) },
-        detail: [path && repoRelative(path), glob].filter(Boolean).join(" / "),
-        badges: rowBadges(sigGrep(a.args, a.result, a.argsStr)),
+        detail: [repoRelative(path), glob].filter(Boolean).join(" / "),
+        badges: grepBadges(args, result, argsStr),
         category: { key: "search" },
       };
     },
-    glob: (a) => {
-      const sig = sigGlob(a.args, a.result, a.argsStr);
-      return {
-        icon: "document-magnifying-glass",
-        key: "glob",
-        vars: { pattern: truncate(sig.path, 60) },
-        badges: rowBadges(sig),
-        category: { key: "search" },
-      };
-    },
-    ls: (a) => {
-      const sig = sigLs(a.args, a.result, a.argsStr);
-      return {
-        icon: "folder",
-        key: "ls",
-        vars: { name: repoRelative(sig.path) || "." },
-        badges: rowBadges(sig),
-        category: { key: "list" },
-      };
-    },
+    glob: ({ args, result, argsStr }) => ({
+      icon: "document-magnifying-glass",
+      key: "glob",
+      vars: { pattern: truncate(pickKeyOrPartial(args, ["pattern", "glob", "path"], argsStr) ?? "", 60) },
+      badges: countBadges(result, "files"),
+      category: { key: "search" },
+    }),
+    ls: ({ args, result, argsStr }) => ({
+      icon: "folder",
+      key: "ls",
+      vars: { name: repoRelative(pickKeyOrPartial(args, ["path", "dir"], argsStr) ?? "") || "." },
+      badges: countBadges(result, "entries"),
+      category: { key: "list" },
+    }),
     bash: ({ args, result, argsStr }) => {
       const command = String(pickKeyOrPartial(args, ["command", "cmd", "script"], argsStr) ?? "");
       const T = window.TranscriptLabels;
@@ -543,53 +459,37 @@
         key: "run",
         vars: { command: truncate(command.split("\n")[0], 80) },
         detail,
+        failed: exit.code != null,
         category: { key: "run" },
       };
     },
-    skill: ({ args }) => ({
-      icon: "beaker",
-      key: "skill",
-      detail: sigSkill(args).path,
-      category: { key: "skill" },
+    skill: ({ args }) => ({ icon: "beaker", key: "skill", detail: skillDetail(args), category: { key: "skill" } }),
+    task: ({ args }) => ({
+      icon: "agent",
+      key: "subagent",
+      vars: { name: pickKey(args, ["subagent_type", "agent", "type"]) ?? "general-purpose" },
+      detail: truncate(pickKey(args, ["description", "title"]) ?? "", 120),
+      category: { key: "subagent" },
     }),
-    task: ({ args }) => {
-      const sig = sigTask(args);
+    web_search: ({ args, result, argsStr }) => {
+      const query = pickKeyOrPartial(args, ["query"], argsStr) ?? "";
       return {
-        icon: "agent",
-        key: "subagent",
-        vars: { name: pickKey(args, ["subagent_type", "agent", "type"]) ?? "general-purpose" },
-        detail: sig.path,
-        category: { key: "subagent" },
+        icon: "web-search",
+        key: "web",
+        detail: query ? `"${truncate(query, 80)}"` : "",
+        badges: webSearchBadges(result),
+        category: { key: "web" },
       };
     },
-    web_search: (a) => {
-      const sig = sigWebSearch(a.args, a.result, a.argsStr);
-      return { icon: "web-search", key: "web", detail: sig.path, badges: rowBadges(sig), category: { key: "web" } };
-    },
-    web_fetch: (a) => {
-      const sig = sigWebFetch(a.args, a.result, a.argsStr);
-      return { icon: "web-fetch", key: "fetch", detail: sig.path, badges: rowBadges(sig), category: { key: "fetch" } };
-    },
-    gitlab: (a) => {
-      const sig = sigGitlab(a.args, a.result, a.argsStr);
-      return {
-        icon: "gitlab",
-        phrase: "GitLab",
-        detail: sig.path,
-        badges: rowBadges(sig),
-        category: { key: "platform", name: "GitLab" },
-      };
-    },
-    gh: (a) => {
-      const sig = sigGh(a.args, a.result, a.argsStr);
-      return {
-        icon: "github",
-        phrase: "GitHub",
-        detail: sig.path,
-        badges: rowBadges(sig),
-        category: { key: "platform", name: "GitHub" },
-      };
-    },
+    web_fetch: ({ args, result, argsStr }) => ({
+      icon: "web-fetch",
+      key: "fetch",
+      detail: summarizeUrl(pickKeyOrPartial(args, ["url"], argsStr) ?? ""),
+      badges: REDIRECT_TAG_RE.test(String(result ?? "")) ? [badge("redirect", "warn")] : [],
+      category: { key: "fetch" },
+    }),
+    gitlab: platformRow("GitLab", "gitlab"),
+    gh: platformRow("GitHub", "github"),
     tool_search: ({ args }) => {
       const select = pickKey(args, ["select"]);
       const query = pickKey(args, ["query"]);
@@ -600,10 +500,10 @@
         category: { key: "tools" },
       };
     },
-    fetch_artifact: (a) => ({
+    fetch_artifact: ({ args, argsStr }) => ({
       icon: "paper-clip",
       key: "artifact_open",
-      detail: sigFetchArtifact(a.args, a.result, a.argsStr).path,
+      detail: pickKeyOrPartial(args, ["path"], argsStr) || pickKeyOrPartial(args, ["artifact_id"], argsStr) || "",
       category: { key: "artifact" },
     }),
     publish_artifact: ({ args, result, argsStr }) => ({
@@ -626,18 +526,8 @@
       };
     },
     delegate_jobs: () => ({ icon: "share", key: "delegate", category: { key: "jobs" } }),
-    check_delegated_jobs: ({ args }) => ({
-      icon: "share",
-      key: "check_jobs",
-      detail: String(pickKey(args, ["batch_id"]) ?? ""),
-      category: { key: "jobs" },
-    }),
-    cancel_delegated_jobs: ({ args }) => ({
-      icon: "share",
-      key: "cancel_jobs",
-      detail: String(pickKey(args, ["batch_id"]) ?? ""),
-      category: { key: "jobs" },
-    }),
+    check_delegated_jobs: jobsRow("check_jobs"),
+    cancel_delegated_jobs: jobsRow("cancel_jobs"),
   };
 
   const mcpRow = (name, { args }, servers) => {
@@ -675,12 +565,10 @@
     };
   };
 
-  const rowFailed = (name, seg) => {
+  const rowFailed = (name, seg, part) => {
     if (seg.status === "error") return true;
     if (name === "delegate_jobs") return false;
-    const result = seg.result;
-    if (result != null && ERROR_PREFIX_RE.test(String(result).trim())) return true;
-    return name === "bash" && bashExit(result).code != null;
+    return Boolean(part.failed) || (seg.result != null && ERROR_PREFIX_RE.test(String(seg.result).trim()));
   };
 
   window.toolRow = (seg, ctx) => {
@@ -700,7 +588,7 @@
       detail: part.detail ?? "",
       diff: part.diff ?? null,
       badges: part.badges ?? [],
-      failed: rowFailed(name, seg),
+      failed: rowFailed(name, seg, part),
       category: part.category,
     };
   };

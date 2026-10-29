@@ -79,6 +79,14 @@ def publish(call_id: str) -> dict[str, Any]:
     return tool_call(call_id, "publish_artifact", {"path": "/workspace/tmp/report.md"}, result=json.dumps(result))
 
 
+def delegate(call_id: str) -> dict[str, Any]:
+    return tool_call(call_id, "delegate_jobs", {"jobs": []}, result='{"batch_id": "b1", "jobs": []}')
+
+
+def refused_question(call_id: str) -> dict[str, Any]:
+    return tool_call(call_id, "ask_user_question", {"questions": []}, result="error: ask alone", status="error")
+
+
 def question(call_id: str) -> dict[str, Any]:
     args = {"questions": [{"header": "Approach", "question": "Which fix?", "options": [], "multi_select": False}]}
     return tool_call(call_id, "ask_user_question", args, result=QUESTION_DELIVERED)

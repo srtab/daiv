@@ -13,7 +13,6 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect
-from django.templatetags.static import static
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
@@ -56,7 +55,7 @@ from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
 from sessions.titling import MAX_TITLE_LENGTH
 from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
-from sessions.transcript_labels import transcript_icon_urls, transcript_labels
+from sessions.transcript_labels import transcript_icons, transcript_labels
 from sessions.turns import build_turns
 from slash_commands.composer import composer_command_rows
 
@@ -308,11 +307,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx.update(composer_mcp_context(self.request.user, session.mcp_overrides if session is not None else {}))
 
         ctx["slash_command_rows"] = composer_command_rows()
-        ctx["transcript_labels_payload"] = {
-            "labels": transcript_labels(),
-            "icons": transcript_icon_urls(),
-            "icon_base": static("core/img/icons/"),
-        }
+        ctx["transcript_labels_payload"] = {"labels": transcript_labels(), "icons": transcript_icons()}
 
         if session is None:
             ctx.update({

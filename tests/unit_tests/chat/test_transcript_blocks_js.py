@@ -9,11 +9,13 @@ from tests.unit_tests.chat.transcript_fixtures import (
     ENDED,
     asst,
     bash,
+    delegate,
     edit,
     grep,
     publish,
     question,
     read,
+    refused_question,
     status_turn,
     text,
     thinking,
@@ -54,10 +56,6 @@ def _keys(turns):
 
 def _kinds(items):
     return [i["kind"] for i in items]
-
-
-def delegate(call_id):
-    return tool_call(call_id, "delegate_jobs", {"jobs": []}, result='{"batch_id": "b1", "jobs": []}')
 
 
 def check_jobs(call_id):
@@ -240,6 +238,16 @@ def test_a_second_build_reuses_artifacts_and_group_lines_of_unchanged_segments()
     assert run_transcript(expr, {"turns": turns}) == [1, True]
 
 
+def test_a_text_segment_found_not_blank_is_not_read_again():
+    expr = """(() => {
+      let reads = 0;
+      vars.turns[1].segments.push({ type: "text", get content() { reads++; return "Found it."; } });
+      for (let i = 0; i < 3; i++) buildRunBlocks(vars.turns, {inFlight: true, mcpServers: []});
+      return reads;
+    })()"""
+    assert run_transcript(expr, {"turns": [user("u1"), asst("a1", read("c1"))]}) == 1
+
+
 def test_step_keys_survive_in_place_replay_mutation():
     expr = f"""(() => {{
       const keys = {KEYS};
@@ -303,30 +311,31 @@ def test_question_item_carries_its_turn_index():
     assert b["endingTail"][0]["turnIndex"] == 2
 
 
-def test_a_block_carries_its_anchor_and_last_turn_indices_and_its_runs_retry_link():
+def test_a_block_carries_its_last_turn_and_its_runs_retry_link():
     turns = [user("u1"), asst("a1", read("c1")), asst("a2", text("ok")), user("u2"), asst("a3", text("hi"))]
     turns[0]["retry_url"] = "/runs/new?from=1"
     blocks = _blocks(turns)
-    assert [(b["anchorIndex"], b["lastTurnIndex"], b["retryUrl"]) for b in blocks] == [
-        (0, 2, "/runs/new?from=1"),
-        (3, 4, None),
-    ]
+    assert [(b["lastTurn"]["id"], b["retryUrl"]) for b in blocks] == [("a2", "/runs/new?from=1"), ("a3", None)]
 
 
-def test_the_closing_turn_is_the_last_with_text_even_when_a_tool_only_turn_follows():
+def test_the_copy_turn_is_the_last_with_text_even_when_a_tool_only_turn_follows():
     b = _blocks([user("u1"), asst("a1", text("Final answer"), bash("c1")), asst("a2", read("c2"))])[0]
-    assert (b["lastTurnIndex"], b["closingTurnIndex"]) == (2, 1)
+    assert (b["lastTurn"]["id"], b["copyTurn"]["id"]) == ("a2", "a1")
+
+
+def test_a_streaming_run_offers_no_copy_turn():
+    b = _blocks([user("u1"), asst("a1", text("Partial")), asst("a2", read("c1"), streaming=True)])[0]
+    assert b["copyTurn"] is None
 
 
 def test_an_anchorless_block_takes_its_retry_link_from_its_first_turn():
     first = {**asst("x1", read("c1")), "run_id": "run-9", "retry_url": "/runs/new?from=9"}
     block = _blocks([first, asst("x2", text("done"))])[0]
-    assert (block["anchorIndex"], block["lastTurnIndex"], block["retryUrl"]) == (None, 1, "/runs/new?from=9")
+    assert (block["anchor"], block["lastTurn"]["id"], block["retryUrl"]) == (None, "x2", "/runs/new?from=9")
 
 
 def test_a_question_the_agent_could_not_ask_carries_a_failed_row():
-    refused = tool_call("q1", "ask_user_question", {"questions": []}, result="error: ask alone", status="error")
-    item = _blocks([user("u1"), asst("a1", refused)])[0]["items"][0]
+    item = _blocks([user("u1"), asst("a1", refused_question("q1"))])[0]["items"][0]
     assert item["kind"] == "question" and item["row"]["failed"] is True
 
 

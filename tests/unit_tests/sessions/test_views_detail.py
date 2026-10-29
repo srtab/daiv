@@ -12,7 +12,7 @@ import pytest
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
 from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
-from sessions.transcript_labels import transcript_icon_urls
+from sessions.transcript_labels import transcript_icons
 
 from tests.unit_tests.sessions.conftest import create_archive, grant_read_access, make_artifact
 
@@ -1232,7 +1232,7 @@ def test_detail_and_new_chat_embed_the_transcript_labels(member_client, member_u
         new_chat = member_client.get(reverse("session_new_chat"))
     assert 'id="chat-transcript-labels"' in detail.content.decode()
     assert 'id="chat-transcript-labels"' in new_chat.content.decode()
-    assert detail.context["transcript_labels_payload"]["icons"] == transcript_icon_urls()
+    assert detail.context["transcript_labels_payload"]["icons"] == transcript_icons()
 
 
 def _detail_html(client, session: Session) -> str:
@@ -1251,17 +1251,16 @@ def test_session_page_loads_the_transcript_scripts_in_order(member_client, membe
 @pytest.mark.django_db
 def test_session_page_renders_blocks_not_turns(member_client, member_user):
     html = _detail_html(member_client, _create_session(user=member_user))
-    assert 'x-for="block in runBlocks"' in html and "visibleSegments(" not in html
+    assert 'x-for="block in runBlocks"' in html
 
 
 @pytest.mark.django_db
-def test_session_page_marks_each_runs_ending_cards_and_step_rows(member_client, member_user):
+def test_session_page_marks_each_runs_ending_and_step_rows(member_client, member_user):
     html = _detail_html(member_client, _create_session(user=member_user))
-    assert "data-run-ending" in html and "data-run-cards" in html and 'class="step-row"' in html
+    assert "data-run-ending" in html and 'class="step-row"' in html
 
 
 @pytest.mark.django_db
 def test_session_page_puts_a_folded_runs_closing_question_below_its_cards(member_client, member_user):
     html = _detail_html(member_client, _create_session(user=member_user))
-    text, cards, tail = (html.index(f'x-for="item in block.{name}"') for name in ("endingText", "cards", "endingTail"))
-    assert text < cards < tail
+    assert "block.endingText, block.cards, block.endingTail]" in html

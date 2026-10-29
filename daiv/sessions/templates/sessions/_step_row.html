@@ -10,7 +10,7 @@
         <span :class="step.seg.type === 'thinking' ? 'step-row__thinking' : 'chat-spinner'"></span>
       </template>
       <template x-if="step.seg.status !== 'running'">
-        <span class="contents" x-html="TranscriptLabels.iconHTML(step.row.icon, 'h-3.5 w-3.5')"></span>
+        <span class="contents" x-html="TranscriptLabels.iconHTML(step.row.icon)"></span>
       </template>
     </span>
     <span class="step-row__phrase"

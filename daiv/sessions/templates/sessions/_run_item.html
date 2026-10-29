@@ -16,7 +16,7 @@
         <span class="step-group__icon" aria-hidden="true">
           <template x-if="item.line.running"><span class="chat-spinner"></span></template>
           <template x-if="!item.line.running">
-            <span class="contents" x-html="TranscriptLabels.iconHTML(item.line.icon, 'h-3.5 w-3.5')"></span>
+            <span class="contents" x-html="TranscriptLabels.iconHTML(item.line.icon)"></span>
           </template>
         </span>
         <span class="step-group__text">
@@ -30,9 +30,9 @@
       </summary>
       <template x-if="isOpen(item.key, item.key === currentGroupKey)">
         <div class="step-group__rows"
-             x-data="{ follow: true, clipped: false }"
+             x-data="{ follow: true, clipped: false, seen: 0 }"
              :class="{ 'step-group__rows--live': item.key === currentGroupKey, 'step-group__rows--clipped': clipped }"
-             x-effect="item.steps.length; follow && $nextTick(() => { $el.scrollTop = $el.scrollHeight; })"
+             x-effect="if (item.steps.length !== seen) { seen = item.steps.length; follow && $nextTick(() => { $el.scrollTop = $el.scrollHeight; }); }"
              @scroll.passive="follow = $el.scrollHeight - $el.scrollTop - $el.clientHeight < 24; clipped = $el.scrollTop > 0">
           <template x-for="step in item.steps" :key="step.key">
             {% include "sessions/_step_row.html" %}
@@ -45,7 +45,7 @@
   <template x-if="item.kind === 'special' && !item.row">
     <div class="chat-phase" :class="`chat-phase--${item.seg.status}`" :data-status="item.seg.status">
       <span class="chat-phase__icon" aria-hidden="true">
-        <template x-if="item.seg.status === 'running'"><span class="chat-phase__spinner"></span></template>
+        <template x-if="item.seg.status === 'running'"><span class="chat-spinner"></span></template>
         <template x-if="item.seg.status === 'done'"><span>✓</span></template>
       </span>
       <span class="chat-phase__label" x-text="item.seg.label"></span>
@@ -53,7 +53,7 @@
     </div>
   </template>
 
-  <template x-if="item.kind === 'question' && isQuestionCard(item.seg) && !block.live && isQuestionAnswered(item)">
+  <template x-if="item.kind === 'question' && !block.live && isQuestionAnswered(item)">
     <details class="question-answered" :open="isOpen(item.key)" @toggle="setOpen(item.key, $el.open)">
       <summary class="question-answered__summary">
         {% icon "chat-bubble" "question-answered__icon h-3.5 w-3.5" %}

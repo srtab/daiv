@@ -2,14 +2,9 @@ from __future__ import annotations
 
 import json
 
-from django.templatetags.static import static
-
 import pytest
-import sessions.transcript_labels as sessions_transcript_labels
-from sessions.transcript_labels import transcript_icon_urls
+from sessions.transcript_labels import transcript_icons
 
-from core.templatetags import icon_tags
-from core.templatetags.icon_tags import icon
 from tests.unit_tests.jsdriver import requires_node, run_node
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
@@ -37,7 +32,7 @@ process.stdout.write(JSON.stringify(result));
 
 
 def _run(expr: str, overrides: dict | None = None):
-    payload = {"labels": {}, "icon_base": static("core/img/icons/")}
+    payload = {"labels": {}}
     payload.update(overrides or {})
     return run_node(_HARNESS, {"src": str(TRANSCRIPT_LABELS_JS), "expr": expr, "script": json.dumps(payload)})
 
@@ -57,19 +52,10 @@ def test_server_overrides_win():
     assert out == "Leu a"
 
 
-def test_icon_html_matches_the_template_tag_and_rejects_bad_names(monkeypatch):
-    assert _run("TranscriptLabels.iconHTML('pencil', 'h-3 w-3')") == icon("pencil", "h-3 w-3")
-    assert _run("TranscriptLabels.iconHTML('pencil', 'a\"b')") == icon("pencil", 'a"b')
-    assert _run("TranscriptLabels.iconHTML('../x')") == ""
-
-    def hashed(path):
-        return "/static/" + path.removesuffix(".svg") + ".0123abcd.svg"
-
-    monkeypatch.setattr(icon_tags, "static", hashed)
-    monkeypatch.setattr(sessions_transcript_labels, "static", hashed)
-    mapped = {"icons": transcript_icon_urls()}
-    assert _run("TranscriptLabels.iconHTML('pencil', 'h-3 w-3')", mapped) == icon("pencil", "h-3 w-3")
-    assert "url('/static/core/img/icons/unmapped.svg')" in _run("TranscriptLabels.iconHTML('unmapped')", mapped)
+def test_icon_html_is_the_server_rendered_icon_and_empty_for_an_unshipped_name():
+    shipped = {"icons": transcript_icons()}
+    assert _run("TranscriptLabels.iconHTML('pencil')", shipped) == transcript_icons()["pencil"]
+    assert _run("TranscriptLabels.iconHTML('unmapped')", shipped) == ""
 
 
 @pytest.mark.parametrize(("sec", "expected"), [(4, "4s"), (192, "3m 12s"), (3720, "1h 2m")])

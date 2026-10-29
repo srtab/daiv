@@ -1,8 +1,8 @@
 {% load i18n icon_tags %}
-{# turn, ti: Alpine expressions for the turn whose text the button copies and its index in `turns` #}
+{# turn: an Alpine expression for the turn whose text the button copies #}
 {# Icon-only: the shown state's sr-only label names the button, and x-show drops the hidden ones #}
 {# from the a11y tree, so the outcome is announced without a live region. #}
-<button type="button" class="chat-turn__action-btn" x-show="canCopyTurn({{ turn }}, {{ ti }})"
+<button type="button" class="chat-turn__action-btn" x-show="canCopyTurn({{ turn }})"
         title="{% translate 'Copy' %}"
         x-data="{ state: '', _t: null, async copy() { this.state = await copyFinalText({{ turn }}) ? 'copied' : 'failed'; clearTimeout(this._t); this._t = setTimeout(() => { this.state = ''; }, 1500); } }"
         @click="copy()">

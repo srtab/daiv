@@ -162,8 +162,7 @@
     waiting: "Waiting in queue",
   };
 
-  const formatBraces = (template, values) =>
-    template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
+  const formatBraces = (template, values) => window.TranscriptLabels.fill(template, values);
 
   const PAGE_LANG = (typeof document !== "undefined" && document.documentElement?.lang) || undefined;
   const COMPACT_FORMAT = new Intl.NumberFormat(PAGE_LANG, { notation: "compact", maximumFractionDigits: 1 });
@@ -197,27 +196,6 @@
 
   const normalizeSpend = (raw) => (raw && typeof raw === "object" && Number(raw.turns) > 0 ? raw : null);
   const loadInitialSpend = () => normalizeSpend(loadJSONScript("chat-session-spend", null));
-
-  const formatElapsed = (sec) => window.TranscriptLabels.duration(sec);
-
-  // Empty between steps and while thinking: the working line then says "Thinking…".
-  const activityOf = (block) => {
-    if (!block?.live) return "";
-    for (let i = block.items.length - 1; i >= 0; i--) {
-      const item = block.items[i];
-      if (item.kind === "special" && item.seg.type === "publish_phase" && item.seg.status === "running") {
-        return `${item.seg.label}…`;
-      }
-      if (item.kind === "artifacts" && item.items.some((artifact) => artifact.state === "running")) {
-        return `${window.TranscriptLabels.t("live_published")}…`;
-      }
-      // A question or special call carries its own seg and row, like a step.
-      const steps = item.kind === "group" ? item.steps : item.kind === "step" ? [item.step] : item.row ? [item] : [];
-      const step = steps.findLast((s) => s.seg.status === "running");
-      if (step) return step.seg.type === "thinking" ? "" : `${step.row.livePhrase}…`;
-    }
-    return "";
-  };
 
   // The transcript getters below re-derive from `turns` on every read, and parsing the
   // JSON payloads off each segment is what made that expensive. Memoized per segment, on
@@ -343,7 +321,6 @@
   let publishedArtifactsById = new Map();
   let publishedBlocks = [];
   let publishedGroupKey = null;
-  let publishedActivity = "";
   return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
@@ -425,7 +402,6 @@
     latestArtifactsById: new Map(),
     runBlocks: [],
     currentGroupKey: null,
-    liveActivity: "",
     // User-toggled open state by block/group/step key, kept outside `runBlocks` so a re-derive never resets it.
     openKeys: {},
     filesTouchedLimit: 20,
@@ -772,8 +748,6 @@
         const last = live?.live ? live.items[live.items.length - 1] : null;
         const groupKey = last?.kind === "group" ? last.key : null;
         if (groupKey !== publishedGroupKey) this.currentGroupKey = publishedGroupKey = groupKey;
-        const activity = activityOf(live);
-        if (activity !== publishedActivity) this.liveActivity = publishedActivity = activity;
       });
 
       // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
@@ -1038,7 +1012,8 @@
         return { tone: "thinking", label: "catching up on the running session…" };
       }
       if (!this.streaming) return { tone: "idle", label: "idle" };
-      if (this.liveActivity) return { tone: "running", label: this.liveActivity };
+      const activity = this.runBlocks[this.runBlocks.length - 1]?.activity;
+      if (activity) return { tone: "running", label: activity };
       return { tone: "thinking", label: window.TranscriptLabels.t("thinking") };
     },
 
@@ -1226,11 +1201,9 @@
       this.openKeys[key] = open;
     },
 
+    // A group draws its rows inside its fold, and a question card draws itself.
     stepRowsOf(item) {
-      if (item.kind === "step") return [item.step];
-      if (item.kind === "special" && item.row) return [item];
-      if (item.kind === "question" && !this.isQuestionCard(item.seg)) return [item];
-      return [];
+      return item.row && !(item.kind === "question" && this.isQuestionCard(item.seg)) ? [item] : [];
     },
 
     workedForLabel(block) {
@@ -1240,7 +1213,7 @@
       const ended = Date.parse(block.endedAt ?? "");
       if (!Number.isFinite(started) || !Number.isFinite(ended) || ended < started) return steps;
       const seconds = Math.max(1, Math.round((ended - started) / 1000));
-      return `${T.t("worked_for", { duration: formatElapsed(seconds) })} · ${steps}`;
+      return `${T.t("worked_for", { duration: T.duration(seconds) })} · ${steps}`;
     },
 
     // ---------- ask_user_question card ---------------------------------
@@ -1367,22 +1340,10 @@
       return null;
     },
 
-    // Only a run's closing text turn is copyable; earlier ones are narration. Runs are serial
-    // and run_status markers terminal, so the next non-assistant turn is always the boundary.
-    isClosingTextTurn(ti) {
-      for (let i = ti + 1; i < this.turns.length; i++) {
-        const later = this.turns[i];
-        if (later.role !== "assistant") return true;
-        if (later.streaming || this.finalTextSegment(later)) return false;
-      }
-      return true;
-    },
-
     // On a user turn this copies the whole message, including the part the
     // "Show more" clamp is hiding.
-    canCopyTurn(turn, ti) {
-      if (turn.role === "run_status" || turn.streaming || !this.finalTextSegment(turn)) return false;
-      return turn.role === "user" || this.isClosingTextTurn(ti);
+    canCopyTurn(turn) {
+      return turn.role !== "run_status" && !turn.streaming && Boolean(this.finalTextSegment(turn));
     },
 
     // Resolves true only once the write actually lands. The clipboard API is
@@ -1402,15 +1363,13 @@
     },
 
     // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
-    turnHasActions(turn, ti) {
+    turnHasActions(turn) {
       if (turn.role === "run_status") return false;
-      return !!turn.sent_at || !!turn.received_at || !!turn.retry_url || this.canCopyTurn(turn, ti);
+      return !!turn.sent_at || !!turn.received_at || !!turn.retry_url || this.canCopyTurn(turn);
     },
 
-    // The copy button sits on the run's closing text turn, which a later tool-only turn can leave behind.
     runHasActions(block) {
-      if (block.retryUrl || (block.lastTurn && this.turnHasActions(block.lastTurn, block.lastTurnIndex))) return true;
-      return Boolean(block.closingTurn) && this.canCopyTurn(block.closingTurn, block.closingTurnIndex);
+      return Boolean(block.retryUrl || block.copyTurn || block.lastTurn?.received_at);
     },
 
     // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.
@@ -1641,7 +1600,7 @@
     _openPathTo(segId) {
       for (const block of this.runBlocks) {
         for (const item of block.items) {
-          const steps = item.kind === "group" ? item.steps : item.kind === "step" ? [item.step] : [];
+          const steps = item.kind === "group" ? item.steps : item.row ? [item] : [];
           const step = steps.find((s) => s.seg.id === segId);
           if (!step) continue;
           if (block.folded) this.setOpen(block.key, true);
@@ -1994,7 +1953,7 @@
     return {
       seconds: 0,
       get label() {
-        return formatElapsed(this.seconds);
+        return window.TranscriptLabels.duration(this.seconds);
       },
       track(next) {
         const parsed = typeof next === "string" ? Date.parse(next) : next;

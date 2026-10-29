@@ -6,15 +6,25 @@
     delegate_jobs: "special",
   };
 
+  // Text only grows while it streams, so a segment found non-blank is not read (or tracked) again.
+  const nonBlank = new WeakSet();
+
+  const isText = (seg) => {
+    if (nonBlank.has(seg)) return true;
+    if (!String(seg.content ?? "").trim()) return false;
+    nonBlank.add(seg);
+    return true;
+  };
+
   const kindOf = (seg) => {
     if (seg.type === "thinking") return "step";
-    if (seg.type === "text") return String(seg.content ?? "").trim() ? "text" : null;
+    if (seg.type === "text") return isText(seg) ? "text" : null;
     if (seg.type === "publish_phase") return "special";
     if (seg.type !== "tool_call") return null;
     return Object.hasOwn(CALL_KINDS, seg.name) ? CALL_KINDS[seg.name] : "step";
   };
 
-  // Built once per value of `fields` on the segment and per `ctxId`, so a streamed token does not rebuild every row.
+  // Built once per value of `fields` on the segment and per `ctxId`, so a re-derive reuses what did not change.
   const memoBySeg = (fields, build) => {
     const cache = new WeakMap();
     return (seg, ctx, ctxId) => {
@@ -32,6 +42,7 @@
 
   const artifactFor = memoBySeg(["args", "result", "status"], (seg, latest) => window.artifactItem(seg, latest));
 
+  // By value: a caller may rebuild the list on every derive.
   const serversIdOf = (servers) => servers.join("\n");
 
   const sumKey = (key) => (`sum_${key}` in window.TranscriptLabels.defaults ? `sum_${key}` : "sum_other");
@@ -94,6 +105,21 @@
     return line;
   };
 
+  // The working line's phrase: the last running entry's, or "" while thinking or between steps.
+  const activityOf = (entries, servers, serversId, latest) => {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const { kind, seg } = entries[i];
+      if (seg.type === "publish_phase") {
+        if (seg.status === "running") return `${seg.label}…`;
+      } else if (
+        kind === "publish" ? artifactFor(seg, latest, latest).state === "running" : seg.status === "running"
+      ) {
+        return seg.type === "thinking" ? "" : `${rowFor(seg, servers, serversId).livePhrase}…`;
+      }
+    }
+    return "";
+  };
+
   const turnKey = (turn, ti) => turn.id || `@${ti}`;
 
   const splitRuns = (turns) => {
@@ -111,15 +137,10 @@
       runs.push(run);
     };
     turns.forEach((turn, ti) => {
-      if (turn.role === "run_status") {
-        // A marker carries a run_id only when it is its run's first turn: a failed run without a prompt.
-        if (!run || (turn.run_id && turn.run_id !== run.runId)) open(turn, ti);
-        run.statuses.push(turn);
-        return;
-      }
-      // A run without a prompt starts at its first turn, which carries its run_id.
+      // A run without a prompt starts at its first turn, which carries its run_id (a failed one's is its marker).
       if (!run || turn.role === "user" || (turn.run_id && run.runId && turn.run_id !== run.runId)) open(turn, ti);
-      run.turns.push({ turn, ti });
+      if (turn.role === "run_status") run.statuses.push(turn);
+      else run.turns.push({ turn, ti });
     });
     return runs;
   };
@@ -136,7 +157,6 @@
 
   // Fields holding objects rebuilt on every derive; everything else must be the same value or object.
   const NESTED = {
-    step: shallowSame,
     line: shallowSame,
     steps: (a, b) => sameList(a, b, shallowSame),
     items: (a, b) => sameList(a, b, shallowSame),
@@ -219,15 +239,16 @@
       }
 
       const stats = { steps: stepRows.length, ...tally(stepRows) };
-      const live = run.turns.some(({ turn }) => turn.streaming) || (ri === runs.length - 1 && Boolean(opts.inFlight));
+      const streaming = run.turns.some(({ turn }) => turn.streaming);
+      const live = streaming || (ri === runs.length - 1 && Boolean(opts.inFlight));
       const folded = !live && stats.steps > 0;
       const foldEnd = folded ? lastStep + 1 : entries.length;
 
       const itemOf = (e) => {
-        if (e.kind === "text") return { kind: "text", key: claim(`t-${e.at}`), seg: e.seg, turn: e.turn };
+        if (e.kind === "text") return { kind: "text", key: claim(`t-${e.at}`), seg: e.seg };
         if (e.kind === "question") {
           const row = rowFor(e.seg, servers, serversId);
-          return { kind: "question", key: claim(`q-${e.ref}`), seg: e.seg, turn: e.turn, turnIndex: e.ti, row };
+          return { kind: "question", key: claim(`q-${e.ref}`), seg: e.seg, turnIndex: e.ti, row };
         }
         const row = e.seg.type === "tool_call" ? rowFor(e.seg, servers, serversId) : null;
         return { kind: "special", key: claim(`x-${e.ref}`), seg: e.seg, row };
@@ -237,7 +258,7 @@
       let pending = [];
       const flush = () => {
         if (pending.length === 1) {
-          items.push({ kind: "step", key: pending[0].key, step: pending[0] });
+          items.push({ kind: "step", ...pending[0] });
         } else if (pending.length > 1) {
           items.push({ kind: "group", key: claim(`g-${pending[0].key}`), steps: pending, line: lineFor(pending) });
         }
@@ -245,7 +266,7 @@
       };
       for (const e of entries.slice(0, foldEnd)) {
         if (e.kind === "step") {
-          pending.push({ key: claim(`s-${e.ref}`), seg: e.seg, turn: e.turn, row: e.row });
+          pending.push({ key: claim(`s-${e.ref}`), seg: e.seg, row: e.row });
           continue;
         }
         flush();
@@ -284,31 +305,26 @@
         if (published.length) cards.push({ kind: "artifacts", key: claim(`c-${key}`), items: published });
       }
 
-      const own = run.turns.map(({ turn }) => turn);
-      const last = run.turns.findLast(({ turn }) => turn.role === "assistant");
-      const closing = run.turns.findLast(
-        ({ turn }) => turn.role === "assistant" && (turn.segments || []).some((seg) => seg.type === "text"),
-      );
+      const lastText = entries.findLast((e) => e.kind === "text");
       return {
         key,
         anchor: run.anchor,
-        anchorIndex: run.anchor ? run.firstIndex : null,
         runId: run.runId,
         retryUrl: run.first.retry_url || null,
         live,
         folded,
         stats,
         startedAt: run.anchor?.started_at || null,
-        endedAt: own[own.length - 1]?.received_at || null,
+        endedAt: run.turns.at(-1)?.turn.received_at || null,
         items,
         endingText,
         cards,
         endingTail,
         statuses: run.statuses,
-        lastTurn: last?.turn ?? null,
-        lastTurnIndex: last?.ti ?? null,
-        closingTurn: closing?.turn ?? null,
-        closingTurnIndex: closing?.ti ?? null,
+        lastTurn: run.turns.findLast(({ turn }) => turn.role === "assistant")?.turn ?? null,
+        // A run's answer is copyable once nothing in it streams; a later tool-only turn does not hide it.
+        copyTurn: !streaming && lastText ? lastText.turn : null,
+        activity: live ? activityOf(entries, servers, serversId, latest) : "",
       };
     });
     return reuse(blocks, opts.previous);
