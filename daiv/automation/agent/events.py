@@ -6,15 +6,22 @@ renamed on one side alone fails silently — empty turns for the assistant messa
 for context usage. The consumer half lives with each event: Python (``sessions.live.agui``,
 parsing through this module) for the assistant message, JS (``chat-stream.js``, whose node test
 drives the handler with payloads built here) for the context meter and the publish result, which
-is also saved in agent state for Python readers of the checkpoint.
+is also saved in agent state for Python readers of the checkpoint and kept per run by
+:func:`record_publish_result`.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.tracers.context import register_configure_hook
+
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Generator, Mapping
+    from uuid import UUID
 
     from automation.agent.usage_tracking import ResolvedWindow
     from codebase.base import MergeRequest, MergeRequestDiffStats
@@ -114,3 +121,44 @@ def publish_result_payload(
         "error_kind": error_kind,
         "conflicts": conflicts,
     }
+
+
+class PublishResultRecorder(BaseCallbackHandler):
+    """Keeps the last :data:`PUBLISH_RESULT_EVENT` payload dispatched while :func:`record_publish_result` is active."""
+
+    run_inline = True
+
+    def __init__(self) -> None:
+        self.payload: dict[str, Any] | None = None
+
+    def on_custom_event(
+        self,
+        name: str,
+        data: Any,
+        *,
+        run_id: UUID,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if name == PUBLISH_RESULT_EVENT and isinstance(data, dict):
+            self.payload = data
+
+
+# Once, at import: a hook registered per block would pile up in langchain's module-level hook list.
+_publish_result_recorder: ContextVar[PublishResultRecorder | None] = ContextVar(
+    "daiv_publish_result_recorder", default=None
+)
+register_configure_hook(_publish_result_recorder, inheritable=True)
+
+
+@contextmanager
+def record_publish_result() -> Generator[PublishResultRecorder]:
+    """Record the publish results dispatched by every runnable invoked inside the block, so a caller reads what this
+    run published rather than a checkpoint that can still hold the previous run's."""
+    recorder = PublishResultRecorder()
+    token = _publish_result_recorder.set(recorder)
+    try:
+        yield recorder
+    finally:
+        _publish_result_recorder.reset(token)

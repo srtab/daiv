@@ -1,10 +1,13 @@
 import pytest
+from langchain_core.callbacks.manager import adispatch_custom_event
+from langchain_core.runnables import RunnableLambda
 
 from automation.agent.events import (
     CONTEXT_USAGE_EVENT,
     PUBLISH_RESULT_EVENT,
     context_usage_payload,
     publish_result_payload,
+    record_publish_result,
 )
 from automation.agent.usage_tracking import ResolvedWindow
 from codebase.base import MergeRequestDiffStats
@@ -101,3 +104,28 @@ def test_the_publish_result_payload_defaults_absent_values_to_none():
         "error_kind": "push_rejected",
         "conflicts": None,
     }
+
+
+async def _dispatch(*events: tuple[str, dict]) -> None:
+    async def _emit(_input):
+        for name, data in events:
+            await adispatch_custom_event(name, data)
+
+    await RunnableLambda(_emit).ainvoke(None)
+
+
+async def test_the_recorder_keeps_the_last_publish_result_dispatched_inside_its_block():
+    pushed, opened = publish_result_payload(status="pushed"), publish_result_payload(status="opened")
+
+    with record_publish_result() as recorder:
+        await _dispatch((PUBLISH_RESULT_EVENT, pushed), (PUBLISH_RESULT_EVENT, opened), (CONTEXT_USAGE_EVENT, {}))
+    await _dispatch((PUBLISH_RESULT_EVENT, publish_result_payload(status="failed", error_kind="unknown")))
+
+    assert recorder.payload == opened
+
+
+async def test_the_recorder_holds_nothing_when_no_publish_result_was_dispatched():
+    with record_publish_result() as recorder:
+        await _dispatch((CONTEXT_USAGE_EVENT, {}))
+
+    assert recorder.payload is None

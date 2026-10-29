@@ -23,7 +23,7 @@ from sessions.delegation import adelegator_for
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
-from sessions.models import Run, publish_field_updates
+from sessions.models import PublishStatus, Run, publish_field_updates
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import apersist_session_ref, areset_session_ref
 
@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
+    from automation.agent.events import PublishResultRecorder
     from automation.agent.publishers import PublishOutcome
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
@@ -63,7 +64,7 @@ class AgentRun:
     ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``workspace`` is where the
     agent works; draft recovery publishes through it, and the executor releases its sandbox session. ``settings`` is
     what the run resolved once, and ``session_links`` what builds the links they allow; draft recovery publishes with
-    both."""
+    both. ``publish`` keeps the last publish result the run dispatched."""
 
     ctx: RuntimeCtx
     agent: CompiledStateGraph[Any, RuntimeCtx]
@@ -73,6 +74,7 @@ class AgentRun:
     workspace: Workspace
     settings: AgentSettings
     session_links: SessionLinksResolver | None
+    publish: PublishResultRecorder
     run_id: str | None = None
 
 
@@ -318,18 +320,16 @@ async def _recover_draft(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> N
 
 
 async def _record_publish_result(run: AgentRun, recovery: _Recovery) -> None:
-    """Keep what the run published before it failed: the checkpoint's ``publish_result`` goes onto the ``Run``, minus
-    the merge request and figures a recovered draft already recorded. Best-effort: logged, never raised."""
-    if not run.run_id:
+    """Keep what this run published before it failed: the last publish result it dispatched goes onto the ``Run``,
+    minus the merge request and figures a recovered draft already recorded. Never the checkpoint's, which can be the
+    previous run's; a ``failed`` one is the failure's own to record. Best-effort: logged, never raised."""
+    publish = run.publish.payload or {}
+    if not run.run_id or not publish.get("status") or publish["status"] == PublishStatus.FAILED:
         return
+    fields = publish_field_updates(publish)
+    if recovery.draft_recorded:
+        fields = {k: v for k, v in fields.items() if k.startswith("publish_")}
     try:
-        snapshot = recovery.snapshot or await run.agent.aget_state(config=run.config)
-        publish = snapshot.values.get("publish_result")
-        if not isinstance(publish, dict) or not publish.get("status"):
-            return
-        fields = publish_field_updates(publish)
-        if recovery.draft_recorded:
-            fields = {k: v for k, v in fields.items() if k.startswith("publish_")}
         await Run.objects.filter(pk=run.run_id).aupdate(**fields)
     except Exception:
         logger.exception("executor: failed to record the publish result on run_id=%s", run.run_id)
@@ -369,6 +369,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
 
     from automation.agent.agent_settings import resolve_agent_settings
     from automation.agent.context import set_runtime_ctx
+    from automation.agent.events import record_publish_result
     from automation.agent.graph import create_daiv_agent
     from automation.agent.middlewares.slash_commands import resets_thread, skips_sandbox
     from automation.agent.usage_tracking import track_usage_metadata
@@ -451,7 +452,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
             reset = resets_thread(spec.input_messages, ctx, settings)
             if archiving and not reset:
                 await arestore_thread(agent, checkpointer, config)
-            with track_usage_metadata() as usage, bind_active_run(run_id):
+            with track_usage_metadata() as usage, record_publish_result() as publish, bind_active_run(run_id):
                 run = AgentRun(
                     ctx=ctx,
                     agent=agent,
@@ -461,6 +462,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     workspace=workspace,
                     settings=settings,
                     session_links=session_links,
+                    publish=publish,
                     run_id=run_id,
                 )
                 try:

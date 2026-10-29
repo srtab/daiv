@@ -1022,7 +1022,7 @@ class TestChatAfterRunMatrix:
         assert events[-1].type == EventType.RUN_ERROR
         assert (events[-1].code, events[-1].message) == ("run_failed", RUN_FAILED_MESSAGE)
         assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
-        graph.aget_state.assert_awaited_once()
+        graph.aget_state.assert_not_awaited()
         graph.aupdate_state.assert_not_awaited()
 
     async def test_an_emitted_run_error_fails_the_turn_and_skips_ref_and_watch(self):

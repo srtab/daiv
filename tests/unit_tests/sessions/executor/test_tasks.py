@@ -542,7 +542,7 @@ class TestRunJobTaskAfterRunMatrix:
             await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
 
         assert await active_holder(thread_id) is None
-        agent.aget_state.assert_awaited_once()
+        agent.aget_state.assert_not_awaited()
         agent.aupdate_state.assert_not_awaited()
         persist.assert_not_awaited()
         assert armed == []

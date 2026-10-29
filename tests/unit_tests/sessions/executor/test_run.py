@@ -10,7 +10,9 @@ from django.contrib.sites.models import Site
 from django.urls import reverse
 
 import pytest
+from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableLambda
 from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -23,7 +25,7 @@ from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
-from automation.agent.events import publish_result_payload
+from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload
 from automation.agent.publishers import PublishOutcome
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
@@ -1030,37 +1032,64 @@ async def test_a_failed_recovered_draft_write_is_logged_not_raised(caplog):
     assert "failed to record the recovered draft" in caplog.text
 
 
-async def _fail_with_checkpoint(state: dict, *, via_stream: bool = False, update: AsyncMock | None = None):
-    agent = _agent(state=state)
-    spec = make_spec(run_id="run-1")
+async def _dispatch_publish_result(payload: dict) -> None:
+    await adispatch_custom_event(PUBLISH_RESULT_EVENT, payload)
+
+
+async def _fail_after_dispatching(
+    payload: dict | None,
+    *,
+    state: dict | None = None,
+    via_stream: bool = False,
+    update: AsyncMock | None = None,
+    recovered: PublishOutcome | None = None,
+) -> list[dict]:
+    """Fail a run after a runnable invoked under the run's config dispatched ``payload``; return the run's publish
+    writes. ``state`` is the checkpoint the run reads, ``recovered`` what draft recovery opens."""
     error = RuntimeError("agent blew up")
-    agent.ainvoke = AsyncMock(side_effect=error)
+
+    async def _publish(config) -> None:
+        if payload is not None:
+            await RunnableLambda(_dispatch_publish_result).ainvoke(payload, config=config)
+
+    async def _ainvoke(_input, *, config, **_kwargs):
+        await _publish(config)
+        raise error
+
+    async def _events(run):
+        await _publish(run.config)
+        raise error
+        yield
+
+    agent = _agent(state=state)
+    agent.ainvoke = AsyncMock(side_effect=_ainvoke)
     update = update or AsyncMock()
+    spec = make_spec(run_id="run-1", recover_draft=recovered is not None)
     with (
         agent_stack(agent),
         patch("sessions.executor.run.Run.objects") as objects,
+        patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=recovered)),
         pytest.raises(RuntimeError, match="agent blew up"),
     ):
         objects.filter.return_value.aupdate = update
         if via_stream:
-            await _drain(spec, _stream(error=error))
+            await _drain(spec, _events)
         else:
             await execute_run(spec)
     return [c.kwargs for c in update.await_args_list if PUBLISH_KEYS & c.kwargs.keys()]
 
 
 PUBLISH_KEYS = {"publish_status", "merge_request_iid", "lines_added"}
+OPENED = publish_result_payload(
+    status="opened",
+    merge_request=make_merge_request(merge_request_id=7, web_url="https://git.example/mr/7"),
+    diff_stats=MergeRequestDiffStats(lines_added=4, lines_removed=1, files_changed=2),
+)
 
 
 @pytest.mark.parametrize("via_stream", [False, True], ids=["execute_run", "stream_run"])
 async def test_a_run_that_failed_after_publishing_keeps_its_publish_result(via_stream):
-    payload = publish_result_payload(
-        status="opened",
-        merge_request=make_merge_request(merge_request_id=7, web_url="https://git.example/mr/7"),
-        diff_stats=MergeRequestDiffStats(lines_added=4, lines_removed=1, files_changed=2),
-    )
-
-    writes = await _fail_with_checkpoint({"publish_result": payload}, via_stream=via_stream)
+    writes = await _fail_after_dispatching(OPENED, via_stream=via_stream)
 
     assert writes == [
         {
@@ -1074,34 +1103,29 @@ async def test_a_run_that_failed_after_publishing_keeps_its_publish_result(via_s
     ]
 
 
-@pytest.mark.parametrize("state", [{}, {"publish_result": None}])
-async def test_a_run_that_failed_without_a_publish_result_writes_nothing(state):
-    assert await _fail_with_checkpoint(state) == []
+@pytest.mark.parametrize("via_stream", [False, True], ids=["execute_run", "stream_run"])
+async def test_a_failed_run_never_takes_the_previous_runs_publish_result_from_the_checkpoint(via_stream):
+    assert await _fail_after_dispatching(None, state={"publish_result": OPENED}, via_stream=via_stream) == []
+
+
+async def test_a_failed_publish_is_left_to_the_failures_own_record():
+    assert await _fail_after_dispatching(publish_result_payload(status="failed", error_kind="push_rejected")) == []
 
 
 async def test_a_failed_publish_result_write_is_logged_and_the_run_error_still_propagates(caplog):
     with caplog.at_level("ERROR", logger="daiv.sessions"):
-        await _fail_with_checkpoint(
-            {"publish_result": publish_result_payload(status="pushed")}, update=AsyncMock(side_effect=OSError("db"))
+        await _fail_after_dispatching(
+            publish_result_payload(status="pushed"), update=AsyncMock(side_effect=OSError("db"))
         )
 
     assert "failed to record the publish result" in caplog.text
 
 
 async def test_a_recovered_draft_is_not_overwritten_by_the_earlier_publish_result():
-    agent = _agent(state={"publish_result": publish_result_payload(status="pushed")})
-    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
-    updates = AsyncMock()
-    with (
-        agent_stack(agent),
-        patch("sessions.executor.run.Run.objects") as objects,
-        patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=_recovery_outcome(created=True))),
-        pytest.raises(RuntimeError, match="agent blew up"),
-    ):
-        objects.filter.return_value.aupdate = updates
-        await execute_run(make_spec(run_id="run-1", recover_draft=True))
+    writes = await _fail_after_dispatching(
+        publish_result_payload(status="pushed"), recovered=_recovery_outcome(created=True)
+    )
 
-    writes = [c.kwargs for c in updates.await_args_list if PUBLISH_KEYS & c.kwargs.keys()]
     assert [w["merge_request_iid"] for w in writes if "merge_request_iid" in w] == [11]
     assert writes[-1] == {"publish_status": "pushed"}
 
