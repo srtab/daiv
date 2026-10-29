@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from django.contrib.sites.models import Site
+from django.urls import reverse
 from django.utils import timezone
 
 import pytest
@@ -14,8 +15,9 @@ from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
 from sessions.executor.lock import LiveRun, SessionActivity
 from sessions.models import CHAT_PROMPT_MAX_LENGTH, Run, RunArtifact, RunStatus, Session, SessionOrigin
-from sessions.transcript import RETRY_MESSAGE, annotate_transcript, expired_run_turns, retry_message
-from sessions.turns import build_turns
+from sessions.transcript import RETRY_MESSAGE, annotate_transcript, expired_run_turns, mark_skill_links, retry_message
+from sessions.turns import build_turns, tool_call_segment
+from skills.models import SkillInvocation
 
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
@@ -665,3 +667,58 @@ def test_retry_message_offers_nothing_for_a_stopped_run_or_one_a_chat_turn_canno
 
 def test_retry_message_offers_nothing_without_runs():
     assert retry_message([], []) == ""
+
+
+def skill_segment(name, key="skill"):
+    return tool_call_segment({"id": "t1", "name": "skill", "args": {key: name}})
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("source,linked", [("builtin", True), ("global", True), ("repo", False)])
+def test_skill_calls_link_to_their_skills_page(source, linked):
+    thread_id = uuid.uuid4()
+    SkillInvocation.objects.create(name="systematic-debugging", source=source, repo_slug="a/b", thread_id=thread_id)
+    turns = [{"role": "assistant", "segments": [skill_segment("systematic-debugging")]}]
+
+    mark_skill_links(turns, thread_id)
+
+    url = turns[0]["segments"][0].get("skill_url")
+    assert (url == reverse("skills:detail", args=["systematic-debugging"])) if linked else url is None
+
+
+@pytest.mark.django_db
+def test_a_skill_without_an_invocation_gets_no_link():
+    turns = [{"role": "assistant", "segments": [skill_segment("x")]}]
+
+    mark_skill_links(turns, uuid.uuid4())
+
+    assert "skill_url" not in turns[0]["segments"][0]
+
+
+@pytest.mark.django_db
+def test_skill_links_read_the_name_key_and_ignore_other_threads_and_unparseable_args(django_assert_num_queries):
+    thread_id = uuid.uuid4()
+    SkillInvocation.objects.create(name="a-skill", source="builtin", repo_slug="a/b", thread_id=thread_id)
+    SkillInvocation.objects.create(name="other", source="builtin", repo_slug="a/b", thread_id=uuid.uuid4())
+    broken = {**skill_segment("a-skill"), "args": "{not json"}
+    turns = [{"role": "assistant", "segments": [skill_segment("a-skill", key="name"), skill_segment("other"), broken]}]
+
+    with django_assert_num_queries(1):
+        mark_skill_links(turns, thread_id)
+
+    linked, other, unparsed = turns[0]["segments"]
+    assert linked["skill_url"] == reverse("skills:detail", args=["a-skill"])
+    assert "skill_url" not in other
+    assert "skill_url" not in unparsed
+
+
+@pytest.mark.django_db
+def test_the_latest_invocation_decides_whether_a_skill_links():
+    thread_id = uuid.uuid4()
+    SkillInvocation.objects.create(name="a-skill", source="builtin", repo_slug="a/b", thread_id=thread_id)
+    SkillInvocation.objects.create(name="a-skill", source="repo", repo_slug="a/b", thread_id=thread_id)
+    turns = [{"role": "assistant", "segments": [skill_segment("a-skill")]}]
+
+    mark_skill_links(turns, thread_id)
+
+    assert "skill_url" not in turns[0]["segments"][0]
