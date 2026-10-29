@@ -356,6 +356,8 @@
 
   const toolPath = (args, argsStr) => pickKeyOrPartial(args, ["path", "file_path"], argsStr) ?? "";
 
+  const COMMAND_CHARS = 80;
+
   const bashExit = (result) => {
     const commands = parseBashSuccess(result)?.commands;
     if (!commands) return { known: false, code: null };
@@ -458,7 +460,7 @@
       return {
         icon: "command-line",
         key: "run",
-        vars: { command: truncate(command.split("\n")[0], 80) },
+        vars: { command: truncate(command.split("\n")[0], COMMAND_CHARS) },
         detail,
         failed: exit.code != null,
         category: { key: "run" },
@@ -945,10 +947,41 @@
     return { hits, before, after };
   };
 
+  const MARK_CHARS = 300;
+  const QUANTIFIERS = new Set(["*", "+", "{"]);
+
+  // A repeated group that holds a quantifier, as in `(\w+\s?)+`, backtracks exponentially in JS (ERE does not).
+  const hasNestedQuantifier = (pattern) => {
+    const quantified = [false];
+    let opened = false;
+    for (let i = 0; i < pattern.length; i += 1) {
+      const ch = pattern[i];
+      const quantifier = QUANTIFIERS.has(ch) || (ch === "?" && !opened);
+      opened = ch === "(";
+      if (ch === "\\") {
+        i += 1;
+      } else if (ch === "[") {
+        while (i + 1 < pattern.length && pattern[i + 1] !== "]") i += pattern[i + 1] === "\\" ? 2 : 1;
+        i += 1;
+      } else if (ch === "(") {
+        quantified.push(false);
+      } else if (ch === ")" && quantified.length > 1) {
+        const inner = quantified.pop();
+        const repeated = QUANTIFIERS.has(pattern[i + 1]);
+        if (inner && repeated) return true;
+        if (inner || repeated) quantified[quantified.length - 1] = true;
+      } else if (quantifier) {
+        quantified[quantified.length - 1] = true;
+      }
+    }
+    return false;
+  };
+
+  // `u` makes patterns JS would read differently from ERE (`\K`, `[[:alpha:]]`) throw instead of mismatching.
   const patternRE = (pattern) => {
-    if (!pattern) return null;
+    if (!pattern || hasNestedQuantifier(String(pattern))) return null;
     try {
-      return new RegExp(pattern, "g");
+      return new RegExp(pattern, "gu");
     } catch {
       return null;
     }
@@ -958,7 +991,7 @@
     if (!re) return escapeHtml(text);
     let html = "";
     let last = 0;
-    for (const match of text.matchAll(re)) {
+    for (const match of text.slice(0, MARK_CHARS).matchAll(re)) {
       if (!match[0]) continue;
       html += `${escapeHtml(text.slice(last, match.index))}<mark>${escapeHtml(match[0])}</mark>`;
       last = match.index + match[0].length;
@@ -971,7 +1004,8 @@
     for (const hit of hits) {
       if (groups.at(-1)?.file !== hit.file) groups.push({ file: hit.file, rows: [] });
       const lineno = `<span class="ln">${escapeHtml(hit.lineno)}</span>`;
-      groups.at(-1).rows.push(`<div class="body-grep-hit">${lineno}${markHTML(hit.text, re)}</div>`);
+      const text = hit.match ? markHTML(hit.text, re) : escapeHtml(hit.text);
+      groups.at(-1).rows.push(`<div class="body-grep-hit">${lineno}${text}</div>`);
     }
     const html = groups.map(({ file, rows }) => {
       const name = `<div class="body-grep-file">${escapeHtml(file)}</div>`;
@@ -1021,6 +1055,14 @@
       });
     if (!items.length) return "";
     return clampItems(items, (part) => `<ul class="body-files">${part.join("")}</ul>`, files.length);
+  };
+
+  // Shown as Input only when the row cut it: several lines, or longer than the row's COMMAND_CHARS.
+  const commandHTML = (command) => {
+    const { lines, total } = sliceText(command);
+    const html = lines.map(escapeHtml);
+    html[0] = `<span class="body-prompt">$</span> ${html[0]}`;
+    return clampLines(html, VISIBLE_LINES, { total, cls: "body-term" });
   };
 
   const exitCode = (command) =>
@@ -1092,23 +1134,22 @@
       return section("body_changed", changed) + contextSection(result, textHTML);
     },
     grep: ({ args, result }) => {
-      const text = String(result ?? "");
-      const { hits } = parseGrep(text.split("\n"));
-      const content = pickKey(args, ["output_mode"]) === "content" && !parseOffload(text);
-      const matches = hits.filter((hit) => hit.match).length;
-      const size = content ? escapeHtml(`${tn("size_matches", matches)} · ${contextSize(text)}`) : null;
-      return contextSection(result, grepHTML(pickKey(args, ["pattern", "query", "regex"]), hits.length), size);
+      const total = parseGrep(String(result ?? "").split("\n")).hits.length;
+      return contextSection(result, grepHTML(pickKey(args, ["pattern", "query", "regex"]), total));
     },
     glob: ({ result }) => contextSection(result, pathsHTML),
     ls: ({ result }) => contextSection(result, pathsHTML),
-    bash: ({ result }) => {
+    bash: ({ args, argsStr, result }) => {
       const parsed = parseBashSuccess(result);
-      if (!parsed) return contextSection(result, textHTML);
-      const commands = parsed.commands.filter(isRecord);
-      const output = commands.map((command) => String(command.output ?? "")).filter(Boolean).join("\n");
+      const commands = parsed ? parsed.commands.filter(isRecord) : [];
+      const command = String(pickKeyOrPartial(args, ["command", "cmd", "script"], argsStr) ?? "").trimEnd();
+      const cut = commands.length < 2 && (command.includes("\n") || command.length > COMMAND_CHARS);
+      const input = section("body_input", cut ? commandHTML(command) : "");
+      if (!parsed) return input + contextSection(result, textHTML);
+      const output = commands.map((one) => String(one.output ?? "")).filter(Boolean).join("\n");
       const size = output ? escapeHtml(contextSize(output)) : "";
       const context = contextSection(result, () => terminalHTML(commands), size);
-      return section("body_changed", changesHTML(parsed.files_changed)) + context;
+      return section("body_changed", changesHTML(parsed.files_changed)) + input + context;
     },
     skill: ({ result }) => contextSection(result, markdownHTML),
     task: ({ args, result }) => {

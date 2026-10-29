@@ -74,8 +74,6 @@
     unanswered: "No result: the run ended before this call returned.",
     show_all: "Show all {count} lines",
     and_more: "and {count} more",
-
-    size_matches: ["{count} match", "{count} matches"],
   };
 
   const loadPayload = () => {

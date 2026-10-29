@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 import pytest
 
@@ -469,11 +470,11 @@ def test_grep_invalid_js_regex_still_renders():
     assert "Foo" in html and "<mark>" not in html
 
 
-def test_grep_marks_the_pattern_and_counts_the_matches():
+def test_grep_marks_the_pattern_and_leaves_the_count_to_the_row():
     result = "Mode: content — matching lines.\n\na.py:\n  3: foo <b> foo\nb.py:\n  9: foo"
     html = _body("grep", {"pattern": "foo", "output_mode": "content"}, result=result)
     assert html.count("<mark>foo</mark>") == 3 and "&lt;b&gt;" in html
-    assert '<span class="body-size">2 matches · ' in html
+    assert '<span class="body-size">6 lines · 0.1 KB</span>' in html and "matches" not in html
 
 
 def test_grep_highlight_never_cuts_an_escaped_character():
@@ -574,3 +575,46 @@ def test_bash_changes_map_each_operation_and_show_renames():
 def test_bash_text_result_is_shown_as_text():
     html = _body("bash", {"command": "x"}, result="The sandbox is unavailable; retry once.")
     assert "The sandbox is unavailable; retry once." in html
+
+
+def test_grep_never_runs_a_nested_quantifier_against_the_matches():
+    result = "a.py:\n  1: def " + "a" * 28 + "()"
+    started = time.monotonic()
+    html = _body("grep", {"pattern": r"(\w+\s?)+:", "output_mode": "content"}, result=result)
+    assert time.monotonic() - started < 5 and "<mark>" not in html and "a" * 28 in html
+
+
+@pytest.mark.parametrize("pattern,text", [(r"a\Kb", "aKb"), ("[[:alpha:]]", "a]")], ids=["perl-keep", "posix-class"])
+def test_grep_pattern_js_reads_differently_is_not_highlighted(pattern, text):
+    assert "<mark>" not in _body("grep", {"pattern": pattern, "output_mode": "content"}, result=f"a.py:\n  1: {text}")
+
+
+def test_grep_context_rows_are_never_marked():
+    html = _body("grep", {"pattern": "foo", "output_mode": "content"}, result="a.py:\n  1- foo\n  2: foo")
+    assert html.count("<mark>foo</mark>") == 1
+
+
+def test_grep_marks_only_the_start_of_a_long_line():
+    result = "a.py:\n  1: foo " + "x" * 400 + " foo"
+    html = _body("grep", {"pattern": "foo", "output_mode": "content"}, result=result)
+    assert html.count("<mark>foo</mark>") == 1 and "x" * 400 + " foo" in html
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["cat <<EOF > a.py\nprint(1)\nEOF", "uv run pytest " + " ".join(["tests/unit_tests/chat/x.py"] * 4)],
+    ids=["multi-line", "long"],
+)
+def test_bash_command_the_row_cuts_is_shown_whole_as_input(command):
+    result = json.dumps({"commands": [{"command": command, "exit_code": 0, "output": "ok"}]})
+    html = _body("bash", {"command": command}, result=result)
+    shown, context = html.split("Loaded into context")
+    assert "Input" in shown and '<span class="body-prompt">$</span> ' in shown
+    assert all(line.replace("<", "&lt;").replace(">", "&gt;") in shown for line in command.split("\n"))
+    assert "ok" in context
+
+
+def test_bash_short_command_has_no_input():
+    result = json.dumps({"commands": [{"command": "make fmt", "exit_code": 0, "output": "ok"}]})
+    html = _body("bash", {"command": "make fmt"}, result=result)
+    assert "Input" not in html and "make fmt" not in html
