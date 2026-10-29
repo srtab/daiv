@@ -1,5 +1,5 @@
 """Behavioral tests for ``chat-stream.js`` under node: the ``#run-<id>`` link target, the progress pill's diff, the
-run blocks the transcript renders and the id a live run-status marker takes."""
+run blocks the transcript renders, the id a live run-status marker takes and the context a tool body gets."""
 
 from __future__ import annotations
 
@@ -529,3 +529,33 @@ def test_a_live_failure_marker_takes_the_run_rows_id_once_the_server_names_it():
 
 def test_a_failure_before_the_run_row_exists_keeps_the_pages_run_id():
     assert run_chat_stream(MARKER_BODY, {"events": [RUN_FAILED]}) == ["run-status-client-run"]
+
+
+CTX_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat" });
+chat.mcpCatalog = payload.catalog;
+chat.thread = { merge_request: payload.mr };
+let seen = null;
+sandbox.window.toolBodyHTML = (seg, ctx) => {
+  seen = { ...ctx, seg: seg.id, latestArtifactsById: ctx.latestArtifactsById === chat.latestArtifactsById };
+  return "";
+};
+chat.toolBodyHTML({ id: "c1" });
+process.stdout.write(JSON.stringify(seen));
+"""
+
+
+MR_URL = "https://g/x/-/merge_requests/1"
+
+
+@pytest.mark.parametrize("mr,url", [({"url": MR_URL}, MR_URL), (None, None)])
+def test_a_tool_body_gets_the_servers_the_artifacts_and_the_merge_request(mr, url):
+    catalog = [{"name": "sentry", "read_only_tools": ["search_issues"], "icon": ""}]
+    seen = run_chat_stream(CTX_BODY, {"catalog": catalog, "mr": mr}, extra_globals=GLOBALS)
+    assert seen == {
+        "seg": "c1",
+        "mcpServers": ["sentry"],
+        "mcpRows": catalog,
+        "latestArtifactsById": True,
+        "mergeRequestUrl": url,
+    }

@@ -1405,7 +1405,12 @@
 
     toolBodyHTML(seg) {
       if (!window.toolBodyHTML) return "";
-      return window.toolBodyHTML(seg.name, seg.args, seg.result, seg.status);
+      return window.toolBodyHTML(seg, {
+        mcpServers: this.mcpCatalog.map((s) => s.name),
+        mcpRows: this.mcpCatalog,
+        latestArtifactsById: this.latestArtifactsById,
+        mergeRequestUrl: this.thread?.merge_request?.url ?? null,
+      });
     },
 
     // Status-letter marks, as the progress sheet's rows are specified. ``+``/``−``/``~``

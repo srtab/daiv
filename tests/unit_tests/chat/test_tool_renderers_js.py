@@ -1,8 +1,9 @@
-"""Behavioral tests for ``toolRow`` in ``tool-renderers.js``, under node."""
+"""Behavioral tests for ``toolRow`` and ``toolBodyHTML`` in ``tool-renderers.js``, under node."""
 
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -155,3 +156,161 @@ def test_running_thinking_row_reads_thinking():
 @pytest.mark.parametrize("extra,phrase", [({"startedAt": 1000, "endedAt": 5400}, "Thought for 4s"), ({}, "Thought")])
 def test_finished_thinking_row_shows_duration_only_when_timed(extra, phrase):
     assert _row_seg({"type": "thinking", "content": "x", "status": "done", **extra})["phrase"] == phrase
+
+
+def _body_seg(seg: dict, *, show_raw: bool = False, servers: list[dict] | None = None, mr_url: str | None = None):
+    rows = servers or []
+    ctx = {"mcpServers": [row["name"] for row in rows], "mcpRows": rows, "mergeRequestUrl": mr_url}
+    expr = "toolBodyHTML(vars.seg, { ...vars.ctx, latestArtifactsById: new Map() })"
+    return run_transcript(expr, {"seg": seg, "ctx": ctx}, blocks=False, labels={"show_raw": show_raw}, markdown=True)
+
+
+def _body(
+    name: str,
+    args: dict,
+    *,
+    result: str | None = None,
+    status: str = "done",
+    show_raw: bool = False,
+    servers: list[dict] | None = None,
+    mr_url: str | None = None,
+    **seg_extra,
+) -> str:
+    seg = {**tool_call("c1", name, args, result=result, status=status), **seg_extra}
+    return _body_seg(seg, show_raw=show_raw, servers=servers, mr_url=mr_url)
+
+
+EVICTED = (
+    "Tool result too large, the result of this tool call c1 was saved in the filesystem at this path: "
+    "/large_tool_results/c1\n\npreview line"
+)
+
+
+def test_default_body_turns_a_json_list_into_a_table():
+    html = _body("some_tool", {"a": 1}, result=json.dumps([{"id": 1, "title": "x"}, {"id": 2, "title": "y"}]))
+    assert "<table" in html and ">title<" in html and "Arguments" not in html
+
+
+def test_raw_only_in_debug_mode():
+    assert "Arguments" in _body("some_tool", {"a": 1}, result="ok", show_raw=True)
+
+
+def test_unparseable_json_falls_back_to_markdown():
+    assert "<table" not in _body("some_tool", {}, result="[not json")
+
+
+def test_offloaded_result_says_only_a_preview_was_loaded():
+    result = EVICTED
+    html = _body("bash", {"command": "x"}, result=result)
+    assert "/large_tool_results/c1" in html and "saw only a preview" in html
+
+
+def test_huge_result_is_clamped():
+    html = _body("some_tool", {}, result="\n".join(f"line {i}" for i in range(5000)))
+    assert html.count("line ") < 5000 and "Show all" in html
+
+
+def test_failed_call_leads_with_what_went_wrong():
+    assert _body("grep", {"pattern": "x"}, result="error: invalid regex").startswith('<div class="body-error"')
+
+
+def test_an_error_is_said_once():
+    assert _body("some_tool", {}, result="error: invalid regex").count("invalid regex") == 1
+
+
+def test_a_call_the_run_never_answered_says_so():
+    html = _body("grep", {"pattern": "x"}, status="error")
+    assert html.startswith('<div class="body-error"')
+    assert "No result: the run ended before this call returned." in html
+
+
+def test_raw_is_a_closed_details_after_the_other_sections():
+    html = _body("some_tool", {"a": 1}, result="ok", show_raw=True)
+    assert html.index("Loaded into context") < html.index('<details class="body-raw"><summary>Raw</summary>')
+    assert html.endswith("</details>") and '{\n  "a": 1\n}' in html
+
+
+@pytest.mark.parametrize(
+    "result,size",
+    [("a\nb", "2 lines · 0.1 KB"), ("x" * 3000, "1 line · 2.9 KB"), ("y\n" * 6000, "6000 lines · 12 KB")],
+    ids=["tiny", "one-long-line", "many-lines"],
+)
+def test_context_carries_its_size_in_lines_and_kb(result, size):
+    assert f'<span class="body-size">{size}</span>' in _body("some_tool", {}, result=result)
+
+
+def test_clamp_shows_twelve_lines_and_caps_the_rest():
+    html = _body("read_file", {"file_path": "/workspace/repo/a.py"}, result="\n".join(f"row {i}" for i in range(5000)))
+    visible, more = html.split('<details class="body-more">')
+    assert visible.count("row ") == 12 and more.count("row ") == 488
+    assert "Show all 5000 lines" in more and "and 4500 more" in more
+
+
+def test_short_result_is_not_clamped():
+    assert "Show all" not in _body("read_file", {"file_path": "/workspace/repo/a.py"}, result="1  a\n2  b")
+
+
+def test_long_markdown_is_cut_at_a_blank_line():
+    result = "\n".join([f"p{i}" for i in range(14)] + ["", "tail"])
+    visible, more = _body("some_tool", {}, result=result).split('<details class="body-more">')
+    assert "p13" in visible and "tail" in more
+
+
+def test_long_markdown_cut_inside_a_code_fence_closes_and_reopens_it():
+    lines = [f"para {i}" for i in range(10)] + ["```python"] + [f"code {i}" for i in range(20)] + ["```"]
+    visible, more = _body("some_tool", {}, result="\n".join(lines)).split('<details class="body-more">')
+    assert visible.count("```") == 2 and more.startswith("<summary>") and more.count("```python") == 1
+
+
+def test_offloaded_file_write_names_the_full_size():
+    result = "Wrote 20480 bytes (400 lines) to /workspace/tmp/large_tool_results/c1\nPreview (first 1 lines):\nid: 1"
+    html = _body("gitlab", {"subcommand": "project-job trace --id 3"}, result=result)
+    assert "saw only a preview" in html and "/workspace/tmp/large_tool_results/c1" in html
+    assert "400 lines · 20 KB" in html and "id: 1" in html
+
+
+@pytest.mark.parametrize("name", ["read_file", "grep", "bash", "task", "web_fetch", "gitlab", "sentry_search"])
+def test_every_tool_shows_the_offload_notice(name):
+    html = _body(name, {"file_path": "/workspace/repo/a.py", "url": "https://x", "prompt": "p"}, result=EVICTED)
+    assert "saw only a preview" in html and "preview line" in html
+
+
+def test_json_object_becomes_a_field_list():
+    html = _body("some_tool", {}, result=json.dumps({"state": "opened", "labels": ["a"]}))
+    assert '<dl class="body-fields">' in html and "<dt>state</dt><dd>opened</dd>" in html and '["a"]' in html
+
+
+def test_table_keeps_six_columns_and_fifty_rows():
+    html = _body("some_tool", {}, result=json.dumps([{f"k{i}": i for i in range(8)} for _ in range(60)]))
+    assert html.count("<th>") == 6 and html.count("<tr>") == 51 and "and 10 more" in html
+
+
+def test_untrusted_result_text_is_escaped():
+    assert "<img" not in _body("some_tool", {}, result='[{"name": "<img src=x onerror=alert(1)>"}]')
+    assert "<script>" not in _body("some_tool", {}, result="<script>alert(1)</script>")
+
+
+@pytest.mark.parametrize(
+    "name,args",
+    [("edit_file", {"file_path": "/workspace/repo/a.py"}), ("skill", {"skill": "x"}), ("web_search", {"query": "q"})],
+)
+def test_legacy_bodies_no_longer_dump_the_arguments(name, args):
+    assert "Arguments" not in _body(name, args)
+
+
+def test_a_link_from_a_result_cannot_break_out_of_its_attribute():
+    result = json.dumps([{"title": "t", "link": 'https://x" onmouseover="alert(1)', "content": ""}])
+    html = _body("web_search", {"query": "q"}, result=result)
+    assert re.search(r'<a [^>]*\sonmouseover="', html) is None
+
+
+def test_a_non_web_link_from_a_result_is_not_a_link():
+    result = json.dumps([{"title": "t", "link": "javascript:alert(1)", "content": ""}])
+    assert 'href="javascript:' not in _body("web_search", {"query": "q"}, result=result)
+
+
+def test_text_result_renders_as_markdown_or_escaped_text_without_a_renderer():
+    seg = tool_call("c1", "some_tool", {}, result="**hi** <b>")
+    assert "<strong>hi</strong> &lt;b&gt;" in _body_seg(seg)
+    bare = run_transcript("toolBodyHTML(vars.seg, {})", {"seg": seg}, blocks=False)
+    assert '<pre class="body-pre">**hi** &lt;b&gt;</pre>' in bare

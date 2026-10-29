@@ -3,8 +3,9 @@
 //   toolRow(seg, ctx?)
 //     -> one compact transcript row for a tool_call or thinking segment (see toolRow below)
 //
-//   toolBodyHTML(name, argsStr, result, status)
-//     -> HTML string rendered inside <details> when the card is expanded.
+//   toolBodyHTML(seg, ctx)
+//     -> an opened row's body: What went wrong, the tool's own sections, then Raw (debug mode only);
+//        ctx = { mcpServers, mcpRows, latestArtifactsById, mergeRequestUrl }
 //
 //   artifactItem(seg, latestById)
 //     -> one publish_artifact row for the Artifacts card: { state: "running" | "published" | "error", ... },
@@ -15,7 +16,7 @@
 //
 // Every extraction is defensive: if JSON doesn't parse or expected keys are missing,
 // we return a neutral row/body rather than throwing. Unknown tools fall
-// through to a generic "name + JSON-pretty args + raw result" view.
+// through to the default body: the result, formatted (table, field list or markdown).
 
 (() => {
   const escapeHtml = (s) =>
@@ -23,6 +24,8 @@
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;");
+
+  const escapeAttr = (s) => escapeHtml(s).replaceAll('"', "&quot;");
 
   const parseArgs = (argsStr) => {
     if (!argsStr) return {};
@@ -593,28 +596,218 @@
     };
   };
 
-  // --- per-tool expanded-body builders -----------------------------------
+  // --- expanded bodies ---------------------------------------------------
 
-  const pre = (text, cls = "") =>
-    `<pre class="chat-tool__code${cls ? " " + cls : ""}">${escapeHtml(text)}</pre>`;
+  const VISIBLE_LINES = 12;
+  const LINE_CAP = 500;
+  const CHAR_CAP = 50000;
+  const STRUCTURED_ROWS = 50;
+  const TABLE_COLUMNS = 6;
+  const VALUE_CHARS = 1000;
 
-  const block = (label, html) =>
-    `<div class="chat-tool__block"><div class="chat-tool__block-label">${escapeHtml(label)}</div>${html}</div>`;
+  const t = (key, vars) => window.TranscriptLabels.t(key, vars);
+  const tn = (key, count, vars) => window.TranscriptLabels.tn(key, count, vars);
 
-  const genericBody = (argsStr, result) => {
-    const parts = [];
-    if (argsStr) parts.push(block("Arguments", pre(prettyJSON(argsStr))));
-    if (result != null && String(result).length) parts.push(block("Result", pre(String(result))));
-    return parts.join("");
+  const isError = (text) => ERROR_PREFIX_RE.test(String(text ?? "").trim());
+
+  const byteLength = (s) => (typeof TextEncoder === "function" ? new TextEncoder().encode(s).length : s.length);
+
+  const formatSize = (lines, bytes) => {
+    const kb = bytes / 1024;
+    const size = kb < 10 ? Math.max(kb, 0.1).toFixed(1) : String(Math.round(kb));
+    return `${tn("size_lines", lines)} · ${t("size_kb", { size })}`;
   };
 
-  const renderMarkdownBlock = (text) =>
-    window.renderMarkdown
-      ? `<div class="chat-text">${window.renderMarkdown(text)}</div>`
-      : pre(String(text));
+  const contextSize = (text) => {
+    const source = String(text ?? "");
+    return source ? formatSize(countLines(source), byteLength(source)) : "";
+  };
 
-  const diffBody = (result) => {
-    const lines = String(result ?? "").split("\n");
+  const sliceText = (text) => {
+    const all = String(text ?? "").replace(/\n$/, "").split("\n");
+    const lines = [];
+    let budget = CHAR_CAP;
+    for (const line of all) {
+      if (lines.length === LINE_CAP || budget <= 0) break;
+      lines.push(line.length > budget ? `${line.slice(0, budget)}…` : line);
+      budget -= line.length + 1;
+    }
+    return { lines, total: all.length };
+  };
+
+  const andMoreHTML = (count) =>
+    count > 0 ? `<p class="body-and-more">${escapeHtml(t("and_more", { count }))}</p>` : "";
+
+  const moreHTML = (total, html, omitted) =>
+    `<details class="body-more"><summary>${escapeHtml(t("show_all", { count: total }))}</summary>` +
+    `${html}${andMoreHTML(omitted)}</details>`;
+
+  // `total` is the line count before the caller sliced `lines`, so the summary and the omitted note stay true.
+  const clampLines = (lines, max = VISIBLE_LINES, { total = lines.length, cls = "" } = {}) => {
+    const kept = lines.slice(0, LINE_CAP);
+    const pre = (part) => `<pre class="body-pre${cls ? ` ${cls}` : ""}">${part.join("\n")}</pre>`;
+    if (total <= max) return pre(kept);
+    const rest = kept.slice(max);
+    return pre(kept.slice(0, max)) + moreHTML(total, rest.length ? pre(rest) : "", total - kept.length);
+  };
+
+  const textHTML = (text, cls = "") => {
+    const { lines, total } = sliceText(text);
+    return clampLines(lines.map(escapeHtml), VISIBLE_LINES, { total, cls });
+  };
+
+  const markdownBlock = (source) =>
+    window.renderMarkdown
+      ? `<div class="body-md chat-text">${window.renderMarkdown(source)}</div>`
+      : `<pre class="body-pre">${escapeHtml(source)}</pre>`;
+
+  const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
+
+  // Past line `max`, cut at a blank line or before a fence within the next `max` lines, else at `max`;
+  // a fence still open at `max` is closed in the head and reopened in the tail.
+  const splitMarkdown = (lines, max) => {
+    if (lines.length <= max) return [lines, []];
+    let fence = "";
+    let opener = "";
+    for (const line of lines.slice(0, max)) {
+      const marker = line.match(FENCE_RE)?.[1];
+      if (!marker) continue;
+      if (!fence) [fence, opener] = [marker, line];
+      else if (marker[0] === fence[0] && marker.length >= fence.length) fence = "";
+    }
+    if (fence) return [[...lines.slice(0, max), fence], [opener, ...lines.slice(max)]];
+    for (let i = max; i < Math.min(lines.length, 2 * max); i += 1) {
+      if (!lines[i].trim()) return [lines.slice(0, i), lines.slice(i + 1)];
+      if (FENCE_RE.test(lines[i])) return [lines.slice(0, i), lines.slice(i)];
+    }
+    return [lines.slice(0, max), lines.slice(max)];
+  };
+
+  const markdownHTML = (text) => {
+    const { lines, total } = sliceText(text);
+    if (total <= VISIBLE_LINES) return markdownBlock(lines.join("\n"));
+    const [head, tail] = splitMarkdown(lines, VISIBLE_LINES);
+    const rest = tail.length ? markdownBlock(tail.join("\n")) : "";
+    return markdownBlock(head.join("\n")) + moreHTML(total, rest, total - lines.length);
+  };
+
+  const isRecord = (value) => value != null && typeof value === "object" && !Array.isArray(value);
+
+  const valueText = (value) => {
+    if (value === undefined) return "";
+    return truncate(typeof value === "string" ? value : JSON.stringify(value), VALUE_CHARS);
+  };
+
+  const parseJSON = (text) => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return undefined;
+    }
+  };
+
+  const structured = (text) => {
+    const source = String(text ?? "");
+    const trimmed = source.trim();
+    const parsed = /^[[{]/.test(trimmed) ? parseJSON(trimmed) : undefined;
+    if (Array.isArray(parsed) && parsed.length && parsed.every(isRecord)) {
+      const headers = Object.keys(parsed[0]).slice(0, TABLE_COLUMNS);
+      if (headers.length) {
+        const rows = parsed.slice(0, STRUCTURED_ROWS).map((item) => headers.map((key) => valueText(item[key])));
+        return { kind: "table", headers, rows, more: parsed.length - rows.length };
+      }
+    }
+    if (isRecord(parsed) && Object.keys(parsed).length) {
+      const entries = Object.entries(parsed);
+      const pairs = entries.slice(0, STRUCTURED_ROWS).map(([key, value]) => [key, valueText(value)]);
+      return { kind: "fields", pairs, more: entries.length - pairs.length };
+    }
+    return { kind: "markdown", text: source };
+  };
+
+  const tableHTML = (headers, rows) => {
+    const head = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
+    const body = rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
+    const table = `<table class="body-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+    return `<div class="body-table-wrap">${table}</div>`;
+  };
+
+  const fieldsHTML = (pairs) => {
+    const items = pairs.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`);
+    return `<dl class="body-fields">${items.join("")}</dl>`;
+  };
+
+  const structuredHTML = (text) => {
+    const data = structured(text);
+    if (data.kind === "table") return tableHTML(data.headers, data.rows) + andMoreHTML(data.more);
+    if (data.kind === "fields") return fieldsHTML(data.pairs) + andMoreHTML(data.more);
+    return markdownHTML(data.text);
+  };
+
+  // deepagents' eviction stub (no size), and DAIV's confirmation for a result written to a file on request.
+  const EVICTED_RE =
+    /^Tool result too large, the result of this tool call \S* was saved in the filesystem at this path: ([^\n]+)/;
+  const WROTE_RE = /^Wrote (\d+) bytes \((\d+) lines\) to ([^\n]+)\nPreview \(first \d+ lines\):\n?/;
+  const PREVIEW_NOTE_RE = /^Here is a preview\b[^\n]*\n/m;
+
+  const parseOffload = (text) => {
+    const source = String(text ?? "");
+    const wrote = source.match(WROTE_RE);
+    if (wrote) {
+      const preview = source.slice(wrote[0].length);
+      return { path: wrote[3].trim(), preview, bytes: Number(wrote[1]), lines: Number(wrote[2]) };
+    }
+    const evicted = source.match(EVICTED_RE);
+    if (!evicted) return null;
+    const rest = source.slice(evicted[0].length);
+    const note = rest.match(PREVIEW_NOTE_RE);
+    const preview = note ? rest.slice(note.index + note[0].length) : rest;
+    return { path: evicted[1].trim(), preview: preview.replace(/^\n+/, "").trimEnd() };
+  };
+
+  const offloadHTML = ({ path, preview, bytes, lines }) => {
+    const size = bytes == null ? "" : ` <span class="body-size">${escapeHtml(formatSize(lines, bytes))}</span>`;
+    const notice = `<p class="body-offload">${escapeHtml(t("offloaded", { path }))}${size}</p>`;
+    return notice + (preview.trim() ? textHTML(preview) : "");
+  };
+
+  const section = (labelKey, html, sizeHTML = "") => {
+    if (!html) return "";
+    const size = sizeHTML ? ` <span class="body-size">${sizeHTML}</span>` : "";
+    return `<div class="body-section"><div class="body-label">${escapeHtml(t(labelKey))}${size}</div>${html}</div>`;
+  };
+
+  // Every builder shows its result through here, so an evicted result gets the offload notice whatever the tool.
+  const contextSection = (text, render = structuredHTML, sizeHTML = null) => {
+    const source = String(text ?? "");
+    if (!source.trim() || isError(source)) return "";
+    const offload = parseOffload(source);
+    const body = offload ? offloadHTML(offload) : render(source);
+    return section("body_context", body, sizeHTML ?? escapeHtml(contextSize(source)));
+  };
+
+  const wentWrong = (seg) => {
+    const result = seg.result == null ? "" : String(seg.result).trim();
+    if (isError(result)) return result.replace(/^error:\s*/i, "") || result;
+    return seg.status === "error" && !result ? t("unanswered") : "";
+  };
+
+  const wrongHTML = (text) =>
+    `<div class="body-error"><div class="body-label">${escapeHtml(t("body_wrong"))}</div>${textHTML(text)}</div>`;
+
+  const rawHTML = (seg) => {
+    if (!window.TranscriptLabels.showRaw) return "";
+    const pre = (text) => `<pre class="body-pre">${escapeHtml(text)}</pre>`;
+    const args = seg.args ? section("body_args", pre(prettyJSON(seg.args))) : "";
+    const result = seg.result == null ? "" : section("body_result", pre(String(seg.result)));
+    if (!args && !result) return "";
+    return `<details class="body-raw"><summary>${escapeHtml(t("body_raw"))}</summary>${args}${result}</details>`;
+  };
+
+  // --- per-tool bodies (each returns its middle sections, or { wrong, html }) ---
+
+  const diffHTML = (patch) => {
+    const lines = String(patch ?? "").split("\n");
     const html = lines
       .map((line) => {
         const esc = escapeHtml(line);
@@ -625,13 +818,20 @@
         return `<div class="diff-ctx">${esc}</div>`;
       })
       .join("");
-    return block("Diff", `<div class="chat-diff">${html}</div>`);
+    return `<div class="chat-diff">${html}</div>`;
   };
 
-  const grepBody = (result) => {
+  // Returns null when jsdiff isn't loaded so callers can fall back to text.
+  const jsdiffHTML = (path, oldStr, newStr, context) => {
+    if (!window.Diff?.createPatch) return null;
+    const patch = window.Diff.createPatch(path, oldStr, newStr, "", "", { context });
+    return diffHTML(patch.split("\n").filter((l) => !l.startsWith("Index:") && !/^=+$/.test(l)).join("\n"));
+  };
+
+  const grepHTML = (text) => {
     const groups = new Map();
     let currentFile = null;
-    for (const line of String(result ?? "").split("\n")) {
+    for (const line of sliceText(text).lines) {
       // Ripgrep-style "file:lineno:body" (single line per hit).
       const inline = line.match(/^([^:\s][^:]*):(\d+):(.*)$/);
       if (inline) {
@@ -652,11 +852,10 @@
         groups.get(currentFile).push({ lineno: hit[1], body: hit[2] });
       }
     }
-    if (!groups.size) return block("Result", pre(String(result ?? "")));
+    if (!groups.size) return textHTML(text);
     const html = [...groups.entries()]
       .map(([file, hits]) => {
         const rows = hits
-          .slice(0, 100)
           .map(
             ({ lineno, body }) =>
               `<div class="chat-grep__hit"><span class="chat-grep__lineno">${escapeHtml(lineno)}</span>${escapeHtml(body)}</div>`,
@@ -665,14 +864,19 @@
         return `<div class="chat-grep__group"><div class="chat-grep__file">${escapeHtml(file)}</div>${rows}</div>`;
       })
       .join("");
-    return block("Matches", `<div class="chat-grep">${html}</div>`);
+    return `<div class="chat-grep">${html}</div>`;
   };
 
-  const bashRunBlock = (command, output, exitCode) => {
+  const entriesHTML = (text) => {
+    const entries = parseLsEntries(text);
+    return textHTML(entries.length ? entries.join("\n") : text);
+  };
+
+  const bashRunHTML = (command, output, exitCode) => {
     const cmdLine = command
       ? `<div class="chat-bash__cmd"><span class="chat-bash__prompt">$</span> ${escapeHtml(command)}</div>`
       : "";
-    const outBlock = output ? pre(output, "chat-tool__code--bash") : "";
+    const outBlock = output ? textHTML(output, "chat-tool__code--bash") : "";
     const exitLine =
       exitCode != null && Number(exitCode) !== 0
         ? `<div class="chat-bash__exit chat-bash__exit--err">exit ${Number(exitCode)}</div>`
@@ -680,161 +884,31 @@
     return `<div class="chat-bash">${cmdLine}${outBlock}${exitLine}</div>`;
   };
 
-  // Returns null when jsdiff isn't loaded so callers can fall back to text.
-  const jsdiffBody = (path, oldStr, newStr, result, context) => {
-    if (!window.Diff) return null;
-    const patch = window.Diff.createPatch(path, oldStr, newStr, "", "", { context });
-    const lines = patch.split("\n").filter(
-      (l) => !l.startsWith("Index:") && !/^=+$/.test(l),
-    );
-    const parts = [diffBody(lines.join("\n"))];
-    if (result && ERROR_PREFIX_RE.test(String(result).trim())) {
-      parts.push(block("Error", pre(String(result))));
-    }
-    return parts.join("");
-  };
-
-  const editFileBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const path = pickKey(args, ["path", "file_path"]) ?? "";
-    const oldStr = pickKey(args, ["old_string"]);
-    const newStr = pickKey(args, ["new_string"]);
-
-    // Partial streaming args would produce misleading hunks, so require both.
-    if (oldStr != null && newStr != null) {
-      const html = jsdiffBody(path, String(oldStr), String(newStr), result, 2);
-      if (html) return html;
-    }
-    if (result) return block("Result", pre(String(result)));
-    return genericBody(argsStr, result);
-  };
-
-  const writeFileBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const path = pickKey(args, ["path", "file_path"]) ?? "";
-    const content = pickKey(args, ["content", "text"]);
-
-    if (content) {
-      const html = jsdiffBody(path, "", String(content), result, 0);
-      if (html) return html;
-      return block("Content", pre(String(content)));
-    }
-    if (result) return block("Result", pre(String(result)));
-    return genericBody(argsStr, result);
-  };
-
-  const bashBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const streamedCommand = pickKeyOrPartial(args, ["command", "cmd", "script"], argsStr) ?? "";
-    const entries = parseBashResult(result);
-
-    if (entries) {
-      // Render a block per entry so multi-command runs read cleanly; drop the
-      // surrounding JSON entirely.
-      const html = entries
-        .map((e) => bashRunBlock(e.command ?? "", e.output ?? "", e.exit_code))
-        .join("");
-      return block("Shell", html);
-    }
-
-    // Either still streaming (no result yet) or raw-text result from an older
-    // tool. Show whatever command we have, plus raw output if present.
-    return block(
-      "Shell",
-      bashRunBlock(streamedCommand, result == null ? "" : String(result), null),
-    );
-  };
-
-  const taskBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const description = pickKey(args, ["description", "title"]) ?? "";
-    const subagent = pickKey(args, ["subagent_type", "agent", "type"]) ?? "";
-    const prompt = pickKey(args, ["prompt", "input", "task"]) ?? "";
-    const parts = [];
-    if (description || subagent) {
-      const meta = `<div class="chat-task__meta">` +
-        (subagent ? `<span class="chat-task__agent">${escapeHtml(subagent)}</span>` : "") +
-        (description ? `<span class="chat-task__desc">${escapeHtml(description)}</span>` : "") +
-        `</div>`;
-      parts.push(block("Task", meta));
-    }
-    if (prompt) parts.push(block("Prompt", pre(String(prompt))));
-    if (result != null && String(result).length) {
-      parts.push(block("Result", renderMarkdownBlock(result)));
-    }
-    return parts.join("");
-  };
-
-  const resultOnlyBody = (label, result) => {
-    const text = String(result ?? "");
-    return text.length ? block(label, pre(text)) : "";
-  };
-
-  const skillBody = (argsStr, result) => {
-    const body = String(result ?? "");
-    if (!body.trim()) return genericBody(argsStr, result);
-    return block("Skill", renderMarkdownBlock(body));
+  const bashHTML = (text) => {
+    const entries = parseBashResult(text);
+    if (!entries) return textHTML(text, "chat-tool__code--bash");
+    return entries.map((e) => bashRunHTML(e.command ?? "", e.output ?? "", e.exit_code)).join("");
   };
 
   // Open in a new tab so we never replace the chat tab; rel=noopener for the
   // usual reverse-tabnabbing reasons.
   const externalLink = (url, label) => {
-    const safeHref = escapeHtml(String(url));
-    const safeLabel = escapeHtml(label != null ? String(label) : String(url));
-    return `<a class="chat-tool__link" href="${safeHref}" target="_blank" rel="noopener noreferrer">${safeLabel}</a>`;
+    const text = escapeHtml(label != null ? String(label) : String(url));
+    if (!/^https?:\/\//i.test(String(url))) return text;
+    return `<a class="chat-tool__link" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${text}</a>`;
   };
 
-  const webFetchBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const url = pickKeyOrPartial(args, ["url"], argsStr) ?? "";
-    const prompt = pickKeyOrPartial(args, ["prompt"], argsStr) ?? "";
-    const text = String(result ?? "");
-    const parts = [];
+  const linkLine = (url) => `<div class="chat-webfetch__url">${externalLink(url, summarizeUrl(url))}</div>`;
 
-    if (url) {
-      parts.push(block("URL", `<div class="chat-webfetch__url">${externalLink(url, summarizeUrl(url))}</div>`));
-    }
-    if (prompt) parts.push(block("Prompt", pre(prompt)));
-
-    if (text) {
-      const redirect = text.match(REDIRECT_TAG_RE);
-      if (redirect) {
-        parts.push(
-          block(
-            "Redirected to",
-            `<div class="chat-webfetch__url">${externalLink(redirect[1], summarizeUrl(redirect[1]))}</div>`,
-          ),
-        );
-      } else if (ERROR_PREFIX_RE.test(text.trim())) {
-        parts.push(block("Error", pre(text)));
-      } else {
-        parts.push(block("Result", renderMarkdownBlock(text)));
-      }
-    }
-    return parts.join("") || genericBody(argsStr, result);
+  const webFetchHTML = (text) => {
+    const redirect = text.match(REDIRECT_TAG_RE);
+    return redirect ? linkLine(redirect[1]) : markdownHTML(text);
   };
 
-  const webSearchBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const query = pickKeyOrPartial(args, ["query"], argsStr) ?? "";
-    const text = String(result ?? "");
-    const parts = [];
-    if (query) parts.push(block("Query", pre(String(query))));
-
-    const trimmed = text.trim();
-    if (!trimmed) return parts.join("") || genericBody(argsStr, result);
-
-    const results = parseWebSearchResults(trimmed);
-    if (results == null) {
-      // Pre-JSON transcripts or unparseable output — fall back gracefully.
-      parts.push(block("Result", pre(text)));
-      return parts.join("");
-    }
-    if (!results.length) {
-      parts.push(block("Result", pre("No relevant results found for the given search query.")));
-      return parts.join("");
-    }
-
+  const webSearchHTML = (text) => {
+    const results = parseWebSearchResults(text);
+    if (results == null) return textHTML(text);
+    if (!results.length) return textHTML("No relevant results found for the given search query.");
     const items = results
       .map((r) => {
         const link = (r && r.link) || "";
@@ -848,57 +922,61 @@
         return `<div class="chat-search__item">${titleHtml}${host}${body}</div>`;
       })
       .join("");
-    parts.push(block("Results", `<div class="chat-search">${items}</div>`));
-    return parts.join("");
-  };
-
-  const cliBody = (tool, argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const subcommand = pickKeyOrPartial(args, ["subcommand"], argsStr) ?? "";
-    const command = `${tool}${subcommand ? " " + subcommand : ""}`;
-    const text = String(result ?? "");
-    return block("Shell", bashRunBlock(command, text, null));
+    return `<div class="chat-search">${items}</div>`;
   };
 
   const BODY_BY_TOOL = {
-    read_file: (_args, result) => {
-      const text = String(result ?? "");
-      if (text && ERROR_PREFIX_RE.test(text.trim())) return block("Error", pre(text));
-      return resultOnlyBody("Contents", result);
+    read_file: ({ result }) => contextSection(result, textHTML),
+    write_file: ({ args, result }) => {
+      const content = pickKey(args, ["content", "text"]);
+      const path = pickKey(args, ["path", "file_path"]) ?? "";
+      const changed =
+        content && !isError(result) ? jsdiffHTML(path, "", String(content), 0) ?? textHTML(String(content)) : "";
+      return section("body_changed", changed) + contextSection(result, textHTML);
     },
-    write_file: (args, result) => writeFileBody(args, result),
-    edit_file: (args, result) => editFileBody(args, result),
-    grep: (args, result) => grepBody(result),
-    glob: (_args, result) => {
-      const entries = parseLsEntries(result);
-      if (!entries.length) return resultOnlyBody("Matches", result);
-      return block("Matches", pre(entries.join("\n")));
+    edit_file: ({ args, result }) => {
+      const oldStr = pickKey(args, ["old_string"]);
+      const newStr = pickKey(args, ["new_string"]);
+      const path = pickKey(args, ["path", "file_path"]) ?? "";
+      // Partial streaming args would produce misleading hunks, so require both.
+      const complete = oldStr != null && newStr != null && !isError(result);
+      const changed = complete ? jsdiffHTML(path, String(oldStr), String(newStr), 2) : null;
+      return section("body_changed", changed ?? "") + contextSection(result, textHTML);
     },
-    ls: (_args, result) => {
-      const entries = parseLsEntries(result);
-      if (!entries.length) return resultOnlyBody("Entries", result);
-      return block("Entries", pre(entries.join("\n")));
+    grep: ({ result }) => contextSection(result, grepHTML),
+    glob: ({ result }) => contextSection(result, entriesHTML),
+    ls: ({ result }) => contextSection(result, entriesHTML),
+    bash: ({ result }) => contextSection(result, bashHTML),
+    skill: ({ result }) => contextSection(result, markdownHTML),
+    task: ({ args, result }) => {
+      const prompt = pickKey(args, ["prompt", "input", "task"]) ?? "";
+      return section("body_input", prompt ? textHTML(String(prompt)) : "") + contextSection(result, markdownHTML);
     },
-    bash: (args, result) => bashBody(args, result),
-    skill: (args, result) => skillBody(args, result),
-    task: (args, result) => taskBody(args, result),
-    web_fetch: (args, result) => webFetchBody(args, result),
-    web_search: (args, result) => webSearchBody(args, result),
-    gitlab: (args, result) => cliBody("gitlab", args, result),
-    gh: (args, result) => cliBody("gh", args, result),
+    web_fetch: ({ args, argsStr, result }) => {
+      const url = pickKeyOrPartial(args, ["url"], argsStr) ?? "";
+      const prompt = pickKeyOrPartial(args, ["prompt"], argsStr) ?? "";
+      const input = (url ? linkLine(url) : "") + (prompt ? textHTML(prompt) : "");
+      return section("body_input", input) + contextSection(result, webFetchHTML);
+    },
+    web_search: ({ result }) => contextSection(result, webSearchHTML),
+    gitlab: ({ result }) => contextSection(result, textHTML),
+    gh: ({ result }) => contextSection(result, textHTML),
   };
 
-  window.toolBodyHTML = (name, argsStr, result, status) => {
-    if (status === "running" && !result && !argsStr) return "";
-    const fn = BODY_BY_TOOL[name];
-    if (fn) {
-      try {
-        const out = fn(argsStr, result);
-        if (out) return out;
-      } catch (err) {
-        console.warn("chat-tool-renderers: body builder failed, falling back", err);
-      }
+  const defaultBody = ({ result }) => contextSection(result);
+
+  window.toolBodyHTML = (seg, ctx) => {
+    if (!seg) return "";
+    const name = String(seg.name ?? "");
+    const input = { seg, ctx: ctx ?? {}, args: parseArgs(seg.args), argsStr: seg.args, result: seg.result };
+    let body;
+    try {
+      body = (Object.hasOwn(BODY_BY_TOOL, name) ? BODY_BY_TOOL[name] : defaultBody)(input);
+    } catch (err) {
+      console.warn("chat-tool-renderers: body builder failed, falling back", err);
+      body = contextSection(seg.result, textHTML);
     }
-    return genericBody(argsStr, result);
+    const { wrong = wentWrong(seg), html = "" } = typeof body === "string" ? { html: body } : body ?? {};
+    return (wrong ? wrongHTML(wrong) : "") + html + rawHTML(seg);
   };
 })();

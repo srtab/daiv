@@ -60,6 +60,20 @@
     thought: "Thought",
     detail_passed: "passed",
     detail_exit: "exit {code}",
+
+    body_wrong: "What went wrong",
+    body_changed: "Changed",
+    body_input: "Input",
+    body_context: "Loaded into context",
+    body_raw: "Raw",
+    body_args: "Arguments",
+    body_result: "Result",
+    size_lines: ["{count} line", "{count} lines"],
+    size_kb: "{size} KB",
+    offloaded: "Too large to load whole: the model saw only a preview. The full result is in {path}.",
+    unanswered: "No result: the run ended before this call returned.",
+    show_all: "Show all {count} lines",
+    and_more: "and {count} more",
   };
 
   const loadPayload = () => {
