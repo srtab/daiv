@@ -23,6 +23,7 @@ Variables marked with:
 | `DJANGO_DEBUG`          | Toggle Django debug mode                            | `False`                | `True`                         |
 | :material-asterisk: `DJANGO_SECRET_KEY`  :material-lock:     | Secret key for Django                              | *(none)*               | `super-secret-key`             |
 | `DJANGO_ALLOWED_HOSTS`  | Comma-separated list of allowed hosts               | `*`                    | `example.com,localhost`        |
+| `DJANGO_SESSION_COOKIE_NAME` | Name of the session cookie; give each instance on one host its own | `__Secure-sessionid` | `__Secure-sessionid-1` |
 
 !!! danger
     Do not turn on `DJANGO_DEBUG` in production. It will **expose sensitive information** and **break the security of the application**.

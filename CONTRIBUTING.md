@@ -7,6 +7,7 @@ Thank you for your interest in contributing to DAIV! This document provides guid
 - [Code of Conduct](#code-of-conduct)
 - [Development Environment](#development-environment)
   - [Testing against a local GitLab](#testing-against-a-local-gitlab)
+  - [Worktree stacks](#worktree-stacks)
 - [Development Guidelines](#development-guidelines)
   - [Code Style](#code-style)
   - [Testing](#testing)
@@ -97,6 +98,38 @@ We expect all contributors to be respectful and constructive. Please ensure that
 For GitHub, use GitHub.com or a GitHub Enterprise instance: set `CODEBASE_CLIENT=github` in `docker/local/app/config.env` and configure the GitHub App credentials. To receive webhook deliveries locally, start the `github` profile — it runs a [smee](https://smee.io/) client that forwards GitHub events to the local app.
 
 Deploying DAIV for real use is a different path — see the [Deployment guide](https://srtab.github.io/daiv/dev/getting-started/deployment/).
+
+### Worktree stacks
+
+Every git worktree can run its own app next to the main checkout's. A worktree claims the lowest free slot n from 1 to 99 and keeps it in its `.env`, then gets:
+
+| | Main checkout | Worktree, slot n |
+|---|---|---|
+| Compose project | `daiv` | `daiv-<n>` |
+| App | `https://localhost:8000` | `http://localhost:<8000+n>`: plain HTTP, since Claude Code's browser pane refuses the self-signed certificate |
+| Workers | `worker` ×2, `worker-interactive`, `scheduler` | `worker`, `worker-interactive`; `scheduler` only with `COMPOSE_PROFILES=scheduler` in `.env`, and it then runs the copied schedules |
+| Postgres database | `db` | `db_<n>`, a copy of `db` made on the first `make up`, without the rows of the unused `checkpoint*` tables |
+| Redis | `daiv-redis` | its own, in the volume `daiv-<n>_redis-data` |
+| Postgres, mailpit, GitLab, sandbox | runs them | uses the main checkout's |
+
+The app migrates its copy on start, so a branch's migrations never touch `db`.
+
+```bash
+make up            # start this checkout's stack
+make db-reset      # copy db again, then start
+docker compose down -v   # stop the slot and drop its Redis; do this before removing the worktree
+```
+
+In a worktree, plain `docker compose` acts on that slot only; `grep WORKTREE_SLOT .env` shows which. Start the stack with `make up`, not `docker compose up`: the script also attaches the containers to `daiv_default`, by container name only, so the main checkout's `app` and `redis` keep resolving to its own containers.
+
+In a Claude Code session, a `SessionStart` hook claims the slot and writes `.claude/launch.json`, so `preview_start` with the name `daiv` starts the stack and opens it.
+
+Limits:
+
+- Each slot has its own session cookie (`__Secure-sessionid-<n>`), so signing in on one slot leaves the others alone. GitLab sign-in only redirects to the main checkout, so sign in by email code: the mail lands in the shared mailpit at <http://localhost:8025>.
+- GitLab webhooks reach only the main checkout. In a slot, start work from the chat or the jobs API.
+- A chat session copied from `db` shows its transcript only if it was archived to the database; the rest open as expired, since their checkpoints live in the main checkout's Redis.
+- Removing a worktree leaves its `db_<n>` database behind. The next worktree to claim slot n replaces it with a fresh copy.
 
 ## Development Guidelines
 
