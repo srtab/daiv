@@ -16,6 +16,10 @@ class SessionsSettings(BaseSettings):
     ARTIFACTS_PER_RUN_MAX: int = Field(
         default=20, gt=0, description="Maximum number of artifacts a single agent run may publish."
     )
+    SHOW_RAW_TOOL_DATA: bool | None = Field(
+        default=None,
+        description="Show a tool call's raw arguments and result in the session transcript; unset follows DEBUG.",
+    )
 
 
 settings = SessionsSettings()

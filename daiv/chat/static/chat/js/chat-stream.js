@@ -685,6 +685,19 @@
       });
     },
 
+    // A streamed skill call has no Skills link; the turns fetch after its run names it.
+    applySkillLinks(turns) {
+      if (this.streaming || this.resuming || !Array.isArray(turns)) return;
+      const urls = new Map();
+      for (const turn of turns) {
+        for (const seg of turn?.segments ?? []) if (seg?.skill_url) urls.set(seg.id, seg.skill_url);
+      }
+      if (!urls.size) return;
+      for (const turn of this.turns) {
+        for (const seg of turn.segments ?? []) if (!seg.skill_url && urls.has(seg.id)) seg.skill_url = urls.get(seg.id);
+      }
+    },
+
     applySandboxEnvSelection(detail) {
       this.selectedSandboxEnvId = detail?.id || "";
       // ``daiv:env-changed`` payload is {id, name, scope}; empty id = Auto pick. An id
@@ -737,6 +750,7 @@
       // mutation sites. `Alpine.effect`, not `$watch`: `$watch` compares the expression's
       // value, and a mutation inside `turns` leaves its identity alone.
       const mcpServers = this.mcpCatalog.map((s) => s.name);
+      const mcpRows = this.mcpCatalog;
       this._deriveTranscript = window.Alpine.effect(() => {
         const todos = findLatestTodos(this.turns);
         const { files, artifacts } = collectOutputs(this.turns);
@@ -752,6 +766,7 @@
             inFlight: this.streaming || this.resuming || this.sessionLive,
             latestArtifactsById: publishedArtifactsById,
             mcpServers,
+            mcpRows,
             previous: publishedBlocks,
           });
         } catch (err) {
@@ -1420,7 +1435,12 @@
 
     toolBodyHTML(seg) {
       if (!window.toolBodyHTML) return "";
-      return window.toolBodyHTML(seg.name, seg.args, seg.result, seg.status);
+      return window.toolBodyHTML(seg, {
+        mcpServers: this.mcpCatalog.map((s) => s.name),
+        mcpRows: this.mcpCatalog,
+        latestArtifactsById: this.latestArtifactsById,
+        mergeRequestUrl: this.thread?.merge_request?.url ?? null,
+      });
     },
 
     // Status-letter marks, as the progress sheet's rows are specified. ``+``/``−``/``~``

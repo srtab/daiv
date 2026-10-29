@@ -3,8 +3,9 @@
 //   toolRow(seg, ctx?)
 //     -> one compact transcript row for a tool_call or thinking segment (see toolRow below)
 //
-//   toolBodyHTML(name, argsStr, result, status)
-//     -> HTML string rendered inside <details> when the card is expanded.
+//   toolBodyHTML(seg, ctx)
+//     -> an opened row's body: What went wrong, the tool's own sections, then Raw (debug mode only);
+//        ctx = { mcpServers, mcpRows, latestArtifactsById, mergeRequestUrl }
 //
 //   artifactItem(seg, latestById)
 //     -> one publish_artifact row for the Artifacts card: { state: "running" | "published" | "error", ... },
@@ -15,7 +16,7 @@
 //
 // Every extraction is defensive: if JSON doesn't parse or expected keys are missing,
 // we return a neutral row/body rather than throwing. Unknown tools fall
-// through to a generic "name + JSON-pretty args + raw result" view.
+// through to the default body: the result, formatted (table, field list or markdown).
 
 (() => {
   const escapeHtml = (s) =>
@@ -23,6 +24,8 @@
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;");
+
+  const escapeAttr = (s) => escapeHtml(s).replaceAll('"', "&quot;");
 
   const parseArgs = (argsStr) => {
     if (!argsStr) return {};
@@ -196,8 +199,6 @@
   };
   window.parseBashSuccess = parseBashSuccess;
 
-  const parseBashResult = (result) => parseBashSuccess(result)?.commands ?? null;
-
   const skillDetail = (args) => {
     const name = pickKey(args, ["skill", "name"]) ?? "";
     const skillArgs = pickKey(args, ["skill_args", "args"]) ?? "";
@@ -355,6 +356,9 @@
 
   const toolPath = (args, argsStr) => pickKeyOrPartial(args, ["path", "file_path"], argsStr) ?? "";
 
+  const COMMAND_CHARS = 80;
+  const TASK_DETAIL_CHARS = 120;
+
   const bashExit = (result) => {
     const commands = parseBashSuccess(result)?.commands;
     if (!commands) return { known: false, code: null };
@@ -457,7 +461,7 @@
       return {
         icon: "command-line",
         key: "run",
-        vars: { command: truncate(command.split("\n")[0], 80) },
+        vars: { command: truncate(command.split("\n")[0], COMMAND_CHARS) },
         detail,
         failed: exit.code != null,
         category: { key: "run" },
@@ -468,7 +472,7 @@
       icon: "agent",
       key: "subagent",
       vars: { name: pickKey(args, ["subagent_type", "agent", "type"]) ?? "general-purpose" },
-      detail: truncate(pickKey(args, ["description", "title"]) ?? "", 120),
+      detail: truncate(pickKey(args, ["description", "title"]) ?? "", TASK_DETAIL_CHARS),
       category: { key: "subagent" },
     }),
     web_search: ({ args, result, argsStr }) => {
@@ -530,19 +534,37 @@
     cancel_delegated_jobs: jobsRow("cancel_jobs"),
   };
 
-  const mcpRow = (name, { args }, servers) => {
-    const server = servers
-      .filter((s) => name.startsWith(`${s}_`))
-      .sort((a, b) => b.length - a.length)[0];
+  const mcpServerOf = (name, servers) =>
+    servers.filter((s) => name.startsWith(`${s}_`)).sort((a, b) => b.length - a.length)[0];
+
+  const mcpRowOf = (server, ctx) => (ctx?.mcpRows ?? []).find((row) => row?.name === server) ?? null;
+
+  // The server already keeps only these; an `<img>` never runs script, so any https or image data URI is safe.
+  const ICON_SRC_RE = /^(?:https:\/\/|data:image\/)/i;
+
+  const iconSrcOf = (row) => {
+    const src = String(row?.icon ?? "");
+    return ICON_SRC_RE.test(src) ? src : "";
+  };
+
+  const MCP_DETAIL_CHARS = 80;
+
+  // The argument an MCP row shows: its first non-empty string or number, as `[key, value]`.
+  const mcpDetailArg = (args) =>
+    Object.entries(args).find(([, v]) => ["string", "number"].includes(typeof v) && String(v)) ?? null;
+
+  const mcpRow = (name, { args }, ctx) => {
+    const server = mcpServerOf(name, ctx?.mcpServers ?? []);
     if (!server) {
       return { icon: "puzzle-piece", phrase: name, category: { key: "other" } };
     }
-    const first = Object.values(args).find((v) => ["string", "number"].includes(typeof v) && String(v));
+    const first = mcpDetailArg(args)?.[1];
     return {
       icon: "puzzle-piece",
+      iconSrc: iconSrcOf(mcpRowOf(server, ctx)),
       key: "mcp",
       vars: { server, tool: name.slice(server.length + 1).replaceAll("_", " ") },
-      detail: first == null ? "" : truncate(String(first).replace(/\s+/g, " "), 80),
+      detail: first == null ? "" : truncate(String(first).replace(/\s+/g, " "), MCP_DETAIL_CHARS),
       category: { key: "mcp", name: server },
     };
   };
@@ -565,10 +587,21 @@
     };
   };
 
+  // A sandbox write failure reads `Failed to write file '…': …`; every other file-tool failure starts with Error.
+  const FAILURE_RE_BY_TOOL = new Map([["write_file", /^Failed to write file\b/]]);
+
+  const failedResult = (name, result) => {
+    const text = result == null ? "" : String(result).trim();
+    return ERROR_PREFIX_RE.test(text) || Boolean(FAILURE_RE_BY_TOOL.get(name)?.test(text));
+  };
+
+  const JOBS_STATUS_TOOLS = new Set(["check_delegated_jobs", "cancel_delegated_jobs"]);
+
   const rowFailed = (name, seg, part) => {
     if (seg.status === "error") return true;
-    if (name === "delegate_jobs") return false;
-    return Boolean(part.failed) || (seg.result != null && ERROR_PREFIX_RE.test(String(seg.result).trim()));
+    if (name === "delegate_jobs") return delegateFailed(jobsResult(seg.result));
+    if (JOBS_STATUS_TOOLS.has(name) && jobsFailure(jobsResult(seg.result), seg.result)) return true;
+    return Boolean(part.failed) || failedResult(name, seg.result);
   };
 
   window.toolRow = (seg, ctx) => {
@@ -577,12 +610,13 @@
     const name = String(seg.name ?? "");
     const input = { args: parseArgs(seg.args), argsStr: seg.args, result: seg.result, status: seg.status };
     const build = Object.hasOwn(ROW_BY_TOOL, name) ? ROW_BY_TOOL[name] : null;
-    const part = build ? build(input) : mcpRow(name, input, ctx?.mcpServers ?? []);
+    const part = build ? build(input) : mcpRow(name, input, ctx);
     const phrase = part.phrase ?? T.t(`row_${part.key}`, part.vars);
     const liveKey = `live_${part.key}`;
     const livePhrase = part.phrase ?? (liveKey in T.defaults ? T.t(liveKey, part.vars) : phrase);
     return {
       icon: part.icon,
+      iconSrc: part.iconSrc ?? "",
       phrase,
       livePhrase,
       detail: part.detail ?? "",
@@ -593,312 +627,1297 @@
     };
   };
 
-  // --- per-tool expanded-body builders -----------------------------------
+  // --- expanded bodies ---------------------------------------------------
 
-  const pre = (text, cls = "") =>
-    `<pre class="chat-tool__code${cls ? " " + cls : ""}">${escapeHtml(text)}</pre>`;
+  const VISIBLE_LINES = 12;
+  const LINE_CAP = 500;
+  const LINE_CHARS = 2000;
+  const CHAR_CAP = 50000;
+  const STRUCTURED_ROWS = 50;
+  const TABLE_COLUMNS = 6;
+  const VALUE_CHARS = 1000;
 
-  const block = (label, html) =>
-    `<div class="chat-tool__block"><div class="chat-tool__block-label">${escapeHtml(label)}</div>${html}</div>`;
+  const t = (key, vars) => window.TranscriptLabels.t(key, vars);
+  const tn = (key, count, vars) => window.TranscriptLabels.tn(key, count, vars);
 
-  const genericBody = (argsStr, result) => {
-    const parts = [];
-    if (argsStr) parts.push(block("Arguments", pre(prettyJSON(argsStr))));
-    if (result != null && String(result).length) parts.push(block("Result", pre(String(result))));
-    return parts.join("");
+  const isError = (text) => ERROR_PREFIX_RE.test(String(text ?? "").trim());
+
+  const byteLength = (s) => (typeof TextEncoder === "function" ? new TextEncoder().encode(s).length : s.length);
+
+  const kbSize = (bytes) => {
+    const kb = bytes / 1024;
+    return t("size_kb", { size: kb < 10 ? Math.max(kb, 0.1).toFixed(1) : String(Math.round(kb)) });
   };
 
-  const renderMarkdownBlock = (text) =>
+  const formatSize = (lines, bytes) => `${tn("size_lines", lines)} · ${kbSize(bytes)}`;
+
+  const contextSize = (text) => {
+    const source = String(text ?? "");
+    return source ? formatSize(countLines(source), byteLength(source)) : "";
+  };
+
+  const sliceText = (text) => {
+    const all = String(text ?? "").replace(/\n$/, "").split("\n");
+    const lines = [];
+    let budget = CHAR_CAP;
+    for (const line of all) {
+      const kept = line.length > LINE_CHARS ? `${line.slice(0, LINE_CHARS)}…` : line;
+      if (lines.length === LINE_CAP || kept.length > budget) break;
+      lines.push(kept);
+      budget -= kept.length + 1;
+    }
+    return { lines, total: all.length };
+  };
+
+  const andMoreHTML = (count) =>
+    count > 0 ? `<p class="body-and-more">${escapeHtml(t("and_more", { count }))}</p>` : "";
+
+  const moreHTML = (count, html, summary = t("show_all", { count })) =>
+    `<details class="body-more"><summary>${escapeHtml(summary)}</summary>${html}</details>`;
+
+  // `total` is the line count before the caller sliced `lines`: "Show all" counts the lines it holds,
+  // and the lines never kept are counted in the "and N more" note.
+  const clampLines = (lines, max = VISIBLE_LINES, { total = lines.length, cls = "" } = {}) => {
+    const kept = lines.slice(0, LINE_CAP);
+    const pre = (part) => `<pre class="body-pre${cls ? ` ${cls}` : ""}">${part.join("\n")}</pre>`;
+    const hidden = kept.slice(max);
+    const more = hidden.length ? moreHTML(kept.length, pre(hidden)) : "";
+    return pre(kept.slice(0, max)) + more + andMoreHTML(total - kept.length);
+  };
+
+  const textHTML = (text, cls = "") => {
+    const { lines, total } = sliceText(text);
+    return clampLines(lines.map(escapeHtml), VISIBLE_LINES, { total, cls });
+  };
+
+  const markdownBlock = (source) =>
     window.renderMarkdown
-      ? `<div class="chat-text">${window.renderMarkdown(text)}</div>`
-      : pre(String(text));
+      ? `<div class="body-md chat-text">${window.renderMarkdown(source)}</div>`
+      : `<pre class="body-pre">${escapeHtml(source)}</pre>`;
 
-  const diffBody = (result) => {
-    const lines = String(result ?? "").split("\n");
-    const html = lines
-      .map((line) => {
-        const esc = escapeHtml(line);
-        if (line.startsWith("@@")) return `<div class="diff-hunk">${esc}</div>`;
-        if (line.startsWith("+++") || line.startsWith("---")) return `<div class="diff-meta">${esc}</div>`;
-        if (line.startsWith("+")) return `<div class="diff-add">${esc}</div>`;
-        if (line.startsWith("-")) return `<div class="diff-del">${esc}</div>`;
-        return `<div class="diff-ctx">${esc}</div>`;
-      })
-      .join("");
-    return block("Diff", `<div class="chat-diff">${html}</div>`);
+  const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
+
+  // Past line `max`, cut at a blank line or before a fence within the next `max` lines, else at `max`;
+  // a fence still open at `max` is closed in the head and reopened in the tail.
+  const splitMarkdown = (lines, max) => {
+    if (lines.length <= max) return [lines, []];
+    let fence = "";
+    let opener = "";
+    for (const line of lines.slice(0, max)) {
+      const marker = line.match(FENCE_RE)?.[1];
+      if (!marker) continue;
+      if (!fence) [fence, opener] = [marker, line];
+      else if (marker[0] === fence[0] && marker.length >= fence.length) fence = "";
+    }
+    if (fence) return [[...lines.slice(0, max), fence], [opener, ...lines.slice(max)]];
+    for (let i = max; i < Math.min(lines.length, 2 * max); i += 1) {
+      if (!lines[i].trim()) return [lines.slice(0, i), lines.slice(i + 1)];
+      if (FENCE_RE.test(lines[i])) return [lines.slice(0, i), lines.slice(i)];
+    }
+    return [lines.slice(0, max), lines.slice(max)];
   };
 
-  const grepBody = (result) => {
-    const groups = new Map();
-    let currentFile = null;
-    for (const line of String(result ?? "").split("\n")) {
-      // Ripgrep-style "file:lineno:body" (single line per hit).
-      const inline = line.match(/^([^:\s][^:]*):(\d+):(.*)$/);
-      if (inline) {
-        const [, file, lineno, body] = inline;
-        if (!groups.has(file)) groups.set(file, []);
-        groups.get(file).push({ lineno, body });
+  const markdownHTML = (text, max = VISIBLE_LINES, summary = undefined) => {
+    const { lines, total } = sliceText(text);
+    const [head, tail] = splitMarkdown(lines, max);
+    const more = tail.length ? moreHTML(lines.length, markdownBlock(tail.join("\n")), summary) : "";
+    return markdownBlock(head.join("\n")) + more + andMoreHTML(total - lines.length);
+  };
+
+  const isRecord = (value) => value != null && typeof value === "object" && !Array.isArray(value);
+
+  const wholeValueText = (value) => {
+    if (value === undefined) return "";
+    return typeof value === "string" ? value : JSON.stringify(value);
+  };
+
+  const valueText = (value) => truncate(wholeValueText(value), VALUE_CHARS);
+
+  const fits = (text) => text.length <= VALUE_CHARS;
+
+  const parseJSON = (text) => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return undefined;
+    }
+  };
+
+  // `whole` is false when the view leaves something out: a column, a row or pair past the fiftieth, a cut value.
+  const structured = (text) => {
+    const source = String(text ?? "");
+    const trimmed = source.trim();
+    const parsed = /^[[{]/.test(trimmed) ? parseJSON(trimmed) : undefined;
+    if (Array.isArray(parsed) && parsed.length && parsed.every(isRecord)) {
+      const headers = Object.keys(parsed[0]).slice(0, TABLE_COLUMNS);
+      if (headers.length) {
+        const cells = parsed.slice(0, STRUCTURED_ROWS).map((item) => headers.map((key) => wholeValueText(item[key])));
+        const more = parsed.length - cells.length;
+        const columns = parsed.every((item) => Object.keys(item).every((key) => headers.includes(key)));
+        const whole = columns && !more && cells.flat().every(fits);
+        const rows = cells.map((row) => row.map((cell) => truncate(cell, VALUE_CHARS)));
+        return { kind: "table", headers, rows, more, whole, data: parsed };
+      }
+    }
+    if (isRecord(parsed) && Object.keys(parsed).length) {
+      const entries = Object.entries(parsed);
+      const values = entries.slice(0, STRUCTURED_ROWS).map(([key, value]) => [key, wholeValueText(value)]);
+      const more = entries.length - values.length;
+      const whole = !more && values.every(([, value]) => fits(value));
+      const pairs = values.map(([key, value]) => [key, truncate(value, VALUE_CHARS)]);
+      return { kind: "fields", pairs, more, whole, data: parsed };
+    }
+    return { kind: "markdown", text: source, whole: true };
+  };
+
+  const tableMarkup = (headers, cells, rowClasses = []) => {
+    const head = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
+    const tr = (i) => (rowClasses[i] ? `<tr class="${rowClasses[i]}">` : "<tr>");
+    const body = cells.map((row, i) => `${tr(i)}${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("");
+    const table = `<table class="body-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+    return `<div class="body-table-wrap">${table}</div>`;
+  };
+
+  const tableHTML = (headers, rows) => tableMarkup(headers, rows.map((row) => row.map(escapeHtml)));
+
+  const definitionsHTML = (items) => {
+    const html = items.map(([term, value]) => `<dt>${escapeHtml(term)}</dt><dd>${value}</dd>`);
+    return `<dl class="body-fields">${html.join("")}</dl>`;
+  };
+
+  const fieldsHTML = (pairs) => definitionsHTML(pairs.map(([key, value]) => [key, escapeHtml(value)]));
+
+  const showAllTextHTML = (text) => {
+    const { lines, total } = sliceText(text);
+    const full = `<pre class="body-pre">${lines.map(escapeHtml).join("\n")}</pre>`;
+    return moreHTML(lines.length, full) + andMoreHTML(total - lines.length);
+  };
+
+  const structuredDataHTML = (data) => {
+    const all = data.whole ? "" : showAllTextHTML(JSON.stringify(data.data, null, 2));
+    if (data.kind === "table") return tableHTML(data.headers, data.rows) + andMoreHTML(data.more) + all;
+    if (data.kind === "fields") return fieldsHTML(data.pairs) + andMoreHTML(data.more) + all;
+    return markdownHTML(data.text);
+  };
+
+  const structuredHTML = (text) => structuredDataHTML(structured(text));
+
+  // deepagents' eviction stub (no size), and DAIV's confirmation for a result written to a file on request.
+  const EVICTED_RE =
+    /^Tool result too large, the result of this tool call \S* was saved in the filesystem at this path: ([^\n]+)/;
+  const WROTE_RE = /^Wrote (\d+) bytes \((\d+) lines\) to ([^\n]+)\nPreview \(first \d+ lines\):\n?/;
+  const PREVIEW_NOTE_RE = /^Here is a preview\b[^\n]*\n/m;
+
+  const parseOffload = (text) => {
+    const source = String(text ?? "");
+    const wrote = source.match(WROTE_RE);
+    if (wrote) {
+      const preview = source.slice(wrote[0].length);
+      return { path: wrote[3].trim(), preview, bytes: Number(wrote[1]), lines: Number(wrote[2]), asked: true };
+    }
+    const evicted = source.match(EVICTED_RE);
+    if (!evicted) return null;
+    const rest = source.slice(evicted[0].length);
+    const note = rest.match(PREVIEW_NOTE_RE);
+    const preview = note ? rest.slice(note.index + note[0].length) : rest;
+    return { path: evicted[1].trim(), preview: preview.replace(/^\n+/, "").trimEnd() };
+  };
+
+  const offloadHTML = ({ path, preview, bytes, lines, asked = false }) => {
+    const size = bytes == null ? "" : ` <span class="body-size">${escapeHtml(formatSize(lines, bytes))}</span>`;
+    const label = t(asked ? "saved_to_file" : "offloaded", { path });
+    const notice = `<p class="body-offload">${escapeHtml(label)}${size}</p>`;
+    return notice + (preview.trim() ? textHTML(preview) : "");
+  };
+
+  const section = (labelKey, html, sizeHTML = "", tagHTML = "") => {
+    if (!html) return "";
+    const size = sizeHTML ? ` <span class="body-size">${sizeHTML}</span>` : "";
+    const label = `${escapeHtml(t(labelKey))}${tagHTML ? ` ${tagHTML}` : ""}${size}`;
+    return `<div class="body-section"><div class="body-label">${label}</div>${html}</div>`;
+  };
+
+  // Every builder shows its result through here, so an evicted result gets the offload notice whatever the tool.
+  const resultSection = (labelKey, text, render = structuredHTML, sizeHTML = null, tagHTML = "") => {
+    const source = String(text ?? "");
+    if (!source.trim() || isError(source)) return "";
+    const offload = parseOffload(source);
+    const body = offload ? offloadHTML(offload) : render(source);
+    return section(labelKey, body, sizeHTML ?? escapeHtml(contextSize(source)), tagHTML);
+  };
+
+  const contextSection = (text, render, sizeHTML) => resultSection("body_context", text, render, sizeHTML);
+
+  const wentWrong = (seg) => {
+    const result = seg.result == null ? "" : String(seg.result).trim();
+    if (failedResult(seg.name, result)) return result.replace(/^error:\s*/i, "") || result;
+    return seg.status === "error" && !result ? t("unanswered") : "";
+  };
+
+  const wrongHTML = (text) =>
+    `<div class="body-error"><div class="body-label">${escapeHtml(t("body_wrong"))}</div>${textHTML(text)}</div>`;
+
+  const rawHTML = (seg) => {
+    if (!window.TranscriptLabels.showRaw) return "";
+    const pre = (text) => `<pre class="body-pre">${escapeHtml(text)}</pre>`;
+    const args = seg.args ? section("body_args", pre(prettyJSON(seg.args))) : "";
+    const result = seg.result == null ? "" : section("body_result", pre(String(seg.result)));
+    if (!args && !result) return "";
+    return `<details class="body-raw"><summary>${escapeHtml(t("body_raw"))}</summary>${args}${result}</details>`;
+  };
+
+  // --- per-tool bodies (each returns its middle sections, or { wrong, html }) ---
+
+  const clampItems = (items, wrap, total = items.length) => {
+    const kept = items.slice(0, LINE_CAP);
+    const hidden = kept.slice(VISIBLE_LINES);
+    const more = hidden.length ? moreHTML(kept.length, wrap(hidden)) : "";
+    return wrap(kept.slice(0, VISIBLE_LINES)) + more + andMoreHTML(total - kept.length);
+  };
+
+  const notesHTML = (notes) => notes.map((note) => `<p class="body-note">${escapeHtml(note)}</p>`).join("");
+
+  const succeeded = (seg) => seg.status !== "error" && seg.result != null && !failedResult(seg.name, seg.result);
+
+  // deepagents' read result: bracketed notices, then `@@ lines A-B … @@`, then the lines verbatim. Older
+  // results numbered each line instead (`N  text`, `N.1` for a long line's continuation, or `cat -n`'s tab).
+  const READ_HEADER_RE = /^@@ lines (\d+)-(\d+)\b.*@@$/;
+  const READ_NOTICE_RE = /^\[.*\]$/;
+  const GUTTER_START_RE = /^\s*\d+(?: {2}|\t)/;
+  const GUTTER_RE = /^\s*(\d+(?:\.\d+)?)(?: {2}|\t|$)(.*)$/;
+
+  const readRows = (lines) => {
+    let start = 0;
+    while (start < lines.length && READ_NOTICE_RE.test(lines[start])) start += 1;
+    const header = lines[start]?.match(READ_HEADER_RE);
+    if (header) {
+      const [first, last] = [Number(header[1]), Number(header[2])];
+      const rows = lines.slice(start + 1).map((code, i) => ({ ln: first + i <= last ? String(first + i) : "", code }));
+      return { notes: lines.slice(0, start), skipped: start + 1, rows };
+    }
+    const gutter = GUTTER_START_RE.test(lines.find((line) => line.trim()) ?? "");
+    const rows = lines.map((line) => {
+      const numbered = gutter ? line.match(GUTTER_RE) : null;
+      return numbered ? { ln: numbered[1], code: numbered[2] } : { ln: "", code: line };
+    });
+    return { notes: [], skipped: 0, rows };
+  };
+
+  const languageOf = (path) => {
+    const name = basename(path).toLowerCase();
+    const dot = name.lastIndexOf(".");
+    return dot > 0 ? name.slice(dot + 1) : name;
+  };
+
+  // hljs spans can run across lines: each line closes the spans still open and the next reopens them.
+  const splitHighlighted = (html) => {
+    const lines = [];
+    const open = [];
+    let line = "";
+    for (const [token] of html.matchAll(/<span[^>]*>|<\/span>|\n|<|[^<\n]+/g)) {
+      if (token === "\n") {
+        lines.push(line + "</span>".repeat(open.length));
+        line = open.join("");
         continue;
       }
-      // Deepagents "content" mode: "<file>:" header followed by indented "  <lineno>: <body>" rows.
-      const header = line.match(/^([^\s][^:]*):$/);
-      if (header) {
-        currentFile = header[1];
-        if (!groups.has(currentFile)) groups.set(currentFile, []);
-        continue;
-      }
-      const hit = line.match(/^\s+(\d+):\s?(.*)$/);
-      if (hit && currentFile) {
-        groups.get(currentFile).push({ lineno: hit[1], body: hit[2] });
+      if (token.startsWith("<span")) open.push(token);
+      else if (token === "</span>") open.pop();
+      line += token === "<" ? "&lt;" : token;
+    }
+    lines.push(line + "</span>".repeat(open.length));
+    return lines;
+  };
+
+  const highlightLines = (codes, language) => {
+    const hljs = window.hljs;
+    if (!language || typeof hljs?.getLanguage !== "function" || !hljs.getLanguage(language)) return null;
+    try {
+      const lines = splitHighlighted(hljs.highlight(codes.join("\n"), { language, ignoreIllegals: true }).value);
+      return lines.length === codes.length ? lines : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const codeHTML = (path) => (text) => {
+    const { lines, total } = sliceText(text);
+    const { notes, skipped, rows } = readRows(lines);
+    const codes = rows.map((row) => row.code);
+    const code = highlightLines(codes, languageOf(path)) ?? codes.map(escapeHtml);
+    const html = rows.map((row, i) => (row.ln ? `<span class="ln">${escapeHtml(row.ln)}</span>` : "") + code[i]);
+    return notesHTML(notes) + clampLines(html, VISIBLE_LINES, { total: total - skipped, cls: "body-code" });
+  };
+
+  const DIFF_CONTEXT = 2;
+  const DIFF_KINDS = { "+": "diff-add", "-": "diff-del", " ": "diff-ctx" };
+  const DIFF_GAP = "~";
+
+  // Rows are unified-diff lines (sign + text); the sign is never "~", so that row marks a gap between changes.
+  const diffRows = (oldStr, newStr) => {
+    const rows = [];
+    for (const part of window.Diff.diffLines(oldStr, newStr)) {
+      if (!part.value) continue;
+      const sign = part.added ? "+" : part.removed ? "-" : " ";
+      for (const line of part.value.replace(/\n$/, "").split("\n")) rows.push(sign + line);
+    }
+    const near = rows.map(() => false);
+    rows.forEach((row, i) => {
+      if (row[0] === " ") return;
+      const last = Math.min(rows.length - 1, i + DIFF_CONTEXT);
+      for (let j = Math.max(0, i - DIFF_CONTEXT); j <= last; j += 1) near[j] = true;
+    });
+    const kept = [];
+    rows.forEach((row, i) => {
+      if (!near[i]) return;
+      if (kept.length && !near[i - 1]) kept.push(DIFF_GAP);
+      kept.push(row);
+    });
+    return kept;
+  };
+
+  const diffHTML = (rows) => {
+    if (!rows.length) return "";
+    const { lines, total } = sliceText(rows.join("\n"));
+    const html = lines.map((row) => {
+      if (row === DIFF_GAP) return '<div class="diff-gap">⋯</div>';
+      return `<div class="${DIFF_KINDS[row[0]]}">${escapeHtml(row)}</div>`;
+    });
+    return clampItems(html, (part) => `<div class="chat-diff">${part.join("")}</div>`, total);
+  };
+
+  const GREP_INLINE_RE = /^([^:\s][^:]*):(\d+):(.*)$/;
+  const GREP_FILE_RE = /^([^\s][^:]*):$/;
+  const GREP_HIT_RE = /^\s+(\d+)([:-])\s?(.*)$/;
+  const GREP_SEPARATOR_RE = /^\s+--$/;
+
+  // Ripgrep's `file:line:text`, or deepagents' `file:` followed by `  line: text` (`line- text` for context).
+  const parseGrep = (lines) => {
+    const hits = [];
+    const before = [];
+    const after = [];
+    let file = null;
+    for (const line of lines) {
+      const inline = line.match(GREP_INLINE_RE);
+      const header = inline ? null : line.match(GREP_FILE_RE);
+      const hit = inline || header || file == null ? null : line.match(GREP_HIT_RE);
+      if (inline) hits.push({ file: inline[1], lineno: inline[2], text: inline[3], match: true });
+      else if (header) file = header[1];
+      else if (hit) hits.push({ file, lineno: hit[1], text: hit[3], match: hit[2] === ":" });
+      else if (line.trim() && !GREP_SEPARATOR_RE.test(line)) (hits.length || file != null ? after : before).push(line);
+    }
+    return { hits, before, after };
+  };
+
+  const MARK_CHARS = 300;
+  const QUANTIFIERS = new Set(["*", "+", "{"]);
+  const UNBOUNDED_RE = /[*+]|\{\d+,\}/y;
+  const UNBOUNDED_LIMIT = 3;
+
+  // JS backtracks exponentially (ERE does not) on a repeated group holding a quantifier or an alternation, as in
+  // `(\w+\s?)+` or `(a|aa)*`, and polynomially on several unbounded quantifiers, as in `\s*\s*\s*y`.
+  const backtracksBadly = (pattern) => {
+    const quantified = [false];
+    let opened = false;
+    let unbounded = 0;
+    for (let i = 0; i < pattern.length; i += 1) {
+      const ch = pattern[i];
+      const quantifier = QUANTIFIERS.has(ch) || (ch === "?" && !opened);
+      opened = ch === "(";
+      if (ch === "\\") {
+        i += 1;
+      } else if (ch === "[") {
+        while (i + 1 < pattern.length && pattern[i + 1] !== "]") i += pattern[i + 1] === "\\" ? 2 : 1;
+        i += 1;
+      } else if (ch === "(") {
+        quantified.push(false);
+      } else if (ch === ")" && quantified.length > 1) {
+        const inner = quantified.pop();
+        const repeated = QUANTIFIERS.has(pattern[i + 1]);
+        if (inner && repeated) return true;
+        if (inner || repeated) quantified[quantified.length - 1] = true;
+      } else if (ch === "|") {
+        quantified[quantified.length - 1] = true;
+      } else if (quantifier) {
+        quantified[quantified.length - 1] = true;
+        UNBOUNDED_RE.lastIndex = i;
+        if (UNBOUNDED_RE.test(pattern)) unbounded += 1;
+        if (unbounded >= UNBOUNDED_LIMIT) return true;
       }
     }
-    if (!groups.size) return block("Result", pre(String(result ?? "")));
-    const html = [...groups.entries()]
-      .map(([file, hits]) => {
-        const rows = hits
-          .slice(0, 100)
-          .map(
-            ({ lineno, body }) =>
-              `<div class="chat-grep__hit"><span class="chat-grep__lineno">${escapeHtml(lineno)}</span>${escapeHtml(body)}</div>`,
-          )
-          .join("");
-        return `<div class="chat-grep__group"><div class="chat-grep__file">${escapeHtml(file)}</div>${rows}</div>`;
+    return false;
+  };
+
+  // `u` makes patterns JS would read differently from ERE (`\K`, `[[:alpha:]]`) throw instead of mismatching.
+  const patternRE = (pattern) => {
+    if (!pattern || backtracksBadly(String(pattern))) return null;
+    try {
+      return new RegExp(pattern, "gu");
+    } catch {
+      return null;
+    }
+  };
+
+  const markHTML = (text, re) => {
+    if (!re) return escapeHtml(text);
+    let html = "";
+    let last = 0;
+    for (const match of text.slice(0, MARK_CHARS).matchAll(re)) {
+      if (!match[0]) continue;
+      html += `${escapeHtml(text.slice(last, match.index))}<mark>${escapeHtml(match[0])}</mark>`;
+      last = match.index + match[0].length;
+    }
+    return html + escapeHtml(text.slice(last));
+  };
+
+  const grepGroupsHTML = (re) => (hits) => {
+    const groups = [];
+    for (const hit of hits) {
+      if (groups.at(-1)?.file !== hit.file) groups.push({ file: hit.file, rows: [] });
+      const lineno = `<span class="ln">${escapeHtml(hit.lineno)}</span>`;
+      const text = hit.match ? markHTML(hit.text, re) : escapeHtml(hit.text);
+      groups.at(-1).rows.push(`<div class="body-grep-hit">${lineno}${text}</div>`);
+    }
+    const html = groups.map(({ file, rows }) => {
+      const name = `<div class="body-grep-file">${escapeHtml(file)}</div>`;
+      return `<div class="body-grep-group">${name}${rows.join("")}</div>`;
+    });
+    return `<div class="body-grep">${html.join("")}</div>`;
+  };
+
+  // The lines parseGrep reads as hits: ripgrep's `file:line:`, or an indented `line:` / `line-`.
+  const GREP_HIT_LINE_RE = /^(?:[^:\s][^:\n]*:\d+:|[ \t]+\d+[:-])/gm;
+
+  // The view parses only the lines sliceText keeps; the hits past them are counted, not parsed.
+  const grepHTML = (pattern) => (text) => {
+    const sliced = sliceText(text);
+    const { hits, before, after } = parseGrep(sliced.lines);
+    if (!hits.length) return textHTML(text);
+    const cut = sliced.lines.length < sliced.total;
+    const total = cut ? Math.max(hits.length, String(text).match(GREP_HIT_LINE_RE)?.length ?? 0) : hits.length;
+    return notesHTML(before) + clampItems(hits, grepGroupsHTML(patternRE(pattern)), total) + notesHTML(after);
+  };
+
+  // deepagents lists paths as a Python list repr (notes may follow it) and appends this item when it cut the list.
+  const CUT_LIST_RE = /^\.\.\. \[results truncated\b/;
+
+  const pathsHTML = (text) => {
+    const source = String(text).trim();
+    const [first, ...rest] = source.split("\n");
+    if (first === "No files found") return textHTML(source);
+    const repr = first.startsWith("[") && first.endsWith("]");
+    const entries = parseLsEntries(repr ? first : source);
+    const paths = entries.filter((entry) => !CUT_LIST_RE.test(entry));
+    if (!paths.length) return textHTML(source);
+    const notes = [...entries.filter((entry) => CUT_LIST_RE.test(entry)), ...(repr ? rest : [])];
+    const icon = window.TranscriptLabels.iconHTML("document-text");
+    const items = paths
+      .slice(0, LINE_CAP)
+      .map((path) => `<li>${icon}<span>${escapeHtml(truncate(repoRelative(path) || path, LINE_CHARS))}</span></li>`);
+    const list = clampItems(items, (part) => `<ul class="body-files">${part.join("")}</ul>`, paths.length);
+    return list + notesHTML(notes.filter((note) => note.trim()).slice(0, VISIBLE_LINES));
+  };
+
+  const FILE_OPS = { added: "A", modified: "M", deleted: "D", renamed: "R" };
+
+  const changesHTML = (files) => {
+    const records = files.filter(isRecord);
+    const items = records
+      .slice(0, LINE_CAP)
+      .map((file) => {
+        const path = String(file.path ?? "");
+        const shown = file.op === "renamed" && file.from_path ? `${file.from_path} → ${path}` : path;
+        const op = Object.hasOwn(FILE_OPS, file.op) ? FILE_OPS[file.op] : "M";
+        return `<li><span class="body-op">${op}</span><span>${escapeHtml(shown)}</span></li>`;
+      });
+    if (!items.length) return "";
+    return clampItems(items, (part) => `<ul class="body-files">${part.join("")}</ul>`, records.length);
+  };
+
+  // Shown as Input only when the row cut it: several lines, or longer than the row's COMMAND_CHARS.
+  const commandHTML = (command) => {
+    const { lines, total } = sliceText(command);
+    const html = lines.map(escapeHtml);
+    html[0] = `<span class="body-prompt">$</span> ${html[0]}`;
+    return clampLines(html, VISIBLE_LINES, { total, cls: "body-term" });
+  };
+
+  const exitCode = (command) =>
+    command.exit_code != null && Number(command.exit_code) !== 0 ? Number(command.exit_code) : null;
+
+  // One command: the row already shows it and its exit code. Several: each gets its `$ command` line.
+  const terminalHTML = (commands) => {
+    if (commands.length === 1) return commands[0].output ? textHTML(String(commands[0].output), "body-term") : "";
+    return commands
+      .map((command) => {
+        const line = escapeHtml(command.command ?? "");
+        const prompt = `<div class="body-cmd"><span class="body-prompt">$</span> ${line}</div>`;
+        const output = command.output ? textHTML(String(command.output), "body-term") : "";
+        const code = exitCode(command);
+        const exit = code == null ? "" : `<div class="body-exit">${escapeHtml(t("detail_exit", { code }))}</div>`;
+        return `<div class="body-run">${prompt}${output}${exit}</div>`;
       })
       .join("");
-    return block("Matches", `<div class="chat-grep">${html}</div>`);
   };
 
-  const bashRunBlock = (command, output, exitCode) => {
-    const cmdLine = command
-      ? `<div class="chat-bash__cmd"><span class="chat-bash__prompt">$</span> ${escapeHtml(command)}</div>`
-      : "";
-    const outBlock = output ? pre(output, "chat-tool__code--bash") : "";
-    const exitLine =
-      exitCode != null && Number(exitCode) !== 0
-        ? `<div class="chat-bash__exit chat-bash__exit--err">exit ${Number(exitCode)}</div>`
-        : "";
-    return `<div class="chat-bash">${cmdLine}${outBlock}${exitLine}</div>`;
-  };
+  const WEB_LINK_RE = /^https?:\/\//i;
+  const LOCAL_LINK_RE = /^\/(?![/\\])[^\s\\\x00-\x1f]*$/;
 
-  // Returns null when jsdiff isn't loaded so callers can fall back to text.
-  const jsdiffBody = (path, oldStr, newStr, result, context) => {
-    if (!window.Diff) return null;
-    const patch = window.Diff.createPatch(path, oldStr, newStr, "", "", { context });
-    const lines = patch.split("\n").filter(
-      (l) => !l.startsWith("Index:") && !/^=+$/.test(l),
-    );
-    const parts = [diffBody(lines.join("\n"))];
-    if (result && ERROR_PREFIX_RE.test(String(result).trim())) {
-      parts.push(block("Error", pre(String(result))));
-    }
-    return parts.join("");
-  };
-
-  const editFileBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const path = pickKey(args, ["path", "file_path"]) ?? "";
-    const oldStr = pickKey(args, ["old_string"]);
-    const newStr = pickKey(args, ["new_string"]);
-
-    // Partial streaming args would produce misleading hunks, so require both.
-    if (oldStr != null && newStr != null) {
-      const html = jsdiffBody(path, String(oldStr), String(newStr), result, 2);
-      if (html) return html;
-    }
-    if (result) return block("Result", pre(String(result)));
-    return genericBody(argsStr, result);
-  };
-
-  const writeFileBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const path = pickKey(args, ["path", "file_path"]) ?? "";
-    const content = pickKey(args, ["content", "text"]);
-
-    if (content) {
-      const html = jsdiffBody(path, "", String(content), result, 0);
-      if (html) return html;
-      return block("Content", pre(String(content)));
-    }
-    if (result) return block("Result", pre(String(result)));
-    return genericBody(argsStr, result);
-  };
-
-  const bashBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const streamedCommand = pickKeyOrPartial(args, ["command", "cmd", "script"], argsStr) ?? "";
-    const entries = parseBashResult(result);
-
-    if (entries) {
-      // Render a block per entry so multi-command runs read cleanly; drop the
-      // surrounding JSON entirely.
-      const html = entries
-        .map((e) => bashRunBlock(e.command ?? "", e.output ?? "", e.exit_code))
-        .join("");
-      return block("Shell", html);
-    }
-
-    // Either still streaming (no result yet) or raw-text result from an older
-    // tool. Show whatever command we have, plus raw output if present.
-    return block(
-      "Shell",
-      bashRunBlock(streamedCommand, result == null ? "" : String(result), null),
-    );
-  };
-
-  const taskBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const description = pickKey(args, ["description", "title"]) ?? "";
-    const subagent = pickKey(args, ["subagent_type", "agent", "type"]) ?? "";
-    const prompt = pickKey(args, ["prompt", "input", "task"]) ?? "";
-    const parts = [];
-    if (description || subagent) {
-      const meta = `<div class="chat-task__meta">` +
-        (subagent ? `<span class="chat-task__agent">${escapeHtml(subagent)}</span>` : "") +
-        (description ? `<span class="chat-task__desc">${escapeHtml(description)}</span>` : "") +
-        `</div>`;
-      parts.push(block("Task", meta));
-    }
-    if (prompt) parts.push(block("Prompt", pre(String(prompt))));
-    if (result != null && String(result).length) {
-      parts.push(block("Result", renderMarkdownBlock(result)));
-    }
-    return parts.join("");
-  };
-
-  const resultOnlyBody = (label, result) => {
-    const text = String(result ?? "");
-    return text.length ? block(label, pre(text)) : "";
-  };
-
-  const skillBody = (argsStr, result) => {
-    const body = String(result ?? "");
-    if (!body.trim()) return genericBody(argsStr, result);
-    return block("Skill", renderMarkdownBlock(body));
-  };
+  const linkable = (href, local) => WEB_LINK_RE.test(href) || (local && LOCAL_LINK_RE.test(href));
 
   // Open in a new tab so we never replace the chat tab; rel=noopener for the
   // usual reverse-tabnabbing reasons.
-  const externalLink = (url, label) => {
-    const safeHref = escapeHtml(String(url));
-    const safeLabel = escapeHtml(label != null ? String(label) : String(url));
-    return `<a class="chat-tool__link" href="${safeHref}" target="_blank" rel="noopener noreferrer">${safeLabel}</a>`;
+  const externalLink = (url, label, { local = false } = {}) => {
+    const href = String(url ?? "");
+    const text = escapeHtml(label != null ? String(label) : href);
+    if (!linkable(href, local)) return text;
+    const attrs = `class="chat-tool__link" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer"`;
+    return `<a ${attrs}>${text}</a>`;
   };
 
-  const webFetchBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const url = pickKeyOrPartial(args, ["url"], argsStr) ?? "";
-    const prompt = pickKeyOrPartial(args, ["prompt"], argsStr) ?? "";
-    const text = String(result ?? "");
-    const parts = [];
+  const openHTML = (url, label, { local = false } = {}) =>
+    linkable(String(url ?? ""), local) ? `<p class="body-open">${externalLink(url, label, { local })}</p>` : "";
 
-    if (url) {
-      parts.push(block("URL", `<div class="chat-webfetch__url">${externalLink(url, summarizeUrl(url))}</div>`));
-    }
-    if (prompt) parts.push(block("Prompt", pre(prompt)));
+  const noteHTML = (key) => `<p class="body-note">${escapeHtml(t(key))}</p>`;
 
-    if (text) {
-      const redirect = text.match(REDIRECT_TAG_RE);
-      if (redirect) {
-        parts.push(
-          block(
-            "Redirected to",
-            `<div class="chat-webfetch__url">${externalLink(redirect[1], summarizeUrl(redirect[1]))}</div>`,
-          ),
-        );
-      } else if (ERROR_PREFIX_RE.test(text.trim())) {
-        parts.push(block("Error", pre(text)));
+  const webLink = (url) => externalLink(url, truncate(url, VALUE_CHARS));
+
+  // Not the model's answer: no prompt (or no model) returns the page itself, a failed model call returns it too.
+  const PAGE_DUMP_RE = /^(?:Contents of \S+:\n|Model processing failed \()/;
+
+  const webFetchSize = (text) => {
+    const summary = text.trim() && !PAGE_DUMP_RE.test(text) && !parseOffload(text);
+    return summary ? escapeHtml(`${t("web_summary")} · ${contextSize(text)}`) : null;
+  };
+
+  const webSearchHTML = (text) => {
+    const results = parseWebSearchResults(text);
+    if (results == null) return textHTML(text);
+    const items = results.slice(0, LINE_CAP).map((r) => {
+      const link = (r && r.link) || "";
+      const title = (r && r.title) || "";
+      const content = truncate((r && r.content) || "", VALUE_CHARS);
+      const answer = escapeHtml(title || t("suggested_answer"));
+      const titleHtml = link
+        ? externalLink(link, title || link)
+        : `<span class="chat-search__title chat-search__title--answer">${answer}</span>`;
+      const host = link ? `<div class="chat-search__host">${escapeHtml(summarizeUrl(link))}</div>` : "";
+      const body = content ? `<div class="chat-search__snippet">${escapeHtml(content)}</div>` : "";
+      return `<div class="chat-search__item">${titleHtml}${host}${body}</div>`;
+    });
+    if (!items.length) return "";
+    return clampItems(items, (part) => `<div class="chat-search">${part.join("")}</div>`, results.length);
+  };
+
+  // shlex.split's POSIX rules, as the tool parses the subcommand: inside "…" a backslash escapes only `"` and `\`.
+  const shellWords = (text) => {
+    const source = String(text ?? "");
+    const words = [];
+    let word = null;
+    let quote = "";
+    for (let i = 0; i < source.length; i += 1) {
+      const ch = source[i];
+      if (quote === "'") {
+        if (ch === "'") quote = "";
+        else word += ch;
+      } else if (quote === '"') {
+        if (ch === '"') quote = "";
+        else if (ch === "\\" && (source[i + 1] === '"' || source[i + 1] === "\\")) {
+          i += 1;
+          word += source[i];
+        } else word += ch;
+      } else if (/\s/.test(ch)) {
+        if (word != null) words.push(word);
+        word = null;
       } else {
-        parts.push(block("Result", renderMarkdownBlock(text)));
+        word ??= "";
+        if (ch === "'" || ch === '"') quote = ch;
+        else if (ch === "\\" && i + 1 < source.length) {
+          i += 1;
+          word += source[i];
+        } else word += ch;
       }
     }
-    return parts.join("") || genericBody(argsStr, result);
+    if (word != null) words.push(word);
+    return words;
   };
 
-  const webSearchBody = (argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const query = pickKeyOrPartial(args, ["query"], argsStr) ?? "";
-    const text = String(result ?? "");
-    const parts = [];
-    if (query) parts.push(block("Query", pre(String(query))));
-
-    const trimmed = text.trim();
-    if (!trimmed) return parts.join("") || genericBody(argsStr, result);
-
-    const results = parseWebSearchResults(trimmed);
-    if (results == null) {
-      // Pre-JSON transcripts or unparseable output — fall back gracefully.
-      parts.push(block("Result", pre(text)));
-      return parts.join("");
+  const flagValue = (words, names) => {
+    for (let i = 0; i < words.length; i += 1) {
+      for (const name of names) {
+        if (words[i] === name) return words[i + 1] ?? null;
+        if (words[i].startsWith(`${name}=`)) return words[i].slice(name.length + 1);
+      }
     }
-    if (!results.length) {
-      parts.push(block("Result", pre("No relevant results found for the given search query.")));
-      return parts.join("");
+    return null;
+  };
+
+  const platformCall = (args, argsStr) => {
+    const words = shellWords(pickKeyOrPartial(args, ["subcommand"], argsStr) ?? "");
+    return { resource: words[0] ?? "", action: words[1] ?? "", rest: words.slice(2) };
+  };
+
+  const isPlatformLog = (platform, { resource, action, rest }) =>
+    platform === "gitlab"
+      ? resource === "project-job" && action === "trace"
+      : resource === "run" && action === "view" && rest.some((word) => word === "--log" || word === "--log-failed");
+
+  // `error:` ends in a non-word character, so a closing \b would make it miss `error: x`.
+  const LOG_ERROR_RE = /\b(?:FAILED|ERROR|Error)\b|\berror:/;
+
+  const sliceTail = (text) => {
+    const all = String(text ?? "").replace(/\n$/, "").split("\n");
+    const lines = [];
+    let budget = CHAR_CAP;
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      const line = all[i];
+      const kept = line.length > LINE_CHARS ? `${line.slice(0, LINE_CHARS)}…` : line;
+      if (lines.length === LINE_CAP || kept.length > budget) break;
+      lines.push(kept);
+      budget -= kept.length + 1;
     }
-
-    const items = results
-      .map((r) => {
-        const link = (r && r.link) || "";
-        const title = (r && r.title) || "";
-        const content = (r && r.content) || "";
-        const titleHtml = link
-          ? externalLink(link, title || link)
-          : `<span class="chat-search__title chat-search__title--answer">${escapeHtml(title || "Suggested answer")}</span>`;
-        const host = link ? `<div class="chat-search__host">${escapeHtml(summarizeUrl(link))}</div>` : "";
-        const body = content ? `<div class="chat-search__snippet">${escapeHtml(content)}</div>` : "";
-        return `<div class="chat-search__item">${titleHtml}${host}${body}</div>`;
-      })
-      .join("");
-    parts.push(block("Results", `<div class="chat-search">${items}</div>`));
-    return parts.join("");
+    return { lines: lines.reverse(), total: all.length };
   };
 
-  const cliBody = (tool, argsStr, result) => {
-    const args = parseArgs(argsStr);
-    const subcommand = pickKeyOrPartial(args, ["subcommand"], argsStr) ?? "";
-    const command = `${tool}${subcommand ? " " + subcommand : ""}`;
+  const errorAnchor = (seg) => {
+    const id = String(seg.id ?? "").replace(/[^A-Za-z0-9_-]/g, "");
+    return id ? `log-err-${id}` : "";
+  };
+
+  // A log keeps its end; .body-log is a column-reverse scroller, so it opens scrolled to the last line.
+  const logHTML = (anchor) => (text) => {
+    const { lines, total } = sliceTail(text);
+    let first = -1;
+    const rows = lines.map((line, i) => {
+      const error = LOG_ERROR_RE.test(line);
+      if (error && first < 0) first = i;
+      const id = error && i === first && anchor ? ` id="${anchor}"` : "";
+      return `<div class="lgl${error ? " err" : ""}"${id}>${escapeHtml(line)}</div>`;
+    });
+    const jump =
+      first >= 0 && anchor ? `<a class="body-jump" href="#${anchor}">${escapeHtml(t("jump_to_error"))}</a>` : "";
+    const earlier = total - lines.length;
+    const omitted = earlier > 0 ? `<p class="body-note">${escapeHtml(tn("log_earlier", earlier))}</p>` : "";
+    return `${jump}${omitted}<div class="body-log"><div class="body-log-lines">${rows.join("")}</div></div>`;
+  };
+
+  const FIELD_RE = /^([a-z_][a-z0-9_-]*):(?:[ \t]+(.*))?$/s;
+
+  // python-gitlab: `key: value` lines (a value may run on), a nested `key:` over indented lines, a blank line between
+  // objects; gh: `key:\tvalue` lines, `--`, then the body. A line no field takes fails the parse (null).
+  const parseRecords = (lines, { body = false } = {}) => {
+    const records = [];
+    let field = null;
+    let blank = false;
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (body && records.length && line === "--") return { records, body: lines.slice(i + 1).join("\n") };
+      if (!line.trim()) {
+        blank = true;
+        continue;
+      }
+      const top = line.match(FIELD_RE);
+      const indent = line.length - line.trimStart().length;
+      if (top) {
+        if (!records.length || (blank && top[1] === records[0][0].key)) records.push([]);
+        field = { key: top[1], value: top[2] ?? "", nested: top[2] == null, block: [], indent: 0 };
+        records.at(-1).push(field);
+      } else if (!field) {
+        return null;
+      } else if (!field.nested) {
+        field.value += `${blank ? "\n\n" : "\n"}${line}`;
+      } else if (indent > 0 && indent >= (field.indent || indent)) {
+        field.indent ||= indent;
+        field.block.push(line.slice(field.indent));
+      } else {
+        return null;
+      }
+      blank = false;
+    }
+    return records.length ? { records, body: "" } : null;
+  };
+
+  const FIRST_KEYS = [
+    "title", "state", "draft", "source_branch", "target_branch", "author", "status", "ref", "web_url",
+  ];
+  const LINK_KEYS = ["web_url", "url"];
+  const NESTED_KEYS = ["username", "name", "title", "status"];
+
+  const plainKey = (key) => key.replaceAll("-", "_");
+
+  const keyRank = (key) => {
+    const rank = FIRST_KEYS.indexOf(plainKey(key));
+    return rank < 0 ? FIRST_KEYS.length : rank;
+  };
+
+  const byRank = (keys) => [...keys].sort((a, b) => keyRank(a) - keyRank(b));
+
+  // A nested object reads as its username (or name, …) or as its `key: value` children; `whole` is false when the
+  // text shown leaves any of the field's lines or characters out.
+  const fieldView = (field) => {
+    if (!field.nested) return { text: truncate(field.value, VALUE_CHARS), whole: field.value.length <= VALUE_CHARS };
+    const children = field.block.map((line) => line.match(FIELD_RE)).filter(Boolean);
+    const named = NESTED_KEYS.map((key) => children.find((m) => plainKey(m[1]) === key && m[2])).find(Boolean);
+    const text = named ? named[2] : children.map((m) => `${m[1]}: ${m[2] ?? ""}`).join(", ");
+    const everyLine = named ? field.block.length === 1 : children.length === field.block.length;
+    return { text: truncate(text, VALUE_CHARS), whole: everyLine && text.length <= VALUE_CHARS };
+  };
+
+  const recordLink = (record) => {
+    for (const key of LINK_KEYS) {
+      const field = record.find((one) => plainKey(one.key) === key && !one.nested);
+      if (field && WEB_LINK_RE.test(field.value.trim())) return field;
+    }
+    return null;
+  };
+
+  // The link field becomes the link on the record's first shown field, unless it is the only field.
+  const recordRow = (record) => {
+    const link = recordLink(record);
+    const shown = record.filter((one) => one !== link || record.length === 1);
+    const fields = new Map(shown.map((one) => [one.key, one]));
+    return { fields, href: link ? link.value.trim() : "", complete: fields.size === shown.length };
+  };
+
+  const cellHTML = (view, href, first) =>
+    first && href ? externalLink(href, view.text || href) : escapeHtml(view.text);
+
+  const viewOf = (fields, key) => (fields.has(key) ? fieldView(fields.get(key)) : { text: "", whole: true });
+
+  // `whole` is false when the view leaves a line out: a nested object's other lines, a repeated key, columns past the
+  // sixth, rows past the fiftieth.
+  const recordsHTML = (records) => {
+    const rows = records.slice(0, STRUCTURED_ROWS).map(recordRow);
+    const keys = byRank(new Set(rows.flatMap(({ fields }) => [...fields.keys()])));
+    const headers = rows.length === 1 ? keys : keys.slice(0, TABLE_COLUMNS);
+    const views = rows.map(({ fields }) => headers.map((key) => viewOf(fields, key)));
+    const cells = views.map((row, r) => row.map((view, i) => cellHTML(view, rows[r].href, i === 0)));
+    const html =
+      rows.length === 1
+        ? definitionsHTML(headers.map((key, i) => [key, cells[0][i]]))
+        : tableMarkup(headers, cells) + andMoreHTML(records.length - rows.length);
+    const complete = headers.length === keys.length && rows.length === records.length && rows.every((r) => r.complete);
+    return { html, whole: complete && views.flat().every((view) => view.whole) };
+  };
+
+  const platformHTML = (platform) => (text) => {
+    const data = structured(text);
+    if (data.kind !== "markdown") return structuredDataHTML(data);
+    const sliced = sliceText(text);
+    const lines = sliced.lines.map((line) => line.replace(/\r$/, ""));
+    const parsed = parseRecords(lines, { body: platform === "gh" });
+    if (!parsed) return textHTML(text);
+    const view = recordsHTML(parsed.records);
+    const full = view.whole ? "" : `<pre class="body-pre">${lines.map(escapeHtml).join("\n")}</pre>`;
+    const all = full && moreHTML(lines.length, full);
+    const body = parsed.body.trim() ? markdownHTML(parsed.body) : "";
+    return view.html + all + body + andMoreHTML(sliced.total - lines.length);
+  };
+
+  const READ_ACTIONS = new Set(["get", "list", "trace", "diff", "view"]);
+  const POSTED_FLAGS = ["--body", "-b", "--description"];
+  const GITLAB_NOTES = new Set(["project-merge-request-note", "project-merge-request-discussion-note"]);
+  const GH_VALUE_FLAGS = new Set(["--body", "-b", "--body-file", "-F"]);
+
+  const prNumber = (rest) => {
+    for (let i = 0; i < rest.length; i += 1) {
+      if (GH_VALUE_FLAGS.has(rest[i])) i += 1;
+      else if (!rest[i].startsWith("-")) return rest[i].match(/^#?(\d+)$|\/pull\/(\d+)\/?$/)?.slice(1).find(Boolean);
+    }
+    return undefined;
+  };
+
+  // python-gitlab prints a created note with `id:` first and an updated one as sorted keys; nested ids are indented.
+  const resultId = (result) => String(result ?? "").match(/^id: (\d+)[ \t]*$/m)?.[1];
+
+  // The posted note's anchor on the session's MR/PR page, only when this call wrote a note to that MR/PR.
+  const postedUrl = (platform, { resource, action, rest }, mergeRequestUrl, result) => {
+    const url = String(mergeRequestUrl ?? "");
+    if (platform === "gitlab") {
+      const number = url.match(/\/merge_requests\/(\d+)\/?$/)?.[1];
+      const id = resultId(result);
+      const ours = number && GITLAB_NOTES.has(resource) && flagValue(rest, ["--mr-iid"]) === number;
+      return ours && id ? `${url}#note_${id}` : "";
+    }
+    const number = url.match(/\/pull\/(\d+)\/?$/)?.[1];
+    const id = String(result ?? "").match(/#issuecomment-(\d+)\b/)?.[1] ?? resultId(result);
+    const ours = number && resource === "pr" && action === "comment" && prNumber(rest) === number;
+    return ours && id ? `${url}#issuecomment-${id}` : "";
+  };
+
+  // Reads show what came back; any other action wrote something, shown as Changed once it succeeded.
+  const platformBody = (platform) => ({ seg, ctx, args, argsStr, result }) => {
+    const call = platformCall(args, argsStr);
+    if (isPlatformLog(platform, call)) return contextSection(result, logHTML(errorAnchor(seg)));
+    const reply = contextSection(result, platformHTML(platform));
+    if (READ_ACTIONS.has(call.action)) return reply;
+    const text = flagValue(call.rest, POSTED_FLAGS);
+    const done = succeeded(seg);
+    const link = done ? openHTML(postedUrl(platform, call, ctx.mergeRequestUrl, result), t("open_link")) : "";
+    const posted = (text?.trim() ? markdownHTML(text) : "") + link;
+    return section(done ? "body_changed" : "body_input", posted) + reply;
+  };
+
+  // --- MCP tools ---------------------------------------------------------
+
+  // `readOnly` is null when the server's tool data is unknown (removed from the page, or never synced).
+  const mcpTool = (name, ctx) => {
+    const server = mcpServerOf(name, ctx.mcpServers ?? []);
+    if (!server) return null;
+    const row = mcpRowOf(server, ctx);
+    const known = row != null && row.synced !== false && Array.isArray(row.read_only_tools);
+    return { readOnly: known ? row.read_only_tools.includes(name.slice(server.length + 1)) : null };
+  };
+
+  const tagHTML = (key, modifier) => `<span class="body-tag body-tag--${modifier}">${escapeHtml(t(key))}</span>`;
+
+  // A value the field list cuts is whole in the arguments as sent, under Show all.
+  const argsHTML = (args, argsStr) => {
+    const entries = Object.entries(args);
+    if (!entries.length) return "";
+    const pairs = entries.slice(0, STRUCTURED_ROWS).map(([key, value]) => [key, valueText(value)]);
+    const list = fieldsHTML(pairs) + andMoreHTML(entries.length - pairs.length);
+    if (pairs.length === entries.length && pairs.every(([, text]) => text.length <= VALUE_CHARS)) return list;
+    return list + showAllTextHTML(prettyJSON(argsStr));
+  };
+
+  const URL_RE = /https?:\/\/[^\s<>"'`\\)\]]+/gi;
+  const LINK_BUTTONS = 10;
+
+  const linkButtonsHTML = (text) => {
+    const urls = new Set();
+    for (const match of text.slice(0, CHAR_CAP).matchAll(URL_RE)) urls.add(match[0].replace(/[.,;:!?]+$/, ""));
+    const all = [...urls];
+    const buttons = all.slice(0, LINK_BUTTONS).map((url) => {
+      const attrs = `class="body-button" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer"`;
+      return `<a ${attrs}>${escapeHtml(truncate(summarizeUrl(url), 80))} ↗</a>`;
+    });
+    if (!buttons.length) return "";
+    return `<p class="body-buttons">${buttons.join("")}</p>${andMoreHTML(all.length - buttons.length)}`;
+  };
+
+  const mcpTag = (readOnly) => {
+    if (readOnly == null) return "";
+    return readOnly ? tagHTML("read_only", "read-only") : tagHTML("can_change", "can-change");
+  };
+
+  const rowShowsWhole = (value) => {
+    const text = String(value);
+    return text.length <= MCP_DETAIL_CHARS && text.replace(/\s+/g, " ") === text;
+  };
+
+  const changedHTML = (text) => structuredHTML(text) + linkButtonsHTML(text);
+
+  // Input leaves out the argument the row shows whole; with nothing left, the tag goes on the result's label.
+  const mcpBody = (readOnly) => ({ args, argsStr, result }) => {
+    const shown = mcpDetailArg(args);
+    const others = shown && rowShowsWhole(shown[1]) ? Object.entries(args).filter(([key]) => key !== shown[0]) : null;
+    const fields = argsHTML(others ? Object.fromEntries(others) : args, argsStr);
+    const tag = mcpTag(readOnly);
+    const input = section("body_input", fields, "", tag);
+    const resultTag = fields ? "" : tag;
+    if (readOnly !== false) return input + resultSection("body_context", result, undefined, null, resultTag);
+    return resultSection("body_changed", result, changedHTML, null, resultTag) + input;
+  };
+
+  // --- tool_search -------------------------------------------------------
+
+  // With schemas embedded: `<functions>` holding `<function>{openai schema}</function>` or
+  // `<function-summary>name: summary</function-summary>`; without: `- name: summary` lines.
+  const TOOL_BLOCK_RE = /<function>([\s\S]*?)<\/function>|<function-summary>([\s\S]*?)<\/function-summary>/g;
+  const TOOL_LINE_RE = /^- (\S+?):(?: (.*))?$/;
+  const TOOL_SUMMARY_RE = /^\s*([^:\s]+):\s?([\s\S]*)$/;
+  const LOADED_HEADER_RE = /^Loaded \d+ tool\(s\)[.:]/;
+  const FUNCTIONS_TAG_RE = /^<\/?functions>$/;
+  const TOOL_CHIPS = 20;
+
+  const firstSentence = (text) => {
+    const line = String(text ?? "").trim().split("\n")[0];
+    return line.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? line;
+  };
+
+  const schemaEntry = (json) => {
+    const parsed = parseJSON(json);
+    const fn = isRecord(parsed?.function) ? parsed.function : parsed;
+    if (!isRecord(fn) || typeof fn.name !== "string") return null;
+    const properties = fn.parameters?.properties ?? fn.input_schema?.properties;
+    const params = isRecord(properties) ? Object.keys(properties) : [];
+    return { name: fn.name, about: firstSentence(fn.description), params };
+  };
+
+  const summaryEntry = (text) => {
+    const match = String(text).match(TOOL_SUMMARY_RE);
+    const [name, about] = match ? [match[1], match[2].trim()] : [String(text).trim(), ""];
+    return { name, about, params: [] };
+  };
+
+  // null when the text lists no tool, or a schema does not parse: the result then shows as it came.
+  const loadedTools = (text) => {
+    const entries = [];
+    let schemas = 0;
+    let broken = false;
+    const blocks = text.includes("<functions>");
+    const rest = !blocks
+      ? text
+      : text.replace(TOOL_BLOCK_RE, (_, schema, summary) => {
+          const entry = schema == null ? summaryEntry(summary) : schemaEntry(schema);
+          if (schema != null) schemas += 1;
+          if (entry) entries.push(entry);
+          else broken = true;
+          return "";
+        });
+    const notes = [];
+    for (const line of rest.split("\n")) {
+      const listed = blocks ? null : line.match(TOOL_LINE_RE);
+      if (listed) entries.push({ name: listed[1], about: listed[2] ?? "", params: [] });
+      else if (line.trim() && !LOADED_HEADER_RE.test(line) && !FUNCTIONS_TAG_RE.test(line.trim())) notes.push(line);
+    }
+    return broken || !entries.length ? null : { entries, schemas, notes };
+  };
+
+  const toolEntryHTML = ({ name, about, params }) => {
+    const shown = params.slice(0, TOOL_CHIPS);
+    const chips = shown.map((param) => `<span class="body-chip">${escapeHtml(param)}</span>`);
+    if (params.length > shown.length) {
+      const more = t("and_more", { count: params.length - shown.length });
+      chips.push(`<span class="body-chip body-chip--more">${escapeHtml(more)}</span>`);
+    }
+    const aboutHTML = about ? `<span class="body-tool-about">${escapeHtml(truncate(about, VALUE_CHARS))}</span>` : "";
+    const chipsHTML = chips.length ? `<span class="body-chips">${chips.join("")}</span>` : "";
+    return `<li><code class="body-tool-name">${escapeHtml(name)}</code>${aboutHTML}${chipsHTML}</li>`;
+  };
+
+  const toolsHTML = ({ entries, notes }) => {
+    const items = entries.slice(0, LINE_CAP).map(toolEntryHTML);
+    const list = clampItems(items, (part) => `<ul class="body-tools">${part.join("")}</ul>`, entries.length);
+    const shownNotes = notes.slice(0, VISIBLE_LINES).map((note) => truncate(note.trim(), LINE_CHARS));
+    return list + notesHTML(shownNotes) + andMoreHTML(notes.length - shownNotes.length);
+  };
+
+  const toolSearchBody = ({ result }) => {
     const text = String(result ?? "");
-    return block("Shell", bashRunBlock(command, text, null));
+    const loaded = parseOffload(text) ? null : loadedTools(text);
+    const schemas = loaded?.schemas ? `${tn("size_tool_schemas", loaded.schemas)} · ${kbSize(byteLength(text))}` : "";
+    const size = schemas ? escapeHtml(schemas) : null;
+    return contextSection(text, loaded ? () => toolsHTML(loaded) : structuredHTML, size);
   };
+
+  // --- artifacts ---------------------------------------------------------
+
+  const artifactHTML = (item) => {
+    const state = t(item.updated ? "artifact_updated" : "artifact_new");
+    const meta = [item.kindLabel, item.sizeLabel, state].filter(Boolean);
+    const metaHTML = meta.map((text) => `<span class="body-meta">${escapeHtml(text)}</span>`).join("");
+    const link = externalLink(item.url, item.title || item.filename || item.url, { local: true });
+    const download = item.download_url
+      ? `<span class="body-download">${externalLink(item.download_url, t("artifact_download"), { local: true })}</span>`
+      : "";
+    return `<p class="body-artifact">${link}${metaHTML}${download}</p>`;
+  };
+
+  const publishedHTML = (text) => {
+    const parsed = parseArtifactResult(text);
+    if (!parsed) return structuredHTML(text);
+    const status = escapeHtml(valueText(parsed.status));
+    const line = [status, externalLink(parsed.url, null, { local: true })].filter(Boolean).join(" · ");
+    const warning = parsed.warning ? `<p class="body-note">${escapeHtml(valueText(parsed.warning))}</p>` : "";
+    return `<p class="body-line">${line}</p>${warning}`;
+  };
+
+  // "Fetched artifact '<id>' (<filename>, <bytes> bytes) to <path>. Edit it, then call …"
+  const FETCHED_RE = /^Fetched artifact '([^'\n]*)' \(([^\n]*), (\d+) bytes\) to ([^\n]+?)\.(?: |$)/;
+
+  const fetchedHTML = (text, latestById) => {
+    const match = text.match(FETCHED_RE);
+    if (!match) return "";
+    const [, id, filename, bytes, path] = match;
+    const known = latestById?.get?.(id);
+    const parts = [`<span class="body-op">A</span><span>${escapeHtml(path)}</span>`];
+    parts.push(`<span class="body-size">${escapeHtml(formatBytes(bytes))}</span>`);
+    if (known) parts.push(externalLink(known.url, known.title || known.filename || filename, { local: true }));
+    return `<ul class="body-files"><li>${parts.join(" · ")}</li></ul>`;
+  };
+
+  // --- delegated jobs ----------------------------------------------------
+
+  const SLUG_RE = /^[A-Za-z0-9_-]+$/;
+
+  const jobsResult = (result) => {
+    const parsed = parseJSON(String(result ?? "").trim());
+    return isRecord(parsed) ? parsed : null;
+  };
+
+  const recordsOf = (value) => (Array.isArray(value) ? value.filter(isRecord) : []);
+
+  const jobsError = (data, result) => valueText(data.error).trim() || String(result).trim();
+
+  const jobsFailure = (data, result) => (data?.error != null ? jobsError(data, result) : "");
+
+  // As delegateBody reads it: the call errored, or started no leg.
+  const delegateFailed = (data) => data != null && (data.error != null || !recordsOf(data.started).length);
+
+  const firstLine = (value) => valueText(value).trim().split("\n")[0];
+
+  const branchText = (ref) => valueText(ref).trim() || t("jobs_default_branch");
+
+  // The page's own session URL for a thread id; the absolute `session_url` carries the configured site's host.
+  const sessionLink = (leg) => {
+    const threadId = valueText(leg.thread_id);
+    const sessionUrl = valueText(leg.session_url);
+    const path = window.TranscriptLabels.sessionPath;
+    const own = path && SLUG_RE.test(threadId) ? window.TranscriptLabels.fill(path, { thread_id: threadId }) : "";
+    const href = own || sessionUrl;
+    return linkable(href, true) ? externalLink(href, t("jobs_open_session"), { local: true }) : "";
+  };
+
+  const noteOf = (data) => {
+    const note = valueText(data.note).trim();
+    return note ? `<p class="body-note">${escapeHtml(note)}</p>` : "";
+  };
+
+  const legKey = (leg) => `${valueText(leg.repo_id).trim()}\n${valueText(leg.ref).trim()}`;
+
+  // A leg takes the first target left with its repository and branch, else with its repository (`ref` may differ).
+  const claimTarget = (targets, used, leg) => {
+    const free = (same) => targets.findIndex((target, i) => !used.has(i) && same(target));
+    const repo = valueText(leg.repo_id).trim();
+    let index = free((target) => legKey(target) === legKey(leg));
+    if (index < 0) index = free((target) => valueText(target.repo_id).trim() === repo);
+    if (index < 0) return { index: targets.length, target: {} };
+    used.add(index);
+    return { index, target: targets[index] };
+  };
+
+  const jobsHeaders = (...keys) => keys.map((key) => t(key));
+
+  const delegatedTable = (targets, started, failed) => {
+    const used = new Set();
+    const legs = [...started.map((leg) => ({ leg, failed: false })), ...failed.map((leg) => ({ leg, failed: true }))];
+    const rows = legs.slice(0, STRUCTURED_ROWS).map(({ leg, failed: legFailed }) => {
+      const { index, target } = claimTarget(targets, used, leg);
+      const after = leg.starts_after_this_turn === true ? ` · ${escapeHtml(t("jobs_after_turn"))}` : "";
+      const last = legFailed ? escapeHtml(valueText(leg.error)) : sessionLink(leg) + after;
+      const cells = [valueText(leg.repo_id), branchText(leg.ref), firstLine(target.prompt)].map(escapeHtml);
+      return { index, failed: legFailed, cells: [...cells, last] };
+    });
+    rows.sort((a, b) => a.index - b.index);
+    const headers = jobsHeaders("jobs_repository", "jobs_branch", "jobs_job", "jobs_session");
+    const classes = rows.map((row) => (row.failed ? "body-row-failed" : ""));
+    return tableMarkup(headers, rows.map((row) => row.cells), classes) + andMoreHTML(legs.length - rows.length);
+  };
+
+  const targetsHTML = (targets) => {
+    if (!targets.length) return "";
+    const rows = targets.slice(0, STRUCTURED_ROWS).map((target) => [
+      valueText(target.repo_id),
+      branchText(target.ref),
+      firstLine(target.prompt),
+    ]);
+    const headers = jobsHeaders("jobs_repository", "jobs_branch", "jobs_job");
+    return tableHTML(headers, rows) + andMoreHTML(targets.length - rows.length);
+  };
+
+  // The targets show as Input until the call started a leg; then the Changed table holds them.
+  const delegateInput = (args, targets, withTargets) => {
+    const goal = valueText(args.goal).trim();
+    const fields = goal ? definitionsHTML([[t("jobs_goal"), escapeHtml(goal)]]) : "";
+    return section("body_input", fields + (withTargets ? targetsHTML(targets) : ""));
+  };
+
+  const delegateBody = ({ args, result }) => {
+    const targets = recordsOf(args.targets);
+    const data = jobsResult(result);
+    if (!data) return delegateInput(args, targets, true) + contextSection(result);
+    if (data.error != null) return { wrong: jobsError(data, result), html: delegateInput(args, targets, true) };
+    const started = recordsOf(data.started);
+    const failed = recordsOf(data.failed);
+    if (!started.length) {
+      const reason = (leg) => `${valueText(leg.repo_id)} · ${branchText(leg.ref)}: ${valueText(leg.error)}`;
+      const wrong = failed.map(reason).join("\n") || t("jobs_none_started");
+      return { wrong, html: delegateInput(args, targets, true) + contextSection(result, () => noteOf(data)) };
+    }
+    const batch = valueText(data.batch_id);
+    const line = tn("jobs_started", started.length, { id: batch });
+    const context = contextSection(result, () => `<p class="body-line">${escapeHtml(line)}</p>${noteOf(data)}`);
+    const changed = section("body_changed", delegatedTable(targets, started, failed));
+    return changed + delegateInput(args, targets, false) + context;
+  };
+
+  const MR_NUMBER_RES = [
+    [/\/merge_requests\/(\d+)\/?(?:[?#]|$)/, "!"],
+    [/\/pull\/(\d+)\/?(?:[?#]|$)/, "#"],
+  ];
+
+  const mergeRequestLink = (url) => {
+    if (!WEB_LINK_RE.test(url)) return "";
+    for (const [re, mark] of MR_NUMBER_RES) {
+      const number = url.match(re)?.[1];
+      if (number) return externalLink(url, `${mark}${number}`);
+    }
+    return externalLink(url, t("jobs_mr"));
+  };
+
+  const legResultHTML = (leg) => {
+    const reply = valueText(leg.reply).trim();
+    const first = reply.split("\n")[0];
+    const parts = [mergeRequestLink(valueText(leg.merge_request_url)), escapeHtml(first)].filter(Boolean);
+    const whole = reply !== first ? moreHTML(0, markdownBlock(reply), t("show_reply")) : "";
+    return parts.join(" ") + whole;
+  };
+
+  const legsStatusHTML = (legs) => {
+    if (!legs.length) return "";
+    const rows = legs.slice(0, STRUCTURED_ROWS).map((leg) => [
+      escapeHtml(valueText(leg.repo_id)),
+      escapeHtml(branchText(leg.ref)),
+      escapeHtml(valueText(leg.status)),
+      legResultHTML(leg),
+      sessionLink(leg),
+    ]);
+    const headers = jobsHeaders("jobs_repository", "jobs_branch", "jobs_status", "body_result", "jobs_session");
+    return tableMarkup(headers, rows) + andMoreHTML(legs.length - rows.length);
+  };
+
+  // A batch is named unless it is the one batch the row already names.
+  const batchesHTML = (batches, asked) => {
+    const shown = batches.slice(0, STRUCTURED_ROWS);
+    const named = shown.length > 1 || shown.some((batch) => valueText(batch.batch_id) !== asked);
+    const html = shown.map((batch) => {
+      const name = t("jobs_batch", { id: valueText(batch.batch_id) });
+      return (named ? `<p class="body-line">${escapeHtml(name)}</p>` : "") + legsStatusHTML(recordsOf(batch.legs));
+    });
+    return html.join("") + andMoreHTML(batches.length - shown.length);
+  };
+
+  const checkJobsBody = ({ args, result }) => {
+    const data = jobsResult(result);
+    if (!data) return contextSection(result);
+    const wrong = jobsFailure(data, result);
+    if (wrong) return { wrong, html: "" };
+    const asked = valueText(args.batch_id).trim();
+    return contextSection(result, () => batchesHTML(recordsOf(data.batches), asked) + noteOf(data));
+  };
+
+  const cancelledHTML = (data) => {
+    const ids = (Array.isArray(data.cancelled) ? data.cancelled : []).filter((id) => typeof id === "string");
+    const legs = recordsOf(data.legs);
+    const lines = ids.slice(0, STRUCTURED_ROWS).map((id) => {
+      const leg = legs.find((one) => valueText(one.thread_id) === id) ?? { thread_id: id };
+      const status = valueText(leg.status).trim() || t("stopping");
+      const name = leg.repo_id == null ? [id] : [valueText(leg.repo_id), branchText(leg.ref)];
+      const parts = [...name, status].map((part) => escapeHtml(part));
+      const link = sessionLink(leg);
+      return `<li>${(link ? [...parts, link] : parts).join(" · ")}</li>`;
+    });
+    return lines.length ? `<ul class="body-jobs">${lines.join("")}</ul>${andMoreHTML(ids.length - lines.length)}` : "";
+  };
+
+  const cancelJobsBody = ({ result }) => {
+    const data = jobsResult(result);
+    if (!data) return contextSection(result);
+    const wrong = jobsFailure(data, result);
+    if (wrong) return { wrong, html: "" };
+    return section("body_changed", cancelledHTML(data)) + contextSection(result, () => noteOf(data));
+  };
+
+  const PROMPT_LINES = 3;
 
   const BODY_BY_TOOL = {
-    read_file: (_args, result) => {
+    read_file: ({ args, argsStr, result }) => contextSection(result, codeHTML(toolPath(args, argsStr))),
+    write_file: ({ seg, args, result }) => {
+      const content = pickKey(args, ["content", "text"]);
+      const lines = succeeded(seg) && content ? String(content).replace(/\n$/, "").split("\n") : [];
+      const rows = lines.map((line) => `+${line}`);
+      const context = failedResult(seg.name, result) ? "" : contextSection(result, textHTML);
+      return section("body_changed", diffHTML(rows)) + context;
+    },
+    edit_file: ({ seg, args, result }) => {
+      const oldStr = pickKey(args, ["old_string"]);
+      const newStr = pickKey(args, ["new_string"]);
+      const complete = succeeded(seg) && oldStr != null && newStr != null && Boolean(window.Diff?.diffLines);
+      const changed = complete ? diffHTML(diffRows(String(oldStr), String(newStr))) : "";
+      return section("body_changed", changed) + contextSection(result, textHTML);
+    },
+    grep: ({ args, result }) => {
+      return contextSection(result, grepHTML(pickKey(args, ["pattern", "query", "regex"])));
+    },
+    glob: ({ result }) => contextSection(result, pathsHTML),
+    ls: ({ result }) => contextSection(result, pathsHTML),
+    bash: ({ args, argsStr, result }) => {
+      const parsed = parseBashSuccess(result);
+      const commands = parsed ? parsed.commands.filter(isRecord) : [];
+      const command = String(pickKeyOrPartial(args, ["command", "cmd", "script"], argsStr) ?? "").trimEnd();
+      const cut = commands.length < 2 && (command.includes("\n") || command.length > COMMAND_CHARS);
+      const input = section("body_input", cut ? commandHTML(command) : "");
+      if (!parsed) return input + contextSection(result, textHTML);
+      const output = commands.map((one) => String(one.output ?? "")).filter(Boolean).join("\n");
+      const size = output ? escapeHtml(contextSize(output)) : "";
+      const context = contextSection(result, () => terminalHTML(commands), size);
+      return section("body_changed", changesHTML(parsed.files_changed)) + input + context;
+    },
+    skill: ({ seg, args, result }) => {
+      const name = pickKey(args, ["skill", "name"]) ?? "";
+      const link = openHTML(seg.skill_url, t("open_in_skills", { name }), { local: true });
+      return contextSection(result, () => noteHTML("skill_whole") + link);
+    },
+    task: ({ args, argsStr, result }) => {
+      const description = String(pickKeyOrPartial(args, ["description"], argsStr) ?? "");
+      const cut = description.includes("\n") || description.length > TASK_DETAIL_CHARS;
+      const prompt = String(pickKey(args, ["prompt"]) ?? (cut ? description : "")).trim();
+      const input = section("body_input", prompt ? markdownHTML(prompt, PROMPT_LINES, t("show_prompt")) : "");
+      return input + contextSection(result, markdownHTML) + noteHTML("subagent_hidden");
+    },
+    web_fetch: ({ args, argsStr, result }) => {
+      const url = String(pickKeyOrPartial(args, ["url"], argsStr) ?? "");
+      const prompt = String(pickKeyOrPartial(args, ["prompt"], argsStr) ?? "");
+      const items = [];
+      if (url) items.push([t("web_page"), webLink(url)]);
+      if (prompt.trim()) items.push([t("web_asked"), markdownHTML(prompt)]);
+      const input = section("body_input", items.length ? definitionsHTML(items) : "");
       const text = String(result ?? "");
-      if (text && ERROR_PREFIX_RE.test(text.trim())) return block("Error", pre(text));
-      return resultOnlyBody("Contents", result);
+      const redirect = text.match(REDIRECT_TAG_RE)?.[1].trim();
+      if (!redirect) return input + contextSection(text, markdownHTML, webFetchSize(text));
+      return input + contextSection(text, () => definitionsHTML([[t("redirected_to"), webLink(redirect)]]));
     },
-    write_file: (args, result) => writeFileBody(args, result),
-    edit_file: (args, result) => editFileBody(args, result),
-    grep: (args, result) => grepBody(result),
-    glob: (_args, result) => {
-      const entries = parseLsEntries(result);
-      if (!entries.length) return resultOnlyBody("Matches", result);
-      return block("Matches", pre(entries.join("\n")));
+    web_search: ({ result }) => contextSection(result, webSearchHTML),
+    gitlab: platformBody("gitlab"),
+    gh: platformBody("gh"),
+    tool_search: toolSearchBody,
+    publish_artifact: ({ seg, ctx, result }) => {
+      const item = window.artifactItem(seg, ctx.latestArtifactsById);
+      // The link and title follow the latest version; new or updated is what this call did.
+      const own = { ...item, updated: parseArtifactResult(result)?.status === "updated" };
+      const changed = item.state === "published" ? artifactHTML(own) : "";
+      return section("body_changed", changed) + contextSection(result, publishedHTML);
     },
-    ls: (_args, result) => {
-      const entries = parseLsEntries(result);
-      if (!entries.length) return resultOnlyBody("Entries", result);
-      return block("Entries", pre(entries.join("\n")));
+    fetch_artifact: ({ ctx, result }) => {
+      const text = String(result ?? "");
+      return section("body_changed", fetchedHTML(text, ctx.latestArtifactsById)) + contextSection(text);
     },
-    bash: (args, result) => bashBody(args, result),
-    skill: (args, result) => skillBody(args, result),
-    task: (args, result) => taskBody(args, result),
-    web_fetch: (args, result) => webFetchBody(args, result),
-    web_search: (args, result) => webSearchBody(args, result),
-    gitlab: (args, result) => cliBody("gitlab", args, result),
-    gh: (args, result) => cliBody("gh", args, result),
+    delegate_jobs: delegateBody,
+    check_delegated_jobs: checkJobsBody,
+    cancel_delegated_jobs: cancelJobsBody,
   };
 
-  window.toolBodyHTML = (name, argsStr, result, status) => {
-    if (status === "running" && !result && !argsStr) return "";
-    const fn = BODY_BY_TOOL[name];
-    if (fn) {
-      try {
-        const out = fn(argsStr, result);
-        if (out) return out;
-      } catch (err) {
-        console.warn("chat-tool-renderers: body builder failed, falling back", err);
-      }
+  const defaultBody = ({ result }) => contextSection(result);
+
+  const bodyFor = (name, ctx) => {
+    if (Object.hasOwn(BODY_BY_TOOL, name)) return BODY_BY_TOOL[name];
+    const mcp = mcpTool(name, ctx);
+    return mcp ? mcpBody(mcp.readOnly) : defaultBody;
+  };
+
+  window.toolBodyHTML = (seg, ctx) => {
+    if (!seg) return "";
+    const name = String(seg.name ?? "");
+    const input = { seg, ctx: ctx ?? {}, args: parseArgs(seg.args), argsStr: seg.args, result: seg.result };
+    let body;
+    try {
+      body = bodyFor(name, input.ctx)(input);
+    } catch (err) {
+      console.warn("chat-tool-renderers: body builder failed, falling back", err);
+      body = contextSection(seg.result, textHTML);
     }
-    return genericBody(argsStr, result);
+    const { wrong = wentWrong(seg), html = "" } = typeof body === "string" ? { html: body } : body ?? {};
+    return (wrong ? wrongHTML(wrong) : "") + html + rawHTML(seg);
   };
 })();

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import uuid
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,6 +11,7 @@ from django.utils import timezone
 from django.utils.html import escapejs
 
 import pytest
+from sessions.conf import settings as sessions_settings
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
 from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
@@ -1225,6 +1228,40 @@ def test_session_page_marks_each_runs_ending_and_step_rows(member_client, member
 def test_session_page_puts_a_folded_runs_closing_question_below_its_cards(member_client, member_user):
     html = _detail_html(member_client, _create_session(user=member_user))
     assert "block.endingText, block.cards, block.endingTail]" in html
+
+
+def _labels_payload(html: str) -> dict:
+    match = re.search(r'<script id="chat-transcript-labels" type="application/json">(.*?)</script>', html, re.S)
+    return json.loads(match.group(1))
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("setting", "debug", "expected"),
+    [(None, True, True), (None, False, False), (True, False, True), (False, True, False)],
+)
+def test_show_raw_follows_the_setting_then_debug(
+    member_client, member_user, settings, monkeypatch, setting, debug, expected
+):
+    monkeypatch.setattr(sessions_settings, "SHOW_RAW_TOOL_DATA", setting)
+    settings.DEBUG = debug
+    session = _create_session(user=member_user)
+    assert _labels_payload(_detail_html(member_client, session))["show_raw"] is expected
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        new_chat = member_client.get(reverse("session_new_chat")).content.decode()
+    assert _labels_payload(new_chat)["show_raw"] is expected
+
+
+@pytest.mark.django_db
+def test_the_labels_payload_names_the_session_page_path(member_client, member_user):
+    payload = _labels_payload(_detail_html(member_client, _create_session(user=member_user)))
+    assert payload["session_path"] == reverse("session_detail", args=["x"]).replace("/x/", "/{thread_id}/")
+
+
+@pytest.mark.django_db
+def test_step_rows_show_an_mcp_servers_own_icon_as_an_image(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+    assert '<img :src="step.row.iconSrc" alt="" width="14" height="14" referrerpolicy="no-referrer">' in html
 
 
 @pytest.mark.django_db

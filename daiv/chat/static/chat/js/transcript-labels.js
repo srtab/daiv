@@ -60,6 +60,56 @@
     thought: "Thought",
     detail_passed: "passed",
     detail_exit: "exit {code}",
+
+    body_wrong: "What went wrong",
+    body_changed: "Changed",
+    body_input: "Input",
+    body_context: "Loaded into context",
+    body_raw: "Raw",
+    body_args: "Arguments",
+    body_result: "Result",
+    size_lines: ["{count} line", "{count} lines"],
+    size_kb: "{size} KB",
+    offloaded: "Too large to load whole: the model saw only a preview. The full result is in {path}.",
+    unanswered: "No result: the run ended before this call returned.",
+    show_all: "Show all {count} lines",
+    and_more: "and {count} more",
+
+    skill_whole: "The whole skill, always: skills are never cut to a file.",
+    open_in_skills: "Open {name} in Skills ↗",
+    show_prompt: "Show the whole prompt",
+    subagent_hidden: "What the subagent did inside is not shown.",
+    web_page: "Page",
+    web_asked: "Asked",
+    web_summary: "a summary of the page",
+    redirected_to: "Redirected to",
+    jump_to_error: "Jump to first error",
+    log_earlier: ["{count} earlier line not shown", "{count} earlier lines not shown"],
+    open_link: "Open ↗",
+    saved_to_file: "Saved to {path} as asked: the model saw only a preview.",
+
+    read_only: "read-only tool",
+    can_change: "can change things",
+    size_tool_schemas: ["{count} tool schema", "{count} tool schemas"],
+    artifact_new: "new",
+    artifact_updated: "updated",
+    artifact_download: "Download",
+    jobs_goal: "Goal",
+    jobs_repository: "Repository",
+    jobs_branch: "Branch",
+    jobs_job: "Job",
+    jobs_status: "Status",
+    jobs_session: "Session",
+    jobs_open_session: "Session →",
+    jobs_default_branch: "default branch",
+    jobs_after_turn: "starts after this turn",
+    jobs_started: ["batch {id} · {count} started", "batch {id} · {count} started"],
+    jobs_none_started: "No job started.",
+    jobs_batch: "batch {id}",
+    jobs_mr: "merge request",
+    show_reply: "Show the whole reply",
+    stopping: "stopping",
+    suggested_answer: "Suggested answer",
     publish_committing: "Committing changes",
     publish_creating: "Creating merge request",
     publish_files: ["{count} file", "{count} files"],
@@ -83,6 +133,9 @@
   const payload = loadPayload();
   const overrides = payload.labels && typeof payload.labels === "object" ? payload.labels : {};
   const icons = payload.icons && typeof payload.icons === "object" ? payload.icons : {};
+
+  const showRaw = payload.show_raw === true;
+  const sessionPath = typeof payload.session_path === "string" ? payload.session_path : "";
 
   const fill = (template, values) =>
     template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
@@ -110,5 +163,5 @@
     return `${Math.floor(min / 60)}h ${min % 60}m`;
   };
 
-  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration };
+  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration, showRaw, sessionPath };
 })();

@@ -61,3 +61,9 @@ def test_icon_html_is_the_server_rendered_icon_and_empty_for_an_unshipped_name()
 @pytest.mark.parametrize(("sec", "expected"), [(4, "4s"), (192, "3m 12s"), (3720, "1h 2m")])
 def test_duration_tiers(sec, expected):
     assert _run(f"TranscriptLabels.duration({sec})") == expected
+
+
+def test_show_raw_is_true_only_when_the_payload_says_true():
+    assert _run("TranscriptLabels.showRaw") is False
+    assert _run("TranscriptLabels.showRaw", overrides={"show_raw": True}) is True
+    assert _run("TranscriptLabels.showRaw", overrides={"show_raw": "yes"}) is False

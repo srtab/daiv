@@ -38,13 +38,26 @@
   };
 
   const rowFor = memoBySeg(["args", "result", "status", "startedAt", "endedAt"], (seg, servers) =>
-    window.toolRow(seg, { mcpServers: servers }),
+    window.toolRow(seg, servers),
   );
 
   const artifactFor = memoBySeg(["args", "result", "status"], (seg, latest) => window.artifactItem(seg, latest));
 
-  // By value: a caller may rebuild the list on every derive.
-  const serversIdOf = (servers) => servers.join("\n");
+  let lastServers = null;
+  let lastServersKey = null;
+  let lastServersId = 0;
+
+  // By value, as a caller may rebuild the lists on every derive; the same lists skip stringifying their icon URIs.
+  const serversIdOf = ({ mcpServers, mcpRows }) => {
+    if (lastServers?.mcpServers === mcpServers && lastServers.mcpRows === mcpRows) return lastServersId;
+    lastServers = { mcpServers, mcpRows };
+    const key = JSON.stringify([mcpServers, mcpRows.map((row) => [row?.name, row?.icon, row?.read_only_tools])]);
+    if (key !== lastServersKey) {
+      lastServersKey = key;
+      lastServersId += 1;
+    }
+    return lastServersId;
+  };
 
   const sumKey = (key) => (`sum_${key}` in window.TranscriptLabels.defaults ? `sum_${key}` : "sum_other");
 
@@ -200,7 +213,7 @@
   };
 
   window.buildRunBlocks = (turns, opts = {}) => {
-    const servers = opts.mcpServers ?? [];
+    const servers = { mcpServers: opts.mcpServers ?? [], mcpRows: opts.mcpRows ?? [] };
     const serversId = serversIdOf(servers);
     const latest = opts.latestArtifactsById;
     const used = new Set();

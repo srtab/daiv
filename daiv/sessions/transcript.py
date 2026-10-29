@@ -10,8 +10,14 @@ annotated turns for what the newest run's Retry sends.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any, Literal
+from uuid import UUID
+
+from django.urls import reverse
+
+from skills.models import GlobalSkill, SkillInvocation
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
 from core.constants import (
@@ -339,3 +345,44 @@ def retry_message(turns: list[dict[str, Any]], runs: list[Run]) -> str:
     if run.trigger_type == SessionOrigin.CHAT and len(run.prompt) >= CHAT_PROMPT_MAX_LENGTH:
         return ""
     return run.prompt
+
+
+def _skill_name(segment: dict[str, Any]) -> str | None:
+    try:
+        args = json.loads(segment.get("args") or "")
+    except ValueError:
+        return None
+    if not isinstance(args, dict):
+        return None
+    name = args.get("skill") or args.get("name")
+    return name if isinstance(name, str) and name else None
+
+
+def mark_skill_links(turns: list[dict[str, Any]], thread_id: str | UUID) -> None:
+    """Set ``skill_url`` on skill tool calls whose skill has a Skills page (built-in or global).
+
+    One query for the whole transcript, plus one when a global skill is named, which must still exist; the latest
+    invocation in the thread decides the source. Sync only.
+    """
+    named = [
+        (segment, name)
+        for turn in turns
+        for segment in turn.get("segments", ())
+        if segment.get("type") == "tool_call" and segment.get("name") == "skill" and (name := _skill_name(segment))
+    ]
+    if not named:
+        return
+    try:
+        UUID(str(thread_id))
+    except ValueError:
+        return
+    latest: dict[str, str] = {}
+    rows = SkillInvocation.objects.filter(thread_id=thread_id, name__in={n for _, n in named})
+    for name, source in rows.order_by("created").values_list("name", "source"):
+        latest[name] = source
+    linkable = {name for name, source in latest.items() if source == SkillInvocation.Source.BUILTIN}
+    if global_names := [name for name, source in latest.items() if source == SkillInvocation.Source.GLOBAL]:
+        linkable.update(GlobalSkill.objects.filter(name__in=global_names).values_list("name", flat=True))
+    for segment, name in named:
+        if name in linkable:
+            segment["skill_url"] = reverse("skills:detail", args=[name])

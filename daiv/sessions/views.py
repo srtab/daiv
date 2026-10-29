@@ -8,6 +8,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
@@ -36,6 +37,7 @@ from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
+from sessions.conf import settings as sessions_settings
 from sessions.executor.lock import live_run_for, session_activity
 from sessions.filters import (
     RANGE_CHOICES,
@@ -54,7 +56,7 @@ from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns
+from sessions.transcript import annotate_transcript, expired_run_turns, mark_skill_links
 from sessions.transcript_labels import transcript_icons, transcript_labels
 from sessions.turns import build_turns
 from slash_commands.composer import composer_command_rows
@@ -307,7 +309,13 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx.update(composer_mcp_context(self.request.user, session.mcp_overrides if session is not None else {}))
 
         ctx["slash_command_rows"] = composer_command_rows()
-        ctx["transcript_labels_payload"] = {"labels": transcript_labels(), "icons": transcript_icons()}
+        show_raw = sessions_settings.SHOW_RAW_TOOL_DATA
+        ctx["transcript_labels_payload"] = {
+            "labels": transcript_labels(),
+            "icons": transcript_icons(),
+            "show_raw": settings.DEBUG if show_raw is None else show_raw,
+            "session_path": reverse("session_detail", args=["THREAD-ID"]).replace("THREAD-ID", "{thread_id}"),
+        }
 
         if session is None:
             ctx.update({
@@ -359,6 +367,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
         ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
+        mark_skill_links(ctx["turns"], session.thread_id)
         retry = retry_for(session, runs, ctx["turns"], self.request.user, can_act=ctx["can_act"])
         ctx["header"] = build_session_header(session, runs, retry=retry, merge_request=merge_request)
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
