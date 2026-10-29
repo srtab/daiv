@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from langchain.agents import create_agent
-from langchain.agents.middleware import ModelFallbackMiddleware
+from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware
 from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -17,7 +17,12 @@ from langgraph.types import Command
 from automation.agent.agent_settings import ModelChain
 from automation.agent.configured_models import ConfiguredModels
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
-from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, SKILLS_SYSTEM_PROMPT, SkillsMiddleware
+from automation.agent.middlewares.skills import (
+    SKILL_MODE_READ_ONLY,
+    SKILLS_SYSTEM_PROMPT,
+    SkillModelMiddleware,
+    SkillsMiddleware,
+)
 from automation.agent.model_spec import ModelSpecError
 from automation.agent.synthetic import synthetic_message
 from automation.agent.utils import extract_text_content
@@ -1039,10 +1044,12 @@ def _skills_agent(
     run_profile: dict | None = None,
     run_model_is_the_agents: bool = True,
     fallback_replies: list[AIMessage] | None = None,
+    inner: list[AgentMiddleware] = (),
     **agent_kwargs,
 ):
-    """``run_model_is_the_agents`` off hands ``SkillsMiddleware`` another run model, so the agent's own model reads as
-    a fallback model; ``fallback_replies`` puts a fallback model behind a ``ModelFallbackMiddleware`` outside it."""
+    """The production order: a ``ModelFallbackMiddleware`` with ``fallback_replies``, then ``SkillModelMiddleware``,
+    then ``inner``, then ``SkillsMiddleware``. ``run_model_is_the_agents`` off hands ``SkillModelMiddleware`` another
+    run model, so the agent's own model reads as a fallback model."""
     backend = Mock()
 
     async def download(paths):
@@ -1050,20 +1057,30 @@ def _skills_agent(
 
     backend.adownload_files = AsyncMock(side_effect=download)
     run_model = _ToolModel(messages=iter(replies), profile=run_profile)
-    middleware = SkillsMiddleware(
-        backend=backend,
-        sources=["/skills"],
-        copy_global_skills=False,
-        configured_models=ConfiguredModels(
-            "skill",
-            configured or {},
-            chain=ModelChain(names=("fake:run",), thinking_level=thinking_level),
-            notices=notices,
-        ),
-        run_model=run_model if run_model_is_the_agents else _ToolModel(messages=iter([])),
+    skill_models = ConfiguredModels(
+        "skill", configured or {}, chain=ModelChain(names=("fake:run",), thinking_level=thinking_level), notices=notices
     )
-    fallback = [ModelFallbackMiddleware(_ToolModel(messages=iter(fallback_replies)))] if fallback_replies else []
-    return create_agent(model=run_model, tools=tools, middleware=[*fallback, middleware], **agent_kwargs)
+    middleware = [
+        *([ModelFallbackMiddleware(_ToolModel(messages=iter(fallback_replies)))] if fallback_replies else []),
+        SkillModelMiddleware(
+            skill_models, run_model=run_model if run_model_is_the_agents else _ToolModel(messages=iter([]))
+        ),
+        *inner,
+        SkillsMiddleware(
+            backend=backend, sources=["/skills"], copy_global_skills=False, configured_models=skill_models
+        ),
+    ]
+    return create_agent(model=run_model, tools=tools, middleware=middleware, **agent_kwargs)
+
+
+class _ModelSpy(AgentMiddleware):
+    def __init__(self):
+        super().__init__()
+        self.models = []
+
+    async def awrap_model_call(self, request, handler):
+        self.models.append(request.model)
+        return await handler(request)
 
 
 async def _run_turns_with_skills_middleware(turns: list[list[dict]], tools: list) -> dict:
@@ -1272,6 +1289,16 @@ class TestSkillModel:
         )
 
         assert result["messages"][-1].content == "from the run model"
+
+    async def test_the_middlewares_inside_it_see_the_skill_model(self):
+        skill_model = _ToolModel(messages=iter([AIMessage(content="from the skill model")]))
+        spy = _ModelSpy()
+
+        await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL])], Mock(return_value=skill_model), inner=[spy]
+        )
+
+        assert [model is skill_model for model in spy.models] == [False, True]
 
     async def test_a_call_on_another_model_than_the_runs_keeps_it(self):
         skill_model = _ToolModel(messages=iter([AIMessage(content="from the skill model")]))

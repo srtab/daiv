@@ -43,7 +43,7 @@ from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware, build_agents_memory_middleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
-from automation.agent.middlewares.skills import SkillsMiddleware
+from automation.agent.middlewares.skills import SkillModelMiddleware, SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.subagent_models import SubagentModelNoticesMiddleware
@@ -245,6 +245,7 @@ async def create_daiv_agent(
     mcp_tools = await load_mcp_tools(mcp_servers)
 
     subagent_models = ConfiguredModels("subagent", settings.subagent_models, chain=chain, notices=notices)
+    skill_models = ConfiguredModels("skill", settings.skill_models, chain=chain, notices=notices)
     subagents = [
         create_general_purpose_subagent(
             subagent_models.for_subagent(GENERAL_PURPOSE_NAME, "", model),
@@ -303,8 +304,7 @@ async def create_daiv_agent(
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
             copy_global_skills=not workspace.provisions_skills,
             provisioning_errors=workspace.skills_provisioning_errors,
-            configured_models=ConfiguredModels("skill", settings.skill_models, chain=chain, notices=notices),
-            run_model=model,
+            configured_models=skill_models,
         ),
         SubagentModelNoticesMiddleware(subagent_models),
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
@@ -312,6 +312,8 @@ async def create_daiv_agent(
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
         *([DelegateJobsMiddleware(delegator=delegator)] if delegator is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
+        # Inside the fallback and outside the deferred tools and context meter, which act on the model serving the call.
+        SkillModelMiddleware(skill_models, run_model=model),
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.
         *deferred_tools,

@@ -15,6 +15,7 @@ from automation.agent.agent_settings import RunOverrides
 from automation.agent.graph import create_daiv_agent
 from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
+from automation.agent.middlewares.skills import SkillModelMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.subagent_models import SubagentModelNoticesMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
@@ -162,6 +163,13 @@ def test_context_usage_middleware_registered_after_model_fallback():
     assert fallback < meter, "ContextUsageMiddleware must be registered after ModelFallbackMiddleware"
 
 
+def test_the_skill_model_swaps_inside_the_fallback_and_outside_what_acts_on_the_serving_model():
+    src = inspect.getsource(graph_module.create_daiv_agent)
+    fallback = src.index("ModelFallbackMiddleware(fallback_models[0]")
+    skill_model = src.index("SkillModelMiddleware(")
+    assert fallback < skill_model < src.index("*deferred_tools,") < src.index("ContextUsageMiddleware()")
+
+
 _SITE = {
     "agent_model_name": "site-model",
     "agent_fallback_model_name": "site-fallback",
@@ -306,7 +314,8 @@ async def test_skills_run_on_the_runs_skill_map_and_report_to_its_notices():
         built.settings.agent,
         notices,
     )
-    assert built.skills_middleware.call_args.kwargs["run_model"] is built.run_model
+    [skill_model_middleware] = [m for m in built.middleware if isinstance(m, SkillModelMiddleware)]
+    assert (skill_model_middleware._models, skill_model_middleware._run_model) == (models, built.run_model)
 
 
 async def test_the_general_purpose_subagent_runs_on_its_configured_model():
