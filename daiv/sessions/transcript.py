@@ -295,8 +295,7 @@ def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[
             run_turns.append({"id": f"run-{run.id}-artifacts", "role": "assistant", "segments": by_run[run.id]})
         if unshown:
             _stamp_run_times(run_turns, run)
-        _stamp_publish(run_turns, run)
-        if unshown:
+            _stamp_publish(run_turns, run)
             _anchor(run_turns, run)
         result.extend(run_turns)
     return result

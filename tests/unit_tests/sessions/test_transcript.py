@@ -865,3 +865,25 @@ def test_retry_stays_offered_on_a_failed_publish_run_and_its_red_entry_is_the_re
 
     assert retry_message(turns, runs) == RETRY_MESSAGE
     assert turns[-1]["publish"][0]["id"] == marker_id(runs[0])
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("with_artifact", [False, True])
+def test_expired_run_turns_do_not_stamp_a_result_an_already_rebuilt_run_carries(with_artifact):
+    session = _db_session()
+    run = _db_run(
+        session,
+        status=RunStatus.FAILED,
+        prompt="fix it",
+        message_id="gone",
+        publish_status="failed",
+        publish_error="unknown",
+    )
+    if with_artifact:
+        make_artifact(run, filename="report.md")
+    shown = annotate_transcript([], [run])
+
+    turns = [*shown, *expired_run_turns([run], shown)]
+
+    assert sum("publish" in turn for turn in turns) == 1
+    assert len({turn["id"] for turn in turns}) == len(turns)
