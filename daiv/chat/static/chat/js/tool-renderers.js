@@ -357,6 +357,7 @@
   const toolPath = (args, argsStr) => pickKeyOrPartial(args, ["path", "file_path"], argsStr) ?? "";
 
   const COMMAND_CHARS = 80;
+  const TASK_DETAIL_CHARS = 120;
 
   const bashExit = (result) => {
     const commands = parseBashSuccess(result)?.commands;
@@ -471,7 +472,7 @@
       icon: "agent",
       key: "subagent",
       vars: { name: pickKey(args, ["subagent_type", "agent", "type"]) ?? "general-purpose" },
-      detail: truncate(pickKey(args, ["description", "title"]) ?? "", 120),
+      detail: truncate(pickKey(args, ["description", "title"]) ?? "", TASK_DETAIL_CHARS),
       category: { key: "subagent" },
     }),
     web_search: ({ args, result, argsStr }) => {
@@ -640,8 +641,8 @@
   const andMoreHTML = (count) =>
     count > 0 ? `<p class="body-and-more">${escapeHtml(t("and_more", { count }))}</p>` : "";
 
-  const moreHTML = (count, html) =>
-    `<details class="body-more"><summary>${escapeHtml(t("show_all", { count }))}</summary>${html}</details>`;
+  const moreHTML = (count, html, summary = t("show_all", { count })) =>
+    `<details class="body-more"><summary>${escapeHtml(summary)}</summary>${html}</details>`;
 
   // `total` is the line count before the caller sliced `lines`: "Show all" counts the lines it holds,
   // and the lines never kept are counted in the "and N more" note.
@@ -685,10 +686,10 @@
     return [lines.slice(0, max), lines.slice(max)];
   };
 
-  const markdownHTML = (text) => {
+  const markdownHTML = (text, max = VISIBLE_LINES, summary = undefined) => {
     const { lines, total } = sliceText(text);
-    const [head, tail] = splitMarkdown(lines, VISIBLE_LINES);
-    const more = tail.length ? moreHTML(lines.length, markdownBlock(tail.join("\n"))) : "";
+    const [head, tail] = splitMarkdown(lines, max);
+    const more = tail.length ? moreHTML(lines.length, markdownBlock(tail.join("\n")), summary) : "";
     return markdownBlock(head.join("\n")) + more + andMoreHTML(total - lines.length);
   };
 
@@ -726,24 +727,29 @@
     return { kind: "markdown", text: source };
   };
 
-  const tableHTML = (headers, rows) => {
+  const tableMarkup = (headers, cells) => {
     const head = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
-    const body = rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
+    const body = cells.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("");
     const table = `<table class="body-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
     return `<div class="body-table-wrap">${table}</div>`;
   };
 
-  const fieldsHTML = (pairs) => {
-    const items = pairs.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`);
-    return `<dl class="body-fields">${items.join("")}</dl>`;
+  const tableHTML = (headers, rows) => tableMarkup(headers, rows.map((row) => row.map(escapeHtml)));
+
+  const definitionsHTML = (items) => {
+    const html = items.map(([term, value]) => `<dt>${escapeHtml(term)}</dt><dd>${value}</dd>`);
+    return `<dl class="body-fields">${html.join("")}</dl>`;
   };
 
-  const structuredHTML = (text) => {
-    const data = structured(text);
+  const fieldsHTML = (pairs) => definitionsHTML(pairs.map(([key, value]) => [key, escapeHtml(value)]));
+
+  const structuredDataHTML = (data) => {
     if (data.kind === "table") return tableHTML(data.headers, data.rows) + andMoreHTML(data.more);
     if (data.kind === "fields") return fieldsHTML(data.pairs) + andMoreHTML(data.more);
     return markdownHTML(data.text);
   };
+
+  const structuredHTML = (text) => structuredDataHTML(structured(text));
 
   // deepagents' eviction stub (no size), and DAIV's confirmation for a result written to a file on request.
   const EVICTED_RE =
@@ -756,7 +762,7 @@
     const wrote = source.match(WROTE_RE);
     if (wrote) {
       const preview = source.slice(wrote[0].length);
-      return { path: wrote[3].trim(), preview, bytes: Number(wrote[1]), lines: Number(wrote[2]) };
+      return { path: wrote[3].trim(), preview, bytes: Number(wrote[1]), lines: Number(wrote[2]), asked: true };
     }
     const evicted = source.match(EVICTED_RE);
     if (!evicted) return null;
@@ -766,9 +772,10 @@
     return { path: evicted[1].trim(), preview: preview.replace(/^\n+/, "").trimEnd() };
   };
 
-  const offloadHTML = ({ path, preview, bytes, lines }) => {
+  const offloadHTML = ({ path, preview, bytes, lines, asked = false }) => {
     const size = bytes == null ? "" : ` <span class="body-size">${escapeHtml(formatSize(lines, bytes))}</span>`;
-    const notice = `<p class="body-offload">${escapeHtml(t("offloaded", { path }))}${size}</p>`;
+    const label = t(asked ? "saved_to_file" : "offloaded", { path });
+    const notice = `<p class="body-offload">${escapeHtml(label)}${size}</p>`;
     return notice + (preview.trim() ? textHTML(preview) : "");
   };
 
@@ -1083,40 +1090,292 @@
       .join("");
   };
 
+  const WEB_LINK_RE = /^https?:\/\//i;
+  const LOCAL_LINK_RE = /^\/(?![/\\])[^\s\\\x00-\x1f]*$/;
+
+  const linkable = (href, local) => WEB_LINK_RE.test(href) || (local && LOCAL_LINK_RE.test(href));
+
   // Open in a new tab so we never replace the chat tab; rel=noopener for the
   // usual reverse-tabnabbing reasons.
-  const externalLink = (url, label) => {
-    const text = escapeHtml(label != null ? String(label) : String(url));
-    if (!/^https?:\/\//i.test(String(url))) return text;
-    return `<a class="chat-tool__link" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+  const externalLink = (url, label, { local = false } = {}) => {
+    const href = String(url ?? "");
+    const text = escapeHtml(label != null ? String(label) : href);
+    if (!linkable(href, local)) return text;
+    const attrs = `class="chat-tool__link" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer"`;
+    return `<a ${attrs}>${text}</a>`;
   };
 
-  const linkLine = (url) => `<div class="chat-webfetch__url">${externalLink(url, summarizeUrl(url))}</div>`;
+  const openHTML = (url, label, { local = false } = {}) =>
+    linkable(String(url ?? ""), local) ? `<p class="body-open">${externalLink(url, label, { local })}</p>` : "";
 
-  const webFetchHTML = (text) => {
-    const redirect = text.match(REDIRECT_TAG_RE);
-    return redirect ? linkLine(redirect[1]) : markdownHTML(text);
+  const noteHTML = (key) => `<p class="body-note">${escapeHtml(t(key))}</p>`;
+
+  const webLink = (url) => externalLink(url, truncate(url, VALUE_CHARS));
+
+  // Not the model's answer: no prompt (or no model) returns the page itself, a failed model call returns it too.
+  const PAGE_DUMP_RE = /^(?:Contents of \S+:\n|Model processing failed \()/;
+
+  const webFetchSize = (text) => {
+    const summary = text.trim() && !PAGE_DUMP_RE.test(text) && !parseOffload(text);
+    return summary ? escapeHtml(`${t("web_summary")} · ${contextSize(text)}`) : null;
   };
 
   const webSearchHTML = (text) => {
     const results = parseWebSearchResults(text);
     if (results == null) return textHTML(text);
-    if (!results.length) return textHTML("No relevant results found for the given search query.");
-    const items = results
-      .map((r) => {
-        const link = (r && r.link) || "";
-        const title = (r && r.title) || "";
-        const content = (r && r.content) || "";
-        const titleHtml = link
-          ? externalLink(link, title || link)
-          : `<span class="chat-search__title chat-search__title--answer">${escapeHtml(title || "Suggested answer")}</span>`;
-        const host = link ? `<div class="chat-search__host">${escapeHtml(summarizeUrl(link))}</div>` : "";
-        const body = content ? `<div class="chat-search__snippet">${escapeHtml(content)}</div>` : "";
-        return `<div class="chat-search__item">${titleHtml}${host}${body}</div>`;
-      })
-      .join("");
-    return `<div class="chat-search">${items}</div>`;
+    const items = results.slice(0, LINE_CAP).map((r) => {
+      const link = (r && r.link) || "";
+      const title = (r && r.title) || "";
+      const content = truncate((r && r.content) || "", VALUE_CHARS);
+      const answer = escapeHtml(title || "Suggested answer");
+      const titleHtml = link
+        ? externalLink(link, title || link)
+        : `<span class="chat-search__title chat-search__title--answer">${answer}</span>`;
+      const host = link ? `<div class="chat-search__host">${escapeHtml(summarizeUrl(link))}</div>` : "";
+      const body = content ? `<div class="chat-search__snippet">${escapeHtml(content)}</div>` : "";
+      return `<div class="chat-search__item">${titleHtml}${host}${body}</div>`;
+    });
+    if (!items.length) return "";
+    return clampItems(items, (part) => `<div class="chat-search">${part.join("")}</div>`, results.length);
   };
+
+  // shlex.split's POSIX rules, as the tool parses the subcommand: inside "…" a backslash escapes only `"` and `\`.
+  const shellWords = (text) => {
+    const source = String(text ?? "");
+    const words = [];
+    let word = null;
+    let quote = "";
+    for (let i = 0; i < source.length; i += 1) {
+      const ch = source[i];
+      if (quote === "'") {
+        if (ch === "'") quote = "";
+        else word += ch;
+      } else if (quote === '"') {
+        if (ch === '"') quote = "";
+        else if (ch === "\\" && (source[i + 1] === '"' || source[i + 1] === "\\")) {
+          i += 1;
+          word += source[i];
+        } else word += ch;
+      } else if (/\s/.test(ch)) {
+        if (word != null) words.push(word);
+        word = null;
+      } else {
+        word ??= "";
+        if (ch === "'" || ch === '"') quote = ch;
+        else if (ch === "\\" && i + 1 < source.length) {
+          i += 1;
+          word += source[i];
+        } else word += ch;
+      }
+    }
+    if (word != null) words.push(word);
+    return words;
+  };
+
+  const flagValue = (words, names) => {
+    for (let i = 0; i < words.length; i += 1) {
+      for (const name of names) {
+        if (words[i] === name) return words[i + 1] ?? null;
+        if (words[i].startsWith(`${name}=`)) return words[i].slice(name.length + 1);
+      }
+    }
+    return null;
+  };
+
+  const platformCall = (args, argsStr) => {
+    const words = shellWords(pickKeyOrPartial(args, ["subcommand"], argsStr) ?? "");
+    return { resource: words[0] ?? "", action: words[1] ?? "", rest: words.slice(2) };
+  };
+
+  const isPlatformLog = (platform, { resource, action, rest }) =>
+    platform === "gitlab"
+      ? resource === "project-job" && action === "trace"
+      : resource === "run" && action === "view" && rest.some((word) => word === "--log" || word === "--log-failed");
+
+  // `error:` ends in a non-word character, so a closing \b would make it miss `error: x`.
+  const LOG_ERROR_RE = /\b(?:FAILED|ERROR|Error)\b|\berror:/;
+
+  const sliceTail = (text) => {
+    const all = String(text ?? "").replace(/\n$/, "").split("\n");
+    const lines = [];
+    let budget = CHAR_CAP;
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      const line = all[i];
+      const kept = line.length > LINE_CHARS ? `${line.slice(0, LINE_CHARS)}…` : line;
+      if (lines.length === LINE_CAP || kept.length > budget) break;
+      lines.push(kept);
+      budget -= kept.length + 1;
+    }
+    return { lines: lines.reverse(), total: all.length };
+  };
+
+  const errorAnchor = (seg) => {
+    const id = String(seg.id ?? "").replace(/[^A-Za-z0-9_-]/g, "");
+    return id ? `log-err-${id}` : "";
+  };
+
+  // A log keeps its end; .body-log is a column-reverse scroller, so it opens scrolled to the last line.
+  const logHTML = (anchor) => (text) => {
+    const { lines, total } = sliceTail(text);
+    let first = -1;
+    const rows = lines.map((line, i) => {
+      const error = LOG_ERROR_RE.test(line);
+      if (error && first < 0) first = i;
+      const id = error && i === first && anchor ? ` id="${anchor}"` : "";
+      return `<div class="lgl${error ? " err" : ""}"${id}>${escapeHtml(line)}</div>`;
+    });
+    const jump =
+      first >= 0 && anchor ? `<a class="body-jump" href="#${anchor}">${escapeHtml(t("jump_to_error"))}</a>` : "";
+    const earlier = total - lines.length;
+    const omitted = earlier > 0 ? `<p class="body-note">${escapeHtml(tn("log_earlier", earlier))}</p>` : "";
+    return `${jump}${omitted}<div class="body-log"><div class="body-log-lines">${rows.join("")}</div></div>`;
+  };
+
+  const FIELD_RE = /^([a-z_][a-z0-9_-]*):(?:[ \t]+(.*))?$/;
+  const CHILD_RE = /^(\s+)([a-z_][a-z0-9_-]*):(?:[ \t]+(.*))?$/;
+
+  // python-gitlab prints `key: value` lines, a nested object as `key:` over indented lines, and a blank line between
+  // objects (a value may itself run over several lines); gh prints `key:\tvalue` lines, then `--` and the body.
+  const parseRecords = (lines, { body = false } = {}) => {
+    const records = [];
+    let field = null;
+    let blank = false;
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (body && records.length && line === "--") return { records, body: lines.slice(i + 1).join("\n") };
+      if (!line.trim()) {
+        blank = true;
+        continue;
+      }
+      const top = line.match(FIELD_RE);
+      const child = top || !field?.nested ? null : line.match(CHILD_RE);
+      if (top) {
+        if (!records.length || (blank && top[1] === records[0][0].key)) records.push([]);
+        field = { key: top[1], value: top[2] ?? "", nested: top[2] == null, children: [], indent: null };
+        records.at(-1).push(field);
+      } else if (child) {
+        field.indent ??= child[1].length;
+        if (child[1].length === field.indent) field.children.push([child[2], child[3] ?? ""]);
+      } else if (!field) {
+        return null;
+      } else if (!field.nested) {
+        field.value += `${blank ? "\n\n" : "\n"}${line}`;
+      }
+      blank = false;
+    }
+    return records.length ? { records, body: "" } : null;
+  };
+
+  const FIRST_KEYS = [
+    "title", "state", "draft", "source_branch", "target_branch", "author", "status", "ref", "web_url",
+  ];
+  const LINK_KEYS = ["web_url", "url"];
+  const NESTED_KEYS = ["username", "name", "title", "status"];
+
+  const plainKey = (key) => key.replaceAll("-", "_");
+
+  const keyRank = (key) => {
+    const rank = FIRST_KEYS.indexOf(plainKey(key));
+    return rank < 0 ? FIRST_KEYS.length : rank;
+  };
+
+  const byRank = (keys) => [...keys].sort((a, b) => keyRank(a) - keyRank(b));
+
+  const fieldText = (field) => {
+    if (!field.nested) return truncate(field.value, VALUE_CHARS);
+    const children = new Map(field.children.map(([key, value]) => [plainKey(key), value]));
+    const named = NESTED_KEYS.find((key) => children.get(key));
+    const text = named ? children.get(named) : field.children.map((pair) => pair.join(": ")).join(", ");
+    return truncate(text, VALUE_CHARS);
+  };
+
+  const recordLink = (record) => {
+    for (const key of LINK_KEYS) {
+      const field = record.find((one) => plainKey(one.key) === key && !one.nested);
+      if (field && WEB_LINK_RE.test(field.value.trim())) return field;
+    }
+    return null;
+  };
+
+  // The link field becomes the link on the record's first shown field, unless it is the only field.
+  const recordRow = (record) => {
+    const link = recordLink(record);
+    const fields = new Map(record.filter((one) => one !== link || record.length === 1).map((one) => [one.key, one]));
+    return { fields, href: link ? link.value.trim() : "" };
+  };
+
+  const cellHTML = (field, href, first) => {
+    const text = field ? fieldText(field) : "";
+    return first && href ? externalLink(href, text) : escapeHtml(text);
+  };
+
+  const recordsHTML = (records) => {
+    const rows = records.slice(0, STRUCTURED_ROWS).map(recordRow);
+    if (rows.length === 1) {
+      const { fields, href } = rows[0];
+      const items = byRank(fields.keys()).map((key, i) => [key, cellHTML(fields.get(key), href, i === 0)]);
+      return definitionsHTML(items);
+    }
+    const headers = byRank(new Set(rows.flatMap(({ fields }) => [...fields.keys()]))).slice(0, TABLE_COLUMNS);
+    const cells = rows.map(({ fields, href }) => headers.map((key, i) => cellHTML(fields.get(key), href, i === 0)));
+    return tableMarkup(headers, cells) + andMoreHTML(records.length - rows.length);
+  };
+
+  const platformHTML = (platform) => (text) => {
+    const data = structured(text);
+    if (data.kind !== "markdown") return structuredDataHTML(data);
+    const { lines, total } = sliceText(text);
+    const parsed = parseRecords(lines, { body: platform === "gh" });
+    if (!parsed) return textHTML(text);
+    const body = parsed.body.trim() ? markdownHTML(parsed.body) : "";
+    return recordsHTML(parsed.records) + body + andMoreHTML(total - lines.length);
+  };
+
+  const READ_ACTIONS = new Set(["get", "list", "trace", "diff", "view"]);
+  const POSTED_FLAGS = ["--body", "-b", "--description"];
+  const GITLAB_NOTES = new Set(["project-merge-request-note", "project-merge-request-discussion-note"]);
+  const GH_VALUE_FLAGS = new Set(["--body", "-b", "--body-file", "-F"]);
+
+  const prNumber = (rest) => {
+    for (let i = 0; i < rest.length; i += 1) {
+      if (GH_VALUE_FLAGS.has(rest[i])) i += 1;
+      else if (!rest[i].startsWith("-")) return rest[i].match(/^#?(\d+)$|\/pull\/(\d+)\/?$/)?.slice(1).find(Boolean);
+    }
+    return undefined;
+  };
+
+  // python-gitlab prints a created note with `id:` first and an updated one as sorted keys; nested ids are indented.
+  const resultId = (result) => String(result ?? "").match(/^id: (\d+)[ \t]*$/m)?.[1];
+
+  // The posted note's anchor on the session's MR/PR page, only when this call wrote a note to that MR/PR.
+  const postedUrl = (platform, { resource, action, rest }, mergeRequestUrl, result) => {
+    const url = String(mergeRequestUrl ?? "");
+    if (platform === "gitlab") {
+      const number = url.match(/\/merge_requests\/(\d+)\/?$/)?.[1];
+      const id = resultId(result);
+      const ours = number && GITLAB_NOTES.has(resource) && flagValue(rest, ["--mr-iid"]) === number;
+      return ours && id ? `${url}#note_${id}` : "";
+    }
+    const number = url.match(/\/pull\/(\d+)\/?$/)?.[1];
+    const id = String(result ?? "").match(/#issuecomment-(\d+)\b/)?.[1] ?? resultId(result);
+    const ours = number && resource === "pr" && action === "comment" && prNumber(rest) === number;
+    return ours && id ? `${url}#issuecomment-${id}` : "";
+  };
+
+  // Reads show what came back; any other action wrote something, shown as Changed once it succeeded.
+  const platformBody = (platform) => ({ seg, ctx, args, argsStr, result }) => {
+    const call = platformCall(args, argsStr);
+    if (isPlatformLog(platform, call)) return contextSection(result, logHTML(errorAnchor(seg)));
+    const reply = contextSection(result, platformHTML(platform));
+    if (READ_ACTIONS.has(call.action)) return reply;
+    const text = flagValue(call.rest, POSTED_FLAGS);
+    const done = succeeded(seg);
+    const link = done ? openHTML(postedUrl(platform, call, ctx.mergeRequestUrl, result), t("open_link")) : "";
+    const posted = (text?.trim() ? markdownHTML(text) : "") + link;
+    return section(done ? "body_changed" : "body_input", posted) + reply;
+  };
+
+  const PROMPT_LINES = 3;
 
   const BODY_BY_TOOL = {
     read_file: ({ args, argsStr, result }) => contextSection(result, codeHTML(toolPath(args, argsStr))),
@@ -1151,20 +1410,33 @@
       const context = contextSection(result, () => terminalHTML(commands), size);
       return section("body_changed", changesHTML(parsed.files_changed)) + input + context;
     },
-    skill: ({ result }) => contextSection(result, markdownHTML),
-    task: ({ args, result }) => {
-      const prompt = pickKey(args, ["prompt", "input", "task"]) ?? "";
-      return section("body_input", prompt ? textHTML(String(prompt)) : "") + contextSection(result, markdownHTML);
+    skill: ({ seg, args, result }) => {
+      const name = pickKey(args, ["skill", "name"]) ?? "";
+      const link = openHTML(seg.skill_url, t("open_in_skills", { name }), { local: true });
+      return contextSection(result, () => noteHTML("skill_whole") + link);
+    },
+    task: ({ args, argsStr, result }) => {
+      const description = String(pickKeyOrPartial(args, ["description"], argsStr) ?? "");
+      const cut = description.includes("\n") || description.length > TASK_DETAIL_CHARS;
+      const prompt = String(pickKey(args, ["prompt"]) ?? (cut ? description : "")).trim();
+      const input = section("body_input", prompt ? markdownHTML(prompt, PROMPT_LINES, t("show_prompt")) : "");
+      return input + contextSection(result, markdownHTML) + noteHTML("subagent_hidden");
     },
     web_fetch: ({ args, argsStr, result }) => {
-      const url = pickKeyOrPartial(args, ["url"], argsStr) ?? "";
-      const prompt = pickKeyOrPartial(args, ["prompt"], argsStr) ?? "";
-      const input = (url ? linkLine(url) : "") + (prompt ? textHTML(prompt) : "");
-      return section("body_input", input) + contextSection(result, webFetchHTML);
+      const url = String(pickKeyOrPartial(args, ["url"], argsStr) ?? "");
+      const prompt = String(pickKeyOrPartial(args, ["prompt"], argsStr) ?? "");
+      const items = [];
+      if (url) items.push([t("web_page"), webLink(url)]);
+      if (prompt.trim()) items.push([t("web_asked"), markdownHTML(prompt)]);
+      const input = section("body_input", items.length ? definitionsHTML(items) : "");
+      const text = String(result ?? "");
+      const redirect = text.match(REDIRECT_TAG_RE)?.[1].trim();
+      if (!redirect) return input + contextSection(text, markdownHTML, webFetchSize(text));
+      return input + contextSection(text, () => definitionsHTML([[t("redirected_to"), webLink(redirect)]]));
     },
     web_search: ({ result }) => contextSection(result, webSearchHTML),
-    gitlab: ({ result }) => contextSection(result, textHTML),
-    gh: ({ result }) => contextSection(result, textHTML),
+    gitlab: platformBody("gitlab"),
+    gh: platformBody("gh"),
   };
 
   const defaultBody = ({ result }) => contextSection(result);

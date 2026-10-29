@@ -74,6 +74,19 @@
     unanswered: "No result: the run ended before this call returned.",
     show_all: "Show all {count} lines",
     and_more: "and {count} more",
+
+    skill_whole: "The whole skill, always: skills are never cut to a file.",
+    open_in_skills: "Open {name} in Skills ↗",
+    show_prompt: "Show the whole prompt",
+    subagent_hidden: "What the subagent did inside is not shown.",
+    web_page: "Page",
+    web_asked: "Asked",
+    web_summary: "a summary of the page",
+    redirected_to: "Redirected to",
+    jump_to_error: "Jump to first error",
+    log_earlier: ["{count} earlier line not shown", "{count} earlier lines not shown"],
+    open_link: "Open ↗",
+    saved_to_file: "Saved to {path} as asked: the model saw only a preview.",
   };
 
   const loadPayload = () => {

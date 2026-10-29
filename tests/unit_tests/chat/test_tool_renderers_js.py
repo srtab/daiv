@@ -618,3 +618,271 @@ def test_bash_short_command_has_no_input():
     result = json.dumps({"commands": [{"command": "make fmt", "exit_code": 0, "output": "ok"}]})
     html = _body("bash", {"command": "make fmt"}, result=result)
     assert "Input" not in html and "make fmt" not in html
+
+
+def _seg(name: str, args: dict, *, result: str | None = None, status: str = "done", **extra) -> dict:
+    return {**tool_call("c1", name, args, result=result, status=status), **extra}
+
+
+def test_skill_body_links_to_skills_and_shows_no_text():
+    url = "/skills/systematic-debugging/"
+    seg = _seg("skill", {"skill": "systematic-debugging"}, result="# Long skill\n" * 100, skill_url=url)
+    html = _body_seg(seg)
+    assert 'href="/skills/systematic-debugging/"' in html and "Long skill" not in html
+
+
+def test_skill_body_says_the_whole_skill_was_loaded_with_its_size():
+    html = _body_seg(_seg("skill", {"skill": "debug"}, result="# Long skill\n" * 100, skill_url="/skills/debug/"))
+    assert "The whole skill, always: skills are never cut to a file." in html
+    assert '<span class="body-size">100 lines · 1.3 KB</span>' in html and "Open debug in Skills ↗" in html
+
+
+@pytest.mark.parametrize("url", ["/skills/x/", "https://daiv.example/skills/x/"])
+def test_skill_link_opens_in_a_new_tab(url):
+    html = _body_seg(_seg("skill", {"skill": "x"}, result="body", skill_url=url))
+    assert f'href="{url}" target="_blank" rel="noopener noreferrer">Open x in Skills ↗</a>' in html
+
+
+def test_skill_without_a_skills_page_has_no_link():
+    html = _body_seg(_seg("skill", {"skill": "repo-skill"}, result="body"))
+    assert "<a " not in html and "in Skills" not in html
+
+
+@pytest.mark.parametrize(
+    "url", ["javascript:alert(1)", "//evil.example/skills/x/", "/\t/evil.example/", '/skills/x/" onmouseover="alert(1)']
+)
+def test_skill_link_is_only_a_local_path_or_a_web_url(url):
+    html = _body_seg(_seg("skill", {"skill": "x"}, result="body", skill_url=url))
+    assert "<a " not in html
+
+
+def test_task_prompt_is_markdown_clamped_to_three_lines():
+    prompt = "**Goal**: fix it\nline two\nline three\nline four\n\nmore context\nand more"
+    html = _body("task", {"description": prompt, "subagent_type": "explore"}, result="done")
+    shown, context = html.split("Loaded into context")
+    visible, more = shown.split('<details class="body-more">')
+    assert "Input" in visible and "<strong>Goal</strong>" in visible and "more context" not in visible
+    assert more.startswith("<summary>Show the whole prompt</summary>") and "more context" in more
+
+
+def test_task_reply_is_markdown_and_the_subagent_inside_is_not_shown():
+    html = _body("task", {"description": "x" * 200, "subagent_type": "explore"}, result="**found it**")
+    context = html.split("Loaded into context")[1]
+    assert "<strong>found it</strong>" in context
+    assert html.index("found it") < html.index("What the subagent did inside is not shown.")
+
+
+def test_task_prompt_the_row_shows_whole_is_not_repeated():
+    html = _body("task", {"description": "Find the bug", "subagent_type": "explore"}, result="ok")
+    assert "Input" not in html and "Find the bug" not in html
+
+
+def test_web_search_lists_the_results_without_the_query():
+    results = [{"title": "Fixtures", "link": "https://docs.pytest.org/f", "content": "How fixtures work"}]
+    html = _body("web_search", {"query": "pytest fixtures guide"}, result=json.dumps(results))
+    assert 'href="https://docs.pytest.org/f"' in html and "How fixtures work" in html
+    assert "pytest fixtures guide" not in html
+
+
+def test_web_search_without_results_leaves_it_to_the_row():
+    html = _body("web_search", {"query": "q"}, result="[]")
+    assert html == ""
+
+
+def test_web_fetch_input_links_the_page_and_shows_what_was_asked():
+    args = {"url": "https://docs.example.com/a?b=1", "prompt": "What is the **default** timeout?"}
+    html = _body("web_fetch", args, result="30 seconds")
+    shown = html.split("Loaded into context")[0]
+    link = '<a class="chat-tool__link" href="https://docs.example.com/a?b=1" target="_blank" rel="noopener noreferrer">'
+    assert "Input" in shown and "<dt>Page</dt>" in shown and link in shown
+    assert "<dt>Asked</dt>" in shown and "<strong>default</strong>" in shown
+
+
+def test_web_fetch_answer_is_called_a_summary_of_the_page():
+    html = _body("web_fetch", {"url": "https://x.example/", "prompt": "p"}, result="**Yes**, it does.")
+    assert '<span class="body-size">a summary of the page · 1 line · 0.1 KB</span>' in html
+    assert "<strong>Yes</strong>" in html.split("Loaded into context")[1]
+
+
+def test_web_fetch_page_contents_are_not_called_a_summary():
+    result = "Contents of https://x.example/:\n# Hi"
+    html = _body("web_fetch", {"url": "https://x.example/", "prompt": ""}, result=result)
+    assert "summary" not in html and "Loaded into context" in html
+
+
+def test_web_fetch_redirect_says_where_it_went():
+    result = "<redirect_url>https://new.example/path</redirect_url>"
+    context = _body("web_fetch", {"url": "https://old.example/path", "prompt": "p"}, result=result).split(
+        "Loaded into context"
+    )[1]
+    assert "<dt>Redirected to</dt>" in context and 'href="https://new.example/path"' in context
+
+
+def test_web_fetch_error_is_what_went_wrong():
+    html = _body("web_fetch", {"url": "https://x.example/", "prompt": "p"}, result="error: Failed to fetch URL: boom")
+    assert html.startswith('<div class="body-error"') and "Failed to fetch URL: boom" in html
+    assert "Loaded into context" not in html
+
+
+def test_web_fetch_page_that_is_not_a_web_url_is_not_a_link():
+    html = _body("web_fetch", {"url": "javascript:alert(1)", "prompt": "p"}, result="x")
+    assert 'href="javascript:' not in html and "javascript:alert(1)" in html
+
+
+def test_gitlab_read_puts_title_first():
+    html = _body(
+        "gitlab",
+        {"subcommand": "project-merge-request get --iid 1"},
+        result="id: 9\nstate: opened\ntitle: Fix it\nweb_url: https://g/x/-/merge_requests/1",
+    )
+    assert html.index("Fix it") < html.index("opened")
+
+
+def test_gitlab_read_links_the_first_field_to_its_web_url():
+    result = "iid: 1\nid: 9\nsource-branch: fix\nstate: opened\ntitle: Fix it\nweb-url: https://g/x/-/merge_requests/1"
+    html = _body("gitlab", {"subcommand": "project-merge-request get --iid 1"}, result=result)
+    keys = re.findall(r"<dt>([^<]*)</dt>", html)
+    assert keys[:3] == ["title", "state", "source-branch"] and "web-url" not in keys
+    assert '<dd><a class="chat-tool__link" href="https://g/x/-/merge_requests/1"' in html
+
+
+def test_gitlab_nested_object_reads_as_one_field():
+    result = "iid: 1\nauthor:\n  id: 5\n  state: active\n  username: bob\nstate: opened\ntitle: Fix it"
+    html = _body("gitlab", {"subcommand": "project-merge-request get --iid 1"}, result=result)
+    assert "<dt>author</dt><dd>bob</dd>" in html and "<dt>state</dt><dd>opened</dd>" in html and "active" not in html
+
+
+def test_gitlab_value_over_several_lines_stays_one_field():
+    result = "iid: 1\ndescription: First para\n\nsecond para\nstate: opened\ntitle: T"
+    html = _body("gitlab", {"subcommand": "project-merge-request get --iid 1"}, result=result)
+    assert "<table" not in html and "<dd>First para\n\nsecond para</dd>" in html
+
+
+def test_gitlab_list_of_several_objects_is_a_table():
+    result = "iid: 1\ntitle: First\n\niid: 2\ntitle: Second\n\niid: 3\ntitle: Third\n"
+    html = _body("gitlab", {"subcommand": "project-merge-request list --state opened"}, result=result)
+    assert "<th>title</th><th>iid</th>" in html and html.count("<tr>") == 4
+    assert "<td>Second</td><td>2</td>" in html
+
+
+def test_gitlab_job_trace_marks_errors():
+    html = _body("gitlab", {"subcommand": "project-job trace --id 3"}, result="ok\nFAILED test_x\ndone")
+    assert 'class="lgl err"' in html and "Jump to first error" in html
+
+
+def test_job_trace_opens_at_its_end_and_jumps_to_the_first_error():
+    result = "setup\nerror: first\nERROR second\nTypeError: not marked\nend"
+    html = _body("gitlab", {"subcommand": "project-job trace --id 3"}, result=result, id="call:1/x")
+    assert '<div class="body-log"><div class="body-log-lines">' in html and html.count('class="lgl err"') == 2
+    assert html.count('id="log-err-call1x"') == 1 and '<a class="body-jump" href="#log-err-call1x">' in html
+    assert re.search(r'class="lgl err" id="log-err-call1x">error: first<', html)
+    assert '<div class="lgl">TypeError: not marked</div>' in html
+
+
+def test_job_trace_without_errors_has_no_jump():
+    html = _body("gitlab", {"subcommand": "project-job trace --id 3"}, result="all good\ndone")
+    assert "Jump to first error" not in html and 'class="lgl err"' not in html
+
+
+def test_long_job_trace_keeps_its_end():
+    result = "\n".join(f"step {i}" for i in range(1000))
+    html = _body("gitlab", {"subcommand": "project-job trace --id 3"}, result=result)
+    assert "step 999<" in html and "step 499<" not in html and "500 earlier lines not shown" in html
+
+
+def test_gh_run_log_is_a_log_view():
+    html = _body("gh", {"subcommand": "run view 5 --job 7 --log"}, result="build\tstep\tFAILED tests")
+    assert 'class="lgl err"' in html
+
+
+def test_gh_raw_view_shows_fields_then_the_body():
+    result = "title:\tFix it\nstate:\tOPEN\nurl:\thttps://github.com/o/r/pull/3\n--\n**Body** text"
+    html = _body("gh", {"subcommand": "pr view 3"}, result=result)
+    assert '<dd><a class="chat-tool__link" href="https://github.com/o/r/pull/3"' in html
+    assert "<dt>state</dt><dd>OPEN</dd>" in html and "<strong>Body</strong>" in html
+
+
+GITLAB_MR = "https://g/x/-/merge_requests/1"
+GITHUB_PR = "https://github.com/o/r/pull/12"
+
+
+def test_gitlab_write_shows_what_was_posted():
+    html = _body(
+        "gitlab",
+        {"subcommand": 'project-merge-request-note create --mr-iid 1 --body "**hi**"'},
+        result="id: 552",
+        mr_url="https://g/x/-/merge_requests/1",
+    )
+    assert "<strong>hi</strong>" in html and "#note_552" in html
+
+
+def test_gitlab_write_changed_comes_before_the_reply_and_opens_the_note():
+    subcommand = 'project-merge-request-note create --mr-iid=1 --body "it\'s **done**"'
+    html = _body("gitlab", {"subcommand": subcommand}, result="id: 552", mr_url="https://g/x/-/merge_requests/1")
+    changed, context = html.split("Loaded into context")
+    assert "Changed" in changed and ">Open ↗<" in changed
+    assert 'href="https://g/x/-/merge_requests/1#note_552"' in changed
+    assert "<dt>id</dt><dd>552</dd>" in context
+
+
+def test_gitlab_note_update_opens_the_note_not_its_author():
+    result = "author:\n  id: 5\n  username: bob\nbody: edited\nid: 552\nsystem: False"
+    subcommand = 'project-merge-request-note update --mr-iid 1 --id 552 --body "edited"'
+    html = _body("gitlab", {"subcommand": subcommand}, result=result, mr_url=GITLAB_MR)
+    assert 'href="https://g/x/-/merge_requests/1#note_552"' in html and '#note_5"' not in html
+
+
+def test_gh_comment_links_to_the_comment_on_the_pull_request():
+    html = _body(
+        "gh",
+        {"subcommand": 'pr comment 12 --body "**ok**"'},
+        result="https://github.com/o/r/pull/12#issuecomment-345",
+        mr_url="https://github.com/o/r/pull/12",
+    )
+    changed = html.split("Loaded into context")[0]
+    assert "<strong>ok</strong>" in changed and 'href="https://github.com/o/r/pull/12#issuecomment-345"' in changed
+
+
+@pytest.mark.parametrize(
+    "name,subcommand,result",
+    [
+        ("gitlab", 'project-merge-request-note create --mr-iid 2 --body "x"', "id: 5"),
+        ("gitlab", 'project-issue-note create --issue-iid 1 --body "x"', "id: 5"),
+        ("gitlab", 'project-merge-request update --iid 1 --description "x"', "iid: 1"),
+        ("gh", 'pr comment 13 --body "x"', "https://github.com/o/r/pull/13#issuecomment-9"),
+        ("gh", 'issue comment 12 --body "x"', "https://github.com/o/r/issues/12#issuecomment-9"),
+    ],
+    ids=["other-mr", "issue-note", "mr-update", "other-pr", "issue-comment"],
+)
+def test_a_write_that_is_not_a_note_on_the_sessions_merge_request_has_no_open_link(name, subcommand, result):
+    html = _body(name, {"subcommand": subcommand}, result=result, mr_url=GITLAB_MR if name == "gitlab" else GITHUB_PR)
+    assert "Changed" in html and "Open ↗" not in html
+
+
+def test_a_write_that_failed_shows_its_text_as_input():
+    html = _body(
+        "gitlab",
+        {"subcommand": 'project-merge-request-note create --mr-iid 1 --body "**hi**"'},
+        result="error: GitLab command failed (exit code 1). Details: 403",
+        mr_url="https://g/x/-/merge_requests/1",
+    )
+    assert html.startswith('<div class="body-error"') and "Changed" not in html
+    assert "Input" in html and "<strong>hi</strong>" in html and "#note_" not in html
+
+
+def test_a_platform_write_without_a_body_has_no_changed():
+    html = _body("gh", {"subcommand": "pr checks 12"}, result="build\tpass\t1m\thttps://x")
+    assert "Changed" not in html and "build" in html
+
+
+def test_platform_result_saved_to_a_file_on_request_says_so_with_its_size():
+    result = "Wrote 20480 bytes (400 lines) to /workspace/tmp/large_tool_results/c1\nPreview (first 1 lines):\n[{"
+    args = {"subcommand": "project-merge-request list --get-all", "output_to_file": True}
+    html = _body("gitlab", args, result=result)
+    assert "Saved to /workspace/tmp/large_tool_results/c1 as asked: the model saw only a preview." in html
+    assert "400 lines · 20 KB" in html and "Too large" not in html
+
+
+def test_an_evicted_result_is_still_too_large_to_load_whole():
+    html = _body("gitlab", {"subcommand": "project-job trace --id 3"}, result=EVICTED)
+    assert "Too large to load whole" in html and "as asked" not in html
