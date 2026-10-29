@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
-    from automation.agent.events import PublishResultRecorder
+    from automation.agent.publishers import PublishOutcome
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
@@ -63,7 +63,7 @@ class AgentRun:
     ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``workspace`` is where the
     agent works; draft recovery publishes through it, and the executor releases its sandbox session. ``settings`` is
     what the run resolved once, and ``session_links`` what builds the links they allow; draft recovery publishes with
-    both. ``publish`` keeps the last publish result the run dispatched."""
+    both."""
 
     ctx: RuntimeCtx
     agent: CompiledStateGraph[Any, RuntimeCtx]
@@ -73,8 +73,6 @@ class AgentRun:
     workspace: Workspace
     settings: AgentSettings
     session_links: SessionLinksResolver | None
-    publish: PublishResultRecorder
-    run_id: str | None = None
 
 
 async def execute_run(
@@ -255,12 +253,14 @@ async def _live_relay(spec: RunSpec, holder_id: str | None) -> AsyncGenerator[Ru
 
 @dataclass
 class _Recovery:
-    """What draft recovery leaves for ``on_failure``: filled inside the run's context, read after it closes.
-    ``draft`` is the publish result of the draft merge request it opened."""
+    """What draft recovery leaves for ``on_failure``: filled inside the run's context, read after it closes."""
 
-    draft_published: bool = False
-    draft: dict[str, Any] | None = None
+    draft: PublishOutcome | None = None
     snapshot: StateSnapshot | None = None
+
+    @property
+    def draft_published(self) -> bool:
+        return self.draft is not None
 
 
 async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery, run_relay: RunRelay | None) -> RunOutcome:
@@ -300,9 +300,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     the checkpoint for ``on_failure``. Runs while the clone and the sandbox are still open."""
     if not spec.recover_draft:
         return
-    from automation.agent.events import publish_result_payload
-
-    outcome = await recover_draft(
+    recovery.draft = await recover_draft(
         run.ctx,
         run.agent,
         run.config,
@@ -311,32 +309,34 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
         settings=run.settings,
         session_links=run.session_links,
     )
-    recovery.draft_published = outcome is not None
-    if outcome is not None and outcome.created_merge_request:
-        recovery.draft = publish_result_payload(
-            status=PublishStatus.OPENED, merge_request=outcome.merge_request, diff_stats=outcome.diff_stats
-        )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
 
 
-async def _record_publish_result(run: AgentRun, recovery: _Recovery) -> None:
+async def _record_publish_result(
+    run_id: str | None, publish: dict[str, Any] | None, draft: PublishOutcome | None
+) -> None:
     """Write the run's publish result onto its ``Run`` once, however the run ended: the last one it dispatched, never
-    the checkpoint's, which can still hold the previous run's. A draft recovery opened replaces it, unless the publish
-    failed: the failure then stays, with the draft's merge request beside it. Best-effort: logged, never raised."""
-    publish, draft = run.publish.payload, recovery.draft
-    if draft is not None and publish is not None and publish.get("status") == PublishStatus.FAILED:
-        publish = {**draft, "status": publish["status"], "error_kind": publish["error_kind"]}
-    elif draft is not None:
-        publish = draft
+    the checkpoint's, which can still hold the previous run's. A draft merge request recovery opened replaces it,
+    unless the publish failed: the failure then stays, with the draft's merge request beside it. Best-effort: logged,
+    never raised."""
+    opened_draft = draft is not None and draft.created_merge_request
+    if opened_draft:
+        from automation.agent.events import published_outcome_payload
+
+        opened = published_outcome_payload(draft)
+        if publish is not None and publish.get("status") == PublishStatus.FAILED:
+            publish = {**opened, "status": publish["status"], "error_kind": publish["error_kind"]}
+        else:
+            publish = opened
     fields = publish_field_updates(publish)
-    if draft is not None:
+    if opened_draft:
         fields["code_changes"] = True
-    if not run.run_id or not fields:
+    if not run_id or not fields:
         return
     try:
-        await Run.objects.filter(pk=run.run_id).aupdate(**fields)
+        await Run.objects.filter(pk=run_id).aupdate(**fields)
     except Exception:
-        logger.exception("executor: failed to record the publish result on run_id=%s", run.run_id)
+        logger.exception("executor: failed to record the publish result on run_id=%s", run_id)
 
 
 @asynccontextmanager
@@ -441,8 +441,6 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                     workspace=workspace,
                     settings=settings,
                     session_links=session_links,
-                    publish=publish,
-                    run_id=run_id,
                 )
                 try:
                     yield run
@@ -451,7 +449,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                     handed_over = await _handed_over(run)
                     raise
                 finally:
-                    await _record_publish_result(run, recovery)
+                    await _record_publish_result(run_id, publish.payload, recovery.draft)
                     if archiving:
                         await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:

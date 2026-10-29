@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-from github import GithubException
-from gitlab.exceptions import GitlabError
-from requests import RequestException
-
 from automation.agent.workspace.git_manager import GitPushNetworkError, GitPushPermissionError, GitPushStaleError
+from codebase.clients.base import PLATFORM_ERRORS
 
 
 class PushRejectedError(Exception):
-    kind = "push_rejected"
+    """A push the remote refused."""
 
 
 def publish_error_kind(exc: BaseException) -> str:
     """The ``sessions.models.PublishErrorKind`` value a publish that raised ``exc`` reports."""
     if isinstance(exc, PushRejectedError | GitPushStaleError | GitPushPermissionError | GitPushNetworkError):
-        return PushRejectedError.kind
-    if isinstance(exc, GitlabError | GithubException | RequestException):
+        return "push_rejected"
+    if isinstance(exc, PLATFORM_ERRORS):
         return "mr_failed"
     return "unknown"

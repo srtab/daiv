@@ -1823,6 +1823,10 @@
       this.scrollToBottom();
     },
 
+    publishFailed(entry) {
+      return entry.status === "failed" || entry.status === "not_published";
+    },
+
     _hasFailedPublish() {
       if (!this._activeRun) return false;
       const id = this._runStatusId();

@@ -247,8 +247,7 @@
           const row = rowFor(e.seg, servers, serversId);
           return { kind: "question", key: claim(`q-${e.ref}`), seg: e.seg, turnIndex: e.ti, row };
         }
-        const row = e.seg.type === "tool_call" ? rowFor(e.seg, servers, serversId) : null;
-        return { kind: "special", key: claim(`x-${e.ref}`), seg: e.seg, row };
+        return { kind: "special", key: claim(`x-${e.ref}`), seg: e.seg, row: rowFor(e.seg, servers, serversId) };
       };
 
       const items = [];
@@ -302,7 +301,6 @@
         if (published.length) cards.push({ kind: "artifacts", key: claim(`c-${key}`), items: published });
       }
 
-      const lastTurn = run.turns.findLast(({ turn }) => turn.role === "assistant")?.turn ?? null;
       const lastText = entries.findLast((e) => e.kind === "text");
       return {
         key,
@@ -318,7 +316,7 @@
         cards,
         endingTail,
         statuses: run.statuses,
-        lastTurn,
+        lastTurn: run.turns.findLast(({ turn }) => turn.role === "assistant")?.turn ?? null,
         publish: run.turns.findLast(({ turn }) => turn.publish)?.turn.publish ?? NO_PUBLISH,
         // A run's answer is copyable once nothing in it streams; a later tool-only turn does not hide it.
         copyTurn: !streaming && lastText ? lastText.turn : null,

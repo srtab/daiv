@@ -1254,10 +1254,9 @@ def test_detail_gives_an_unpublished_line_the_run_status_semantics(member_client
     content = _detail_html(member_client, _create_session(user=member_user))
 
     publish_row = content[content.index('x-for="(p, pi) in block.publish"') : content.index("block.statuses")]
-    unpublished = "p.status === 'failed' || p.status === 'not_published'"
-    assert f":role=\"{unpublished} ? 'status' : null\"" in publish_row
-    assert f":aria-live=\"{unpublished} ? 'polite' : null\"" in publish_row
-    assert f":data-run-ending=\"({unpublished}) && !block.items.length ? '' : false\"" in publish_row
+    assert ":role=\"publishFailed(p) ? 'status' : null\"" in publish_row
+    assert ":aria-live=\"publishFailed(p) ? 'polite' : null\"" in publish_row
+    assert ":data-run-ending=\"publishFailed(p) && !block.items.length ? '' : false\"" in publish_row
 
 
 @pytest.mark.parametrize("name", ["session_detail.html", "_run_item.html"])

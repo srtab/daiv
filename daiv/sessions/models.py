@@ -288,8 +288,7 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
         "merge_request_iid": result["merge_request_id"],
         "merge_request_web_url": result["merge_request_web_url"],
     }
-    updates = {field: value for field, value in updates.items() if value}
-    return publish_field_updates(result["publish"]) | updates
+    return {field: value for field, value in updates.items() if value}
 
 
 def publish_field_updates(publish: dict[str, Any] | None) -> dict[str, Any]:

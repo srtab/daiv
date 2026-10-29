@@ -292,12 +292,12 @@
             </template>
 
             <template x-for="(p, pi) in block.publish" :key="pi">
-              <div class="publish-row" :class="{ 'publish-row--failed': p.status === 'failed' || p.status === 'not_published' }"
+              <div class="publish-row" :class="{ 'publish-row--failed': publishFailed(p) }"
                    data-testid="publish-row" :data-status="p.status"
-                   :role="p.status === 'failed' || p.status === 'not_published' ? 'status' : null"
-                   :aria-live="p.status === 'failed' || p.status === 'not_published' ? 'polite' : null"
-                   :data-run-ending="(p.status === 'failed' || p.status === 'not_published') && !block.items.length ? '' : false">
-                <template x-if="p.status === 'opened' || p.status === 'pushed'">
+                   :role="publishFailed(p) ? 'status' : null"
+                   :aria-live="publishFailed(p) ? 'polite' : null"
+                   :data-run-ending="publishFailed(p) && !block.items.length ? '' : false">
+                <template x-if="!publishFailed(p)">
                   <span class="publish-row__main">
                     {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
                     <span x-show="p.status === 'opened'">{% translate "Opened" %}</span>
@@ -311,7 +311,7 @@
                     <span class="publish-row__files" x-show="p.error" x-text="p.error"></span>
                   </span>
                 </template>
-                <template x-if="p.status === 'not_published' || p.status === 'failed'">
+                <template x-if="publishFailed(p)">
                   <span class="publish-row__main">
                     {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
                     <span>{% translate "Not published:" %}</span>
@@ -319,10 +319,7 @@
                   </span>
                 </template>
                 {% if session %}
-                  <button type="button" class="chat-run-status__retry" x-show="canRetry(p)" @click="submit(latest.retry)"
-                          data-testid="run-retry">
-                    {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
-                  </button>
+                  {% include "sessions/_retry_button.html" with turn="p" %}
                 {% endif %}
               </div>
             </template>
@@ -337,10 +334,7 @@
                 </span>
                 <span class="chat-run-status__text" x-text="status.message"></span>
                 {% if session %}
-                  <button type="button" class="chat-run-status__retry" x-show="canRetry(status)" @click="submit(latest.retry)"
-                          data-testid="run-retry">
-                    {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
-                  </button>
+                  {% include "sessions/_retry_button.html" with turn="status" %}
                 {% endif %}
               </div>
             </template>

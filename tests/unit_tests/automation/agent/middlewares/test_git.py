@@ -79,26 +79,25 @@ class TestPublishResult:
         ids=["opened", "pushed", "mr-pending"],
     )
     async def test_the_status_follows_what_the_publish_did(self, dispatched, outcome, status, error_kind):
-        update = await self._after_agent(outcome=outcome)
+        await self._after_agent(outcome=outcome)
 
-        assert update["publish_result"]["status"] == status
-        assert update["publish_result"]["error_kind"] == error_kind
-        dispatched.assert_awaited_once_with(PUBLISH_RESULT_EVENT, update["publish_result"])
+        dispatched.assert_awaited_once()
+        name, payload = dispatched.await_args.args
+        assert (name, payload["status"], payload["error_kind"]) == (PUBLISH_RESULT_EVENT, status, error_kind)
 
     async def test_the_result_carries_the_merge_request_and_diff_stats(self, dispatched):
         stats = MergeRequestDiffStats(files_changed=2, lines_added=5, lines_removed=1)
         outcome = PublishOutcome(merge_request=_mr(), published=True, created_merge_request=True, diff_stats=stats)
 
-        update = await self._after_agent(outcome=outcome)
+        await self._after_agent(outcome=outcome)
 
-        assert update["publish_result"] == publish_result_payload(
-            status="opened", merge_request=_mr(), diff_stats=stats
+        dispatched.assert_awaited_once_with(
+            PUBLISH_RESULT_EVENT, publish_result_payload(status="opened", merge_request=_mr(), diff_stats=stats)
         )
 
-    async def test_a_turn_with_nothing_to_publish_clears_the_result(self, dispatched):
-        update = await self._after_agent(outcome=PublishOutcome(merge_request=_mr(), published=False))
+    async def test_a_turn_with_nothing_to_publish_dispatches_no_result(self, dispatched):
+        await self._after_agent(outcome=PublishOutcome(merge_request=_mr(), published=False))
 
-        assert update["publish_result"] is None
         dispatched.assert_not_awaited()
 
     @pytest.mark.parametrize(
@@ -106,20 +105,17 @@ class TestPublishResult:
         [{"workspace": FakeWorkspace(is_ready=False)}, {"workspace": FakeWorkspace(), "auto_commit_changes": False}],
         ids=["workspace-not-ready", "auto-commit-off"],
     )
-    async def test_a_turn_end_that_skips_the_publish_still_clears_the_previous_result(self, dispatched, kwargs):
-        mw = GitMiddleware(settings=SETTINGS, **kwargs)
+    async def test_a_turn_end_that_skips_the_publish_dispatches_no_result(self, dispatched, kwargs):
+        await GitMiddleware(settings=SETTINGS, **kwargs).aafter_agent({}, _make_runtime(scope=Scope.GLOBAL))
 
-        update = await mw.aafter_agent({"publish_result": {"status": "opened"}}, _make_runtime(scope=Scope.GLOBAL))
-
-        assert update == {"publish_result": None}
         dispatched.assert_not_awaited()
 
     async def test_conflicts_are_not_published(self, dispatched):
-        update = await self._after_agent(raises=UnresolvedMergeConflictsError(["a.py", "b.py"]))
+        await self._after_agent(raises=UnresolvedMergeConflictsError(["a.py", "b.py"]))
 
-        expected = publish_result_payload(status="not_published", error_kind="conflicts")
-        assert update["publish_result"] == expected
-        dispatched.assert_awaited_once_with(PUBLISH_RESULT_EVENT, expected)
+        dispatched.assert_awaited_once_with(
+            PUBLISH_RESULT_EVENT, publish_result_payload(status="not_published", error_kind="conflicts")
+        )
 
     @pytest.mark.parametrize(
         ("failure", "kind"), [(GitPushPermissionError("denied"), "push_rejected"), (RuntimeError("boom"), "unknown")]
@@ -138,16 +134,7 @@ class TestPublishResult:
 
         update = await self._after_agent(outcome=PublishOutcome(merge_request=_mr(), published=True))
 
-        assert update["publish_result"]["status"] == "pushed"
-
-    async def test_a_new_turn_clears_the_previous_result(self):
-        middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
-        with patch.object(GitMiddleware, "_alookup_open_mr", AsyncMock(return_value=None)):
-            update = await middleware.abefore_agent(
-                {"publish_result": {"status": "opened"}}, _make_runtime(scope=Scope.GLOBAL)
-            )
-
-        assert update["publish_result"] is None
+        assert update["published"] is True
 
 
 class TestGitMiddleware:
@@ -245,12 +232,12 @@ class TestGitMiddleware:
     @pytest.mark.parametrize(
         ("stats", "expected"),
         [
-            pytest.param(None, {"publish_result": None}, id="nothing-measured"),
+            pytest.param(None, None, id="nothing-measured"),
             # A turn that reverts its predecessor's work publishes zeros, and those have to reach
             # state or the earlier turn's numbers stand after a reload.
             pytest.param(
                 MergeRequestDiffStats(),
-                {"diff_stats": {"lines_added": 0, "lines_removed": 0, "files_changed": 0}, "publish_result": None},
+                {"diff_stats": {"lines_added": 0, "lines_removed": 0, "files_changed": 0}},
                 id="measured-zero",
             ),
         ],
@@ -275,11 +262,7 @@ class TestGitMiddleware:
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=True))
             result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
-        assert result == {
-            "code_changes": True,
-            "published": True,
-            "publish_result": publish_result_payload(status="pushed", error_kind="mr_pending"),
-        }
+        assert result == {"code_changes": True, "published": True}
 
     async def test_aafter_agent_confirms_existing_mr_without_fallback_key(self):
         """A clean tree already on its MR: publish returns the MR with ``published=False``, so
@@ -298,7 +281,7 @@ class TestGitMiddleware:
             )
             result = await middleware.aafter_agent({"merge_request": state_mr}, runtime)
 
-        assert result == {"merge_request": state_mr, "code_changes": True, "publish_result": None}
+        assert result == {"merge_request": state_mr, "code_changes": True}
 
     @pytest.mark.parametrize(
         ("scope", "state_branch", "current_ref", "keeps_mr", "levels"),
@@ -417,14 +400,14 @@ class TestGitMiddleware:
         """Builtin slash commands (``/clear``, ``/help``, ...) jump to the after_agent chain from
         ``SlashCommandMiddleware.abefore_agent``, skipping ``SandboxMiddleware.abefore_agent`` — so a sandbox run's
         session is never acquired and the agent loop never ran. Probing git through that workspace would raise
-        (``SandboxFileBackend is not bound to a sandbox session``); aafter_agent must skip the publish instead."""
+        (``SandboxFileBackend is not bound to a sandbox session``); aafter_agent must no-op instead."""
         mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace(is_ready=False), auto_commit_changes=True)
         runtime = _make_runtime(scope=Scope.GLOBAL)
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             result = await mw.aafter_agent({"merge_request": None}, runtime)
 
-        assert result == {"publish_result": None}
+        assert result is None
         pub_cls.assert_not_called()
 
     async def test_aafter_agent_skips_patch_capture_when_the_workspace_is_not_ready(self):
@@ -435,7 +418,7 @@ class TestGitMiddleware:
 
         result = await mw.aafter_agent({"merge_request": None}, _make_runtime(scope=Scope.GLOBAL))
 
-        assert result == {"publish_result": None}
+        assert result is None
         assert workspace.git.mock_calls == []
 
     async def test_aafter_agent_skips_when_auto_commit_disabled(self):
@@ -445,7 +428,7 @@ class TestGitMiddleware:
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             result = await middleware.aafter_agent({"merge_request": None}, runtime)
 
-        assert result == {"publish_result": None}
+        assert result is None
         publisher_cls.assert_not_called()
 
     async def test_abefore_agent_seeds_open_mr_when_state_empty(self):
@@ -471,7 +454,6 @@ class TestGitMiddleware:
             "code_changes": False,
             "published": False,
             "protected_branch_fallback_source": None,
-            "publish_result": None,
         }
 
     async def test_a_forked_run_leaves_the_checked_out_branchs_open_mr_alone(self):
@@ -843,7 +825,7 @@ class TestGitMiddleware:
         result = await mw.aafter_agent({"merge_request": None}, _make_runtime(scope=Scope.GLOBAL))
 
         workspace.git.get_diff.assert_awaited_once_with()
-        assert result == {"model_patch": "diff --git a/x b/x\n", "publish_result": None}
+        assert result == {"model_patch": "diff --git a/x b/x\n"}
 
     async def test_a_turn_never_reads_the_worker_clone(self):
         """A turn reaches git only through the workspace, never ``context.gitrepo``: the pre-run check, the MR lookup,
@@ -894,7 +876,7 @@ class TestGitMiddleware:
         result = await mw.aafter_agent({"merge_request": None}, runtime)
 
         assert workspace.git.mock_calls == []
-        assert result == {"publish_result": None}
+        assert result is None
 
     async def test_aafter_agent_captures_patch_before_publish(self):
         """With both flags on, capture must run BEFORE publish — the publisher's commit moves

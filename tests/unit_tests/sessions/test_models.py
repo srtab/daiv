@@ -5,7 +5,15 @@ from django.db import IntegrityError
 import pytest
 from gitlab.exceptions import GitlabCreateError
 from sessions.executor.result import parse_agent_result
-from sessions.models import PublishErrorKind, Run, RunStatus, Session, SessionOrigin, agent_result_field_updates
+from sessions.models import (
+    PublishErrorKind,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    agent_result_field_updates,
+    publish_field_updates,
+)
 
 from automation.agent.events import publish_result_payload
 from automation.agent.publish_errors import publish_error_kind
@@ -415,14 +423,13 @@ def test_agent_result_field_updates_maps_code_changes_only_when_set(code_changes
     assert agent_result_field_updates(parse_agent_result({"code_changes": code_changes})) == expected
 
 
-def test_agent_result_fields_carry_the_publish_result():
+def test_publish_fields_carry_the_publish_result():
     payload = publish_result_payload(
         status="opened",
         merge_request=make_merge_request(merge_request_id=7, web_url="https://git.example/mr/7"),
         diff_stats=MergeRequestDiffStats(lines_added=12, lines_removed=3, files_changed=2),
     )
-    updates = agent_result_field_updates(parse_agent_result({"response": "ok", "publish": payload}))
-    assert updates == {
+    assert publish_field_updates(payload) == {
         "publish_status": "opened",
         "merge_request_iid": 7,
         "merge_request_web_url": "https://git.example/mr/7",
@@ -432,10 +439,9 @@ def test_agent_result_fields_carry_the_publish_result():
     }
 
 
-def test_agent_result_fields_leave_out_a_zero_figure_and_a_missing_error():
+def test_publish_fields_leave_out_a_zero_figure_and_a_missing_error():
     payload = publish_result_payload(status="not_published", error_kind="conflicts", diff_stats=MergeRequestDiffStats())
-    updates = agent_result_field_updates(parse_agent_result({"publish": payload}))
-    assert updates == {"publish_status": "not_published", "publish_error": "conflicts"}
+    assert publish_field_updates(payload) == {"publish_status": "not_published", "publish_error": "conflicts"}
 
 
 def test_every_kind_a_publish_reports_has_a_label():

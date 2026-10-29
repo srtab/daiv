@@ -20,14 +20,7 @@ from redisvl.exceptions import RedisSearchError
 from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
-from sessions.executor.run import (
-    RunStoppedError,
-    _record_publish_result,
-    _Recovery,
-    _until_stopped,
-    execute_run,
-    stream_run,
-)
+from sessions.executor.run import RunStoppedError, _record_publish_result, _until_stopped, execute_run, stream_run
 from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
@@ -993,7 +986,6 @@ async def _publish_writes(
     payload: dict | None,
     *,
     error: type[BaseException] | None = RuntimeError,
-    state: dict | None = None,
     via_stream: bool = False,
     update: AsyncMock | None = None,
     recovered: PublishOutcome | None = None,
@@ -1001,8 +993,7 @@ async def _publish_writes(
     hooks: RunHooks | None = None,
 ) -> list[tuple[str, dict]]:
     """Run after a runnable invoked under the run's config dispatched ``payload``, then raise ``error`` (``None``: the
-    run succeeds); return the run's publish writes as ``(pk, fields)``. ``state`` is the checkpoint the run reads,
-    ``recovered`` what draft recovery opens."""
+    run succeeds); return the run's publish writes as ``(pk, fields)``. ``recovered`` is what draft recovery opens."""
 
     async def _publish(config) -> None:
         if payload is not None:
@@ -1020,7 +1011,7 @@ async def _publish_writes(
             raise error("agent blew up")
         yield "done"
 
-    agent = _agent(state=state)
+    agent = _agent()
     agent.ainvoke = AsyncMock(side_effect=_ainvoke)
     update = update or AsyncMock()
     writes = []
@@ -1086,11 +1077,6 @@ async def test_a_cancelled_run_keeps_the_result_it_already_published():
 
 
 @pytest.mark.parametrize("via_stream", [False, True], ids=["execute_run", "stream_run"])
-async def test_a_failed_run_never_takes_the_previous_runs_publish_result_from_the_checkpoint(via_stream):
-    assert await _publish_writes(None, state={"publish_result": OPENED}, via_stream=via_stream) == []
-
-
-@pytest.mark.parametrize("via_stream", [False, True], ids=["execute_run", "stream_run"])
 async def test_a_failed_publish_records_its_kind(via_stream):
     writes = await _publish_writes(
         publish_result_payload(status="failed", error_kind="push_rejected"), via_stream=via_stream
@@ -1152,12 +1138,7 @@ async def test_the_recovered_draft_lands_on_the_run_row():
     run = await Run.objects.acreate(
         session_id=thread_id, trigger_type=SessionOrigin.UI_JOB, repo_id="owner/repo", status=RunStatus.RUNNING
     )
-    outcome = _recovery_outcome(created=True)
-    draft = publish_result_payload(status="opened", merge_request=outcome.merge_request, diff_stats=outcome.diff_stats)
-
-    await _record_publish_result(
-        SimpleNamespace(run_id=str(run.pk), publish=SimpleNamespace(payload=None)), _Recovery(draft=draft)
-    )
+    await _record_publish_result(str(run.pk), None, _recovery_outcome(created=True))
 
     await run.arefresh_from_db()
     assert (run.merge_request_iid, run.merge_request_web_url, run.code_changes, run.publish_status) == (

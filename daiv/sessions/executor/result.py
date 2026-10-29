@@ -32,9 +32,6 @@ class AgentResult(TypedDict):
     question: dict[str, Any] | None
     """The question the run ended on (``{"questions": [...]}``), or None when it ended without one."""
 
-    publish: dict[str, Any] | None
-    """The run's ``publish_result`` payload (see ``automation.agent.events``), or None when the run recorded none."""
-
 
 def parse_agent_result(rv: dict | str | None) -> AgentResult:
     """Parse a DBTaskResult.return_value into an AgentResult.
@@ -50,7 +47,6 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
             merge_request_web_url=rv.get("merge_request_web_url"),
             usage=rv.get("usage") if isinstance(rv.get("usage"), dict) else None,
             question=rv.get("question") if isinstance(rv.get("question"), dict) else None,
-            publish=rv.get("publish") if isinstance(rv.get("publish"), dict) else None,
         )
     return AgentResult(
         response=str(rv) if rv else "",
@@ -59,7 +55,6 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
         merge_request_web_url=None,
         usage=None,
         question=None,
-        publish=None,
     )
 
 
@@ -83,10 +78,8 @@ def build_agent_result(
             merge_request_web_url=None,
             usage=usage,
             question=question,
-            publish=None,
         )
     mr = checkpointed_merge_request(snapshot.values, strict=False)
-    publish = snapshot.values.get("publish_result")
     return AgentResult(
         response=response,
         code_changes=bool(snapshot.values.get("code_changes")),
@@ -94,5 +87,4 @@ def build_agent_result(
         merge_request_web_url=mr.web_url if mr else None,
         usage=usage,
         question=question,
-        publish=publish if isinstance(publish, dict) else None,
     )

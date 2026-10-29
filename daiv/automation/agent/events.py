@@ -6,8 +6,7 @@ renamed on one side alone fails silently — empty turns for the assistant messa
 for context usage. The consumer half lives with each event: Python (``sessions.live.agui``,
 parsing through this module) for the assistant message, JS (``chat-stream.js``, whose node test
 drives the handler with payloads built here) for the context meter and the publish result, which
-is also saved in agent state for Python readers of the checkpoint and kept per run by
-:func:`record_publish_result`.
+is also kept per run by :func:`record_publish_result`.
 """
 
 from __future__ import annotations
@@ -23,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Mapping
     from uuid import UUID
 
+    from automation.agent.publishers import PublishOutcome
     from automation.agent.usage_tracking import ResolvedWindow
     from codebase.base import MergeRequest, MergeRequestDiffStats
 
@@ -119,10 +119,23 @@ def publish_result_payload(
     }
 
 
+def published_outcome_payload(outcome: PublishOutcome) -> dict[str, Any]:
+    """The :func:`publish_result_payload` of a publish that pushed ``outcome``."""
+    if outcome.merge_request is None:
+        return publish_result_payload(status="pushed", diff_stats=outcome.diff_stats, error_kind="mr_pending")
+    return publish_result_payload(
+        status="opened" if outcome.created_merge_request else "pushed",
+        merge_request=outcome.merge_request,
+        diff_stats=outcome.diff_stats,
+    )
+
+
 class PublishResultRecorder(BaseCallbackHandler):
     """Keeps the last :data:`PUBLISH_RESULT_EVENT` payload dispatched while :func:`record_publish_result` is active."""
 
     run_inline = True
+    # Custom events only: an unhandled chat-model start makes langchain stringify the whole prompt per call.
+    ignore_llm = ignore_chat_model = ignore_chain = ignore_agent = ignore_retriever = ignore_retry = True
 
     def __init__(self) -> None:
         self.payload: dict[str, Any] | None = None

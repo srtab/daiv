@@ -5,9 +5,7 @@ import pytest
 from sessions.executor.result import parse_agent_result
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
-from automation.agent.events import publish_result_payload
 from chat.api.streaming import finalize_chat_run, start_chat_run
-from codebase.base import MergeRequestDiffStats
 
 # ``transaction=True``: these are async DB tests. Async writes commit and escape the
 # plain-``django_db`` savepoint rollback (a known footgun in this project's in-memory
@@ -144,18 +142,3 @@ async def test_finalize_chat_run_keeps_the_usage_of_a_reaped_run(django_user_mod
     assert (run.status, run.result_summary) == (RunStatus.FAILED, "")
     assert (run.input_tokens, run.total_tokens, run.cost_usd) == (10, 12, Decimal("0.5"))
     assert f"run={run.pk} finished before its stream did" in caplog.text
-
-
-async def _finalized_run(django_user_model, **finalize_kwargs) -> Run:
-    user = await _mk_user(django_user_model)
-    session = await _mk_chat_session(user)
-    run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hi", repo_id="g/r", ref="main")
-    await finalize_chat_run(run, usage=None, response_text="", **finalize_kwargs)
-    await run.arefresh_from_db()
-    return run
-
-
-async def test_a_successful_turn_records_its_publish_result(django_user_model):
-    payload = publish_result_payload(status="pushed", diff_stats=MergeRequestDiffStats(lines_added=4, files_changed=1))
-    run = await _finalized_run(django_user_model, success=True, agent_result=parse_agent_result({"publish": payload}))
-    assert (run.publish_status, run.lines_added, run.files_changed, run.lines_removed) == ("pushed", 4, 1, None)

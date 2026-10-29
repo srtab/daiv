@@ -3,8 +3,6 @@ from types import SimpleNamespace
 import pytest
 from sessions.executor.result import AgentResult, build_agent_result, parse_agent_result
 
-from automation.agent.events import publish_result_payload
-
 
 class TestParseAgentResult:
     """Tests for parse_agent_result handling of current and legacy return_value formats."""
@@ -18,7 +16,6 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
-            publish=None,
         )
 
     def test_new_dict_format_no_code_changes(self):
@@ -30,20 +27,13 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
-            publish=None,
         )
 
     def test_legacy_dict_code_changes_only(self):
         """Old format returned by address_issue_task / address_mr_comments_task before this change."""
         rv = {"code_changes": True}
         assert parse_agent_result(rv) == AgentResult(
-            response="",
-            code_changes=True,
-            merge_request_id=None,
-            merge_request_web_url=None,
-            usage=None,
-            question=None,
-            publish=None,
+            response="", code_changes=True, merge_request_id=None, merge_request_web_url=None, usage=None, question=None
         )
 
     def test_legacy_dict_code_changes_false(self):
@@ -55,7 +45,6 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
-            publish=None,
         )
 
     def test_empty_dict(self):
@@ -66,7 +55,6 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
-            publish=None,
         )
 
     def test_legacy_string(self):
@@ -78,7 +66,6 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
-            publish=None,
         )
 
     def test_empty_string(self):
@@ -89,7 +76,6 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
-            publish=None,
         )
 
     def test_none(self):
@@ -101,7 +87,6 @@ class TestParseAgentResult:
             merge_request_web_url=None,
             usage=None,
             question=None,
-            publish=None,
         )
 
     @pytest.mark.parametrize("rv", [{"response": "", "code_changes": False}, {"response": "", "code_changes": True}])
@@ -208,25 +193,3 @@ class TestBuildAgentResult:
 
         assert with_snapshot["question"] is None
         assert without_snapshot["question"] is None
-
-
-class TestPublishResult:
-    PAYLOAD = publish_result_payload(status="pushed")
-
-    def test_parse_keeps_the_publish_payload(self):
-        assert parse_agent_result({"response": "r", "publish": self.PAYLOAD})["publish"] == self.PAYLOAD
-
-    @pytest.mark.parametrize("rv", [{"response": "r"}, {"publish": "opened"}, "plain text", None])
-    def test_parse_defaults_publish_to_none(self, rv):
-        assert parse_agent_result(rv)["publish"] is None
-
-    def test_build_reads_the_checkpointed_publish_result(self):
-        snapshot = SimpleNamespace(values={"publish_result": self.PAYLOAD})
-        assert build_agent_result(response="done", snapshot=snapshot)["publish"] == self.PAYLOAD
-
-    def test_build_has_no_publish_without_a_checkpointed_one(self):
-        assert (
-            build_agent_result(response="done", snapshot=SimpleNamespace(values={"publish_result": None}))["publish"]
-            is None
-        )
-        assert build_agent_result(response="done", snapshot=None)["publish"] is None
