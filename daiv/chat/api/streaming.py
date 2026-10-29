@@ -20,6 +20,8 @@ from sessions.live.event_filter import SubagentEventFilter
 from sessions.live.publisher import close_graph_stream, sanitize_run_error
 from sessions.models import (
     CHAT_PROMPT_MAX_LENGTH,
+    PublishErrorKind,
+    PublishStatus,
     Run,
     RunStatus,
     SessionOrigin,
@@ -27,6 +29,7 @@ from sessions.models import (
     usage_field_updates,
 )
 
+from automation.agent.events import PUBLISH_RESULT_EVENT
 from automation.agent.usage_tracking import build_usage_summary
 from codebase.base import Scope
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
@@ -73,6 +76,7 @@ async def finalize_chat_run(
     error_message: str = "",
     question: dict | None = None,
     agent_result: AgentResult | None = None,
+    publish_error: str = "",
 ) -> None:
     """Terminal transition for a chat Run. Reuses ``usage_field_updates`` and ``agent_result_field_updates`` so
     the denormalization stays identical to the task-backed path (``Run.sync_from_task_result``). On failure,
@@ -93,6 +97,8 @@ async def finalize_chat_run(
         update["error_message"] = error_message[:2000]
     if agent_result:
         update.update(agent_result_field_updates(agent_result))
+    if not success and publish_error in PublishErrorKind.values:
+        update.update(publish_status=PublishStatus.FAILED, publish_error=publish_error)
     usage_fields = usage_field_updates(usage, run_ref=run.pk) if usage else {}
     if await Run.objects.afinish(run, status, **update, **usage_fields):
         return
@@ -115,6 +121,7 @@ class _Turn:
     error: str | None = None
     question: dict | None = None
     agent_result: AgentResult | None = None
+    publish_error: str = ""
 
     def add_text(self, delta: str | None) -> None:
         """Buffer assistant text for ``result_summary``, capped at the 2000 chars ``finalize_chat_run`` keeps."""
@@ -298,6 +305,11 @@ class ChatRunStreamer:
                         turn.add_text(getattr(event, "delta", None))
                     elif event.type == EventType.RUN_ERROR:
                         turn.error = RUN_FAILED_MESSAGE
+                    elif event.type == EventType.CUSTOM and getattr(event, "name", None) == PUBLISH_RESULT_EVENT:
+                        value = getattr(event, "value", None)
+                        payload = value if isinstance(value, dict) else {}
+                        if payload.get("status") == PublishStatus.FAILED:
+                            turn.publish_error = payload.get("error_kind") or ""
                     yield sanitize_run_error(event)
         finally:
             if agui.graph_stream is not None:
@@ -318,6 +330,7 @@ class ChatRunStreamer:
                     error_message=turn.error or "",
                     question=turn.question,
                     agent_result=turn.agent_result,
+                    publish_error=turn.publish_error,
                 )
             except Exception:
                 logger.exception("chat: failed to finalize chat run for thread_id=%s", self.thread_id)

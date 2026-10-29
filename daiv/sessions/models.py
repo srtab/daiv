@@ -12,6 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from automation.agent.publish_errors import kind_from_exception_path
 from automation.agent.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
@@ -37,6 +38,23 @@ class RunStatus(models.TextChoices):
     @classmethod
     def terminal(cls) -> frozenset[str]:
         return frozenset({cls.SUCCESSFUL, cls.WAITING_INPUT, cls.FAILED})
+
+
+class PublishStatus(models.TextChoices):
+    OPENED = "opened", _("Opened")
+    PUSHED = "pushed", _("Pushed")
+    NOT_PUBLISHED = "not_published", _("Not published")
+    FAILED = "failed", _("Failed")
+
+
+class PublishErrorKind(models.TextChoices):
+    """Why a run's changes did not reach the repository; the labels are the only text shown, never exception text."""
+
+    CONFLICTS = "conflicts", _("Merge conflicts are left in the changed files")
+    MR_PENDING = "mr_pending", _("Branch pushed; the merge request isn't created yet")
+    PUSH_REJECTED = "push_rejected", _("The push was rejected")
+    MR_FAILED = "mr_failed", _("The merge request couldn't be created")
+    UNKNOWN = "unknown", _("Couldn't publish the changes")
 
 
 class SessionOrigin(models.TextChoices):
@@ -266,10 +284,16 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
 
     Shared by the same two paths as :func:`usage_field_updates`, for the same reason.
     """
+    publish = result["publish"] or {}
     updates = {
         "code_changes": result["code_changes"],
-        "merge_request_iid": result["merge_request_id"],
-        "merge_request_web_url": result["merge_request_web_url"],
+        "merge_request_iid": result["merge_request_id"] or publish.get("merge_request_iid"),
+        "merge_request_web_url": result["merge_request_web_url"] or publish.get("merge_request_web_url"),
+        "publish_status": publish.get("status"),
+        "publish_error": publish.get("error_kind"),
+        "files_changed": publish.get("files_changed"),
+        "lines_added": publish.get("lines_added"),
+        "lines_removed": publish.get("lines_removed"),
     }
     return {field: value for field, value in updates.items() if value}
 
@@ -343,6 +367,15 @@ class Run(models.Model):
     result_summary = models.TextField(_("result summary"), blank=True, default="")
     error_message = models.TextField(_("error message"), blank=True, default="")
     code_changes = models.BooleanField(_("code changes"), default=False)
+    publish_status = models.CharField(
+        _("publish status"), max_length=16, choices=PublishStatus.choices, blank=True, default=""
+    )
+    publish_error = models.CharField(
+        _("publish error"), max_length=16, choices=PublishErrorKind.choices, blank=True, default=""
+    )
+    lines_added = models.PositiveIntegerField(_("lines added"), null=True, blank=True)
+    lines_removed = models.PositiveIntegerField(_("lines removed"), null=True, blank=True)
+    files_changed = models.PositiveIntegerField(_("files changed"), null=True, blank=True)
     question = models.JSONField(_("question"), null=True, blank=True)
     input_tokens = models.PositiveIntegerField(_("input tokens"), null=True, blank=True)
     output_tokens = models.PositiveIntegerField(_("output tokens"), null=True, blank=True)
@@ -515,6 +548,13 @@ class Run(models.Model):
             if tr.traceback:
                 self.error_message += f"\n{tr.traceback}"
             changed.append("error_message")
+
+        if tr.status == RunStatus.FAILED and not self.publish_status:
+            kind = kind_from_exception_path(tr.exception_class_path)
+            if kind:
+                self.publish_status = PublishStatus.FAILED
+                self.publish_error = kind
+                changed += ["publish_status", "publish_error"]
 
         return changed
 

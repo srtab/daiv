@@ -18,11 +18,12 @@ from redisvl.exceptions import RedisSearchError
 from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
-from sessions.executor.run import RunStoppedError, _until_stopped, execute_run, stream_run
+from sessions.executor.run import RunStoppedError, _record_recovered_draft, _until_stopped, execute_run, stream_run
 from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
+from automation.agent.publishers import PublishOutcome
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
 from automation.agent.session_links import SessionLinks
@@ -30,10 +31,11 @@ from automation.agent.validators import AgentConfigurationError
 from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.git_runners import LocalGitRunner
 from automation.agent.workspace.sandbox import SandboxWorkspace
-from codebase.base import Scope
+from codebase.base import MergeRequestDiffStats, Scope
 from codebase.clients.base import GitEgressCredential
 from codebase.repo_config import RepositoryConfig
 from core.redis import SOCKET_TIMEOUT_S
+from tests.unit_tests.automation.agent.conftest import make_merge_request
 from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
     FakeSandboxClient,
@@ -942,7 +944,7 @@ async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_f
         async def _recover(*_args, **_kwargs):
             stack.events.append("draft recovered")
             agent.aget_state.return_value = recovered_state
-            return True
+            return _recovery_outcome(created=False)
 
         with (
             patch("sessions.executor.run.recover_draft", new=AsyncMock(side_effect=_recover)) as recover,
@@ -962,6 +964,69 @@ async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_f
     assert stack.events == ["context entered", "draft recovered", "context exited"]
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
     on_failure.assert_awaited_once_with(agent.ainvoke.side_effect, draft_published=True, snapshot=recovered_state)
+
+
+def _recovery_outcome(*, created: bool) -> PublishOutcome:
+    return PublishOutcome(
+        merge_request=make_merge_request(merge_request_id=11, web_url="https://git.example/mr/11"),
+        published=True,
+        created_merge_request=created,
+        diff_stats=MergeRequestDiffStats(lines_added=5, lines_removed=2, files_changed=3),
+    )
+
+
+async def _fail_after_recovering(outcome: PublishOutcome | None) -> AsyncMock:
+    agent = _agent()
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
+    with (
+        agent_stack(agent),
+        patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=outcome)),
+        patch("sessions.executor.run._record_recovered_draft", new=AsyncMock()) as record,
+        pytest.raises(RuntimeError, match="agent blew up"),
+    ):
+        await execute_run(make_spec(recover_draft=True, run_id="run-1"))
+    return record
+
+
+async def test_a_draft_recovery_opened_is_recorded_on_the_run():
+    outcome = _recovery_outcome(created=True)
+
+    record = await _fail_after_recovering(outcome)
+
+    record.assert_awaited_once_with("run-1", outcome)
+
+
+@pytest.mark.parametrize("outcome", [_recovery_outcome(created=False), None], ids=["existing-mr", "nothing-landed"])
+async def test_a_recovery_that_opened_no_draft_records_nothing_on_the_run(outcome):
+    record = await _fail_after_recovering(outcome)
+
+    record.assert_not_awaited()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_recovered_draft_lands_on_the_run_row():
+    thread_id = await amake_job_session()
+    run = await Run.objects.acreate(
+        session_id=thread_id, trigger_type=SessionOrigin.UI_JOB, repo_id="owner/repo", status=RunStatus.RUNNING
+    )
+
+    await _record_recovered_draft(str(run.pk), _recovery_outcome(created=True))
+
+    await run.arefresh_from_db()
+    assert (run.merge_request_iid, run.merge_request_web_url, run.code_changes) == (
+        11,
+        "https://git.example/mr/11",
+        True,
+    )
+    assert (run.files_changed, run.lines_added, run.lines_removed) == (3, 5, 2)
+
+
+async def test_a_failed_recovered_draft_write_is_logged_not_raised(caplog):
+    with patch("sessions.executor.run.Run.objects") as objects, caplog.at_level("ERROR", logger="daiv.sessions"):
+        objects.filter.return_value.aupdate = AsyncMock(side_effect=RuntimeError("db down"))
+        await _record_recovered_draft("run-1", _recovery_outcome(created=True))
+
+    assert "failed to record the recovered draft" in caplog.text
 
 
 async def test_a_setup_error_skips_draft_recovery():
@@ -988,7 +1053,7 @@ async def test_a_post_recovery_snapshot_read_that_fails_does_not_replace_the_age
 
     with (
         agent_stack(agent),
-        patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=True)),
+        patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=_recovery_outcome(created=False))),
         caplog.at_level("WARNING", logger="daiv.sessions"),
         pytest.raises(RuntimeError, match="agent blew up"),
     ):
@@ -1414,7 +1479,9 @@ class TestStreamRun:
 
         with (
             agent_stack(agent) as stack,
-            patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=True)) as recover,
+            patch(
+                "sessions.executor.run.recover_draft", new=AsyncMock(return_value=_recovery_outcome(created=False))
+            ) as recover,
             pytest.raises(RuntimeError, match="agent blew up"),
         ):
             await _drain(make_spec(recover_draft=True), _stream(error=error), RunHooks(on_failure=on_failure))

@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ag_ui.core import RunAgentInput
-from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentEvent
+from ag_ui.core.events import CustomEvent, EventType, RunErrorEvent, StateSnapshotEvent, TextMessageContentEvent
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel, GenericFakeChatModel
@@ -30,6 +30,7 @@ from sessions.live.relay import RunRelay
 from sessions.models import Run, Session
 
 from automation.agent.agent_settings import resolve_agent_settings
+from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
 from chat.api import runner
@@ -375,6 +376,41 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
     run_error_events = [e for e in streamed_events if getattr(e, "type", None) == EventType.RUN_ERROR]
     assert [(e.message, e.code) for e in run_error_events] == [(RUN_FAILED_MESSAGE, "run_failed")]
     assert persist_calls == []
+
+
+def _publish_event(**kwargs) -> CustomEvent:
+    return CustomEvent(type=EventType.CUSTOM, name=PUBLISH_RESULT_EVENT, value=publish_result_payload(**kwargs))
+
+
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        (_publish_event(status="failed", error_kind="mr_failed"), "mr_failed"),
+        (_publish_event(status="opened"), ""),
+        (None, ""),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_turn_finalizes_with_the_publish_error_it_streamed(event, expected):
+    err = RunErrorEvent(type=EventType.RUN_ERROR, message="boom in agent", code="run_failed")
+    finalize_calls: list = []
+
+    async def _capture_finalize(_run, *, publish_error="", **_kwargs):
+        finalize_calls.append(publish_error)
+
+    with (
+        patch(
+            "chat.api.streaming.RuntimeContextLangGraphAGUIAgent",
+            return_value=_mock_agent([event, err] if event else [err]),
+        ),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert finalize_calls == [expected]
 
 
 @pytest.mark.django_db(transaction=True)

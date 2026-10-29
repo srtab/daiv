@@ -6,7 +6,10 @@ import pytest
 from sessions.executor.result import parse_agent_result
 from sessions.models import Run, RunStatus, Session, SessionOrigin, agent_result_field_updates
 
+from automation.agent.events import publish_result_payload
 from automation.agent.workspace.session import SandboxAcquisition
+from codebase.base import MergeRequestDiffStats
+from tests.unit_tests.automation.agent.conftest import make_merge_request
 
 pytestmark = pytest.mark.django_db
 
@@ -407,3 +410,55 @@ def test_artifact_visible_to_follows_session_visibility(admin_user, member_user,
 def test_agent_result_field_updates_maps_code_changes_only_when_set(code_changes, expected):
     """False is left out so a later empty result never clears a flag an earlier sync recorded."""
     assert agent_result_field_updates(parse_agent_result({"code_changes": code_changes})) == expected
+
+
+def test_agent_result_fields_carry_the_publish_result():
+    payload = publish_result_payload(
+        status="opened",
+        merge_request=make_merge_request(merge_request_id=7, web_url="https://git.example/mr/7"),
+        diff_stats=MergeRequestDiffStats(lines_added=12, lines_removed=3, files_changed=2),
+    )
+    updates = agent_result_field_updates(parse_agent_result({"response": "ok", "publish": payload}))
+    assert updates == {
+        "publish_status": "opened",
+        "merge_request_iid": 7,
+        "merge_request_web_url": "https://git.example/mr/7",
+        "lines_added": 12,
+        "lines_removed": 3,
+        "files_changed": 2,
+    }
+
+
+def test_agent_result_fields_leave_out_a_zero_figure_and_a_missing_error():
+    payload = publish_result_payload(status="not_published", error_kind="conflicts", diff_stats=MergeRequestDiffStats())
+    updates = agent_result_field_updates(parse_agent_result({"publish": payload}))
+    assert updates == {"publish_status": "not_published", "publish_error": "conflicts"}
+
+
+def _mk_task_run(create_db_task_result, exception_class_path, **run_fields) -> Run:
+    task_result = create_db_task_result(status="FAILED", exception_class_path=exception_class_path)
+    return _mk_run(_mk_session(), status=RunStatus.RUNNING, task_result=task_result, **run_fields)
+
+
+def test_a_failed_task_with_a_publish_error_records_its_kind(create_db_task_result):
+    run = _mk_task_run(create_db_task_result, "automation.agent.publish_errors.PushRejectedError")
+    run.sync_from_task_result()
+    assert (run.publish_status, run.publish_error) == ("failed", "push_rejected")
+
+
+def test_a_failed_task_with_another_error_records_no_publish_error(create_db_task_result):
+    run = _mk_task_run(create_db_task_result, "builtins.ValueError")
+    run.sync_from_task_result()
+    assert (run.publish_status, run.publish_error) == ("", "")
+
+
+def test_a_failed_task_keeps_the_draft_recovery_recorded(create_db_task_result):
+    run = _mk_task_run(
+        create_db_task_result,
+        "automation.agent.publish_errors.MergeRequestFailedError",
+        merge_request_iid=9,
+        merge_request_web_url="https://git.example/mr/9",
+        code_changes=True,
+    )
+    run.sync_from_task_result()
+    assert (run.merge_request_iid, run.code_changes, run.publish_error) == (9, True, "mr_failed")

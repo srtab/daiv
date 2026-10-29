@@ -371,6 +371,7 @@ _RESET_CHANNELS = {
     "pinned_skills",
     "pre_run_dirty_files",
     "protected_branch_fallback_source",
+    "publish_result",
     "published",
     "sandbox_fingerprint",
     "session_id",

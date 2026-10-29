@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
+    from automation.agent.publishers import PublishOutcome
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
@@ -295,7 +296,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     the checkpoint for ``on_failure``. Runs while the clone and the sandbox are still open."""
     if not spec.recover_draft:
         return
-    recovery.draft_published = await recover_draft(
+    outcome = await recover_draft(
         run.ctx,
         run.agent,
         run.config,
@@ -304,7 +305,33 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
         settings=run.settings,
         session_links=run.session_links,
     )
+    recovery.draft_published = outcome is not None
+    if outcome is not None and outcome.created_merge_request:
+        await _record_recovered_draft(spec.run_id, outcome)
     recovery.snapshot = await _read_snapshot_after_recovery(run)
+
+
+async def _record_recovered_draft(run_id: str | None, outcome: PublishOutcome) -> None:
+    """Record the draft merge request that recovery opened on the failed ``Run``. Best-effort: a failed write is
+    logged, never raised over the failure being recovered."""
+    merge_request = outcome.merge_request
+    if not run_id or merge_request is None:
+        return
+    fields: dict[str, Any] = {
+        "merge_request_iid": merge_request.merge_request_id,
+        "merge_request_web_url": merge_request.web_url or "",
+        "code_changes": True,
+    }
+    if (stats := outcome.diff_stats) is not None:
+        fields |= {
+            "files_changed": stats.files_changed,
+            "lines_added": stats.lines_added,
+            "lines_removed": stats.lines_removed,
+        }
+    try:
+        await Run.objects.filter(pk=run_id).aupdate(**fields)
+    except Exception:
+        logger.exception("executor: failed to record the recovered draft on run_id=%s", run_id)
 
 
 @asynccontextmanager

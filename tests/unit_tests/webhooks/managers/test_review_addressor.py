@@ -245,7 +245,7 @@ class TestReviewAfterRunMatrix:
 
         async def _recover(*_args, **_kwargs):
             agent.aget_state.return_value = recovered_state
-            return True
+            return SimpleNamespace(created_merge_request=False)
 
         with (
             addressor_run(agent, ctx=_ctx(), stub_recovery=False),
