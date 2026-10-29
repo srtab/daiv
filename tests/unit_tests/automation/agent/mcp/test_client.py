@@ -8,8 +8,9 @@ from langchain_core.tools import StructuredTool
 from langgraph.errors import GraphInterrupt
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import MCPError
+from mcp_types import Icon
 
-from automation.agent.mcp.client import StatusRecorder, build_client, list_tools
+from automation.agent.mcp.client import StatusRecorder, build_client, list_tools, pick_icon_src
 from automation.agent.mcp.errors import classify
 from tests.unit_tests.automation.agent.mcp.helpers import (
     APP_TOOLS,
@@ -348,3 +349,17 @@ class TestServerLogNotifications:
 
         assert result[0]["text"] == "done"
         assert emitted == []
+
+
+@pytest.mark.parametrize(
+    ("icons", "expected"),
+    [
+        ([Icon(src="https://x.test/a.svg")], "https://x.test/a.svg"),
+        ([Icon(src="http://x.test/a.png"), Icon(src="data:image/png;base64,AAAA")], "data:image/png;base64,AAAA"),
+        ([Icon(src="javascript:alert(1)")], None),
+        ([Icon(src="data:image/svg+xml;base64," + "A" * 40000)], None),
+        (None, None),
+    ],
+)
+def test_pick_icon_src(icons, expected):
+    assert pick_icon_src(icons) == expected

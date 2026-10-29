@@ -910,3 +910,20 @@ def test_composer_rows_list_read_only_tools():
     )
     (row,) = services.composer_server_rows([server])
     assert row["read_only_tools"] == ["search_issues"]
+
+
+def fake_connection(*, tools, icon=None):
+    async def connection(payload):
+        return {"ok": True, "tools": tools, "icon": icon}
+
+    return connection
+
+
+@pytest.mark.django_db
+def test_sync_persists_the_server_icon(monkeypatch):
+    server = make_server("iconic")
+    monkeypatch.setattr(services, "test_connection", fake_connection(tools=[], icon="https://x.test/i.png"))
+    services.sync_discovered_tools(server)
+    server.refresh_from_db()
+    assert server.icon == "https://x.test/i.png"
+    assert services.composer_server_rows([server])[0]["icon"] == server.icon
