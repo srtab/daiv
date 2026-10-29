@@ -103,13 +103,23 @@ async def test_missing_repo_id_header_returns_404(client: TestAsyncClient, authe
     await user.adelete()
 
 
-@pytest.mark.django_db
-async def test_missing_ref_header_returns_404(client: TestAsyncClient, authed):
+@pytest.mark.django_db(transaction=True)
+async def test_blank_ref_follows_up_a_session_started_without_one(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    """A job submitted without a ref leaves ``Session.ref`` blank until a run syncs it back, so the page sends
+    ``X-Ref: ""``; the follow-up runs on the default branch instead of 404ing."""
     _, raw, user = authed
+    await Session.objects.acreate(origin=SessionOrigin.API_JOB, thread_id="t-no-ref", user=user, repo_id="a/b", ref="")
+
     response = await client.post(
-        "/chat/completions", json=_run_agent_input(), headers=_auth_headers(raw, **{"X-Repo-ID": "owner/repo"})
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-no-ref"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": ""}),
     )
-    assert response.status_code == 404
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    assert patched_streamer.call_args.kwargs["ref"] == ""
     await user.adelete()
 
 

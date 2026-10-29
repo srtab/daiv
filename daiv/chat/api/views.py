@@ -132,7 +132,7 @@ class RunHandle(Schema):
     openapi_extra={
         "parameters": [
             {"in": "header", "name": HEADER_REPO_ID, "schema": {"type": "string"}, "required": True},
-            {"in": "header", "name": HEADER_REF, "schema": {"type": "string"}, "required": True},
+            {"in": "header", "name": HEADER_REF, "schema": {"type": "string"}, "required": False},
             {"in": "header", "name": HEADER_SANDBOX_ENV, "schema": {"type": "string"}, "required": False},
         ]
     },
@@ -149,9 +149,10 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     inline relay tail (``Accept: text/event-stream``).
     """
     repo_id = request.headers.get(HEADER_REPO_ID)
-    ref = request.headers.get(HEADER_REF)
-    if not repo_id or not ref:
-        raise Http404("Repository ID or reference not found")
+    if not repo_id:
+        raise Http404("Repository ID not found")
+    # Blank runs on the default branch: a job submitted without a ref leaves its session's ref blank.
+    ref = request.headers.get(HEADER_REF) or ""
 
     user = request.auth  # ty: ignore[unresolved-attribute]
     try:
