@@ -288,6 +288,9 @@ def composer_server_rows(rows: list[MCPServer]) -> list[dict[str, Any]]:
             "synced": server.tools_synced_at is not None,
             "available": server_health(server)["ok"],
             "is_default": server.is_default,
+            "read_only_tools": sorted(
+                tool["name"] for tool in server.discovered_tools or [] if tool.get("read_only") is True
+            ),
         })
     return out
 
