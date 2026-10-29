@@ -10,7 +10,7 @@ from sessions.models import RunStatus, SessionOrigin
 from sessions.transcript import annotate_transcript
 
 from tests.unit_tests.chat.chat_stream_driver import REACTIVITY, run_chat_stream
-from tests.unit_tests.chat.transcript_fixtures import asst, bash, read, text, thinking, user
+from tests.unit_tests.chat.transcript_fixtures import asst, bash, question, read, text, thinking, tool_call, user
 from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
@@ -228,6 +228,11 @@ for (const entry of script) {
   }
   if (op === "fillReplayedResult") chat._fillReplayedResult({ toolCallId: arg, content: "1  x" });
   if (op === "openStep") chat.setOpen(stepFor(arg).key, true);
+  if (op === "jump") chat.jumpToTool(`tool-${arg}`);
+  if (op === "stepRows") {
+    const block = chat.runBlocks[0];
+    out.push([...block.items, ...block.ending].map((item) => [item.kind, chat.stepRowsOf(item).map((s) => s.key)]));
+  }
   if (op === "stepOpen") {
     const step = stepFor(arg);
     out.push({ kind: step.kind, open: chat.isOpen(step.key) });
@@ -436,3 +441,29 @@ def test_a_page_loaded_live_folds_each_run_as_its_stream_finishes():
     assert out["rejoined"] == {"folded": True, "workedFor": "Worked for 5s · 1 step"}
     assert out["later"]["folded"] is True
     assert out["later"]["workedFor"].startswith("Worked for ")
+
+
+def test_a_lone_step_a_special_call_with_a_row_and_a_refused_question_render_as_step_rows():
+    delegate = tool_call("d1", "delegate_jobs", {"jobs": []}, result='{"batch_id": "b1", "jobs": []}')
+    phase = {"type": "publish_phase", "id": "p1", "label": "Committing changes", "status": "running"}
+    refused = tool_call("q1", "ask_user_question", {"questions": []}, result="error: ask alone", status="error")
+    segs = [read("c1"), text("x"), read("c2"), read("c3"), delegate, phase, refused, question("q2")]
+    rows = _drive([user("u1"), asst("a1", *segs, streaming=True)], script=["stepRows"])[0]
+    assert rows == [
+        ["step", ["s-c1"]],
+        ["text", []],
+        ["group", []],
+        ["special", ["x-d1"]],
+        ["special", []],
+        ["question", ["q-q1"]],
+        ["question", []],
+    ]
+
+
+def test_jumping_to_a_folded_step_opens_its_fold_group_and_row():
+    turns = [user("u1"), asst("a1", read("c1"), read("c2"), text("Done."))]
+    assert _drive(turns, script=["jump:c2", "shown:u1", "shown:g-s-c1", "stepOpen:c2"]) == [
+        True,
+        True,
+        {"kind": "group", "open": True},
+    ]

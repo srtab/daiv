@@ -197,234 +197,146 @@
           </div>
         </template>
 
-        {# Turns #}
-        <template x-for="(turn, ti) in turns" :key="turn.id">
-          <template x-if="isTurnVisible(turn, ti === turns.length - 1)">
-            <div class="chat-turn-wrap">
-              <template x-if="turn.role === 'run_status'">
-                <div class="chat-run-status" :id="runAnchorId(turn)" :class="`chat-run-status--${turn.status}`" role="status" aria-live="polite">
-                  <span class="chat-run-status__icon" aria-hidden="true">
-                    <template x-if="turn.status === 'aborted'">{% icon "x-mark" "h-4 w-4" %}</template>
-                    <template x-if="turn.status !== 'aborted'">{% icon "exclamation-triangle" "h-4 w-4" %}</template>
-                  </span>
-                  <span class="chat-run-status__text" x-text="turn.message"></span>
-                </div>
-              </template>
-              <template x-if="turn.role !== 'run_status'">
-                <article class="chat-turn" :id="runAnchorId(turn)"
-                         :class="{ [`chat-turn--${turn.role}`]: true, 'chat-turn--daiv': turn.author === 'daiv', 'chat-turn--pending': turn.pending }"
-                         :data-role="turn.role">
-                  <div class="chat-turn__body">
-                    <template x-for="(seg, si) in visibleSegments(turn)" :key="si">
-                      <div class="chat-segment" :class="`chat-segment--${seg.type}`">
-                        <template x-if="seg.type === 'text'">
-                          <template x-if="turn.role === 'assistant'">
-                            <div class="chat-text" x-html="renderMarkdown(seg.content)"></div>
-                          </template>
-                        </template>
-                        <template x-if="seg.type === 'text' && turn.role === 'user' && turn.author === 'daiv'">
-                          <details class="chat-daiv-notice">
-                            <summary class="chat-daiv-notice__summary">
-                              <span class="chat-daiv-notice__from">DAIV</span>
-                              <span aria-hidden="true">·</span>
-                              <span x-text="({ delegation_resume: '{{ daiv_resume_title|escapejs }}', pipeline_webhook: '{{ daiv_ci_fix_title|escapejs }}' })[turn.origin] || ''"></span>
-                              <template x-if="turn.sent_at">
-                                <span class="chat-daiv-notice__time">
-                                  <span aria-hidden="true">·</span>
-                                  <time :datetime="turn.sent_at"
-                                        :title="absoluteTime(turn.sent_at)"
-                                        x-text="relativeTime(turn.sent_at)"></time>
-                                </span>
-                              </template>
-                            </summary>
-                            <div class="chat-daiv-notice__body chat-text" x-html="renderMarkdown(seg.content)"></div>
-                          </details>
-                        </template>
-                        <template x-if="seg.type === 'text' && turn.role === 'user' && turn.author !== 'daiv'">
-                          <div class="chat-user-msg" x-data="userClamp(`chat-user-text-${turn.id}-${si}`)">
-                            <span class="chat-text"
-                                  :id="id"
-                                  :class="{ 'chat-text--clamped': collapsed }"
-                                  x-text="seg.content"></span>
-                            <button type="button" class="chat-user-msg__toggle" x-cloak
-                                    x-show="overflowing"
-                                    :aria-controls="id"
-                                    :aria-expanded="(!collapsed).toString()"
-                                    @click="collapsed = !collapsed"
-                                    x-text="collapsed ? '{{ show_more_label|escapejs }}' : '{{ show_less_label|escapejs }}'"></button>
-                          </div>
-                        </template>
-
-                        <template x-if="seg.type === 'thinking'">
-                          <details class="chat-thinking-seg">
-                            <summary class="chat-thinking-seg__summary">
-                              <span x-show="seg.status === 'running'" class="chat-thinking-seg__dot"></span>
-                              <span x-text="thinkingLabel(seg)"></span>
-                            </summary>
-                            <div class="chat-thinking-seg__body chat-text" x-html="renderMarkdown(seg.content)"></div>
-                          </details>
-                        </template>
-
-                        <template x-if="seg.type === 'publish_phase'">
-                          <div class="chat-phase" :class="`chat-phase--${seg.status}`" :data-status="seg.status">
-                            <span class="chat-phase__icon" aria-hidden="true">
-                              <template x-if="seg.status === 'running'"><span class="chat-phase__spinner"></span></template>
-                              <template x-if="seg.status === 'done'"><span>✓</span></template>
-                            </span>
-                            <span class="chat-phase__label" x-text="seg.label"></span>
-                            <span class="chat-phase__suffix" x-show="seg.status === 'running'">…</span>
-                          </div>
-                        </template>
-
-                        <template x-if="isQuestionCard(seg)">
-                          <div class="chat-question" :class="{ 'chat-question--open': isQuestionOpen(ti) }">
-                            <template x-for="(q, qi) in questionsOf(seg)" :key="qi">
-                              <fieldset class="chat-question__item" :disabled="!isQuestionOpen(ti)">
-                                <legend class="chat-question__header" x-text="q.header"></legend>
-                                <p class="chat-question__text" x-text="q.question"></p>
-                                <p class="chat-question__hint" x-show="q.multi_select && (q.options || []).length">{% translate "Pick any that apply." %}</p>
-                                <div class="chat-question__options" x-show="(q.options || []).length">
-                                  <template x-for="opt in (q.options || [])" :key="opt.label">
-                                    <button type="button" class="chat-question__option"
-                                            :class="{ 'chat-question__option--selected': isOptionSelected(seg, qi, opt.label, ti) }"
-                                            :aria-pressed="isOptionSelected(seg, qi, opt.label, ti).toString()"
-                                            @click="toggleQuestionOption(seg, qi, opt.label)">
-                                      <span class="chat-question__option-label" x-text="opt.label"></span>
-                                      <span class="chat-question__option-desc" x-text="opt.description"></span>
-                                    </button>
-                                  </template>
-                                </div>
-                                <input type="text" class="chat-question__input" x-show="isQuestionOpen(ti)"
-                                       placeholder="{% translate 'Or answer in your own words' %}"
-                                       :aria-label="q.header"
-                                       :value="questionText(seg, qi)"
-                                       @input="setQuestionText(seg, qi, $event.target.value)">
-                              </fieldset>
-                            </template>
-                            <div class="chat-question__actions" x-show="isQuestionOpen(ti)">
-                              <button type="button" class="btn-secondary" @click="skipQuestion()">{% translate "Skip" %}</button>
-                              <button type="button" class="btn-primary chat-question__answer"
-                                      :disabled="!canAnswerQuestion(seg)"
-                                      @click="answerQuestion(seg)">{% translate "Answer" %}</button>
-                            </div>
-                          </div>
-                        </template>
-
-                        <template x-if="seg.type === 'tool_call' && !isQuestionCard(seg)">
-                          <details class="chat-tool" :id="`tool-${seg.id}`"
-                                   :class="`chat-tool--${seg.status}`"
-                                   :data-status="seg.status">
-                            <summary class="chat-tool__summary">
-                              <span class="chat-tool__icon">
-                                <template x-if="seg.status === 'running'"><span class="chat-tool__spinner"></span></template>
-                                <template x-if="seg.status === 'done'"><span>✓</span></template>
-                                <template x-if="seg.status === 'error'"><span>×</span></template>
+        <template x-for="block in runBlocks" :key="block.key">
+          <div class="run-block" :id="!block.anchor && block.runId ? `run-${block.runId}` : null">
+            <template x-if="block.anchor">
+              <article class="chat-turn chat-turn--user" :id="runAnchorId(block.anchor)"
+                       :class="{ 'chat-turn--daiv': block.anchor.author === 'daiv', 'chat-turn--pending': block.anchor.pending }">
+                <div class="chat-turn__body">
+                  <template x-for="(seg, si) in block.anchor.segments" :key="si">
+                    <div class="chat-segment" :class="`chat-segment--${seg.type}`">
+                      <template x-if="seg.type === 'text' && block.anchor.author === 'daiv'">
+                        <details class="chat-daiv-notice">
+                          <summary class="chat-daiv-notice__summary">
+                            <span class="chat-daiv-notice__from">DAIV</span>
+                            <span aria-hidden="true">·</span>
+                            <span x-text="({ delegation_resume: '{{ daiv_resume_title|escapejs }}', pipeline_webhook: '{{ daiv_ci_fix_title|escapejs }}' })[block.anchor.origin] || ''"></span>
+                            <template x-if="block.anchor.sent_at">
+                              <span class="chat-daiv-notice__time">
+                                <span aria-hidden="true">·</span>
+                                <time :datetime="block.anchor.sent_at"
+                                      :title="absoluteTime(block.anchor.sent_at)"
+                                      x-text="relativeTime(block.anchor.sent_at)"></time>
                               </span>
-                              <span class="chat-tool__name" x-text="toolSignature(seg).label"></span>
-                              <span class="chat-tool__path" x-text="toolSignature(seg).path"></span>
-                              <template x-for="b in toolSignature(seg).badges" :key="b.text">
-                                <span class="chat-tool__badge" :class="`chat-tool__badge--${b.tone}`" x-text="b.text"></span>
-                              </template>
-                              {% icon "chevron-down" "chat-tool__chev h-3.5 w-3.5" %}
-                            </summary>
-                            <div class="chat-tool__body" x-html="toolBodyHTML(seg)"></div>
-                          </details>
-                        </template>
-
-                        <template x-if="seg.type === 'artifact_group'">
-                          <div class="artifact-card">
-                            <div class="artifact-card__header">
-                              {% icon "document-text" "h-4 w-4 shrink-0 text-gray-400" %}
-                              <span>{% translate "Artifacts" %}</span>
-                              <span class="artifact-card__meta font-normal tracking-normal normal-case"
-                                    x-text="seg.items.filter((it) => it.state === 'published').length"></span>
-                            </div>
-                            <ul class="artifact-card__list">
-                              <template x-for="(item, ii) in seg.items" :key="ii">
-                                <li class="artifact-card__row">
-                                  <template x-if="item.state === 'running'">
-                                    <div class="contents">
-                                      <span class="chat-tool__spinner text-amber-400" aria-hidden="true"></span>
-                                      <span class="artifact-card__title" x-text="item.title"></span>
-                                      <span class="artifact-card__meta" x-show="!item.updating">{% translate "Publishing…" %}</span>
-                                      <span class="artifact-card__meta" x-show="item.updating">{% translate "Updating…" %}</span>
-                                    </div>
-                                  </template>
-                                  <template x-if="item.state === 'error'">
-                                    <div class="contents">
-                                      <span class="shrink-0 text-red-400" aria-hidden="true">×</span>
-                                      <span class="artifact-card__title" x-text="item.title"></span>
-                                      <span class="artifact-card__meta artifact-card__meta--error" x-text="item.message"></span>
-                                    </div>
-                                  </template>
-                                  <template x-if="item.state === 'published'">
-                                    <div class="contents">
-                                      <a class="artifact-card__title" :href="item.url" :title="item.filename"
-                                         x-text="item.title" target="_blank" rel="noopener noreferrer"></a>
-                                      <span class="meta-pill" x-show="item.kindLabel" x-text="item.kindLabel"></span>
-                                      <span class="artifact-card__meta" x-show="item.updated">{% translate "Updated" %}</span>
-                                      <span class="artifact-card__meta" x-show="item.sizeLabel" x-text="item.sizeLabel"></span>
-                                      <a class="artifact-download" x-show="item.download_url" :href="item.download_url"
-                                         title="{% translate 'Download' %}">
-                                        {% icon "arrow-down-tray" "h-4 w-4" %}
-                                        <span class="sr-only">{% translate "Download" %}</span>
-                                      </a>
-                                    </div>
-                                  </template>
-                                </li>
-                              </template>
-                            </ul>
-                          </div>
-                        </template>
-                      </div>
-                    </template>
-                  </div>
-
-                  <template x-if="turnHasActions(turn, ti) && turn.author !== 'daiv'">
-                    <div class="chat-turn__actions">
-                      {# Icon-only: the labels stay as sr-only text so the shown span still names #}
-                      {# the button (x-show=display:none drops the hidden ones from the a11y #}
-                      {# tree), which also announces the outcome without a live region. #}
-                      <button type="button" class="chat-turn__action-btn" x-show="canCopyTurn(turn, ti)"
-                              title="{% translate 'Copy' %}"
-                              x-data="{ state: '', _t: null, async copy() { this.state = await copyFinalText(turn) ? 'copied' : 'failed'; clearTimeout(this._t); this._t = setTimeout(() => { this.state = ''; }, 1500); } }"
-                              @click="copy()">
-                        <span x-show="!state" class="chat-turn__action-inner">
-                          {% icon "clipboard-document" "chat-turn__action-icon" %}
-                          <span class="sr-only">{% translate "Copy" %}</span>
-                        </span>
-                        <span x-show="state === 'copied'" x-cloak class="chat-turn__action-inner">
-                          {% icon "check" "chat-turn__action-icon" %}
-                          <span class="sr-only">{% translate "Copied" %}</span>
-                        </span>
-                        <span x-show="state === 'failed'" x-cloak class="chat-turn__action-inner">
-                          {% icon "x-mark" "chat-turn__action-icon" %}
-                          <span class="sr-only">{% translate "Copy failed" %}</span>
-                        </span>
-                      </button>
-                      <template x-if="turn.retry_url">
-                        <a class="chat-turn__action-btn" :href="turn.retry_url" title="{% translate 'Retry this run' %}">
-                          <span class="chat-turn__action-inner">
-                            {% icon "arrow-path" "chat-turn__action-icon" %}
-                            <span class="sr-only">{% translate "Retry this run" %}</span>
-                          </span>
-                        </a>
+                            </template>
+                          </summary>
+                          <div class="chat-daiv-notice__body chat-text" x-html="renderMarkdown(seg.content)"></div>
+                        </details>
                       </template>
-                      <template x-if="turn.pending">
-                        <span class="chat-turn__pending">{% icon "clock" "h-3 w-3" %}{% translate "Pending" %}</span>
-                      </template>
-                      <template x-if="!turn.pending && (turn.sent_at || turn.received_at)">
-                        <time class="chat-turn__time"
-                              :datetime="turn.sent_at || turn.received_at"
-                              :title="absoluteTime(turn.sent_at || turn.received_at)"
-                              x-text="relativeTime(turn.sent_at || turn.received_at)"></time>
+                      <template x-if="seg.type === 'text' && block.anchor.author !== 'daiv'">
+                        <div class="chat-user-msg" x-data="userClamp(`chat-user-text-${block.anchor.id}-${si}`)">
+                          <span class="chat-text"
+                                :id="id"
+                                :class="{ 'chat-text--clamped': collapsed }"
+                                x-text="seg.content"></span>
+                          <button type="button" class="chat-user-msg__toggle" x-cloak
+                                  x-show="overflowing"
+                                  :aria-controls="id"
+                                  :aria-expanded="(!collapsed).toString()"
+                                  @click="collapsed = !collapsed"
+                                  x-text="collapsed ? '{{ show_more_label|escapejs }}' : '{{ show_less_label|escapejs }}'"></button>
+                        </div>
                       </template>
                     </div>
                   </template>
-                </article>
-              </template>
-            </div>
-          </template>
+                </div>
+                <template x-if="block.anchor.author !== 'daiv' && turnHasActions(block.anchor, block.anchorIndex)">
+                  <div class="chat-turn__actions">
+                    {% include "sessions/_copy_turn_button.html" with turn="block.anchor" ti="block.anchorIndex" %}
+                    <template x-if="block.anchor.pending">
+                      <span class="chat-turn__pending">{% icon "clock" "h-3 w-3" %}{% translate "Pending" %}</span>
+                    </template>
+                    <template x-if="!block.anchor.pending && (block.anchor.sent_at || block.anchor.received_at)">
+                      <time class="chat-turn__time"
+                            :datetime="block.anchor.sent_at || block.anchor.received_at"
+                            :title="absoluteTime(block.anchor.sent_at || block.anchor.received_at)"
+                            x-text="relativeTime(block.anchor.sent_at || block.anchor.received_at)"></time>
+                    </template>
+                  </div>
+                </template>
+              </article>
+            </template>
+
+            <template x-if="block.folded">
+              <details class="run-fold"
+                       :data-run-ending="block.ending.length ? false : ''"
+                       :open="isOpen(block.key)"
+                       @toggle="setOpen(block.key, $el.open)">
+                <summary class="run-fold__summary">
+                  <span class="run-fold__label" x-text="workedForLabel(block)"></span>
+                  <span class="run-failed" x-show="block.stats.failed"
+                        x-text="TranscriptLabels.t('failed', { count: block.stats.failed })"></span>
+                  {% include "sessions/_line_counts.html" with counts="block.stats" %}
+                  {% icon "chevron-down" "chat-chev chat-chev--down run-fold__chev h-3.5 w-3.5" %}
+                </summary>
+                <template x-if="isOpen(block.key)">
+                  <div class="run-items run-fold__body">
+                    <template x-for="item in block.items" :key="item.key">
+                      {% include "sessions/_run_item.html" %}
+                    </template>
+                  </div>
+                </template>
+              </details>
+            </template>
+
+            <template x-if="!block.folded && block.items.length">
+              <div class="run-items" data-run-ending>
+                <template x-for="item in block.items" :key="item.key">
+                  {% include "sessions/_run_item.html" %}
+                </template>
+              </div>
+            </template>
+
+            <template x-if="block.ending.length">
+              <div class="run-items" data-run-ending>
+                <template x-for="item in block.ending" :key="item.key">
+                  {% include "sessions/_run_item.html" %}
+                </template>
+              </div>
+            </template>
+
+            <template x-if="block.cards.length">
+              <div class="run-items" data-run-cards>
+                <template x-for="item in block.cards" :key="item.key">
+                  {% include "sessions/_run_item.html" %}
+                </template>
+              </div>
+            </template>
+
+            <template x-for="status in block.statuses" :key="status.id">
+              <div class="chat-run-status" :id="runAnchorId(status)" :class="`chat-run-status--${status.status}`"
+                   :data-run-ending="block.items.length ? false : ''"
+                   role="status" aria-live="polite">
+                <span class="chat-run-status__icon" aria-hidden="true">
+                  <template x-if="status.status === 'aborted'">{% icon "x-mark" "h-4 w-4" %}</template>
+                  <template x-if="status.status !== 'aborted'">{% icon "exclamation-triangle" "h-4 w-4" %}</template>
+                </span>
+                <span class="chat-run-status__text" x-text="status.message"></span>
+              </div>
+            </template>
+
+            <template x-if="block.retryUrl || (block.lastTurn && turnHasActions(block.lastTurn, block.lastTurnIndex))">
+              <div class="chat-turn__actions run-block__actions">
+                <template x-if="block.lastTurn">
+                  {% include "sessions/_copy_turn_button.html" with turn="block.lastTurn" ti="block.lastTurnIndex" %}
+                </template>
+                <template x-if="block.retryUrl">
+                  <a class="chat-turn__action-btn" :href="block.retryUrl" title="{% translate 'Retry this run' %}">
+                    <span class="chat-turn__action-inner">
+                      {% icon "arrow-path" "chat-turn__action-icon" %}
+                      <span class="sr-only">{% translate "Retry this run" %}</span>
+                    </span>
+                  </a>
+                </template>
+                <template x-if="block.lastTurn?.sent_at || block.lastTurn?.received_at">
+                  <time class="chat-turn__time"
+                        :datetime="block.lastTurn.sent_at || block.lastTurn.received_at"
+                        :title="absoluteTime(block.lastTurn.sent_at || block.lastTurn.received_at)"
+                        x-text="relativeTime(block.lastTurn.sent_at || block.lastTurn.received_at)"></time>
+                </template>
+              </div>
+            </template>
+          </div>
         </template>
 
         <div class="chat-thinking" :class="{ 'chat-thinking--waiting': waiting }"

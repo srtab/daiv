@@ -1231,3 +1231,28 @@ def test_detail_and_new_chat_embed_the_transcript_labels(member_client, member_u
         new_chat = member_client.get(reverse("session_new_chat"))
     assert 'id="chat-transcript-labels"' in detail.content.decode()
     assert 'id="chat-transcript-labels"' in new_chat.content.decode()
+
+
+def _detail_html(client, session: Session) -> str:
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id})).content.decode()
+
+
+@pytest.mark.django_db
+def test_session_page_loads_the_transcript_scripts_in_order(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+    names = ("transcript-labels", "tool-renderers", "transcript-blocks", "chat-stream")
+    order = [html.index(f"chat/js/{name}.js") for name in names]
+    assert order == sorted(order)
+
+
+@pytest.mark.django_db
+def test_session_page_renders_blocks_not_turns(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+    assert 'x-for="block in runBlocks"' in html and "visibleSegments(" not in html
+
+
+@pytest.mark.django_db
+def test_session_page_marks_each_runs_ending_cards_and_step_rows(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+    assert "data-run-ending" in html and "data-run-cards" in html and 'class="step-row"' in html

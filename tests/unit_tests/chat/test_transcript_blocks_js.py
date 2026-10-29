@@ -266,6 +266,28 @@ def test_question_item_carries_its_turn_index():
     assert b["ending"][0]["turnIndex"] == 2
 
 
+def test_a_block_carries_its_anchor_and_last_turn_indices_and_its_runs_retry_link():
+    turns = [user("u1"), asst("a1", read("c1")), asst("a2", text("ok")), user("u2"), asst("a3", text("hi"))]
+    turns[0]["retry_url"] = "/runs/new?from=1"
+    blocks = _blocks(turns)
+    assert [(b["anchorIndex"], b["lastTurnIndex"], b["retryUrl"]) for b in blocks] == [
+        (0, 2, "/runs/new?from=1"),
+        (3, 4, None),
+    ]
+
+
+def test_an_anchorless_block_takes_its_retry_link_from_its_first_turn():
+    first = {**asst("x1", read("c1")), "run_id": "run-9", "retry_url": "/runs/new?from=9"}
+    block = _blocks([first, asst("x2", text("done"))])[0]
+    assert (block["anchorIndex"], block["lastTurnIndex"], block["retryUrl"]) == (None, 1, "/runs/new?from=9")
+
+
+def test_a_question_the_agent_could_not_ask_carries_a_failed_row():
+    refused = tool_call("q1", "ask_user_question", {"questions": []}, result="error: ask alone", status="error")
+    item = _blocks([user("u1"), asst("a1", refused)])[0]["items"][0]
+    assert item["kind"] == "question" and item["row"]["failed"] is True
+
+
 REBUILD = """(() => {
   const build = (previous) =>
     buildRunBlocks(vars.turns, {latestArtifactsById: new Map(), mcpServers: [], previous});

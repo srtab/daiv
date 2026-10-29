@@ -1,0 +1,5 @@
+{# counts: an Alpine expression for an object with `added` and `removed` line counts, or null #}
+<span class="line-counts" x-show="{{ counts }}?.added || {{ counts }}?.removed">
+  <span class="line-counts__added" x-show="{{ counts }}?.added" x-text="'+' + {{ counts }}?.added"></span>
+  <span class="line-counts__removed" x-show="{{ counts }}?.removed" x-text="'−' + {{ counts }}?.removed"></span>
+</span>

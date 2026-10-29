@@ -1,0 +1,145 @@
+{% load i18n icon_tags %}
+<div class="run-item">
+  <template x-if="item.kind === 'text'">
+    <div class="chat-segment--text chat-text" x-html="renderMarkdown(item.seg.content)"></div>
+  </template>
+
+  <template x-for="step in stepRowsOf(item)" :key="step.key">
+    {% include "sessions/_step_row.html" %}
+  </template>
+
+  <template x-if="item.kind === 'group'">
+    <details class="step-group"
+             :open="isOpen(item.key, item.key === currentGroupKey)"
+             @toggle="setOpen(item.key, $el.open, item.key === currentGroupKey)">
+      <summary class="step-group__line">
+        <span class="step-group__icon" aria-hidden="true">
+          <template x-if="item.line.running"><span class="chat-spinner"></span></template>
+          <template x-if="!item.line.running">
+            <span class="contents" x-html="TranscriptLabels.iconHTML(item.line.icon, 'h-3.5 w-3.5')"></span>
+          </template>
+        </span>
+        <span class="step-group__text">
+          <span x-text="item.line.text"></span>
+          <span class="step-group__now" x-show="item.line.running" x-text="`· ${item.line.running}`"></span>
+        </span>
+        <span class="run-failed" x-show="item.line.failed"
+              x-text="TranscriptLabels.t('failed', { count: item.line.failed })"></span>
+        {% include "sessions/_line_counts.html" with counts="item.line" %}
+        {% icon "chevron-down" "chat-chev chat-chev--down step-group__chev h-3.5 w-3.5" %}
+      </summary>
+      <template x-if="isOpen(item.key, item.key === currentGroupKey)">
+        <div class="step-group__rows"
+             x-data="{ follow: true, clipped: false }"
+             :class="{ 'step-group__rows--live': item.key === currentGroupKey, 'step-group__rows--clipped': clipped }"
+             x-effect="item.steps.length; follow && $nextTick(() => { $el.scrollTop = $el.scrollHeight; })"
+             @scroll.passive="follow = $el.scrollHeight - $el.scrollTop - $el.clientHeight < 24; clipped = $el.scrollTop > 0">
+          <template x-for="step in item.steps" :key="step.key">
+            {% include "sessions/_step_row.html" %}
+          </template>
+        </div>
+      </template>
+    </details>
+  </template>
+
+  <template x-if="item.kind === 'special' && !item.row">
+    <div class="chat-phase" :class="`chat-phase--${item.seg.status}`" :data-status="item.seg.status">
+      <span class="chat-phase__icon" aria-hidden="true">
+        <template x-if="item.seg.status === 'running'"><span class="chat-phase__spinner"></span></template>
+        <template x-if="item.seg.status === 'done'"><span>✓</span></template>
+      </span>
+      <span class="chat-phase__label" x-text="item.seg.label"></span>
+      <span class="chat-phase__suffix" x-show="item.seg.status === 'running'">…</span>
+    </div>
+  </template>
+
+  <template x-if="item.kind === 'question' && isQuestionCard(item.seg) && !block.live && isQuestionAnswered(item)">
+    <details class="question-answered" :open="isOpen(item.key)" @toggle="setOpen(item.key, $el.open)">
+      <summary class="question-answered__summary">
+        {% icon "chat-bubble" "question-answered__icon h-3.5 w-3.5" %}
+        <span class="question-answered__text" x-text="answeredSummary(item.seg, item.turnIndex)"></span>
+        {% icon "chevron-down" "chat-chev chat-chev--down question-answered__chev h-3.5 w-3.5" %}
+      </summary>
+      <template x-if="isOpen(item.key)">
+        <div class="question-answered__body">
+          <template x-for="(q, qi) in questionsOf(item.seg)" :key="qi">
+            <fieldset class="chat-question__item" disabled>
+              <legend class="chat-question__header" x-text="q.header"></legend>
+              <p class="chat-question__text" x-text="q.question"></p>
+              {% include "sessions/_question_options.html" %}
+            </fieldset>
+          </template>
+        </div>
+      </template>
+    </details>
+  </template>
+
+  <template x-if="item.kind === 'question' && isQuestionCard(item.seg) && (block.live || !isQuestionAnswered(item))">
+    <div class="chat-question" :class="{ 'chat-question--open': isQuestionOpen(item.turnIndex) }">
+      <template x-for="(q, qi) in questionsOf(item.seg)" :key="qi">
+        <fieldset class="chat-question__item" :disabled="!isQuestionOpen(item.turnIndex)">
+          <legend class="chat-question__header" x-text="q.header"></legend>
+          <p class="chat-question__text" x-text="q.question"></p>
+          {% include "sessions/_question_options.html" %}
+          <input type="text" class="chat-question__input" x-show="isQuestionOpen(item.turnIndex)"
+                 placeholder="{% translate 'Or answer in your own words' %}"
+                 :aria-label="q.header"
+                 :value="questionText(item.seg, qi)"
+                 @input="setQuestionText(item.seg, qi, $event.target.value)">
+        </fieldset>
+      </template>
+      <div class="chat-question__actions" x-show="isQuestionOpen(item.turnIndex)">
+        <button type="button" class="btn-secondary" @click="skipQuestion()">{% translate "Skip" %}</button>
+        <button type="button" class="btn-primary chat-question__answer"
+                :disabled="!canAnswerQuestion(item.seg)"
+                @click="answerQuestion(item.seg)">{% translate "Answer" %}</button>
+      </div>
+    </div>
+  </template>
+
+  <template x-if="item.kind === 'artifacts'">
+    <div class="artifact-card">
+      <div class="artifact-card__header">
+        {% icon "paper-clip" "h-4 w-4 shrink-0 text-gray-400" %}
+        <span>{% translate "Artifacts" %}</span>
+        <span class="artifact-card__meta font-normal tracking-normal normal-case"
+              x-text="item.items.filter((it) => it.state === 'published').length"></span>
+      </div>
+      <ul class="artifact-card__list">
+        <template x-for="(art, ai) in item.items" :key="ai">
+          <li class="artifact-card__row">
+            <template x-if="art.state === 'running'">
+              <div class="contents">
+                <span class="chat-spinner" aria-hidden="true"></span>
+                <span class="artifact-card__title" x-text="art.title"></span>
+                <span class="artifact-card__meta" x-show="!art.updating">{% translate "Publishing…" %}</span>
+                <span class="artifact-card__meta" x-show="art.updating">{% translate "Updating…" %}</span>
+              </div>
+            </template>
+            <template x-if="art.state === 'error'">
+              <div class="contents">
+                <span class="shrink-0 text-red-400" aria-hidden="true">×</span>
+                <span class="artifact-card__title" x-text="art.title"></span>
+                <span class="artifact-card__meta artifact-card__meta--error" x-text="art.message"></span>
+              </div>
+            </template>
+            <template x-if="art.state === 'published'">
+              <div class="contents">
+                <a class="artifact-card__title" :href="art.url" :title="art.filename"
+                   x-text="art.title" target="_blank" rel="noopener noreferrer"></a>
+                <span class="meta-pill" x-show="art.kindLabel" x-text="art.kindLabel"></span>
+                <span class="artifact-card__meta" x-show="art.updated">{% translate "Updated" %}</span>
+                <span class="artifact-card__meta" x-show="art.sizeLabel" x-text="art.sizeLabel"></span>
+                <a class="artifact-download" x-show="art.download_url" :href="art.download_url"
+                   title="{% translate 'Download' %}">
+                  {% icon "arrow-down-tray" "h-4 w-4" %}
+                  <span class="sr-only">{% translate "Download" %}</span>
+                </a>
+              </div>
+            </template>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </template>
+</div>

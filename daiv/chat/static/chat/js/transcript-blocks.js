@@ -219,7 +219,8 @@
       const itemOf = (e) => {
         if (e.kind === "text") return { kind: "text", key: claim(`t-${e.at}`), seg: e.seg, turn: e.turn };
         if (e.kind === "question") {
-          return { kind: "question", key: claim(`q-${e.ref}`), seg: e.seg, turn: e.turn, turnIndex: e.ti };
+          const row = rowFor(e.seg, servers, serversId);
+          return { kind: "question", key: claim(`q-${e.ref}`), seg: e.seg, turn: e.turn, turnIndex: e.ti, row };
         }
         const row = e.seg.type === "tool_call" ? rowFor(e.seg, servers, serversId) : null;
         return { kind: "special", key: claim(`x-${e.ref}`), seg: e.seg, row };
@@ -274,10 +275,13 @@
       }
 
       const own = run.turns.map(({ turn }) => turn);
+      const last = run.turns.findLast(({ turn }) => turn.role === "assistant");
       return {
         key,
         anchor: run.anchor,
+        anchorIndex: run.anchor ? run.firstIndex : null,
         runId: run.runId,
+        retryUrl: run.first.retry_url || null,
         live,
         folded,
         stats,
@@ -287,7 +291,8 @@
         ending,
         cards,
         statuses: run.statuses,
-        lastTurn: own.findLast((turn) => turn.role === "assistant") ?? null,
+        lastTurn: last?.turn ?? null,
+        lastTurnIndex: last?.ti ?? null,
       };
     });
     return reuse(blocks, opts.previous);

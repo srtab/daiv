@@ -1,0 +1,19 @@
+{% load i18n %}
+<p class="chat-question__hint" x-show="!q.multi_select && (q.options || []).length">{% translate "Pick one." %}</p>
+<p class="chat-question__hint" x-show="q.multi_select && (q.options || []).length">{% translate "Pick any that apply." %}</p>
+<div class="chat-question__options" x-show="(q.options || []).length">
+  <template x-for="opt in (q.options || [])" :key="opt.label">
+    <label class="chat-question__option"
+           :class="{ 'chat-question__option--selected': isOptionSelected(item.seg, qi, opt.label, item.turnIndex) }">
+      <input class="chat-question__control"
+             :type="q.multi_select ? 'checkbox' : 'radio'"
+             :name="`${item.key}-${qi}`"
+             :checked="isOptionSelected(item.seg, qi, opt.label, item.turnIndex)"
+             @change="toggleQuestionOption(item.seg, qi, opt.label)">
+      <span class="chat-question__option-text">
+        <span class="chat-question__option-label" x-text="opt.label"></span>
+        <span class="chat-question__option-desc" x-show="opt.description" x-text="opt.description"></span>
+      </span>
+    </label>
+  </template>
+</div>

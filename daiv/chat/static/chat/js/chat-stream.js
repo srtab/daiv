@@ -1241,6 +1241,13 @@
       this.openKeys[key] = open;
     },
 
+    stepRowsOf(item) {
+      if (item.kind === "step") return [item.step];
+      if (item.kind === "special" && item.row) return [item];
+      if (item.kind === "question" && !this.isQuestionCard(item.seg)) return [item];
+      return [];
+    },
+
     workedForLabel(block) {
       const T = window.TranscriptLabels;
       const steps = T.tn("steps", block.stats.steps);
@@ -1639,14 +1646,31 @@
       }
     },
 
+    // A step renders only once its fold and group are open, so open them before looking for it.
     jumpToTool(segmentId) {
-      const el = document.getElementById(segmentId);
-      if (!el) return;
-      if (el.tagName.toLowerCase() === "details") el.open = true;
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.remove("chat-tool__highlight");
-      void el.offsetWidth; // restart animation
-      el.classList.add("chat-tool__highlight");
+      this._openPathTo(segmentId.replace(/^tool-/, ""));
+      this.$nextTick(() => {
+        const el = document.getElementById(segmentId);
+        if (!el) return;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.remove("chat-tool__highlight");
+        void el.offsetWidth; // restart animation
+        el.classList.add("chat-tool__highlight");
+      });
+    },
+
+    _openPathTo(segId) {
+      for (const block of this.runBlocks) {
+        for (const item of block.items) {
+          const steps = item.kind === "group" ? item.steps : item.kind === "step" ? [item.step] : [];
+          const step = steps.find((s) => s.seg.id === segId);
+          if (!step) continue;
+          if (block.folded) this.setOpen(block.key, true);
+          if (item.kind === "group") this.setOpen(item.key, true, item.key === this.currentGroupKey);
+          this.setOpen(step.key, true);
+          return;
+        }
+      }
     },
 
     dispatch(evt, turn, at) {
@@ -1899,9 +1923,8 @@
           el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
           return;
         }
-        // Breathing room above it comes from .chat-turn's scroll-margin-top,
-        // and the browser clamps at the end of the scroll range — so a short
-        // final answer degrades to the old bottom-anchored position for free.
+        // [data-run-ending]'s scroll-margin-top leaves room above it, and the browser clamps at the
+        // end of the scroll range, so a short final answer still lands bottom-anchored.
         target.scrollIntoView({ block: "start", behavior: "auto" });
       }));
     },
