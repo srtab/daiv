@@ -48,6 +48,8 @@
     row_delegate: "Delegated jobs",
     row_check_jobs: "Checked delegated jobs",
     row_cancel_jobs: "Cancelled delegated jobs",
+    row_question: "Asked a question",
+    live_question: "Asking a question",
     row_mcp: "{server} · {tool}",
     thinking: "Thinking…",
     thought_for: "Thought for {duration}",
@@ -69,6 +71,7 @@
   const payload = loadPayload();
   const overrides = payload.labels && typeof payload.labels === "object" ? payload.labels : {};
   const iconBase = typeof payload.icon_base === "string" ? payload.icon_base : "/static/core/img/icons/";
+  const iconUrls = payload.icons && typeof payload.icons === "object" ? payload.icons : {};
 
   const fill = (template, values) =>
     template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
@@ -97,7 +100,7 @@
 
   const iconHTML = (name, cls) => {
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(String(name))) return "";
-    const url = iconBase + name + ".svg";
+    const url = Object.hasOwn(iconUrls, name) ? iconUrls[name] : iconBase + name + ".svg";
     return (
       `<span class="inline-block ${escapeAttr(cls || "")}" style="background-color: currentColor; ` +
       `-webkit-mask: url('${url}') no-repeat center / contain; ` +

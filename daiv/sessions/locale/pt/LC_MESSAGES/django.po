@@ -722,6 +722,12 @@ msgstr "Consultou as tarefas delegadas"
 msgid "Cancelled delegated jobs"
 msgstr "Cancelou as tarefas delegadas"
 
+msgid "Asked a question"
+msgstr "Fez uma pergunta"
+
+msgid "Asking a question"
+msgstr "A fazer uma pergunta"
+
 msgid "{server} · {tool}"
 msgstr "{server} · {tool}"
 

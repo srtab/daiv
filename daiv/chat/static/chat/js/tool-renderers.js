@@ -620,6 +620,16 @@
         basename(pickKeyOrPartial(args, ["path"], argsStr) ?? ""),
       category: { key: "artifact" },
     }),
+    ask_user_question: ({ args, argsStr }) => {
+      const questions = pickKey(args, ["questions"]);
+      const text = Array.isArray(questions) ? questions[0]?.question : partialStringArg(argsStr, "question");
+      return {
+        icon: "chat-bubble",
+        key: "question",
+        detail: truncate(String(text ?? "").replace(/\s+/g, " "), 80),
+        category: { key: "question" },
+      };
+    },
     delegate_jobs: () => ({ icon: "share", key: "delegate", category: { key: "jobs" } }),
     check_delegated_jobs: ({ args }) => ({
       icon: "share",

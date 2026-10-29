@@ -1,6 +1,34 @@
 from __future__ import annotations
 
+from django.templatetags.static import static
 from django.utils.translation import gettext
+
+TRANSCRIPT_ICONS = frozenset({
+    "agent",
+    "beaker",
+    "chat-bubble",
+    "command-line",
+    "document-magnifying-glass",
+    "document-plus",
+    "document-text",
+    "folder",
+    "github",
+    "gitlab",
+    "light-bulb",
+    "magnifying-glass",
+    "paper-clip",
+    "pencil",
+    "puzzle-piece",
+    "share",
+    "squares-plus",
+    "web-fetch",
+    "web-search",
+})
+
+
+def transcript_icon_urls() -> dict[str, str]:
+    """The URL of each icon the transcript JS draws, as ``{% icon %}`` resolves it (hashed in production)."""
+    return {name: static(f"core/img/icons/{name}.svg") for name in sorted(TRANSCRIPT_ICONS)}
 
 
 def transcript_labels() -> dict[str, str | list[str]]:
@@ -54,6 +82,8 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "row_delegate": gettext("Delegated jobs"),
         "row_check_jobs": gettext("Checked delegated jobs"),
         "row_cancel_jobs": gettext("Cancelled delegated jobs"),
+        "row_question": gettext("Asked a question"),
+        "live_question": gettext("Asking a question"),
         "row_mcp": gettext("{server} · {tool}"),
         "thinking": gettext("Thinking…"),
         "thought_for": gettext("Thought for {duration}"),

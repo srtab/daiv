@@ -126,6 +126,16 @@ def test_special_calls_have_rows(name, phrase, icon, category):
     assert (row["phrase"], row["livePhrase"], row["icon"], row["category"]) == (phrase, phrase, icon, category)
 
 
+def test_question_row_shows_the_question_while_it_streams_and_when_refused():
+    args = json.dumps({"questions": [{"header": "Approach", "question": "Which fix?", "options": []}]})
+    seg = {"type": "tool_call", "id": "q1", "name": "ask_user_question", "result": None, "status": "running"}
+    live = _row_seg({**seg, "args": args[: args.index("fix") + 3]})
+    assert (live["livePhrase"], live["icon"], live["detail"]) == ("Asking a question", "chat-bubble", "Which fix")
+    refused = _row_seg({**seg, "args": args, "result": "error: ask alone", "status": "error"})
+    assert (refused["phrase"], refused["detail"], refused["failed"]) == ("Asked a question", "Which fix?", True)
+    assert refused["category"] == {"key": "question"}
+
+
 def test_batch_id_is_the_detail_of_check_rows():
     assert _row("check_delegated_jobs", {"batch_id": "b1"})["detail"] == "b1"
 
