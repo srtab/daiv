@@ -33,10 +33,10 @@
     };
   };
 
-  // Structured-response tools of the diff_to_metadata subagents: their lifecycle only names the
-  // working line's phase; the raw JSON never surfaces as a tool card.
   const PUBLISH_RESULT_EVENT = "daiv_publish_result";
 
+  // Structured-response tools of the diff_to_metadata subagents: their lifecycle only names the
+  // working line's phase; the raw JSON never surfaces as a tool card.
   const PUBLISH_PHASE_TOOLS = {
     PullRequestMetadata: "publish_creating",
     CommitMetadata: "publish_committing",
@@ -1688,7 +1688,9 @@
         if (phase) {
           if (!this._phaseCalls.has(evt.toolCallId)) {
             this._phaseCalls.add(evt.toolCallId);
-            this.publishPhase = window.TranscriptLabels.t(phase);
+            if (!this.publishPhase || phase === "publish_creating") {
+              this.publishPhase = window.TranscriptLabels.t(phase);
+            }
           }
           return;
         }
@@ -1711,12 +1713,10 @@
           seg.args += evt.delta || "";
         }
       } else if (type === AGUI.TOOL_CALL_END) {
-        if (this._phaseCalls.has(evt.toolCallId)) this.publishPhase = "";
+        // The phase outlasts its call: the metadata calls run in parallel, and commit, push and the
+        // merge request follow them; the publish result or the turn's end clears it.
       } else if (type === AGUI.TOOL_CALL_RESULT) {
-        if (this._phaseCalls.has(evt.toolCallId)) {
-          this.publishPhase = "";
-          return;
-        }
+        if (this._phaseCalls.has(evt.toolCallId)) return;
         const idx = this._toolIndex.get(evt.toolCallId);
         const seg = idx != null ? turn.segments[idx] : null;
         if (!seg) {

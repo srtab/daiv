@@ -274,6 +274,10 @@ for (const entry of script) {
     chat.dispatch({ type: "TOOL_CALL_START", toolCallId: `t-${arg}`, toolCallName: arg }, live(), 0);
   }
   if (op === "toolEnd") chat.dispatch({ type: "TOOL_CALL_END", toolCallId: `t-${arg}` }, live(), 0);
+  if (op === "toolResult") {
+    chat.dispatch({ type: "TOOL_CALL_RESULT", toolCallId: `t-${arg}`, content: "{}" }, live(), 0);
+  }
+  if (op === "publishPhase") out.push(chat.publishPhase);
   if (op === "custom") {
     const value = JSON.parse(entry.slice(op.length + arg.length + 2));
     chat.dispatch({ type: "CUSTOM", name: arg, value }, live(), 0);
@@ -343,7 +347,7 @@ def test_working_line_names_the_running_step():
 
 
 @pytest.mark.parametrize(("segment", "label"), [(read("c1"), "Thinking…"), (thinking(status="running"), "Thinking…")])
-def test_working_line_between_steps_and_while_publishing(segment, label):
+def test_working_line_between_steps(segment, label):
     turns = [user("u1"), asst("a1", text("Done."), segment, streaming=True)]
     assert _drive(turns, script=["runStatus"])[-1] == label
 
@@ -555,15 +559,27 @@ def test_committing_phase_names_the_working_line():
     assert _drive(PUBLISHING, script=["toolStart:CommitMetadata", "runStatus"]) == ["Committing changes…"]
 
 
-@pytest.mark.parametrize("end", ["toolEnd:CommitMetadata", _publish_custom(status="opened")])
-def test_phase_clears_when_its_call_ends_or_the_result_lands(end):
-    out = _drive(PUBLISHING, script=["toolStart:CommitMetadata", end, "runStatus"])
-    assert out[-1] == "Thinking…"
+def test_phase_outlasts_its_call_until_the_result_lands():
+    script = ["toolStart:CommitMetadata", "toolEnd:CommitMetadata", "toolResult:CommitMetadata", "runStatus"]
+    out = _drive(PUBLISHING, script=[*script, _publish_custom(status="pushed"), "runStatus"])
+    assert out == ["Committing changes…", "Thinking…"]
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [("PullRequestMetadata", "CommitMetadata"), ("CommitMetadata", "PullRequestMetadata")],
+    ids=["mr-first", "commit-first"],
+)
+def test_parallel_metadata_calls_name_the_merge_request_step_until_the_result_lands(first, second):
+    script = [f"toolStart:{first}", f"toolStart:{second}", f"toolEnd:{first}", "runStatus"]
+    script += [f"toolEnd:{second}", "runStatus", _publish_custom(status="opened"), "runStatus"]
+    out = _drive(PUBLISHING, script=script)
+    assert out == ["Creating merge request…", "Creating merge request…", "Thinking…"]
 
 
 def test_phase_clears_when_the_turn_finishes_without_an_event():
-    out = _drive(PUBLISHING, script=["activeRun", "toolStart:CommitMetadata", "finish:connection_lost", "runStatus"])
-    assert "Committing" not in out[-1]
+    script = ["activeRun", "toolStart:CommitMetadata", "publishPhase", "finish:finished", "publishPhase"]
+    assert _drive(PUBLISHING, script=script) == ["Committing changes", ""]
 
 
 def test_publish_event_adds_the_result_to_the_run():
