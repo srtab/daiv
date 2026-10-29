@@ -790,3 +790,141 @@ msgstr "Escolha as que se aplicarem."
 
 #~ msgid "You stopped this run."
 #~ msgstr "Parou esta execução."
+
+msgid "What went wrong"
+msgstr "O que correu mal"
+
+msgid "Changed"
+msgstr "Alterado"
+
+msgid "Input"
+msgstr "Entrada"
+
+msgid "Loaded into context"
+msgstr "Carregado no contexto"
+
+msgid "Raw"
+msgstr "Em bruto"
+
+msgid "Arguments"
+msgstr "Argumentos"
+
+msgid "Result"
+msgstr "Resultado"
+
+msgid "{count} line"
+msgstr "{count} linha"
+
+msgid "{count} lines"
+msgstr "{count} linhas"
+
+msgid "{size} KB"
+msgstr "{size} KB"
+
+msgid "Too large to load whole: the model saw only a preview. The full result is in {path}."
+msgstr "Demasiado grande para carregar por inteiro: o modelo viu apenas uma pré-visualização. O resultado completo está em {path}."
+
+msgid "No result: the run ended before this call returned."
+msgstr "Sem resultado: a execução terminou antes de esta chamada responder."
+
+msgid "Show all {count} lines"
+msgstr "Mostrar todas as {count} linhas"
+
+msgid "and {count} more"
+msgstr "e mais {count}"
+
+msgid "The whole skill, always: skills are never cut to a file."
+msgstr "A competência inteira, sempre: as competências nunca são cortadas para um ficheiro."
+
+msgid "Open {name} in Skills ↗"
+msgstr "Abrir {name} em Competências ↗"
+
+msgid "Show the whole prompt"
+msgstr "Mostrar o prompt completo"
+
+msgid "What the subagent did inside is not shown."
+msgstr "O que o subagente fez internamente não é mostrado."
+
+msgid "Page"
+msgstr "Página"
+
+msgid "Asked"
+msgstr "Pedido"
+
+msgid "a summary of the page"
+msgstr "um resumo da página"
+
+msgid "Redirected to"
+msgstr "Redirecionado para"
+
+msgid "Jump to first error"
+msgstr "Ir para o primeiro erro"
+
+msgid "{count} earlier line not shown"
+msgstr "{count} linha anterior não mostrada"
+
+msgid "{count} earlier lines not shown"
+msgstr "{count} linhas anteriores não mostradas"
+
+msgid "Open ↗"
+msgstr "Abrir ↗"
+
+msgid "Saved to {path} as asked: the model saw only a preview."
+msgstr "Guardado em {path}, como pedido: o modelo viu apenas uma pré-visualização."
+
+msgid "read-only tool"
+msgstr "ferramenta só de leitura"
+
+msgid "can change things"
+msgstr "pode alterar coisas"
+
+msgid "{count} tool schema"
+msgstr "{count} esquema de ferramenta"
+
+msgid "{count} tool schemas"
+msgstr "{count} esquemas de ferramentas"
+
+msgid "new"
+msgstr "novo"
+
+msgid "updated"
+msgstr "atualizado"
+
+msgid "Goal"
+msgstr "Objetivo"
+
+msgid "Branch"
+msgstr "Ramo"
+
+msgid "Job"
+msgstr "Tarefa"
+
+msgid "Status"
+msgstr "Estado"
+
+msgid "Session →"
+msgstr "Sessão →"
+
+msgid "default branch"
+msgstr "ramo predefinido"
+
+msgid "starts after this turn"
+msgstr "começa depois deste turno"
+
+msgid "batch {id} · {count} started"
+msgstr "lote {id} · iniciadas: {count}"
+
+msgid "No job started."
+msgstr "Nenhuma tarefa foi iniciada."
+
+msgid "batch {id}"
+msgstr "lote {id}"
+
+msgid "merge request"
+msgstr "merge request"
+
+msgid "Show the whole reply"
+msgstr "Mostrar a resposta completa"
+
+msgid "stopping"
+msgstr "a parar"

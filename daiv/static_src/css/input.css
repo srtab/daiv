@@ -1825,72 +1825,497 @@ html {
     animation: fade-up 0.2s ease-out backwards;
   }
 
-  .chat-tool__block {
-    border-top: 1px dashed rgba(255, 255, 255, 0.06);
-    padding-top: 10px;
+  .body-section,
+  .body-error {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
   }
 
-  .chat-tool__block:first-child {
-    border-top: 0;
-    padding-top: 0;
-  }
-
-  .chat-tool__block-label {
+  .body-label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 8px;
     @apply font-mono;
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
+    color: var(--color-text-faint);
+  }
+
+  .body-size {
+    @apply font-mono;
+    font-size: 11px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--color-text-muted);
+  }
+
+  .body-section:has(> .body-offload) > .body-label > .body-size {
+    color: var(--color-status-found);
+  }
+
+  .body-tag {
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .body-tag--read-only {
+    color: var(--color-status-clear);
+    background: color-mix(in srgb, var(--color-status-clear) 12%, transparent);
+  }
+
+  .body-tag--can-change {
+    color: var(--color-status-found);
+    background: color-mix(in srgb, var(--color-status-found) 14%, transparent);
+  }
+
+  .body-pre,
+  .body-grep,
+  .body-log {
+    margin: 0;
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    @apply font-mono;
+    font-size: 12px;
+    line-height: 1.55;
+    color: #cbd5e1;
+  }
+
+  .body-pre {
+    max-height: 420px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    scrollbar-width: thin;
+  }
+
+  .body-code {
+    white-space: pre;
+    overflow-wrap: normal;
+  }
+
+  .body-term,
+  .body-log {
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .chat-diff {
+    @apply font-mono;
+    font-size: 12px;
+  }
+
+  .body-error .body-label {
+    color: var(--color-status-fail);
+  }
+
+  .body-error .body-pre {
+    border-color: rgba(248, 113, 113, 0.22);
+    background: rgba(248, 113, 113, 0.06);
+    color: #fecaca;
+  }
+
+  .ln {
+    display: inline-block;
+    min-width: 4ch;
+    margin-right: 1.5ch;
+    text-align: right;
     color: #64748b;
+    user-select: none;
+  }
+
+  .body-note,
+  .body-and-more {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-text-faint);
+  }
+
+  .body-offload {
+    padding: 6px 8px;
+    border: 1px solid rgba(251, 191, 36, 0.2);
+    border-radius: 6px;
+    background: rgba(251, 191, 36, 0.07);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: #fde68a;
+    overflow-wrap: anywhere;
+  }
+
+  .body-offload > .body-size {
+    color: inherit;
+  }
+
+  .body-more > summary,
+  .body-raw > summary {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    width: fit-content;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+
+  .body-more > summary::-webkit-details-marker,
+  .body-raw > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .body-more > summary::before,
+  .body-raw > summary::before {
+    content: "›";
+    transition: transform 0.15s ease;
+  }
+
+  .body-more[open] > summary::before,
+  .body-raw[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .body-more > summary {
+    font-size: 12px;
+    color: #93c5fd;
+  }
+
+  .body-more > summary:hover {
+    text-decoration: underline;
+  }
+
+  .body-more[open] > summary {
     margin-bottom: 6px;
   }
 
-  .chat-tool__code {
-    @apply font-mono;
-    font-size: 12.5px;
-    line-height: 1.55;
-    color: #cbd5e1;
-    background: rgba(0, 0, 0, 0.28);
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    padding: 10px 12px;
-    border-radius: 8px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 360px;
-    overflow-y: auto;
+  .body-raw {
+    padding-top: 8px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.06);
   }
 
-  .chat-bash {
+  .body-raw > summary {
+    @apply font-mono;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--color-text-faint);
+  }
+
+  .body-raw > summary:hover {
+    color: var(--color-text);
+  }
+
+  .body-raw > .body-section {
+    margin-top: 8px;
+  }
+
+  .body-raw .body-pre {
+    font-size: 11.5px;
+    color: var(--color-text-muted);
+  }
+
+  .body-md {
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: normal;
+  }
+
+  .body-fields {
+    display: grid;
+    grid-template-columns: fit-content(40%) minmax(0, 1fr);
+    gap: 3px 12px;
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .body-fields dt {
+    color: var(--color-text-faint);
+    overflow-wrap: anywhere;
+  }
+
+  .body-fields dd {
+    min-width: 0;
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .body-table-wrap {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .body-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+
+  .body-table th {
+    padding: 4px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-text-faint);
+    white-space: nowrap;
+  }
+
+  .body-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    vertical-align: top;
+    overflow-wrap: break-word;
+  }
+
+  .body-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .body-table td > .body-more {
+    margin-top: 4px;
+  }
+
+  .body-row-failed td {
+    color: #fca5a5;
+  }
+
+  .body-grep {
+    max-height: 420px;
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+
+  .body-grep-group + .body-grep-group {
+    margin-top: 6px;
+  }
+
+  .body-grep-file {
+    font-weight: 500;
+    color: var(--color-text);
+  }
+
+  .body-grep-hit {
+    white-space: pre;
+    color: var(--color-text-muted);
+  }
+
+  .body-grep mark {
+    border-radius: 2px;
+    background: rgba(251, 191, 36, 0.18);
+    color: #fde68a;
+  }
+
+  .body-files,
+  .body-jobs {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    @apply font-mono;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .body-files li {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .body-files li > * {
+    min-width: 0;
+  }
+
+  .body-files li > :first-child:not(.body-op) {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--color-text-faint);
+  }
+
+  .body-op {
+    flex-shrink: 0;
+    width: 1.5ch;
+    font-weight: 600;
+    color: var(--color-status-found);
+  }
+
+  .body-run {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .body-run + .body-run {
+    margin-top: 6px;
+  }
+
+  .body-cmd {
+    @apply font-mono;
+    font-size: 12px;
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+  }
+
+  .body-prompt {
+    margin-right: 2px;
+    color: var(--color-status-clear);
+    user-select: none;
+  }
+
+  .body-exit {
+    align-self: flex-start;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(248, 113, 113, 0.08);
+    @apply font-mono;
+    font-size: 11px;
+    color: #f87171;
+  }
+
+  /* `column-reverse` makes the log open scrolled to its end, where the failure is. */
+  .body-log {
+    display: flex;
+    flex-direction: column-reverse;
+    max-height: 22rem;
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+
+  .lgl {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .lgl:empty::before {
+    content: " ";
+  }
+
+  .lgl.err {
+    color: #fca5a5;
+  }
+
+  .body-jump,
+  .body-open {
+    align-self: flex-start;
+    font-size: 12.5px;
+  }
+
+  .body-jump {
+    color: #93c5fd;
+  }
+
+  .body-jump:hover {
+    text-decoration: underline;
+  }
+
+  .body-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .body-button {
+    display: inline-flex;
+    max-width: 100%;
+    padding: 2px 8px;
+    border: 1px solid rgba(147, 197, 253, 0.25);
+    border-radius: 6px;
+    @apply font-mono;
+    font-size: 11.5px;
+    color: #bfdbfe;
+    overflow-wrap: anywhere;
+    transition: background 0.15s ease;
+  }
+
+  .body-button:hover {
+    background: rgba(147, 197, 253, 0.08);
+  }
+
+  .body-tools {
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
 
-  .chat-bash + .chat-bash {
-    margin-top: 6px;
-    padding-top: 10px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.06);
+  .body-tools li {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
   }
 
-  .chat-bash__cmd {
+  .body-tool-name {
     @apply font-mono;
     font-size: 12.5px;
-    color: #e2e8f0;
-    word-break: break-word;
+    font-weight: 500;
+    color: var(--color-text);
   }
 
-  .chat-bash__prompt {
-    color: #a78bfa;
-    margin-right: 6px;
+  .body-tool-about {
+    font-size: 12.5px;
+    color: var(--color-text-muted);
   }
 
-  .chat-bash__exit--err {
+  .body-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .body-chip {
+    padding: 0 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
     @apply font-mono;
     font-size: 11px;
-    color: #f87171;
-    align-self: flex-start;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: rgba(248, 113, 113, 0.08);
+    line-height: 18px;
+    color: #cbd5e1;
+  }
+
+  .body-chip--more {
+    background: none;
+    color: var(--color-text-faint);
+  }
+
+  .body-artifact {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 10px;
+    font-size: 13px;
+  }
+
+  .body-meta {
+    @apply font-mono;
+    font-size: 11.5px;
+    color: var(--color-text-faint);
+  }
+
+  .body-download {
+    font-size: 12.5px;
+  }
+
+  .body-line {
+    @apply font-mono;
+    font-size: 12px;
+    color: #cbd5e1;
+    overflow-wrap: anywhere;
+  }
+
+  /* Preflight's `img { height: auto }` overrides the height attribute. */
+  .step-row__icon > img {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    object-fit: contain;
   }
 
   .chat-tool__highlight {
