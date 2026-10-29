@@ -37,13 +37,17 @@ class RecordingWatch(PipelineWatch):
 
 
 class FixRunStore(WatchStore):
-    """Answers the ``trigger_type`` read without a Run row."""
+    """Answers the ``trigger_type`` and state reads without a Run or Session row."""
 
-    def __init__(self, verdict: bool):
+    def __init__(self, verdict: bool, state: str | None = None):
         self._verdict = verdict
+        self._state = state
 
     async def ais_fix_run(self, run_id):
         return self._verdict
+
+    async def astate(self, thread_id):
+        return self._state
 
 
 @pytest.fixture
@@ -116,6 +120,27 @@ async def test_a_fix_run_whose_checks_still_fail_ends_the_watch(stub_watch):
     assert watch.exhausted == [
         {"merge_request_iid": 7, "reason": "the before_publish checks still fail after the fix attempt"}
     ]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("published", [True, False])
+async def test_a_fix_run_leaves_a_watch_someone_turned_off_alone(stub_watch, published):
+    watch = RecordingWatch(store=FixRunStore(True, state="off"))
+
+    await watch.aarm_after_run(run_id="a-fix-run", merge_request=MR, published=published)
+
+    assert watch.armed == []
+    assert watch.exhausted == []
+    assert stub_watch.enqueued == []
+
+
+@pytest.mark.django_db
+async def test_a_normal_run_re_arms_a_watch_someone_turned_off(stub_watch):
+    watch = RecordingWatch(store=FixRunStore(False, state="off"))
+
+    await watch.aarm_after_run(run_id="a-run", merge_request=MR, published=True)
+
+    assert watch.armed[0]["was_fix_run"] is False
 
 
 @pytest.mark.django_db

@@ -12,7 +12,7 @@
             <span class="status-badge status-badge-pending">{{ s.get_transport_display }}</span>
             {% include "mcp_connectors/_status_badge.html" with s=s %}
             {% if s.is_loadable and not s.health.ok %}
-            <span class="status-badge status-badge-queued">{% translate "Degraded" %}</span>
+            <span class="status-badge status-badge-warning">{% translate "Degraded" %}</span>
             {% endif %}
         </div>
         {% if s.description %}<div class="mt-1 truncate text-sm text-gray-400">{{ s.description }}</div>{% endif %}

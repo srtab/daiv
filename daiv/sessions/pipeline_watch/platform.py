@@ -11,7 +11,7 @@ from codebase.clients import RepoClient
 from codebase.clients.base import is_transient_platform_error
 
 if TYPE_CHECKING:
-    from codebase.base import Pipeline
+    from codebase.base import MergeRequest, Pipeline
     from sessions.pipeline_watch.judgment import PipelineReport
 
 logger = logging.getLogger("daiv.sessions")
@@ -38,9 +38,10 @@ class WatchPlatform:
     first build, and ``sync_to_async(self.client.get_pipeline)`` would run that on the event loop.
     What the per-instance memo then saves is the thread hop, not the installation lookup.
 
-    The three methods have deliberately different error policies. ``aread_pipeline`` raises,
-    because an unreadable pipeline is not a verdict and only the caller knows whether to leave the
-    watch armed. ``ais_head_pipeline`` answers ``False``, because "cannot correlate" is a skip.
+    The methods have deliberately different error policies. ``aread_pipeline`` and
+    ``aread_merge_request`` raise, because an unreadable pipeline is not a verdict and only the caller
+    knows whether to leave the watch armed. ``ais_head_pipeline`` answers ``False``, because "cannot
+    correlate" is a skip.
     ``apost_note`` swallows, because the note is best-effort — including a client it cannot build,
     since both callers have already committed the transition the note only announces.
     """
@@ -69,6 +70,10 @@ class WatchPlatform:
         if pipeline_id is not None:
             return await sync_to_async(client.get_pipeline)(self.repo_id, pipeline_id)
         return await sync_to_async(client.get_latest_pipeline_for_ref)(self.repo_id, ref)
+
+    async def aread_merge_request(self, merge_request_iid: int) -> MergeRequest:
+        client = await self._aclient()
+        return await sync_to_async(client.get_merge_request)(self.repo_id, merge_request_iid)
 
     async def ais_head_pipeline(self, *, merge_request_iid: int | None, report: PipelineReport) -> bool:
         """Whether a pipeline belongs to the merge request's current head commit.

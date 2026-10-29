@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, datetime, time, timedelta
 
 from django.db.models import Q
 from django.utils import timezone
@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 import django_filters
 
 from sessions.artifacts import KNOWN_KIND_CONTENT_TYPES, ArtifactKind, content_types_for_kind
-from sessions.models import RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
 RANGE_CHOICES: list[tuple[str, str]] = [
     ("today", _("Today")),
@@ -18,14 +18,46 @@ RANGE_CHOICES: list[tuple[str, str]] = [
     ("30d", _("Last 30 days")),
 ]
 
+STATUS_CHOICES: list[tuple[str, str]] = [
+    (status.value, status.label)
+    for status in (
+        RunStatus.WAITING_INPUT,
+        RunStatus.FAILED,
+        RunStatus.RUNNING,
+        RunStatus.QUEUED,
+        RunStatus.READY,
+        RunStatus.SUCCESSFUL,
+    )
+]
+
+SCOPE_MINE = "mine"
+SCOPE_ALL = "all"
+SCOPE_CHOICES: list[tuple[str, str]] = [(SCOPE_MINE, _("Mine")), (SCOPE_ALL, _("Everyone"))]
+
+DEEP_LINK_PARAMS = ("repo", "mr", "schedule", "batch")
+
+
+def resolve_scope(data) -> str:
+    """The scope a request's query params select: an explicit valid ``scope``, else ``all`` for a deep link."""
+    scope = data.get("scope")
+    if scope in dict(SCOPE_CHOICES):
+        return scope
+    return SCOPE_ALL if any(data.get(param) for param in DEEP_LINK_PARAMS) else SCOPE_MINE
+
+
 # Rolling-window size per range token; "today" is special-cased to local calendar midnight.
 _RANGE_WINDOWS: dict[str, timedelta] = {"2d": timedelta(days=2), "7d": timedelta(days=7), "30d": timedelta(days=30)}
+
+
+def local_midnight(day: date) -> datetime:
+    # A bound on the raw column rather than a ``__date`` cast, so the last_active_at index applies.
+    return timezone.make_aware(datetime.combine(day, time.min))
 
 
 class SessionFilter(django_filters.FilterSet):
     # Param names match the old activity deep links (?trigger=, ?status=, ...).
     q = django_filters.CharFilter(method="filter_q")
-    status = django_filters.ChoiceFilter(choices=RunStatus.choices, method="filter_status")
+    status = django_filters.ChoiceFilter(choices=STATUS_CHOICES, method="filter_status")
     trigger = django_filters.ChoiceFilter(field_name="origin", choices=SessionOrigin.choices)
     repo = django_filters.CharFilter(field_name="repo_id")  # deep-link back-compat: clearable chip, no widget to set it
     mr = django_filters.NumberFilter(method="filter_mr")
@@ -33,8 +65,9 @@ class SessionFilter(django_filters.FilterSet):
     batch = django_filters.UUIDFilter(method="filter_batch")
     range = django_filters.ChoiceFilter(choices=RANGE_CHOICES, method="filter_range")
     # Dates filter last_active_at (the column the list sorts on and every row shows).
-    date_from = django_filters.DateFilter(field_name="last_active_at", lookup_expr="date__gte")
-    date_to = django_filters.DateFilter(field_name="last_active_at", lookup_expr="date__lte")
+    date_from = django_filters.DateFilter(method="filter_date_from")
+    date_to = django_filters.DateFilter(method="filter_date_to")
+    ran_on = django_filters.DateFilter(method="filter_ran_on")
 
     class Meta:
         model = Session
@@ -55,6 +88,17 @@ class SessionFilter(django_filters.FilterSet):
         # IIDs are per-project, so this pools every repository's request of that number unless
         # ``repo`` is also given; the links DAIV publishes always pair the two.
         return queryset.for_merge_request(value)
+
+    def filter_date_from(self, queryset, name, value):
+        return queryset.filter(last_active_at__gte=local_midnight(value))
+
+    def filter_date_to(self, queryset, name, value):
+        return queryset.filter(last_active_at__lt=local_midnight(value + timedelta(days=1)))
+
+    def filter_ran_on(self, queryset, name, value):
+        start = local_midnight(value)
+        ran = Run.objects.filter(created_at__gte=start, created_at__lt=local_midnight(value + timedelta(days=1)))
+        return queryset.filter(pk__in=ran.values("session_id"))
 
     def filter_range(self, queryset, name, value):
         # Rolling windows; "today" is the local calendar day. The first-party UI never emits

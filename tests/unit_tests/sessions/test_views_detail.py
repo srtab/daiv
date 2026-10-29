@@ -11,7 +11,7 @@ from django.utils.html import escapejs
 import pytest
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
-from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
 
 from tests.unit_tests.sessions.conftest import create_archive, grant_read_access, make_artifact
 
@@ -93,6 +93,7 @@ def test_session_new_renders_chooser_with_both_paths(member_client):
     # The chooser links to both destinations — the guidance lives at the fork.
     assert reverse("session_new_chat") in content
     assert reverse("runs:agent_run_new") in content
+    assert "Background run" in content
 
 
 # ---------------------------------------------------------------------------
@@ -870,3 +871,314 @@ def test_detail_in_flight_run_on_an_expired_session_keeps_the_working_state(memb
 
     assert resp.context["expired"] is False
     assert len(resp.context["turns"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# session top bar + details panel
+# ---------------------------------------------------------------------------
+
+
+def _get_detail(client, session: Session, *, merge_request=None):
+    with (
+        patch("sessions.views.ahydrate_thread", _null_hydration()),
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=merge_request)),
+    ):
+        return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+
+def _part(resp, testid: str, closing: str) -> str:
+    html = resp.content.decode()
+    start = html.index(f'data-testid="{testid}"')
+    return html[start : html.index(closing, start)]
+
+
+def _topbar(resp) -> str:
+    return _part(resp, "session-topbar", "</header>")
+
+
+def _details(resp) -> str:
+    return _part(resp, "session-details", "</aside>")
+
+
+@pytest.mark.django_db
+def test_detail_has_a_top_bar_and_no_breadcrumb(member_client, member_user):
+    session = _create_session(user=member_user, title="Fix the login redirect")
+
+    resp = _get_detail(member_client, session)
+
+    assert 'x-text="title">Fix the login redirect</span>' in _topbar(resp)
+    assert b'data-testid="app-breadcrumb"' not in resp.content
+    assert "breadcrumbs" not in resp.context
+
+
+@pytest.mark.django_db
+def test_detail_top_bar_sits_outside_the_scrolling_main(member_client, member_user):
+    html = _get_detail(member_client, _create_session(user=member_user)).content.decode()
+
+    assert html.count("<main") == 1
+    assert html.index('data-testid="session-topbar"') < html.index("<main")
+    assert html.index("</main>") < html.index('data-testid="session-details"')
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("origin", "started_by"),
+    [
+        (SessionOrigin.CHAT, "Chat"),
+        (SessionOrigin.UI_JOB, "UI Run"),
+        (SessionOrigin.MR_WEBHOOK, "MR/PR Webhook"),
+        (SessionOrigin.PIPELINE_WEBHOOK, "Pipeline Webhook"),
+    ],
+)
+def test_detail_panel_shows_origin_repo_branch_and_owner(member_client, member_user, origin, started_by):
+    session = _create_session(user=member_user, origin=origin, ref="feat/login")
+    _create_run(session, trigger_type=origin)
+
+    details = _details(_get_detail(member_client, session))
+
+    assert started_by in details
+    assert "group/project" in details
+    assert "feat/login" in details
+    assert "avatar" in details
+
+
+@pytest.mark.django_db
+def test_detail_panel_falls_back_to_the_platform_username_without_an_owner(member_client, member_user):
+    session = _create_session(origin=SessionOrigin.MR_WEBHOOK, external_username="octocat")
+    grant_read_access(member_user, session.repo_id)
+
+    assert "octocat" in _details(_get_detail(member_client, session))
+
+
+@pytest.mark.django_db
+def test_detail_panel_counts_the_runs(member_client, member_user):
+    session = _create_session(user=member_user)
+    _create_run(session)
+    _create_run(session)
+
+    resp = _get_detail(member_client, session)
+
+    assert resp.context["header"]["run_count"] == 2
+    assert b'id="session-header"' in resp.content
+    assert 'x-text="runCount"' in _details(resp)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "variant", "label"),
+    [
+        (RunStatus.RUNNING, "running", "Running"),
+        (RunStatus.SUCCESSFUL, "success", "Done"),
+        (RunStatus.FAILED, "failed", "Failed"),
+        (RunStatus.WAITING_INPUT, "waiting", "Needs input"),
+    ],
+)
+def test_detail_status_is_the_latest_runs(member_client, member_user, status, variant, label):
+    session = _create_session(user=member_user)
+    _create_run(session, status=RunStatus.FAILED)
+    _create_run(session, status=status)
+
+    resp = _get_detail(member_client, session)
+
+    payload = resp.context["header"]["latest_run"]
+    assert (payload["label"], payload["variant"]) == (label, variant)
+    assert b'id="session-header"' in resp.content
+    assert f">{label}</span>" in _topbar(resp)
+
+
+@pytest.mark.django_db
+def test_detail_links_the_issue_an_issue_session_addresses(member_client, member_user, create_db_task_result):
+    from codebase.models import RepositoryCatalog
+
+    session = _create_session(user=member_user, origin=SessionOrigin.ISSUE_WEBHOOK)
+    task = create_db_task_result()
+    task.args_kwargs = {"args": [], "kwargs": {"issue_iid": 42}}
+    task.save(update_fields=["args_kwargs"])
+    _create_run(session, trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result=task)
+    RepositoryCatalog.objects.create(
+        provider="gitlab",
+        slug="group/project",
+        html_url="https://gitlab.example/group/project",
+        synced_at=timezone.now(),
+    )
+
+    resp = _get_detail(member_client, session)
+
+    issue_url = 'href="https://gitlab.example/group/project/-/issues/42"'
+    assert issue_url in _topbar(resp)
+    assert "Open issue #42" in _topbar(resp)
+    assert issue_url in _details(resp)
+    assert "Issue #42" in _details(resp)
+
+
+@pytest.mark.django_db
+def test_detail_has_no_issue_item_for_other_origins(member_client, member_user):
+    session = _create_session(user=member_user, origin=SessionOrigin.UI_JOB)
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB)
+
+    resp = _get_detail(member_client, session)
+
+    assert resp.context["header"]["issue"] is None
+    assert "Open issue" not in _topbar(resp)
+
+
+@pytest.mark.django_db
+def test_detail_hands_the_ci_watch_to_the_page(member_client, member_user):
+    session = _create_session(user=member_user, origin=SessionOrigin.CHAT, watch_state=WatchState.FIXING)
+    _create_run(session)
+
+    resp = _get_detail(member_client, session)
+
+    assert resp.context["header"]["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn", "open": True}
+    assert b'id="session-header"' in resp.content
+
+
+@pytest.mark.django_db
+def test_detail_shows_the_ci_watch_without_a_merge_request_payload(member_client, member_user):
+    resp = _get_detail(member_client, _create_session(user=member_user, watch_state=WatchState.WATCHING))
+
+    assert 'x-if="watch && !thread?.merge_request"' in _topbar(resp)
+    assert 'x-show="thread?.merge_request || watch"' in _details(resp)
+
+
+@pytest.mark.django_db
+def test_detail_hands_the_latest_runs_retry_to_the_page(member_client, member_user):
+    session = _create_session(user=member_user)
+    run = _create_run(session, status=RunStatus.FAILED, prompt="fix it")
+
+    with patch("sessions.views.can_run", return_value=True):
+        resp = _get_detail(member_client, session)
+
+    latest = resp.context["header"]["latest_run"]
+    assert (latest["marker_id"], latest["retry"]) == (f"run-status-{run.id}", "fix it")
+
+
+@pytest.mark.django_db
+def test_detail_has_no_ci_watch_when_off(member_client, member_user):
+    resp = _get_detail(member_client, _create_session(user=member_user))
+
+    assert resp.context["header"]["watch"] is None
+
+
+@pytest.mark.django_db
+def test_detail_merge_request_menu_links_its_other_sessions(member_client, member_user):
+    session = _create_session(user=member_user)
+
+    topbar = _topbar(_get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": True}))
+
+    assert 'data-testid="session-mr"' in topbar
+    assert f"{reverse('session_list')}?repo=group/project&mr=" in topbar
+
+
+@pytest.mark.django_db
+def test_detail_panel_carries_usage_so_the_composer_has_no_usage_sheet(member_client, member_user):
+    resp = _get_detail(member_client, _create_session(user=member_user))
+    html = resp.content.decode()
+
+    assert 'id="session-details-context"' in _details(resp)
+    assert "composer-sheet--context" not in html
+    assert "openDetails('context')" in html
+    assert "diffInDetails: true" in html
+    assert 'class="chat-context"' not in html
+
+
+@pytest.mark.django_db
+def test_detail_remembers_the_panel_per_user(member_client, member_user):
+    html = _get_detail(member_client, _create_session(user=member_user)).content.decode()
+
+    assert f"storageKey: 'daiv.session-details.{member_user.pk}'" in html
+
+
+@pytest.mark.django_db
+def test_session_new_chat_has_no_top_bar_or_panel(member_client):
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_new_chat"))
+
+    assert resp.context["header"] is None
+    assert b'data-testid="session-topbar"' not in resp.content
+    assert b'data-testid="session-details"' not in resp.content
+    assert b"composer-sheet--context" in resp.content
+    assert b"diffInDetails: false" in resp.content
+    assert b"chat-hero" in resp.content
+
+
+@pytest.mark.django_db
+def test_detail_offers_rename_the_ci_toggle_and_archive_to_a_runner(member_client, member_user):
+    session = _create_session(user=member_user, title="Fix the login redirect")
+
+    resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
+    topbar = _topbar(resp)
+    html = resp.content.decode()
+
+    assert 'data-testid="session-rename"' in topbar
+    assert 'data-testid="session-title-input"' in topbar
+    assert 'role="menuitemcheckbox"' in topbar
+    assert "Fix CI failures" in topbar
+    assert 'data-testid="session-archive"' in topbar
+    assert 'data-testid="session-archive-dialog"' in html
+    assert f"sessionUrl: '{reverse('api:session_update', kwargs={'thread_id': session.thread_id})}'" in html
+    assert f"ciWatchUrl: '{reverse('api:session_ci_watch', kwargs={'thread_id': session.thread_id})}'" in html
+    assert f"archiveUrl: '{reverse('api:session_archive', kwargs={'thread_id': session.thread_id})}'" in html
+    assert "title: 'Fix the login redirect'" in html
+
+
+@pytest.mark.django_db
+def test_detail_offers_only_archive_to_a_viewer_who_cannot_run(member_client, member_user):
+    session = _create_session(user=member_user, title="Fix the login redirect")
+
+    with patch("sessions.views.can_run", return_value=False):
+        resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
+    topbar = _topbar(resp)
+
+    assert 'title="Fix the login redirect">Fix the login redirect</h1>' in topbar
+    for testid in ("session-rename", "session-title-input", "session-ci-toggle"):
+        assert f'data-testid="{testid}"' not in topbar
+    assert 'data-testid="session-archive"' in topbar
+    assert b'data-testid="session-archive-dialog"' in resp.content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("archived", [False, True])
+def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, admin_user, archived):
+    session = _create_session(user=member_user)
+    HiddenSession.objects.create(session=session, user=member_user if archived else admin_user)
+
+    resp = _get_detail(member_client, session)
+    topbar = _topbar(resp)
+    note = topbar[: topbar.index('data-testid="session-archived"')].rsplit("<span", 1)[1]
+
+    assert ("x-cloak" not in note) is archived
+    html = resp.content.decode()
+    assert f"archived: {'true' if archived else 'false'}," in html
+    assert 'x-show="archived" data-testid="composer-archived"' in html
+    assert 'x-show="!archived"' in html
+    item = topbar[topbar.index('data-testid="session-archive"') :]
+    assert (">Unarchive</span>" in item) is archived
+
+
+@pytest.mark.django_db
+def test_detail_reads_the_watch_off_the_merge_requests_thread(member_client, member_user):
+    from sessions.pipeline_watch.store import watch_thread_id
+
+    session = _create_session(user=member_user)
+    _create_session(thread_id=watch_thread_id(session.repo_id, 5), merge_request_iid=5, watch_state=WatchState.WATCHING)
+
+    with patch(
+        "sessions.views.ahydrate_thread",
+        AsyncMock(return_value=HydratedThread([], False, {"id": 5, "source_branch": "b"}, None, None)),
+    ):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.context["header"]["watch"]["state"] == WatchState.WATCHING
+
+
+@pytest.mark.django_db
+def test_detail_reads_the_watch_of_a_merge_request_found_by_its_branch(member_client, member_user):
+    from sessions.pipeline_watch.store import watch_thread_id
+
+    session = _create_session(user=member_user, ref="feature")
+    _create_session(thread_id=watch_thread_id(session.repo_id, 5), merge_request_iid=5, watch_state=WatchState.FIXING)
+
+    resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
+
+    assert resp.context["header"]["watch"]["state"] == WatchState.FIXING

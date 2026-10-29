@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
 from langchain_anthropic import ChatAnthropic, convert_to_anthropic_tool
-from langchain_anthropic.chat_models import _INLINE_TOOLS_BETA, _supports_mid_conversation_system_messages
+from langchain_anthropic.chat_models import _INLINE_TOOLS_BETA
 from langchain_core.exceptions import ModelPermissionDeniedError
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import StructuredTool
@@ -55,6 +55,7 @@ from langchain_openai import ChatOpenAI
 from automation.agent.base import get_model
 from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.deferred.index import DeferredToolsIndex
+from automation.agent.deferred.inline import _supports_mid_conversation_system_messages
 from automation.agent.deferred.prompt import build_deferred_tools_block
 from automation.agent.deferred.search_tool import TOOL_SEARCH_NAME, make_tool_search
 
@@ -123,7 +124,7 @@ def _inline_model(model_spec: str) -> tuple[BaseChatModel, Callable[[BaseTool], 
     """The model for ``model_spec`` set up for inline definitions, and the block builder for its provider."""
     model = get_model(model=model_spec)
     if type(model) is ChatAnthropic:
-        if not _supports_mid_conversation_system_messages(model.model):
+        if not _supports_mid_conversation_system_messages(model):
             pytest.skip(f"langchain-anthropic hoists mid-conversation system messages for {model.model!r}")
         return model, _anthropic_block
     if type(model) is ChatOpenAI and model.use_responses_api:

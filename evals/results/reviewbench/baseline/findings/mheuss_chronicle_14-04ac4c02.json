@@ -1,0 +1,151 @@
+{
+  "pr": {
+    "repo": "https://github.com/mheuss/chronicle",
+    "pr_number": 14,
+    "base": "17e33ca1ebf643d47201a8f94b8ab3e88848cf23",
+    "head": "04ac4c02d48083676c14dd3fa70d26ca102bd50e"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "chronicle-daemon/src/main.rs",
+      "start_line": 25,
+      "end_line": 25,
+      "message": "Startup orphan sweep runs an unindexed per-file row scan\n\n`sweep_media_orphans` runs `SELECT COUNT(*) FROM <table> WHERE <path_col> = ?1` once per file under `screenshots/` and `audio/`. `image_path` and `audio_path` have no index (migration 001 indexes only timestamp, app, and source). The sweep is awaited before the IPC server binds, so the daemon serves no requests until it finishes.\n\nI timed the same query pattern with Python `sqlite3` (in-memory; this is not the Rust code): 2k rows 0.16 s, 10k rows 5.3 s, 20k rows 12.4 s. The pipeline captures about 0.5 fps, so a day is roughly 43k screenshots. Extrapolating the quadratic trend gives about a minute of startup delay per day of accumulation. Nothing bounds the table, because `run_cleanup` has no daemon caller (see Questions).\n\nFix: add indexes on `screenshots(image_path)` and `audio_segments(audio_path)` in a new migration, or load tracked paths into a `HashSet` once per sweep. Also move the sweep off the path that gates IPC startup.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/retention.rs",
+      "start_line": 143,
+      "end_line": 143,
+      "message": "Startup orphan sweep runs an unindexed per-file row scan\n\n`sweep_media_orphans` runs `SELECT COUNT(*) FROM <table> WHERE <path_col> = ?1` once per file under `screenshots/` and `audio/`. `image_path` and `audio_path` have no index (migration 001 indexes only timestamp, app, and source). The sweep is awaited before the IPC server binds, so the daemon serves no requests until it finishes.\n\nI timed the same query pattern with Python `sqlite3` (in-memory; this is not the Rust code): 2k rows 0.16 s, 10k rows 5.3 s, 20k rows 12.4 s. The pipeline captures about 0.5 fps, so a day is roughly 43k screenshots. Extrapolating the quadratic trend gives about a minute of startup delay per day of accumulation. Nothing bounds the table, because `run_cleanup` has no daemon caller (see Questions).\n\nFix: add indexes on `screenshots(image_path)` and `audio_segments(audio_path)` in a new migration, or load tracked paths into a `HashSet` once per sweep. Also move the sweep off the path that gates IPC startup.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/media.rs",
+      "start_line": 55,
+      "end_line": 68,
+      "message": "`validate_path` accepts an in-root symlink that points outside the root\n\nWhen the leaf is a symlink to an outside file, `canonicalize(path)` resolves outside the root, so the function falls through to the parent check, which is inside, and returns `Ok`. `write_file` (`media.rs:79`) then opens with `O_CREAT|O_TRUNC`, which follows the link, and `set_permissions` chmods the target. `harden_file` (`media.rs:150`) has the same effect. I modeled this sequence on the real filesystem: the outside file was overwritten and set to 0o600.\n\nThe doc comment (\"symlinks \u2026 cannot bypass the check\") is false for this case. Reachability requires write access inside the 0o700 storage root, so this is a defense-in-depth gap rather than a remote exploit. No test covers it: `write_file_rejects_path_outside_base` (`media.rs:475`) uses only a sibling path.\n\nFix: when `canonicalize(path)` succeeds, decide from that result alone. Use the parent fallback only when `symlink_metadata(path)` returns NotFound. Add a test with an in-root symlink to an outside file.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/retention.rs",
+      "start_line": 100,
+      "end_line": 102,
+      "message": "Cleanup deletes DB rows even when the file delete failed\n\n`cleanup_media` logs a `delete_file` error and continues, then deletes every row in the batch. A file that failed to delete (permissions, or a path rejected by validation) loses its tracking row, so no later pass retries it. The new comments (`retention.rs:34`, `:96`) imply rows survive failed deletes, which holds only on success. The base code also dropped rows regardless of file errors, so this predates the PR, but the PR's doc now claims the stronger guarantee.\n\nFix: delete only the IDs whose file removal returned `Ok`. Advance with keyset pagination (`WHERE id > ?`) so retained rows are not reselected. Correct the doc.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/retention.rs",
+      "start_line": 341,
+      "end_line": 341,
+      "message": "Ordering test cannot detect a regression to DB-first\n\nThe test asserts only the final state (file gone, row gone), which holds in either order. Fix: add `CREATE TRIGGER \u2026 BEFORE DELETE ON screenshots BEGIN SELECT RAISE(ABORT, 'blocked'); END;`. Then assert `run_cleanup` returns `Err` and the file is already gone. Under DB-first ordering the file survives.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/retention.rs",
+      "start_line": 187,
+      "end_line": 187,
+      "message": "Cleanup tests exercise the rejection branch instead of the case they name\n\nThe row path `/tmp/nonexistent_file_12345.heif` is outside the root, so `delete_file` returns `Err` from validation. `cleanup_media` logs it and deletes the row, so the test passes without reaching the NotFound\u2192`Ok(0)` branch. The expired-screenshot and expired-audio tests use `/tmp` paths under the same root and assert only row counts.\n\nFix: give each test its own tempdir root and place the files inside it.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/lib.rs",
+      "start_line": 575,
+      "end_line": 575,
+      "message": "Orphan-sweep tests never check that tracked media survives\n\nBoth tests create only an untracked file, so a sweep that ignores the DB still passes. The `lib.rs` test is named \"on_startup\" but calls `storage.sweep_orphans()` directly, so removing the call in `main.rs:25` leaves it green.\n\nFix: insert a `ScreenshotMetadata` row for a second file. Assert it survives and that `bytes_freed` equals only the orphan's size.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/retention.rs",
+      "start_line": 375,
+      "end_line": 375,
+      "message": "Orphan-sweep tests never check that tracked media survives\n\nBoth tests create only an untracked file, so a sweep that ignores the DB still passes. The `lib.rs` test is named \"on_startup\" but calls `storage.sweep_orphans()` directly, so removing the call in `main.rs:25` leaves it green.\n\nFix: insert a `ScreenshotMetadata` row for a second file. Assert it survives and that `bytes_freed` equals only the orphan's size.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/files.rs",
+      "start_line": 4,
+      "end_line": 7,
+      "message": "`sanitize_id` tests run a test-only copy\n\nProduction `sanitize_id` is at `media.rs:14` and is used at `media.rs:231`. Removing `'/'` or `'\\0'` from the production replacement leaves the suite green.\n\nFix: make the production function `pub(crate)`, delete the copy, and point the assertions at it.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/media.rs",
+      "start_line": 406,
+      "end_line": 419,
+      "message": "`allocate_path` sanitization tests pass with sanitization removed\n\n`allocate_path_sanitizes_id` checks only `file_name()`, which is `evil.heif` even without sanitization. `allocate_path_sanitizes_traversal_attempts` asserts `starts_with(canonical_base)`, which holds for any input because the parent is checked.\n\nFix: assert the exact filename (for `../evil`, `1774094400000___evil.heif`) and the exact parent directory.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/lib.rs",
+      "start_line": 106,
+      "end_line": 106,
+      "message": "Subdir names are hard-coded outside `MediaTable`\n\nRenaming a subdir in `MediaTable` would make the sweep walk a directory that new files never land in, so real orphans would stop being swept. The compiler would not catch it.\n\nFix: define each subdir once and have allocation, sizing, and the sweep all read from that definition.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/retention.rs",
+      "start_line": 19,
+      "end_line": 30,
+      "message": "Subdir names are hard-coded outside `MediaTable`\n\nRenaming a subdir in `MediaTable` would make the sweep walk a directory that new files never land in, so real orphans would stop being swept. The compiler would not catch it.\n\nFix: define each subdir once and have allocation, sizing, and the sweep all read from that definition.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/src/pipeline.rs",
+      "start_line": 55,
+      "end_line": 58,
+      "message": "Screenshots are hardened after the encoder writes them\n\n`write_file` (`media.rs:79`) has no production caller, so the file exists at the umask default until `harden_file` runs. The 0o700 parent directory limits the exposure. Fix: create the target through `write_file` before encoding, or encode to a private staging path and `move_file` it into place, as the audio path does at `pipeline.rs:197`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/lib.rs",
+      "start_line": 56,
+      "end_line": 56,
+      "message": "Permission policy has more than one owner\n\n`MediaManager::new` does not harden the root, and the DB mode is set outside the manager. Fix: have `MediaManager` apply both modes.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/media.rs",
+      "start_line": 9,
+      "end_line": 10,
+      "message": "Permission policy has more than one owner\n\n`MediaManager::new` does not harden the root, and the DB mode is set outside the manager. Fix: have `MediaManager` apply both modes.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/media.rs",
+      "start_line": 253,
+      "end_line": 253,
+      "message": "Traversal and symlink policy is implemented twice\n\nThe two recursive walks and their guards in `walk_files` and `dir_size` duplicate the symlink and error policy. Fix: one visitor that owns the guard and recursion.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/media.rs",
+      "start_line": 537,
+      "end_line": 549,
+      "message": "`write_file_creates_with_restricted_permissions` does not test the creation mode\n\n`set_permissions` runs after the write, so the final mode is 0o600 regardless. The test duplicates `write_file_sets_owner_only_permissions` (`media.rs:324`), and removing `.mode(FILE_MODE)` leaves it green.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/lib.rs",
+      "start_line": 597,
+      "end_line": 617,
+      "message": "`status()` metadata test only reaches the NotFound branch\n\nDeleting the files produces NotFound, which is the silent branch. The `log::warn!` arms for other errors are never exercised, so \"honest error logging\" is not asserted. Fix: make `chronicle.db-wal` a self-referential symlink so `metadata()` fails with a non-NotFound error.",
+      "producer": "daiv"
+    },
+    {
+      "file": "chronicle-daemon/crates/storage/src/retention.rs",
+      "start_line": 64,
+      "end_line": 64,
+      "message": "Doc comment names a caller that does not exist\n\nIt says \"the daemon calls `run_cleanup` from a single async task\". No daemon code calls it at head or at base. Reword it, or wire up the caller.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 4218018,
+    "completion_tokens": 351135,
+    "total_tokens": 4569153,
+    "time_in_ms": 478587,
+    "cost_usd": 0.296753365
+  }
+}

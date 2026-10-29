@@ -1,0 +1,20 @@
+{
+  "cr-correctness": {
+    "completion_tokens": 26745,
+    "cost_usd": 0.0168312,
+    "prompt_tokens": 103209,
+    "total_tokens": 129954
+  },
+  "cr-tests": {
+    "completion_tokens": 19506,
+    "cost_usd": 0.01221949,
+    "prompt_tokens": 73103,
+    "total_tokens": 92609
+  },
+  "review": {
+    "completion_tokens": 21157,
+    "cost_usd": 0.020464905,
+    "prompt_tokens": 433980,
+    "total_tokens": 455137
+  }
+}

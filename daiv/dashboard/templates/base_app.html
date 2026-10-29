@@ -3,6 +3,8 @@
 
 {% block alpine_stores %}
 <script defer src="{% static 'core/js/nav-events.js' %}"></script>
+<script defer src="{% static 'core/js/menu-button.js' %}"></script>
+<script defer src="{% static 'core/js/sidebar.js' %}"></script>
 {% endblock alpine_stores %}
 
 {% block content %}
@@ -10,6 +12,7 @@
 <div x-data="{ mobileNavOpen: false }"
      x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }}, latest_running_start: '{{ nav_latest_running_start|escapejs }}' }, runningLabel: '{{ nav_running_label|escapejs }}' })"
      @keydown.escape.window="mobileNavOpen = false"
+     @keydown.window="$store.sidebar.onKey($event)"
      class="flex h-dvh bg-ground">
   {% include "dashboard/_sidebar.html" %}
 
@@ -29,7 +32,7 @@
          x-transition:leave-start="translate-x-0"
          x-transition:leave-end="-translate-x-full"
          class="relative flex h-full w-[85%] max-w-[260px] flex-col bg-surface-1 shadow-overlay">
-      {% include "dashboard/_sidebar.html" with sidebar_root_class="flex min-h-0 w-full flex-1 flex-col" %}
+      {% include "dashboard/_sidebar.html" with sheet=True %}
     </div>
   </div>
 
@@ -48,15 +51,21 @@
         <span class="brand-mark"></span>
         DAIV
       </a>
+      <div class="ml-auto">
+        {% include "dashboard/_new_split.html" with testid="topbar-new" compact=True %}
+      </div>
     </header>
 
-    <main class="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 {% block main_padding_bottom %}pb-10{% endblock %} sm:px-(--app-content-gutter) sm:pt-8">
+    {# A page that needs a bar or a side column beside its scrolling <main> replaces the whole body. #}
+    {% block app_body %}
+    <main class="scrollbar-thin flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 {% block main_padding_bottom %}pb-10{% endblock %} sm:px-(--app-content-gutter) sm:pt-8">
       {# container_width tier — allowed: max-w-3xl (narrow) | max-w-6xl (default) | max-w-screen-2xl (wide) | max-w-none (fluid) #}
       <div class="mx-auto {% block container_width %}max-w-6xl{% endblock %}">
         {% block breadcrumb %}{% endblock %}
         {% block app_content %}{% endblock %}
       </div>
     </main>
+    {% endblock app_body %}
   </div>
 </div>
 {% endblock content %}

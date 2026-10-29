@@ -32,7 +32,7 @@
             <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
         </a>
         <div class="flex items-center gap-5">
-            <a href="https://srtab.github.io/daiv/latest/" rel="noopener noreferrer"
+            <a href="{{ build_info.docs_url }}" rel="noopener noreferrer"
                class="hidden text-[14px] text-gray-400 transition-colors duration-200 hover:text-white sm:inline">Documentation</a>
             <a href="{% url 'account_login' %}"
                class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3.5 py-1.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
@@ -87,7 +87,7 @@
 
         <!-- CTAs -->
         <div class="animate-fade-up mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4" style="animation-delay: 240ms">
-            <a href="https://srtab.github.io/daiv/latest/getting-started/deployment/" rel="noopener noreferrer"
+            <a href="{{ build_info.docs_deployment_url }}" rel="noopener noreferrer"
                class="btn-primary w-full px-6 py-3 sm:w-auto">
                 Get started
             </a>
@@ -394,7 +394,7 @@
                 Self-host with Docker Compose or Docker Swarm. Connect your GitLab or GitHub instance and start automating.
             </p>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
-                <a href="https://srtab.github.io/daiv/latest/getting-started/deployment/" rel="noopener noreferrer"
+                <a href="{{ build_info.docs_deployment_url }}" rel="noopener noreferrer"
                    class="btn-primary w-full px-6 py-3 sm:w-auto">
                     Read the docs
                 </a>
@@ -414,7 +414,7 @@
     <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 px-6 sm:flex-row">
         <p class="text-[13px] text-gray-400">DAIV &mdash; Open-source async SWE agent</p>
         <div class="flex items-center gap-6">
-            <a href="https://srtab.github.io/daiv/latest/" rel="noopener noreferrer" class="text-[13px] text-gray-400 transition-colors duration-200 hover:text-white">Documentation</a>
+            <a href="{{ build_info.docs_url }}" rel="noopener noreferrer" class="text-[13px] text-gray-400 transition-colors duration-200 hover:text-white">Documentation</a>
             <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="text-[13px] text-gray-400 transition-colors duration-200 hover:text-white">GitHub</a>
             <a href="https://github.com/srtab/daiv/blob/main/LICENSE" rel="noopener noreferrer" class="text-[13px] text-gray-400 transition-colors duration-200 hover:text-white">License</a>
         </div>

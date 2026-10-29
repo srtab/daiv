@@ -21,11 +21,11 @@
   --app-sidebar-width: 4rem;
   --app-content-gutter: 1.5rem;
 
-  /* Dark-only semantic token layer, declared once here — DESIGN.md documents the roles,
-     nothing else restates a value. They live in the Tailwind v4 `--color-*` namespace so
-     the utilities generate (bg-ground, text-text-muted, border-border, …). There is no
-     light variant. The `status-*` ramp is declared ahead of the surfaces that read it;
-     Tailwind emits nothing for a token no utility uses. */
+  /* Dark-only semantic token layer, declared once here — DESIGN.md mirrors the values and
+     documents the roles. They live in the Tailwind v4 `--color-*` namespace so the
+     utilities generate (bg-ground, text-text-muted, border-border, …). There is no light
+     variant. The `status-*` ramp is declared ahead of the surfaces that read it; Tailwind
+     emits nothing for a token no utility uses. */
   --color-ground: #0d1117; /* base plane */
   --color-surface-1: #10151d; /* sidebar + mobile top bar */
   --color-surface-2: #161c26; /* cards + hero */
@@ -35,7 +35,7 @@
   --color-text: #e6edf3; /* primary content */
   --color-text-strong: #ffffff; /* the single most-important number only */
   --color-text-muted: #9aa4b0; /* secondary meta */
-  --color-text-faint: #767f8e; /* timestamps / captions (AA-fixed) */
+  --color-text-faint: #878f9c; /* timestamps / captions (AA on every surface) */
 
   --color-brand: #8b5cf6; /* violet — WHO / brand fills & mark only, never a CTA */
   --color-brand-bright: #a78bfa; /* violet text/glyphs needing an AA lift */
@@ -49,7 +49,7 @@
   --color-status-clear: #3fb950; /* all-clear (green) */
   --color-status-found: #d6a036; /* found-issues / "fix it" (amber) */
   --color-status-attn: #38bdf8; /* needs-attention / "review this" (cyan) */
-  --color-status-fail: #f85149; /* failed tooling / "retry" (red) */
+  --color-status-fail: #f8564e; /* failed tooling / "retry" (red) */
 
   /* Flat elevation: persistent surfaces carry NO shadow. This single overlay shadow is
      reserved for transient overlays (menus / popovers / dialogs). */
@@ -83,7 +83,20 @@
   src: url("../fonts/geist/geist-mono-latin-wght-normal.woff2") format("woff2");
 }
 
+/* Geist Mono's " --" ligature swallows the space before a flag; in Chromium only
+   font-variant-ligatures turns it off, not font-feature-settings "liga" 0. */
+@utility font-mono {
+  font-variant-ligatures: none;
+}
+
 @layer base {
+  code,
+  kbd,
+  samp,
+  pre {
+    font-variant-ligatures: none;
+  }
+
   /* Global teal focus-visible ring on every interactive element that does not opt out with
      `focus:outline-none` plus its own ring utility. */
   :focus-visible {
@@ -110,37 +123,100 @@
   display: none;
 }
 
-@media (width >= theme(--breakpoint-md)) and (width < theme(--breakpoint-lg)) {
-  .sidebar--rail .sidebar__collapsible {
-    display: none;
+/* Forced between md and lg; from lg up only when collapsed (`data-sidebar` on <html>). */
+@custom-variant sidebar-rail {
+  @media (width >= theme(--breakpoint-md)) and (width < theme(--breakpoint-lg)) {
+    @slot;
   }
-
-  .sidebar--rail .sidebar__rail-only {
-    display: block;
+  @media (width >= theme(--breakpoint-lg)) {
+    :root[data-sidebar="rail"] & {
+      @slot;
+    }
   }
+}
 
-  .sidebar--rail .sidebar__brand,
-  .sidebar--rail .sidebar__cta,
-  .sidebar--rail .sidebar__nav-item,
-  .sidebar--rail .sidebar__footer-link,
-  .sidebar--rail .sidebar__account {
-    justify-content: center;
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
-  }
+.sidebar--rail {
+  @variant sidebar-rail {
+    & .sidebar__collapsible {
+      display: none;
+    }
 
-  /* The rail is too narrow to open over, so the menu opens beside it. The margin clears the
-     footer's own `px-3` and lands just past the rail's border. */
-  .sidebar--rail .sidebar__account-menu {
-    bottom: 0;
-    left: 100%;
-    margin-bottom: 0;
-    margin-left: 1.25rem;
-  }
+    & .sidebar__rail-only {
+      display: block;
+    }
 
-  /* The heading keeps its box so the groups stay separated once its label is hidden. */
-  .sidebar--rail .sidebar__group-heading {
-    height: 1.25rem;
+    & .sidebar__brand,
+    & .sidebar__cta,
+    & .sidebar__nav-item,
+    & .sidebar__footer-link,
+    & .sidebar__account {
+      justify-content: center;
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+    }
+
+    /* The rail is too narrow to open over, so the menus open beside it. The margin clears the
+       sidebar's own `px-3` and lands just past the rail's border. */
+    & .sidebar__account-menu,
+    & .new-split__menu {
+      right: auto;
+      left: 100%;
+      margin-top: 0;
+      margin-bottom: 0;
+      margin-left: 1.25rem;
+    }
+
+    & .sidebar__account-menu {
+      bottom: 0;
+    }
+
+    & .new-split__menu {
+      top: 0;
+    }
+
+    /* Its description is hidden here, so the icon drops the nudge that aligned it to the label. */
+    & .sidebar__nav-item--described > :first-child {
+      margin-top: 0;
+    }
+
+    /* Too narrow for two halves side by side: the chevron becomes a strip under the icon. */
+    & .new-split {
+      flex-direction: column;
+    }
+
+    & .new-split__main {
+      border-radius: 0.5rem 0.5rem 0 0;
+    }
+
+    & .new-split__toggle {
+      border-left: 0;
+      border-top: 1px solid color-mix(in srgb, var(--color-accent-ink) 20%, transparent);
+      border-radius: 0 0 0.5rem 0.5rem;
+      padding-top: 0.125rem;
+      padding-bottom: 0.125rem;
+    }
+
+    & .new-split__chevron {
+      transform: rotate(-90deg);
+    }
+
+    /* The heading keeps its box so the groups stay separated once its label is hidden. */
+    & .sidebar__group-heading {
+      height: 1.25rem;
+    }
+
+    /* The toggle stacks under the mark, and its chevron turns to point back out. */
+    & .sidebar__brand {
+      flex-direction: column;
+    }
+
+    & .sidebar__toggle {
+      margin-left: 0;
+    }
+
+    & .sidebar__toggle-icon {
+      transform: rotate(180deg);
+    }
   }
 }
 
@@ -169,6 +245,19 @@
     background: var(--color-brand);
   }
 
+  /* A two-line item (label + description): the icon sits on the label's line. */
+  .sidebar__nav-item--described {
+    @apply items-start;
+  }
+
+  .sidebar__nav-item--described > :first-child {
+    @apply mt-0.5;
+  }
+
+  .nav-description {
+    @apply mt-0.5 block text-[11px] leading-snug text-text-faint;
+  }
+
   .nav-badge {
     @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] tabular-nums;
   }
@@ -182,7 +271,9 @@
   }
 
   .sidebar__account,
-  .account-menu__item {
+  .account-menu__item,
+  .new-split__item,
+  .session-menu__item {
     @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px]
            text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
   }
@@ -191,10 +282,46 @@
     @apply px-2;
   }
 
+  /* The New split button: sidebar size by default, `--compact` in the mobile top bar. */
+  .new-split {
+    @apply relative flex rounded-lg bg-accent text-accent-ink;
+  }
+
+  .new-split__main {
+    @apply flex min-w-0 flex-1 items-center gap-2.5 rounded-l-lg px-3 py-2.5 text-sm font-semibold
+           tracking-tight transition-colors hover:bg-accent-bright;
+  }
+
+  .new-split__toggle {
+    @apply flex shrink-0 items-center justify-center rounded-r-lg border-l border-accent-ink/20 px-2.5
+           transition-colors hover:bg-accent-bright;
+  }
+
+  .new-split__menu,
+  .sidebar__account-menu,
+  .session-menu {
+    @apply absolute z-40 rounded-xl border border-border bg-surface-2 p-1 shadow-overlay;
+  }
+
+  .new-split__menu {
+    @apply top-full right-0 left-0 mt-2 min-w-56;
+  }
+
+  .new-split__item {
+    @apply items-start py-2 focus:bg-surface-3 focus:text-text;
+  }
+
+  .new-split--compact .new-split__main {
+    @apply h-11 gap-2 px-2.5 py-0;
+  }
+
+  .new-split--compact .new-split__menu {
+    @apply left-auto w-64;
+  }
+
   /* Opens upward over the full sidebar and the sheet; the rail tier above moves it beside. */
   .sidebar__account-menu {
-    @apply absolute bottom-full left-0 z-40 mb-2 w-56 rounded-xl border border-border bg-surface-2 p-1
-           shadow-overlay;
+    @apply bottom-full left-0 mb-2 w-56;
   }
 }
 
@@ -217,19 +344,12 @@
   }
 }
 
-/* The roster of floating surfaces — one rule, so enrolling a surface is one edit.
-   `.surface-rise` is the hook for the dropdowns built from utilities alone; the rest
-   already have a component class. Any new one belongs here — a surface that appears
-   without motion reads as a repaint glitch next to these. Alpine's `x-transition` must
-   not be used alongside: it drives `opacity` and `transform` from inline styles and the
+/* Every floating surface carries `data-surface` on its container — the one hook, so enrolling
+   a surface is one attribute, and `core/js/sidebar.js` finds open ones by it too. A surface
+   that appears without motion reads as a repaint glitch next to these. Alpine's `x-transition`
+   must not be used alongside: it drives `opacity` and `transform` from inline styles and the
    two fight over the same frames. */
-.surface-rise,
-.picker-popover,
-.composer-sheet,
-.composer-autocomplete,
-.filter-menu,
-.card__menu-panel,
-.sidebar__account-menu {
+[data-surface] {
   animation: surface-rise 180ms ease-out backwards;
 }
 
@@ -238,6 +358,10 @@
 @media (width >= theme(--breakpoint-lg)) {
   :root {
     --app-sidebar-width: 15rem;
+  }
+
+  :root[data-sidebar="rail"] {
+    --app-sidebar-width: 4rem;
   }
 }
 
@@ -279,28 +403,6 @@ html {
   animation: fade-up 0.5s ease-out backwards;
 }
 
-@keyframes number-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.95);
-  }
-}
-
-.animate-number {
-  animation: number-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
-}
-
-@keyframes bar-grow {
-  from {
-    transform: scaleX(0);
-  }
-}
-
-.animate-bar {
-  animation: bar-grow 0.7s cubic-bezier(0.22, 1, 0.36, 1) backwards;
-  transform-origin: left;
-}
-
 @keyframes pulse-dot {
   0%, 100% {
     opacity: 1;
@@ -308,10 +410,6 @@ html {
   50% {
     opacity: 0.3;
   }
-}
-
-.pulse-dot {
-  animation: pulse-dot 2s ease-in-out infinite;
 }
 
 /* -- Page header --------------------------------------------------------- */
@@ -331,6 +429,12 @@ html {
 
   .page-header__actions {
     @apply flex flex-wrap items-center gap-2;
+  }
+}
+
+@layer components {
+  .stat-value {
+    @apply font-mono text-[34px] font-semibold leading-none tabular-nums;
   }
 }
 
@@ -604,11 +708,16 @@ html {
   }
 
   .status-badge-queued {
+    @apply bg-gray-800/60 text-gray-300;
+  }
+
+  .status-badge-warning {
     @apply bg-amber-900/40 text-amber-300;
   }
 
   .status-badge-waiting {
-    @apply bg-amber-400/15 text-amber-200 ring-1 ring-inset ring-amber-400/40;
+    @apply bg-transparent text-status-found ring-1 ring-inset;
+    --tw-ring-color: color-mix(in srgb, var(--color-status-found) 45%, transparent);
   }
 
   .status-badge-pending {
@@ -622,6 +731,24 @@ html {
     @apply inline-flex shrink-0 items-center gap-1 rounded-full border border-white/[0.08]
       bg-white/[0.02] px-2 py-0.5 text-[11px] text-gray-300;
   }
+}
+
+/* -- Notification outcome ------------------------------------------------- */
+
+@layer components {
+  .outcome-icon {
+    @apply mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg;
+    color: var(--outcome-color);
+    background-color: color-mix(in srgb, var(--outcome-color) 14%, transparent);
+  }
+  .outcome-label {
+    @apply font-medium;
+    color: var(--outcome-color);
+  }
+  .outcome--clear { --outcome-color: var(--color-status-clear); }
+  .outcome--found { --outcome-color: var(--color-status-found); }
+  .outcome--attn { --outcome-color: var(--color-status-attn); }
+  .outcome--fail { --outcome-color: var(--color-status-fail); }
 }
 
 /* -- Status dot variants -------------------------------------------------- */
@@ -644,12 +771,13 @@ html {
     animation: pulse-dot 2s ease-in-out infinite;
   }
 
+  /* Shape carries the state alongside colour: hollow ring = queued, diamond = needs input. */
   .status-dot-queued {
-    @apply bg-amber-400;
+    @apply bg-transparent ring-[1.5px] ring-inset ring-gray-400;
   }
 
   .status-dot-waiting {
-    @apply bg-amber-300;
+    @apply rotate-45 rounded-[1.5px] bg-status-found;
   }
 
   .status-dot-pending {
@@ -693,6 +821,214 @@ html {
     min-width: 0;
   }
 
+  /* Session page: a top bar over a row of the scrolling <main> and the details column. */
+  .session-page {
+    @apply flex min-h-0 min-w-0 flex-1 flex-col;
+  }
+  .session-page__body {
+    @apply flex min-h-0 flex-1;
+  }
+
+  .session-topbar {
+    @apply flex h-13 shrink-0 items-center gap-3 border-b border-border bg-ground px-4 sm:px-(--app-content-gutter);
+  }
+  /* Status sits under the title on phones, beside it from sm: up. */
+  .session-topbar__heading {
+    @apply flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3;
+  }
+  .session-topbar__title {
+    @apply min-w-0 truncate text-[14px] font-semibold text-text-strong;
+  }
+  .session-topbar__status {
+    @apply inline-flex shrink-0 items-center gap-1.5 text-[12px] text-text-muted;
+  }
+  .session-topbar__actions {
+    @apply ml-auto flex shrink-0 items-center gap-2;
+  }
+  .session-topbar__icon-btn {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted
+      transition-colors hover:bg-surface-3 hover:text-text;
+  }
+  .session-topbar__icon-btn--on {
+    @apply border-border bg-surface-3 text-text;
+  }
+
+  .mr-split {
+    @apply relative inline-flex h-8;
+  }
+  .mr-split__main {
+    @apply inline-flex items-center gap-1.5 rounded-l-lg border border-border px-2.5 font-mono text-[12px] text-text
+      transition-colors hover:bg-surface-3;
+  }
+  .mr-split__toggle {
+    @apply inline-flex w-7 items-center justify-center rounded-r-lg border border-l-0 border-border text-text-muted
+      transition-colors hover:bg-surface-3 hover:text-text;
+  }
+  .mr-split__draft {
+    @apply rounded-full px-1.5 font-sans text-[11px] font-semibold text-status-found;
+    background: color-mix(in srgb, var(--color-status-found) 15%, transparent);
+  }
+  .mr-split__ci {
+    @apply inline-flex items-center gap-1.5 font-sans text-[11px];
+    color: var(--ci-color);
+  }
+  .mr-split__main .mr-split__ci {
+    @apply border-l border-border pl-1.5;
+  }
+  .session-details__ci {
+    @apply flex items-center gap-2 text-[13px];
+    color: var(--ci-color);
+  }
+  .mr-split__draft--bar,
+  .mr-split__ci-label {
+    @apply max-sm:hidden;
+  }
+  .mr-split__ci-dot {
+    @apply inline-block h-2 w-2 rounded-full;
+    background: var(--ci-color);
+  }
+  .mr-split__ci--attn { --ci-color: var(--color-status-attn); }
+  .mr-split__ci--attn .mr-split__ci-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ci-color); }
+  .mr-split__ci--clear { --ci-color: var(--color-status-clear); }
+  .mr-split__ci--found { --ci-color: var(--color-status-found); }
+  .mr-split__ci--fail { --ci-color: var(--color-status-fail); }
+
+  .session-menu {
+    @apply top-full right-0 mt-2 w-64;
+  }
+  .session-menu__item {
+    @apply h-9 py-0 text-text focus:bg-surface-3;
+  }
+  .session-menu__icon {
+    @apply h-4 w-4 shrink-0 text-text-muted;
+  }
+  .session-menu__divider {
+    @apply -mx-1 my-1 h-px bg-border;
+  }
+  .session-menu__item--danger,
+  .session-menu__item--danger .session-menu__icon {
+    @apply text-status-fail;
+  }
+  /* A checkbox item carries a second line, so it grows past the fixed row height. */
+  .session-menu__item--check {
+    @apply h-auto items-start py-2;
+  }
+  .session-menu__item--check[aria-disabled="true"] {
+    @apply cursor-not-allowed hover:bg-transparent;
+  }
+  .session-menu__check {
+    @apply mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-text-faint
+      text-accent-ink;
+  }
+  .session-menu__item--check[aria-checked="true"] .session-menu__check {
+    @apply border-accent bg-accent;
+  }
+  .session-menu__item--check[aria-disabled="true"] .session-menu__check {
+    @apply opacity-50;
+  }
+  .session-menu__hint {
+    @apply block text-[12px] text-text-muted;
+  }
+
+  /* The title renames in place: a pencil on hover or focus, then an input the same size. */
+  /* The pull lives on the flex item, not the button: a negative margin inside a `max-w-full` box truncates early. */
+  .session-topbar__title--editable {
+    @apply -ml-1.5;
+  }
+  .session-title {
+    @apply inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left
+      transition-colors hover:bg-surface-2 focus-visible:bg-surface-2;
+  }
+  .session-title__pencil {
+    @apply h-3.5 w-3.5 shrink-0 text-text-faint opacity-0 transition-opacity;
+  }
+  .session-title:hover .session-title__pencil,
+  .session-title:focus-visible .session-title__pencil {
+    @apply opacity-100;
+  }
+  .session-title__input {
+    @apply -ml-1.5 max-w-full min-w-24 rounded-md border-0 bg-surface-2 px-1.5 py-0.5 text-[14px] font-semibold
+      text-text-strong outline-2 -outline-offset-1 outline-accent outline-solid;
+  }
+  .session-topbar__meta {
+    @apply flex shrink-0 items-center gap-2;
+  }
+  .session-topbar__archived {
+    @apply inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-px text-[11px]
+      font-medium text-text-muted;
+  }
+
+  /* A small modal question, on the native <dialog> for its focus trap, Escape and inert page. */
+  .confirm-dialog {
+    @apply m-auto w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-border bg-surface-2 p-5 text-text
+      shadow-overlay;
+  }
+  .confirm-dialog::backdrop {
+    @apply bg-black/60;
+  }
+  .confirm-dialog__title {
+    @apply text-[15px] font-semibold text-text-strong;
+  }
+  .confirm-dialog__body {
+    @apply mt-2 text-[13px] text-text-muted;
+  }
+  .confirm-dialog__actions {
+    @apply mt-5 flex justify-end gap-2;
+  }
+  .confirm-dialog__button {
+    @apply inline-flex h-8 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-text
+      transition-colors hover:bg-surface-3;
+  }
+  .confirm-dialog__button--danger {
+    @apply border-transparent bg-status-fail text-ground hover:bg-status-fail/85;
+  }
+
+  /* From 1100px, the width the composer sheets turn into popovers at, a column; below it a bottom sheet. */
+  .session-details {
+    @apply fixed bottom-0 z-60 flex max-h-[85dvh] flex-col rounded-t-2xl border-t border-border bg-surface-1
+      shadow-overlay;
+    left: var(--sheet-inset-start, 0px);
+    right: var(--sheet-inset-end, 0px);
+  }
+  @media (min-width: 1100px) {
+    .session-details {
+      @apply static z-auto max-h-none w-80 shrink-0 rounded-none border-t-0 border-l shadow-none;
+      left: auto;
+      right: auto;
+    }
+  }
+  .session-details__head {
+    @apply flex items-center justify-between border-b border-border py-2 pr-2 pl-5;
+  }
+  .session-details__title {
+    @apply text-[14px] font-semibold text-text-strong;
+  }
+  .session-details__body {
+    @apply flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-5;
+  }
+  .session-details__section {
+    @apply flex flex-col gap-2.5;
+  }
+  .session-details__label {
+    @apply font-mono text-[11px] font-medium tracking-[0.14em] text-text-muted uppercase;
+  }
+  .session-details__mr {
+    @apply leading-snug font-medium text-text hover:text-accent-bright;
+  }
+  .session-details__row {
+    @apply flex flex-wrap items-center gap-2.5 font-mono text-[12px] text-text-muted;
+  }
+  .session-details__grid {
+    @apply m-0 grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-[13px];
+  }
+  .session-details__grid dt { @apply text-text-faint; }
+  .session-details__grid dd { @apply m-0 min-w-0 text-text; }
+  .session-details__grid a,
+  .session-details__list a { @apply text-accent hover:text-accent-bright; }
+  .session-details__list {
+    @apply m-0 flex list-none flex-col gap-1.5 p-0 text-[13px];
+  }
+
   /* Transcript */
 
   .chat-transcript {
@@ -714,7 +1050,7 @@ html {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 11px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -1066,7 +1402,7 @@ html {
     align-items: baseline;
     gap: 6px;
     padding: 2px 0;
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 12.5px;
     color: var(--color-text-muted);
     cursor: pointer;
@@ -1154,6 +1490,10 @@ html {
     @apply mx-auto my-2 flex max-w-2xl items-center gap-2 rounded-lg border px-3 py-2 text-sm;
   }
   .chat-run-status__icon { @apply shrink-0; }
+  .chat-run-status__retry {
+    @apply ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md border border-red-500/30 px-2 py-0.5
+      text-[12px] font-medium transition-colors hover:bg-red-500/[0.12];
+  }
   .chat-run-status--failed {
     @apply border-red-500/25 bg-red-500/[0.08] text-red-200;
   }
@@ -1307,7 +1647,7 @@ html {
   }
 
   .chat-text pre {
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 12.5px;
     background: rgba(0, 0, 0, 0.35);
     border: 1px solid rgba(255, 255, 255, 0.04);
@@ -1321,7 +1661,7 @@ html {
   /* Inline code: tinted chip in the amber accent so it reads as a single token
      rather than a colour burst against body text. */
   .chat-text code:not(pre code) {
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 0.88em;
     padding: 1px 6px;
     border-radius: 5px;
@@ -1340,7 +1680,7 @@ html {
   }
 
   .chat-text kbd {
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 11.5px;
     padding: 1px 6px;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1457,7 +1797,7 @@ html {
     padding: 9px 12px;
     cursor: pointer;
     list-style: none;
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 12px;
   }
 
@@ -1575,7 +1915,7 @@ html {
     padding: 1px 6px;
     border-radius: 4px;
     font-size: 10px;
-    font-family: var(--font-mono);
+    @apply font-mono;
     flex-shrink: 0;
   }
 
@@ -1610,7 +1950,7 @@ html {
   }
 
   .chat-tool__block-label {
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -1619,7 +1959,7 @@ html {
   }
 
   .chat-tool__code {
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 12.5px;
     line-height: 1.55;
     color: #cbd5e1;
@@ -1646,7 +1986,7 @@ html {
   }
 
   .chat-bash__cmd {
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 12.5px;
     color: #e2e8f0;
     word-break: break-word;
@@ -1658,7 +1998,7 @@ html {
   }
 
   .chat-bash__exit--err {
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 11px;
     color: #f87171;
     align-self: flex-start;
@@ -1825,7 +2165,7 @@ html {
     gap: 8px;
     padding: 6px 0;
     color: #94a3b8;
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 13px;
   }
 
@@ -1869,7 +2209,7 @@ html {
     gap: 8px;
     padding: 2px 0;
     color: #94a3b8;
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 12.5px;
     cursor: pointer;
     list-style: none;
@@ -1951,6 +2291,11 @@ html {
     font-size: 11px;
     line-height: 1.4;
     color: #64748b;
+  }
+
+  .chat-archived {
+    @apply mx-auto flex w-fit max-w-full flex-wrap items-center gap-3 rounded-lg border border-white/10
+           bg-white/[0.04] px-3 py-1.5 text-[13px] text-gray-300;
   }
 
   .chat-composer {
@@ -2303,6 +2648,14 @@ html {
     }
   }
 
+  .context-panel__label-row {
+    @apply flex items-baseline justify-between gap-3;
+  }
+
+  .context-panel__total {
+    @apply font-mono text-[14px] font-semibold tabular-nums text-text-strong;
+  }
+
   .context-panel__figure {
     font-size: 13px;
     color: #e2e8f0;
@@ -2399,7 +2752,7 @@ html {
     border-radius: 999px;
     color: #c4b5fd;
     font-size: 12px;
-    font-family: var(--font-mono);
+    @apply font-mono;
     cursor: pointer;
     backdrop-filter: blur(8px);
     animation: fade-up 0.3s ease-out backwards;
@@ -2651,7 +3004,7 @@ html {
   }
 
   .composer-sheet__label {
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -2672,7 +3025,7 @@ html {
     text-align: left;
     padding: 3px 4px;
     color: #cbd5e1;
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 11.5px;
     border-radius: 4px;
     cursor: pointer;
@@ -3342,12 +3695,11 @@ html {
     @apply h-9 w-full rounded-xl border border-white/[0.06] bg-[#0b1018]
       pl-9 pr-3 text-sm text-gray-300 placeholder:text-gray-500;
   }
+  /* Wraps rather than scrolls: a hidden-scrollbar overflow cut off the last items on a phone. */
   .filter-seg {
-    @apply inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-xl
+    @apply inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-xl
       border border-white/[0.06] bg-white/[0.02] p-1;
-    scrollbar-width: none;
   }
-  .filter-seg::-webkit-scrollbar { display: none; }
   .filter-seg-item {
     @apply inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium
       text-gray-400 transition-colors hover:text-gray-200;

@@ -58,7 +58,7 @@
                class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear repository filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
             <span x-show="!repo" style="{% if current_repo %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
         </button>
-        <div class="filter-menu right-0 max-h-80 max-w-[20rem] overflow-y-auto" x-show="open" x-cloak>
+        <div data-surface class="filter-menu right-0 max-h-80 max-w-[20rem] overflow-y-auto" x-show="open" x-cloak>
             <a href="{{ clear_repo_url }}"
                class="filter-menu-item {% if not current_repo %}filter-menu-item--active{% endif %}"
                @click.prevent="setFilter('repo', '')" :class="{ 'filter-menu-item--active': !repo }">{% translate "All repositories" %}</a>

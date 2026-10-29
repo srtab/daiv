@@ -348,6 +348,8 @@
     // from the first render — assigning a *new* key onto an existing reactive
     // proxy after init doesn't always re-render templates.
     thread: config.thread ? { ...config.thread, merge_request: loadInitialMergeRequest() } : null,
+    // Set by sessionPage's Archive through Alpine's merged scope; an archived session takes no follow-ups.
+    archived: Boolean(config.archived),
     selectedSandboxEnvId: config.selectedSandboxEnvId || "",
     // Locked-pill labels for the composer chips. Server-side ``_composer.html`` renders
     // the static text at template time, which on a brand-new chat is the empty-thread
@@ -393,8 +395,11 @@
     // Emit time of the last relay frame, so a thought closed by the turn ending is stamped
     // on the same clock its start came from (client/server skew otherwise leaks).
     _lastFrameAt: 0,
-    _scrollQueued: false,
+    _scrollFrame: 0,
     _autoFollow: true,
+    // The `run-<id>` element the URL's hash names, until it has rendered and been scrolled to.
+    _pendingRunAnchor: "",
+    _runAnchorWatch: null,
     _thinkingTimer: null,
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
@@ -674,7 +679,9 @@
       // Mirror the live-stream path (dispatch() scrolls after every event): follow
       // the tail once the new turns render. The no-force scrollToBottom() no-ops
       // when the user has scrolled up to read, so it only auto-follows at bottom.
-      this.$nextTick(() => this.scrollToBottom());
+      this.$nextTick(() => {
+        if (!this.revealRunAnchor()) this.scrollToBottom();
+      });
     },
 
     applySandboxEnvSelection(detail) {
@@ -784,6 +791,17 @@
         this.resuming = false;
       }
 
+      const hash = window.location.hash;
+      if (/^#run-[\w-]+$/.test(hash)) {
+        this._pendingRunAnchor = hash.slice(1);
+        // Once the reader takes over the scroll, a run that renders later must not yank them to it.
+        this._runAnchorWatch = new AbortController();
+        const disarm = () => this._settleRunAnchor();
+        for (const name of ["wheel", "touchstart", "keydown", "pointerdown"]) {
+          document.addEventListener(name, disarm, { signal: this._runAnchorWatch.signal, passive: true });
+        }
+      }
+
       // Park the viewport on page load. $nextTick waits for Alpine to
       // materialize x-for'd turns into DOM; parkViewport() then settles the
       // height shifts that land after that first render.
@@ -800,6 +818,7 @@
       if (this._thinkingTimer) clearInterval(this._thinkingTimer);
       if (this._nowTimer) clearInterval(this._nowTimer);
       if (this._source) this._source.close();
+      this._settleRunAnchor();
     },
 
     // ---------- Run stream (EventSource against the relay) -------------
@@ -937,8 +956,16 @@
 
     _finishTurn(turn, reason) {
       turn.streaming = false;
+      // A call still running when the run ends never returned, unless the run finished cleanly.
+      // Checkpointed turns count too: they hold the calls the rejoin found unanswered.
+      const hasMarker = this._hasRunStatusMarker();
+      const unanswered = reason === "finished" && !hasMarker ? "done" : "error";
+      for (const t of this.turns) {
+        for (const s of t.segments || []) {
+          if (s.type === "tool_call" && s.status === "running") s.status = unanswered;
+        }
+      }
       turn.segments.forEach((s) => {
-        if (s.type === "tool_call" && s.status === "running") s.status = "done";
         if (s.type === "thinking" && s.status === "running") {
           s.status = "done";
           s.endedAt = this._lastFrameAt || Date.now();
@@ -953,7 +980,7 @@
         connection_lost: "Lost connection to the server — refresh to continue.",
         error: "The live stream failed — refresh to check the run's state.",
       };
-      if (REASON_ERRORS[reason] && !this._hasRunStatusMarker()) {
+      if (REASON_ERRORS[reason] && !hasMarker) {
         this._pushRunStatus("failed", REASON_ERRORS[reason]);
       }
       this.streaming = false;
@@ -1034,9 +1061,9 @@
         return parts.length ? { tone: "warn", label: [this._labels.stopped, ...parts].join(" · ") } : null;
       }
       // ``diff`` rather than a joined label: added and removed are tinted separately,
-      // the way they are everywhere else a diff is reported.
+      // the way they are everywhere else a diff is reported. A session page shows it in its details panel instead.
       const stats = this.diffStats;
-      if (stats && (stats.added || stats.removed)) {
+      if (!config.diffInDetails && stats && (stats.added || stats.removed)) {
         return { tone: "idle", label: "", diff: stats };
       }
       return parts.length ? { tone: "idle", label: parts.join(" · ") } : null;
@@ -1105,13 +1132,15 @@
 
     // ---------- Spend ---------------------------------------------------
 
-    get spendHeader() {
+    get spendSummary() {
       const s = this.spend;
       if (!s) return "";
-      const parts = [formatBraces(this._labels.turns, { count: s.turns }), exactNumber(s.total_tokens || 0)];
-      const cost = formatCost(s.cost_usd);
-      if (cost) parts.push(cost + (s.cost_is_floor ? "+" : ""));
-      return parts.join(" · ");
+      return [formatBraces(this._labels.turns, { count: s.turns }), exactNumber(s.total_tokens || 0)].join(" · ");
+    },
+
+    get spendTotal() {
+      const cost = formatCost(this.spend?.cost_usd);
+      return cost ? cost + (this.spend.cost_is_floor ? "+" : "") : "";
     },
 
     get spendRows() {
@@ -1200,7 +1229,7 @@
 
     // Open only in the transcript's last message turn, with no run in flight; anything later means answered.
     isQuestionOpen(ti) {
-      if (this.streaming || this.resuming) return false;
+      if (this.archived || this.streaming || this.resuming) return false;
       for (let i = ti + 1; i < this.turns.length; i++) {
         const role = this.turns[i].role;
         if (role === "user" || role === "assistant") return false;
@@ -1336,7 +1365,8 @@
 
     // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
     turnHasActions(turn, ti) {
-      return turn.role !== "run_status" && (!!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn, ti));
+      if (turn.role === "run_status") return false;
+      return !!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn, ti);
     },
 
     // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.
@@ -1400,7 +1430,7 @@
     // ---------- User actions ------------------------------------------
 
     canSend(text = this.draftMessage) {
-      if (!text.trim() || this.waiting) return false;
+      if (!text.trim() || this.waiting || this.archived) return false;
       if (this.thread) return true;
       return !!(this.draftRepoId && this.draftRef);
     },
@@ -1701,6 +1731,8 @@
         const v = evt.value || {};
         if (v.using) this._applyRepoState({ ref: v.using });
         console.debug("chat: ref_fallback %o → %o", v.requested, v.using);
+      } else if (type === AGUI.CUSTOM && evt.name === "run_record") {
+        if (this._activeRun && evt.value?.id) this._activeRun.recordId = evt.value.id;
       } else if (type === AGUI.CUSTOM && evt.name === "resolved_env") {
         // Server resolved Auto → real env for this run. Swap the locked pill text in
         // place when the user is still on Auto client-side; an explicit mid-flight
@@ -1766,9 +1798,14 @@
       }
     },
 
+    // Keyed by the Run row once the server names it, so the marker matches the one a reload renders.
+    _runStatusId() {
+      const run = this._activeRun;
+      return `run-status-${run ? run.recordId || run.runId : uuid()}`;
+    },
+
     _pushRunStatus(status, message) {
-      const runId = this._activeRun ? this._activeRun.runId : uuid();
-      const id = `run-status-${runId}`;
+      const id = this._runStatusId();
       const existing = this.turns.find((t) => t.id === id);
       if (existing) {
         existing.status = status;
@@ -1780,8 +1817,9 @@
     },
 
     _hasRunStatusMarker() {
-      const runId = this._activeRun ? this._activeRun.runId : null;
-      return runId != null && this.turns.some((t) => t.id === `run-status-${runId}`);
+      if (!this._activeRun) return false;
+      const id = this._runStatusId();
+      return this.turns.some((t) => t.id === id);
     },
 
     _appendTextSegment(turn, content) {
@@ -1794,8 +1832,9 @@
     // *top of the last assistant message* instead: that final answer is what
     // the reader came for, and anchoring to the bottom buries its opening
     // lines above the fold whenever it is taller than the viewport.
+    // A `#run-<id>` hash outranks both, once that run's turn has rendered.
     parkViewport() {
-      if (config.sessionLive) {
+      if (config.sessionLive && !this._pendingRunAnchor) {
         this.scrollToBottom({ force: true });
         return;
       }
@@ -1807,6 +1846,11 @@
       // scroll anchoring, but Safari has none — so settle it here instead of
       // depending on the browser to paper over it.
       requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (this.revealRunAnchor()) return;
+        if (config.sessionLive) {
+          this.scrollToBottom({ force: true });
+          return;
+        }
         const el = this._scrollEl;
         if (!el) return;
         // Last rendered assistant turn — querying the DOM rather than `turns`
@@ -1829,12 +1873,34 @@
       }));
     },
 
+    // A run the hash names may render only on a later poll, so each poll retries until it lands.
+    revealRunAnchor() {
+      if (!this._pendingRunAnchor) return false;
+      const target = document.getElementById(this._pendingRunAnchor);
+      if (!target) return false;
+      this._settleRunAnchor();
+      this._autoFollow = false;
+      cancelAnimationFrame(this._scrollFrame);
+      this._scrollFrame = 0;
+      target.scrollIntoView({ block: "start", behavior: "auto" });
+      return true;
+    },
+
+    _settleRunAnchor() {
+      this._pendingRunAnchor = "";
+      this._runAnchorWatch?.abort();
+      this._runAnchorWatch = null;
+    },
+
+    runAnchorId(turn) {
+      return turn.run_id ? `run-${turn.run_id}` : null;
+    },
+
     scrollToBottom({ force = false } = {}) {
       if (!force && !this._autoFollow) return;
-      if (this._scrollQueued) return;
-      this._scrollQueued = true;
-      requestAnimationFrame(() => {
-        this._scrollQueued = false;
+      if (this._scrollFrame) return;
+      this._scrollFrame = requestAnimationFrame(() => {
+        this._scrollFrame = 0;
         const el = this._scrollEl;
         if (!el) return;
         el.scrollTo({

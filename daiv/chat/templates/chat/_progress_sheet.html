@@ -24,7 +24,7 @@ means no button at all, because an empty sheet is worse than no way in. ``progre
     <span x-text="progressPill ? progressPill.label : ''"></span>
   </button>
 
-  <div class="composer-sheet composer-sheet--progress"
+  <div data-surface class="composer-sheet composer-sheet--progress"
        x-show="sheet === 'progress'"
        x-cloak
        @click.outside="closeSheet()"

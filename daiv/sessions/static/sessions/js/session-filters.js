@@ -14,6 +14,7 @@ const { swapResults } = window.createResultsSwap("session-results", {
 document.addEventListener("alpine:init", () => {
     Alpine.data("filterBar", () => ({
         open: null, // id of the open dropdown, or null
+        scope: "mine",
         q: "",
         status: "",
         trigger: "",
@@ -22,8 +23,10 @@ document.addEventListener("alpine:init", () => {
         to: "",
         repo: "",
         mr: "",
+        ranOn: "",
         schedule: "",
         batch: "",
+        archived: false,
 
         init() {
             this._readUrl();
@@ -33,6 +36,8 @@ document.addEventListener("alpine:init", () => {
 
         _readUrl() {
             const p = new URLSearchParams(window.location.search);
+            // Only the server-rendered URL can lack a scope (_apply always sets one), so take the scope it resolved.
+            this.scope = p.get("scope") || this.$root.dataset.scope;
             this.q = p.get("q") || "";
             this.status = p.get("status") || "";
             this.trigger = p.get("trigger") || "";
@@ -41,8 +46,10 @@ document.addEventListener("alpine:init", () => {
             this.to = p.get("date_to") || "";
             this.repo = p.get("repo") || "";
             this.mr = p.get("mr") || "";
+            this.ranOn = p.get("ran_on") || "";
             this.schedule = p.get("schedule") || "";
             this.batch = p.get("batch") || "";
+            this.archived = p.get("archived") === "true";
         },
 
         _labelFor(kind, value) {
@@ -60,6 +67,8 @@ document.addEventListener("alpine:init", () => {
             const set = (k, v) => {
                 if (v) params.set(k, v);
             };
+            // Always explicit: clearing a deep-link chip must not silently flip "all" back to "mine".
+            set("scope", this.scope);
             set("q", this.q);
             set("status", this.status);
             set("trigger", this.trigger);
@@ -68,8 +77,10 @@ document.addEventListener("alpine:init", () => {
             set("date_to", this.to);
             set("repo", this.repo);
             set("mr", this.mr);
+            set("ran_on", this.ranOn);
             set("schedule", this.schedule);
             set("batch", this.batch);
+            set("archived", this.archived ? "true" : "");
             const qs = params.toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
             this.open = null;
@@ -79,6 +90,10 @@ document.addEventListener("alpine:init", () => {
             this.open = this.open === id ? null : id;
         },
 
+        setScope(value) {
+            this.scope = value;
+            this._apply();
+        },
         setStatus(value) {
             this.status = value;
             this._apply();
@@ -109,6 +124,10 @@ document.addEventListener("alpine:init", () => {
             this.to = "";
             this._apply();
         },
+        toggleArchived() {
+            this.archived = !this.archived;
+            this._apply();
+        },
         clearParam(...keys) {
             keys.forEach((key) => (this[key] = ""));
             this._apply();
@@ -122,8 +141,10 @@ document.addEventListener("alpine:init", () => {
             this.to = "";
             this.repo = "";
             this.mr = "";
+            this.ranOn = "";
             this.schedule = "";
             this.batch = "";
+            this.archived = false;
             this._apply();
         },
 
@@ -154,8 +175,10 @@ document.addEventListener("alpine:init", () => {
                 this.to ||
                 this.repo ||
                 this.mr ||
+                this.ranOn ||
                 this.schedule ||
-                this.batch
+                this.batch ||
+                this.archived
             );
         },
     }));

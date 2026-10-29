@@ -23,12 +23,12 @@
                 <span class="status-badge status-badge-pending">{{ s.get_transport_display }}</span>
                 {% include "mcp_connectors/_status_badge.html" with s=s %}
                 {% if s.is_loadable and not s.health.ok %}
-                <span class="status-badge status-badge-queued" title="{{ s.health.reason }}">
+                <span class="status-badge status-badge-warning" title="{{ s.health.reason }}">
                     {% translate "Broken" %}: {{ s.health.reason }}
                 </span>
                 {% endif %}
                 {% if s.shadowed %}
-                <span class="status-badge status-badge-queued"
+                <span class="status-badge status-badge-warning"
                       title="{% translate 'A global server of the same name takes precedence; this personal server does not load.' %}">
                     {% translate "Shadowed" %}
                 </span>

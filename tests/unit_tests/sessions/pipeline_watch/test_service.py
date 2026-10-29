@@ -54,6 +54,7 @@ class FakePlatform:
         self.on_read = None
         self.client_error = None
         self.correlated = []
+        self.source_branch = "daiv/branch"
 
     async def aensure_client(self):
         if self.client_error is not None:
@@ -68,6 +69,11 @@ class FakePlatform:
         if self.read_error is not None:
             raise self.read_error
         return self.pipeline
+
+    async def aread_merge_request(self, merge_request_iid):
+        if self.read_error is not None:
+            raise self.read_error
+        return SimpleNamespace(merge_request_id=merge_request_iid, source_branch=self.source_branch)
 
     async def ais_head_pipeline(self, *, merge_request_iid, report):
         self.correlated.append(merge_request_iid)
@@ -813,3 +819,140 @@ async def test_the_ci_skip_placeholder_leaves_the_watch_armed(watched_session, w
     await watched_session.arefresh_from_db()
     assert watched_session.watch_state == WatchState.WATCHING
     assert watched_session.watch_pipeline_id is None
+
+
+@pytest.fixture
+def evaluations(monkeypatch):
+    enqueued = []
+
+    class FakeTask:
+        async def aenqueue(self, **kwargs):
+            enqueued.append(kwargs)
+
+    monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeTask())
+    return enqueued
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "state", [WatchState.WATCHING, WatchState.FIXING, WatchState.GREEN, WatchState.EXHAUSTED, WatchState.UNCLEAR]
+)
+async def test_turning_the_watch_off_ends_it_from_any_state(watch, state):
+    mr_thread = mr_thread_id(90)
+    await amake_watched_session(thread_id=mr_thread, merge_request_iid=90, watch_state=state)
+
+    assert await watch.make().aturn_off(merge_request_iid=90, seen_state=state) is True
+
+    session = await Session.objects.aget(thread_id=mr_thread)
+    assert session.watch_state == WatchState.OFF
+    assert watch.platform.notes == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_turning_off_a_watch_that_is_already_off_changes_nothing(watch):
+    assert await watch.make().aturn_off(merge_request_iid=91, seen_state=WatchState.OFF) is True
+    assert not await Session.objects.filter(thread_id=mr_thread_id(91)).aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_turning_off_loses_to_a_fix_run_that_claimed_the_watch_first(watch):
+    """The person saw "Waiting for CI"; a failed pipeline handed the watch to a fix run before their click landed.
+    Their off must not land on a state they never saw, so the page re-reads and shows "Fixing"."""
+    mr_thread = mr_thread_id(92)
+    await amake_watched_session(thread_id=mr_thread, merge_request_iid=92, ref="daiv/branch")
+    watch.platform.pipeline = make_pipeline("failed", pipeline_id=920)
+    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=920)
+
+    turned_off = await watch.make().aturn_off(merge_request_iid=92, seen_state=WatchState.WATCHING)
+
+    assert turned_off is False
+    session = await Session.objects.aget(thread_id=mr_thread)
+    assert session.watch_state == WatchState.FIXING
+    assert len(watch.dispatcher.dispatched) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_watch_turned_off_first_wins_over_the_fix_run_claim(watch):
+    mr_thread = mr_thread_id(93)
+    await amake_watched_session(thread_id=mr_thread, merge_request_iid=93, ref="daiv/branch")
+    watch.platform.pipeline = make_pipeline("failed", pipeline_id=930)
+
+    async def turn_off_first():
+        await watch.make().aturn_off(merge_request_iid=93, seen_state=WatchState.WATCHING)
+
+    watch.platform.on_read = turn_off_first
+    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=930)
+
+    session = await Session.objects.aget(thread_id=mr_thread)
+    assert session.watch_state == WatchState.OFF
+    assert watch.dispatcher.dispatched == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_turning_the_watch_on_arms_the_merge_requests_current_branch(watch, evaluations, django_user_model):
+    user = await django_user_model.objects.acreate(username="toggler", email="toggler@example.com")
+    mr_thread = mr_thread_id(94)
+    await amake_watched_session(
+        thread_id=mr_thread,
+        merge_request_iid=94,
+        ref="daiv/old-name",
+        watch_state=WatchState.OFF,
+        watch_attempts=3,
+        watch_pipeline_id=940,
+    )
+    watch.platform.source_branch = "daiv/new-name"
+
+    armed = await watch.make().aturn_on(merge_request_iid=94, user_id=user.pk)
+
+    assert armed == mr_thread
+    session = await Session.objects.aget(thread_id=mr_thread)
+    assert (session.watch_state, session.ref, session.watch_attempts, session.watch_pipeline_id) == (
+        WatchState.WATCHING,
+        "daiv/new-name",
+        0,
+        None,
+    )
+    assert evaluations == [{"repo_id": "group/repo", "ref": "daiv/new-name"}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_turning_the_watch_on_creates_the_merge_request_thread(watch, evaluations, django_user_model):
+    user = await django_user_model.objects.acreate(username="toggler2", email="toggler2@example.com")
+
+    armed = await watch.make().aturn_on(merge_request_iid=95, user_id=user.pk)
+
+    session = await Session.objects.aget(thread_id=armed)
+    assert (session.watch_state, session.user_id) == (WatchState.WATCHING, user.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_turning_on_a_watch_that_is_still_open_leaves_it_alone(watch, evaluations):
+    mr_thread = mr_thread_id(98)
+    await amake_watched_session(
+        thread_id=mr_thread, merge_request_iid=98, watch_state=WatchState.FIXING, watch_attempts=2
+    )
+
+    assert await watch.make().aturn_on(merge_request_iid=98) == mr_thread
+
+    session = await Session.objects.aget(thread_id=mr_thread)
+    assert (session.watch_state, session.watch_attempts) == (WatchState.FIXING, 2)
+    assert evaluations == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_turning_the_watch_on_does_nothing_when_the_repository_has_it_off(watch, evaluations):
+    config = RepositoryConfig(**{"pipeline_watch": {"enabled": False}})
+
+    assert await watch.make(config=config).aturn_on(merge_request_iid=96) is None
+    assert not await Session.objects.filter(thread_id=mr_thread_id(96)).aexists()
+    assert evaluations == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_turning_the_watch_on_raises_when_the_merge_request_cannot_be_read(watch, evaluations):
+    watch.platform.read_error = RuntimeError("platform down")
+
+    with pytest.raises(RuntimeError):
+        await watch.make().aturn_on(merge_request_iid=97)
+
+    assert not await Session.objects.filter(thread_id=mr_thread_id(97)).aexists()

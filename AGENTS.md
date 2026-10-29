@@ -2,6 +2,9 @@
 
 This file provides guidance to agents when working with code in this repository.
 
+`constitutions/index.md` gives the reading order; start there. `constitutions/constitution.md` is the
+charter, and with its companion documents it outranks this file.
+
 ## Commands (verified)
 
 ```bash
@@ -14,77 +17,55 @@ make lint           # check only (no fixes); CI gate
 # NOTE: ruff check caches results (.ruff_cache) and can report "All checks passed!"
 # on a changed file — before declaring a CI lint failure un-reproducible, run
 #   rm -rf .ruff_cache && uv run --only-group=dev ruff check --no-cache .
-make lint-typing    # ty, daiv/ only
+make lint-typing    # ty, daiv/ only; CI gate. Runs on the full env (uv run syncs it)
 make lint-imports   # app layering contracts in .importlinter; part of lint and lint-fix
-
-# Single test / pattern
-uv run pytest tests/unit_tests/accounts/test_views.py
-uv run pytest tests/unit_tests/ -k "test_notes"
-
-# Test layout — one test file per application file: tests for
-# `accounts/adapter.py` go in `test_adapter.py`, `accounts/emails.py` in
-# `test_emails.py`, `accounts/views.py` in `test_views.py`, etc. Don't create
-# feature-named catch-all test files. Shared fixtures live in tests/unit_tests/conftest.py.
+make lint-design    # official design.md linter on DESIGN.md (npx, needs Node; not part of lint); fails on warnings too
 
 make integration-tests   # real LLM calls; needs docker/local/app/config.secrets.env (LLM key + GitLab creds). Runs -m "diff_to_metadata or memory"; DAIV_EVAL_REPEATS=1 for a fast local pass (not a gate).
 
 make eval-prompts SUITES="skills todos" OUT=eval-runs/before.jsonl   # prompt evals on EVAL_MODEL (GLM-5.2): DAIV_EVAL_REPEATS passes (default 3), one JSONL row per case per pass; markers: ask_user skills todos web_search subagents code_review
 uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl                # PR-body table and verdict: regressed / unconfirmed / inconclusive / improved / neutral
 # "unconfirmed" = a flip over 3 votes; it prints a `make eval-prompts CASES=...` re-run for each side, whose two files go back in with --confirm BEFORE_CONFIRM AFTER_CONFIRM
-
-# Translations
-make makemessages && make compilemessages
 ```
 
-- `asyncio_mode = "auto"` — no `@pytest.mark.asyncio` needed.
-- Python **3.14 only** (`requires-python = ">=3.14,<3.15"`).
-- Never edit `pyproject.toml` by hand — use `uv add <pkg>==<version>` / `uv remove <pkg>` (deps are `==`-pinned; `parable` is git-pinned, not on PyPI).
+- `parable` is git-pinned, not on PyPI.
 
 ## Repo map (only what's non-obvious)
 
-- `daiv/automation/` — LangGraph/deepagents agent: tools are provided by middlewares (`agent/middlewares/`, e.g. `web_fetch.py`, `artifacts.py`), skills (`agent/skills/`), deferred tools (`agent/deferred/`); a run's context (`RuntimeCtx`, `set_runtime_ctx`) is in `agent/context.py`, its external references in `agent/references.py`. `agent/` is runtime only: the model-picker UI (display helpers, picker context, per-provider model catalog) is `picker/`
+- `daiv/automation/` — LangGraph/deepagents agent: middlewares (`agent/middlewares/`), skills (`agent/skills/`), deferred tools (`agent/deferred/`); a run's context (`RuntimeCtx`, `set_runtime_ctx`) is in `agent/context.py`, its external references in `agent/references.py`. `agent/` is runtime only: the model-picker UI (display helpers, picker context, per-provider model catalog) is `picker/`
 - `daiv/codebase/` — platform access only: GitLab/GitHub clients (`clients/`), `.daiv.yml` repo config, repo authorization, the repository catalog
 - `daiv/webhooks/` — GitLab/GitHub webhook callbacks, the `address_*` tasks and the issue/MR addressors; each platform's `views.py` has its own router, composed in `webhooks/api/router.py` and mounted at `/codebase` in `daiv/daiv/api.py`, so the URLs stay `/api/codebase/callbacks/{gitlab,github}`
 - `daiv/mcp_api/` — DAIV's own MCP endpoint (`server.py`, mounted at `/mcp` by `daiv/daiv/asgi.py`) + its OAuth discovery and client registration; `daiv/mcp_connectors/` — the external MCP servers the agent connects to (`MCPServer`), app label still `mcp_servers` (tables, migrations, `apps.get_model`)
 - `daiv/jobs/` — jobs REST API (`jobs/tasks.py` only re-exports `run_job_task` for task rows queued under the old path). `run_job_task` lives in `sessions/executor/tasks.py` and is enqueued only by `sessions.queue.aenqueue_run`, for `sessions.services.asubmit_batch_runs` (jobs API, MCP, schedules, dashboard, the agent's `delegate_jobs` via `sessions.delegation`), `sessions.queue.dispatch_next_queued` (a session's next queued run), `sessions.queue.release_orphan_queued_runs` (orphan sweep) and `sessions.pipeline_watch.dispatch` (CI fix runs). Chat runs inline; webhooks call the executor directly.
 - `daiv/core/` — sandbox client, Redis, shared constants, the site skeleton `base.html` and the app-agnostic partials (`core/_pagination.html`, `core/_breadcrumb.html`); query strings use Django's built-in `{% querystring %}`
 - `daiv/accounts/` — identity only: users, sign-in (allauth adapters, OAuth), API keys, user admin, and the `accounts/_avatar.html` partial (+ `avatar_tags`) other apps include
-- `daiv/dashboard/` — the app shell: dashboard and homepage views, the `nav` context processor, the nav SSE badges (`api/views.py`), `nav_tags`, and the `base_app.html` layout every signed-in page extends. It is top layer: a lower app's template gets request-wide values from that app's own context processor (e.g. `codebase.context_processors.git_platform`), and a view whose URL belongs to another sidebar section sets `request.nav_view_name` to that section's URL name
+- `daiv/dashboard/` — the app shell: dashboard and homepage views, the `nav` context processor, the nav SSE badges (`api/views.py`), `nav_tags`, and the `base_app.html` layout every signed-in page extends. A lower app's template gets request-wide values from that app's own context processor (e.g. `codebase.context_processors.git_platform`), and a view whose URL belongs to another sidebar section sets `request.nav_view_name` to that section's URL name
 - `daiv/configuration/` — the site-configuration UI (forms, views, templates); the data it edits (`SiteConfiguration`, `Provider`, `site_settings`) stays in `core` because lower layers read it
-- `daiv/daiv/settings/components/` — split settings; `common.py` has `INSTALLED_APPS`
-- `evals/` — eval suite, **not** run by `make test`
-- UI rules live in `DESIGN.md` (icon system, layout tokens, floating surfaces) and `docs/` (mkdocs) — consult before touching templates/CSS.
+- `evals/` — eval suite, **not** run by `make test`; `/code-review` on ReviewBench: how to run and judge it, the experiment log and the judged baseline to compare against are in `evals/results/reviewbench/README.md`
 
 ## Invariants / footguns
 
-- **Test imports** — `pythonpath = ["daiv", "."]`; in tests import `from automation.agent.graph import ...` (no `daiv.` prefix).
-- **App layering** — `.importlinter` (run by `make lint`) gives each app below the top layer a `forbidden` contract listing every app above it in `core` < `codebase`/`sandbox_envs` < `accounts` < `skills` < `slash_commands` < `automation` < `mcp_connectors` < `sessions` < `memory`/`schedules` < `notifications` < `chat`/`jobs`/`mcp_api`/`webhooks`/`configuration`/`dashboard`. `codebase` and `sandbox_envs` don't import each other; `accounts` is identity only, so a page or helper that reads runs, schedules or notifications belongs in `dashboard`; `memory` and `schedules` don't import each other; the trigger apps (`chat`, `jobs`, `mcp_api`, `webhooks`) don't import each other, not even through a lower layer. The exceptions are `automation.agent.middlewares.memory` → `memory.models` and the one-release `sessions.tasks` → `notifications.tasks` task alias. A broken contract means moving the code, not adding an `ignore_imports` line; a new line is a design decision for review. Deleting an import that an exception covers fails the run until its line goes too.
 - **`InlineToolDefinitionsMiddleware` stays the last DAIV middleware** (main and subagent stacks) — a middleware that appends messages to the model request must sit before it, or an Anthropic request gets a system turn followed by a user turn and langchain raises; see `automation/agent/deferred/inline.py`.
 - **Tools can't mutate `runtime.state`** — return a `Command(update={...}, messages=[ToolMessage(...)])`; in tests unpack `isinstance(result, Command)`.
 - **Auth** — email signup disabled (`AccountAdapter.is_open_for_signup` → `False`); `AdminRequiredMixin` needs `user.is_admin`; `APIKey.objects.create_key(...)` is **async**.
-- **Run terms** — **Session** = one conversation (agent thread); its PK `thread_id` is also the LangGraph checkpoint key. **Run** = one agent execution inside a Session. **Origin** (`SessionOrigin`, `Session.origin`) = what started the Session; each Run records its own trigger in `Run.trigger_type`, so a webhook-origin Session can hold chat Runs.
-- **`run_job_task` requires a non-empty `thread_id`** — it is the `Session` PK and the checkpoint key; missing breaks chat resume. The task checks only non-empty; the UUID check is in `sessions.services.asubmit_batch_runs`.
-- **Bot labels** (`daiv` / `daiv-max` / `daiv-auto`) live in `daiv/core/constants.py` — don't hardcode.
+- **`run_job_task` requires a non-empty `thread_id`** — missing breaks chat resume. The task checks only non-empty; the UUID check is in `sessions.services.asubmit_batch_runs`.
 - **Per-repo agent config** — agent reads `.agents/AGENTS.md`, skills from `.agents/skills/`, subagents from `.agents/subagents/`; a custom skill shadows a same-named built-in.
-- **Disk vs sandbox** — agent code never branches on a run's mode: the executor builds a `DiskWorkspace` or `SandboxWorkspace` (`automation/agent/workspace/`), and each part asks it (see the `Workspace` protocol in `automation/agent/workspace/base.py`).
 - **Repository memory** — `MemoryEntry` rows are append-only truth; `RepositoryMemory.content` is a render cache from `memory/render.py`, never model-generated; enforce `memory_max_*` via `prune_to_budget`, not by slicing.
-- **Sandbox wire schemas** — `daiv/core/sandbox/schemas.dump.json` is canonical; `tests/unit_tests/core/sandbox/test_schema_consistency.py` fails on drift. Regenerate from the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repo after changing `daiv_sandbox/schemas.py`.
+- **Sandbox wire schemas** — `tests/unit_tests/core/sandbox/test_schema_consistency.py` fails when `daiv/core/sandbox/schemas.dump.json` drifts. Regenerate it from the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repo after changing `daiv_sandbox/schemas.py`.
 - **Skill asset paths** resolve to `<location>/<skill>/...`, not the bash CWD — invoke skill scripts by absolute path.
 - **PEP 758** — `except E1, E2:` is valid; ruff canonicalises it unparenthesised — don't "fix" it back to parens (pure churn).
 - **Django** — test settings module is `daiv.settings.test`; `NINJA_SKIP_REGISTRY=true` is auto-set in tests.
-- **Views by content type** — HTML = CBVs in `daiv/<app>/views.py`; JSON = a django-ninja `Router` in `daiv/<app>/api/views.py` (or `api/router.py`), registered in `daiv/daiv/api.py`. Filtered lists use `django_filters.FilterSet` + `FilterView(strict=False)`, not hand-rolled `request.GET`/`Paginator`.
-- **Dependency upgrade blockers** (re-verify first): **redis 8.x is now UNBLOCKED** — as of `redisvl 0.27.1` (transitive, via `langgraph-checkpoint-redis==0.5.2`, which caps `redis>=5.2.1`/`redisvl<1.0.0`) the redis cap is `redis<9.0,>=6.3.0,!=8.0.0`, so `redis 8.1.0` resolves; `uv lock --upgrade` bumps `redisvl 0.26.0 -> 0.27.1` automatically. The code is already forward-compatible: `daiv/core/redis.py` explicitly passes `socket_timeout=None` on the async client and documents the redis-py 8.0 default change, and no `setex`/`can_read_destructive`/`protocol=` usage exists (RESP3 default preserves legacy shapes). Safe to bump the direct `redis` pin. **mcp 2.x is adopted** (`mcp==2.2.0`): the MCP client is `langchain.mcp` (beta) + `fastmcp-slim[client]==4.0.10`, imported only in `automation/agent/mcp/client.py` (used by `automation/agent/mcp/toolkits.py` + `mcp_connectors/services.py`) — keep `fastmcp-slim` within `langchain`'s supported `fastmcp>=4.0.1,<5` range. DAIV's own server uses `mcp.server.mcpserver.MCPServer` (`mcp_api/server.py`); `stateless_http` / `transport_security` are `streamable_http_app(...)` arguments in `daiv/daiv/asgi.py`. Also: **tasks run on Django's built-in `django.tasks`** (`from django.tasks import task`, signals from `django.tasks.signals`); `django-tasks-db` is only the database backend. Don't re-add the third-party `django-tasks` package: its `Task` fails `DBTaskResult.task`'s `isinstance` check and its signals are separate objects the worker never sends. Deps are `==`-pinned, so `uv lock --upgrade --dry-run` shows only transitive updates — check the PyPI JSON API per direct dep. Also BLOCKED: **`ag-ui-protocol` is pinned `<1`** in `pyproject.toml` (transitive cap, since `ag-ui-langgraph==0.0.45` declares only `ag-ui-protocol>=0.1.22` with no upper bound) — `uv lock --upgrade` would otherwise auto-bump it to the 1.x major, whose breaking changes (wire-protocol version bump, renamed message parts, dropped file sources, null-omission in serialization) are incompatible with both `ag-ui-langgraph==0.0.45` (targets 0.x) and the repo's tight coupling to `ag_ui.core.events`/`ag_ui.core` shapes in `sessions/live/event_filter.py`, `sessions/live/agui.py`, `sessions/live/publisher.py`, `chat/api/runner.py`, `chat/api/streaming.py`. Do **not** remove the cap until `ag-ui-langgraph` ships a 1.x-compatible release and those call sites are re-verified. Also: **deepagents is at 0.7.19** (was 0.7.13) — the 0.7.13→0.7.19 "patch" bumps removed the private `_remaining_lines_notice` helper (its prose notice was refactored into the structured `_window_fields` header fields + `_assemble_read`). The 3 `TestSandboxReadPagination` tests in `tests/unit_tests/automation/agent/middlewares/test_file_system.py` were ported to assert on `_window_fields(result)` (window span, total, resume offset) instead of the removed prose; the "exact remainder" is now verified as `total_lines - next_offset` rather than the old "N lines remaining from offset M" string (which upstream no longer emits). No production code imported the removed helper. Note: **patch releases can still break private-API consumers** — review the deepagents filesystem module before bumping it again.
-- **Run artifacts** — `MEDIA_ROOT` must be a volume shared by the web and worker containers (the worker writes `RunArtifact` bytes, the web serves them); when adding viewer kinds keep `content_type` extension-derived and the raw endpoint's `sandbox` CSP. Every agent run carries its `Run` id (`RunSpec.run_id` / `bind_active_run`): webhook tasks take `takes_context=True` and resolve it with `aget_task_run_id`, because the Run links to the task result (`webhooks.dispatch` commits both in one transaction). A new entry point must do the same — unbound code gets no run, never a guessed one.
+- **Run artifacts** — `MEDIA_ROOT` must be a volume shared by the web and worker containers (the worker writes `RunArtifact` bytes, the web serves them); when adding viewer kinds keep `content_type` extension-derived and the raw endpoint's `sandbox` CSP.
 - **Detailed behaviour lives in module docstrings**, not here — e.g. `automation/agent/chat_models.py`, `core/ui_events.py`, `sessions/live/relay.py`, `sessions/pipeline_watch/`. Read the relevant docstring before changing that area.
 
 ## Where changes usually go
 
 | Change type | Start here |
 |---|---|
-| New agent tool | a middleware in `daiv/automation/agent/middlewares/` exposing `self.tools` (see `web_fetch.py`, `artifacts.py`); registered in `graph.py` — deferred unless added to `ALWAYS_LOADED_TOOLS` |
+| New agent tool | a middleware exposing `self.tools` (see `web_fetch.py`, `artifacts.py`) |
 | New built-in skill | `daiv/automation/agent/skills/<name>/` (`SKILL.md` + optional `scripts/`, `examples/`) |
 | New agent middleware | `daiv/automation/agent/middlewares/` |
 | MCP tool | `daiv/mcp_api/server.py` |
 | Webhook event handling | `daiv/webhooks/<platform>/callbacks.py` |
-| Shared settings / new app | `daiv/daiv/settings/components/common.py` (`LOCAL_APPS`); every new top-level package under `daiv/`, app or not, also goes in `.importlinter`: in `root_packages`, in the `forbidden_modules` of every contract below its layer (always `core`), and — unless it joins the top layer — in a contract of its own forbidding every app above it. `test_import_hygiene.py` checks each package is listed and placed, and that every contract forbids what the apps above it forbid |
-| LLM model list / provider | `daiv/automation/agent/base.py` (building the chat model: provider SDK kwargs, thinking), `daiv/automation/agent/model_spec.py` (parsing `slug:model` against `Provider` rows; must not import the LangChain/SDK stack — forms, validators and admission load it at URL-load time), `daiv/core/constants.py` (`ModelName`) |
+| Shared settings / new app | `daiv/daiv/settings/components/common.py` (`LOCAL_APPS`), then `.importlinter` |
+| LLM model list / provider | `daiv/automation/agent/base.py` (building the chat model), `daiv/automation/agent/model_spec.py` (parsing `slug:model` against `Provider` rows), `daiv/core/constants.py` (`ModelName`) |

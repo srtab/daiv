@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 import uuid
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from unittest.mock import patch
 
 from django.contrib.messages import get_messages
@@ -414,12 +414,13 @@ def test_detail_view_renders_builtin_without_global_skill_row(admin_client, tmp_
 def test_detail_view_renders_global_skill_with_usage_block(admin_client, admin_user, storage, build_skill_zip):
     data = build_skill_zip(skill_name="custom-one", description="x")
     storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
-    now = timezone.now()
+    today = timezone.localdate()
     for offset in (0, 1, 1, 5, 31):  # 31 is older than the 30-day window
         inv = SkillInvocation.objects.create(
             name="custom-one", source=SkillInvocation.Source.GLOBAL, repo_slug="org/repo", thread_id=uuid.uuid4()
         )
-        SkillInvocation.objects.filter(pk=inv.pk).update(created=now - timedelta(days=offset))
+        created = timezone.make_aware(datetime.combine(today - timedelta(days=offset), time(12)))
+        SkillInvocation.objects.filter(pk=inv.pk).update(created=created)
 
     response = admin_client.get(reverse("skills:detail", args=["custom-one"]))
     assert response.status_code == 200
@@ -432,7 +433,6 @@ def test_detail_view_renders_global_skill_with_usage_block(admin_client, admin_u
     assert usage["daily_series"][-1]["day"] == timezone.localdate()
     # Today has 1, yesterday has 2 (offset 1 twice), 5 days ago has 1, 31 days ago is dropped.
     counts = {entry["day"]: entry["count"] for entry in usage["daily_series"]}
-    today = timezone.localdate()
     assert counts[today] == 1
     assert counts[today - timedelta(days=1)] == 2
     assert counts[today - timedelta(days=5)] == 1

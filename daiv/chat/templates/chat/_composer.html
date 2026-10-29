@@ -4,7 +4,7 @@ Chat composer.
 
 Anatomy, top to bottom inside the sticky dock:
 
-- **Context row** — repo · branch, plus the MR pill once one exists. It lives outside the
+- **Context row** (new-chat route only) — repo · branch, plus the MR pill once one exists. It lives outside the
   composer box so it stays pinned with the dock and can never scroll away. Locked once a
   thread exists (the backend snapshots repo/ref on the first turn); before that it *is* the
   repo picker, and picking a repo is what ungates Send.
@@ -21,6 +21,7 @@ box (``_command_menu.html``).
 {% endcomment %}
 <div class="chat-dock" @keydown.escape.window="closeSheet()">
 
+  {% if not session %}
   <div class="chat-context">
     {# Locked once the thread exists: the backend pins repo + ref on the first turn. #}
     <template x-if="thread">
@@ -58,8 +59,17 @@ box (``_command_menu.html``).
       </a>
     </template>
   </div>
+  {% endif %}
+
+  {% if session %}
+  <div class="chat-archived" x-show="archived" data-testid="composer-archived">
+    <span class="flex items-center gap-2">{% icon "archive-box" "h-3.5 w-3.5 shrink-0 text-gray-400" %}{% translate "This session is archived." %}</span>
+    <button type="button" class="btn-primary rounded-md px-2.5 py-1 text-xs" @click="setArchived(false)">{% translate "Unarchive" %}</button>
+  </div>
+  {% endif %}
 
   <form @submit.prevent="submit()"
+        x-show="!archived"
         class="chat-composer"
         :class="{ 'chat-composer--sending': (streaming || resuming || waiting) }">
 

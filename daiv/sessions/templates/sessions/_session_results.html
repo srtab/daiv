@@ -15,7 +15,7 @@
 {% elif has_active_filters %}
 <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-10 text-center">
     <p class="text-[15px] text-gray-400">{% translate "No sessions match these filters." %}</p>
-    <a href="{% url 'session_list' %}" class="mt-3 inline-block text-sm text-gray-400 hover:text-white">
+    <a href="{% url 'session_list' %}?scope={{ current_scope }}" class="mt-3 inline-block text-sm text-gray-400 hover:text-white">
         {% translate "Clear all" %}
     </a>
 </div>
@@ -31,5 +31,16 @@
     <a href="{% url 'session_new' %}" class="btn-primary mt-5 inline-flex items-center gap-2">
         {% icon "plus" "h-4 w-4" %}{% translate "New" %}
     </a>
+    {% if current_scope == "mine" %}
+    <a href="{% url 'session_list' %}?scope=all" class="mt-4 block text-sm text-gray-400 hover:text-white">
+        {% translate "See everyone's sessions" %}
+    </a>
+    {% endif %}
 </div>
+{% endif %}
+{% if archived_matches %}
+<p class="mt-4 text-center text-sm text-gray-400" data-testid="archived-matches">
+    {% blocktranslate count n=archived_matches %}{{ n }} archived session matches too.{% plural %}{{ n }} archived sessions match too.{% endblocktranslate %}
+    <a href="{% querystring archived='true' page=None %}" class="text-gray-300 underline hover:text-white">{% translate "Show archived" %}</a>
+</p>
 {% endif %}
