@@ -559,3 +559,29 @@ def test_a_tool_body_gets_the_servers_the_artifacts_and_the_merge_request(mr, ur
         "latestArtifactsById": True,
         "mergeRequestUrl": url,
     }
+
+
+ROWS_BODY = """
+const seen = [];
+const build = sandbox.window.buildRunBlocks;
+sandbox.window.buildRunBlocks = (turns, opts) => {
+  seen.push({ servers: opts.mcpServers, rows: opts.mcpRows });
+  return build(turns, opts);
+};
+const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
+chat.mcpCatalog = payload.catalog;
+chat.$watch = (expr, cb) => watchOn(chat)(expr, cb);
+chat.$nextTick = () => {};
+chat.scrollToBottom = () => {};
+chat.turns = payload.turns;
+chat.init();
+process.stdout.write(JSON.stringify(seen[seen.length - 1]));
+chat.destroy();
+"""
+
+
+def test_the_run_blocks_get_the_mcp_server_rows():
+    catalog = [{"name": "sentry", "read_only_tools": ["search_issues"], "icon": "https://x.test/a.png"}]
+    payload = {"catalog": catalog, "turns": [user("u1"), asst("a1", read("c1"))]}
+    seen = run_chat_stream(ROWS_BODY, payload, prelude=REACTIVITY, extra_globals=GLOBALS)
+    assert seen == {"servers": ["sentry"], "rows": catalog}

@@ -366,3 +366,33 @@ def test_a_rebuild_keeps_every_block_and_item_that_did_not_change():
         "liveText": True,
         "liveStep": False,
     }
+
+
+def test_a_changed_mcp_server_icon_or_read_only_list_re_derives_its_rows():
+    expr = """(() => {
+      let calls = 0;
+      const toolRow = window.toolRow;
+      window.toolRow = (seg, ctx) => { calls++; return toolRow(seg, ctx); };
+      const seen = [];
+      const build = (icon, readOnly) => {
+        const before = calls;
+        const mcpRows = [{ name: "sentry", icon, read_only_tools: readOnly }];
+        const opts = { inFlight: false, latestArtifactsById: new Map(), mcpServers: ["sentry"], mcpRows };
+        const blocks = buildRunBlocks(vars.turns, opts);
+        seen.push([calls - before, blocks[0].items[0].row.iconSrc]);
+      };
+      build("", []);
+      build("", []);
+      build("https://x.test/a.png", []);
+      build("https://x.test/a.png", ["search_issues"]);
+      build("https://x.test/a.png", ["search_issues"]);
+      return seen;
+    })()"""
+    turns = [user("u1"), asst("a1", tool_call("c1", "sentry_search_issues", {"query": "x"}, result="[]"))]
+    assert run_transcript(expr, {"turns": turns}) == [
+        [1, ""],
+        [0, ""],
+        [1, "https://x.test/a.png"],
+        [1, "https://x.test/a.png"],
+        [0, "https://x.test/a.png"],
+    ]

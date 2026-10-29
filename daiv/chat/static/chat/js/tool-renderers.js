@@ -534,19 +534,37 @@
     cancel_delegated_jobs: jobsRow("cancel_jobs"),
   };
 
-  const mcpRow = (name, { args }, servers) => {
-    const server = servers
-      .filter((s) => name.startsWith(`${s}_`))
-      .sort((a, b) => b.length - a.length)[0];
+  const mcpServerOf = (name, servers) =>
+    servers.filter((s) => name.startsWith(`${s}_`)).sort((a, b) => b.length - a.length)[0];
+
+  const mcpRowOf = (server, ctx) => (ctx?.mcpRows ?? []).find((row) => row?.name === server) ?? null;
+
+  // The server already keeps only these; an `<img>` never runs script, so any https or image data URI is safe.
+  const ICON_SRC_RE = /^(?:https:\/\/|data:image\/)/i;
+
+  const iconSrcOf = (row) => {
+    const src = String(row?.icon ?? "");
+    return ICON_SRC_RE.test(src) ? src : "";
+  };
+
+  const MCP_DETAIL_CHARS = 80;
+
+  // The argument an MCP row shows: its first non-empty string or number, as `[key, value]`.
+  const mcpDetailArg = (args) =>
+    Object.entries(args).find(([, v]) => ["string", "number"].includes(typeof v) && String(v)) ?? null;
+
+  const mcpRow = (name, { args }, ctx) => {
+    const server = mcpServerOf(name, ctx?.mcpServers ?? []);
     if (!server) {
       return { icon: "puzzle-piece", phrase: name, category: { key: "other" } };
     }
-    const first = Object.values(args).find((v) => ["string", "number"].includes(typeof v) && String(v));
+    const first = mcpDetailArg(args)?.[1];
     return {
       icon: "puzzle-piece",
+      iconSrc: iconSrcOf(mcpRowOf(server, ctx)),
       key: "mcp",
       vars: { server, tool: name.slice(server.length + 1).replaceAll("_", " ") },
-      detail: first == null ? "" : truncate(String(first).replace(/\s+/g, " "), 80),
+      detail: first == null ? "" : truncate(String(first).replace(/\s+/g, " "), MCP_DETAIL_CHARS),
       category: { key: "mcp", name: server },
     };
   };
@@ -581,12 +599,13 @@
     const name = String(seg.name ?? "");
     const input = { args: parseArgs(seg.args), argsStr: seg.args, result: seg.result, status: seg.status };
     const build = Object.hasOwn(ROW_BY_TOOL, name) ? ROW_BY_TOOL[name] : null;
-    const part = build ? build(input) : mcpRow(name, input, ctx?.mcpServers ?? []);
+    const part = build ? build(input) : mcpRow(name, input, ctx);
     const phrase = part.phrase ?? T.t(`row_${part.key}`, part.vars);
     const liveKey = `live_${part.key}`;
     const livePhrase = part.phrase ?? (liveKey in T.defaults ? T.t(liveKey, part.vars) : phrase);
     return {
       icon: part.icon,
+      iconSrc: part.iconSrc ?? "",
       phrase,
       livePhrase,
       detail: part.detail ?? "",
@@ -614,11 +633,12 @@
 
   const byteLength = (s) => (typeof TextEncoder === "function" ? new TextEncoder().encode(s).length : s.length);
 
-  const formatSize = (lines, bytes) => {
+  const kbSize = (bytes) => {
     const kb = bytes / 1024;
-    const size = kb < 10 ? Math.max(kb, 0.1).toFixed(1) : String(Math.round(kb));
-    return `${tn("size_lines", lines)} · ${t("size_kb", { size })}`;
+    return t("size_kb", { size: kb < 10 ? Math.max(kb, 0.1).toFixed(1) : String(Math.round(kb)) });
   };
+
+  const formatSize = (lines, bytes) => `${tn("size_lines", lines)} · ${kbSize(bytes)}`;
 
   const contextSize = (text) => {
     const source = String(text ?? "");
@@ -727,9 +747,10 @@
     return { kind: "markdown", text: source };
   };
 
-  const tableMarkup = (headers, cells) => {
+  const tableMarkup = (headers, cells, rowClasses = []) => {
     const head = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
-    const body = cells.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("");
+    const tr = (i) => (rowClasses[i] ? `<tr class="${rowClasses[i]}">` : "<tr>");
+    const body = cells.map((row, i) => `${tr(i)}${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("");
     const table = `<table class="body-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
     return `<div class="body-table-wrap">${table}</div>`;
   };
@@ -779,20 +800,23 @@
     return notice + (preview.trim() ? textHTML(preview) : "");
   };
 
-  const section = (labelKey, html, sizeHTML = "") => {
+  const section = (labelKey, html, sizeHTML = "", tagHTML = "") => {
     if (!html) return "";
     const size = sizeHTML ? ` <span class="body-size">${sizeHTML}</span>` : "";
-    return `<div class="body-section"><div class="body-label">${escapeHtml(t(labelKey))}${size}</div>${html}</div>`;
+    const label = `${escapeHtml(t(labelKey))}${tagHTML ? ` ${tagHTML}` : ""}${size}`;
+    return `<div class="body-section"><div class="body-label">${label}</div>${html}</div>`;
   };
 
   // Every builder shows its result through here, so an evicted result gets the offload notice whatever the tool.
-  const contextSection = (text, render = structuredHTML, sizeHTML = null) => {
+  const resultSection = (labelKey, text, render = structuredHTML, sizeHTML = null, tagHTML = "") => {
     const source = String(text ?? "");
     if (!source.trim() || isError(source)) return "";
     const offload = parseOffload(source);
     const body = offload ? offloadHTML(offload) : render(source);
-    return section("body_context", body, sizeHTML ?? escapeHtml(contextSize(source)));
+    return section(labelKey, body, sizeHTML ?? escapeHtml(contextSize(source)), tagHTML);
   };
+
+  const contextSection = (text, render, sizeHTML) => resultSection("body_context", text, render, sizeHTML);
 
   const wentWrong = (seg) => {
     const result = seg.result == null ? "" : String(seg.result).trim();
@@ -1389,6 +1413,361 @@
     return section(done ? "body_changed" : "body_input", posted) + reply;
   };
 
+  // --- MCP tools ---------------------------------------------------------
+
+  // `readOnly` is null when the server's tool data is unknown (removed from the page, or never synced).
+  const mcpTool = (name, ctx) => {
+    const server = mcpServerOf(name, ctx.mcpServers ?? []);
+    if (!server) return null;
+    const row = mcpRowOf(server, ctx);
+    const known = row != null && row.synced !== false && Array.isArray(row.read_only_tools);
+    return { readOnly: known ? row.read_only_tools.includes(name.slice(server.length + 1)) : null };
+  };
+
+  const tagHTML = (key, modifier) => `<span class="body-tag body-tag--${modifier}">${escapeHtml(t(key))}</span>`;
+
+  // A value the field list cuts is whole in the arguments as sent, under Show all.
+  const argsHTML = (args, argsStr) => {
+    const entries = Object.entries(args);
+    if (!entries.length) return "";
+    const pairs = entries.slice(0, STRUCTURED_ROWS).map(([key, value]) => [key, valueText(value)]);
+    const list = fieldsHTML(pairs) + andMoreHTML(entries.length - pairs.length);
+    if (pairs.length === entries.length && pairs.every(([, text]) => text.length <= VALUE_CHARS)) return list;
+    const { lines, total } = sliceText(prettyJSON(argsStr));
+    const full = `<pre class="body-pre">${lines.map(escapeHtml).join("\n")}</pre>`;
+    return list + moreHTML(lines.length, full) + andMoreHTML(total - lines.length);
+  };
+
+  const URL_RE = /https?:\/\/[^\s<>"'`\\)\]]+/gi;
+  const LINK_BUTTONS = 10;
+
+  const linkButtonsHTML = (text) => {
+    const urls = new Set();
+    for (const match of text.slice(0, CHAR_CAP).matchAll(URL_RE)) urls.add(match[0].replace(/[.,;:!?]+$/, ""));
+    const all = [...urls];
+    const buttons = all.slice(0, LINK_BUTTONS).map((url) => {
+      const attrs = `class="body-button" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer"`;
+      return `<a ${attrs}>${escapeHtml(truncate(summarizeUrl(url), 80))} ↗</a>`;
+    });
+    if (!buttons.length) return "";
+    return `<p class="body-buttons">${buttons.join("")}</p>${andMoreHTML(all.length - buttons.length)}`;
+  };
+
+  const mcpTag = (readOnly) => {
+    if (readOnly == null) return "";
+    return readOnly ? tagHTML("read_only", "read-only") : tagHTML("can_change", "can-change");
+  };
+
+  const rowShowsWhole = (value) => {
+    const text = String(value);
+    return text.length <= MCP_DETAIL_CHARS && text.replace(/\s+/g, " ") === text;
+  };
+
+  const changedHTML = (text) => structuredHTML(text) + linkButtonsHTML(text);
+
+  // Input leaves out the argument the row shows whole; with nothing left, the tag goes on the result's label.
+  const mcpBody = (readOnly) => ({ args, argsStr, result }) => {
+    const shown = mcpDetailArg(args);
+    const others = shown && rowShowsWhole(shown[1]) ? Object.entries(args).filter(([key]) => key !== shown[0]) : null;
+    const fields = argsHTML(others ? Object.fromEntries(others) : args, argsStr);
+    const tag = mcpTag(readOnly);
+    const input = section("body_input", fields, "", tag);
+    const resultTag = fields ? "" : tag;
+    if (readOnly !== false) return input + resultSection("body_context", result, undefined, null, resultTag);
+    return resultSection("body_changed", result, changedHTML, null, resultTag) + input;
+  };
+
+  // --- tool_search -------------------------------------------------------
+
+  // With schemas embedded: `<functions>` holding `<function>{openai schema}</function>` or
+  // `<function-summary>name: summary</function-summary>`; without: `- name: summary` lines.
+  const TOOL_BLOCK_RE = /<function>([\s\S]*?)<\/function>|<function-summary>([\s\S]*?)<\/function-summary>/g;
+  const TOOL_LINE_RE = /^- (\S+?):(?: (.*))?$/;
+  const TOOL_SUMMARY_RE = /^\s*([^:\s]+):\s?([\s\S]*)$/;
+  const LOADED_HEADER_RE = /^Loaded \d+ tool\(s\)[.:]/;
+  const FUNCTIONS_TAG_RE = /^<\/?functions>$/;
+  const TOOL_CHIPS = 20;
+
+  const firstSentence = (text) => {
+    const line = String(text ?? "").trim().split("\n")[0];
+    return line.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? line;
+  };
+
+  const schemaEntry = (json) => {
+    const parsed = parseJSON(json);
+    const fn = isRecord(parsed?.function) ? parsed.function : parsed;
+    if (!isRecord(fn) || typeof fn.name !== "string") return null;
+    const properties = fn.parameters?.properties ?? fn.input_schema?.properties;
+    const params = isRecord(properties) ? Object.keys(properties) : [];
+    return { name: fn.name, about: firstSentence(fn.description), params };
+  };
+
+  const summaryEntry = (text) => {
+    const match = String(text).match(TOOL_SUMMARY_RE);
+    const [name, about] = match ? [match[1], match[2].trim()] : [String(text).trim(), ""];
+    return { name, about, params: [] };
+  };
+
+  // null when the text lists no tool, or a schema does not parse: the result then shows as it came.
+  const loadedTools = (text) => {
+    const entries = [];
+    let schemas = 0;
+    let broken = false;
+    const blocks = text.includes("<functions>");
+    const rest = !blocks
+      ? text
+      : text.replace(TOOL_BLOCK_RE, (_, schema, summary) => {
+          const entry = schema == null ? summaryEntry(summary) : schemaEntry(schema);
+          if (schema != null) schemas += 1;
+          if (entry) entries.push(entry);
+          else broken = true;
+          return "";
+        });
+    const notes = [];
+    for (const line of rest.split("\n")) {
+      const listed = blocks ? null : line.match(TOOL_LINE_RE);
+      if (listed) entries.push({ name: listed[1], about: listed[2] ?? "", params: [] });
+      else if (line.trim() && !LOADED_HEADER_RE.test(line) && !FUNCTIONS_TAG_RE.test(line.trim())) notes.push(line);
+    }
+    return broken || !entries.length ? null : { entries, schemas, notes };
+  };
+
+  const toolEntryHTML = ({ name, about, params }) => {
+    const shown = params.slice(0, TOOL_CHIPS);
+    const chips = shown.map((param) => `<span class="body-chip">${escapeHtml(param)}</span>`);
+    if (params.length > shown.length) {
+      const more = t("and_more", { count: params.length - shown.length });
+      chips.push(`<span class="body-chip body-chip--more">${escapeHtml(more)}</span>`);
+    }
+    const aboutHTML = about ? `<span class="body-tool-about">${escapeHtml(truncate(about, VALUE_CHARS))}</span>` : "";
+    const chipsHTML = chips.length ? `<span class="body-chips">${chips.join("")}</span>` : "";
+    return `<li><code class="body-tool-name">${escapeHtml(name)}</code>${aboutHTML}${chipsHTML}</li>`;
+  };
+
+  const toolsHTML = ({ entries, notes }) => {
+    const items = entries.slice(0, LINE_CAP).map(toolEntryHTML);
+    const list = clampItems(items, (part) => `<ul class="body-tools">${part.join("")}</ul>`, entries.length);
+    const shownNotes = notes.slice(0, VISIBLE_LINES).map((note) => truncate(note.trim(), LINE_CHARS));
+    return list + notesHTML(shownNotes) + andMoreHTML(notes.length - shownNotes.length);
+  };
+
+  const toolSearchBody = ({ result }) => {
+    const text = String(result ?? "");
+    const loaded = parseOffload(text) ? null : loadedTools(text);
+    const schemas = loaded?.schemas ? `${tn("size_tool_schemas", loaded.schemas)} · ${kbSize(byteLength(text))}` : "";
+    const size = schemas ? escapeHtml(schemas) : null;
+    return contextSection(text, loaded ? () => toolsHTML(loaded) : structuredHTML, size);
+  };
+
+  // --- artifacts ---------------------------------------------------------
+
+  const artifactHTML = (item) => {
+    const state = t(item.updated ? "artifact_updated" : "artifact_new");
+    const meta = [item.kindLabel, item.sizeLabel, state].filter(Boolean);
+    const metaHTML = meta.map((text) => `<span class="body-meta">${escapeHtml(text)}</span>`).join("");
+    const link = externalLink(item.url, item.title || item.filename || item.url, { local: true });
+    const download = item.download_url
+      ? `<span class="body-download">${externalLink(item.download_url, t("artifact_download"), { local: true })}</span>`
+      : "";
+    return `<p class="body-artifact">${link}${metaHTML}${download}</p>`;
+  };
+
+  const publishedHTML = (text) => {
+    const parsed = parseArtifactResult(text);
+    if (!parsed) return structuredHTML(text);
+    const status = escapeHtml(valueText(parsed.status));
+    const line = [status, externalLink(parsed.url, null, { local: true })].filter(Boolean).join(" · ");
+    const warning = parsed.warning ? `<p class="body-note">${escapeHtml(valueText(parsed.warning))}</p>` : "";
+    return `<p class="body-line">${line}</p>${warning}`;
+  };
+
+  // "Fetched artifact '<id>' (<filename>, <bytes> bytes) to <path>. Edit it, then call …"
+  const FETCHED_RE = /^Fetched artifact '([^'\n]*)' \(([^\n]*), (\d+) bytes\) to ([^\n]+?)\.(?: |$)/;
+
+  const fetchedHTML = (text, latestById) => {
+    const match = text.match(FETCHED_RE);
+    if (!match) return "";
+    const [, id, filename, bytes, path] = match;
+    const known = latestById?.get?.(id);
+    const parts = [`<span class="body-op">A</span><span>${escapeHtml(path)}</span>`];
+    parts.push(`<span class="body-size">${escapeHtml(formatBytes(bytes))}</span>`);
+    if (known) parts.push(externalLink(known.url, known.title || known.filename || filename, { local: true }));
+    return `<ul class="body-files"><li>${parts.join(" · ")}</li></ul>`;
+  };
+
+  // --- delegated jobs ----------------------------------------------------
+
+  const SLUG_RE = /^[A-Za-z0-9_-]+$/;
+
+  const jobsResult = (result) => {
+    const parsed = parseJSON(String(result ?? "").trim());
+    return isRecord(parsed) ? parsed : null;
+  };
+
+  const recordsOf = (value) => (Array.isArray(value) ? value.filter(isRecord) : []);
+
+  const jobsError = (data, result) => valueText(data.error).trim() || String(result).trim();
+
+  const firstLine = (value) => valueText(value).trim().split("\n")[0];
+
+  const branchText = (ref) => valueText(ref).trim() || t("jobs_default_branch");
+
+  // The page's own session URL for a thread id; the absolute `session_url` carries the configured site's host.
+  const sessionLink = (leg) => {
+    const threadId = valueText(leg.thread_id);
+    const sessionUrl = valueText(leg.session_url);
+    const href = SLUG_RE.test(threadId) ? `/dashboard/sessions/${threadId}/` : sessionUrl;
+    return linkable(href, true) ? externalLink(href, t("jobs_open_session"), { local: true }) : "";
+  };
+
+  const noteOf = (data) => {
+    const note = valueText(data.note).trim();
+    return note ? `<p class="body-note">${escapeHtml(note)}</p>` : "";
+  };
+
+  const legKey = (leg) => `${valueText(leg.repo_id).trim()}\n${valueText(leg.ref).trim()}`;
+
+  // A leg takes the first target left with its repository and branch, else with its repository (`ref` may differ).
+  const claimTarget = (targets, used, leg) => {
+    const free = (same) => targets.findIndex((target, i) => !used.has(i) && same(target));
+    const repo = valueText(leg.repo_id).trim();
+    let index = free((target) => legKey(target) === legKey(leg));
+    if (index < 0) index = free((target) => valueText(target.repo_id).trim() === repo);
+    if (index < 0) return { index: targets.length, target: {} };
+    used.add(index);
+    return { index, target: targets[index] };
+  };
+
+  const jobsHeaders = (...keys) => keys.map((key) => t(key));
+
+  const delegatedTable = (targets, started, failed) => {
+    const used = new Set();
+    const legs = [...started.map((leg) => ({ leg, failed: false })), ...failed.map((leg) => ({ leg, failed: true }))];
+    const rows = legs.slice(0, STRUCTURED_ROWS).map(({ leg, failed: legFailed }) => {
+      const { index, target } = claimTarget(targets, used, leg);
+      const after = leg.starts_after_this_turn === true ? ` · ${escapeHtml(t("jobs_after_turn"))}` : "";
+      const last = legFailed ? escapeHtml(valueText(leg.error)) : sessionLink(leg) + after;
+      const cells = [valueText(leg.repo_id), branchText(leg.ref), firstLine(target.prompt)].map(escapeHtml);
+      return { index, failed: legFailed, cells: [...cells, last] };
+    });
+    rows.sort((a, b) => a.index - b.index);
+    const headers = jobsHeaders("jobs_repository", "jobs_branch", "jobs_job", "jobs_session");
+    const classes = rows.map((row) => (row.failed ? "body-row-failed" : ""));
+    return tableMarkup(headers, rows.map((row) => row.cells), classes) + andMoreHTML(legs.length - rows.length);
+  };
+
+  const targetsHTML = (targets) => {
+    if (!targets.length) return "";
+    const rows = targets.slice(0, STRUCTURED_ROWS).map((target) => [
+      valueText(target.repo_id),
+      branchText(target.ref),
+      firstLine(target.prompt),
+    ]);
+    const headers = jobsHeaders("jobs_repository", "jobs_branch", "jobs_job");
+    return tableHTML(headers, rows) + andMoreHTML(targets.length - rows.length);
+  };
+
+  // The targets show as Input until the call started a leg; then the Changed table holds them.
+  const delegateInput = (args, targets, withTargets) => {
+    const goal = valueText(args.goal).trim();
+    const fields = goal ? definitionsHTML([[t("jobs_goal"), escapeHtml(goal)]]) : "";
+    return section("body_input", fields + (withTargets ? targetsHTML(targets) : ""));
+  };
+
+  const delegateBody = ({ args, result }) => {
+    const targets = recordsOf(args.targets);
+    const data = jobsResult(result);
+    if (!data) return delegateInput(args, targets, true) + contextSection(result);
+    if (data.error != null) return { wrong: jobsError(data, result), html: delegateInput(args, targets, true) };
+    const started = recordsOf(data.started);
+    const failed = recordsOf(data.failed);
+    if (!started.length) {
+      const reason = (leg) => `${valueText(leg.repo_id)} · ${branchText(leg.ref)}: ${valueText(leg.error)}`;
+      const wrong = failed.map(reason).join("\n") || t("jobs_none_started");
+      return { wrong, html: delegateInput(args, targets, true) + contextSection(result, () => noteOf(data)) };
+    }
+    const batch = valueText(data.batch_id);
+    const line = tn("jobs_started", started.length, { id: batch });
+    const context = contextSection(result, () => `<p class="body-line">${escapeHtml(line)}</p>${noteOf(data)}`);
+    const changed = section("body_changed", delegatedTable(targets, started, failed));
+    return changed + delegateInput(args, targets, false) + context;
+  };
+
+  const MR_NUMBER_RES = [
+    [/\/merge_requests\/(\d+)\/?(?:[?#]|$)/, "!"],
+    [/\/pull\/(\d+)\/?(?:[?#]|$)/, "#"],
+  ];
+
+  const mergeRequestLink = (url) => {
+    if (!WEB_LINK_RE.test(url)) return "";
+    for (const [re, mark] of MR_NUMBER_RES) {
+      const number = url.match(re)?.[1];
+      if (number) return externalLink(url, `${mark}${number}`);
+    }
+    return externalLink(url, t("jobs_mr"));
+  };
+
+  const legResultHTML = (leg) => {
+    const reply = valueText(leg.reply).trim();
+    const first = reply.split("\n")[0];
+    const parts = [mergeRequestLink(valueText(leg.merge_request_url)), escapeHtml(first)].filter(Boolean);
+    const whole = reply !== first ? moreHTML(0, markdownBlock(reply), t("show_reply")) : "";
+    return parts.join(" ") + whole;
+  };
+
+  const legsStatusHTML = (legs) => {
+    if (!legs.length) return "";
+    const rows = legs.slice(0, STRUCTURED_ROWS).map((leg) => [
+      escapeHtml(valueText(leg.repo_id)),
+      escapeHtml(branchText(leg.ref)),
+      escapeHtml(valueText(leg.status)),
+      legResultHTML(leg),
+      sessionLink(leg),
+    ]);
+    const headers = jobsHeaders("jobs_repository", "jobs_branch", "jobs_status", "body_result", "jobs_session");
+    return tableMarkup(headers, rows) + andMoreHTML(legs.length - rows.length);
+  };
+
+  // A batch is named unless it is the one batch the row already names.
+  const batchesHTML = (batches, asked) => {
+    const shown = batches.slice(0, STRUCTURED_ROWS);
+    const named = shown.length > 1 || shown.some((batch) => valueText(batch.batch_id) !== asked);
+    const html = shown.map((batch) => {
+      const name = t("jobs_batch", { id: valueText(batch.batch_id) });
+      return (named ? `<p class="body-line">${escapeHtml(name)}</p>` : "") + legsStatusHTML(recordsOf(batch.legs));
+    });
+    return html.join("") + andMoreHTML(batches.length - shown.length);
+  };
+
+  const checkJobsBody = ({ args, result }) => {
+    const data = jobsResult(result);
+    if (!data) return contextSection(result);
+    if (data.error != null) return { wrong: jobsError(data, result), html: "" };
+    const asked = valueText(args.batch_id).trim();
+    return contextSection(result, () => batchesHTML(recordsOf(data.batches), asked) + noteOf(data));
+  };
+
+  const cancelledHTML = (data) => {
+    const ids = (Array.isArray(data.cancelled) ? data.cancelled : []).filter((id) => typeof id === "string");
+    const legs = recordsOf(data.legs);
+    const lines = ids.slice(0, STRUCTURED_ROWS).map((id) => {
+      const leg = legs.find((one) => valueText(one.thread_id) === id) ?? { thread_id: id };
+      const status = valueText(leg.status).trim() || t("stopping");
+      const name = leg.repo_id == null ? [id] : [valueText(leg.repo_id), branchText(leg.ref)];
+      const parts = [...name, status].map((part) => escapeHtml(part));
+      const link = sessionLink(leg);
+      return `<li>${(link ? [...parts, link] : parts).join(" · ")}</li>`;
+    });
+    return lines.length ? `<ul class="body-jobs">${lines.join("")}</ul>${andMoreHTML(ids.length - lines.length)}` : "";
+  };
+
+  const cancelJobsBody = ({ result }) => {
+    const data = jobsResult(result);
+    if (!data) return contextSection(result);
+    if (data.error != null) return { wrong: jobsError(data, result), html: "" };
+    return section("body_changed", cancelledHTML(data)) + contextSection(result, () => noteOf(data));
+  };
+
   const PROMPT_LINES = 3;
 
   const BODY_BY_TOOL = {
@@ -1451,9 +1830,28 @@
     web_search: ({ result }) => contextSection(result, webSearchHTML),
     gitlab: platformBody("gitlab"),
     gh: platformBody("gh"),
+    tool_search: toolSearchBody,
+    publish_artifact: ({ seg, ctx, result }) => {
+      const item = window.artifactItem(seg, ctx.latestArtifactsById);
+      const changed = item.state === "published" ? artifactHTML(item) : "";
+      return section("body_changed", changed) + contextSection(result, publishedHTML);
+    },
+    fetch_artifact: ({ ctx, result }) => {
+      const text = String(result ?? "");
+      return section("body_changed", fetchedHTML(text, ctx.latestArtifactsById)) + contextSection(text);
+    },
+    delegate_jobs: delegateBody,
+    check_delegated_jobs: checkJobsBody,
+    cancel_delegated_jobs: cancelJobsBody,
   };
 
   const defaultBody = ({ result }) => contextSection(result);
+
+  const bodyFor = (name, ctx) => {
+    if (Object.hasOwn(BODY_BY_TOOL, name)) return BODY_BY_TOOL[name];
+    const mcp = mcpTool(name, ctx);
+    return mcp ? mcpBody(mcp.readOnly) : defaultBody;
+  };
 
   window.toolBodyHTML = (seg, ctx) => {
     if (!seg) return "";
@@ -1461,7 +1859,7 @@
     const input = { seg, ctx: ctx ?? {}, args: parseArgs(seg.args), argsStr: seg.args, result: seg.result };
     let body;
     try {
-      body = (Object.hasOwn(BODY_BY_TOOL, name) ? BODY_BY_TOOL[name] : defaultBody)(input);
+      body = bodyFor(name, input.ctx)(input);
     } catch (err) {
       console.warn("chat-tool-renderers: body builder failed, falling back", err);
       body = contextSection(seg.result, textHTML);

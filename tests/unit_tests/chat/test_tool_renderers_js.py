@@ -952,3 +952,416 @@ def test_gitlab_value_cut_in_the_field_list_is_whole_under_show_all():
         '<details class="body-more">'
     )
     assert "d" * 1000 + "…" in visible and "d" * 1001 not in visible and "d" * 1500 in rest
+
+
+SERVERS = [{"name": "sentry", "read_only_tools": ["search_issues"], "icon": ""}]
+
+
+def test_mcp_read_only_tool_shows_context_and_tag():
+    html = _body("sentry_search_issues", {"query": "x"}, result=json.dumps([{"id": 1}]), servers=SERVERS)
+    assert "read-only tool" in html and "Loaded into context" in html and "Changed" not in html
+
+
+def test_mcp_tool_that_can_change_things_leads_with_changed():
+    html = _body("sentry_create_issue", {"title": "x"}, result="Created https://s/x", servers=SERVERS)
+    assert "can change things" in html and "Changed" in html and 'href="https://s/x"' in html
+
+
+def test_mcp_tool_of_a_removed_server_uses_the_fallback():
+    html = _body("gone_do_thing", {"a": 1}, result="ok", servers=SERVERS)
+    assert "read-only tool" not in html and "can change things" not in html
+
+
+def test_mcp_input_lists_the_other_arguments_with_non_strings_as_json():
+    args = {"query": "is:unresolved", "limit": 5, "filters": {"a": [1, 2]}, "flag": True}
+    html = _body("sentry_search_issues", args, result="[]", servers=SERVERS)
+    assert '<div class="body-label">Input <span class="body-tag body-tag--read-only">read-only tool</span>' in html
+    assert '<dt>limit</dt><dd>5</dd><dt>filters</dt><dd>{"a":[1,2]}</dd><dt>flag</dt><dd>true</dd>' in html
+    assert "is:unresolved" not in html
+
+
+@pytest.mark.parametrize("query", ["x" * 81, "two\nlines", "two  spaces"])
+def test_mcp_argument_the_row_cut_is_in_the_input(query):
+    html = _body("sentry_search_issues", {"query": query, "limit": 5}, result="[]", servers=SERVERS)
+    assert "<dt>query</dt>" in html
+
+
+def test_mcp_tag_goes_on_the_result_when_the_row_shows_every_argument():
+    html = _body("sentry_search_issues", {"query": "x"}, result="[]", servers=SERVERS)
+    assert "Input" not in html
+    assert '<div class="body-label">Loaded into context <span class="body-tag body-tag--read-only">' in html
+
+
+def test_mcp_change_comes_first_and_holds_the_result_with_no_context_section():
+    result = json.dumps({"id": 7, "url": "https://s/issues/7"})
+    html = _body("sentry_create_issue", {"title": "x", "project": "p"}, result=result, servers=SERVERS)
+    assert html.index("Changed") < html.index("Input") and "Loaded into context" not in html
+    assert "<dt>id</dt><dd>7</dd>" in html and 'body-tag--can-change">can change things' in html
+
+
+def test_mcp_change_links_are_http_only_and_cannot_break_out():
+    result = 'Created https://s/x. Also javascript:alert(1) and https://s/y"onmouseover=alert(1)'
+    html = _body("sentry_create_issue", {}, result=result, servers=SERVERS)
+    buttons = html.split('<p class="body-buttons">')[1]
+    assert 'href="https://s/x"' in buttons and 'href="https://s/y"' in buttons
+    assert "javascript" not in buttons and "onmouseover" not in buttons
+
+
+def test_mcp_change_that_failed_shows_no_changed():
+    html = _body("sentry_create_issue", {"title": "x"}, result="Error: forbidden", servers=SERVERS)
+    assert html.startswith('<div class="body-error"') and "Changed" not in html
+
+
+def test_mcp_offloaded_change_still_says_so():
+    html = _body("sentry_create_issue", {"title": "x"}, result=EVICTED, servers=SERVERS)
+    assert "Changed" in html and "Too large to load whole" in html
+
+
+def test_mcp_server_never_synced_gets_no_tag():
+    rows = [{"name": "sentry", "read_only_tools": [], "icon": "", "synced": False}]
+    html = _body("sentry_create_issue", {"title": "x"}, result="ok", servers=rows)
+    assert "can change things" not in html and "read-only tool" not in html and "Loaded into context" in html
+
+
+def test_mcp_long_argument_is_cut_in_the_field_list_and_whole_under_show_all():
+    html = _body("sentry_create_issue", {"body": "d" * 1500}, result="ok", servers=SERVERS)
+    visible, rest = html.split('<details class="body-more">', 1)
+    assert "d" * 1000 + "…" in visible and "d" * 1001 not in visible and "d" * 1500 in rest
+
+
+def _mcp_row(name: str, rows: list[dict]) -> dict:
+    seg = tool_call("c1", name, {"query": "x"}, result="ok")
+    ctx = {"mcpServers": [row["name"] for row in rows], "mcpRows": rows}
+    return run_transcript("toolRow(vars.seg, vars.ctx)", {"seg": seg, "ctx": ctx}, blocks=False)
+
+
+@pytest.mark.parametrize(
+    "icon,src",
+    [
+        ("https://x.test/a.svg", "https://x.test/a.svg"),
+        ("data:image/png;base64,AAAA", "data:image/png;base64,AAAA"),
+        ("", ""),
+        ("javascript:alert(1)", ""),
+        ("http://x.test/a.png", ""),
+        ("data:text/html,<script>alert(1)</script>", ""),
+    ],
+)
+def test_mcp_row_uses_the_servers_own_icon_only_when_safe(icon, src):
+    row = _mcp_row("sentry_search_issues", [{"name": "sentry", "read_only_tools": [], "icon": icon}])
+    assert (row["iconSrc"], row["icon"]) == (src, "puzzle-piece")
+
+
+def test_rows_of_other_tools_have_no_icon_source():
+    assert _row("read_file", {"file_path": "/workspace/repo/a.py"})["iconSrc"] == ""
+
+
+TOOL_SEARCH_HEADER = "Loaded 2 tool(s). Their full schemas follow — call them directly by name."
+
+
+def _schema(name: str, description: str, *params: str) -> str:
+    properties = {param: {"type": "string"} for param in params}
+    schema = {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": {"type": "object", "properties": properties},
+        },
+    }
+    return f"<function>{json.dumps(schema, separators=(',', ':'))}</function>"
+
+
+def test_tool_search_lists_tools_not_schemas():
+    result = (
+        "Loaded 1 tool(s). Their full schemas follow — call them directly by name.\n\n<functions>\n"
+        '<function>{"type":"function","function":{"name":"gitlab","description":"Run a CLI. More.",'
+        '"parameters":{"properties":{"subcommand":{}}}}}</function>\n</functions>'
+    )
+    html = _body("tool_search", {"select": ["gitlab"]}, result=result)
+    assert "gitlab" in html and "subcommand" in html and '"type":"function"' not in html
+
+
+def test_tool_search_entry_has_the_first_sentence_and_parameter_chips():
+    body = "\n".join([
+        _schema("gitlab", "Run a CLI. More text.\nSecond line.", "subcommand", "output_mode"),
+        _schema("gh", "GitHub CLI.", "subcommand"),
+    ])
+    result = f"{TOOL_SEARCH_HEADER}\n\n<functions>\n{body}\n</functions>"
+    html = _body("tool_search", {"select": ["gitlab", "gh"]}, result=result)
+    assert "Run a CLI." in html and "More text" not in html and "Second line" not in html
+    assert '<span class="body-chip">subcommand</span><span class="body-chip">output_mode</span>' in html
+    size = len(result.encode()) / 1024
+    assert f'<span class="body-size">2 tool schemas · {size:.1f} KB</span>' in html
+    assert "Loaded 2 tool(s)" not in html
+
+
+def test_tool_search_summaries_and_ignored_names_are_listed():
+    body = "\n".join([
+        _schema("gitlab", "Run a CLI.", "subcommand"),
+        "<function-summary>repo_tool: Works on a repo object</function-summary>",
+    ])
+    result = f"{TOOL_SEARCH_HEADER}\n\n<functions>\n{body}\n</functions>\n\nIgnored unknown names: nope"
+    html = _body("tool_search", {"select": ["gitlab", "repo_tool", "nope"]}, result=result)
+    assert "repo_tool" in html and "Works on a repo object" in html
+    assert "1 tool schema · " in html and "Ignored unknown names: nope" in html
+
+
+def test_tool_search_summary_lines_form_lists_each_tool_with_the_default_size():
+    result = "Loaded 2 tool(s):\n- gitlab: Run a CLI\n- gh: GitHub CLI"
+    html = _body("tool_search", {"query": "cli"}, result=result)
+    assert "Run a CLI" in html and "GitHub CLI" in html and "- gitlab:" not in html
+    assert "tool schema" not in html and "3 lines · " in html
+
+
+@pytest.mark.parametrize(
+    "result,shown",
+    [
+        ("No deferred tools matched query 'x'.", "No deferred tools matched query"),
+        (f"{TOOL_SEARCH_HEADER}\n\n<functions>\n<function>{{nope</function>\n</functions>", "{nope"),
+    ],
+)
+def test_tool_search_text_it_cannot_list_is_shown_as_is(result, shown):
+    assert shown in _body("tool_search", {"query": "x"}, result=result)
+
+
+PUBLISHED = {
+    "status": "published",
+    "id": "a1",
+    "title": "Report",
+    "filename": "report.md",
+    "content_type": "text/markdown",
+    "kind": "markdown",
+    "size": 2048,
+    "url": "https://d/dashboard/artifacts/a1/",
+    "download_url": "https://d/dashboard/artifacts/a1/download/",
+}
+
+
+def _body_artifacts(seg: dict, latest: dict) -> str:
+    expr = "toolBodyHTML(vars.seg, { latestArtifactsById: new Map(Object.entries(vars.latest)) })"
+    values = {"seg": seg, "latest": latest}
+    return run_transcript(expr, values, blocks=False, labels={"show_raw": False}, markdown=True)
+
+
+def test_publish_artifact_body_shows_the_artifact_then_status_and_url():
+    html = _body("publish_artifact", {"path": "/workspace/tmp/report.md"}, result=json.dumps(PUBLISHED))
+    changed, context = html.split("Loaded into context")
+    assert "Changed" in changed and 'href="https://d/dashboard/artifacts/a1/"' in changed and ">Report</a>" in changed
+    assert (
+        '<span class="body-meta">Markdown</span><span class="body-meta">2.0 KB</span><span class="body-meta">new</span>'
+        in changed
+    )
+    assert 'href="https://d/dashboard/artifacts/a1/download/"' in changed and "Download" in changed
+    assert "published · " in context and 'href="https://d/dashboard/artifacts/a1/"' in context
+
+
+def test_publish_artifact_body_shows_the_latest_version_in_changed_and_this_result_in_context():
+    newer = {**PUBLISHED, "status": "updated", "title": "Report v2", "url": "https://d/dashboard/artifacts/a1/?v=2"}
+    seg = tool_call("c1", "publish_artifact", {"path": "/workspace/tmp/report.md"}, result=json.dumps(PUBLISHED))
+    changed, context = _body_artifacts(seg, {"a1": newer}).split("Loaded into context")
+    assert ">Report v2</a>" in changed and '<span class="body-meta">updated</span>' in changed
+    assert "published · " in context and "?v=2" not in context
+
+
+def test_publish_artifact_relative_url_and_warning_are_shown():
+    result = json.dumps({"status": "published", "id": "a1", "url": "/dashboard/artifacts/a1/", "warning": "Stored."})
+    html = _body("publish_artifact", {"path": "/workspace/tmp/r.md"}, result=result)
+    assert 'href="/dashboard/artifacts/a1/"' in html and "Stored." in html
+
+
+def test_publish_artifact_error_is_what_went_wrong_only():
+    html = _body("publish_artifact", {"path": "/x"}, result="Error publishing artifact '/x': too big")
+    assert html.startswith('<div class="body-error"') and "Changed" not in html and "too big" in html
+
+
+FETCHED = (
+    "Fetched artifact 'a1' (report.md, 2048 bytes) to /workspace/tmp/report.md. Edit it, then call "
+    '`publish_artifact(path="/workspace/tmp/report.md", artifact_id="a1")` to update the artifact in place.'
+)
+
+
+def test_fetch_artifact_shows_the_file_it_wrote():
+    html = _body("fetch_artifact", {"artifact_id": "a1"}, result=FETCHED)
+    changed = html.split("Loaded into context")[0]
+    assert '<span class="body-op">A</span>' in changed and "/workspace/tmp/report.md" in changed
+    assert "2.0 KB" in changed and "<a " not in changed
+
+
+def test_fetch_artifact_links_an_artifact_the_page_knows():
+    seg = tool_call("c1", "fetch_artifact", {"artifact_id": "a1"}, result=FETCHED)
+    changed = _body_artifacts(seg, {"a1": PUBLISHED}).split("Loaded into context")[0]
+    assert 'href="https://d/dashboard/artifacts/a1/"' in changed and ">Report</a>" in changed
+
+
+DELEGATE_ARGS = {
+    "goal": "Fix lint",
+    "targets": [
+        {"repo_id": "a/x", "ref": "main", "prompt": "Fix lint in x\nand more"},
+        {"repo_id": "a/y", "prompt": "Fix lint in y"},
+        {"repo_id": "a/z", "prompt": "Fix z"},
+    ],
+}
+
+
+def _leg(repo_id: str, ref: str, thread_id: str, **extra) -> dict:
+    return {"repo_id": repo_id, "ref": ref, "thread_id": thread_id, "session_url": f"https://d/s/{thread_id}/", **extra}
+
+
+def test_delegate_jobs_whole_call_error_is_what_went_wrong():
+    html = _body("delegate_jobs", {"goal": "g", "targets": []}, result=json.dumps({"error": "nope"}))
+    assert html.startswith('<div class="body-error"') and "nope" in html
+
+
+def test_delegate_jobs_table_joins_targets_with_started_and_failed_legs():
+    result = {
+        "batch_id": "b-1",
+        "started": [
+            _leg("a/x", "main", "t-x", starts_after_this_turn=False),
+            _leg("a/y", "", "t-y", starts_after_this_turn=True),
+        ],
+        "failed": [{"repo_id": "a/z", "ref": "", "error": "Repository access denied.", "still_runs": False}],
+    }
+    html = _body("delegate_jobs", DELEGATE_ARGS, result=json.dumps(result))
+    assert not html.startswith('<div class="body-error"')
+    changed, rest = html.split('<div class="body-label">Input', 1)
+    assert "<th>Repository</th><th>Branch</th><th>Job</th><th>Session</th>" in changed
+    assert "<td>a/x</td><td>main</td><td>Fix lint in x</td>" in changed and "and more" not in changed
+    assert 'href="/dashboard/sessions/t-x/"' in changed and "Session →" in changed
+    assert "<td>a/y</td><td>default branch</td><td>Fix lint in y</td>" in changed
+    assert "starts after this turn" in changed
+    assert '<tr class="body-row-failed"><td>a/z</td><td>default branch</td><td>Fix z</td>' in changed
+    assert "Repository access denied." in changed
+    assert "Fix lint" in rest and "batch b-1 · 2 started" in rest.split("Loaded into context")[1]
+
+
+def test_delegate_jobs_still_running_shows_the_goal_and_targets_as_input():
+    html = _body("delegate_jobs", DELEGATE_ARGS, result=None, status="running")
+    assert "Changed" not in html and "<dt>Goal</dt><dd>Fix lint</dd>" in html
+    assert "<th>Repository</th><th>Branch</th><th>Job</th></tr>" in html and "<td>Fix z</td>" in html
+
+
+def test_delegate_jobs_legs_of_the_same_repository_and_branch_match_in_order():
+    args = {"goal": "g", "targets": [{"repo_id": "a/x", "prompt": "one"}, {"repo_id": "a/x", "prompt": "two"}]}
+    result = {"batch_id": "b", "started": [_leg("a/x", "", "t1"), _leg("a/x", "", "t2")], "failed": []}
+    html = _body("delegate_jobs", args, result=json.dumps(result))
+    assert html.index("one") < html.index("/t1/") < html.index("two") < html.index("/t2/")
+
+
+def test_delegate_jobs_where_no_leg_started_is_what_went_wrong():
+    result = {
+        "batch_id": None,
+        "started": [],
+        "failed": [{"repo_id": "a/x", "ref": "", "error": "Repository access denied.", "still_runs": False}],
+        "note": "No sub-job is running and no resume will come.",
+    }
+    html = _body(
+        "delegate_jobs", {"goal": "g", "targets": [{"repo_id": "a/x", "prompt": "p"}]}, result=json.dumps(result)
+    )
+    assert html.startswith('<div class="body-error"') and "Repository access denied." in html
+    assert "Changed" not in html and "No sub-job is running" in html
+
+
+@pytest.mark.parametrize(
+    "session_url,href", [("https://d/s/x/", 'href="https://d/s/x/"'), ("javascript:alert(1)", None)]
+)
+def test_delegate_jobs_session_link_falls_back_to_a_safe_session_url(session_url, href):
+    leg = {"repo_id": "a/x", "ref": "", "thread_id": "t/../x", "session_url": session_url}
+    args = {"goal": "g", "targets": [{"repo_id": "a/x", "prompt": "p"}]}
+    html = _body("delegate_jobs", args, result=json.dumps({"batch_id": "b", "started": [leg], "failed": []}))
+    assert "/dashboard/sessions/" not in html and 'href="javascript' not in html
+    assert href in html if href else "Session →" not in html
+
+
+@pytest.mark.parametrize(
+    "name,result",
+    [
+        ("delegate_jobs", "[not json"),
+        ("delegate_jobs", json.dumps({"batch_id": "b", "started": "x", "failed": 5})),
+        ("delegate_jobs", json.dumps({"batch_id": "b", "started": [None, 3, {"repo_id": 1}], "failed": [None]})),
+        ("check_delegated_jobs", json.dumps({"batches": [None, 3, {"legs": "x"}, {"legs": [None, 1]}]})),
+        ("cancel_delegated_jobs", json.dumps({"cancelled": [1, None], "legs": [None], "note": 5})),
+        ("cancel_delegated_jobs", json.dumps([1, 2])),
+    ],
+)
+def test_jobs_bodies_never_throw_on_odd_results(name, result):
+    assert isinstance(_body(name, {"goal": 1, "targets": "x", "batch_id": 2}, result=result), str)
+
+
+CHECKED = {
+    "batches": [
+        {
+            "batch_id": "b-1",
+            "finished": False,
+            "legs": [
+                _leg("a/x", "main", "t-x", status="running", branch="", merge_request_url="", reply=""),
+                _leg(
+                    "a/y",
+                    "",
+                    "t-y",
+                    status="succeeded",
+                    branch="daiv/fix",
+                    merge_request_url="https://g/a/y/-/merge_requests/7",
+                    reply="Fixed the lint.\nDetails here.",
+                ),
+            ],
+        }
+    ]
+}
+
+
+def test_check_delegated_jobs_shows_a_table_per_batch():
+    html = _body("check_delegated_jobs", {"batch_id": "b-1"}, result=json.dumps(CHECKED))
+    context = html.split("Loaded into context")[1]
+    assert "<th>Repository</th><th>Branch</th><th>Status</th><th>Result</th><th>Session</th>" in context
+    assert "<td>a/x</td><td>main</td><td>running</td><td></td>" in context
+    assert 'href="https://g/a/y/-/merge_requests/7"' in context and ">!7</a>" in context
+    assert "Fixed the lint." in context and "Show the whole reply" in context and "Details here." in context
+    assert 'href="/dashboard/sessions/t-y/"' in context and "batch b-1" not in context
+
+
+def test_check_delegated_jobs_names_each_batch_when_it_reports_several():
+    second = {**CHECKED["batches"][0], "batch_id": "b-2"}
+    result = json.dumps({"batches": [CHECKED["batches"][0], second]})
+    html = _body("check_delegated_jobs", {}, result=result)
+    assert html.index("batch b-1") < html.index("batch b-2") and html.count("<table") == 2
+
+
+def test_check_delegated_jobs_shows_the_raw_status_escaped_and_the_note():
+    batch = {"batch_id": "b", "finished": True, "legs": [_leg("a/x", "", "t", status="<b>odd</b>")]}
+    html = _body("check_delegated_jobs", {"batch_id": "b"}, result=json.dumps({"batches": [batch]}))
+    assert "&lt;b&gt;odd&lt;/b&gt;" in html
+    none = _body("check_delegated_jobs", {}, result=json.dumps({"batches": [], "note": "No sub-jobs."}))
+    assert "No sub-jobs." in none
+
+
+def test_check_delegated_jobs_error_is_what_went_wrong():
+    html = _body("check_delegated_jobs", {"batch_id": "b"}, result=json.dumps({"error": "no batch b"}))
+    assert html.startswith('<div class="body-error"') and "no batch b" in html
+
+
+CANCELLED = {
+    "batch_id": "b-1",
+    "finished": False,
+    "legs": [_leg("a/x", "main", "t-x", status="stopping"), _leg("a/y", "", "t-y", status="succeeded")],
+    "cancelled": ["t-x"],
+    "note": "You are resumed once the legs still queued, running or stopping have finished.",
+}
+
+
+def test_cancel_delegated_jobs_lists_each_cancelled_leg_then_the_note():
+    html = _body("cancel_delegated_jobs", {"batch_id": "b-1"}, result=json.dumps(CANCELLED))
+    changed, context = html.split("Loaded into context")
+    assert "Changed" in changed and "a/x" in changed and "stopping" in changed and "a/y" not in changed
+    assert 'href="/dashboard/sessions/t-x/"' in changed
+    assert "You are resumed once" in context and "a/y" not in context
+
+
+def test_cancel_delegated_jobs_that_cancelled_nothing_has_no_changed():
+    result = {**CANCELLED, "cancelled": [], "note": "Nothing was cancelled."}
+    html = _body("cancel_delegated_jobs", {"batch_id": "b-1"}, result=json.dumps(result))
+    assert "Changed" not in html and "Nothing was cancelled." in html
+
+
+def test_cancel_delegated_jobs_error_is_what_went_wrong():
+    html = _body("cancel_delegated_jobs", {"batch_id": "b"}, result=json.dumps({"error": "not a batch"}))
+    assert html.startswith('<div class="body-error"') and "not a batch" in html

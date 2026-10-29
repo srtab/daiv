@@ -87,6 +87,28 @@
     log_earlier: ["{count} earlier line not shown", "{count} earlier lines not shown"],
     open_link: "Open ↗",
     saved_to_file: "Saved to {path} as asked: the model saw only a preview.",
+
+    read_only: "read-only tool",
+    can_change: "can change things",
+    size_tool_schemas: ["{count} tool schema", "{count} tool schemas"],
+    artifact_new: "new",
+    artifact_updated: "updated",
+    artifact_download: "Download",
+    jobs_goal: "Goal",
+    jobs_repository: "Repository",
+    jobs_branch: "Branch",
+    jobs_job: "Job",
+    jobs_status: "Status",
+    jobs_session: "Session",
+    jobs_open_session: "Session →",
+    jobs_default_branch: "default branch",
+    jobs_after_turn: "starts after this turn",
+    jobs_started: ["batch {id} · {count} started", "batch {id} · {count} started"],
+    jobs_none_started: "No job started.",
+    jobs_batch: "batch {id}",
+    jobs_mr: "merge request",
+    show_reply: "Show the whole reply",
+    stopping: "stopping",
   };
 
   const loadPayload = () => {

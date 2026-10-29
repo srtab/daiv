@@ -9,7 +9,10 @@
       <template x-if="step.seg.status === 'running'">
         <span :class="step.seg.type === 'thinking' ? 'step-row__thinking' : 'chat-spinner'"></span>
       </template>
-      <template x-if="step.seg.status !== 'running'">
+      <template x-if="step.seg.status !== 'running' && step.row.iconSrc">
+        <img :src="step.row.iconSrc" alt="" width="14" height="14" referrerpolicy="no-referrer">
+      </template>
+      <template x-if="step.seg.status !== 'running' && !step.row.iconSrc">
         <span class="contents" x-html="TranscriptLabels.iconHTML(step.row.icon)"></span>
       </template>
     </span>
