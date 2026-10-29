@@ -60,6 +60,14 @@
     thought: "Thought",
     detail_passed: "passed",
     detail_exit: "exit {code}",
+    publish_committing: "Committing changes",
+    publish_creating: "Creating merge request",
+    publish_files: ["{count} file", "{count} files"],
+    publish_error_conflicts: "Merge conflicts are left in the changed files",
+    publish_error_mr_pending: "The merge request isn't created yet",
+    publish_error_push_rejected: "The push was rejected",
+    publish_error_mr_failed: "The merge request couldn't be created",
+    publish_error_unknown: "Couldn't publish the changes",
   };
 
   const loadPayload = () => {

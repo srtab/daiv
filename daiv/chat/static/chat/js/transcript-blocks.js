@@ -6,6 +6,8 @@
     delegate_jobs: "special",
   };
 
+  const NO_PUBLISH = Object.freeze([]);
+
   // Text only grows while it streams, so a segment found non-blank is not read (or tracked) again.
   const nonBlank = new WeakSet();
 
@@ -19,7 +21,6 @@
   const kindOf = (seg) => {
     if (seg.type === "thinking") return "step";
     if (seg.type === "text") return isText(seg) ? "text" : null;
-    if (seg.type === "publish_phase") return "special";
     if (seg.type !== "tool_call") return null;
     return Object.hasOwn(CALL_KINDS, seg.name) ? CALL_KINDS[seg.name] : "step";
   };
@@ -109,11 +110,7 @@
   const activityOf = (entries, servers, serversId, latest) => {
     for (let i = entries.length - 1; i >= 0; i--) {
       const { kind, seg } = entries[i];
-      if (seg.type === "publish_phase") {
-        if (seg.status === "running") return `${seg.label}…`;
-      } else if (
-        kind === "publish" ? artifactFor(seg, latest, latest).state === "running" : seg.status === "running"
-      ) {
+      if (kind === "publish" ? artifactFor(seg, latest, latest).state === "running" : seg.status === "running") {
         return seg.type === "thinking" ? "" : `${rowFor(seg, servers, serversId).livePhrase}…`;
       }
     }
@@ -250,8 +247,7 @@
           const row = rowFor(e.seg, servers, serversId);
           return { kind: "question", key: claim(`q-${e.ref}`), seg: e.seg, turnIndex: e.ti, row };
         }
-        const row = e.seg.type === "tool_call" ? rowFor(e.seg, servers, serversId) : null;
-        return { kind: "special", key: claim(`x-${e.ref}`), seg: e.seg, row };
+        return { kind: "special", key: claim(`x-${e.ref}`), seg: e.seg, row: rowFor(e.seg, servers, serversId) };
       };
 
       const items = [];
@@ -321,6 +317,7 @@
         endingTail,
         statuses: run.statuses,
         lastTurn: run.turns.findLast(({ turn }) => turn.role === "assistant")?.turn ?? null,
+        publish: run.turns.findLast(({ turn }) => turn.publish)?.turn.publish ?? NO_PUBLISH,
         // A run's answer is copyable once nothing in it streams; a later tool-only turn does not hide it.
         copyTurn: !streaming && lastText ? lastText.turn : null,
         activity: live ? activityOf(entries, servers, serversId, latest) : "",

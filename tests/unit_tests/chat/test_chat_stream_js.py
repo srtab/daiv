@@ -3,12 +3,14 @@ run blocks the transcript renders and the id a live run-status marker takes."""
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
 from sessions.models import RunStatus, SessionOrigin
 from sessions.transcript import annotate_transcript
 
+from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload
 from tests.unit_tests.chat.chat_stream_driver import REACTIVITY, run_chat_stream
 from tests.unit_tests.chat.transcript_fixtures import (
     asst,
@@ -78,6 +80,7 @@ def test_server_turns_render_their_run_anchor():
         started_at=None,
         finished_at=None,
         is_cancelled=False,
+        publish_status="",
     )
     turns = annotate_transcript([_turn("h1"), {"id": "a1", "role": "assistant", "segments": []}], [run])
 
@@ -266,6 +269,25 @@ for (const entry of script) {
     const last = chat.runBlocks[chat.runBlocks.length - 1];
     out.push(last.items.filter((item) => item.kind === "text").map((item) => item.seg.content));
   }
+  if (op === "activeRun") chat._activeRun = { threadId: "t1", runId: "client-run", recordId: arg || undefined };
+  if (op === "toolStart") {
+    chat.dispatch({ type: "TOOL_CALL_START", toolCallId: `t-${arg}`, toolCallName: arg }, live(), 0);
+  }
+  if (op === "toolEnd") chat.dispatch({ type: "TOOL_CALL_END", toolCallId: `t-${arg}` }, live(), 0);
+  if (op === "toolResult") {
+    chat.dispatch({ type: "TOOL_CALL_RESULT", toolCallId: `t-${arg}`, content: "{}" }, live(), 0);
+  }
+  if (op === "publishPhase") out.push(chat.publishPhase);
+  if (op === "custom") {
+    const value = JSON.parse(entry.slice(op.length + arg.length + 2));
+    chat.dispatch({ type: "CUSTOM", name: arg, value }, live(), 0);
+  }
+  if (op === "runError") chat.dispatch({ type: "RUN_ERROR", code: arg, message: "boom" }, live(), 0);
+  if (op === "turnRoles") out.push(chat.turns.map((t) => t.role));
+  if (op === "markers") out.push(chat.turns.filter((t) => t.role === "run_status").map((t) => t.status));
+  if (op === "segmentTypes") out.push(live().segments.map((s) => s.type));
+  if (op === "segmentStatuses") out.push(live().segments.map((s) => s.status));
+  if (op === "block0.publish") out.push(chat.runBlocks[0].publish);
   if (op === "break") broken = true;
   if (op === "errors") out.push(errors.length);
   if (op === "watched") out.push(watched);
@@ -324,18 +346,8 @@ def test_working_line_names_the_running_step():
     assert _drive(turns, script=["runStatus"])[-1] == "Running pytest…"
 
 
-@pytest.mark.parametrize(
-    ("segment", "label"),
-    [
-        (read("c1"), "Thinking…"),
-        (thinking(status="running"), "Thinking…"),
-        (
-            {"type": "publish_phase", "id": "p1", "label": "Committing changes", "status": "running"},
-            "Committing changes…",
-        ),
-    ],
-)
-def test_working_line_between_steps_and_while_publishing(segment, label):
+@pytest.mark.parametrize(("segment", "label"), [(read("c1"), "Thinking…"), (thinking(status="running"), "Thinking…")])
+def test_working_line_between_steps(segment, label):
     turns = [user("u1"), asst("a1", text("Done."), segment, streaming=True)]
     assert _drive(turns, script=["runStatus"])[-1] == label
 
@@ -485,8 +497,7 @@ def test_a_page_loaded_live_folds_each_run_as_its_stream_finishes():
 
 
 def test_a_lone_step_a_special_call_with_a_row_and_a_refused_question_render_as_step_rows():
-    phase = {"type": "publish_phase", "id": "p1", "label": "Committing changes", "status": "running"}
-    segs = [read("c1"), text("x"), read("c2"), read("c3"), delegate("d1"), phase, refused_question("q1")]
+    segs = [read("c1"), text("x"), read("c2"), read("c3"), delegate("d1"), refused_question("q1")]
     segs.append(question("q2"))
     rows = _drive([user("u1"), asst("a1", *segs, streaming=True)], script=["stepRows"])[0]
     assert rows == [
@@ -494,7 +505,6 @@ def test_a_lone_step_a_special_call_with_a_row_and_a_refused_question_render_as_
         ["text", []],
         ["group", []],
         ["special", ["x-d1"]],
-        ["special", []],
         ["question", ["q-q1"]],
         ["question", []],
     ]
@@ -529,3 +539,119 @@ def test_a_live_failure_marker_takes_the_run_rows_id_once_the_server_names_it():
 
 def test_a_failure_before_the_run_row_exists_keeps_the_pages_run_id():
     assert run_chat_stream(MARKER_BODY, {"events": [RUN_FAILED]}) == ["run-status-client-run"]
+
+
+MR = SimpleNamespace(merge_request_id=7, web_url="https://git.example/mr/7")
+STATS = SimpleNamespace(files_changed=3, lines_added=48, lines_removed=12)
+PUBLISHING = [user("u1"), asst("a1", text("Done."), streaming=True)]
+
+
+def _publish_custom(**kwargs) -> str:
+    return f"custom:{PUBLISH_RESULT_EVENT}:{json.dumps(publish_result_payload(**kwargs))}"
+
+
+def test_publish_phase_names_the_working_line_and_never_renders_a_segment():
+    out = _drive(PUBLISHING, script=["toolStart:PullRequestMetadata", "runStatus", "segmentTypes"])
+    assert out[0] == "Creating merge request…" and "publish_phase" not in out[1]
+
+
+def test_committing_phase_names_the_working_line():
+    assert _drive(PUBLISHING, script=["toolStart:CommitMetadata", "runStatus"]) == ["Committing changes…"]
+
+
+def test_phase_outlasts_its_call_until_the_result_lands():
+    script = ["toolStart:CommitMetadata", "toolEnd:CommitMetadata", "toolResult:CommitMetadata", "runStatus"]
+    out = _drive(PUBLISHING, script=[*script, _publish_custom(status="pushed"), "runStatus"])
+    assert out == ["Committing changes…", "Thinking…"]
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [("PullRequestMetadata", "CommitMetadata"), ("CommitMetadata", "PullRequestMetadata")],
+    ids=["mr-first", "commit-first"],
+)
+def test_parallel_metadata_calls_name_the_merge_request_step_until_the_result_lands(first, second):
+    script = [f"toolStart:{first}", f"toolStart:{second}", f"toolEnd:{first}", "runStatus"]
+    script += [f"toolEnd:{second}", "runStatus", _publish_custom(status="opened"), "runStatus"]
+    out = _drive(PUBLISHING, script=script)
+    assert out == ["Creating merge request…", "Creating merge request…", "Thinking…"]
+
+
+def test_phase_clears_when_the_turn_finishes_without_an_event():
+    script = ["activeRun", "toolStart:CommitMetadata", "publishPhase", "finish:finished", "publishPhase"]
+    assert _drive(PUBLISHING, script=script) == ["Committing changes", ""]
+
+
+def test_publish_event_adds_the_result_to_the_run():
+    kwargs = {"status": "opened", "merge_request": MR, "diff_stats": STATS}
+    out = _drive(PUBLISHING, script=[_publish_custom(**kwargs), "finish:finished", "block0.publish"])
+    assert out[-1] == [
+        {
+            "status": "opened",
+            "merge_request_iid": 7,
+            "merge_request_web_url": "https://git.example/mr/7",
+            "files_changed": 3,
+            "lines_added": 48,
+            "lines_removed": 12,
+            "error": "",
+        }
+    ]
+
+
+def test_failed_publish_carries_the_kinds_fixed_message_and_the_retry_anchor():
+    script = ["activeRun:pk-1", _publish_custom(status="failed", error_kind="push_rejected"), "block0.publish"]
+    (entry,) = _drive(PUBLISHING, script=script)[-1]
+    assert entry["id"] == "run-status-pk-1"
+    assert (entry["status"], entry["error"]) == ("failed", "The push was rejected")
+
+
+def test_the_live_failed_entry_takes_the_page_run_id_before_the_server_names_the_row():
+    script = ["activeRun", _publish_custom(status="failed", error_kind="unknown"), "block0.publish"]
+    assert _drive(PUBLISHING, script=script)[-1][0]["id"] == "run-status-client-run"
+
+
+@pytest.mark.parametrize(
+    ("status", "kind", "message"),
+    [
+        ("not_published", "conflicts", "Merge conflicts are left in the changed files"),
+        ("pushed", "mr_pending", "The merge request isn't created yet"),
+    ],
+)
+def test_live_entry_shows_the_kinds_label_as_a_reload_does(status, kind, message):
+    script = [_publish_custom(status=status, error_kind=kind), "block0.publish"]
+    assert _drive(PUBLISHING, script=script)[-1][0]["error"] == message
+
+
+def test_failed_publish_suppresses_the_generic_failure_marker():
+    script = [
+        "activeRun",
+        _publish_custom(status="failed", error_kind="push_rejected"),
+        "runError:run_failed",
+        "finish:finished",
+        "turnRoles",
+    ]
+    assert "run_status" not in _drive(PUBLISHING, script=script)[-1]
+
+
+@pytest.mark.parametrize("code", ["run_cancelled", "run_interrupted"])
+def test_an_aborted_run_keeps_its_marker_despite_a_failed_publish(code):
+    script = ["activeRun", _publish_custom(status="failed", error_kind="unknown"), f"runError:{code}", "markers"]
+    assert _drive(PUBLISHING, script=script)[-1] == ["aborted"]
+
+
+def test_a_run_error_without_a_failed_publish_still_pushes_its_marker():
+    assert _drive(PUBLISHING, script=["activeRun", "runError:run_failed", "markers"])[-1] == ["failed"]
+
+
+def test_a_fallback_ending_does_not_stack_a_marker_on_the_red_line():
+    running = tool_call("x1", "bash", {}, result=None, status="running")
+    turns = [user("u1"), asst("a1", running, streaming=True)]
+    script = [
+        "activeRun",
+        _publish_custom(status="failed", error_kind="unknown"),
+        "finish:connection_lost",
+        "markers",
+        "segmentStatuses",
+    ]
+    out = _drive(turns, script=script)
+    assert out[-2] == [] and out[-1] == ["error"]

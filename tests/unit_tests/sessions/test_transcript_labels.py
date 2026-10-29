@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 
 from django.contrib.staticfiles import finders
+from django.utils import translation
 
+from sessions.models import PublishErrorKind
 from sessions.transcript_labels import TRANSCRIPT_ICONS, transcript_icons, transcript_labels
 
 from tests.unit_tests.chat.transcript_driver import run_transcript
@@ -33,6 +35,20 @@ def test_plural_labels_are_pairs_on_both_sides():
     shapes = _browser_shapes()
     for key, value in transcript_labels().items():
         assert isinstance(value, list) == (shapes[key] == "pair"), key
+
+
+PUBLISH_ERRORS = """Object.fromEntries(
+  Object.entries(TranscriptLabels.defaults).filter(([key]) => key.startsWith("publish_error_")),
+)"""
+
+
+def test_the_publish_error_texts_are_the_kinds_labels_on_both_sides():
+    browser = run_transcript(PUBLISH_ERRORS, {}, blocks=False)
+    with translation.override("en"):
+        labels = {f"publish_error_{kind.value}": str(kind.label) for kind in PublishErrorKind}
+        server = {key: value for key, value in transcript_labels().items() if key.startswith("publish_error_")}
+
+    assert server == browser == labels
 
 
 def test_every_icon_the_transcript_js_names_ships_rendered():

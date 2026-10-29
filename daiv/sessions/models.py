@@ -39,6 +39,23 @@ class RunStatus(models.TextChoices):
         return frozenset({cls.SUCCESSFUL, cls.WAITING_INPUT, cls.FAILED})
 
 
+class PublishStatus(models.TextChoices):
+    OPENED = "opened", _("Opened")
+    PUSHED = "pushed", _("Pushed")
+    NOT_PUBLISHED = "not_published", _("Not published")
+    FAILED = "failed", _("Failed")
+
+
+class PublishErrorKind(models.TextChoices):
+    """What kept a run's publish from completing; the labels are the only text shown, never exception text."""
+
+    CONFLICTS = "conflicts", _("Merge conflicts are left in the changed files")
+    MR_PENDING = "mr_pending", _("The merge request isn't created yet")
+    PUSH_REJECTED = "push_rejected", _("The push was rejected")
+    MR_FAILED = "mr_failed", _("The merge request couldn't be created")
+    UNKNOWN = "unknown", _("Couldn't publish the changes")
+
+
 class SessionOrigin(models.TextChoices):
     """How a session (or an individual run) was triggered.
 
@@ -274,6 +291,21 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
     return {field: value for field, value in updates.items() if value}
 
 
+def publish_field_updates(publish: dict[str, Any] | None) -> dict[str, Any]:
+    """Map a ``publish_result`` payload to the ``Run`` fields it fills, leaving out the ones it has no value for."""
+    publish = publish or {}
+    updates = {
+        "merge_request_iid": publish.get("merge_request_iid"),
+        "merge_request_web_url": publish.get("merge_request_web_url"),
+        "publish_status": publish.get("status"),
+        "publish_error": publish.get("error_kind"),
+        "files_changed": publish.get("files_changed"),
+        "lines_added": publish.get("lines_added"),
+        "lines_removed": publish.get("lines_removed"),
+    }
+    return {field: value for field, value in updates.items() if value}
+
+
 class Run(models.Model):
     """One agent execution within a session."""
 
@@ -343,6 +375,15 @@ class Run(models.Model):
     result_summary = models.TextField(_("result summary"), blank=True, default="")
     error_message = models.TextField(_("error message"), blank=True, default="")
     code_changes = models.BooleanField(_("code changes"), default=False)
+    publish_status = models.CharField(
+        _("publish status"), max_length=16, choices=PublishStatus.choices, blank=True, default=""
+    )
+    publish_error = models.CharField(
+        _("publish error"), max_length=16, choices=PublishErrorKind.choices, blank=True, default=""
+    )
+    lines_added = models.PositiveIntegerField(_("lines added"), null=True, blank=True)
+    lines_removed = models.PositiveIntegerField(_("lines removed"), null=True, blank=True)
+    files_changed = models.PositiveIntegerField(_("files changed"), null=True, blank=True)
     question = models.JSONField(_("question"), null=True, blank=True)
     input_tokens = models.PositiveIntegerField(_("input tokens"), null=True, blank=True)
     output_tokens = models.PositiveIntegerField(_("output tokens"), null=True, blank=True)

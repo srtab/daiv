@@ -154,10 +154,18 @@ def test_checking_delegated_jobs_is_a_step_and_delegating_is_not():
     assert b["stats"]["steps"] == 3
 
 
-def test_publish_phase_is_a_special_item_without_a_row():
-    phase = {"type": "publish_phase", "id": "m1", "name": "CommitMetadata", "label": "Committing", "status": "done"}
-    b = _blocks([user("u1"), asst("a1", read("c1"), phase, streaming=True)])[0]
-    assert _kinds(b["items"]) == ["step", "special"] and b["items"][1]["row"] is None
+def test_a_block_exposes_the_publish_list_of_its_last_assistant_turn():
+    entry = {"status": "opened", "merge_request_iid": 7}
+    stamped = {**asst("a2", text("Done.")), "publish": [entry]}
+    blocks = _blocks([user("u1"), asst("a1", read("c1")), stamped, user("u2"), asst("a3", text("Hi"))])
+    assert [b["publish"] for b in blocks] == [[entry], []]
+
+
+def test_a_publish_list_survives_a_later_turn_that_joins_its_run():
+    entry = {"status": "failed", "id": "run-status-r1"}
+    carrier = {**asst("r1-publish"), "publish": [entry]}
+    (block,) = _blocks([user("u1"), carrier, asst("r1-artifacts", publish("p1"))])
+    assert block["publish"] == [entry]
 
 
 def test_write_todos_and_blank_text_add_nothing_and_do_not_split_a_group():

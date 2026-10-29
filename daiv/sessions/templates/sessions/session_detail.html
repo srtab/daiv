@@ -291,6 +291,39 @@
               </template>
             </template>
 
+            <template x-for="(p, pi) in block.publish" :key="pi">
+              <div class="publish-row" :class="{ 'publish-row--failed': publishFailed(p) }"
+                   data-testid="publish-row" :data-status="p.status"
+                   :role="publishFailed(p) ? 'status' : null"
+                   :aria-live="publishFailed(p) ? 'polite' : null"
+                   :data-run-ending="publishFailed(p) && !block.items.length ? '' : false">
+                <template x-if="!publishFailed(p)">
+                  <span class="publish-row__main">
+                    {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
+                    <span x-show="p.status === 'opened'">{% translate "Opened" %}</span>
+                    <span x-show="p.status === 'pushed' && p.merge_request_iid">{% translate "Pushed to" %}</span>
+                    <span x-show="p.status === 'pushed' && !p.merge_request_iid">{% translate "Pushed" %}</span>
+                    <a class="publish-row__link" x-show="p.merge_request_iid" :href="p.merge_request_web_url || null"
+                       target="_blank" rel="noopener" x-text="'!' + p.merge_request_iid"></a>
+                    <span class="publish-row__files" x-show="p.files_changed"
+                          x-text="TranscriptLabels.tn('publish_files', p.files_changed)"></span>
+                    {% include "sessions/_line_counts.html" with counts="({ added: p.lines_added, removed: p.lines_removed })" %}
+                    <span class="publish-row__files" x-show="p.error" x-text="p.error"></span>
+                  </span>
+                </template>
+                <template x-if="publishFailed(p)">
+                  <span class="publish-row__main">
+                    {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
+                    <span>{% translate "Not published:" %}</span>
+                    <span x-text="p.error"></span>
+                  </span>
+                </template>
+                {% if session %}
+                  {% include "sessions/_retry_button.html" with turn="p" %}
+                {% endif %}
+              </div>
+            </template>
+
             <template x-for="status in block.statuses" :key="status.id">
               <div class="chat-run-status" :id="runAnchorId(status)" :class="`chat-run-status--${status.status}`"
                    :data-run-ending="block.items.length ? false : ''"
@@ -301,10 +334,7 @@
                 </span>
                 <span class="chat-run-status__text" x-text="status.message"></span>
                 {% if session %}
-                  <button type="button" class="chat-run-status__retry" x-show="canRetry(status)" @click="submit(latest.retry)"
-                          data-testid="run-retry">
-                    {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
-                  </button>
+                  {% include "sessions/_retry_button.html" with turn="status" %}
                 {% endif %}
               </div>
             </template>
