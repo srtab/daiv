@@ -8,7 +8,6 @@ the compiled runnable, which keeps coverage focused on DAIV's choices about
 which middlewares to compose.
 """
 
-import logging
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, call, patch
 
@@ -19,6 +18,7 @@ from langchain.agents.middleware import ModelFallbackMiddleware
 
 from automation.agent.agent_settings import ModelChain
 from automation.agent.chat_models import ChatOpenRouter
+from automation.agent.configured_models import ConfiguredModels
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.file_system import READ_ONLY_PERMISSIONS, DAIVFilesystemMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
@@ -36,12 +36,8 @@ from automation.agent.subagents import (
     load_custom_subagents,
 )
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
-from tests.unit_tests.conftest import (
-    OPENROUTER_CACHE_SETTINGS,
-    FakeWorkspace,
-    agent_settings,
-    model_attempts_with_failing_primary,
-)
+from tests.unit_tests.automation.agent.configured_model_fakes import FakeModels, FakeNotices
+from tests.unit_tests.conftest import OPENROUTER_CACHE_SETTINGS, FakeWorkspace, model_attempts_with_failing_primary
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -545,23 +541,12 @@ class TestSubagentMcpTools:
         assert direct_mcp_tools([]) == []
 
 
-@pytest.mark.django_db
 class TestExploreSubagent:
     """Tests for the public ``create_explore_subagent`` factory."""
 
     def test_returns_compiled_subagent(self):
-        from core.models import Provider
-
-        # ``get_model`` resolves model_name → Provider row → live client; enable
-        # the seed row backing ``ModelName.CLAUDE_HAIKU_5_5`` (openrouter:anthropic/...)
-        # so the call doesn't error during init_chat_model.
-        p = Provider.objects.get(slug="openrouter")
-        p.api_key = "sk-test"
-        p.is_enabled = True
-        p.save()
-
         result = create_explore_subagent(
-            _workspace(Mock(spec=BackendProtocol), sandbox=True), "/workspace/repo/", models=agent_settings().explore
+            _workspace(Mock(spec=BackendProtocol), sandbox=True), "/workspace/repo/", model=Mock()
         )
 
         assert isinstance(result, dict)
@@ -911,55 +896,24 @@ class TestCustomSubagents:
 
 
 def _explore_permissions(*, sandbox: bool) -> list:
-    with (
-        patch("automation.agent.subagents.get_model"),
-        patch("automation.agent.subagents.create_agent") as create_agent,
-    ):
+    with patch("automation.agent.subagents.create_agent") as create_agent:
         create_explore_subagent(
-            _workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/", models=ModelChain(("explore",))
+            _workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/", model=Mock()
         )
 
     [fs] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, FilesystemMiddleware)]
     return fs._permissions
 
 
-def test_explore_skips_a_fallback_that_fails_to_build(caplog):
-    built = {"explore": Mock(), "working-fallback": Mock()}
-
-    def get_model(*, model, thinking_level=None):
-        if model == "broken-fallback":
-            raise RuntimeError("Provider 'x' has no API key configured.")
-        return built[model]
-
-    with (
-        patch("automation.agent.subagents.get_model", side_effect=get_model),
-        patch("automation.agent.subagents.create_agent") as create_agent,
-        caplog.at_level(logging.ERROR, logger="daiv.agent"),
-    ):
-        create_explore_subagent(
-            _workspace(Mock(spec=BackendProtocol), sandbox=True),
-            "/workspace/repo/",
-            models=ModelChain(("explore", "broken-fallback", "working-fallback")),
-        )
-
-    [fallback] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, ModelFallbackMiddleware)]
-    assert fallback.models == [built["working-fallback"]]
-    assert "Could not initialize explore fallback model 'broken-fallback'" in caplog.text
-    assert "no API key configured" in caplog.text
-
-
 async def test_explore_fallback_attempt_carries_no_openrouter_cache_control():
     primary, fallback = _openrouter("anthropic/claude-haiku-4.5"), _openrouter("openai/gpt-5.4")
-    built = {"explore": primary, "explore-fallback": fallback}
 
-    with (
-        patch("automation.agent.subagents.get_model", side_effect=lambda *, model, thinking_level: built[model]),
-        patch("automation.agent.subagents.create_agent") as create_agent,
-    ):
+    with patch("automation.agent.subagents.create_agent") as create_agent:
         create_explore_subagent(
             _workspace(Mock(spec=BackendProtocol), sandbox=True),
             "/workspace/repo/",
-            models=ModelChain(("explore", "explore-fallback")),
+            model=primary,
+            fallback_models=[fallback],
         )
 
     assert await model_attempts_with_failing_primary(create_agent.call_args.kwargs["middleware"], primary) == [
@@ -1301,7 +1255,7 @@ class TestBuiltinCodeReviewDetectors:
 
         with (
             caplog.at_level(logging.WARNING, logger="daiv.agent"),
-            patch("automation.agent.subagents.get_model", side_effect=ValueError("unknown provider")),
+            patch("automation.agent.configured_models.get_model", side_effect=ValueError("unknown provider")),
         ):
             result = load_builtin_code_review_detectors(
                 mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
@@ -1371,7 +1325,7 @@ class TestBuiltinCodeReviewDetectors:
 
         with (
             caplog.at_level(logging.WARNING, logger="daiv.agent"),
-            patch("automation.agent.subagents.get_model", side_effect=RuntimeError("provider disabled")),
+            patch("automation.agent.configured_models.get_model", side_effect=RuntimeError("provider disabled")),
         ):
             result = load_builtin_code_review_detectors(
                 mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
@@ -1536,7 +1490,7 @@ class TestBuiltinCodeReviewDetectors:
         override_model = Mock()
 
         with (
-            patch("automation.agent.subagents.get_model", return_value=override_model) as get_model,
+            patch("automation.agent.configured_models.get_model", return_value=override_model) as get_model,
             patch("automation.agent.subagents.create_agent") as mock_create,
         ):
             mock_create.return_value = Mock()
@@ -1546,3 +1500,103 @@ class TestBuiltinCodeReviewDetectors:
 
         get_model.assert_called_once_with(model="some:override")
         assert mock_create.call_args.kwargs["model"] is override_model
+
+
+RUN_MODEL = Mock(name="run-model")
+
+
+def _configured(configured: dict, notices=None) -> ConfiguredModels:
+    return ConfiguredModels(
+        "subagent", configured, chain=ModelChain(names=("fake:run",), thinking_level="high"), notices=notices
+    )
+
+
+def _served_by(create_agent: Mock) -> dict:
+    return {c.kwargs["name"]: c.kwargs["model"] for c in create_agent.call_args_list}
+
+
+class TestConfiguredDetectorModels:
+    def _load(self, tmp_path, models: FakeModels, *, configured, charters: dict | None = None):
+        """``configured`` is the entries, or the ``ConfiguredModels`` to load with."""
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        charters = charters if charters is not None else {"cr-security": "fake:charter", "cr-tests": None}
+        for name, model in charters.items():
+            (agents_dir / f"{name}.md").write_text(_make_subagent_md(name=name, description=name, model=model))
+        with (
+            patch("automation.agent.configured_models.get_model", models),
+            patch("automation.agent.subagents.create_agent") as create_agent,
+        ):
+            load_builtin_code_review_detectors(
+                RUN_MODEL,
+                Mock(spec=BackendProtocol),
+                "/workspace/repo/",
+                agents_dir=agents_dir,
+                expected_names=tuple(charters),
+                configured_models=configured if isinstance(configured, ConfiguredModels) else _configured(configured),
+            )
+        return _served_by(create_agent)
+
+    def test_a_configured_entry_beats_the_charter_model_which_beats_the_runs(self, tmp_path):
+        models = FakeModels("fake:charter", "fake:configured")
+
+        served = self._load(tmp_path, models, configured={"cr-security": "fake:configured"})
+
+        assert served == {"cr-security": models.by_spec["fake:configured"], "cr-tests": RUN_MODEL}
+
+    async def test_an_unusable_entry_falls_back_to_the_charter_model_and_is_recorded_once_dispatched(self, tmp_path):
+        models = FakeModels("fake:charter")
+        notices = FakeNotices()
+        configured_models = _configured({"cr-tests": "nosuch:model"}, notices)
+
+        served = self._load(tmp_path, models, configured=configured_models, charters={"cr-tests": "fake:charter"})
+
+        assert served == {"cr-tests": models.by_spec["fake:charter"]}
+        assert notices.recorded == []
+        await configured_models.areport_dispatch("cr-tests")
+        assert [(n.name, n.served_model) for n in notices.recorded] == [("cr-tests", "fake:charter")]
+
+    def test_an_invalid_charter_model_without_an_entry_still_skips_the_detector(self, tmp_path):
+        served = self._load(
+            tmp_path, FakeModels(), configured={"cr-security": "nosuch:model"}, charters={"cr-tests": "broken:charter"}
+        )
+
+        assert served == {}
+
+
+class TestConfiguredCustomSubagentModels:
+    async def _load(self, tmp_path, models: FakeModels, *, configured: dict, file_model: str | None):
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
+
+        subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / "mine.md").write_text(_make_subagent_md(name="mine", description="Mine", model=file_model))
+        ctx = Mock()
+        ctx.gitrepo.working_dir = str(tmp_path / "repo")
+        with (
+            patch("automation.agent.configured_models.get_model", models),
+            patch("automation.agent.subagents.create_agent") as create_agent,
+        ):
+            await load_custom_subagents(
+                model=RUN_MODEL,
+                workspace=_workspace(DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True), sandbox=True),
+                runtime=ctx,
+                sources=["/repo/.agents/subagents"],
+                working_directory="/workspace/repo/",
+                configured_models=_configured(configured),
+            )
+        return _served_by(create_agent)
+
+    async def test_a_configured_entry_beats_the_files_model(self, tmp_path):
+        models = FakeModels("fake:file", "fake:configured")
+
+        served = await self._load(tmp_path, models, configured={"mine": "fake:configured"}, file_model="fake:file")
+
+        assert served == {"mine": models.by_spec["fake:configured"]}
+
+    async def test_an_invalid_file_model_without_an_entry_still_skips_the_subagent(self, tmp_path):
+        served = await self._load(tmp_path, FakeModels(), configured={}, file_model="broken:file")
+
+        assert served == {}

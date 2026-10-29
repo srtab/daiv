@@ -214,7 +214,13 @@
                   {% endif %}
                 </div>
               </template>
-              <template x-if="turn.role !== 'run_status'">
+              <template x-if="turn.role === 'run_notice'">
+                <div class="chat-run-status chat-run-status--notice" :id="runAnchorId(turn)" role="status">
+                  <span class="chat-run-status__icon" aria-hidden="true">{% icon "exclamation-triangle" "h-4 w-4" %}</span>
+                  <span class="chat-run-status__text" x-text="turn.message"></span>
+                </div>
+              </template>
+              <template x-if="!isMarker(turn)">
                 <article class="chat-turn" :id="runAnchorId(turn)"
                          :class="{ [`chat-turn--${turn.role}`]: true, 'chat-turn--daiv': turn.author === 'daiv', 'chat-turn--pending': turn.pending }"
                          :data-role="turn.role">

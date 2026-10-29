@@ -1,0 +1,21 @@
+{% load i18n icon_tags %}
+<div data-row {% if is_initial %}data-initial{% endif %} class="grid grid-cols-12 items-start gap-3">
+    <div class="col-span-12 sm:col-span-5">
+        {{ row.name }}
+        {% for error in row.name.errors %}<p class="mt-1 text-xs text-red-300">{{ error }}</p>{% endfor %}
+    </div>
+    <div class="col-span-10 sm:col-span-6">
+        {{ row.model }}
+        {% for error in row.model.errors %}<p class="mt-1 text-xs text-red-300">{{ error }}</p>{% endfor %}
+    </div>
+    <div class="col-span-2 flex items-center justify-end pt-1 sm:col-span-1">
+        <span class="hidden">{{ row.DELETE }}</span>
+        <button type="button"
+                class="inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-400 hover:bg-white/[0.06] hover:text-red-300 focus:outline-none focus:ring-2 focus:ring-red-400/40"
+                @click="removeRow($el.closest('[data-row]'))"
+                aria-label="{% translate 'Remove' %}"
+                title="{% translate 'Remove' %}">
+            {% icon "trash" "h-5 w-5" %}
+        </button>
+    </div>
+</div>

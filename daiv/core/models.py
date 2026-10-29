@@ -240,22 +240,24 @@ class SiteConfiguration(models.Model):
             "Thinking depth for daiv-max tasks. Choose Off to disable thinking; leave unset to use the default."
         ),
     )
-    agent_explore_model_name = models.CharField(
-        _("explore model"), max_length=255, blank=True, null=True, help_text=_("Fast model for the explore subagent.")
-    )
-    agent_explore_fallback_model_name = models.CharField(
-        _("explore fallback model"),
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text=_("Fallback model when the explore model fails."),
-    )
     agent_recursion_limit = models.PositiveIntegerField(
         _("recursion limit"),
         blank=True,
         null=True,
         validators=[MinValueValidator(1)],
         help_text=_("Maximum recursion depth for agent loops."),
+    )
+    agent_skill_models = models.JSONField(
+        _("skill models"),
+        default=dict,
+        blank=True,
+        help_text=_("JSON object `{skill name: model spec}`: the model each skill runs on."),
+    )
+    agent_subagent_models = models.JSONField(
+        _("subagent models"),
+        default=dict,
+        blank=True,
+        help_text=_("JSON object `{subagent name: model spec}`: the model each subagent runs on."),
     )
     pipeline_watch_enabled = models.BooleanField(
         _("pipeline watch enabled"),
@@ -554,8 +556,6 @@ class SiteConfiguration(models.Model):
         "agent_model_name",
         "agent_fallback_model_name",
         "agent_max_model_name",
-        "agent_explore_model_name",
-        "agent_explore_fallback_model_name",
         "diff_to_metadata_model_name",
         "diff_to_metadata_fallback_model_name",
         "titling_model_name",

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 from io import StringIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, Any
 
 from django.core.cache import cache
 
 import yaml
-from pydantic import AliasChoices, BaseModel, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, BeforeValidator, Field, ValidationError
 from yaml.parser import ParserError
 
 from core.constants import ModelName  # noqa: TC001
@@ -131,6 +131,22 @@ class DiffToMetadataModelConfig(BaseModel):
     )
 
 
+def _model_spec_entries(value: Any) -> dict[str, str]:
+    """``value``'s ``{name: model spec}`` entries; a null or empty spec is unset, and anything else that is not a string
+    is logged and dropped, so it cannot invalidate the rest of ``.daiv.yml``."""
+    if not isinstance(value, dict):
+        if value is not None:
+            logger.error("Ignoring a models map in %s that is not a mapping: %r", CONFIGURATION_FILE_NAME, value)
+        return {}
+    entries = {name: spec for name, spec in value.items() if isinstance(name, str) and isinstance(spec, str) and spec}
+    if dropped := [name for name, spec in value.items() if spec and name not in entries]:
+        logger.error("Ignoring models entries in %s without a model spec string: %s", CONFIGURATION_FILE_NAME, dropped)
+    return entries
+
+
+ModelSpecMap = Annotated[dict[str, str], BeforeValidator(_model_spec_entries)]
+
+
 class Models(BaseModel):
     """
     Model configuration for all agents.
@@ -139,6 +155,20 @@ class Models(BaseModel):
     agent: AgentModelConfig = Field(default_factory=AgentModelConfig, description="Configuration for the DAIV agent.")
     diff_to_metadata: DiffToMetadataModelConfig = Field(
         default_factory=DiffToMetadataModelConfig, description="Configuration for the diff to metadata agent."
+    )
+    skills: ModelSpecMap = Field(
+        default_factory=dict,
+        description=(
+            "Model spec per skill name, overriding the site configuration's entry for that name. "
+            "A null or empty value leaves the site's entry in place. Checked when a run uses it, not on load."
+        ),
+    )
+    subagents: ModelSpecMap = Field(
+        default_factory=dict,
+        description=(
+            "Model spec per subagent name, overriding the site configuration's entry for that name. "
+            "A null or empty value leaves the site's entry in place. Checked when a run uses it, not on load."
+        ),
     )
 
 

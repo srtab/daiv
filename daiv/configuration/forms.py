@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 from urllib.parse import urlparse
@@ -22,6 +23,8 @@ from core.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from core.models import FieldGroup
 
 logger = logging.getLogger("daiv.configuration")
@@ -192,6 +195,19 @@ class _AgentPickerWidget(forms.Widget):
         return ""
 
 
+def model_spec_error(model_spec: str) -> str | None:
+    """Why ``model_spec`` cannot be used: no enabled Provider row with an API key serves it; ``None`` when one does."""
+    try:
+        row = parse_model_spec(model_spec).row
+    except ValueError:
+        return _("Unsupported model: %(m)s.") % {"m": model_spec}
+    if not row.is_enabled:
+        return _("Provider '%(s)s' is disabled. Enable it in the Providers section.") % {"s": row.slug}
+    if row.api_key is None:
+        return _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": row.slug}
+    return None
+
+
 class SiteConfigurationForm(forms.ModelForm):
     """
     ModelForm for :class:`~core.models.SiteConfiguration` with custom handling
@@ -221,8 +237,6 @@ class SiteConfigurationForm(forms.ModelForm):
             "agent_fallback_thinking_level",
             "agent_max_model_name",
             "agent_max_thinking_level",
-            "agent_explore_model_name",
-            "agent_explore_fallback_model_name",
             "agent_recursion_limit",
             "diff_to_metadata_model_name",
             "diff_to_metadata_fallback_model_name",
@@ -471,29 +485,10 @@ class SiteConfigurationForm(forms.ModelForm):
 
     def _validate_model_api_keys(self, cleaned_data: dict[str, Any]) -> None:
         """Validate that each chosen model resolves to an enabled, keyed Provider row."""
-        rows = Provider.get_cached_by_slug()
         for field_name in SiteConfiguration.MODEL_NAME_FIELDS:
             model_spec = cleaned_data.get(field_name)
-            if not model_spec:
-                continue
-            try:
-                slug = parse_model_spec(model_spec).row.slug
-            except ValueError:
-                self.add_error(field_name, _("Unsupported model: %(m)s.") % {"m": model_spec})
-                continue
-            row = rows.get(slug)
-            if row is None:
-                self.add_error(field_name, _("Provider '%(s)s' is not configured.") % {"s": slug})
-                continue
-            if not row.is_enabled:
-                self.add_error(
-                    field_name, _("Provider '%(s)s' is disabled. Enable it in the Providers section.") % {"s": slug}
-                )
-                continue
-            if row.api_key is None:
-                self.add_error(
-                    field_name, _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": slug}
-                )
+            if model_spec and (error := model_spec_error(model_spec)):
+                self.add_error(field_name, error)
 
     def _validate_web_search_api_key(self, cleaned_data: dict[str, Any]) -> None:
         """Validate that Tavily has an API key when selected."""
@@ -601,6 +596,85 @@ class SiteConfigurationForm(forms.ModelForm):
             "telegram_bot_token": _("Bot token issued by @BotFather, in the form 123456:ABC-DEF."),
         }
         return labels.get(name, "")
+
+
+@dataclass(frozen=True)
+class ModelMap:
+    """A ``{name: model spec}`` map of the Agent group: the ``SiteConfiguration`` field it saves to, its formset prefix
+    and the ``<datalist>`` that suggests its names."""
+
+    site_field: str
+    prefix: str
+    names_id: str
+
+
+SKILL_MODELS = ModelMap(site_field="agent_skill_models", prefix="skill_models", names_id="skill-model-names")
+SUBAGENT_MODELS = ModelMap(
+    site_field="agent_subagent_models", prefix="subagent_models", names_id="subagent-model-names"
+)
+
+
+class ModelMapRowForm(forms.Form):
+    """One ``{name: model spec}`` entry of ``agent_skill_models`` or ``agent_subagent_models``."""
+
+    name = forms.CharField(label=_("Name"), max_length=255, required=False)
+    model = forms.CharField(label=_("Model"), max_length=255, required=False, widget=_AgentPickerWidget())
+
+    def __init__(self, *args: Any, name_list: str = "", **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["name"].widget.attrs.update({"list": name_list, "aria-label": _("Name"), "autocomplete": "off"})
+
+    def has_changed(self) -> bool:
+        # A row added and left blank is skipped, not refused.
+        if self.empty_permitted and not any((self[name].value() or "").strip() for name in ("name", "model")):
+            return False
+        return super().has_changed()
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        name = cleaned.get("name") or ""
+        model = cleaned.get("model") or ""
+        if not name:
+            self.add_error("name", _("Required."))
+        if not model:
+            self.add_error("model", _("Pick a model."))
+        elif error := model_spec_error(model):
+            self.add_error("model", f"{name or _('This entry')}: {error}")
+        return cleaned
+
+
+class _ModelMapFormset(forms.BaseFormSet):
+    def clean(self) -> None:
+        super().clean()
+        seen: set[str] = set()
+        for form in self.forms:
+            if form.cleaned_data.get("DELETE") or not (name := form.cleaned_data.get("name")):
+                continue
+            if name in seen:
+                form.add_error("name", _("%(name)s is listed twice.") % {"name": name})
+            seen.add(name)
+
+
+def build_model_map_formset(
+    model_map: ModelMap, *, data: Mapping[str, Any] | None, stored: Mapping[str, str]
+) -> _ModelMapFormset:
+    """``model_map``'s rows, from its ``stored`` map; bound to ``data`` only when ``data`` posts them."""
+    formset_class = forms.formset_factory(ModelMapRowForm, formset=_ModelMapFormset, extra=0, can_delete=True)
+    return formset_class(
+        data if data is not None and f"{model_map.prefix}-TOTAL_FORMS" in data else None,
+        initial=[{"name": name, "model": spec} for name, spec in stored.items()],
+        prefix=model_map.prefix,
+        form_kwargs={"name_list": model_map.names_id},
+    )
+
+
+def model_map_from_formset(formset: _ModelMapFormset) -> dict[str, str]:
+    """The ``{name: model spec}`` map a validated ``build_model_map_formset`` holds; blank and removed rows drop out."""
+    return {
+        form.cleaned_data["name"]: form.cleaned_data["model"]
+        for form in formset.forms
+        if form.cleaned_data.get("name") and not form.cleaned_data.get("DELETE")
+    }
 
 
 WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX = "headers"

@@ -1,25 +1,62 @@
 import logging
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from django.contrib import messages
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 
+from skills.services import list_global_skills
+
+from automation.agent.constants import BUILTIN_SUBAGENT_NAMES
 from configuration.forms import (
     PROVIDERS_FORMSET_PREFIX,
+    SKILL_MODELS,
+    SUBAGENT_MODELS,
     WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX,
+    ModelMap,
     SiteConfigurationForm,
+    build_model_map_formset,
     build_provider_formset,
     build_web_fetch_auth_header_formset,
+    model_map_from_formset,
 )
 from core.mixins import AdminRequiredMixin
 from core.models import FieldGroup, Provider, SiteConfiguration, WebFetchAuthHeader
 from core.site_settings import site_settings
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 logger = logging.getLogger("daiv.configuration")
+
+
+@dataclass(frozen=True)
+class _ModelMapSection:
+    """One model map of the Agent group: its rows, or the environment's value when a variable locks it."""
+
+    model_map: ModelMap
+    title: str
+    add_label: str
+    unknown_warning: str
+    suggestions: list[str]
+    formset: Any = None
+    env_value: Mapping[str, str] | None = None
+
+    @property
+    def saves(self) -> bool:
+        return self.formset is not None and self.formset.is_bound
+
+    def unknown_names(self) -> list[str]:
+        """Names this submission adds that no built-in or global entry has; stored ones were warned about already."""
+        stored = {row["name"] for row in self.formset.initial or ()}
+        return [
+            name for name in model_map_from_formset(self.formset) if name not in self.suggestions and name not in stored
+        ]
 
 
 class SiteConfigurationIndexView(AdminRequiredMixin, View):
@@ -47,6 +84,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         instance = SiteConfiguration.objects.get_instance()
         field_defaults = site_settings.get_defaults()
         providers_formset, headers_formset, headers_env_locked = self._build_per_group_formsets(data=None)
+        model_maps = self._build_model_map_sections(data=None, instance=instance)
         form = SiteConfigurationForm(
             instance=instance,
             env_locked_fields=self._get_env_locked_fields(),
@@ -56,7 +94,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         return render(
             request,
             self.template_name,
-            self._build_context(form, providers_formset, headers_formset, headers_env_locked),
+            self._build_context(form, providers_formset, headers_formset, headers_env_locked, model_maps),
         )
 
     def post(self, request, group_key):
@@ -82,15 +120,23 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         )
 
         headers_valid = headers_formset is None or headers_env_locked or headers_formset.is_valid()
+        model_maps = self._build_model_map_sections(data=request.POST, instance=instance)
+        saved_maps = [section for section in model_maps if section.saves]
+        model_maps_valid = all(section.formset.is_valid() for section in saved_maps)
 
-        if form.is_valid() and providers_valid and headers_valid:
+        if form.is_valid() and providers_valid and headers_valid and model_maps_valid:
             with transaction.atomic():
                 if providers_formset is not None:
                     providers_formset.save()
+                for section in saved_maps:
+                    setattr(form.instance, section.model_map.site_field, model_map_from_formset(section.formset))
                 form.save()
                 if headers_formset is not None and not headers_env_locked:
                     headers_formset.save()
             messages.success(request, "Configuration saved.")
+            for section in saved_maps:
+                for name in section.unknown_names():
+                    messages.warning(request, section.unknown_warning % {"name": name})
             if providers_formset is not None:
                 for warning in self._collect_provider_warnings(providers_formset):
                     messages.warning(request, warning)
@@ -102,7 +148,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         return render(
             request,
             self.template_name,
-            self._build_context(form, providers_formset, headers_formset, headers_env_locked),
+            self._build_context(form, providers_formset, headers_formset, headers_env_locked, model_maps),
         )
 
     @staticmethod
@@ -126,8 +172,47 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
             return None, self._build_headers_formset(data=None if env_locked else data), env_locked
         return None, None, False
 
+    def _build_model_map_sections(self, *, data, instance: SiteConfiguration) -> list[_ModelMapSection]:
+        """The Agent group's model maps. A POST without a map's rows leaves that map as stored."""
+        if self.group.key != "agent":
+            return []
+
+        def section(model_map: ModelMap, **labels: Any) -> _ModelMapSection:
+            if site_settings.is_env_locked(model_map.site_field):
+                return _ModelMapSection(model_map, env_value=getattr(site_settings, model_map.site_field), **labels)
+            stored = getattr(instance, model_map.site_field)
+            return _ModelMapSection(
+                model_map, formset=build_model_map_formset(model_map, data=data, stored=stored), **labels
+            )
+
+        return [
+            section(
+                SKILL_MODELS,
+                title=gettext("Skills"),
+                add_label=gettext("Add skill"),
+                unknown_warning=gettext(
+                    "No built-in or global skill is named '%(name)s'; its entry applies where a repository defines it."
+                ),
+                suggestions=list(list_global_skills()),
+            ),
+            section(
+                SUBAGENT_MODELS,
+                title=gettext("Subagents"),
+                add_label=gettext("Add subagent"),
+                unknown_warning=gettext(
+                    "No built-in subagent is named '%(name)s'; its entry applies where a repository defines it."
+                ),
+                suggestions=sorted(BUILTIN_SUBAGENT_NAMES),
+            ),
+        ]
+
     def _build_context(
-        self, form: SiteConfigurationForm, providers_formset, headers_formset, headers_env_locked: bool
+        self,
+        form: SiteConfigurationForm,
+        providers_formset,
+        headers_formset,
+        headers_env_locked: bool,
+        model_maps: list[_ModelMapSection],
     ) -> dict:
         built_in_provider_forms, custom_provider_forms = self._split_provider_forms(providers_formset)
         return {
@@ -141,6 +226,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
             "web_fetch_auth_headers_env_locked": headers_env_locked,
             "web_fetch_auth_headers_env_value": (site_settings.web_fetch_auth_headers if headers_env_locked else None),
             "telegram_bot_username": (site_settings.telegram_bot_username if self.group.key == "telegram" else None),
+            "model_map_sections": model_maps,
         }
 
     @staticmethod

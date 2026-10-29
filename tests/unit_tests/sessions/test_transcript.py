@@ -40,6 +40,7 @@ def _run(
     created_at=None,
     finished_at=None,
     is_cancelled=False,
+    notices=(),
 ):
     return SimpleNamespace(
         id=rid,
@@ -51,6 +52,7 @@ def _run(
         created_at=created_at,
         finished_at=finished_at,
         is_cancelled=is_cancelled,
+        notices=list(notices),
     )
 
 
@@ -128,6 +130,100 @@ def test_pre_checkpoint_failure_synthesizes_user_turn_and_marker():
         "rebuilt": True,
         "run_id": "r2",
     }
+
+
+def _fallback(name, *, reason="unknown_provider"):
+    return {
+        "kind": "model_fallback",
+        "target": "subagent",
+        "name": name,
+        "configured_model": "nosuch:model",
+        "served_model": "openrouter:run/model",
+        "reason": reason,
+    }
+
+
+def test_each_notice_follows_its_runs_turns():
+    turns = [_user("h1"), _assistant("a1"), _user("h2"), _assistant("a2")]
+    runs = [
+        _run("r1", message_id="h1", notices=[_fallback("cr-tests"), _fallback("code-review")]),
+        _run("r2", message_id="h2"),
+    ]
+
+    result = annotate_transcript(turns, runs)
+
+    assert [t["id"] for t in result] == ["h1", "a1", "run-notice-r1-0", "run-notice-r1-1", "h2", "a2"]
+    assert result[2] == {
+        "id": "run-notice-r1-0",
+        "role": "run_notice",
+        "message": "cr-tests ran on openrouter:run/model: nosuch:model could not be used (unknown provider)",
+    }
+
+
+def test_notices_come_before_the_runs_status_marker():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, error_message="boom", notices=[_fallback("cr-tests")])]
+
+    result = annotate_transcript(turns, runs)
+
+    assert [t["id"] for t in result] == ["h1", "a1", "run-notice-r1-0", "run-status-r1"]
+
+
+def test_a_rebuilt_run_also_shows_its_notices():
+    runs = [
+        _run(
+            "r1",
+            message_id="h-missing",
+            status=RunStatus.FAILED,
+            error_message="boom",
+            prompt="please fix X",
+            notices=[_fallback("cr-tests")],
+        )
+    ]
+
+    result = annotate_transcript([], runs)
+
+    assert [t["id"] for t in result] == ["run-r1", "run-notice-r1-0", "run-status-r1"]
+    assert result[1]["rebuilt"] is True
+
+
+@pytest.mark.parametrize(
+    ("reason", "label"),
+    [
+        ("unknown_provider", "unknown provider"),
+        ("provider_unavailable", "provider disabled or missing an API key"),
+        ("init_failed", "the model could not be started"),
+    ],
+)
+def test_the_notice_names_its_reason(reason, label):
+    runs = [_run("r1", message_id="h1", notices=[_fallback("cr-tests", reason=reason)])]
+
+    result = annotate_transcript([_user("h1")], runs)
+
+    assert result[-1]["message"].endswith(f"({label})")
+
+
+def test_the_slot_holder_shows_its_notices_before_it_checkpoints():
+    holder = _run("r1", status=RunStatus.RUNNING, prompt="please fix X", notices=[_fallback("cr-tests")])
+
+    result = annotate_transcript([], [holder], _holding(holder))
+
+    assert [t["id"] for t in result] == ["run-r1", "run-notice-r1-0"]
+
+
+def test_a_finished_run_whose_turn_never_matched_still_shows_its_notices():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", message_id="h1"), _run("r2", message_id="h-missing", notices=[_fallback("cr-tests")])]
+
+    result = annotate_transcript(turns, runs)
+
+    assert [(t["id"], t.get("run_id")) for t in result[2:]] == [("run-notice-r2-0", "r2")]
+
+
+def test_a_run_without_notices_adds_none():
+    turns = [_user("h1"), _assistant("a1")]
+
+    assert annotate_transcript(turns, [_run("r1", message_id="h1", notices=[])]) == turns
 
 
 def test_multiple_failed_middle_runs_each_get_a_marker():
@@ -648,3 +744,15 @@ def test_retry_message_offers_nothing_for_a_stopped_run_or_one_a_chat_turn_canno
 
 def test_retry_message_offers_nothing_without_runs():
     assert retry_message([], []) == ""
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_restore_a_finished_runs_notices_after_its_turns():
+    run = _db_run(_db_session(), prompt="audit it", finished_at=timezone.now(), notices=[_fallback("cr-tests")])
+    make_artifact(run)
+
+    assert annotate_transcript([], [run]) == []
+    prompt, artifacts, notice = expired_run_turns([run], [])
+
+    assert (prompt["run_id"], artifacts["received_at"]) == (str(run.id), run.finished_at.isoformat())
+    assert (notice["id"], notice["role"]) == (f"run-notice-{run.id}-0", "run_notice")

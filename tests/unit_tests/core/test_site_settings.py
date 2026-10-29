@@ -1,4 +1,5 @@
-from dataclasses import asdict
+import json
+import logging
 from unittest.mock import MagicMock, patch
 
 from django.db import models
@@ -261,6 +262,9 @@ class TestMemoryDefaults:
 def _value_from(source: str, name: str, default):
     """A value unlike ``name``'s default, as the database stores it or the environment spells it."""
     field = SiteConfiguration._meta.get_field(name)
+    if isinstance(field, models.JSONField):
+        value = {"code-review": f"{source}-{name}"}
+        return json.dumps(value) if source == "environment" else value
     if isinstance(field, models.BooleanField):
         value = not default
     elif isinstance(field, models.IntegerField):
@@ -289,7 +293,7 @@ class TestSnapshot:
             assert get_cached.call_count == 1
             resolved = {name: getattr(ss, name) for name in ss.FIELD_DEFAULTS}
 
-        assert asdict(snapshot) == resolved
+        assert {name: getattr(snapshot, name) for name in ss.FIELD_DEFAULTS} == resolved
         if source != "default":
             assert all(resolved[name] != default for name, default in ss.FIELD_DEFAULTS.items())
 
@@ -321,3 +325,49 @@ class TestSnapshot:
 
         assert "web_fetch_timeout_seconds=_Unresolved(" in text
         assert f"agent_recursion_limit={ss.FIELD_DEFAULTS['agent_recursion_limit']!r}" in text
+
+
+@pytest.mark.parametrize("field", ["agent_skill_models", "agent_subagent_models"])
+class TestModelMaps:
+    def test_defaults_to_an_empty_map(self, ss, field):
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert getattr(ss, field) == {}
+
+    def test_a_json_object_in_the_environment_overrides_the_stored_map(self, ss, field, monkeypatch):
+        monkeypatch.setenv(ss.get_env_var_name(field), '{"code-review": "openrouter:env/model"}')
+        stored = SiteConfiguration(**{field: {"code-review": "openrouter:db/model", "plan": "openrouter:db/plan"}})
+        with patch.object(SiteConfiguration, "get_cached", return_value=stored):
+            assert getattr(ss, field) == {"code-review": "openrouter:env/model"}
+
+    def test_a_null_or_empty_spec_in_the_environment_is_unset(self, ss, field, monkeypatch):
+        monkeypatch.setenv(ss.get_env_var_name(field), '{"code-review": "openrouter:env/model", "plan": null, "x": ""}')
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert getattr(ss, field) == {"code-review": "openrouter:env/model"}
+
+    @pytest.mark.parametrize("raw", ["{not json", '["code-review"]', '{"code-review": 3}'])
+    def test_a_malformed_environment_value_is_logged_and_treated_as_empty(self, ss, field, monkeypatch, caplog, raw):
+        monkeypatch.setenv(ss.get_env_var_name(field), raw)
+        stored = SiteConfiguration(**{field: {"code-review": "openrouter:db/model"}})
+        with (
+            patch.object(SiteConfiguration, "get_cached", return_value=stored),
+            caplog.at_level(logging.ERROR, logger="daiv.core"),
+        ):
+            assert getattr(ss, field) == {}
+        assert ss.get_env_var_name(field) in caplog.text
+
+    def test_the_snapshot_map_is_read_only(self, ss, field):
+        stored = SiteConfiguration(**{field: {"code-review": "openrouter:db/model"}})
+        with patch.object(SiteConfiguration, "get_cached", return_value=stored):
+            snapshot = ss.snapshot()
+
+        with pytest.raises(TypeError):
+            getattr(snapshot, field)["plan"] = "openrouter:other/model"
+        assert getattr(stored, field) == {"code-review": "openrouter:db/model"}
+
+    def test_the_default_map_cannot_be_mutated_through_the_snapshot(self, ss, field):
+        with patch.object(SiteConfiguration, "get_cached", return_value=None):
+            snapshot = ss.snapshot()
+
+        with pytest.raises(TypeError):
+            getattr(snapshot, field)["plan"] = "openrouter:other/model"
+        assert ss.FIELD_DEFAULTS[field] == {}

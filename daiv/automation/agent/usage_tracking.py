@@ -113,6 +113,13 @@ def resolve_window_by_name(model_name: str) -> ResolvedWindow | None:
     return ResolvedWindow(int(window), "genai_prices") if window else None
 
 
+def chat_model_name(model: object) -> str:
+    """``model``'s name: ChatAnthropic exposes it on ``.model``, ChatOpenAI/ChatOpenRouter on ``.model_name``; "" when
+    neither is a str."""
+    name = getattr(model, "model_name", None) or getattr(model, "model", None)
+    return name if isinstance(name, str) else ""
+
+
 def resolve_context_window(model: BaseChatModel, model_name: str) -> ResolvedWindow | None:
     """The model's input ceiling, resolved in tiers: profile → genai-prices → None.
 

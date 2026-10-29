@@ -1500,6 +1500,10 @@ html {
   .chat-run-status--aborted {
     @apply border-white/10 bg-white/[0.03] text-gray-400;
   }
+  .chat-run-status--notice {
+    @apply border-white/10 bg-white/[0.03] text-gray-300;
+  }
+  .chat-run-status--notice .chat-run-status__icon { @apply text-status-found; }
 
   /* `anywhere`, never `break-word`: only `anywhere` shrinks the box's min-content width,
      and chat text is sized intrinsically, so break-word paints a pasted URL outside it. */

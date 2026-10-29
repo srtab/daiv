@@ -28,6 +28,7 @@ from sessions.turns import tool_call_segment
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from automation.agent.notices import FallbackReason
     from sessions.models import Run
 
 logger = logging.getLogger("daiv.sessions")
@@ -65,6 +66,28 @@ def _marker(run: Run) -> dict[str, Any] | None:
         aborted = False
     status: RunStatusValue = "aborted" if aborted else "failed"
     return {"id": marker_id(run), "role": "run_status", "status": status, "message": message}
+
+
+_FALLBACK_REASON_LABELS: dict[FallbackReason, str] = {
+    "unknown_provider": "unknown provider",
+    "provider_unavailable": "provider disabled or missing an API key",
+    "init_failed": "the model could not be started",
+}
+
+
+def _notice_turns(run: Run) -> list[dict[str, Any]]:
+    """One ``run_notice`` pseudo-turn per notice ``run`` recorded (``automation.agent.notices``)."""
+    return [
+        {
+            "id": f"run-notice-{run.id}-{index}",
+            "role": "run_notice",
+            "message": (
+                f"{notice['name']} ran on {notice['served_model']}: {notice['configured_model']} could not be used "
+                f"({_FALLBACK_REASON_LABELS.get(notice['reason'], notice['reason'])})"
+            ),
+        }
+        for index, notice in enumerate(run.notices)
+    ]
 
 
 def marker_id(run: Run) -> str:
@@ -109,9 +132,11 @@ def _prompt_turns(run: Run, *, pending: bool = False) -> list[dict[str, Any]]:
 
 def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     """A run that produced no visible user turn. Recover a FAILED run's prompt as a
-    user turn plus its marker, flagged ``rebuilt``; a non-failed run with no turn contributes nothing."""
+    user turn plus its notices and marker, flagged ``rebuilt``; a non-failed run with no turn contributes nothing."""
     marker = _marker(run)
-    return [] if marker is None else [{**turn, "rebuilt": True} for turn in (*_prompt_turns(run), marker)]
+    if marker is None:
+        return []
+    return [{**turn, "rebuilt": True} for turn in (*_prompt_turns(run), *_notice_turns(run), marker)]
 
 
 def _anchor(run_turns: list[dict[str, Any]], run: Run) -> list[dict[str, Any]]:
@@ -179,7 +204,12 @@ def annotate_transcript(
                     run.status,
                     mid,
                 )
-            result.extend(_anchor(_prompt_turns(run) if run == activity.holder else _synthetic_turns(run), run))
+            if run == activity.holder:
+                unmatched = [*_prompt_turns(run), *_notice_turns(run)]
+            else:
+                # With no turns at all, ``expired_run_turns`` shows the notices beside the run's prompt.
+                unmatched = _synthetic_turns(run) or (_notice_turns(run) if segments else [])
+            result.extend(_anchor(unmatched, run))
             continue
 
         # Flush any segments with no owning run (defensive; keeps ordering intact).
@@ -193,6 +223,7 @@ def annotate_transcript(
         if owned[0].get("role") == "user":
             _mark_author(owned[0], run)
         result.extend(owned)
+        result.extend(_notice_turns(run))
         cursor = matched + 1
         if (marker := _marker(run)) is not None:
             result.append(marker)
@@ -212,9 +243,9 @@ def _artifact_segment(artifact: RunArtifact) -> dict[str, Any]:
 def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """SYNC ONLY: what a checkpoint with no messages still shows of each run, from rows that outlive its TTL.
 
-    A finished run no ``shown`` turn carries gets its prompt back, and each run that published gets one assistant
-    turn of synthetic ``publish_artifact`` segments (artifacts oldest first) shaped like ``build_turns`` output.
-    A run's first turn carries its ``run_id`` unless a ``shown`` turn already does.
+    A finished run no ``shown`` turn carries gets its prompt and notices back, and each run that published gets one
+    assistant turn of synthetic ``publish_artifact`` segments (artifacts oldest first) shaped like ``build_turns``
+    output. A run's first turn carries its ``run_id`` unless a ``shown`` turn already does.
     """
     anchored = {turn.get("run_id") for turn in shown}
     by_run: dict[Any, list[dict[str, Any]]] = {}
@@ -223,11 +254,14 @@ def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[
     result = []
     for run in runs:
         unshown = str(run.id) not in anchored
-        run_turns = _prompt_turns(run) if unshown and run.status in RunStatus.terminal() else []
+        finished_unshown = unshown and run.status in RunStatus.terminal()
+        run_turns = _prompt_turns(run) if finished_unshown else []
         if run.id in by_run:
             run_turns.append({"id": f"run-{run.id}-artifacts", "role": "assistant", "segments": by_run[run.id]})
         if unshown:
             _stamp_run_times(run_turns, run)
+            if finished_unshown:
+                run_turns.extend(_notice_turns(run))
             _anchor(run_turns, run)
         result.extend(run_turns)
     return result
