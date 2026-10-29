@@ -109,6 +109,7 @@
     jobs_mr: "merge request",
     show_reply: "Show the whole reply",
     stopping: "stopping",
+    suggested_answer: "Suggested answer",
   };
 
   const loadPayload = () => {

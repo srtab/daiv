@@ -141,4 +141,5 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "jobs_mr": gettext("merge request"),
         "show_reply": gettext("Show the whole reply"),
         "stopping": gettext("stopping"),
+        "suggested_answer": gettext("Suggested answer"),
     }

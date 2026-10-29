@@ -1472,3 +1472,12 @@ def test_grep_never_runs_a_pattern_that_backtracks_badly_against_the_matches(pat
 def test_grep_still_marks_ordinary_patterns(pattern, text, marked):
     html = _body("grep", {"pattern": pattern, "output_mode": "content"}, result=f"a.py:\n  1: {text}")
     assert f"<mark>{marked}</mark>" in html
+
+
+def test_web_search_answer_without_a_title_is_labelled_in_the_page_language():
+    result = json.dumps([{"title": "", "link": "", "content": "Use fixtures."}])
+    assert "Suggested answer" in _body("web_search", {"query": "q"}, result=result)
+    seg = tool_call("c1", "web_search", {"query": "q"}, result=result)
+    labels = {"labels": {"suggested_answer": "Resposta sugerida"}}
+    html = run_transcript("toolBodyHTML(vars.seg, {})", {"seg": seg}, blocks=False, labels=labels)
+    assert "Resposta sugerida" in html and "Suggested answer" not in html

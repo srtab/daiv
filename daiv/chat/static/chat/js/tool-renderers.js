@@ -1190,7 +1190,7 @@
       const link = (r && r.link) || "";
       const title = (r && r.title) || "";
       const content = truncate((r && r.content) || "", VALUE_CHARS);
-      const answer = escapeHtml(title || "Suggested answer");
+      const answer = escapeHtml(title || t("suggested_answer"));
       const titleHtml = link
         ? externalLink(link, title || link)
         : `<span class="chat-search__title chat-search__title--answer">${answer}</span>`;

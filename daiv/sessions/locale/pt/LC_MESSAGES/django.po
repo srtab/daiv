@@ -928,3 +928,6 @@ msgstr "Mostrar a resposta completa"
 
 msgid "stopping"
 msgstr "a parar"
+
+msgid "Suggested answer"
+msgstr "Resposta sugerida"
