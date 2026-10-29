@@ -1247,4 +1247,20 @@ def test_detail_renders_retry_on_the_publish_line(member_client, member_user):
     publish_row = content[content.index('x-for="(p, pi) in block.publish"') : content.index("block.statuses")]
     assert 'x-show="canRetry(p)"' in publish_row
     assert 'data-testid="run-retry"' in publish_row
-    assert ':id="p.id ? runAnchorId(p) : null"' in publish_row
+
+
+@pytest.mark.parametrize("name", ["session_detail.html", "_run_item.html"])
+def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
+    import re
+    from pathlib import Path
+
+    from sessions.transcript_labels import transcript_labels
+
+    labels = transcript_labels()
+    source = (Path(__file__).resolve().parents[3] / "daiv/sessions/templates/sessions" / name).read_text()
+    calls = re.findall(r"TranscriptLabels\.(tn?)\(\s*'(\w+)'", source)
+
+    assert calls or name == "_run_item.html"
+    for helper, key in calls:
+        assert key in labels, key
+        assert isinstance(labels[key], list) == (helper == "tn"), f"{helper}('{key}') does not match its label shape"

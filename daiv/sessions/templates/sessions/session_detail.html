@@ -293,7 +293,7 @@
 
             <template x-for="(p, pi) in block.publish" :key="pi">
               <div class="publish-row" :class="{ 'publish-row--failed': p.status === 'failed' || p.status === 'not_published' }"
-                   :id="p.id ? runAnchorId(p) : null" data-testid="publish-row" :data-status="p.status">
+                   data-testid="publish-row" :data-status="p.status">
                 <template x-if="p.status === 'opened' || p.status === 'pushed'">
                   <span class="publish-row__main">
                     {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
@@ -302,7 +302,7 @@
                     <a class="publish-row__link" x-show="p.merge_request_iid" :href="p.merge_request_web_url || null"
                        target="_blank" rel="noopener" x-text="'!' + p.merge_request_iid"></a>
                     <span class="publish-row__files" x-show="p.files_changed"
-                          x-text="TranscriptLabels.t('publish_files', { count: p.files_changed })"></span>
+                          x-text="TranscriptLabels.tn('publish_files', p.files_changed)"></span>
                     {% include "sessions/_line_counts.html" with counts="({ added: p.lines_added, removed: p.lines_removed })" %}
                   </span>
                 </template>
