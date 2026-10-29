@@ -15,6 +15,7 @@ from langchain.agents.middleware import (
 from skills.constants import SKILLS_PATH
 
 from automation.agent.base import get_model
+from automation.agent.configured_models import configured_subagent_model
 from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
 from automation.agent.context import RuntimeCtx
 from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
@@ -52,6 +53,7 @@ from automation.agent.profile import register as _register_harness_profile
 from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT, DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
+    GENERAL_PURPOSE_NAME,
     create_explore_subagent,
     create_general_purpose_subagent,
     load_builtin_code_review_detectors,
@@ -70,6 +72,7 @@ if TYPE_CHECKING:
     from automation.agent.artifacts import ArtifactStore
     from automation.agent.delegation import JobDelegator
     from automation.agent.mcp.schemas import UserMcpServer
+    from automation.agent.notices import RunNotices
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.workspace.base import Workspace
 
@@ -181,6 +184,7 @@ async def create_daiv_agent(
     session_links: SessionLinksResolver | None = None,
     delegator: JobDelegator | None = None,
     fork_branch: bool = False,
+    notices: RunNotices | None = None,
 ):
     """
     Create the DAIV agent.
@@ -208,6 +212,8 @@ async def create_daiv_agent(
             orchestration off; ``None`` binds no ``delegate_jobs`` tool.
         fork_branch: Whether the run publishes to a new branch and merge request even when the checked-out branch
             already has an open one; set for a delegated leg.
+        notices: Where the run records a configured skill or subagent model that could not be used, from the run
+            executor; ``None`` only logs them.
 
     Returns:
         The DAIV agent.
@@ -237,9 +243,19 @@ async def create_daiv_agent(
     # receive it.
     mcp_tools = await load_mcp_tools(mcp_servers)
 
+    general_purpose_model = configured_subagent_model(
+        GENERAL_PURPOSE_NAME,
+        file_spec="",
+        configured_models=settings.subagent_models,
+        thinking_level=chain.thinking_level,
+        run_model=model,
+        run_model_spec=chain.names[0],
+        notices=notices,
+    )
+
     subagents = [
         create_general_purpose_subagent(
-            model,
+            general_purpose_model or model,
             workspace,
             ctx,
             working_directory,
@@ -249,7 +265,16 @@ async def create_daiv_agent(
             mcp_tools=mcp_tools,
         ),
         create_explore_subagent(workspace, working_directory, models=settings.explore),
-        *load_builtin_code_review_detectors(model, backend, working_directory, fallback_models=fallback_models),
+        *load_builtin_code_review_detectors(
+            model,
+            backend,
+            working_directory,
+            fallback_models=fallback_models,
+            configured_models=settings.subagent_models,
+            thinking_level=chain.thinking_level,
+            run_model_spec=chain.names[0],
+            notices=notices,
+        ),
     ]
 
     custom_subagents = await load_custom_subagents(
@@ -262,6 +287,10 @@ async def create_daiv_agent(
         web_fetch_enabled=settings.web_fetch_enabled,
         fallback_models=fallback_models,
         mcp_tools=mcp_tools,
+        configured_models=settings.subagent_models,
+        thinking_level=chain.thinking_level,
+        run_model_spec=chain.names[0],
+        notices=notices,
     )
     subagents.extend(custom_subagents)
 
@@ -293,6 +322,9 @@ async def create_daiv_agent(
             copy_global_skills=not workspace.provisions_skills,
             provisioning_errors=workspace.skills_provisioning_errors,
             thinking_level=chain.thinking_level,
+            configured_models=settings.skill_models,
+            run_model_spec=chain.names[0],
+            notices=notices,
         ),
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
@@ -351,4 +383,6 @@ async def create_daiv_agent(
     # recursion_limit counts supersteps, not turns: each before_model/after_model hook adds one to every
     # turn on top of the model and tools nodes, so a new hook shrinks the turn budget.
     step_budget.bind(deep_agent)
+    if notices is not None:
+        await notices.aflush()
     return deep_agent.with_config({"recursion_limit": settings.recursion_limit})

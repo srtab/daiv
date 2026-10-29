@@ -1546,3 +1546,183 @@ class TestBuiltinCodeReviewDetectors:
 
         get_model.assert_called_once_with(model="some:override")
         assert mock_create.call_args.kwargs["model"] is override_model
+
+
+class _Notices:
+    def __init__(self):
+        self.recorded: list = []
+
+    def record(self, notice) -> None:
+        self.recorded.append(notice)
+
+    async def aflush(self) -> None:
+        raise AssertionError("the loaders record; create_daiv_agent flushes")
+
+
+class _FakeModels:
+    """A ``get_model`` stub: one sentinel per known spec, ``ValueError`` for any other."""
+
+    def __init__(self, *specs: str):
+        self.by_spec = {spec: Mock(name=spec) for spec in specs}
+        self.calls: list[tuple[str, str | None]] = []
+
+    def __call__(self, *, model, thinking_level=None):
+        self.calls.append((model, thinking_level))
+        if model not in self.by_spec:
+            raise ValueError(f"Unknown provider prefix in '{model}'")
+        return self.by_spec[model]
+
+
+RUN_MODEL = Mock(name="run-model")
+
+
+def _served_by(create_agent: Mock) -> dict:
+    return {c.kwargs["name"]: c.kwargs["model"] for c in create_agent.call_args_list}
+
+
+class TestConfiguredDetectorModels:
+    def _load(self, tmp_path, models: _FakeModels, *, configured: dict, notices=None, charters: dict | None = None):
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        charters = charters if charters is not None else {"cr-security": "fake:charter", "cr-tests": None}
+        for name, model in charters.items():
+            (agents_dir / f"{name}.md").write_text(_make_subagent_md(name=name, description=name, model=model))
+        with (
+            patch("automation.agent.subagents.get_model", models),
+            patch("automation.agent.configured_models.get_model", models),
+            patch("automation.agent.subagents.create_agent") as create_agent,
+        ):
+            load_builtin_code_review_detectors(
+                RUN_MODEL,
+                Mock(spec=BackendProtocol),
+                "/workspace/repo/",
+                agents_dir=agents_dir,
+                expected_names=tuple(charters),
+                configured_models=configured,
+                thinking_level="high",
+                run_model_spec="fake:run",
+                notices=notices,
+            )
+        return _served_by(create_agent)
+
+    def test_a_configured_entry_beats_the_charter_model_which_beats_the_runs(self, tmp_path):
+        models = _FakeModels("fake:charter", "fake:configured")
+
+        served = self._load(tmp_path, models, configured={"cr-security": "fake:configured"})
+
+        assert served == {"cr-security": models.by_spec["fake:configured"], "cr-tests": RUN_MODEL}
+
+    def test_a_configured_entry_runs_with_the_runs_thinking_level(self, tmp_path):
+        models = _FakeModels("fake:configured")
+
+        self._load(tmp_path, models, configured={"cr-tests": "fake:configured"}, charters={"cr-tests": None})
+
+        assert models.calls == [("fake:configured", "high")]
+
+    @pytest.mark.parametrize(
+        ("charter_model", "served_spec"), [("fake:charter", "fake:charter"), (None, "fake:run")], ids=["charter", "run"]
+    )
+    def test_an_unusable_entry_falls_back_and_is_recorded(self, tmp_path, caplog, charter_model, served_spec):
+        models = _FakeModels("fake:charter")
+        notices = _Notices()
+
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            served = self._load(
+                tmp_path,
+                models,
+                configured={"cr-tests": "nosuch:model"},
+                notices=notices,
+                charters={"cr-tests": charter_model},
+            )
+
+        expected_model = models.by_spec["fake:charter"] if charter_model else RUN_MODEL
+        assert served == {"cr-tests": expected_model}
+        assert [(n.target, n.name, n.configured_model, n.served_model, n.reason) for n in notices.recorded] == [
+            ("subagent", "cr-tests", "nosuch:model", served_spec, "unknown_provider")
+        ]
+        assert "cr-tests" in caplog.text
+
+    def test_the_run_model_serves_when_the_entry_and_the_charter_model_both_fail(self, tmp_path):
+        notices = _Notices()
+
+        served = self._load(
+            tmp_path,
+            _FakeModels(),
+            configured={"cr-tests": "nosuch:model"},
+            notices=notices,
+            charters={"cr-tests": "broken:charter"},
+        )
+
+        assert served == {"cr-tests": RUN_MODEL}
+        assert [n.served_model for n in notices.recorded] == ["fake:run"]
+
+    def test_an_invalid_charter_model_without_an_entry_still_skips_the_detector(self, tmp_path):
+        served = self._load(
+            tmp_path, _FakeModels(), configured={"cr-security": "nosuch:model"}, charters={"cr-tests": "broken:charter"}
+        )
+
+        assert served == {}
+
+
+class TestConfiguredCustomSubagentModels:
+    async def _load(self, tmp_path, models: _FakeModels, *, configured: dict, file_model: str | None, notices=None):
+        from automation.agent.workspace.backends import DAIVFilesystemBackend
+
+        subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / "mine.md").write_text(_make_subagent_md(name="mine", description="Mine", model=file_model))
+        ctx = Mock()
+        ctx.gitrepo.working_dir = str(tmp_path / "repo")
+        with (
+            patch("automation.agent.subagents.get_model", models),
+            patch("automation.agent.configured_models.get_model", models),
+            patch("automation.agent.subagents.create_agent") as create_agent,
+        ):
+            await load_custom_subagents(
+                model=RUN_MODEL,
+                workspace=_workspace(DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True), sandbox=True),
+                runtime=ctx,
+                sources=["/repo/.agents/subagents"],
+                working_directory="/workspace/repo/",
+                configured_models=configured,
+                thinking_level="high",
+                run_model_spec="fake:run",
+                notices=notices,
+            )
+        return _served_by(create_agent)
+
+    async def test_a_configured_entry_beats_the_files_model(self, tmp_path):
+        models = _FakeModels("fake:file", "fake:configured")
+
+        served = await self._load(tmp_path, models, configured={"mine": "fake:configured"}, file_model="fake:file")
+
+        assert served == {"mine": models.by_spec["fake:configured"]}
+        assert ("fake:configured", "high") in models.calls
+
+    async def test_an_unusable_entry_falls_back_to_the_files_model_and_is_recorded(self, tmp_path):
+        models = _FakeModels("fake:file")
+        notices = _Notices()
+
+        served = await self._load(
+            tmp_path, models, configured={"mine": "nosuch:model"}, file_model="fake:file", notices=notices
+        )
+
+        assert served == {"mine": models.by_spec["fake:file"]}
+        assert [(n.name, n.served_model) for n in notices.recorded] == [("mine", "fake:file")]
+
+    async def test_the_run_model_serves_when_the_entry_and_the_files_model_both_fail(self, tmp_path):
+        notices = _Notices()
+
+        served = await self._load(
+            tmp_path, _FakeModels(), configured={"mine": "nosuch:model"}, file_model="broken:file", notices=notices
+        )
+
+        assert served == {"mine": RUN_MODEL}
+        assert [n.served_model for n in notices.recorded] == ["fake:run"]
+
+    async def test_an_invalid_file_model_without_an_entry_still_skips_the_subagent(self, tmp_path):
+        served = await self._load(tmp_path, _FakeModels(), configured={}, file_model="broken:file")
+
+        assert served == {}

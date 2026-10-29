@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -1018,7 +1019,14 @@ _SKILLS_METADATA = [
 ]
 
 
-def _skills_agent(replies: list[AIMessage], tools: list, *, thinking_level: str | None = None, **agent_kwargs):
+def _skills_agent(
+    replies: list[AIMessage],
+    tools: list,
+    *,
+    thinking_level: str | None = None,
+    middleware_kwargs: dict | None = None,
+    **agent_kwargs,
+):
     backend = Mock()
 
     async def download(paths):
@@ -1026,7 +1034,11 @@ def _skills_agent(replies: list[AIMessage], tools: list, *, thinking_level: str 
 
     backend.adownload_files = AsyncMock(side_effect=download)
     middleware = SkillsMiddleware(
-        backend=backend, sources=["/skills"], copy_global_skills=False, thinking_level=thinking_level
+        backend=backend,
+        sources=["/skills"],
+        copy_global_skills=False,
+        thinking_level=thinking_level,
+        **(middleware_kwargs or {}),
     )
     return create_agent(model=_ToolModel(messages=iter(replies)), tools=tools, middleware=[middleware], **agent_kwargs)
 
@@ -1212,3 +1224,120 @@ class TestSkillModel:
             "the plan",
             "from the run model",
         ]
+
+
+class _Notices:
+    def __init__(self):
+        self.recorded: list = []
+        self.flushed_with: list[int] = []
+
+    def record(self, notice) -> None:
+        self.recorded.append(notice)
+
+    async def aflush(self) -> None:
+        self.flushed_with.append(len(self.recorded))
+
+
+def _models_by_spec(**models):
+    """A ``get_model`` stub: the model each spec names, and ``ValueError`` for a spec it does not know."""
+
+    def build(*, model, thinking_level=None):
+        if model not in models:
+            raise ValueError(f"Unknown provider prefix in '{model}'")
+        return models[model]
+
+    return Mock(side_effect=build)
+
+
+DEMO_SKILL_CALL = {"name": "skill", "args": {"skill": "demo"}, "id": "call_demo"}
+
+
+class TestConfiguredSkillModel:
+    async def _run(self, run_replies: list[AIMessage], get_model: Mock, *, configured: dict, notices=None) -> dict:
+        agent = _skills_agent(
+            run_replies,
+            [],
+            middleware_kwargs={"configured_models": configured, "run_model_spec": "fake:run", "notices": notices},
+        )
+        with (
+            patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock),
+            patch("automation.agent.middlewares.skills.get_model", get_model),
+            patch("automation.agent.configured_models.get_model", get_model),
+        ):
+            return await agent.ainvoke({"messages": [HumanMessage(content="go")], "skills_metadata": _SKILLS_METADATA})
+
+    async def test_a_configured_model_beats_the_skill_files_model(self):
+        configured_model = _ToolModel(messages=iter([AIMessage(content="from the configured model")]))
+        get_model = _models_by_spec(**{
+            "fake:configured": configured_model,
+            "fake:cheap": _ToolModel(messages=iter([])),
+        })
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL])], get_model, configured={"cheap": "fake:configured"}
+        )
+
+        assert result["messages"][-1].content == "from the configured model"
+
+    async def test_a_configured_model_applies_to_a_skill_that_names_none(self):
+        configured_model = _ToolModel(messages=iter([AIMessage(content="from the configured model")]))
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[DEMO_SKILL_CALL])],
+            _models_by_spec(**{"fake:configured": configured_model}),
+            configured={"demo": "fake:configured"},
+        )
+
+        assert result["messages"][-1].content == "from the configured model"
+
+    async def test_an_unusable_configured_model_falls_back_to_the_skill_files_model(self, caplog):
+        # The skill model invokes the skill again, so the notice is shown to be recorded once per run.
+        cheap_model = _ToolModel(
+            messages=iter([
+                AIMessage(content="", tool_calls=[{**CHEAP_SKILL_CALL, "id": "call_cheap_2"}]),
+                AIMessage(content="from the skill file's model"),
+            ])
+        )
+        notices = _Notices()
+
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            result = await self._run(
+                [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL])],
+                _models_by_spec(**{"fake:cheap": cheap_model}),
+                configured={"cheap": "nosuch:model"},
+                notices=notices,
+            )
+
+        assert result["messages"][-1].content == "from the skill file's model"
+        assert [(n.target, n.name, n.configured_model, n.served_model, n.reason) for n in notices.recorded] == [
+            ("skill", "cheap", "nosuch:model", "fake:cheap", "unknown_provider")
+        ]
+        assert notices.flushed_with == [1]
+        assert "nosuch:model" in caplog.text
+
+    async def test_the_run_model_serves_when_the_configured_and_file_models_both_fail(self):
+        notices = _Notices()
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
+            _models_by_spec(),
+            configured={"cheap": "nosuch:model"},
+            notices=notices,
+        )
+
+        assert result["messages"][-1].content == "from the run model"
+        assert [n.served_model for n in notices.recorded] == ["fake:run"]
+
+    async def test_a_failing_file_model_without_an_entry_warns_and_records_nothing(self, caplog):
+        notices = _Notices()
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            await self._run(
+                [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
+                _models_by_spec(),
+                configured={},
+                notices=notices,
+            )
+
+        assert [r.levelno for r in caplog.records if "fake:cheap" in r.getMessage()] == [logging.WARNING]
+        assert notices.recorded == []

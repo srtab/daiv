@@ -257,6 +257,18 @@ class SiteConfiguration(models.Model):
         validators=[MinValueValidator(1)],
         help_text=_("Maximum recursion depth for agent loops."),
     )
+    agent_skill_models = models.JSONField(
+        _("skill models"),
+        default=dict,
+        blank=True,
+        help_text=_("JSON object `{skill name: model spec}`: the model each skill runs on."),
+    )
+    agent_subagent_models = models.JSONField(
+        _("subagent models"),
+        default=dict,
+        blank=True,
+        help_text=_("JSON object `{subagent name: model spec}`: the model each subagent runs on."),
+    )
     pipeline_watch_enabled = models.BooleanField(
         _("pipeline watch enabled"),
         blank=True,

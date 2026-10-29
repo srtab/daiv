@@ -1,11 +1,15 @@
 import pytest
 from configuration.forms import (
     PROVIDERS_FORMSET_PREFIX,
+    SKILL_MODELS_FORMSET_PREFIX,
+    SUBAGENT_MODELS_FORMSET_PREFIX,
     ProviderForm,
     SiteConfigurationForm,
     WebFetchAuthHeaderForm,
+    build_model_map_formset,
     build_provider_formset,
     build_web_fetch_auth_header_formset,
+    model_map_from_formset,
 )
 
 from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
@@ -444,3 +448,140 @@ class TestTelegramForm:
         group = SiteConfiguration.get_group_by_key("telegram")
         form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance(), group=group)
         assert set(form.fields) == {"telegram_enabled", "telegram_bot_token"}
+
+
+def model_map_data(prefix: str, rows: list[dict], *, initial: int = 0) -> dict[str, str]:
+    data = {
+        f"{prefix}-TOTAL_FORMS": str(len(rows)),
+        f"{prefix}-INITIAL_FORMS": str(initial),
+        f"{prefix}-MIN_NUM_FORMS": "0",
+        f"{prefix}-MAX_NUM_FORMS": "1000",
+    }
+    for index, row in enumerate(rows):
+        data.update({f"{prefix}-{index}-{field}": value for field, value in row.items()})
+    return data
+
+
+@pytest.fixture
+def usable_openai(db):
+    provider = Provider.objects.get(slug="openai")
+    provider.api_key = "k"
+    provider.is_enabled = True
+    provider.save()
+    return provider
+
+
+@pytest.mark.django_db
+class TestSkillModelsFormset:
+    def _formset(self, rows: list[dict], *, initial: int = 0):
+        return build_model_map_formset(
+            "skills", data=model_map_data(SKILL_MODELS_FORMSET_PREFIX, rows, initial=initial), initial=[]
+        )
+
+    def test_valid_rows_fold_into_the_map(self, usable_openai):
+        formset = self._formset([
+            {"name": "code-review", "model": "openai:gpt-5.4"},
+            {"name": "my-repo-skill", "model": "openai:gpt-5.4-mini"},
+        ])
+
+        assert formset.is_valid(), formset.errors
+        assert model_map_from_formset(formset) == {
+            "code-review": "openai:gpt-5.4",
+            "my-repo-skill": "openai:gpt-5.4-mini",
+        }
+
+    @pytest.mark.parametrize(
+        ("change", "model", "expected"),
+        [
+            ({}, "nosuch:model", "Unsupported model"),
+            ({"is_enabled": False}, "openai:gpt-5.4", "disabled"),
+            ({"api_key": None}, "openai:gpt-5.4", "API key"),
+        ],
+        ids=["unknown-provider", "disabled-provider", "keyless-provider"],
+    )
+    def test_a_model_its_provider_cannot_serve_is_refused_naming_the_entry(
+        self, usable_openai, change, model, expected
+    ):
+        for field, value in change.items():
+            setattr(usable_openai, field, value)
+        usable_openai.save()
+
+        formset = self._formset([{"name": "code-review", "model": model}])
+
+        assert not formset.is_valid()
+        [error] = formset.forms[0].errors["model"]
+        assert "code-review" in error
+        assert expected in error
+
+    @pytest.mark.parametrize(
+        ("rows", "field"),
+        [([{"name": "", "model": "openai:gpt-5.4"}], "name"), ([{"name": "code-review", "model": ""}], "model")],
+        ids=["blank-name", "no-model"],
+    )
+    def test_a_row_missing_its_name_or_model_is_refused(self, usable_openai, rows, field):
+        formset = self._formset(rows)
+
+        assert not formset.is_valid()
+        assert field in formset.forms[0].errors
+
+    def test_a_duplicate_name_is_refused_on_its_row(self, usable_openai):
+        formset = self._formset([
+            {"name": "code-review", "model": "openai:gpt-5.4"},
+            {"name": "code-review", "model": "openai:gpt-5.4-mini"},
+        ])
+
+        assert not formset.is_valid()
+        assert "code-review" in formset.forms[1].errors["name"][0]
+
+    def test_a_blank_added_row_is_dropped(self, usable_openai):
+        formset = self._formset([{"name": "", "model": ""}])
+
+        assert formset.is_valid(), formset.errors
+        assert model_map_from_formset(formset) == {}
+
+    def test_an_untouched_stored_row_is_kept(self, usable_openai):
+        formset = build_model_map_formset(
+            "skills",
+            data=model_map_data(
+                SKILL_MODELS_FORMSET_PREFIX, [{"name": "code-review", "model": "openai:gpt-5.4"}], initial=1
+            ),
+            initial=[{"name": "code-review", "model": "openai:gpt-5.4"}],
+        )
+
+        assert formset.is_valid(), formset.errors
+        assert model_map_from_formset(formset) == {"code-review": "openai:gpt-5.4"}
+
+    def test_a_removed_row_is_dropped(self, usable_openai):
+        formset = self._formset([{"name": "code-review", "model": "openai:gpt-5.4", "DELETE": "on"}], initial=1)
+
+        assert formset.is_valid(), formset.errors
+        assert model_map_from_formset(formset) == {}
+
+
+@pytest.mark.django_db
+class TestSubagentModelsFormset:
+    def _formset(self, rows: list[dict]):
+        return build_model_map_formset(
+            "subagents", data=model_map_data(SUBAGENT_MODELS_FORMSET_PREFIX, rows), initial=[]
+        )
+
+    def test_valid_rows_fold_into_the_map(self, usable_openai):
+        formset = self._formset([{"name": "cr-security", "model": "openai:gpt-5.4"}])
+
+        assert formset.is_valid(), formset.errors
+        assert model_map_from_formset(formset) == {"cr-security": "openai:gpt-5.4"}
+
+    def test_an_explore_row_is_refused_pointing_to_the_explore_setting(self, usable_openai):
+        formset = self._formset([{"name": "explore", "model": "openai:gpt-5.4"}])
+
+        assert not formset.is_valid()
+        assert "explore model" in formset.forms[0].errors["name"][0]
+
+    def test_explore_is_only_reserved_for_subagents(self, usable_openai):
+        formset = build_model_map_formset(
+            "skills",
+            data=model_map_data(SKILL_MODELS_FORMSET_PREFIX, [{"name": "explore", "model": "openai:gpt-5.4"}]),
+            initial=[],
+        )
+
+        assert formset.is_valid(), formset.errors

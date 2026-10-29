@@ -24,6 +24,7 @@ from sessions.executor.lock import SessionLockLostError, hold_session_lock, stil
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.models import Run
+from sessions.notices import RunNoticeRecorder
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import apersist_session_ref, areset_session_ref
 
@@ -383,6 +384,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 mcp_servers=await sync_to_async(build_runtime_servers)(spec.acting_user_id, spec.mcp_overrides),
                 session_links=session_links,
                 delegator=delegator,
+                notices=RunNoticeRecorder(run_id),
                 **spec.agent_options,
             )
             config = build_langsmith_config(

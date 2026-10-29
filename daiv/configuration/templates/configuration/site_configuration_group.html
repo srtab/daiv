@@ -58,6 +58,9 @@
                 {% endwith %}
                 {% endif %}
             {% endfor %}
+            {% if active_group.key == "agent" %}
+                {% include "configuration/_agent_model_maps_section.html" %}
+            {% endif %}
             {% if active_group.key == "web_fetch" %}
                 {% include "configuration/_web_fetch_auth_headers_section.html" %}
             {% endif %}

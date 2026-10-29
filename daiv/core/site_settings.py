@@ -4,6 +4,7 @@ import functools
 import json
 import logging
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from get_docker_secret import get_docker_secret
@@ -12,7 +13,7 @@ from pydantic import SecretStr
 from core.constants import ModelName
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from core.models import SiteConfiguration
 
@@ -59,6 +60,20 @@ def _parse_auth_headers_json(raw: str) -> dict[str, dict[str, SecretStr]]:
     }
 
 
+MODEL_MAP_FIELDS = frozenset({"agent_skill_models", "agent_subagent_models"})
+
+
+def _parse_model_map_json(raw: str, env_var: str) -> dict[str, str]:
+    """Parse a ``{name: model spec}`` env value; malformed input is logged and treated as ``{}``."""
+    from pydantic import TypeAdapter, ValidationError
+
+    try:
+        return TypeAdapter(dict[str, str]).validate_json(raw)
+    except ValidationError:
+        logger.exception("%s could not be parsed as a JSON object of model specs; ignoring.", env_var)
+        return {}
+
+
 def _build_field_defaults() -> dict[str, Any]:
     """Build the defaults dict at first access, so importing this module never loads ``core.models``."""
     from core.models import ThinkingLevelChoices, WebSearchEngineChoices
@@ -75,6 +90,8 @@ def _build_field_defaults() -> dict[str, Any]:
         "agent_explore_model_name": ModelName.CLAUDE_HAIKU_5_5,
         "agent_explore_fallback_model_name": ModelName.GPT_6_LUNA,
         "agent_recursion_limit": 500,
+        "agent_skill_models": {},
+        "agent_subagent_models": {},
         "suggest_context_file_enabled": True,
         "session_link_enabled": True,
         # Diff to Metadata — successors of gemini-3.7-flash and deepseek-v4-flash, which scored best on the
@@ -159,6 +176,8 @@ class SiteSnapshot:
     agent_explore_model_name: str
     agent_explore_fallback_model_name: str
     agent_recursion_limit: int
+    agent_skill_models: Mapping[str, str]
+    agent_subagent_models: Mapping[str, str]
     suggest_context_file_enabled: bool
     session_link_enabled: bool
     diff_to_metadata_model_name: str
@@ -274,6 +293,11 @@ class SiteSettings:
 
     def _resolve(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:
         """Resolve one field; ``get_config`` is called only when no env var or Docker secret sets it."""
+        if name in MODEL_MAP_FIELDS:
+            return MappingProxyType(dict(self._resolve_value(name, get_config)))
+        return self._resolve_value(name, get_config)
+
+    def _resolve_value(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:
         from core.models import THINKING_OFF, SiteConfiguration
 
         # 1. Docker secret / environment variable wins
@@ -284,6 +308,8 @@ class SiteSettings:
             if name in SiteConfiguration.THINKING_LEVEL_FIELDS:
                 level = env_value.strip().lower()
                 return "" if level == THINKING_OFF else level
+            if name in MODEL_MAP_FIELDS:
+                return _parse_model_map_json(env_value, self.get_env_var_name(name))
             field = SiteConfiguration._meta.get_field(name)
             return self._parse_env_value(env_value, field)
 

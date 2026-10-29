@@ -86,7 +86,7 @@ The markdown body (after the frontmatter) is **required** and becomes the subage
 
 | Field | Description |
 |-------|-------------|
-| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-4.5`). If not specified, the main agent's model is used. |
+| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-4.5`). If not specified, the main agent's model is used. A [configured subagent model](#choosing-a-subagents-model) takes precedence. |
 
 ### Capabilities
 
@@ -112,6 +112,21 @@ description: >
 # Bad — too vague
 description: Helps with API stuff.
 ```
+
+## Choosing a subagent's model
+
+Operators can run any subagent on a chosen model by name, without editing its file: the general-purpose subagent, each code-review detector (`cr-security`, `cr-tests`, …) and custom subagents. A subagent's model is the first of these that is set:
+
+1. its entry under `models.subagents` in the repository's `.daiv.yml` (see [Model overrides](../customization/repository-config.md#skill-and-subagent-models));
+2. its entry in site configuration, under **Agent → Skill and subagent models** (or `DAIV_AGENT_SUBAGENT_MODELS`);
+3. the `model` its file or detector charter declares;
+4. the main agent's model.
+
+A configured model runs with the run's thinking level and falls back to the main agent's fallback models. A model the user picks for the run does not override an entry, and a skill's model never carries over to a subagent it delegates to.
+
+When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's `model`, else the main agent's model; it is never left out of the run. The failure is logged at ERROR, and the session view shows a notice naming the subagent, the model that could not be used and the model that served.
+
+The explore subagent keeps its own setting (`DAIV_AGENT_EXPLORE_MODEL_NAME`, or the explore model in site configuration), so an `explore` entry is ignored.
 
 ## Related pages
 

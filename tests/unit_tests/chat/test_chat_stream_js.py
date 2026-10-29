@@ -3,6 +3,7 @@ id a live run-status marker takes."""
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from sessions.models import RunStatus, SessionOrigin
@@ -64,6 +65,7 @@ def test_server_turns_render_their_run_anchor():
         created_at=None,
         finished_at=None,
         is_cancelled=False,
+        notices=[],
     )
     turns = annotate_transcript([_turn("h1"), {"id": "a1", "role": "assistant", "segments": []}], [run])
 
@@ -183,3 +185,46 @@ def test_a_live_failure_marker_takes_the_run_rows_id_once_the_server_names_it():
 
 def test_a_failure_before_the_run_row_exists_keeps_the_pages_run_id():
     assert run_chat_stream(MARKER_BODY, {"events": [RUN_FAILED]}) == ["run-status-client-run"]
+
+
+NOTICE_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat" });
+chat.$watch = () => {};
+chat.$nextTick = (cb) => cb();
+chat.scrollToBottom = () => {};
+chat.turns = payload.turns;
+chat.init();
+const notice = chat.turns.find((t) => t.role === "run_notice");
+const ti = chat.turns.indexOf(notice);
+process.stdout.write(JSON.stringify({
+  todos: chat.latestTodos.map((t) => t.content),
+  files: chat.filesTouched.map((f) => f.path),
+  visible: chat.isTurnVisible(notice, ti === chat.turns.length - 1),
+  actions: chat.turnHasActions(notice, ti),
+  copyable: chat.canCopyTurn(notice, ti),
+  aborted: chat._lastRunAborted(),
+}));
+chat.destroy();
+"""
+
+
+def test_a_run_notice_renders_without_hiding_the_runs_todos_or_outputs():
+    todos_args = json.dumps({"todos": [{"content": "review"}]})
+    todos = {"type": "tool_call", "id": "c1", "name": "write_todos", "args": todos_args}
+    write = {"type": "tool_call", "id": "c2", "name": "write_file", "args": '{"file_path": "a.py"}', "result": "ok"}
+    turns = [
+        _turn("h1"),
+        {"id": "a1", "role": "assistant", "segments": [todos, write, {"type": "text", "content": "done"}]},
+        {"id": "run-notice-r1-0", "role": "run_notice", "message": "cr-tests ran on m: x could not be used"},
+    ]
+
+    result = run_chat_stream(NOTICE_BODY, {"turns": turns}, extra_globals=GLOBALS)
+
+    assert result == {
+        "todos": ["review"],
+        "files": ["a.py"],
+        "visible": True,
+        "actions": False,
+        "copyable": False,
+        "aborted": False,
+    }

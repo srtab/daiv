@@ -22,6 +22,9 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
 12. Pipeline watch: enabled: site AND repo · attempts: min(repo, site). Outside ``AgentSettings``: ``WatchPolicy``
     resolves them when the watch arms, so a run never reads them.
 13. Orchestration (``delegate_jobs``): repo only, on unless ``.daiv.yml`` turns it off.
+14. Skill and subagent models: repo ``models.skills`` / ``models.subagents`` entries over the site's
+    ``agent_skill_models`` / ``agent_subagent_models``, by name, every branch; an empty repo entry is unset, and a
+    subagent ``explore`` entry is dropped, since explore keeps row 4.
 
 A non-empty site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as
 an error; ``.daiv.yml`` levels are validated when the file loads.
@@ -31,11 +34,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from core.models import ThinkingLevelChoices as ThinkingLevel
 
+from .constants import EXPLORE_NAME
+
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from pydantic import BaseModel
 
     from codebase.repo_config import AgentModelConfig, RepositoryConfig
@@ -84,6 +92,8 @@ class AgentSettings:
     web_search_enabled: bool
     web_fetch_enabled: bool
     features: Features
+    skill_models: Mapping[str, str]
+    subagent_models: Mapping[str, str]
 
 
 def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: RunOverrides) -> AgentSettings:
@@ -102,6 +112,8 @@ def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: R
         web_search_enabled=_run_or_site(run.web_search_enabled, site.web_search_enabled),
         web_fetch_enabled=_run_or_site(run.web_fetch_enabled, site.web_fetch_enabled),
         features=resolve_features(site=site, repo=repo),
+        skill_models=MappingProxyType(_overlay(site.agent_skill_models, repo.models.skills)),
+        subagent_models=MappingProxyType(_without_explore(_overlay(site.agent_subagent_models, repo.models.subagents))),
     )
 
 
@@ -207,6 +219,14 @@ def _repo_value[T](section: BaseModel, field: str, site_value: T) -> T:
     if field in section.model_fields_set and (value := getattr(section, field)) not in (None, ""):
         return value
     return site_value
+
+
+def _overlay(site_models: Mapping[str, str], repo_models: Mapping[str, str | None]) -> dict[str, str]:
+    return {**site_models, **{name: spec for name, spec in repo_models.items() if spec}}
+
+
+def _without_explore(models: Mapping[str, str]) -> dict[str, str]:
+    return {name: spec for name, spec in models.items() if name != EXPLORE_NAME}
 
 
 def _run_or_site[T](run_value: T | None, site_value: T) -> T:

@@ -274,13 +274,16 @@
   const MULTI_ANSWER_SEP = ", ";
   const answerPrefix = (question) => `**${question.header}** — `;
 
+  // Run-status and run-notice pseudo-turns carry a message, never ``segments``.
+  const isMarker = (turn) => turn.role === "run_status" || turn.role === "run_notice";
+
   // Only consider write_todos calls from the current ask. Walking backwards and bailing at
   // the most recent user turn clears the rail on follow-up, so stale "all complete" lists
   // from a finished run don't linger.
   const findLatestTodos = (turns) => {
     for (let i = turns.length - 1; i >= 0; i--) {
       const turn = turns[i];
-      if (turn.role === "run_status") continue;
+      if (isMarker(turn)) continue;
       if (turn.role === "user") return [];
       for (let j = turn.segments.length - 1; j >= 0; j--) {
         const s = turn.segments[j];
@@ -302,7 +305,7 @@
       files.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
     };
     for (const t of turns) {
-      if (t.role === "run_status") continue;
+      if (isMarker(t)) continue;
       for (const seg of t.segments) {
         if (seg.type !== "tool_call") continue;
         if (seg.name === "publish_artifact") {
@@ -847,7 +850,7 @@
       const messages = new Set();
       const tools = new Set();
       for (const t of this.turns) {
-        if (t.role === "run_status") continue;
+        if (isMarker(t)) continue;
         if (t.id) messages.add(t.id);
         for (const s of t.segments) {
           if (s.type === "tool_call" && s.id) tools.add(s.id);
@@ -1310,8 +1313,10 @@
       await this.submit(SKIP_ANSWER);
     },
 
+    isMarker,
+
     isTurnVisible(turn, isLast) {
-      if (turn.role === "run_status") return true;
+      if (isMarker(turn)) return true;
       if (this.visibleSegments(turn).length) return true;
       // Keep an empty assistant turn only while it is streaming (thinking indicator).
       return turn.role === "assistant" && isLast && turn.streaming;
@@ -1343,7 +1348,7 @@
     // On a user turn this copies the whole message, including the part the
     // "Show more" clamp is hiding.
     canCopyTurn(turn, ti) {
-      if (turn.role === "run_status" || turn.streaming || !this.finalTextSegment(turn)) return false;
+      if (isMarker(turn) || turn.streaming || !this.finalTextSegment(turn)) return false;
       return turn.role === "user" || this.isClosingTextTurn(ti);
     },
 
@@ -1365,7 +1370,7 @@
 
     // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
     turnHasActions(turn, ti) {
-      if (turn.role === "run_status") return false;
+      if (isMarker(turn)) return false;
       return !!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn, ti);
     },
 
@@ -1790,7 +1795,7 @@
       // (likely a missed TOOL_CALL_END for a fast-finishing structured tool).
       if (value.merge_request) {
         for (const t of this.turns) {
-          if (t.role === "run_status") continue;
+          if (isMarker(t)) continue;
           for (const s of t.segments) {
             if (s.type === "publish_phase" && s.status === "running") s.status = "done";
           }

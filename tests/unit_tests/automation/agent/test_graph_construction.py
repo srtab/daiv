@@ -181,6 +181,8 @@ async def _construct(
     memory: bool = True,
     delegator: object | None = None,
     fork_branch: bool = False,
+    notices: object | None = None,
+    configured_get_model: object | None = None,
 ):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
@@ -210,6 +212,9 @@ async def _construct(
             for name, kwargs in graph_patches.items()
         }
         explore_models = stack.enter_context(patch("automation.agent.subagents.get_model"))
+        configured = stack.enter_context(
+            patch("automation.agent.configured_models.get_model", configured_get_model or MagicMock())
+        )
         stack.enter_context(patch("automation.agent.subagents.create_agent"))
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
         ctx = MagicMock()
@@ -221,11 +226,13 @@ async def _construct(
             auto_commit_changes=False,
             delegator=delegator,
             fork_branch=fork_branch,
+            notices=notices,
         )
 
     deep_agent = mocks["create_deep_agent"]
     return SimpleNamespace(
         models=[(c.kwargs["model"], c.kwargs["thinking_level"]) for c in mocks["get_model"].call_args_list],
+        run_model=mocks["get_model"].return_value,
         explore_models=[c.kwargs["model"] for c in explore_models.call_args_list],
         middleware=deep_agent.call_args.kwargs["middleware"],
         subagent_web={
@@ -235,6 +242,10 @@ async def _construct(
         bound_config=deep_agent.return_value.with_config.call_args.args[0],
         settings=settings,
         git_middleware=mocks["GitMiddleware"],
+        skills_middleware=mocks["SkillsMiddleware"],
+        general_purpose=mocks["create_general_purpose_subagent"],
+        configured=configured,
+        custom_subagents=mocks["load_custom_subagents"],
     )
 
 
@@ -279,6 +290,54 @@ async def test_the_explore_subagent_has_no_fallback_when_the_site_sets_none():
     built = await _construct(site={"agent_explore_model_name": "explore-a", "agent_explore_fallback_model_name": ""})
 
     assert built.explore_models == ["explore-a"]
+
+
+async def test_skills_run_on_the_runs_skill_map_and_report_to_its_notices():
+    notices = MagicMock(aflush=AsyncMock())
+    built = await _construct(site={"agent_skill_models": {"code-review": "fake:review"}}, notices=notices)
+
+    kwargs = built.skills_middleware.call_args.kwargs
+    assert (kwargs["configured_models"], kwargs["run_model_spec"], kwargs["notices"]) == (
+        {"code-review": "fake:review"},
+        "site-model",
+        notices,
+    )
+
+
+async def test_the_general_purpose_subagent_runs_on_its_configured_model():
+    built = await _construct(site={"agent_subagent_models": {"general-purpose": "fake:gp"}})
+
+    assert built.general_purpose.call_args.args[0] is built.configured.return_value
+    built.configured.assert_called_once_with(model="fake:gp", thinking_level="medium")
+
+
+async def test_the_general_purpose_subagent_falls_back_to_the_runs_model_and_records_it():
+    notices = MagicMock(aflush=AsyncMock())
+    built = await _construct(
+        site={"agent_subagent_models": {"general-purpose": "nosuch:model"}},
+        notices=notices,
+        configured_get_model=MagicMock(side_effect=ValueError("Unknown provider prefix")),
+    )
+
+    assert built.general_purpose.call_args.args[0] is built.run_model
+    [(notice,), _] = notices.record.call_args
+    assert (notice.name, notice.served_model, notice.reason) == ("general-purpose", "site-model", "unknown_provider")
+
+
+async def test_notices_recorded_while_building_are_flushed_once_the_agent_is_built():
+    notices = MagicMock(aflush=AsyncMock())
+    calls = MagicMock()
+    calls.attach_mock(notices.record, "record")
+    calls.attach_mock(notices.aflush, "aflush")
+
+    await _construct(
+        site={"agent_subagent_models": {"cr-tests": "nosuch:model"}},
+        notices=notices,
+        configured_get_model=MagicMock(side_effect=ValueError("Unknown provider prefix")),
+    )
+
+    assert [name for name, _args, _kwargs in calls.mock_calls] == ["record", "aflush"]
+    assert notices.record.call_args.args[0].name == "cr-tests"
 
 
 async def test_the_agent_is_bound_to_the_sites_recursion_limit():

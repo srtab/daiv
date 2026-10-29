@@ -67,6 +67,28 @@ def _marker(run: Run) -> dict[str, Any] | None:
     return {"id": marker_id(run), "role": "run_status", "status": status, "message": message}
 
 
+_FALLBACK_REASON_LABELS = {
+    "unknown_provider": "unknown provider",
+    "provider_unavailable": "provider disabled or missing an API key",
+    "init_failed": "the model could not be started",
+}
+
+
+def _notice_turns(run: Run) -> list[dict[str, Any]]:
+    """One ``run_notice`` pseudo-turn per notice ``run`` recorded (``automation.agent.notices``)."""
+    return [
+        {
+            "id": f"run-notice-{run.id}-{index}",
+            "role": "run_notice",
+            "message": (
+                f"{notice['name']} ran on {notice['served_model']}: {notice['configured_model']} could not be used "
+                f"({_FALLBACK_REASON_LABELS.get(notice['reason'], notice['reason'])})"
+            ),
+        }
+        for index, notice in enumerate(run.notices)
+    ]
+
+
 def marker_id(run: Run) -> str:
     """The id of ``run``'s run-status marker; the live page names the marker it pushes the same way."""
     return f"run-status-{run.id}"
@@ -109,9 +131,11 @@ def _prompt_turns(run: Run, *, pending: bool = False) -> list[dict[str, Any]]:
 
 def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     """A run that produced no visible user turn. Recover a FAILED run's prompt as a
-    user turn plus its marker, flagged ``rebuilt``; a non-failed run with no turn contributes nothing."""
+    user turn plus its notices and marker, flagged ``rebuilt``; a non-failed run with no turn contributes nothing."""
     marker = _marker(run)
-    return [] if marker is None else [{**turn, "rebuilt": True} for turn in (*_prompt_turns(run), marker)]
+    if marker is None:
+        return []
+    return [{**turn, "rebuilt": True} for turn in (*_prompt_turns(run), *_notice_turns(run), marker)]
 
 
 def _anchor(run_turns: list[dict[str, Any]], run: Run) -> list[dict[str, Any]]:
@@ -193,6 +217,7 @@ def annotate_transcript(
         if owned[0].get("role") == "user":
             _mark_author(owned[0], run)
         result.extend(owned)
+        result.extend(_notice_turns(run))
         cursor = matched + 1
         if (marker := _marker(run)) is not None:
             result.append(marker)

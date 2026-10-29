@@ -48,6 +48,10 @@ models:
   diff_to_metadata:
     model: "openrouter:anthropic/claude-sonnet-4.6"
     fallback_model: "openrouter:openai/gpt-5.3-codex"
+  skills:
+    code-review: "openrouter:anthropic/claude-sonnet-5.5"
+  subagents:
+    cr-security: "openrouter:anthropic/claude-opus-5.5"
 ```
 
 ## Repository settings
@@ -168,3 +172,33 @@ Generates pull request titles, descriptions, and commit messages from diffs.
 
 !!! note
     The diff to metadata agent reads your `AGENTS.md` file to follow your branch naming and commit message conventions.
+
+### Skill and subagent models
+
+Run a skill or a subagent on a chosen model in this repository, by name. An entry overrides the site configuration's entry for the same name only; every other site entry still applies.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `models.skills.<name>` | `str \| null` | site entry | Model for the skill's model calls, from its invocation until your next message. |
+| `models.subagents.<name>` | `str \| null` | site entry | Model for every call the subagent makes. `explore` is ignored: it keeps its own setting. |
+
+```yaml
+models:
+  skills:
+    code-review: "openrouter:anthropic/claude-sonnet-5.5"
+    plan: null   # unset: the site entry, if any, applies
+  subagents:
+    cr-security: "openrouter:anthropic/claude-opus-5.5"
+    my-repo-subagent: "openrouter:z-ai/glm-5.2"
+```
+
+For a given name, the model resolves in this order, first match wins:
+
+1. this repository's entry;
+2. the site configuration's entry (**Agent → Skill and subagent models**);
+3. the model the skill or subagent file declares;
+4. the run's model.
+
+A model picked for the run, `daiv-max`, or an exact model passed to the jobs API does not override these entries. Configured models run with the run's thinking level.
+
+Values are checked when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An entry that can't be used falls back to the model the file declares, else the run's model, not to the site entry; the failure is logged at ERROR and the session view shows a notice. Names that match no skill or subagent are ignored. See [Agent Skills](agent-skills.md#running-a-skill-on-another-model) and [Subagents](../features/subagents.md#choosing-a-subagents-model).

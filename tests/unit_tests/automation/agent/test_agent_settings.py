@@ -183,6 +183,74 @@ def test_the_diff_to_metadata_chain_drops_a_blank_site_fallback():
     assert agent_settings(site=site).diff_to_metadata == ModelChain(names=("site-d2m",))
 
 
+SITE_SKILL_MODELS = {"code-review": "openrouter:site/review"}
+SITE_SUBAGENT_MODELS = {"cr-security": "openrouter:site/security", "general-purpose": "openrouter:site/gp"}
+
+
+@pytest.mark.parametrize("run", BRANCHES.values(), ids=list(BRANCHES))
+def test_the_skill_and_subagent_maps_are_the_sites_whatever_the_run_chooses(run):
+    site = site_snapshot(agent_skill_models=SITE_SKILL_MODELS, agent_subagent_models=SITE_SUBAGENT_MODELS)
+
+    settings = agent_settings(site=site, run=run)
+
+    assert (settings.skill_models, settings.subagent_models) == (SITE_SKILL_MODELS, SITE_SUBAGENT_MODELS)
+
+
+def test_an_explore_entry_is_dropped_from_the_subagent_map():
+    site = site_snapshot(agent_subagent_models={**SITE_SUBAGENT_MODELS, "explore": "openrouter:site/explore"})
+
+    assert agent_settings(site=site).subagent_models == SITE_SUBAGENT_MODELS
+
+
+def test_the_resolved_maps_are_read_only():
+    settings = agent_settings(site=site_snapshot(agent_skill_models=dict(SITE_SKILL_MODELS)))
+
+    with pytest.raises(TypeError):
+        settings.skill_models["plan"] = "openrouter:other/model"  # type: ignore[index]
+    with pytest.raises(TypeError):
+        settings.subagent_models["plan"] = "openrouter:other/model"  # type: ignore[index]
+
+
+def test_a_repo_entry_overrides_only_the_site_entry_of_the_same_name():
+    site = site_snapshot(agent_skill_models=SITE_SKILL_MODELS, agent_subagent_models=SITE_SUBAGENT_MODELS)
+    repo = RepositoryConfig(
+        models={
+            "skills": {"code-review": "openrouter:repo/review", "plan": "openrouter:repo/plan"},
+            "subagents": {"cr-security": "openrouter:repo/security"},
+        }
+    )
+
+    settings = agent_settings(site=site, repo=repo)
+
+    assert settings.skill_models == {"code-review": "openrouter:repo/review", "plan": "openrouter:repo/plan"}
+    assert settings.subagent_models == {
+        "cr-security": "openrouter:repo/security",
+        "general-purpose": "openrouter:site/gp",
+    }
+
+
+@pytest.mark.parametrize("empty", [None, ""], ids=["null", "blank"])
+def test_an_empty_repo_entry_leaves_the_site_entry_in_place(empty):
+    site = site_snapshot(agent_skill_models=SITE_SKILL_MODELS)
+    repo = RepositoryConfig(models={"skills": {"code-review": empty}})
+
+    assert agent_settings(site=site, repo=repo).skill_models == SITE_SKILL_MODELS
+
+
+def test_a_repo_explore_entry_is_dropped():
+    repo = RepositoryConfig(models={"subagents": {"explore": "openrouter:repo/explore"}})
+
+    assert agent_settings(site=site_snapshot(), repo=repo).subagent_models == {}
+
+
+def test_a_repo_entry_applies_on_a_run_pinned_to_an_exact_chain():
+    repo = RepositoryConfig(models={"skills": {"code-review": "openrouter:repo/review"}})
+
+    settings = agent_settings(repo=repo, run=BRANCHES["exact"])
+
+    assert settings.skill_models == {"code-review": "openrouter:repo/review"}
+
+
 def test_the_recursion_limit_is_the_sites():
     assert agent_settings(site=site_snapshot(agent_recursion_limit=123)).recursion_limit == 123
 

@@ -156,7 +156,16 @@ description: Brief description of what this skill does and when the agent should
 
 ### Running a skill on another model
 
-Set `metadata.model` to a model spec (`provider-slug:model`, as in [subagents](../features/subagents.md)) and the agent switches to that model once it invokes the skill, until your next message:
+Once the agent invokes a skill, its model calls run on the skill's model until your next message. The first of these that is set names that model:
+
+1. the skill's entry under `models.skills` in the repository's `.daiv.yml` (see [Model overrides](repository-config.md#skill-and-subagent-models));
+2. the skill's entry in site configuration, under **Agent → Skill and subagent models** (or `DAIV_AGENT_SKILL_MODELS`);
+3. the skill file's `metadata.model`;
+4. the run's model.
+
+Site configuration changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. A model the user picks for the run, even an exact model passed to the jobs API, does not override an entry.
+
+A skill file can name its own model in `metadata.model`, as a model spec (`provider-slug:model`, as in [subagents](../features/subagents.md)):
 
 ```yaml
 ---
@@ -167,7 +176,9 @@ metadata:
 ---
 ```
 
-The run's thinking level carries over. The run's model stays in place when the spec names no configured provider, and for any model call whose conversation no longer fits the skill model's context window. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
+The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
+
+When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model. The failure is logged at ERROR, and the session view shows a notice naming the skill, the model that could not be used and the model that served. A `metadata.model` that can't be used keeps the run's model, logged as a warning.
 
 ### Writing a good description
 

@@ -17,6 +17,8 @@ SKILLS_SOURCES = [CURSOR_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, AGENTS_SKILLS_PAT
 
 SKILLS_TOOL_NAME = "skill"
 
+EXPLORE_NAME = "explore"
+
 # Path where the custom subagents are stored in repository.
 AGENTS_SUBAGENTS_PATH = ".agents/subagents"
 

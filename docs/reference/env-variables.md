@@ -367,6 +367,8 @@ The main agent used for issue addressing, pull request assistance, and all inter
 | `DAIV_AGENT_MAX_THINKING_LEVEL` | Thinking level for `daiv-max` tasks (same values as `DAIV_AGENT_THINKING_LEVEL`) | `high` |
 | `DAIV_AGENT_EXPLORE_MODEL_NAME` | Model for the explore subagent (fast, read-only) | `claude-haiku-5.5` |
 | `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` | Fallback model if the explore model fails | `gpt-6-luna` |
+| `DAIV_AGENT_SKILL_MODELS` | Model per skill name, as a JSON object (`{"code-review": "openrouter:anthropic/claude-sonnet-5.5"}`); see [Agent Skills](../customization/agent-skills.md#running-a-skill-on-another-model). A malformed value is logged and ignored. | `{}` |
+| `DAIV_AGENT_SUBAGENT_MODELS` | Model per subagent name, as a JSON object (`{"cr-security": "openrouter:anthropic/claude-opus-5.5"}`); `explore` is ignored. See [Subagents](../features/subagents.md#choosing-a-subagents-model). A malformed value is logged and ignored. | `{}` |
 | `DAIV_AGENT_CUSTOM_SKILLS_PATH` | Path to custom global skills directory. Set to `None` to disable. | `~/data/skills` |
 
 ### Jobs API
