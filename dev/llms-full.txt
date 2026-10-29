@@ -4439,11 +4439,12 @@ ______________________________________________________________________
 
 ### General
 
-| Variable               | Description                           | Default  | Example                 |
-| ---------------------- | ------------------------------------- | -------- | ----------------------- |
-| `DJANGO_DEBUG`         | Toggle Django debug mode              | `False`  | `True`                  |
-| `DJANGO_SECRET_KEY`    | Secret key for Django                 | *(none)* | `super-secret-key`      |
-| `DJANGO_ALLOWED_HOSTS` | Comma-separated list of allowed hosts | `*`      | `example.com,localhost` |
+| Variable                     | Description                                                        | Default              | Example                 |
+| ---------------------------- | ------------------------------------------------------------------ | -------------------- | ----------------------- |
+| `DJANGO_DEBUG`               | Toggle Django debug mode                                           | `False`              | `True`                  |
+| `DJANGO_SECRET_KEY`          | Secret key for Django                                              | *(none)*             | `super-secret-key`      |
+| `DJANGO_ALLOWED_HOSTS`       | Comma-separated list of allowed hosts                              | `*`                  | `example.com,localhost` |
+| `DJANGO_SESSION_COOKIE_NAME` | Name of the session cookie; give each instance on one host its own | `__Secure-sessionid` | `__Secure-sessionid-1`  |
 
 Danger
 
