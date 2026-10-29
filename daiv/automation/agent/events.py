@@ -5,7 +5,8 @@ degrades a payload it cannot read to "no frames" (or "no update") rather than ra
 renamed on one side alone fails silently — empty turns for the assistant message, a frozen meter
 for context usage. The consumer half lives with each event: Python (``sessions.live.agui``,
 parsing through this module) for the assistant message, JS (``chat-stream.js``, whose node test
-drives the handler with payloads built here) for the context meter.
+drives the handler with payloads built here) for the context meter and the publish result, which
+is also saved in agent state for Python readers of the checkpoint.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from automation.agent.usage_tracking import ResolvedWindow
+    from codebase.base import MergeRequest, MergeRequestDiffStats
 
 # Custom LangGraph event carrying an assistant message the agent produced *without* a model call
 # (a slash command reply, a loop-breaker stop). Ignored by the webhook and MCP transports.
@@ -85,4 +87,30 @@ def context_usage_payload(*, model: str, usage: Mapping[str, Any], window: Resol
         "cached_tokens": input_detail_tokens(usage, "cache_read"),
         "used_tokens": input_tokens + output_tokens,
         "window_tokens": window.tokens if window else None,
+    }
+
+
+# Custom LangGraph event carrying the run's one publish result, also saved in state as
+# ``publish_result``. Ignored by the webhook and MCP transports, like ASSISTANT_MESSAGE_EVENT.
+PUBLISH_RESULT_EVENT = "daiv_publish_result"
+
+
+def publish_result_payload(
+    *,
+    status: str,
+    merge_request: MergeRequest | None = None,
+    diff_stats: MergeRequestDiffStats | None = None,
+    error_kind: str | None = None,
+    conflicts: int | None = None,
+) -> dict[str, Any]:
+    """Build the wire payload for :data:`PUBLISH_RESULT_EVENT`; values that do not apply are ``None``."""
+    return {
+        "status": status,
+        "merge_request_iid": merge_request.merge_request_id if merge_request else None,
+        "merge_request_web_url": merge_request.web_url if merge_request else None,
+        "files_changed": diff_stats.files_changed if diff_stats else None,
+        "lines_added": diff_stats.lines_added if diff_stats else None,
+        "lines_removed": diff_stats.lines_removed if diff_stats else None,
+        "error_kind": error_kind,
+        "conflicts": conflicts,
     }

@@ -8,10 +8,12 @@ from git import GitCommandError
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import PrivateStateAttr
+from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
 from automation.agent.context import RuntimeCtx  # noqa: TC001
+from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload
 from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
 from automation.agent.publish_errors import classify
 from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
     from langgraph.runtime import Runtime
 
     from automation.agent.agent_settings import AgentSettings
+    from automation.agent.publishers import PublishOutcome
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.workspace.base import Workspace
 
@@ -92,6 +95,14 @@ class GitState(AgentState):
     for a clean tree already on its merge request — so it cannot answer "did this turn push?",
     which is what the CI watch arms on. The run executor reads it from the checkpoint once the
     run finishes; chat's ``STATE_SNAPSHOT`` stream never carries it (``STREAMED_STATE_KEYS``).
+    """
+
+    publish_result: NotRequired[dict[str, Any] | None]
+    """
+    The run's one publish result (see ``events.publish_result_payload``), cleared each turn.
+    Absent when there was nothing to publish. The run result reads it from the checkpoint;
+    chat's ``STATE_SNAPSHOT`` stream never carries it (``STREAMED_STATE_KEYS``) because the
+    live page gets it from ``PUBLISH_RESULT_EVENT``.
     """
 
     diff_stats: NotRequired[dict[str, int]]
@@ -230,6 +241,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             "merge_request": merge_request,
             "code_changes": False,
             "published": False,
+            "publish_result": None,
             "protected_branch_fallback_source": None,
         }
         if pre_run_dirty_files:
@@ -359,6 +371,25 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):
             rt.metadata["merge_request_id"] = merge_request.merge_request_id
 
+    @staticmethod
+    async def _emit_publish_result(payload: dict[str, Any]) -> None:
+        try:
+            await adispatch_custom_event(PUBLISH_RESULT_EVENT, payload)
+        except Exception:
+            logger.warning("Could not stream the publish result; it will surface on reload", exc_info=True)
+
+    @staticmethod
+    def _publish_result(outcome: PublishOutcome) -> dict[str, Any]:
+        if outcome.merge_request is None:
+            return publish_result_payload(
+                status="not_published", diff_stats=outcome.diff_stats, error_kind="mr_pending"
+            )
+        return publish_result_payload(
+            status="opened" if outcome.created_merge_request else "pushed",
+            merge_request=outcome.merge_request,
+            diff_stats=outcome.diff_stats,
+        )
+
     async def aafter_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
         After the agent finishes, optionally capture the run's patch, then publish any new changes.
@@ -425,9 +456,15 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 f"{'has' if len(exc.paths) == 1 else 'have'} conflict markers, so nothing was committed or pushed. "
                 "Ask me to finish resolving them."
             )
+            update["publish_result"] = publish_result_payload(
+                status="not_published", error_kind="conflicts", conflicts=len(exc.paths)
+            )
+            await self._emit_publish_result(update["publish_result"])
             return {**update, "messages": [await streamed_assistant_message(notice)]}
         except Exception as exc:
-            raise classify(exc)(str(exc)) from exc
+            error = classify(exc)(str(exc))
+            await self._emit_publish_result(publish_result_payload(status="failed", error_kind=error.kind))
+            raise error from exc
 
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()
@@ -435,6 +472,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # Only ever set true here; ``abefore_agent`` clears it, so a no-op turn cannot
             # inherit the previous turn's push.
             update["published"] = True
+            update["publish_result"] = self._publish_result(outcome)
+            await self._emit_publish_result(update["publish_result"])
 
         if outcome.merge_request is None:
             # published + no MR is the branch-visibility degrade (branch pushed, MR pending): record
