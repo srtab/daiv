@@ -1405,3 +1405,36 @@ def test_json_show_all_stays_bounded():
     rest = _body("some_tool", {}, result=json.dumps(data)).split('<details class="body-more">')[1]
     total = len(json.dumps(data, indent=2).split("\n"))
     assert "Show all 500 lines" in rest and f"and {total - 500} more" in rest
+
+
+WRITE_FAILED = (
+    "Failed to write file '/workspace/repo/a.py': already exists — modify it with edit_file "
+    "(write_file only creates new files)"
+)
+
+
+def test_a_failed_file_write_reads_failed():
+    assert _row("write_file", {"file_path": "/workspace/repo/a.py", "content": "a\n"}, result=WRITE_FAILED)["failed"]
+    done = _row("write_file", {"file_path": "/workspace/repo/a.py", "content": "a\n"}, result="Updated file a.py")
+    assert done["failed"] is False
+
+
+def test_a_failed_file_write_leads_with_what_went_wrong_and_changes_nothing():
+    html = _body("write_file", {"file_path": "/workspace/repo/a.py", "content": "a\nb\n"}, result=WRITE_FAILED)
+    assert html.startswith('<div class="body-error"') and html.count("already exists") == 1
+    assert "Changed" not in html and "diff-add" not in html and "Loaded into context" not in html
+
+
+def test_a_failed_edit_reads_failed_and_changes_nothing():
+    args = {"file_path": "/workspace/repo/a.py", "old_string": "a\n", "new_string": "b\n"}
+    result = "Error editing file '/workspace/repo/a.py': no match for old_string"
+    assert _row("edit_file", args, result=result)["failed"] is True
+    html = _body("edit_file", args, result=result)
+    assert html.startswith('<div class="body-error"') and "Changed" not in html
+
+
+@pytest.mark.parametrize("name", ["read_file", "bash", "some_tool"])
+def test_write_failure_wording_fails_only_a_file_write(name):
+    args = {"file_path": "/workspace/repo/a.py"}
+    assert _row(name, args, result=WRITE_FAILED)["failed"] is False
+    assert not _body(name, args, result=WRITE_FAILED).startswith('<div class="body-error"')

@@ -587,10 +587,18 @@
     };
   };
 
+  // A sandbox write failure reads `Failed to write file '…': …`; every other file-tool failure starts with Error.
+  const FAILURE_RE_BY_TOOL = new Map([["write_file", /^Failed to write file\b/]]);
+
+  const failedResult = (name, result) => {
+    const text = result == null ? "" : String(result).trim();
+    return ERROR_PREFIX_RE.test(text) || Boolean(FAILURE_RE_BY_TOOL.get(name)?.test(text));
+  };
+
   const rowFailed = (name, seg, part) => {
     if (seg.status === "error") return true;
     if (name === "delegate_jobs") return false;
-    return Boolean(part.failed) || (seg.result != null && ERROR_PREFIX_RE.test(String(seg.result).trim()));
+    return Boolean(part.failed) || failedResult(name, seg.result);
   };
 
   window.toolRow = (seg, ctx) => {
@@ -839,7 +847,7 @@
 
   const wentWrong = (seg) => {
     const result = seg.result == null ? "" : String(seg.result).trim();
-    if (isError(result)) return result.replace(/^error:\s*/i, "") || result;
+    if (failedResult(seg.name, result)) return result.replace(/^error:\s*/i, "") || result;
     return seg.status === "error" && !result ? t("unanswered") : "";
   };
 
@@ -866,7 +874,7 @@
 
   const notesHTML = (notes) => notes.map((note) => `<p class="body-note">${escapeHtml(note)}</p>`).join("");
 
-  const succeeded = (seg) => seg.status !== "error" && seg.result != null && !isError(seg.result);
+  const succeeded = (seg) => seg.status !== "error" && seg.result != null && !failedResult(seg.name, seg.result);
 
   // deepagents' read result: bracketed notices, then `@@ lines A-B … @@`, then the lines verbatim. Older
   // results numbered each line instead (`N  text`, `N.1` for a long line's continuation, or `cat -n`'s tab).
@@ -1793,7 +1801,8 @@
       const content = pickKey(args, ["content", "text"]);
       const lines = succeeded(seg) && content ? String(content).replace(/\n$/, "").split("\n") : [];
       const rows = lines.map((line) => `+${line}`);
-      return section("body_changed", diffHTML(rows)) + contextSection(result, textHTML);
+      const context = failedResult(seg.name, result) ? "" : contextSection(result, textHTML);
+      return section("body_changed", diffHTML(rows)) + context;
     },
     edit_file: ({ seg, args, result }) => {
       const oldStr = pickKey(args, ["old_string"]);
