@@ -8,10 +8,12 @@ from django.template.loader import get_template
 from django.urls import reverse
 
 import pytest
+from configuration.forms import SKILL_MODELS, SUBAGENT_MODELS
 from configuration.forms import WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX as PREFIX
 
 from accounts.models import Role, User
 from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
+from tests.unit_tests.configuration.conftest import formset_data
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "daiv" / "configuration" / "templates"
 TEMPLATE_REFERENCE = re.compile(r"""\{%\s*(?:include|extends)\s+["']([^"']+)["']""")
@@ -1467,56 +1469,88 @@ def global_skills():
         yield
 
 
+AGENT_GROUP_URL = reverse("site_configuration", kwargs={"group_key": "agent"})
+
+
+def _post_model_map(client, model_map, rows: list[dict], **extra):
+    return client.post(AGENT_GROUP_URL, {**formset_data(model_map.prefix, rows), **extra}, follow=True)
+
+
+def _warnings(response) -> list[str]:
+    return [str(m) for m in response.context["messages"] if m.level_tag == "warning"]
+
+
+def _datalist_options(content: str, names_id: str) -> list[str]:
+    datalist = re.search(rf'<datalist id="{names_id}">(.*?)</datalist>', content, re.S)
+    assert datalist is not None
+    return re.findall(r'<option value="([^"]+)"', datalist.group(1))
+
+
+MODEL_MAP_CASES = [
+    pytest.param(SKILL_MODELS, "code-review", "my-repo-skill", "DAIV_AGENT_SKILL_MODELS", id="skills"),
+    pytest.param(SUBAGENT_MODELS, "cr-security", "my-repo-subagent", "DAIV_AGENT_SUBAGENT_MODELS", id="subagents"),
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("model_map", "known", "unknown", "env_var"), MODEL_MAP_CASES)
+class TestModelMapSections:
+    def test_saving_stores_the_rows_as_the_map(self, admin_client, global_skills, model_map, known, unknown, env_var):
+        _enable_seed_provider("openai")
+
+        response = _post_model_map(admin_client, model_map, [{"name": known, "model": "openai:gpt-5.4"}])
+
+        assert _warnings(response) == []
+        assert getattr(SiteConfiguration.objects.get_instance(), model_map.site_field) == {known: "openai:gpt-5.4"}
+
+    def test_a_name_outside_the_suggestions_saves_with_a_warning(
+        self, admin_client, global_skills, model_map, known, unknown, env_var
+    ):
+        _enable_seed_provider("openai")
+
+        response = _post_model_map(admin_client, model_map, [{"name": unknown, "model": "openai:gpt-5.4"}])
+
+        assert getattr(SiteConfiguration.objects.get_instance(), model_map.site_field) == {unknown: "openai:gpt-5.4"}
+        [warning] = _warnings(response)
+        assert unknown in warning
+
+    def test_the_environment_locks_the_section(
+        self, admin_client, global_skills, monkeypatch, model_map, known, unknown, env_var
+    ):
+        from core import site_settings as ss_module
+
+        config = SiteConfiguration.objects.get_instance()
+        setattr(config, model_map.site_field, {unknown: "openai:gpt-5.4"})
+        config.save()
+        _enable_seed_provider("openai")
+        monkeypatch.setenv(env_var, f'{{"{known}": "openrouter:env/model"}}')
+        ss_module._docker_secret_cache.clear()
+
+        page = admin_client.get(AGENT_GROUP_URL).content.decode()
+        _post_model_map(admin_client, model_map, [{"name": known, "model": "openai:gpt-5.4"}])
+
+        assert "openrouter:env/model" in page
+        assert f"{model_map.prefix}-TOTAL_FORMS" not in page
+        assert getattr(SiteConfiguration.objects.get_instance(), model_map.site_field) == {unknown: "openai:gpt-5.4"}
+
+
 @pytest.mark.django_db
 class TestSkillModelsSection:
-    def _post(self, client, rows: list[dict], **extra):
-        from configuration.forms import SKILL_MODELS_FORMSET_PREFIX
-
-        from tests.unit_tests.configuration.test_forms import model_map_data
-
-        return client.post(
-            reverse("site_configuration", kwargs={"group_key": "agent"}),
-            {**model_map_data(SKILL_MODELS_FORMSET_PREFIX, rows), **extra},
-            follow=True,
-        )
-
     def test_the_agent_group_offers_the_global_skills_as_name_suggestions(self, admin_client, global_skills):
-        response = admin_client.get(reverse("site_configuration", kwargs={"group_key": "agent"}))
+        content = admin_client.get(AGENT_GROUP_URL).content.decode()
 
-        content = response.content.decode()
         assert "Skill and subagent models" in content
-        datalist = re.search(r'<datalist id="skill-model-names">(.*?)</datalist>', content, re.S)
-        assert datalist is not None
-        assert re.findall(r'<option value="([^"]+)"', datalist.group(1)) == list(GLOBAL_SKILLS)
-
-    def test_saving_stores_the_rows_as_the_skill_map(self, admin_client, global_skills):
-        _enable_seed_provider("openai")
-
-        response = self._post(admin_client, [{"name": "code-review", "model": "openai:gpt-5.4"}])
-
-        assert response.status_code == 200
-        assert SiteConfiguration.objects.get_instance().agent_skill_models == {"code-review": "openai:gpt-5.4"}
-
-    def test_a_name_outside_the_suggestions_saves_with_a_warning(self, admin_client, global_skills):
-        _enable_seed_provider("openai")
-
-        response = self._post(admin_client, [{"name": "my-repo-skill", "model": "openai:gpt-5.4"}])
-
-        assert SiteConfiguration.objects.get_instance().agent_skill_models == {"my-repo-skill": "openai:gpt-5.4"}
-        warnings = [str(m) for m in response.context["messages"] if m.level_tag == "warning"]
-        assert len(warnings) == 1
-        assert "my-repo-skill" in warnings[0]
+        assert _datalist_options(content, SKILL_MODELS.names_id) == list(GLOBAL_SKILLS)
 
     def test_a_stored_name_outside_the_suggestions_is_not_warned_about_again(self, admin_client, global_skills):
         _enable_seed_provider("openai")
-        self._post(admin_client, [{"name": "my-repo-skill", "model": "openai:gpt-5.4"}])
+        rows = [{"name": "my-repo-skill", "model": "openai:gpt-5.4"}]
+        _post_model_map(admin_client, SKILL_MODELS, rows)
 
-        response = self._post(admin_client, [{"name": "my-repo-skill", "model": "openai:gpt-5.4"}])
-
-        assert [str(m) for m in response.context["messages"] if m.level_tag == "warning"] == []
+        assert _warnings(_post_model_map(admin_client, SKILL_MODELS, rows)) == []
 
     def test_an_invalid_row_saves_nothing(self, admin_client, global_skills):
-        response = self._post(admin_client, [{"name": "code-review", "model": "nosuch:model"}])
+        response = _post_model_map(admin_client, SKILL_MODELS, [{"name": "code-review", "model": "nosuch:model"}])
 
         assert response.status_code == 200
         assert "code-review" in response.content.decode()
@@ -1527,84 +1561,23 @@ class TestSkillModelsSection:
         config.agent_skill_models = {"code-review": "openai:gpt-5.4"}
         config.save()
 
-        admin_client.post(reverse("site_configuration", kwargs={"group_key": "agent"}), {"agent_recursion_limit": 100})
+        admin_client.post(AGENT_GROUP_URL, {"agent_recursion_limit": 100})
 
         assert SiteConfiguration.objects.get_instance().agent_skill_models == {"code-review": "openai:gpt-5.4"}
-
-    def test_the_environment_locks_the_section(self, admin_client, global_skills, monkeypatch):
-        from core import site_settings as ss_module
-
-        config = SiteConfiguration.objects.get_instance()
-        config.agent_skill_models = {"plan": "openai:gpt-5.4"}
-        config.save()
-        _enable_seed_provider("openai")
-        monkeypatch.setenv("DAIV_AGENT_SKILL_MODELS", '{"code-review": "openrouter:env/model"}')
-        ss_module._docker_secret_cache.clear()
-
-        page = admin_client.get(reverse("site_configuration", kwargs={"group_key": "agent"})).content.decode()
-        self._post(admin_client, [{"name": "code-review", "model": "openai:gpt-5.4"}])
-
-        assert "openrouter:env/model" in page
-        assert "skill_models-TOTAL_FORMS" not in page
-        assert SiteConfiguration.objects.get_instance().agent_skill_models == {"plan": "openai:gpt-5.4"}
 
 
 @pytest.mark.django_db
 class TestSubagentModelsSection:
-    def _post(self, client, rows: list[dict]):
-        from configuration.forms import SUBAGENT_MODELS_FORMSET_PREFIX
-
-        from tests.unit_tests.configuration.test_forms import model_map_data
-
-        return client.post(
-            reverse("site_configuration", kwargs={"group_key": "agent"}),
-            model_map_data(SUBAGENT_MODELS_FORMSET_PREFIX, rows),
-            follow=True,
-        )
-
     def test_the_built_in_subagents_but_explore_are_suggested(self, admin_client, global_skills):
         from automation.agent.subagents import BUILTIN_SUBAGENT_NAMES
 
-        content = admin_client.get(reverse("site_configuration", kwargs={"group_key": "agent"})).content.decode()
+        content = admin_client.get(AGENT_GROUP_URL).content.decode()
 
-        datalist = re.search(r'<datalist id="subagent-model-names">(.*?)</datalist>', content, re.S)
-        assert datalist is not None
-        assert re.findall(r'<option value="([^"]+)"', datalist.group(1)) == sorted(BUILTIN_SUBAGENT_NAMES - {"explore"})
-
-    def test_saving_stores_the_rows_as_the_subagent_map(self, admin_client, global_skills):
-        _enable_seed_provider("openai")
-
-        response = self._post(admin_client, [{"name": "cr-security", "model": "openai:gpt-5.4"}])
-
-        assert [str(m) for m in response.context["messages"] if m.level_tag == "warning"] == []
-        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {"cr-security": "openai:gpt-5.4"}
-
-    def test_a_name_outside_the_suggestions_saves_with_a_warning(self, admin_client, global_skills):
-        _enable_seed_provider("openai")
-
-        response = self._post(admin_client, [{"name": "my-repo-subagent", "model": "openai:gpt-5.4"}])
-
-        warnings = [str(m) for m in response.context["messages"] if m.level_tag == "warning"]
-        assert len(warnings) == 1
-        assert "my-repo-subagent" in warnings[0]
+        assert _datalist_options(content, SUBAGENT_MODELS.names_id) == sorted(BUILTIN_SUBAGENT_NAMES - {"explore"})
 
     def test_an_explore_row_saves_nothing(self, admin_client, global_skills):
         _enable_seed_provider("openai")
 
-        self._post(admin_client, [{"name": "explore", "model": "openai:gpt-5.4"}])
+        _post_model_map(admin_client, SUBAGENT_MODELS, [{"name": "explore", "model": "openai:gpt-5.4"}])
 
-        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {}
-
-    def test_the_environment_locks_the_section(self, admin_client, global_skills, monkeypatch):
-        from core import site_settings as ss_module
-
-        _enable_seed_provider("openai")
-        monkeypatch.setenv("DAIV_AGENT_SUBAGENT_MODELS", '{"cr-tests": "openrouter:env/model"}')
-        ss_module._docker_secret_cache.clear()
-
-        page = admin_client.get(reverse("site_configuration", kwargs={"group_key": "agent"})).content.decode()
-        self._post(admin_client, [{"name": "cr-security", "model": "openai:gpt-5.4"}])
-
-        assert "openrouter:env/model" in page
-        assert "subagent_models-TOTAL_FORMS" not in page
         assert SiteConfiguration.objects.get_instance().agent_subagent_models == {}

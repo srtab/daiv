@@ -13,12 +13,15 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
+from automation.agent.agent_settings import ModelChain
+from automation.agent.configured_models import ConfiguredModels
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
 from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, SKILLS_SYSTEM_PROMPT, SkillsMiddleware
 from automation.agent.synthetic import synthetic_message
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig, SlashCommands
+from tests.unit_tests.automation.agent.configured_model_fakes import FakeModels, FakeNotices
 from tests.unit_tests.conftest import write_skill
 
 if TYPE_CHECKING:
@@ -1024,7 +1027,8 @@ def _skills_agent(
     tools: list,
     *,
     thinking_level: str | None = None,
-    middleware_kwargs: dict | None = None,
+    configured: dict | None = None,
+    notices: FakeNotices | None = None,
     **agent_kwargs,
 ):
     backend = Mock()
@@ -1037,8 +1041,12 @@ def _skills_agent(
         backend=backend,
         sources=["/skills"],
         copy_global_skills=False,
-        thinking_level=thinking_level,
-        **(middleware_kwargs or {}),
+        configured_models=ConfiguredModels(
+            "skill",
+            configured or {},
+            chain=ModelChain(names=("fake:run",), thinking_level=thinking_level),
+            notices=notices,
+        ),
     )
     return create_agent(model=_ToolModel(messages=iter(replies)), tools=tools, middleware=[middleware], **agent_kwargs)
 
@@ -1254,39 +1262,12 @@ class TestSkillModel:
         ]
 
 
-class _Notices:
-    def __init__(self):
-        self.recorded: list = []
-        self.flushed_with: list[int] = []
-
-    def record(self, notice) -> None:
-        self.recorded.append(notice)
-
-    async def aflush(self) -> None:
-        self.flushed_with.append(len(self.recorded))
-
-
-def _models_by_spec(**models):
-    """A ``get_model`` stub: the model each spec names, and ``ValueError`` for a spec it does not know."""
-
-    def build(*, model, thinking_level=None):
-        if model not in models:
-            raise ValueError(f"Unknown provider prefix in '{model}'")
-        return models[model]
-
-    return Mock(side_effect=build)
-
-
 DEMO_SKILL_CALL = {"name": "skill", "args": {"skill": "demo"}, "id": "call_demo"}
 
 
 class TestConfiguredSkillModel:
-    async def _run(self, run_replies: list[AIMessage], get_model: Mock, *, configured: dict, notices=None) -> dict:
-        agent = _skills_agent(
-            run_replies,
-            [],
-            middleware_kwargs={"configured_models": configured, "run_model_spec": "fake:run", "notices": notices},
-        )
+    async def _run(self, run_replies: list[AIMessage], get_model, *, configured: dict, notices=None) -> dict:
+        agent = _skills_agent(run_replies, [], configured=configured, notices=notices)
         with (
             patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock),
             patch("automation.agent.configured_models.get_model", get_model),
@@ -1295,10 +1276,9 @@ class TestConfiguredSkillModel:
 
     async def test_a_configured_model_beats_the_skill_files_model(self):
         configured_model = _ToolModel(messages=iter([AIMessage(content="from the configured model")]))
-        get_model = _models_by_spec(**{
-            "fake:configured": configured_model,
-            "fake:cheap": _ToolModel(messages=iter([])),
-        })
+        get_model = FakeModels(
+            models={"fake:configured": configured_model, "fake:cheap": _ToolModel(messages=iter([]))}
+        )
 
         result = await self._run(
             [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL])], get_model, configured={"cheap": "fake:configured"}
@@ -1307,10 +1287,12 @@ class TestConfiguredSkillModel:
         assert result["messages"][-1].content == "from the configured model"
 
     async def test_two_skills_with_models_in_one_turn_run_on_one_of_them(self):
-        get_model = _models_by_spec(**{
-            spec: _ToolModel(messages=iter([AIMessage(content="from a skill model")]))
-            for spec in ("fake:cheap", "fake:configured")
-        })
+        get_model = FakeModels(
+            models={
+                spec: _ToolModel(messages=iter([AIMessage(content="from a skill model")]))
+                for spec in ("fake:cheap", "fake:configured")
+            }
+        )
 
         result = await self._run(
             [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL, DEMO_SKILL_CALL])],
@@ -1325,7 +1307,7 @@ class TestConfiguredSkillModel:
 
         result = await self._run(
             [AIMessage(content="", tool_calls=[DEMO_SKILL_CALL])],
-            _models_by_spec(**{"fake:configured": configured_model}),
+            FakeModels(models={"fake:configured": configured_model}),
             configured={"demo": "fake:configured"},
         )
 
@@ -1339,12 +1321,12 @@ class TestConfiguredSkillModel:
                 AIMessage(content="from the skill file's model"),
             ])
         )
-        notices = _Notices()
+        notices = FakeNotices()
 
         with caplog.at_level(logging.ERROR, logger="daiv.agent"):
             result = await self._run(
                 [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL])],
-                _models_by_spec(**{"fake:cheap": cheap_model}),
+                FakeModels(models={"fake:cheap": cheap_model}),
                 configured={"cheap": "nosuch:model"},
                 notices=notices,
             )
@@ -1357,11 +1339,11 @@ class TestConfiguredSkillModel:
         assert "nosuch:model" in caplog.text
 
     async def test_the_run_model_serves_when_the_configured_and_file_models_both_fail(self):
-        notices = _Notices()
+        notices = FakeNotices()
 
         result = await self._run(
             [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
-            _models_by_spec(),
+            FakeModels(),
             configured={"cheap": "nosuch:model"},
             notices=notices,
         )
@@ -1370,12 +1352,12 @@ class TestConfiguredSkillModel:
         assert [n.served_model for n in notices.recorded] == ["fake:run"]
 
     async def test_a_failing_file_model_without_an_entry_warns_and_records_nothing(self, caplog):
-        notices = _Notices()
+        notices = FakeNotices()
 
-        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+        with caplog.at_level(logging.WARNING, logger="daiv.agent"):
             await self._run(
                 [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
-                _models_by_spec(),
+                FakeModels(),
                 configured={},
                 notices=notices,
             )

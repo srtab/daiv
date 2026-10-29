@@ -384,7 +384,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 mcp_servers=await sync_to_async(build_runtime_servers)(spec.acting_user_id, spec.mcp_overrides),
                 session_links=session_links,
                 delegator=delegator,
-                notices=RunNoticeRecorder(run_id),
+                notices=RunNoticeRecorder(run_id) if run_id else None,
                 **spec.agent_options,
             )
             config = build_langsmith_config(

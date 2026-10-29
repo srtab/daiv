@@ -26,7 +26,7 @@
                     {% endfor %}
                 </div>
             {% else %}
-                <datalist id="{{ section.names_id }}">
+                <datalist id="{{ section.model_map.names_id }}">
                     {% for name in section.suggestions %}<option value="{{ name }}"></option>{% endfor %}
                 </datalist>
                 <div class="mt-3"

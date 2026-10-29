@@ -14,12 +14,9 @@ logger = logging.getLogger("daiv.sessions")
 
 
 class RunNoticeRecorder:
-    """The ``RunNotices`` the run executor gives ``create_daiv_agent``: saves notices to ``Run.notices`` of ``run_id``.
+    """The ``RunNotices`` the run executor gives ``create_daiv_agent``: saves to ``Run.notices`` of ``run_id``."""
 
-    A recorder with no run id stores nothing and logs what it was given.
-    """
-
-    def __init__(self, run_id: uuid.UUID | str | None):
+    def __init__(self, run_id: uuid.UUID | str):
         self._run_id = run_id
         self._notices: list[dict[str, str]] = []
 
@@ -28,9 +25,6 @@ class RunNoticeRecorder:
 
     async def aflush(self) -> None:
         if not self._notices:
-            return
-        if self._run_id is None:
-            logger.info("No run bound; run notices not stored: %s", self._notices)
             return
         try:
             await Run.objects.filter(pk=self._run_id).aupdate(notices=list(self._notices))

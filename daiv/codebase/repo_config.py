@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 from io import StringIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, Any
 
 from django.core.cache import cache
 
 import yaml
-from pydantic import AliasChoices, BaseModel, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, BeforeValidator, Field, ValidationError
 from yaml.parser import ParserError
 
 from core.constants import ModelName  # noqa: TC001
@@ -131,6 +131,13 @@ class DiffToMetadataModelConfig(BaseModel):
     )
 
 
+def _drop_unset_specs(value: Any) -> Any:
+    return {name: spec for name, spec in value.items() if spec} if isinstance(value, dict) else value
+
+
+ModelSpecMap = Annotated[dict[str, str], BeforeValidator(_drop_unset_specs)]
+
+
 class Models(BaseModel):
     """
     Model configuration for all agents.
@@ -140,14 +147,14 @@ class Models(BaseModel):
     diff_to_metadata: DiffToMetadataModelConfig = Field(
         default_factory=DiffToMetadataModelConfig, description="Configuration for the diff to metadata agent."
     )
-    skills: dict[str, str | None] = Field(
+    skills: ModelSpecMap = Field(
         default_factory=dict,
         description=(
             "Model spec per skill name, overriding the site configuration's entry for that name. "
             "A null or empty value leaves the site's entry in place. Checked when a run uses it, not on load."
         ),
     )
-    subagents: dict[str, str | None] = Field(
+    subagents: ModelSpecMap = Field(
         default_factory=dict,
         description=(
             "Model spec per subagent name, overriding the site configuration's entry for that name. "

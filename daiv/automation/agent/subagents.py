@@ -15,7 +15,7 @@ from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE
 
 from automation.agent.base import get_model
-from automation.agent.configured_models import resolve_subagent_model
+from automation.agent.configured_models import ConfiguredModels
 from automation.agent.constants import EXPLORE_NAME
 from automation.agent.middlewares.deferred_tools import (
     deferred_tools_middleware,
@@ -40,7 +40,6 @@ from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from pathlib import Path
 
     from deepagents.backends import BackendProtocol
@@ -48,9 +47,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
     from automation.agent.agent_settings import ModelChain
-    from automation.agent.base import ThinkingLevel
     from automation.agent.context import RuntimeCtx
-    from automation.agent.notices import RunNotices
     from automation.agent.workspace.base import Workspace
 
 logger = logging.getLogger("daiv.agent")
@@ -206,10 +203,7 @@ def load_builtin_code_review_detectors(
     *,
     agents_dir: Path = CODE_REVIEW_AGENTS_PATH,
     expected_names: tuple[str, ...] = CODE_REVIEW_DETECTOR_NAMES,
-    configured_models: Mapping[str, str] | None = None,
-    thinking_level: ThinkingLevel | None = None,
-    run_model_spec: str = "",
-    notices: RunNotices | None = None,
+    configured_models: ConfiguredModels | None = None,
 ) -> list[CompiledSubAgent]:
     """Compile the code-review detector subagents from their charter markdown files.
 
@@ -229,9 +223,10 @@ def load_builtin_code_review_detectors(
     builders, the detector stack has no ``GitPlatformMiddleware`` — detectors never post — so it
     needs nothing from the run context.
 
-    A detector with a ``configured_models`` entry runs on it, built with ``thinking_level``, over its charter's
-    ``model:`` (see ``resolve_subagent_model``); ``run_model_spec`` names ``model`` in what ``notices`` records.
+    A detector with a ``configured_models`` entry runs on it over its charter's ``model:`` (see
+    ``ConfiguredModels.for_subagent``).
     """
+    configured_models = configured_models or ConfiguredModels("subagent")
     if not agents_dir.is_dir():
         # Louder than a single failed charter: this is the whole capability gone, every dimension
         # uncovered, and a review would run with no detectors at all.
@@ -258,15 +253,7 @@ def load_builtin_code_review_detectors(
 
         frontmatter_model = str(frontmatter.get("model", "")).strip()
         try:
-            detector_model = resolve_subagent_model(
-                frontmatter["name"],
-                file_spec=frontmatter_model,
-                configured_models=configured_models or {},
-                thinking_level=thinking_level,
-                run_model=model,
-                run_model_spec=run_model_spec,
-                notices=notices,
-            )
+            detector_model = configured_models.for_subagent(frontmatter["name"], frontmatter_model, model)
         except ValueError:
             # Unknown/empty model spec — a charter config typo. Skip just this detector.
             logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
@@ -561,10 +548,7 @@ async def load_custom_subagents(
     fallback_models: list[BaseChatModel] | None = None,
     mcp_tools: list[BaseTool] | None = None,
     *,
-    configured_models: Mapping[str, str] | None = None,
-    thinking_level: ThinkingLevel | None = None,
-    run_model_spec: str = "",
-    notices: RunNotices | None = None,
+    configured_models: ConfiguredModels | None = None,
 ) -> list[CompiledSubAgent]:
     """
     Load custom subagents from markdown files in the given source paths.
@@ -585,10 +569,7 @@ async def load_custom_subagents(
         mcp_tools: The parent agent's MCP toolset, exposed to each custom subagent (deferred behind
             tool_search when deferral is on, bound directly when off) so a delegated MCP call works.
         configured_models: The run's subagent models; an entry beats the file's ``model:`` (see
-            ``resolve_subagent_model``).
-        thinking_level: The run's thinking level, for a configured model.
-        run_model_spec: The spec ``model`` was built from, named in a recorded fallback.
-        notices: Where a configured model that cannot be used is recorded.
+            ``ConfiguredModels.for_subagent``).
 
     Returns:
         List of CompiledSubAgent dicts for the loaded custom subagents; none from a workspace that is not ready (a turn
@@ -598,6 +579,7 @@ async def load_custom_subagents(
     if not workspace.is_ready:
         return subagents
 
+    configured_models = configured_models or ConfiguredModels("subagent")
     for source_path in sources:
         try:
             result = await workspace.backend.als(source_path)
@@ -643,15 +625,7 @@ async def load_custom_subagents(
 
             frontmatter_model = str(frontmatter.get("model", "")).strip()
             try:
-                subagent_model = resolve_subagent_model(
-                    frontmatter["name"],
-                    file_spec=frontmatter_model,
-                    configured_models=configured_models or {},
-                    thinking_level=thinking_level,
-                    run_model=model,
-                    run_model_spec=run_model_spec,
-                    notices=notices,
-                )
+                subagent_model = configured_models.for_subagent(frontmatter["name"], frontmatter_model, model)
             except Exception:
                 logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
                 continue

@@ -18,7 +18,7 @@ from langgraph.types import Command
 from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
 from skills.services import global_skill_files, record_invocation
 
-from automation.agent.configured_models import build_configured_model, report_model_fallback
+from automation.agent.configured_models import ConfiguredModels
 from automation.agent.constants import SKILLS_TOOL_NAME
 from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
@@ -28,16 +28,13 @@ from automation.agent.usage_tracking import chat_model_name, resolve_context_win
 from automation.agent.utils import extract_body_from_frontmatter
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping, Sequence
+    from collections.abc import Awaitable, Callable, Sequence
 
     from langchain.agents.middleware import ModelRequest, ModelResponse
     from langchain.agents.middleware.types import ModelCallResult, ToolCallRequest
     from langchain.chat_models import BaseChatModel
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
-
-    from automation.agent.base import ThinkingLevel
-    from automation.agent.notices import FallbackReason, RunNotices
 
 
 logger = logging.getLogger("daiv.tools")
@@ -125,11 +122,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     A sandbox's seed provisions them itself, so its workspace turns the copy off and hands over what the seed left out
     as ``provisioning_errors``, reported like the copy's own.
 
-    An invoked skill moves the model calls after its invocation onto a model spec (``slug:model``), built with the
-    run's ``thinking_level``, until the user's next follow-up: its ``configured_models`` entry, else its
-    ``metadata.model``. The run's model keeps any call whose request would not fit the skill model's window, since
-    compaction is tuned to the run's model, and the whole skill when neither spec can be built. A configured entry
-    that cannot be built is logged at ERROR and recorded on ``notices``, once per run.
+    An invoked skill moves the model calls after its invocation onto a model spec (``slug:model``) until the user's next
+    follow-up: its ``configured_models`` entry, else its ``metadata.model`` (see ``ConfiguredModels.askill_spec``).
+    The run's model keeps any call whose request would not fit the skill model's window, since compaction is tuned to
+    the run's model, and the whole skill when neither spec can be built.
     """
 
     state_schema = DAIVSkillsState
@@ -142,19 +138,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         *args,
         copy_global_skills: bool = True,
         provisioning_errors: Sequence[str] = (),
-        thinking_level: ThinkingLevel | None = None,
-        configured_models: Mapping[str, str] | None = None,
-        run_model_spec: str = "",
-        notices: RunNotices | None = None,
+        configured_models: ConfiguredModels | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self._thinking_level = thinking_level
-        self._configured_models = dict(configured_models or {})
-        self._run_model_spec = run_model_spec
-        self._notices = notices
-        self._reported_fallbacks: set[str] = set()
-        self._builds: dict[str, tuple[BaseChatModel | None, FallbackReason | None]] = {}
+        self._models = configured_models or ConfiguredModels("skill")
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]
         self._copies_global_skills = copy_global_skills
@@ -261,40 +249,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         """Serve the call on the active skill's model when one is set and the request fits its window."""
         if (
             (spec := request.state.get("active_skill_model"))
-            and (skill_model := self._build(spec)[0]) is not None
+            and (skill_model := self._models.build(spec)) is not None
             and self._fits_context_window(request, skill_model, spec)
         ):
             request = request.override(model=skill_model)
         return await super().awrap_model_call(request, handler)
-
-    def _build(self, spec: str) -> tuple[BaseChatModel | None, FallbackReason | None]:
-        """``build_configured_model`` once per run per spec."""
-        if spec not in self._builds:
-            self._builds[spec] = build_configured_model(spec=spec, thinking_level=self._thinking_level)
-            if (reason := self._builds[spec][1]) is not None:
-                logger.warning("[%s] Skill model '%s' unusable (%s); keeping the run's model", self.name, spec, reason)
-        return self._builds[spec]
-
-    async def _resolve_skill_model(self, skill: str, file_spec: str | None) -> str | None:
-        """The spec ``skill`` runs on: its configured entry, else ``file_spec``; ``None`` keeps the run's model."""
-        configured = self._configured_models.get(skill)
-        reason = self._build(configured)[1] if configured else None
-        if configured and reason is None:
-            return configured
-        served = file_spec if file_spec and self._build(file_spec)[0] is not None else None
-        if configured and reason and skill not in self._reported_fallbacks:
-            self._reported_fallbacks.add(skill)
-            report_model_fallback(
-                self._notices,
-                target="skill",
-                name=skill,
-                configured_model=configured,
-                served_model=served or self._run_model_spec,
-                reason=reason,
-            )
-            if self._notices is not None:
-                await self._notices.aflush()
-        return served
 
     def _fits_context_window(self, request: ModelRequest, model: BaseChatModel, spec: str) -> bool:
         window = resolve_context_window(model, chat_model_name(model))
@@ -433,7 +392,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
 
             skill_mode = loaded_skill.get("metadata", {}).get("mode")
-            skill_model = await self._resolve_skill_model(skill, loaded_skill.get("metadata", {}).get("model"))
+            skill_model = await self._models.askill_spec(skill, loaded_skill.get("metadata", {}).get("model"))
             update: dict = {
                 "messages": [ToolMessage(content=body, tool_call_id=runtime.tool_call_id)],
                 "active_skill_model": skill_model,

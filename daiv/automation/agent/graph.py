@@ -15,7 +15,7 @@ from langchain.agents.middleware import (
 from skills.constants import SKILLS_PATH
 
 from automation.agent.base import get_model
-from automation.agent.configured_models import resolve_subagent_model
+from automation.agent.configured_models import ConfiguredModels
 from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
 from automation.agent.context import RuntimeCtx
 from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
@@ -243,20 +243,11 @@ async def create_daiv_agent(
     # receive it.
     mcp_tools = await load_mcp_tools(mcp_servers)
 
+    subagent_models = ConfiguredModels("subagent", settings.subagent_models, chain=chain, notices=notices)
     try:
-        general_purpose_model = resolve_subagent_model(
-            GENERAL_PURPOSE_NAME,
-            file_spec="",
-            configured_models=settings.subagent_models,
-            thinking_level=chain.thinking_level,
-            run_model=model,
-            run_model_spec=chain.names[0],
-            notices=notices,
-        )
-
         subagents = [
             create_general_purpose_subagent(
-                general_purpose_model,
+                subagent_models.for_subagent(GENERAL_PURPOSE_NAME, "", model),
                 workspace,
                 ctx,
                 working_directory,
@@ -267,14 +258,7 @@ async def create_daiv_agent(
             ),
             create_explore_subagent(workspace, working_directory, models=settings.explore),
             *load_builtin_code_review_detectors(
-                model,
-                backend,
-                working_directory,
-                fallback_models=fallback_models,
-                configured_models=settings.subagent_models,
-                thinking_level=chain.thinking_level,
-                run_model_spec=chain.names[0],
-                notices=notices,
+                model, backend, working_directory, fallback_models=fallback_models, configured_models=subagent_models
             ),
         ]
 
@@ -288,10 +272,7 @@ async def create_daiv_agent(
             web_fetch_enabled=settings.web_fetch_enabled,
             fallback_models=fallback_models,
             mcp_tools=mcp_tools,
-            configured_models=settings.subagent_models,
-            thinking_level=chain.thinking_level,
-            run_model_spec=chain.names[0],
-            notices=notices,
+            configured_models=subagent_models,
         )
         subagents.extend(custom_subagents)
     finally:
@@ -325,10 +306,7 @@ async def create_daiv_agent(
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
             copy_global_skills=not workspace.provisions_skills,
             provisioning_errors=workspace.skills_provisioning_errors,
-            thinking_level=chain.thinking_level,
-            configured_models=settings.skill_models,
-            run_model_spec=chain.names[0],
-            notices=notices,
+            configured_models=ConfiguredModels("skill", settings.skill_models, chain=chain, notices=notices),
         ),
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),

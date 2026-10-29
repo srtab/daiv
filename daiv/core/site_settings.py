@@ -294,9 +294,8 @@ class SiteSettings:
 
     def _resolve(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:
         """Resolve one field; ``get_config`` is called only when no env var or Docker secret sets it."""
-        if name in MODEL_MAP_FIELDS:
-            return MappingProxyType(dict(self._resolve_value(name, get_config)))
-        return self._resolve_value(name, get_config)
+        value = self._resolve_value(name, get_config)
+        return MappingProxyType(dict(value)) if isinstance(value, dict) else value
 
     def _resolve_value(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:
         from core.models import THINKING_OFF, SiteConfiguration

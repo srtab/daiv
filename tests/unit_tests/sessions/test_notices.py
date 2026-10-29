@@ -1,5 +1,3 @@
-import logging
-
 import pytest
 from sessions.models import Run, RunStatus
 from sessions.notices import RunNoticeRecorder
@@ -47,15 +45,3 @@ async def test_a_later_flush_keeps_the_notices_already_saved(run):
         _notice("cr-tests").as_dict(),
         _notice("code-review").as_dict(),
     ]
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_recorder_with_no_run_stores_nothing_and_logs(run, caplog):
-    recorder = RunNoticeRecorder(None)
-    recorder.record(_notice("cr-tests"))
-
-    with caplog.at_level(logging.INFO, logger="daiv.sessions"):
-        await recorder.aflush()
-
-    assert (await Run.objects.aget(pk=run.pk)).notices == []
-    assert "cr-tests" in caplog.text

@@ -12,18 +12,18 @@ from django.views import View
 
 from skills.services import list_global_skills
 
+from automation.agent.constants import EXPLORE_NAME
 from configuration.forms import (
     PROVIDERS_FORMSET_PREFIX,
-    SKILL_MODELS_FORMSET_PREFIX,
-    SUBAGENT_MODELS_FORMSET_PREFIX,
+    SKILL_MODELS,
+    SUBAGENT_MODELS,
     WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX,
-    ModelMapKind,
+    ModelMap,
     SiteConfigurationForm,
     build_model_map_formset,
     build_provider_formset,
     build_web_fetch_auth_header_formset,
     model_map_from_formset,
-    model_map_names_id,
 )
 from core.mixins import AdminRequiredMixin
 from core.models import FieldGroup, Provider, SiteConfiguration, WebFetchAuthHeader
@@ -39,18 +39,13 @@ logger = logging.getLogger("daiv.configuration")
 class _ModelMapSection:
     """One model map of the Agent group: its rows, or the environment's value when a variable locks it."""
 
-    kind: ModelMapKind
-    field: str
+    model_map: ModelMap
     title: str
     add_label: str
     unknown_warning: str
     suggestions: list[str]
-    formset: Any
-    env_value: Mapping[str, str] | None
-
-    @property
-    def names_id(self) -> str:
-        return model_map_names_id(self.kind)
+    formset: Any = None
+    env_value: Mapping[str, str] | None = None
 
     @property
     def saves(self) -> bool:
@@ -126,21 +121,21 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
 
         headers_valid = headers_formset is None or headers_env_locked or headers_formset.is_valid()
         model_maps = self._build_model_map_sections(data=request.POST, instance=instance)
-        model_maps_valid = all(section.formset.is_valid() for section in model_maps if section.saves)
+        saved_maps = [section for section in model_maps if section.saves]
+        model_maps_valid = all(section.formset.is_valid() for section in saved_maps)
 
         if form.is_valid() and providers_valid and headers_valid and model_maps_valid:
             with transaction.atomic():
                 if providers_formset is not None:
                     providers_formset.save()
-                for section in model_maps:
-                    if section.saves:
-                        setattr(form.instance, section.field, model_map_from_formset(section.formset))
+                for section in saved_maps:
+                    setattr(form.instance, section.model_map.site_field, model_map_from_formset(section.formset))
                 form.save()
                 if headers_formset is not None and not headers_env_locked:
                     headers_formset.save()
             messages.success(request, "Configuration saved.")
-            for section in model_maps:
-                for name in section.unknown_names() if section.saves else ():
+            for section in saved_maps:
+                for name in section.unknown_names():
                     messages.warning(request, section.unknown_warning % {"name": name})
             if providers_formset is not None:
                 for warning in self._collect_provider_warnings(providers_formset):
@@ -181,44 +176,36 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         """The Agent group's model maps. A POST without a map's rows leaves that map as stored."""
         if self.group.key != "agent":
             return []
-        from automation.agent.constants import EXPLORE_NAME
         from automation.agent.subagents import BUILTIN_SUBAGENT_NAMES
 
-        maps: tuple[tuple[ModelMapKind, str, str, str, str, str, list[str]], ...] = (
-            (
-                "skills",
-                "agent_skill_models",
-                SKILL_MODELS_FORMSET_PREFIX,
-                gettext("Skills"),
-                gettext("Add skill"),
-                gettext(
+        def section(model_map: ModelMap, **labels: Any) -> _ModelMapSection:
+            if site_settings.is_env_locked(model_map.site_field):
+                return _ModelMapSection(model_map, env_value=getattr(site_settings, model_map.site_field), **labels)
+            stored = getattr(instance, model_map.site_field)
+            return _ModelMapSection(
+                model_map, formset=build_model_map_formset(model_map, data=data, stored=stored), **labels
+            )
+
+        return [
+            section(
+                SKILL_MODELS,
+                title=gettext("Skills"),
+                add_label=gettext("Add skill"),
+                unknown_warning=gettext(
                     "No built-in or global skill is named '%(name)s'; its entry applies where a repository defines it."
                 ),
-                list(list_global_skills()),
+                suggestions=list(list_global_skills()),
             ),
-            (
-                "subagents",
-                "agent_subagent_models",
-                SUBAGENT_MODELS_FORMSET_PREFIX,
-                gettext("Subagents"),
-                gettext("Add subagent"),
-                gettext("No built-in subagent is named '%(name)s'; its entry applies where a repository defines it."),
-                sorted(BUILTIN_SUBAGENT_NAMES - {EXPLORE_NAME}),
+            section(
+                SUBAGENT_MODELS,
+                title=gettext("Subagents"),
+                add_label=gettext("Add subagent"),
+                unknown_warning=gettext(
+                    "No built-in subagent is named '%(name)s'; its entry applies where a repository defines it."
+                ),
+                suggestions=sorted(BUILTIN_SUBAGENT_NAMES - {EXPLORE_NAME}),
             ),
-        )
-        sections = []
-        for kind, field, prefix, title, add_label, unknown_warning, suggestions in maps:
-            formset, env_value = None, None
-            if site_settings.is_env_locked(field):
-                env_value = getattr(site_settings, field)
-            else:
-                bound = data if data is not None and f"{prefix}-TOTAL_FORMS" in data else None
-                initial = [{"name": name, "model": spec} for name, spec in getattr(instance, field).items()]
-                formset = build_model_map_formset(kind, data=bound, initial=initial)
-            sections.append(
-                _ModelMapSection(kind, field, title, add_label, unknown_warning, suggestions, formset, env_value)
-            )
-        return sections
+        ]
 
     def _build_context(
         self,

@@ -1,8 +1,8 @@
 import pytest
 from configuration.forms import (
     PROVIDERS_FORMSET_PREFIX,
-    SKILL_MODELS_FORMSET_PREFIX,
-    SUBAGENT_MODELS_FORMSET_PREFIX,
+    SKILL_MODELS,
+    SUBAGENT_MODELS,
     ProviderForm,
     SiteConfigurationForm,
     WebFetchAuthHeaderForm,
@@ -13,6 +13,7 @@ from configuration.forms import (
 )
 
 from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
+from tests.unit_tests.configuration.conftest import formset_data
 
 
 def _data(**overrides):
@@ -150,20 +151,6 @@ def test_site_form_flags_model_with_disabled_provider():
     assert any("disabled" in str(e) for e in form.errors.get("agent_model_name", []))
 
 
-def _formset_data(rows: list[dict]) -> dict:
-    """Build a POST dict for the providers formset from a list of row dicts."""
-    fields: dict[str, str] = {
-        f"{PROVIDERS_FORMSET_PREFIX}-TOTAL_FORMS": str(len(rows)),
-        f"{PROVIDERS_FORMSET_PREFIX}-INITIAL_FORMS": "0",
-        f"{PROVIDERS_FORMSET_PREFIX}-MIN_NUM_FORMS": "0",
-        f"{PROVIDERS_FORMSET_PREFIX}-MAX_NUM_FORMS": "1000",
-    }
-    for idx, row in enumerate(rows):
-        for key, value in row.items():
-            fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-{key}"] = str(value)
-    return fields
-
-
 @pytest.mark.django_db
 def test_formset_rejects_duplicate_slug():
     row = {
@@ -176,7 +163,7 @@ def test_formset_rejects_duplicate_slug():
         "is_enabled": "on",
         "sort_order": "0",
     }
-    data = _formset_data([row, row])
+    data = formset_data(PROVIDERS_FORMSET_PREFIX, [row, row])
     formset = build_provider_formset()(data, queryset=Provider.objects.none(), prefix=PROVIDERS_FORMSET_PREFIX)
     assert not formset.is_valid()
     # ``slug`` is unique so Django's modelformset surfaces the duplicate before
@@ -198,7 +185,7 @@ def test_formset_ignores_unsaved_row_removed_from_dom():
         "is_enabled": "",
         "sort_order": "0",
     }
-    data = _formset_data([{}, empty_row])
+    data = formset_data(PROVIDERS_FORMSET_PREFIX, [{}, empty_row])
     formset = build_provider_formset()(data, queryset=Provider.objects.none(), prefix=PROVIDERS_FORMSET_PREFIX)
     assert formset.is_valid(), [f.errors for f in formset.forms]
 
@@ -450,18 +437,6 @@ class TestTelegramForm:
         assert set(form.fields) == {"telegram_enabled", "telegram_bot_token"}
 
 
-def model_map_data(prefix: str, rows: list[dict], *, initial: int = 0) -> dict[str, str]:
-    data = {
-        f"{prefix}-TOTAL_FORMS": str(len(rows)),
-        f"{prefix}-INITIAL_FORMS": str(initial),
-        f"{prefix}-MIN_NUM_FORMS": "0",
-        f"{prefix}-MAX_NUM_FORMS": "1000",
-    }
-    for index, row in enumerate(rows):
-        data.update({f"{prefix}-{index}-{field}": value for field, value in row.items()})
-    return data
-
-
 @pytest.fixture
 def usable_openai(db):
     provider = Provider.objects.get(slug="openai")
@@ -475,7 +450,7 @@ def usable_openai(db):
 class TestSkillModelsFormset:
     def _formset(self, rows: list[dict], *, initial: int = 0):
         return build_model_map_formset(
-            "skills", data=model_map_data(SKILL_MODELS_FORMSET_PREFIX, rows, initial=initial), initial=[]
+            SKILL_MODELS, data=formset_data(SKILL_MODELS.prefix, rows, initial=initial), stored={}
         )
 
     def test_valid_rows_fold_into_the_map(self, usable_openai):
@@ -541,11 +516,9 @@ class TestSkillModelsFormset:
 
     def test_an_untouched_stored_row_is_kept(self, usable_openai):
         formset = build_model_map_formset(
-            "skills",
-            data=model_map_data(
-                SKILL_MODELS_FORMSET_PREFIX, [{"name": "code-review", "model": "openai:gpt-5.4"}], initial=1
-            ),
-            initial=[{"name": "code-review", "model": "openai:gpt-5.4"}],
+            SKILL_MODELS,
+            data=formset_data(SKILL_MODELS.prefix, [{"name": "code-review", "model": "openai:gpt-5.4"}], initial=1),
+            stored={"code-review": "openai:gpt-5.4"},
         )
 
         assert formset.is_valid(), formset.errors
@@ -561,9 +534,7 @@ class TestSkillModelsFormset:
 @pytest.mark.django_db
 class TestSubagentModelsFormset:
     def _formset(self, rows: list[dict]):
-        return build_model_map_formset(
-            "subagents", data=model_map_data(SUBAGENT_MODELS_FORMSET_PREFIX, rows), initial=[]
-        )
+        return build_model_map_formset(SUBAGENT_MODELS, data=formset_data(SUBAGENT_MODELS.prefix, rows), stored={})
 
     def test_valid_rows_fold_into_the_map(self, usable_openai):
         formset = self._formset([{"name": "cr-security", "model": "openai:gpt-5.4"}])
@@ -579,9 +550,9 @@ class TestSubagentModelsFormset:
 
     def test_explore_is_only_reserved_for_subagents(self, usable_openai):
         formset = build_model_map_formset(
-            "skills",
-            data=model_map_data(SKILL_MODELS_FORMSET_PREFIX, [{"name": "explore", "model": "openai:gpt-5.4"}]),
-            initial=[],
+            SKILL_MODELS,
+            data=formset_data(SKILL_MODELS.prefix, [{"name": "explore", "model": "openai:gpt-5.4"}]),
+            stored={},
         )
 
         assert formset.is_valid(), formset.errors

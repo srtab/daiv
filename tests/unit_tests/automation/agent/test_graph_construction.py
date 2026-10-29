@@ -297,10 +297,11 @@ async def test_skills_run_on_the_runs_skill_map_and_report_to_its_notices():
     notices = MagicMock(aflush=AsyncMock())
     built = await _construct(site={"agent_skill_models": {"code-review": "fake:review"}}, notices=notices)
 
-    kwargs = built.skills_middleware.call_args.kwargs
-    assert (kwargs["configured_models"], kwargs["run_model_spec"], kwargs["notices"]) == (
+    models = built.skills_middleware.call_args.kwargs["configured_models"]
+    assert (models.target, models.entries, models.chain, models.notices) == (
+        "skill",
         {"code-review": "fake:review"},
-        "site-model",
+        built.settings.agent,
         notices,
     )
 

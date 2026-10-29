@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypedDict
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 from urllib.parse import urlparse
 
 from django import forms
 from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
+from automation.agent.constants import EXPLORE_NAME
 from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, parse_model_spec
 from core.models import (
     THINKING_OFF,
@@ -197,16 +200,13 @@ class _AgentPickerWidget(forms.Widget):
 def model_spec_error(model_spec: str) -> str | None:
     """Why ``model_spec`` cannot be used: no enabled Provider row with an API key serves it; ``None`` when one does."""
     try:
-        slug = parse_model_spec(model_spec).row.slug
+        row = parse_model_spec(model_spec).row
     except ValueError:
         return _("Unsupported model: %(m)s.") % {"m": model_spec}
-    row = Provider.get_cached_by_slug().get(slug)
-    if row is None:
-        return _("Provider '%(s)s' is not configured.") % {"s": slug}
     if not row.is_enabled:
-        return _("Provider '%(s)s' is disabled. Enable it in the Providers section.") % {"s": slug}
+        return _("Provider '%(s)s' is disabled. Enable it in the Providers section.") % {"s": row.slug}
     if row.api_key is None:
-        return _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": slug}
+        return _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": row.slug}
     return None
 
 
@@ -602,9 +602,24 @@ class SiteConfigurationForm(forms.ModelForm):
         return labels.get(name, "")
 
 
-SKILL_MODELS_FORMSET_PREFIX = "skill_models"
-SUBAGENT_MODELS_FORMSET_PREFIX = "subagent_models"
-ModelMapKind = Literal["skills", "subagents"]
+@dataclass(frozen=True)
+class ModelMap:
+    """A ``{name: model spec}`` map of the Agent group: the ``SiteConfiguration`` field it saves to, its formset prefix,
+    the ``<datalist>`` that suggests its names, and the names it refuses, with why."""
+
+    site_field: str
+    prefix: str
+    names_id: str
+    reserved_names: Mapping[str, str] = MappingProxyType({})
+
+
+SKILL_MODELS = ModelMap(site_field="agent_skill_models", prefix="skill_models", names_id="skill-model-names")
+SUBAGENT_MODELS = ModelMap(
+    site_field="agent_subagent_models",
+    prefix="subagent_models",
+    names_id="subagent-model-names",
+    reserved_names=MappingProxyType({EXPLORE_NAME: _("Explore keeps its own model: set the explore model above.")}),
+)
 
 
 class ModelMapRowForm(forms.Form):
@@ -653,34 +668,17 @@ class _ModelMapFormset(forms.BaseFormSet):
             seen.add(name)
 
 
-_MODEL_MAP_PREFIXES: dict[ModelMapKind, str] = {
-    "skills": SKILL_MODELS_FORMSET_PREFIX,
-    "subagents": SUBAGENT_MODELS_FORMSET_PREFIX,
-}
-
-
 def build_model_map_formset(
-    kind: ModelMapKind, *, data: Mapping[str, Any] | None, initial: list[dict[str, str]]
+    model_map: ModelMap, *, data: Mapping[str, Any] | None, stored: Mapping[str, str]
 ) -> _ModelMapFormset:
-    """The rows of one model map, bound to ``data`` when given; ``initial`` holds the stored ``{name, model}`` rows."""
-    from automation.agent.constants import EXPLORE_NAME
-
-    reserved = (
-        {EXPLORE_NAME: _("Explore keeps its own model: set the explore model above.")} if kind == "subagents" else {}
-    )
+    """``model_map``'s rows, from its ``stored`` map; bound to ``data`` only when ``data`` posts them."""
     formset_class = forms.formset_factory(ModelMapRowForm, formset=_ModelMapFormset, extra=0, can_delete=True)
-    prefix = _MODEL_MAP_PREFIXES[kind]
     return formset_class(
-        data,
-        initial=initial,
-        prefix=prefix,
-        form_kwargs={"reserved_names": reserved, "name_list": model_map_names_id(kind)},
+        data if data is not None and f"{model_map.prefix}-TOTAL_FORMS" in data else None,
+        initial=[{"name": name, "model": spec} for name, spec in stored.items()],
+        prefix=model_map.prefix,
+        form_kwargs={"reserved_names": model_map.reserved_names, "name_list": model_map.names_id},
     )
-
-
-def model_map_names_id(kind: ModelMapKind) -> str:
-    """The id of the ``<datalist>`` that suggests names for ``kind``'s rows."""
-    return f"{kind[:-1]}-model-names"
 
 
 def model_map_from_formset(formset: _ModelMapFormset) -> dict[str, str]:

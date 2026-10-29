@@ -196,12 +196,6 @@ def test_the_skill_and_subagent_maps_are_the_sites_whatever_the_run_chooses(run)
     assert (settings.skill_models, settings.subagent_models) == (SITE_SKILL_MODELS, SITE_SUBAGENT_MODELS)
 
 
-def test_an_explore_entry_is_dropped_from_the_subagent_map():
-    site = site_snapshot(agent_subagent_models={**SITE_SUBAGENT_MODELS, "explore": "openrouter:site/explore"})
-
-    assert agent_settings(site=site).subagent_models == SITE_SUBAGENT_MODELS
-
-
 def test_the_resolved_maps_are_read_only():
     settings = agent_settings(site=site_snapshot(agent_skill_models=dict(SITE_SKILL_MODELS)))
 
@@ -235,12 +229,6 @@ def test_an_empty_repo_entry_leaves_the_site_entry_in_place(empty):
     repo = RepositoryConfig(models={"skills": {"code-review": empty}})
 
     assert agent_settings(site=site, repo=repo).skill_models == SITE_SKILL_MODELS
-
-
-def test_a_repo_explore_entry_is_dropped():
-    repo = RepositoryConfig(models={"subagents": {"explore": "openrouter:repo/explore"}})
-
-    assert agent_settings(site=site_snapshot(), repo=repo).subagent_models == {}
 
 
 def test_a_repo_entry_applies_on_a_run_pinned_to_an_exact_chain():

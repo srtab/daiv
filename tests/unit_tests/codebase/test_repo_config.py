@@ -79,17 +79,17 @@ def test_pipeline_watch_a_repo_can_tighten_the_attempt_cap():
     assert config.pipeline_watch.enabled is True
 
 
-def test_skill_and_subagent_models_load_as_name_to_spec_maps():
+def test_skill_and_subagent_models_load_as_name_to_spec_maps_without_unset_entries():
     from codebase.repo_config import RepositoryConfig
 
     config = RepositoryConfig(
         models={
             "skills": {"code-review": "openrouter:anthropic/claude-sonnet-5.5", "plan": None},
-            "subagents": {"cr-security": "openrouter:anthropic/claude-opus-5.5"},
+            "subagents": {"cr-security": "openrouter:anthropic/claude-opus-5.5", "cr-tests": ""},
         }
     )
 
-    assert config.models.skills == {"code-review": "openrouter:anthropic/claude-sonnet-5.5", "plan": None}
+    assert config.models.skills == {"code-review": "openrouter:anthropic/claude-sonnet-5.5"}
     assert config.models.subagents == {"cr-security": "openrouter:anthropic/claude-opus-5.5"}
 
 
