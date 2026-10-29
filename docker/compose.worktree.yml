@@ -1,0 +1,76 @@
+# Layered on docker-compose.yml in a git worktree only, through COMPOSE_FILE in the slot's .env
+# (written by docker/local/stack). See "Worktree stacks" in CONTRIBUTING.md.
+
+x-worktree-app: &worktree_app
+  # A worktree's containers outlive the worktree; restarting them would recreate its folder as root.
+  restart: "no"
+  depends_on: !override
+    redis:
+      condition: service_healthy
+  environment:
+    DB_NAME: db_${WORKTREE_SLOT:?run make up}
+    DJANGO_REDIS_URL: redis://worktree-redis:6379/0
+    DJANGO_REDIS_SESSION_URL: redis://worktree-redis:6379/1
+    DJANGO_REDIS_CHECKPOINT_URL: redis://worktree-redis:6379/0
+    DJANGO_SESSION_COOKIE_NAME: __Secure-sessionid-${WORKTREE_SLOT}
+    DAIV_EXTERNAL_URL: http://localhost:${APP_HOST_PORT}
+    APP_TLS: "false"
+
+services:
+  db:
+    profiles: [main-checkout]
+
+  mailpit:
+    profiles: [main-checkout]
+
+  gitlab:
+    profiles: !override [main-checkout]
+
+  gitlab_runner:
+    profiles: !override [main-checkout]
+
+  sandbox:
+    profiles: !override [main-checkout]
+
+  smee:
+    profiles: !override [main-checkout]
+
+  # Its own Redis: the checkpointer's search indexes only exist on database 0.
+  redis:
+    container_name: !reset null
+    restart: "no"
+    ports: !reset []
+    volumes: !override
+      - redis-data:/data
+    networks:
+      default:
+        aliases: [worktree-redis]
+
+  app:
+    <<: *worktree_app
+    container_name: !reset null
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/-/alive/"]
+
+  worker:
+    <<: *worktree_app
+    deploy:
+      replicas: 1
+
+  worker-interactive:
+    <<: *worktree_app
+
+  scheduler:
+    <<: *worktree_app
+    container_name: !reset null
+    # Off unless asked for: its webhook cron would point new GitLab projects at this slot.
+    profiles: [scheduler]
+
+volumes:
+  redis-data:
+
+# The slot's own network; docker/local/stack attaches the containers to daiv_default by
+# container name only, so the main checkout's `app` and `redis` keep resolving to its own.
+networks:
+  default:
+    name: !reset null

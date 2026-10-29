@@ -1,0 +1,131 @@
+#!/bin/bash
+#
+# Starts this checkout's stack; a git worktree gets its own app, workers, Redis and database copy
+# on port 8000 + its slot. See "Worktree stacks" in CONTRIBUTING.md.
+
+set -euo pipefail
+
+command=${1:?usage: stack up|env|db-reset|hook}
+
+# A worktree session runs its hooks in the main checkout; the session's own folder is the input's cwd.
+if [ "$command" = hook ]; then
+    if [ "${CLAUDE_CODE_REMOTE:-}" != true ]; then
+        folder=$(python3 -c 'import json, sys; print(json.load(sys.stdin)["cwd"])' 2>/dev/null) &&
+            root=$(git -C "$folder" rev-parse --show-toplevel 2>/dev/null) &&
+            [ -x "$root/docker/local/stack" ] &&
+            "$root/docker/local/stack" env >&2 || true
+    fi
+    exit 0
+fi
+
+cd -P "$(dirname "$0")/../.."
+common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
+launch=.claude/launch.json
+shared_network=daiv_default
+
+write_launch() {
+    if [ ! -f "$launch" ]; then
+        mkdir -p .claude
+        cat >"$launch" <<EOF
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "daiv",
+      "runtimeExecutable": "docker/local/stack",
+      "runtimeArgs": ["up"],
+      "port": $1,
+      "autoPort": false
+    }
+  ]
+}
+EOF
+    fi
+}
+
+if [ "$(git rev-parse --path-format=absolute --git-dir)" = "$common_dir" ]; then
+    case $command in
+        db-reset)
+            echo "make db-reset runs only in a worktree: here it would drop the main database" >&2
+            exit 1
+            ;;
+        env)
+            exit
+            ;;
+    esac
+    exec docker compose up
+fi
+
+main=$(dirname "$common_dir")
+secrets=docker/local/app/config.secrets.env
+
+port_in_use() {
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+}
+
+claim_slot() {
+    local claimed n
+    if command -v flock >/dev/null; then
+        exec 9>"$common_dir/daiv-stack-slot.lock"
+        flock 9
+    fi
+    claimed=$(git worktree list --porcelain | sed -n 's/^worktree //p' | while read -r path; do
+        sed -n 's/^WORKTREE_SLOT=//p' "$path/.env" 2>/dev/null || true
+    done)
+    for n in $(seq 1 99); do
+        if grep -qx "$n" <<<"$claimed" || port_in_use $((8000 + n)); then
+            continue
+        fi
+        cat >.env <<EOF
+COMPOSE_PROJECT_NAME=daiv-$n
+COMPOSE_FILE=docker-compose.yml:docker/compose.worktree.yml
+WORKTREE_SLOT=$n
+APP_HOST_PORT=$((8000 + n))
+EOF
+        return
+    done
+    echo "Every slot from 1 to 99 is claimed or has its port in use" >&2
+    exit 1
+}
+
+shared() {
+    docker compose --project-directory "$main" "$@"
+}
+
+[ -f .env ] || claim_slot
+
+slot=$(sed -n 's/^WORKTREE_SLOT=//p' .env)
+if ! [[ $slot =~ ^[1-9][0-9]?$ ]]; then
+    echo ".env holds no WORKTREE_SLOT from 1 to 99" >&2
+    exit 1
+fi
+database=db_$slot
+
+write_launch "$(sed -n 's/^APP_HOST_PORT=//p' .env)"
+if [ "$command" = env ]; then
+    exit
+fi
+
+[ -f "$secrets" ] || cp "$main/$secrets" "$secrets" 2>/dev/null || cp "$secrets.example" "$secrets"
+
+shared up --detach --wait db mailpit
+
+# The copy's comment names the worktree it was made for, so a slot's next worktree never inherits it.
+copied_for=$(shared exec -T db psql -U dbuser -d postgres -tAc "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = '$database'")
+if [ "$command" = db-reset ] || [ "$copied_for" != "$PWD" ]; then
+    echo "Copying the main database into $database"
+    docker compose stop
+    # Tasks still queued in the main database would otherwise run a second time in this slot.
+    shared exec -T db sh -c "set -eo pipefail
+        dropdb -U dbuser --if-exists --force $database
+        createdb -U dbuser $database \"\$1\"
+        pg_dump -U dbuser -d db | psql -U dbuser -d $database -q -v ON_ERROR_STOP=1 >/dev/null || { dropdb -U dbuser $database; exit 1; }
+        psql -U dbuser -d $database -qc \"DELETE FROM django_tasks_database_dbtaskresult WHERE status = 'READY'\"" sh "$PWD"
+fi
+
+# Recreated on every run: the main checkout's stack may have recreated daiv_default under a new id.
+docker compose up --build --no-start --force-recreate
+for container in $(docker compose ps --all --quiet); do
+    docker network connect "$shared_network" "$container"
+done
+exec docker compose up
