@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
 from sessions.executor.lock import LiveRun, SessionActivity
 from sessions.models import CHAT_PROMPT_MAX_LENGTH, Run, RunArtifact, RunStatus, Session, SessionOrigin
-from sessions.transcript import RETRY_MESSAGE, annotate_transcript, expired_run_turns, retry_message
+from sessions.transcript import RETRY_MESSAGE, annotate_transcript, expired_run_turns, marker_id, retry_message
 from sessions.turns import build_turns
 
 from core.constants import (
@@ -42,6 +42,14 @@ def _run(
     started_at=None,
     finished_at=None,
     is_cancelled=False,
+    publish_status="",
+    publish_error="",
+    files_changed=None,
+    lines_added=None,
+    lines_removed=None,
+    merge_request_iid=None,
+    merge_request_web_url="",
+    code_changes=False,
 ):
     return SimpleNamespace(
         id=rid,
@@ -54,6 +62,14 @@ def _run(
         started_at=started_at,
         finished_at=finished_at,
         is_cancelled=is_cancelled,
+        publish_status=publish_status,
+        publish_error=publish_error,
+        files_changed=files_changed,
+        lines_added=lines_added,
+        lines_removed=lines_removed,
+        merge_request_iid=merge_request_iid,
+        merge_request_web_url=merge_request_web_url,
+        code_changes=code_changes,
     )
 
 
@@ -665,3 +681,187 @@ def test_retry_message_offers_nothing_for_a_stopped_run_or_one_a_chat_turn_canno
 
 def test_retry_message_offers_nothing_without_runs():
     assert retry_message([], []) == ""
+
+
+def test_opened_result_is_stamped_on_the_runs_last_turn():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            publish_status="opened",
+            merge_request_iid=1832,
+            merge_request_web_url="https://git/mr/1832",
+            lines_added=16,
+            lines_removed=4,
+            files_changed=3,
+        )
+    ]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert result[-1]["publish"] == [
+        {
+            "status": "opened",
+            "merge_request_iid": 1832,
+            "merge_request_web_url": "https://git/mr/1832",
+            "files_changed": 3,
+            "lines_added": 16,
+            "lines_removed": 4,
+            "error": "",
+        }
+    ]
+    assert "publish" not in result[0]
+
+
+def test_failed_publish_replaces_the_generic_marker_with_its_own_message():
+    runs = [
+        _run("r1", message_id="h1", status=RunStatus.FAILED, publish_status="failed", publish_error="push_rejected")
+    ]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert all(t.get("role") != "run_status" for t in result)
+    (entry,) = result[-1]["publish"]
+    assert (entry["status"], entry["error"]) == ("failed", "The push was rejected")
+    assert entry["id"] == marker_id(runs[0])
+    assert entry["lines_added"] is None
+
+
+def test_published_then_failed_keeps_the_result_and_the_marker():
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, publish_status="pushed", merge_request_iid=7)]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert result[-1]["role"] == "run_status"
+    assert [p["status"] for p in result[-2]["publish"]] == ["pushed"]
+    assert "id" not in result[-2]["publish"][0]
+
+
+def test_not_published_result_carries_its_error():
+    runs = [_run("r1", message_id="h1", publish_status="not_published", publish_error="conflicts")]
+
+    (entry,) = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
+
+    assert (entry["status"], entry["error"]) == ("not_published", "Merge conflicts are left in the changed files")
+
+
+def test_failed_publish_with_a_recovered_draft_shows_red_then_opened():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            status=RunStatus.FAILED,
+            publish_status="failed",
+            publish_error="mr_failed",
+            code_changes=True,
+            merge_request_iid=9,
+            merge_request_web_url="https://git/mr/9",
+            files_changed=2,
+            lines_added=5,
+            lines_removed=1,
+        )
+    ]
+
+    red, draft = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
+
+    assert (red["status"], red["lines_added"], red["id"]) == ("failed", None, marker_id(runs[0]))
+    assert (draft["status"], draft["merge_request_iid"], draft["files_changed"], draft["error"]) == ("opened", 9, 2, "")
+    assert "id" not in draft
+
+
+def test_failed_publish_on_a_run_that_already_had_an_mr_shows_only_the_red_entry():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            status=RunStatus.FAILED,
+            publish_status="failed",
+            publish_error="push_rejected",
+            merge_request_iid=9,
+        )
+    ]
+
+    publish = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
+
+    assert [p["status"] for p in publish] == ["failed"]
+
+
+def test_old_runs_get_no_result():
+    result = annotate_transcript([_user("h1"), _assistant("a1")], [_run("r1", message_id="h1")])
+
+    assert all("publish" not in t for t in result)
+
+
+def test_a_run_without_an_assistant_turn_gets_a_carrier_turn_never_the_user_turn():
+    runs = [_run("r1", message_id="h1", publish_status="pushed")]
+
+    result = annotate_transcript([_user("h1")], runs)
+
+    assert "publish" not in result[0]
+    assert result[-1]["id"] == "run-r1-publish"
+    assert result[-1]["role"] == "assistant"
+    assert result[-1]["segments"] == []
+    assert result[-1]["publish"][0]["status"] == "pushed"
+
+
+def test_a_rebuilt_failed_run_carries_its_result_on_a_rebuilt_carrier_turn():
+    runs = [
+        _run(
+            "r1",
+            status=RunStatus.FAILED,
+            message_id="gone",
+            prompt="fix it",
+            publish_status="failed",
+            publish_error="unknown",
+        )
+    ]
+
+    result = annotate_transcript([], runs)
+
+    assert [t["role"] for t in result] == ["user", "assistant"]
+    assert "publish" not in result[0]
+    assert result[1]["rebuilt"] is True
+    assert result[1]["publish"][0]["error"] == "Couldn't publish the changes"
+
+
+def test_a_rebuilt_run_that_published_then_failed_puts_the_result_before_its_marker():
+    runs = [_run("r1", status=RunStatus.FAILED, message_id="gone", prompt="fix it", publish_status="opened")]
+
+    result = annotate_transcript([], runs)
+
+    assert [t["role"] for t in result] == ["user", "assistant", "run_status"]
+    assert "publish" not in result[2]
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_stamp_the_result_on_the_artifacts_turn():
+    session = _db_session()
+    run = _db_run(session, publish_status="opened", merge_request_iid=4, lines_added=2)
+    make_artifact(run, filename="report.md")
+
+    (turn,) = expired_run_turns([run], [])
+
+    assert turn["id"] == f"run-{run.id}-artifacts"
+    assert turn["publish"][0]["merge_request_iid"] == 4
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_add_a_carrier_turn_for_a_result_without_artifacts():
+    session = _db_session()
+    run = _db_run(session, prompt="do it", publish_status="pushed")
+
+    result = expired_run_turns([run], [])
+
+    assert [t["role"] for t in result] == ["user", "assistant"]
+    assert "publish" not in result[0]
+    assert result[1]["id"] == f"run-{run.id}-publish"
+    assert result[1]["publish"][0]["status"] == "pushed"
+
+
+def test_retry_stays_offered_on_a_failed_publish_run_and_its_red_entry_is_the_retry_anchor():
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, publish_status="failed", publish_error="mr_failed")]
+
+    turns = annotate_transcript([_user("h1", "fix it"), _assistant("a1")], runs)
+
+    assert retry_message(turns, runs) == RETRY_MESSAGE
+    assert turns[-1]["publish"][0]["id"] == marker_id(runs[0])

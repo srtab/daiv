@@ -22,7 +22,14 @@ from core.constants import (
 )
 from sessions.artifacts import published_tool_result
 from sessions.executor.lock import SessionActivity
-from sessions.models import CHAT_PROMPT_MAX_LENGTH, RunArtifact, RunStatus, SessionOrigin
+from sessions.models import (
+    CHAT_PROMPT_MAX_LENGTH,
+    PublishErrorKind,
+    PublishStatus,
+    RunArtifact,
+    RunStatus,
+    SessionOrigin,
+)
 from sessions.turns import tool_call_segment
 
 if TYPE_CHECKING:
@@ -72,6 +79,53 @@ def marker_id(run: Run) -> str:
     return f"run-status-{run.id}"
 
 
+def _publish_entry(run: Run, status: str, *, error: str = "", with_mr: bool = True) -> dict[str, Any]:
+    return {
+        "status": str(status),
+        "merge_request_iid": run.merge_request_iid if with_mr else None,
+        "merge_request_web_url": (run.merge_request_web_url or "") if with_mr else "",
+        "files_changed": run.files_changed if with_mr else None,
+        "lines_added": run.lines_added if with_mr else None,
+        "lines_removed": run.lines_removed if with_mr else None,
+        "error": error,
+    }
+
+
+def _publish_error(run: Run) -> str:
+    if not run.publish_error:
+        return ""
+    try:
+        kind = PublishErrorKind(run.publish_error)
+    except ValueError:
+        kind = PublishErrorKind.UNKNOWN
+    return str(kind.label)
+
+
+def _publish_entries(run: Run) -> list[dict[str, Any]]:
+    """The entries of ``run``'s publish result; a failed publish is the red line and carries the retry anchor."""
+    if not run.publish_status:
+        return []
+    if run.publish_status == PublishStatus.FAILED:
+        red = _publish_entry(run, run.publish_status, error=_publish_error(run), with_mr=False)
+        entries = [{"id": marker_id(run), **red}]
+        if run.code_changes and run.merge_request_iid:
+            entries.append(_publish_entry(run, PublishStatus.OPENED))
+        return entries
+    return [_publish_entry(run, run.publish_status, error=_publish_error(run))]
+
+
+def _stamp_publish(run_turns: list[dict[str, Any]], run: Run) -> None:
+    """Stamp ``run``'s publish result on its last assistant turn, appending an empty one to carry it when none."""
+    entries = _publish_entries(run)
+    if not entries:
+        return
+    carrier = next((turn for turn in reversed(run_turns) if turn.get("role") == "assistant"), None)
+    if carrier is None:
+        carrier = {"id": f"run-{run.id}-publish", "role": "assistant", "segments": []}
+        run_turns.append(carrier)
+    carrier["publish"] = entries
+
+
 def _stamp_prompt_times(user_turn: dict[str, Any], run: Run) -> None:
     """Stamp ``sent_at`` (creation time) and ``started_at`` (execution start) on ``run``'s prompt turn."""
     if run.created_at is not None:
@@ -117,7 +171,13 @@ def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     """A run that produced no visible user turn. Recover a FAILED run's prompt as a
     user turn plus its marker, flagged ``rebuilt``; a non-failed run with no turn contributes nothing."""
     marker = _marker(run)
-    return [] if marker is None else [{**turn, "rebuilt": True} for turn in (*_prompt_turns(run), marker)]
+    if marker is None:
+        return []
+    run_turns = _prompt_turns(run)
+    _stamp_publish(run_turns, run)
+    if run.publish_status != PublishStatus.FAILED:
+        run_turns.append(marker)
+    return [{**turn, "rebuilt": True} for turn in run_turns]
 
 
 def _anchor(run_turns: list[dict[str, Any]], run: Run) -> list[dict[str, Any]]:
@@ -198,9 +258,10 @@ def annotate_transcript(
         _stamp_run_times(owned, run)
         if owned[0].get("role") == "user":
             _mark_author(owned[0], run)
+        _stamp_publish(owned, run)
         result.extend(owned)
         cursor = matched + 1
-        if (marker := _marker(run)) is not None:
+        if run.publish_status != PublishStatus.FAILED and (marker := _marker(run)) is not None:
             result.append(marker)
 
     # Flush trailing segments with no owning run.
@@ -234,6 +295,8 @@ def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[
             run_turns.append({"id": f"run-{run.id}-artifacts", "role": "assistant", "segments": by_run[run.id]})
         if unshown:
             _stamp_run_times(run_turns, run)
+        _stamp_publish(run_turns, run)
+        if unshown:
             _anchor(run_turns, run)
         result.extend(run_turns)
     return result

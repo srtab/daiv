@@ -9,6 +9,7 @@ import pytest
 from sessions.header import build_session_header, issue_link, latest_run_payload, retry_for, watch_payload
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import watch_thread_id
+from sessions.transcript import annotate_transcript
 
 from codebase.base import GitPlatform
 from codebase.models import RepositoryCatalog
@@ -229,3 +230,15 @@ def test_build_session_header_reads_the_watch_of_the_checkpoints_merge_request()
     header = build_session_header(session, [], retry="", merge_request={"id": 7})
 
     assert header["watch"]["state"] == WatchState.GREEN
+
+
+@pytest.mark.django_db
+def test_latest_marker_id_names_the_red_publish_entry_of_a_failed_publish_run():
+    session = _session()
+    run = _run(session, status=RunStatus.FAILED, publish_status="failed", publish_error="mr_failed", message_id="h1")
+    turns = [{"id": "h1", "role": "user", "segments": []}, {"id": "a1", "role": "assistant", "segments": []}]
+
+    annotated = annotate_transcript(turns, [run])
+    payload = latest_run_payload([run], "again")
+
+    assert annotated[-1]["publish"][0]["id"] == payload["marker_id"]
