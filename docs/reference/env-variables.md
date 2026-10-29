@@ -322,6 +322,12 @@ The `publish_artifact` tool stores files the agent generates (reports, datasets,
 | `DAIV_ARTIFACT_MAX_BYTES`       | Maximum size of one published file, in bytes (at most 64 MiB, the sandbox download limit) | `10485760` (10 MiB) | `52428800` |
 | `DAIV_ARTIFACTS_PER_RUN_MAX`    | Maximum number of files one run may publish                    | `20`           | `50` |
 
+### Session Transcript
+
+| Variable                        | Description                                                    | Default        | Example |
+|---------------------------------|----------------------------------------------------------------|:--------------:|---------|
+| `DAIV_SHOW_RAW_TOOL_DATA`       | Show each tool call's raw arguments and result in a closed **Raw** section of the call's details in the session transcript (env-only) | *(follows `DJANGO_DEBUG`)* | `true` |
+
 ### MCP Tools
 
 MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality. MCP servers are configured as database rows at `/dashboard/mcp-servers/` and connected to directly by the DAIV app — no sidecar containers are required.
