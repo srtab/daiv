@@ -107,16 +107,16 @@ Every git worktree can run its own app next to the main checkout's. A worktree c
 |---|---|---|
 | Compose project | `daiv` | `daiv-<n>` |
 | App | `https://localhost:8000` | `http://localhost:<8000+n>`: plain HTTP, since Claude Code's browser pane refuses the self-signed certificate |
-| Workers | `worker` ×2, `worker-interactive`, `scheduler` | `worker`, `worker-interactive`; `scheduler` only with `COMPOSE_PROFILES=scheduler` in `.env` |
-| Postgres database | `db` | `db_<n>`, a copy of `db` made on the first `make up` |
+| Workers | `worker` ×2, `worker-interactive`, `scheduler` | `worker`, `worker-interactive`; `scheduler` only with `COMPOSE_PROFILES=scheduler` in `.env`, and it then runs the copied schedules |
+| Postgres database | `db` | `db_<n>`, a copy of `db` made on the first `make up`, without the rows of the unused `checkpoint*` tables |
 | Redis | `daiv-redis` | its own, in the volume `daiv-<n>_redis-data` |
 | Postgres, mailpit, GitLab, sandbox | runs them | uses the main checkout's |
 
 The app migrates its copy on start, so a branch's migrations never touch `db`.
 
 ```bash
-make up            # claim a slot, copy the database the first time, start the stack
-make db-reset      # copy db into this slot again, then start
+make up            # start this checkout's stack
+make db-reset      # copy db again, then start
 docker compose down -v   # stop the slot and drop its Redis; do this before removing the worktree
 ```
 

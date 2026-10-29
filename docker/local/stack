@@ -20,28 +20,6 @@ fi
 
 cd -P "$(dirname "$0")/../.."
 common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
-launch=.claude/launch.json
-shared_network=daiv_default
-
-write_launch() {
-    if [ ! -f "$launch" ]; then
-        mkdir -p .claude
-        cat >"$launch" <<EOF
-{
-  "version": "0.0.1",
-  "configurations": [
-    {
-      "name": "daiv",
-      "runtimeExecutable": "docker/local/stack",
-      "runtimeArgs": ["up"],
-      "port": $1,
-      "autoPort": false
-    }
-  ]
-}
-EOF
-    fi
-}
 
 if [ "$(git rev-parse --path-format=absolute --git-dir)" = "$common_dir" ]; then
     case $command in
@@ -101,12 +79,28 @@ if ! [[ $slot =~ ^[1-9][0-9]?$ ]]; then
 fi
 database=db_$slot
 
-write_launch "$(sed -n 's/^APP_HOST_PORT=//p' .env)"
+if [ ! -f .claude/launch.json ]; then
+    mkdir -p .claude
+    cat >.claude/launch.json <<EOF
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "daiv",
+      "runtimeExecutable": "docker/local/stack",
+      "runtimeArgs": ["up"],
+      "port": $((8000 + slot)),
+      "autoPort": false
+    }
+  ]
+}
+EOF
+fi
 if [ "$command" = env ]; then
     exit
 fi
 
-[ -f "$secrets" ] || cp "$main/$secrets" "$secrets" 2>/dev/null || cp "$secrets.example" "$secrets"
+[ -f "$secrets" ] || cp "$main/$secrets" "$secrets"
 
 shared up --detach --wait db mailpit
 
@@ -115,17 +109,21 @@ copied_for=$(shared exec -T db psql -U dbuser -d postgres -tAc "SELECT shobj_des
 if [ "$command" = db-reset ] || [ "$copied_for" != "$PWD" ]; then
     echo "Copying the main database into $database"
     docker compose stop
+    # The checkpoint* tables belong to the retired Postgres checkpointer: most of db, read by nothing.
     # Tasks still queued in the main database would otherwise run a second time in this slot.
+    drop_queued="UPDATE agent_sessions_run SET task_result_id = NULL WHERE task_result_id IN (SELECT id FROM django_tasks_database_dbtaskresult WHERE status = 'READY'); DELETE FROM django_tasks_database_dbtaskresult WHERE status = 'READY'"
     shared exec -T db sh -c "set -eo pipefail
         dropdb -U dbuser --if-exists --force $database
         createdb -U dbuser $database \"\$1\"
-        pg_dump -U dbuser -d db | psql -U dbuser -d $database -q -v ON_ERROR_STOP=1 >/dev/null || { dropdb -U dbuser $database; exit 1; }
-        psql -U dbuser -d $database -qc \"DELETE FROM django_tasks_database_dbtaskresult WHERE status = 'READY'\"" sh "$PWD"
+        {
+            pg_dump -U dbuser -d db --exclude-table-data='checkpoint*' | psql -U dbuser -d $database -q -v ON_ERROR_STOP=1 >/dev/null &&
+                psql -U dbuser -d $database -qc \"$drop_queued\"
+        } || { dropdb -U dbuser $database; exit 1; }" sh "$PWD"
 fi
 
 # Recreated on every run: the main checkout's stack may have recreated daiv_default under a new id.
 docker compose up --build --no-start --force-recreate
 for container in $(docker compose ps --all --quiet); do
-    docker network connect "$shared_network" "$container"
+    docker network connect daiv_default "$container"
 done
 exec docker compose up

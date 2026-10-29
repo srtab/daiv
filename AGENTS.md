@@ -20,7 +20,7 @@ make lint           # check only (no fixes); CI gate
 make lint-typing    # ty, daiv/ only; CI gate. Runs on the full env (uv run syncs it)
 make lint-imports   # app layering contracts in .importlinter; part of lint and lint-fix
 make lint-design    # official design.md linter on DESIGN.md (npx, needs Node; not part of lint); fails on warnings too
-make up             # this checkout's stack; a git worktree gets its own on http://localhost:<8000+slot> (CONTRIBUTING.md "Worktree stacks"); preview_start "daiv" runs it
+make up             # this checkout's stack; in a git worktree, its own (CONTRIBUTING.md "Worktree stacks"); preview_start "daiv" runs it
 
 make integration-tests   # real LLM calls; needs docker/local/app/config.secrets.env (LLM key + GitLab creds). Runs -m "diff_to_metadata or memory"; DAIV_EVAL_REPEATS=1 for a fast local pass (not a gate).
 

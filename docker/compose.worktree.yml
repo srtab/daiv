@@ -63,7 +63,7 @@ services:
   scheduler:
     <<: *worktree_app
     container_name: !reset null
-    # Off unless asked for: its webhook cron would point new GitLab projects at this slot.
+    # Off unless asked for: it would run the copied schedules and hook new GitLab projects to this slot.
     profiles: [scheduler]
 
 volumes:
