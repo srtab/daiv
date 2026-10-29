@@ -16,7 +16,7 @@ pytestmark = requires_node
 
 
 def _row_seg(seg: dict, servers: list[str] | None = None) -> dict:
-    values = {"seg": seg, "ctx": {"mcpServers": servers or []}}
+    values = {"seg": seg, "ctx": {"mcpRows": [{"name": name} for name in servers or []]}}
     return run_transcript("toolRow(vars.seg, vars.ctx)", values, blocks=False)
 
 
@@ -82,8 +82,9 @@ def test_error_result_or_unanswered_call_is_failed(result, status):
     assert _row("grep", {"pattern": "x"}, result=result, status=status)["failed"] is True
 
 
-def test_delegate_jobs_result_is_not_judged_by_row():
-    assert _row("delegate_jobs", {}, result="error: nope")["failed"] is False
+def test_delegate_jobs_row_fails_on_an_error_text_as_its_body_says():
+    assert _row("delegate_jobs", {}, result="error: nope")["failed"] is True
+    assert "What went wrong" in _body("delegate_jobs", {}, result="error: nope")
 
 
 @pytest.mark.parametrize(
@@ -176,7 +177,7 @@ SESSION_PATH = "/dashboard/sessions/{thread_id}/"
 
 def _body_seg(seg: dict, *, show_raw: bool = False, servers: list[dict] | None = None, mr_url: str | None = None):
     rows = servers or []
-    ctx = {"mcpServers": [row["name"] for row in rows], "mcpRows": rows, "mergeRequestUrl": mr_url}
+    ctx = {"mcpRows": rows, "mergeRequestUrl": mr_url}
     expr = "toolBodyHTML(vars.seg, { ...vars.ctx, latestArtifactsById: new Map() })"
     labels = {"show_raw": show_raw, "session_path": SESSION_PATH}
     return run_transcript(expr, {"seg": seg, "ctx": ctx}, blocks=False, labels=labels, markdown=True)
@@ -805,7 +806,10 @@ def test_job_trace_opens_at_its_end_and_jumps_to_the_first_error():
     result = "setup\nerror: first\nERROR second\nTypeError: not marked\nend"
     html = _body("gitlab", {"subcommand": "project-job trace --id 3"}, result=result, id="call:1/x")
     assert '<div class="body-log"><div class="body-log-lines">' in html and html.count('class="lgl err"') == 2
-    assert html.count('id="log-err-call1x"') == 1 and '<a class="body-jump" href="#log-err-call1x">' in html
+    assert (
+        html.count('id="log-err-call1x"') == 1
+        and '<a class="body-jump chat-tool__link" href="#log-err-call1x">' in html
+    )
     assert re.search(r'class="lgl err" id="log-err-call1x">error: first<', html)
     assert '<div class="lgl">TypeError: not marked</div>' in html
 
@@ -1060,7 +1064,7 @@ def test_mcp_long_argument_is_cut_in_the_field_list_and_whole_under_show_all():
 
 def _mcp_row(name: str, rows: list[dict]) -> dict:
     seg = tool_call("c1", name, {"query": "x"}, result="ok")
-    ctx = {"mcpServers": [row["name"] for row in rows], "mcpRows": rows}
+    ctx = {"mcpRows": rows}
     return run_transcript("toolRow(vars.seg, vars.ctx)", {"seg": seg, "ctx": ctx}, blocks=False)
 
 

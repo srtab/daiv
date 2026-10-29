@@ -749,7 +749,6 @@
       // turn, a streamed `args` delta and a landed result all re-derive with no bookkeeping at the
       // mutation sites. `Alpine.effect`, not `$watch`: `$watch` compares the expression's
       // value, and a mutation inside `turns` leaves its identity alone.
-      const mcpServers = this.mcpCatalog.map((s) => s.name);
       const mcpRows = this.mcpCatalog;
       this._deriveTranscript = window.Alpine.effect(() => {
         const todos = findLatestTodos(this.turns);
@@ -765,7 +764,6 @@
           publishedBlocks = window.buildRunBlocks(this.turns, {
             inFlight: this.streaming || this.resuming || this.sessionLive,
             latestArtifactsById: publishedArtifactsById,
-            mcpServers,
             mcpRows,
             previous: publishedBlocks,
           });
@@ -1436,7 +1434,6 @@
     toolBodyHTML(seg) {
       if (!window.toolBodyHTML) return "";
       return window.toolBodyHTML(seg, {
-        mcpServers: this.mcpCatalog.map((s) => s.name),
         mcpRows: this.mcpCatalog,
         latestArtifactsById: this.latestArtifactsById,
         mergeRequestUrl: this.thread?.merge_request?.url ?? null,

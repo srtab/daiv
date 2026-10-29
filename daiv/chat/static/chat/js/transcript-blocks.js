@@ -37,26 +37,26 @@
     };
   };
 
-  const rowFor = memoBySeg(["args", "result", "status", "startedAt", "endedAt"], (seg, servers) =>
-    window.toolRow(seg, servers),
+  const rowFor = memoBySeg(["args", "result", "status", "startedAt", "endedAt"], (seg, ctx) =>
+    window.toolRow(seg, ctx),
   );
 
   const artifactFor = memoBySeg(["args", "result", "status"], (seg, latest) => window.artifactItem(seg, latest));
 
-  let lastServers = null;
-  let lastServersKey = null;
-  let lastServersId = 0;
+  let lastRows = null;
+  let lastRowsKey = null;
+  let lastRowsId = 0;
 
-  // By value, as a caller may rebuild the lists on every derive; the same lists skip stringifying their icon URIs.
-  const serversIdOf = ({ mcpServers, mcpRows }) => {
-    if (lastServers?.mcpServers === mcpServers && lastServers.mcpRows === mcpRows) return lastServersId;
-    lastServers = { mcpServers, mcpRows };
-    const key = JSON.stringify([mcpServers, mcpRows.map((row) => [row?.name, row?.icon, row?.read_only_tools])]);
-    if (key !== lastServersKey) {
-      lastServersKey = key;
-      lastServersId += 1;
+  // By value, as a caller may rebuild the list on every derive; the same list skips stringifying its icon URIs.
+  const rowsIdOf = (mcpRows) => {
+    if (mcpRows === lastRows) return lastRowsId;
+    lastRows = mcpRows;
+    const key = JSON.stringify(mcpRows.map((row) => [row?.name, row?.icon, row?.read_only_tools]));
+    if (key !== lastRowsKey) {
+      lastRowsKey = key;
+      lastRowsId += 1;
     }
-    return lastServersId;
+    return lastRowsId;
   };
 
   const sumKey = (key) => (`sum_${key}` in window.TranscriptLabels.defaults ? `sum_${key}` : "sum_other");
@@ -178,6 +178,15 @@
     return keys.every((k) => a[k] === b[k] || (Object.hasOwn(NESTED, k) && NESTED[k](a[k], b[k])));
   };
 
+  // A changed group keeps its unchanged steps' objects, so their open bodies are not rebuilt.
+  const reuseSteps = (prevSteps, steps) => {
+    const byKey = new Map(prevSteps.map((step) => [step.key, step]));
+    return steps.map((step) => {
+      const old = byKey.get(step.key);
+      return old && shallowSame(old, step) ? old : step;
+    });
+  };
+
   const reuseBlock = (prev, block) => {
     const prevItems = new Map(
       [...prev.items, ...prev.endingText, ...prev.cards, ...prev.endingTail].map((item) => [item.key, item]),
@@ -185,7 +194,9 @@
     const keep = (list, prevList) => {
       const next = list.map((item) => {
         const old = prevItems.get(item.key);
-        return old && sameItem(old, item) ? old : item;
+        if (!old) return item;
+        if (sameItem(old, item)) return old;
+        return old.steps && item.steps ? { ...item, steps: reuseSteps(old.steps, item.steps) } : item;
       });
       return sameList(next, prevList, identical) ? prevList : next;
     };
@@ -213,8 +224,8 @@
   };
 
   window.buildRunBlocks = (turns, opts = {}) => {
-    const servers = { mcpServers: opts.mcpServers ?? [], mcpRows: opts.mcpRows ?? [] };
-    const serversId = serversIdOf(servers);
+    const servers = { mcpRows: opts.mcpRows ?? [] };
+    const serversId = rowsIdOf(servers.mcpRows);
     const latest = opts.latestArtifactsById;
     const used = new Set();
     const claim = (base) => {

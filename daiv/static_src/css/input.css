@@ -2180,14 +2180,6 @@ html {
     font-size: 12.5px;
   }
 
-  .body-jump {
-    color: #93c5fd;
-  }
-
-  .body-jump:hover {
-    text-decoration: underline;
-  }
-
   .body-buttons {
     display: flex;
     flex-wrap: wrap;

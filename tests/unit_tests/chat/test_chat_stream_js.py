@@ -578,20 +578,14 @@ MR_URL = "https://g/x/-/merge_requests/1"
 def test_a_tool_body_gets_the_servers_the_artifacts_and_the_merge_request(mr, url):
     catalog = [{"name": "sentry", "read_only_tools": ["search_issues"], "icon": ""}]
     seen = run_chat_stream(CTX_BODY, {"catalog": catalog, "mr": mr}, extra_globals=GLOBALS)
-    assert seen == {
-        "seg": "c1",
-        "mcpServers": ["sentry"],
-        "mcpRows": catalog,
-        "latestArtifactsById": True,
-        "mergeRequestUrl": url,
-    }
+    assert seen == {"seg": "c1", "mcpRows": catalog, "latestArtifactsById": True, "mergeRequestUrl": url}
 
 
 ROWS_BODY = """
 const seen = [];
 const build = sandbox.window.buildRunBlocks;
 sandbox.window.buildRunBlocks = (turns, opts) => {
-  seen.push({ servers: opts.mcpServers, rows: opts.mcpRows });
+  seen.push(opts.mcpRows);
   return build(turns, opts);
 };
 const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
@@ -610,7 +604,7 @@ def test_the_run_blocks_get_the_mcp_server_rows():
     catalog = [{"name": "sentry", "read_only_tools": ["search_issues"], "icon": "https://x.test/a.png"}]
     payload = {"catalog": catalog, "turns": [user("u1"), asst("a1", read("c1"))]}
     seen = run_chat_stream(ROWS_BODY, payload, prelude=REACTIVITY, extra_globals=GLOBALS)
-    assert seen == {"servers": ["sentry"], "rows": catalog}
+    assert seen == catalog
 
 
 MR = SimpleNamespace(merge_request_id=7, web_url="https://git.example/mr/7")

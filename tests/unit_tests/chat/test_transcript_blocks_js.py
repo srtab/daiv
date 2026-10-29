@@ -26,9 +26,7 @@ from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
 
-BUILD = (
-    "buildRunBlocks(vars.turns, {inFlight: vars.inFlight, latestArtifactsById: new Map(), mcpServers: vars.servers})"
-)
+BUILD = "buildRunBlocks(vars.turns, {inFlight: vars.inFlight, latestArtifactsById: new Map(), mcpRows: vars.servers})"
 
 KEYS = """((blocks) => {
   const keys = [];
@@ -42,7 +40,8 @@ KEYS = """((blocks) => {
 
 
 def _blocks(turns, *, in_flight=False, servers=()):
-    return run_transcript(BUILD, {"turns": turns, "inFlight": in_flight, "servers": list(servers)})
+    rows = [{"name": name} for name in servers]
+    return run_transcript(BUILD, {"turns": turns, "inFlight": in_flight, "servers": rows})
 
 
 def _group_line(segs, servers=()):
@@ -215,9 +214,10 @@ def test_a_second_build_reuses_rows_of_unchanged_segments():
       const toolRow = window.toolRow;
       window.toolRow = (seg, ctx) => { calls++; return toolRow(seg, ctx); };
       const counts = [];
-      const build = (servers) => {
+      const build = (names) => {
         const before = calls;
-        buildRunBlocks(vars.turns, {inFlight: false, latestArtifactsById: new Map(), mcpServers: servers});
+        const mcpRows = names.map((name) => ({ name }));
+        buildRunBlocks(vars.turns, {inFlight: false, latestArtifactsById: new Map(), mcpRows});
         counts.push(calls - before);
       };
       build(["sentry"]);
@@ -237,7 +237,7 @@ def test_a_second_build_reuses_artifacts_and_group_lines_of_unchanged_segments()
       const artifactItem = window.artifactItem;
       window.artifactItem = (seg, latest) => { calls++; return artifactItem(seg, latest); };
       const latest = new Map();
-      const build = () => buildRunBlocks(vars.turns, {inFlight: true, latestArtifactsById: latest, mcpServers: []});
+      const build = () => buildRunBlocks(vars.turns, {inFlight: true, latestArtifactsById: latest, mcpRows: []});
       const first = build();
       const second = build();
       return [calls, first[0].items[0].line === second[0].items[0].line];
@@ -250,7 +250,7 @@ def test_a_text_segment_found_not_blank_is_not_read_again():
     expr = """(() => {
       let reads = 0;
       vars.turns[1].segments.push({ type: "text", get content() { reads++; return "Found it."; } });
-      for (let i = 0; i < 3; i++) buildRunBlocks(vars.turns, {inFlight: true, mcpServers: []});
+      for (let i = 0; i < 3; i++) buildRunBlocks(vars.turns, {inFlight: true, mcpRows: []});
       return reads;
     })()"""
     assert run_transcript(expr, {"turns": [user("u1"), asst("a1", read("c1"))]}) == 1
@@ -341,7 +341,7 @@ def test_a_question_the_agent_could_not_ask_carries_a_failed_row():
 
 REBUILD = """(() => {
   const build = (previous) =>
-    buildRunBlocks(vars.turns, {latestArtifactsById: new Map(), mcpServers: [], previous});
+    buildRunBlocks(vars.turns, {latestArtifactsById: new Map(), mcpRows: [], previous});
   const first = build();
   const again = build(first);
   vars.turns[3].segments[0].content += " more";
@@ -357,6 +357,19 @@ REBUILD = """(() => {
     liveStep: landed[1].items[1] === first[1].items[1],
   };
 })()"""
+
+
+def test_a_changed_group_keeps_the_objects_of_its_unchanged_steps():
+    expr = """(() => {
+      const build = (previous) => buildRunBlocks(vars.turns, {inFlight: true, mcpRows: [], previous});
+      const first = build();
+      vars.turns[1].segments[1].args = '{"file_path": "/workspace/repo/b.py"}';
+      const next = build(first);
+      const [before, after] = [first[0].items[0], next[0].items[0]];
+      return [after === before, after.steps.map((step, i) => step === before.steps[i])];
+    })()"""
+    turns = [user("u1"), asst("a1", read("c1"), read("c2", result=None, status="running"), streaming=True)]
+    assert run_transcript(expr, {"turns": turns}) == [False, [True, False]]
 
 
 def test_a_rebuild_keeps_every_block_and_item_that_did_not_change():
@@ -385,7 +398,7 @@ def test_a_changed_mcp_server_icon_or_read_only_list_re_derives_its_rows():
       const build = (icon, readOnly) => {
         const before = calls;
         const mcpRows = [{ name: "sentry", icon, read_only_tools: readOnly }];
-        const opts = { inFlight: false, latestArtifactsById: new Map(), mcpServers: ["sentry"], mcpRows };
+        const opts = { inFlight: false, latestArtifactsById: new Map(), mcpRows };
         const blocks = buildRunBlocks(vars.turns, opts);
         seen.push([calls - before, blocks[0].items[0].row.iconSrc]);
       };

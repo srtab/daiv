@@ -20,6 +20,7 @@ from django.urls import reverse
 from skills.models import GlobalSkill, SkillInvocation
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
+from automation.agent.constants import SKILLS_TOOL_NAME
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
     CANCELLED_BY_USER_MESSAGE,
@@ -368,7 +369,9 @@ def mark_skill_links(turns: list[dict[str, Any]], thread_id: str | UUID) -> None
         (segment, name)
         for turn in turns
         for segment in turn.get("segments", ())
-        if segment.get("type") == "tool_call" and segment.get("name") == "skill" and (name := _skill_name(segment))
+        if segment.get("type") == "tool_call"
+        and segment.get("name") == SKILLS_TOOL_NAME
+        and (name := _skill_name(segment))
     ]
     if not named:
         return
