@@ -1296,9 +1296,8 @@
 
   const FIELD_RE = /^([a-z_][a-z0-9_-]*):(?:[ \t]+(.*))?$/s;
 
-  // python-gitlab prints `key: value` lines, a nested object as `key:` over indented lines, and a blank line between
-  // objects (a value may itself run over several lines); gh prints `key:\tvalue` lines, then `--` and the body.
-  // Every line lands in a field, or the parse fails (null) so the caller shows the text instead.
+  // python-gitlab: `key: value` lines (a value may run on), a nested `key:` over indented lines, a blank line between
+  // objects; gh: `key:\tvalue` lines, `--`, then the body. A line no field takes fails the parse (null).
   const parseRecords = (lines, { body = false } = {}) => {
     const records = [];
     let field = null;
