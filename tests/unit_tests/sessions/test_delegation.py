@@ -15,6 +15,7 @@ from sessions.delegation import (
     STALLED_BATCH_WINDOW,
     SessionJobDelegator,
     adelegator_for,
+    leg_state,
     render_batch_summary,
     resume_coordinator,
     resume_stalled_batches,
@@ -969,3 +970,27 @@ def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
     assert summary.count("- Reply: none") == 2
     assert "this is not their answer" in summary
     assert f"/sessions/{legs[0].session_id}/" in summary
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("fields", "waits", "expected"),
+    [
+        ({"status": RunStatus.QUEUED}, False, "queued"),
+        ({"status": RunStatus.QUEUED}, True, "waits"),
+        ({"status": RunStatus.READY}, False, "queued"),
+        ({"status": RunStatus.RUNNING}, False, "running"),
+        ({"status": RunStatus.WAITING_INPUT}, False, "waiting_input"),
+        ({"status": RunStatus.SUCCESSFUL}, False, "finished"),
+        ({"status": RunStatus.FAILED}, False, "failed"),
+        ({"status": RunStatus.FAILED, "error_message": f"{LINK_FAILED_PREFIX}: x"}, False, "lost"),
+        ({"status": RunStatus.FAILED, "cancel_requested_at": timezone.now()}, False, "cancelled"),
+        ({"status": RunStatus.RUNNING, "cancel_requested_at": timezone.now()}, False, "stopping"),
+    ],
+)
+def test_leg_state(admin_user, fields, waits, expected):
+    coordinator = _coordinator(admin_user)
+    if waits:
+        fields = fields | {"waits_for": _delegating_run(coordinator, admin_user)}
+
+    assert leg_state(_leg(coordinator, uuid.uuid4(), **fields)) == expected

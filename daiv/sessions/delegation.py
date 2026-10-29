@@ -495,3 +495,28 @@ def _leg_outcome(leg: Run) -> str:
     if leg.status == RunStatus.FAILED and leg.error_message.startswith(LINK_FAILED_PREFIX):
         return "started, but DAIV lost track of it"
     return _OUTCOMES.get(leg.status, leg.status)
+
+
+NEEDS_YOU = frozenset({"waiting_input"})
+ACTIVE = frozenset({"queued", "waits", "running", "stopping"})
+FAILED = frozenset({"failed", "lost"})
+
+_LEG_STATES = {
+    RunStatus.RUNNING: "running",
+    RunStatus.WAITING_INPUT: "waiting_input",
+    RunStatus.SUCCESSFUL: "finished",
+    RunStatus.FAILED: "failed",
+}
+
+
+def leg_state(leg: Run) -> str:
+    """The status of a delegated job as the transcript shows it; precedence matches ``_leg_outcome``."""
+    if _stopping(leg):
+        return "stopping"
+    if leg.is_cancelled:
+        return "cancelled"
+    if leg.status == RunStatus.FAILED and leg.error_message.startswith(LINK_FAILED_PREFIX):
+        return "lost"
+    if leg.status == RunStatus.QUEUED and leg.waits_for_id:
+        return "waits"
+    return _LEG_STATES.get(leg.status, "queued")
