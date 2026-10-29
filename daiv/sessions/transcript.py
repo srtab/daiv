@@ -102,8 +102,11 @@ def _publish_error(run: Run) -> str:
 
 
 def _publish_entries(run: Run) -> list[dict[str, Any]]:
-    """The entries of ``run``'s publish result; a failed publish is the red line and carries the retry anchor."""
+    """The entries of ``run``'s publish result; a failed publish is the red line and carries the retry anchor. A run
+    that failed elsewhere shows only the draft recovery opened for it."""
     if not run.publish_status:
+        if run.status == RunStatus.FAILED and run.code_changes and run.merge_request_iid:
+            return [_publish_entry(run, PublishStatus.OPENED)]
         return []
     if run.publish_status == PublishStatus.FAILED:
         red = _publish_entry(run, run.publish_status, error=_publish_error(run), with_mr=False)

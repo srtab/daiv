@@ -786,6 +786,34 @@ def test_failed_publish_on_a_run_that_already_had_an_mr_shows_only_the_red_entry
     assert [p["status"] for p in publish] == ["failed"]
 
 
+def test_a_draft_recovered_after_the_run_failed_shows_opened_above_the_marker():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            status=RunStatus.FAILED,
+            code_changes=True,
+            merge_request_iid=9,
+            merge_request_web_url="https://git/mr/9",
+            files_changed=2,
+        )
+    ]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    (entry,) = result[-2]["publish"]
+    assert (entry["status"], entry["merge_request_iid"], entry["files_changed"], entry["error"]) == ("opened", 9, 2, "")
+    assert result[-1]["role"] == "run_status"
+
+
+def test_an_old_failed_run_on_a_merge_request_gets_no_result():
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, merge_request_iid=9)]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert all("publish" not in t for t in result)
+
+
 def test_old_runs_get_no_result():
     result = annotate_transcript([_user("h1"), _assistant("a1")], [_run("r1", message_id="h1")])
 
