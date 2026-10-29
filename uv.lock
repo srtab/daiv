@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.14.*"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -590,6 +590,7 @@ wheels = [
 name = "daiv"
 version = "2.0.0"
 source = { virtual = "." }
+default-groups = ["dev", "docs"]
 dependencies = [
     { name = "ag-ui-langgraph" },
     { name = "ag-ui-protocol" },
@@ -750,7 +751,7 @@ dev = [
 docs = [
     { name = "mike", specifier = "==2.2.0" },
     { name = "mkdocs", specifier = "==1.6.1" },
-    { name = "mkdocs-git-revision-date-localized-plugin", specifier = "==1.6.0" },
+    { name = "mkdocs-git-revision-date-localized-plugin", specifier = "==1.6.2" },
     { name = "mkdocs-llmstxt", specifier = "==0.5.1" },
     { name = "mkdocs-material", specifier = "==9.7.7" },
 ]
@@ -1372,8 +1373,8 @@ name = "httpcore2"
 version = "2.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "h11", marker = "sys_platform != 'emscripten'" },
-    { name = "truststore", marker = "sys_platform != 'emscripten'" },
+    { name = "h11" },
+    { name = "truststore" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c0/61/afa9d6b7452f9eca73f73d45324eb0bb52f098fd5e6049bf6b8263be9b4e/httpcore2-2.16.0.tar.gz", hash = "sha256:c72cd0413563b17e1cd8354677dff887466f8ec2551679759e93126534428643", size = 69886, upload-time = "2026-10-21T07:09:45.31Z" }
 wheels = [
@@ -2251,7 +2252,7 @@ wheels = [
 
 [[package]]
 name = "mkdocs-git-revision-date-localized-plugin"
-version = "1.6.0"
+version = "1.6.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "babel" },
@@ -2260,9 +2261,9 @@ dependencies = [
     { name = "packaging" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f1/a7/ded2f0e2321213862225f9f657a51493af8f92626e3dd0a02ce9ef9b1131/mkdocs_git_revision_date_localized_plugin-1.6.0.tar.gz", hash = "sha256:469af4b344a4d493a6402aa92eec87a6138e1dac444e9551c1af06991453954b", size = 36957, upload-time = "2026-09-14T12:57:04.84Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/d0/b2910714ae14ee925c99535b2e5c2a19d49669a53cbac9d4242fca0f8906/mkdocs_git_revision_date_localized_plugin-1.6.2.tar.gz", hash = "sha256:9f38e5cfef3d180f1c479a7190d72617267a5d79d8159b12e3ae39c80f6e7488", size = 40432, upload-time = "2026-10-26T07:55:53.746Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/f7/d4aeef9f48150900634e7f864b076038e69014fb3ae4e515035803bca561/mkdocs_git_revision_date_localized_plugin-1.6.0-py3-none-any.whl", hash = "sha256:88b2d524d24c49a05cd6c9b1456f7dc0c8fa5e233b09ecf8a1dd12aebc127990", size = 27966, upload-time = "2026-09-14T12:57:03.607Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/a2/bd8403a2e1f2d7a4566fffa28bc5bbb5f8361754ee988d1b3ceff32e436b/mkdocs_git_revision_date_localized_plugin-1.6.2-py3-none-any.whl", hash = "sha256:9db79422039f856e582df62b360f9b9bde0f1b7c978d253bdb2a1b73a18b7774", size = 29404, upload-time = "2026-10-26T07:55:52.202Z" },
 ]
 
 [[package]]
@@ -2639,7 +2640,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "ptyprocess" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
