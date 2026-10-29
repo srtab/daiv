@@ -587,7 +587,7 @@
         vars: { name: basename(path) },
         detail: repoDir(path),
         diff: content == null ? null : { added: countLines(content), removed: 0 },
-        category: { key: "edit" },
+        category: { key: "create" },
       };
     },
     grep: (a) => {

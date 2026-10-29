@@ -6,40 +6,15 @@ import json
 
 import pytest
 
-from tests.unit_tests.chat.chat_stream_driver import CHAT_STREAM_JS
-from tests.unit_tests.jsdriver import requires_node, run_node
+from tests.unit_tests.chat.transcript_driver import run_transcript
+from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
 
-JS_DIR = CHAT_STREAM_JS.parent
-
-_HARNESS = """
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
-
-const payload = JSON.parse(readFileSync(0, "utf8"));
-const countLines = (s) => (s ? s.split("\\n").length - (s.endsWith("\\n") ? 1 : 0) : 0);
-const sandbox = {
-  document: { getElementById: () => null },
-  Diff: {
-    diffLines: (a, b) => [
-      { removed: true, count: countLines(a) },
-      { added: true, count: countLines(b) },
-    ],
-  },
-};
-sandbox.window = sandbox;
-vm.createContext(sandbox);
-for (const src of payload.sources) vm.runInContext(readFileSync(src, "utf8"), sandbox);
-sandbox.__seg = payload.seg;
-sandbox.__ctx = payload.ctx;
-process.stdout.write(JSON.stringify(vm.runInContext("window.toolRow(__seg, __ctx)", sandbox)));
-"""
-
 
 def _row_seg(seg: dict, servers: list[str] | None = None) -> dict:
-    sources = [str(JS_DIR / "transcript-labels.js"), str(JS_DIR / "tool-renderers.js")]
-    return run_node(_HARNESS, {"sources": sources, "seg": seg, "ctx": {"mcpServers": servers or []}})
+    values = {"seg": seg, "ctx": {"mcpServers": servers or []}}
+    return run_transcript("toolRow(vars.seg, vars.ctx)", values, blocks=False)
 
 
 def _row(name: str, args: dict, *, result: str | None = None, status: str = "done", servers=None) -> dict:
@@ -66,7 +41,7 @@ def test_write_file_row_counts_content_lines():
     row = _row("write_file", {"file_path": "/workspace/repo/a/new.py", "content": "a\nb\nc\n"})
     assert (row["phrase"], row["icon"], row["detail"]) == ("Created new.py", "document-plus", "a")
     assert row["diff"] == {"added": 3, "removed": 0}
-    assert row["category"] == {"key": "edit"}
+    assert row["category"] == {"key": "create"}
 
 
 def test_bash_non_zero_exit_is_failed():
