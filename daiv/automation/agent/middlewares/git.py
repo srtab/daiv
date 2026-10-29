@@ -13,6 +13,7 @@ from langsmith import get_current_run_tree
 
 from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
+from automation.agent.publish_errors import classify
 from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
@@ -425,6 +426,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 "Ask me to finish resolving them."
             )
             return {**update, "messages": [await streamed_assistant_message(notice)]}
+        except Exception as exc:
+            raise classify(exc)(str(exc)) from exc
 
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()

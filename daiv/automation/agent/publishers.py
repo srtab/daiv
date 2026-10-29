@@ -10,8 +10,10 @@ from urllib.parse import quote, urlencode
 from django.template.loader import render_to_string
 
 from asgiref.sync import sync_to_async
+from git import GitCommandError
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
+from automation.agent.publish_errors import PushRejectedError
 from automation.agent.references import render_agent_context, render_commit_trailers, render_references_block
 from automation.agent.utils import build_langsmith_config, repo_relative_text
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
@@ -89,6 +91,7 @@ class PublishOutcome:
 
     merge_request: MergeRequest | None
     published: bool
+    created_merge_request: bool = False
     protected_branch_fallback_source: str | None = None
     diff_stats: MergeRequestDiffStats | None = None
     """Lines added/removed and files touched by the run's work, for the composer's ``+x −y``
@@ -242,9 +245,12 @@ class GitChangePublisher:
         # Only an existing MR's source branch may have advanced under the run (a dependabot
         # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
         # A fresh, unique branch can't, so leave integration off for new MRs.
-        await git_manager.push_head_to(
-            branch_name, integrate_on_reject=merge_request is not None, skip_ci=suppress_bot_pipeline
-        )
+        try:
+            await git_manager.push_head_to(
+                branch_name, integrate_on_reject=merge_request is not None, skip_ci=suppress_bot_pipeline
+            )
+        except GitCommandError as exc:
+            raise PushRejectedError(str(exc)) from exc
         # Read after the push: an integrate-on-reject rebase or merge moves HEAD, and the heal below
         # needs the sha that actually landed on the remote.
         pushed_sha = None
@@ -258,6 +264,7 @@ class GitChangePublisher:
 
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
+        created_merge_request = False
         if merge_request is None:
             try:
                 merge_request = await self._create_merge_request(
@@ -291,6 +298,7 @@ class GitChangePublisher:
                     protected_branch_fallback_source=protected_branch_fallback_source,
                     diff_stats=diff_stats,
                 )
+            created_merge_request = True
             logger.info(
                 "Created merge request: %s [merge_request_id: %s, draft: %r]",
                 merge_request.web_url,
@@ -315,6 +323,7 @@ class GitChangePublisher:
         return PublishOutcome(
             merge_request=merge_request,
             published=True,
+            created_merge_request=created_merge_request,
             protected_branch_fallback_source=protected_branch_fallback_source,
             diff_stats=diff_stats,
         )

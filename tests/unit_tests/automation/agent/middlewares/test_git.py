@@ -6,6 +6,7 @@ from git import GitCommandError
 from langchain_core.messages import AIMessage
 
 from automation.agent.middlewares.git import GitMiddleware
+from automation.agent.publish_errors import PublishFailedError, PushRejectedError
 from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflictsError
 from automation.agent.workspace.git_manager import GitPushPermissionError
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
@@ -54,7 +55,7 @@ def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
 
 
 class TestGitMiddleware:
-    async def test_aafter_agent_propagates_push_permission_error(self):
+    async def test_aafter_agent_raises_push_permission_error_as_push_rejected(self):
         middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
         runtime = _make_runtime()
 
@@ -63,9 +64,38 @@ class TestGitMiddleware:
                 "automation.agent.middlewares.git.GitChangePublisher.publish",
                 new=AsyncMock(side_effect=GitPushPermissionError("No permission to push")),
             ),
-            pytest.raises(GitPushPermissionError),
+            pytest.raises(PushRejectedError) as info,
         ):
             await middleware.aafter_agent(state={"merge_request": None}, runtime=runtime)
+
+        assert isinstance(info.value.__cause__, GitPushPermissionError)
+
+    @pytest.fixture
+    def failing_publisher(self):
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(side_effect=RuntimeError("boom"))
+            yield pub_cls.return_value
+
+    async def test_an_unexpected_publish_failure_is_reraised_typed(self, failing_publisher):
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+
+        with pytest.raises(PublishFailedError) as info:
+            await mw.aafter_agent({"merge_request": None}, runtime)
+
+        assert isinstance(info.value.__cause__, RuntimeError)
+        assert str(info.value) == "boom"
+
+    async def test_a_publish_failure_keeps_the_type_classify_gives_it(self):
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(side_effect=GitPushPermissionError("denied"))
+            with pytest.raises(PushRejectedError):
+                await mw.aafter_agent({"merge_request": None}, runtime)
 
     async def test_a_merge_left_with_conflict_markers_ends_the_turn_with_a_reply_naming_the_files(self):
         """Not a run failure: a failure would surface as a generic error and drop the agent's turn."""
