@@ -1,0 +1,151 @@
+{
+  "pr": {
+    "repo": "https://github.com/gagneurlab/PROTRIDER",
+    "pr_number": 10,
+    "base": "22740c695315543a1064915930f806abf5b058ce",
+    "head": "b462b109b630dd1e1a9a78088b18429d2baaae9b"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "src/protrider/pipeline.py",
+      "start_line": 509,
+      "end_line": 509,
+      "message": "A checkpoint that fails to load silently skips training\n\n`load_model` returns `(None, None)` on any load error and leaves the file on disk. `run()` then falls through to `find_latent_dim` and `init_model`, which sets `q`. Line 509 derives `model_was_loaded` from `checkpoint_path.exists() and q is not None`, which is true on this fallback. Training is skipped, `save_model` never runs, and the log says \"Skipping training - using loaded model from checkpoint\". The output comes from an untrained PCA-initialized model. The bad file is never replaced, so every rerun repeats the failure.\n\nTrigger: rerun into an existing `out_dir` after the protein count, `h_dim`, or `n_layers` changed, or after a truncated file. That location is now the default (see #2).\n\nFix: set `model_was_loaded = model is not None` immediately after the load at lines 450\u2013452, and use that flag in `should_train`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/pipeline.py",
+      "start_line": 445,
+      "end_line": 448,
+      "message": "Checkpointing is still on by default, so the \"opt-in\" claim is false\n\n`checkpoint_path` defaults to `None`, and `run()` maps `None` to `Path(config.out_dir) / 'model.pt'`. That `Path` is always truthy, so every run loads an existing `model.pt` and saves after training. Commenting out the YAML line only moves the default from `checkpoint.pt` in the working directory to `out_dir/model.pt`. It does not disable checkpointing. Checkpointing is new in this range (base `pipeline.py` and `config.py` have no checkpoint code). The default-on behavior is locked in by `test_default_checkpoint_behavior` (`tests/test_model_save_load.py:164-185`), and the README and config comments describe it as the default.\n\nFix: decide the intent. If it should be opt-in, use `checkpoint_path = Path(config.checkpoint_path) if config.checkpoint_path else None`, gate load and save on `is not None`, and change the test to assert that no file is written. If default-on is intended, the PR description and commit message must say so.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/config.py",
+      "start_line": 92,
+      "end_line": 92,
+      "message": "Checkpointing is still on by default, so the \"opt-in\" claim is false\n\n`checkpoint_path` defaults to `None`, and `run()` maps `None` to `Path(config.out_dir) / 'model.pt'`. That `Path` is always truthy, so every run loads an existing `model.pt` and saves after training. Commenting out the YAML line only moves the default from `checkpoint.pt` in the working directory to `out_dir/model.pt`. It does not disable checkpointing. Checkpointing is new in this range (base `pipeline.py` and `config.py` have no checkpoint code). The default-on behavior is locked in by `test_default_checkpoint_behavior` (`tests/test_model_save_load.py:164-185`), and the README and config comments describe it as the default.\n\nFix: decide the intent. If it should be opt-in, use `checkpoint_path = Path(config.checkpoint_path) if config.checkpoint_path else None`, gate load and save on `is not None`, and change the test to assert that no file is written. If default-on is intended, the PR description and commit message must say so.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/model/model_helper.py",
+      "start_line": 74,
+      "end_line": 74,
+      "message": "A non-finite grid-search loss raises `UnboundLocalError`\n\nOn the non-finite branch, line 74 assigns `auc_prec_rec` (a typo for `auprc`). `auprc` is never bound, so `return auprc` on line 86 raises. The base code skipped a diverged q; this change aborts `find_latent_dim` and the whole run. Separately, `max(enc2auprc, key=enc2auprc.get)` on line 107 can return a NaN key if NaN is the first value inserted.\n\nFix: use `auprc = np.nan` on line 74, and drop non-finite entries before taking the max. This depends on training diverging for some candidate q, which the base code's guard suggests happens.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/model/model_helper.py",
+      "start_line": 32,
+      "end_line": 32,
+      "message": "Grid-search CSV renamed, so `protrider plot` fails on grid-search output\n\nThe writer now produces `grid_search_results.csv` with `enc_dim`/`auprc`. `plot_encoding_dim` still reads `grid_search.csv` with `encod_dim`/`aucpr`, so plotting a `gs` run raises `FileNotFoundError`. The `out_dir` parameter of `find_latent_dim` is now unused.\n\nFix: give the filename and column names one owner that both the writer and the reader use. Remove the unused parameter.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/plots.py",
+      "start_line": 101,
+      "end_line": 107,
+      "message": "Grid-search CSV renamed, so `protrider plot` fails on grid-search output\n\nThe writer now produces `grid_search_results.csv` with `enc_dim`/`auprc`. `plot_encoding_dim` still reads `grid_search.csv` with `encod_dim`/`aucpr`, so plotting a `gs` run raises `FileNotFoundError`. The `out_dir` parameter of `find_latent_dim` is now unused.\n\nFix: give the filename and column names one owner that both the writer and the reader use. Remove the unused parameter.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/cli.py",
+      "start_line": 83,
+      "end_line": 83,
+      "message": "Grid-search CSV renamed, so `protrider plot` fails on grid-search output\n\nThe writer now produces `grid_search_results.csv` with `enc_dim`/`auprc`. `plot_encoding_dim` still reads `grid_search.csv` with `encod_dim`/`aucpr`, so plotting a `gs` run raises `FileNotFoundError`. The `out_dir` parameter of `find_latent_dim` is now unused.\n\nFix: give the filename and column names one owner that both the writer and the reader use. Remove the unused parameter.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/stats.py",
+      "start_line": 213,
+      "end_line": 229,
+      "message": "`use_common_df=False` computes the fallback df from a partially filled array\n\nThe `else` branch recomputes `df0` inside the per-column loop from `df`, which holds only the columns processed so far. A non-converged protein therefore gets `10` early in the loop and the median of earlier columns later. Its p-values depend on column order. The default-df rule also duplicates the common branch (lines 191\u2013197), and the two can drift apart.\n\nFix: compute `df0` once from the full first-pass `results`, using the same rule as the common branch, and use it only as the fallback. `test_t_distribution_not_common_df` (`tests/test_pipeline_features.py:23-42`) only checks `notna()`, so it does not catch this.",
+      "producer": "daiv"
+    },
+    {
+      "file": "config.yaml",
+      "start_line": 56,
+      "end_line": 56,
+      "message": "`common_degrees_freedom` defaults disagree between the YAML and the dataclass\n\nThe template sets `False`, and the dataclass defaults to `True`. CLI runs load the YAML and get `False`. Python API callers who omit the key get `True`. The same data can therefore produce different p-values depending on the entry point. Both lines are new in this range, and the README parameter table does not list the key.\n\nFix: pick one default and make both match. Which default is intended is your decision.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/config.py",
+      "start_line": 77,
+      "end_line": 77,
+      "message": "`common_degrees_freedom` defaults disagree between the YAML and the dataclass\n\nThe template sets `False`, and the dataclass defaults to `True`. CLI runs load the YAML and get `False`. Python API callers who omit the key get `True`. The same data can therefore produce different p-values depending on the entry point. Both lines are new in this range, and the README parameter table does not list the key.\n\nFix: pick one default and make both match. Which default is intended is your decision.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/datasets/protein_intensities.py",
+      "start_line": 32,
+      "end_line": 32,
+      "message": "Removing `index=False` is unverified and may break some parquet inputs\n\nI could not run pandas or fastparquet. From memory, not checked against installed source: pandas forwards extra kwargs to the engine, and fastparquet's `to_pandas` accepts `index`. If that is right, `index=False` does not raise, and the PR's stated reason is wrong. The removal does change behavior. With the default `index=None`, fastparquet restores an index stored in pandas metadata. If that index was saved under `index_col`, `.set_index(index_col)` then raises `KeyError`. No test covers the parquet path, and the README does not mention parquet.\n\nFix: before merging, run the reader on a real parquet input with and without `index=False`, and check the exact error the reviewer reported.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/pipeline.py",
+      "start_line": 62,
+      "end_line": 62,
+      "message": "Pickle-based checkpoint load from the auto-trusted default path\n\n`torch.load(..., weights_only=False)` unpickles arbitrary objects. The default `out_dir/model.pt` is now loaded automatically whenever it exists. Anyone who can write to a shared output directory could therefore run code when protrider loads it, or plant weights so training is skipped. The saved payload is tensors and plain values, so `weights_only=True` should work. Cast `q` and `n_layers` to plain `int` first. Exploitability depends on who can write to `out_dir`, which the repository cannot show.\n\nFix: use `weights_only=True`, and load only when `checkpoint_path` is set explicitly (see #2).",
+      "producer": "daiv"
+    },
+    {
+      "file": "tests/test_model_save_load.py",
+      "start_line": 158,
+      "end_line": 161,
+      "message": "The checkpoint reuse tests pass even if the checkpoint is never loaded\n\nBoth tests use `find_q_method='5'`, so q is fixed. The only assertion is `model_info1.q == model_info2.q`, which holds whether run 2 reloads the checkpoint or retrains. The comments \"Verify model was loaded\" and \"auto-load\" describe a check the test does not make.\n\nFix: assert that the load path was taken, for example by wrapping `protrider.pipeline.load_model` and checking that it returned a model.",
+      "producer": "daiv"
+    },
+    {
+      "file": "tests/test_pipeline_features.py",
+      "start_line": 31,
+      "end_line": 31,
+      "message": "The t-distribution test cannot detect a switch away from the t-distribution\n\nThe only assertion is `result.df_pvals.notna().any().any()`, which Gaussian p-values also satisfy. `pval_dist=\"t\"` is also the default, so it changes nothing. `common_degrees_freedom=False` is not checked either.\n\nFix: run the same data with `pval_dist=\"gaussian\"` and assert that the p-values differ.",
+      "producer": "daiv"
+    },
+    {
+      "file": "config.yaml",
+      "start_line": 68,
+      "end_line": 68,
+      "message": "Stale CV wording in the config comment\n\n\"(or model_fold_N.pt for CV)\" describes behavior this range removed. Delete it.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/model/model.py",
+      "start_line": 161,
+      "end_line": 170,
+      "message": "Multi-layer PCA initialization is now applied, where the base code skipped it\n\nThe base `initialize_wPCA` returned early for `n_layers > 1`. The new code writes PCA loadings into `encoder.model[0]` and `decoder.model[-1]`, gated only by shape. With the default `h_dim=None`, the shapes match. The PCA loadings then land on the first encoder layer, which feeds a GELU, and on a decoder layer whose input is hidden activations rather than the latent. The log still says \"Initializing model weights with PCA\". If this is intended, make it an explicit branch and log its scope. Otherwise restore the early return. Confidence: 60.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/stats.py",
+      "start_line": 36,
+      "end_line": 36,
+      "message": "`fit_residuals` takes gene labels from DataFrame columns, and one caller fabricates them\n\n`model_helper` wraps an ndarray in `pd.DataFrame(res)`, so the labels become positional `0..n-1`. No current consumer reads them, so this is latent. Pass explicit labels, or `None`. Confidence: 50.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/model/model_helper.py",
+      "start_line": 79,
+      "end_line": 79,
+      "message": "`fit_residuals` takes gene labels from DataFrame columns, and one caller fabricates them\n\n`model_helper` wraps an ndarray in `pd.DataFrame(res)`, so the labels become positional `0..n-1`. No current consumer reads them, so this is latent. Pass explicit labels, or `None`. Confidence: 50.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/protrider/stats.py",
+      "start_line": 241,
+      "end_line": 248,
+      "message": "The `get_pv_t` validator accepts a scalar `df`, but the body calls `len(df)`\n\nThe scalar exemption skips the assert, and `process_column_with_df` then calls `len(df)`, which raises `TypeError` inside the workers. No in-repo caller passes a scalar. Normalize `df` to a vector, or remove the exemption. Confidence: 50.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 5643112,
+    "completion_tokens": 384378,
+    "total_tokens": 6027490,
+    "time_in_ms": 542472,
+    "cost_usd": 0.633018405
+  }
+}

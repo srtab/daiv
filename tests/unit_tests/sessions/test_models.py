@@ -86,6 +86,17 @@ def test_classified_origins_exclude_chat_and_pipeline_webhook():
     }
 
 
+def test_retryable_origins_exclude_webhooks_and_the_runs_reporting_to_a_coordinator():
+    """Pinning the set forces a newly-added SessionOrigin to decide whether a chat turn can retry it."""
+    assert SessionOrigin.retryable() == frozenset(SessionOrigin.values) - {
+        SessionOrigin.ISSUE_WEBHOOK,
+        SessionOrigin.MR_WEBHOOK,
+        SessionOrigin.PIPELINE_WEBHOOK,
+        SessionOrigin.DELEGATED_JOB,
+        SessionOrigin.DELEGATION_RESUME,
+    }
+
+
 def test_one_active_api_run_per_session_constraint():
     session = _mk_session()
     _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.API_JOB)

@@ -1,0 +1,123 @@
+{
+  "pr": {
+    "repo": "https://github.com/vanyastaff/nebula",
+    "pr_number": 224,
+    "base": "c4879eb1c460e45c11ce28e3e8a305194023b64e",
+    "head": "d5ba86dd1014b79e263d93a1e324eeec0d0b306c"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "crates/credential/src/credentials/api_key.rs",
+      "start_line": 53,
+      "end_line": 53,
+      "message": "Credential pattern is declared twice and can silently diverge\n\n`AuthScheme::pattern()` is the runtime source of truth. The snapshot derives `scheme_pattern` from it (`crates/credential/src/snapshot.rs:152`), and the derive macro fills `CredentialDescription::pattern` from `<Scheme as AuthScheme>::pattern()` (`crates/credential/macros/src/credential.rs:123`). The hand-written `Credential::description()` impls instead set `pattern` to a literal. The field is a required, independent value (`crates/credential/src/description.rs:63`, enforced at `:149`). Nothing compares the two. Changing a credential's `type Scheme` without editing `description()` leaves the UI/tooling pattern stale, with no compile-time or runtime error.\n\nFix: in the hand-written impls, set `pattern` from `<Self::Scheme as nebula_core::AuthScheme>::pattern()`, the same expression the macro emits. Or remove the field from the authoring path and derive it where the description is built.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/src/credentials/basic_auth.rs",
+      "start_line": 42,
+      "end_line": 42,
+      "message": "Credential pattern is declared twice and can silently diverge\n\n`AuthScheme::pattern()` is the runtime source of truth. The snapshot derives `scheme_pattern` from it (`crates/credential/src/snapshot.rs:152`), and the derive macro fills `CredentialDescription::pattern` from `<Scheme as AuthScheme>::pattern()` (`crates/credential/macros/src/credential.rs:123`). The hand-written `Credential::description()` impls instead set `pattern` to a literal. The field is a required, independent value (`crates/credential/src/description.rs:63`, enforced at `:149`). Nothing compares the two. Changing a credential's `type Scheme` without editing `description()` leaves the UI/tooling pattern stale, with no compile-time or runtime error.\n\nFix: in the hand-written impls, set `pattern` from `<Self::Scheme as nebula_core::AuthScheme>::pattern()`, the same expression the macro emits. Or remove the field from the authoring path and derive it where the description is built.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/src/credentials/oauth2.rs",
+      "start_line": 208,
+      "end_line": 208,
+      "message": "Credential pattern is declared twice and can silently diverge\n\n`AuthScheme::pattern()` is the runtime source of truth. The snapshot derives `scheme_pattern` from it (`crates/credential/src/snapshot.rs:152`), and the derive macro fills `CredentialDescription::pattern` from `<Scheme as AuthScheme>::pattern()` (`crates/credential/macros/src/credential.rs:123`). The hand-written `Credential::description()` impls instead set `pattern` to a literal. The field is a required, independent value (`crates/credential/src/description.rs:63`, enforced at `:149`). Nothing compares the two. Changing a credential's `type Scheme` without editing `description()` leaves the UI/tooling pattern stale, with no compile-time or runtime error.\n\nFix: in the hand-written impls, set `pattern` from `<Self::Scheme as nebula_core::AuthScheme>::pattern()`, the same expression the macro emits. Or remove the field from the authoring path and derive it where the description is built.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/tests/units/thundering_herd_tests.rs",
+      "start_line": 68,
+      "end_line": 68,
+      "message": "Credential pattern is declared twice and can silently diverge\n\n`AuthScheme::pattern()` is the runtime source of truth. The snapshot derives `scheme_pattern` from it (`crates/credential/src/snapshot.rs:152`), and the derive macro fills `CredentialDescription::pattern` from `<Scheme as AuthScheme>::pattern()` (`crates/credential/macros/src/credential.rs:123`). The hand-written `Credential::description()` impls instead set `pattern` to a literal. The field is a required, independent value (`crates/credential/src/description.rs:63`, enforced at `:149`). Nothing compares the two. Changing a credential's `type Scheme` without editing `description()` leaves the UI/tooling pattern stale, with no compile-time or runtime error.\n\nFix: in the hand-written impls, set `pattern` from `<Self::Scheme as nebula_core::AuthScheme>::pattern()`, the same expression the macro emits. Or remove the field from the authoring path and derive it where the description is built.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/tests/units/pending_lifecycle_tests.rs",
+      "start_line": 77,
+      "end_line": 77,
+      "message": "Credential pattern is declared twice and can silently diverge\n\n`AuthScheme::pattern()` is the runtime source of truth. The snapshot derives `scheme_pattern` from it (`crates/credential/src/snapshot.rs:152`), and the derive macro fills `CredentialDescription::pattern` from `<Scheme as AuthScheme>::pattern()` (`crates/credential/macros/src/credential.rs:123`). The hand-written `Credential::description()` impls instead set `pattern` to a literal. The field is a required, independent value (`crates/credential/src/description.rs:63`, enforced at `:149`). Nothing compares the two. Changing a credential's `type Scheme` without editing `description()` leaves the UI/tooling pattern stale, with no compile-time or runtime error.\n\nFix: in the hand-written impls, set `pattern` from `<Self::Scheme as nebula_core::AuthScheme>::pattern()`, the same expression the macro emits. Or remove the field from the authoring path and derive it where the description is built.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/examples/credential_description.rs",
+      "start_line": 81,
+      "end_line": 81,
+      "message": "Credential pattern is declared twice and can silently diverge\n\n`AuthScheme::pattern()` is the runtime source of truth. The snapshot derives `scheme_pattern` from it (`crates/credential/src/snapshot.rs:152`), and the derive macro fills `CredentialDescription::pattern` from `<Scheme as AuthScheme>::pattern()` (`crates/credential/macros/src/credential.rs:123`). The hand-written `Credential::description()` impls instead set `pattern` to a literal. The field is a required, independent value (`crates/credential/src/description.rs:63`, enforced at `:149`). Nothing compares the two. Changing a credential's `type Scheme` without editing `description()` leaves the UI/tooling pattern stale, with no compile-time or runtime error.\n\nFix: in the hand-written impls, set `pattern` from `<Self::Scheme as nebula_core::AuthScheme>::pattern()`, the same expression the macro emits. Or remove the field from the authoring path and derive it where the description is built.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/src/layer/encryption.rs",
+      "start_line": 147,
+      "end_line": 152,
+      "message": "Lazy rotation in `get()` returns a stale version, and a failed rewrite fails the read\n\n- On a successful rewrite the store bumps the version (`crates/credential/src/store_memory.rs:91`), but `get()` returns the pre-write `credential` with the old version (`:152`). The resolver's refresh path CAS-writes with `stored.version`, so the first refresh after rotation hits `VersionConflict`, logs a warning, and retries. The data stays correct, but each rotated record costs an extra write and a spurious warning.\n- Only `VersionConflict` from the rewrite is tolerated (`:147`). Any other backend error is returned (`:148`), so a read whose decryption succeeded fails when the write fails. The surrounding comment treats rotation as opportunistic (\"rotation will happen on next read\").\n\nFix: on success, copy the stored version into the returned record (for example `Ok(stored) => credential.version = stored.version`). Decide explicitly whether a non-conflict rewrite failure should be logged while the plaintext is returned.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/src/crypto.rs",
+      "start_line": 80,
+      "end_line": 82,
+      "message": "The empty `key_id` contract is documented two different ways\n\nThe `EncryptedData::key_id` doc says the layer \"rejects empty key IDs at runtime \u2014 a migration must re-encrypt all records before upgrading.\" But `EncryptionLayer::new()` registers `\"\"` as a live alias for its key (`:69`), so pre-rotation envelopes decrypt and are rewritten under `\"default\"`. `with_keys()` registers no alias (`:92`), so the same records fail with \"encryption key '' not found \u2014 cannot decrypt\". The doc matches neither constructor. A deployment that moves from `new()` to `with_keys()` cannot read pre-rotation records.\n\nFix: pick one rule. Either remove the `\"\"` alias so both constructors reject empty IDs, or make legacy support an explicit option that both honor. Update the `key_id` doc to match.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/src/layer/encryption.rs",
+      "start_line": 69,
+      "end_line": 69,
+      "message": "The empty `key_id` contract is documented two different ways\n\nThe `EncryptedData::key_id` doc says the layer \"rejects empty key IDs at runtime \u2014 a migration must re-encrypt all records before upgrading.\" But `EncryptionLayer::new()` registers `\"\"` as a live alias for its key (`:69`), so pre-rotation envelopes decrypt and are rewritten under `\"default\"`. `with_keys()` registers no alias (`:92`), so the same records fail with \"encryption key '' not found \u2014 cannot decrypt\". The doc matches neither constructor. A deployment that moves from `new()` to `with_keys()` cannot read pre-rotation records.\n\nFix: pick one rule. Either remove the `\"\"` alias so both constructors reject empty IDs, or make legacy support an explicit option that both honor. Update the `key_id` doc to match.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/src/layer/encryption.rs",
+      "start_line": 92,
+      "end_line": 92,
+      "message": "`with_keys()` silently drops duplicate key IDs\n\n`collect()` into a `HashMap` keeps the last entry for a repeated ID without error. A copy-paste duplicate when adding a rotation key silently discards the earlier key. Records encrypted under it then fail AEAD verification with a generic backend error that never mentions the duplicate. The constructor already asserts the current-key invariant (`:93-96`), so a duplicate check belongs next to it.\n\nFix: assert, or return an error, when an ID appears twice.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/webhook/src/rate_limit.rs",
+      "start_line": 63,
+      "end_line": 63,
+      "message": "Webhook rate-limit doc states the wrong path cap\n\nThe doc on `WebhookRateLimiter::new` now reads \"At most 1 000 distinct paths are tracked.\" `DEFAULT_MAX_PATHS` is `10_000` (`:23`) and `new()` uses it (`:71`), so the limiter tracks ten times more paths than the doc says. Commit `d5ba86d` replaced a broken intra-doc link to the private constant with this literal.\n\nFix: write \"10 000\" to match the constant, or write \"`DEFAULT_MAX_PATHS` (10 000)\" in code formatting.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/src/crypto.rs",
+      "start_line": 205,
+      "end_line": 205,
+      "message": "`encrypt` and `encrypt_with_aad` can stamp an empty `key_id`, and the sealing logic is repeated three times\n\n`encrypt_with_key_id` (`crates/credential/src/crypto.rs:366`, empty-ID guard at `:372`) is the only one that enforces the key-ID rule, and the production write path uses it (`crates/credential/src/layer/encryption.rs:187`). The other two build `EncryptedData::new(\"\", \u2026)`. Their callers are tests only, so the gap is latent. The three near-identical bodies also mean any sealing fix must land in three places.\n\nFix: extract one private seal helper that requires a non-empty key ID. Then remove `encrypt` and `encrypt_with_aad`, or route them through it.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/src/scheme/coercion.rs",
+      "start_line": 11,
+      "end_line": 11,
+      "message": "`From<OAuth2Token> for SecretToken` drops the token's expiry\n\n`AuthScheme::expires_at()` is the lifetime contract the framework uses to schedule auto-refresh (`crates/core/src/auth.rs:59-63`). The conversion builds `SecretToken::new(access_token)` alone. `SecretToken` has no expiry field, so the result never expires. The conversion is infallible, and its doc table says only \"Always (extracts access_token)\". No production caller in the repo uses it today, so the impact falls on future callers.\n\nFix: carry the lifetime in `SecretToken` (an optional expiry returned from `expires_at()`), or drop the infallible conversion so callers handle the lifetime explicitly.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/src/snapshot.rs",
+      "start_line": 152,
+      "end_line": 152,
+      "message": "The snapshot stores the scheme pattern as a Debug string\n\n`CredentialSnapshot` stores `format!(\"{:?}\", S::pattern())` and exposes it as `scheme_pattern() -> &str`. `AuthPattern` is a `Copy + Eq + Hash` enum with no `Display` or `as_str`, so the public string is whatever derived `Debug` prints. Renaming a variant silently changes the public value, and callers must string-match literals with no compiler help. The `SchemeMismatch` error is built from the same strings.\n\nFix: store `AuthPattern` in the snapshot, expose it through a typed accessor, and format names only at the display boundary.",
+      "producer": "daiv"
+    },
+    {
+      "file": "crates/credential/tests/units/scheme_roundtrip_tests.rs",
+      "start_line": 76,
+      "end_line": 76,
+      "message": "The KeyPair round-trip test no longer covers passphrase or algorithm\n\n`key_pair_serde_roundtrip` builds the pair with `KeyPair::new(...)` only, so `passphrase` and `algorithm` stay `None`, and the test asserts only the two key fields. The deleted `ssh_auth_keypair_serde_roundtrip` (old line 147) set a passphrase and asserted `json.contains(\"my-passphrase\")`. As written, a serializer that drops or redacts the passphrase, or skips `algorithm`, would still pass.\n\nFix: add a case built with `.with_passphrase(SecretString::new(\"my-passphrase\")).with_algorithm(\"ed25519\")`. Assert the passphrase appears in the JSON and that `algorithm()` round-trips.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 6052919,
+    "completion_tokens": 468858,
+    "total_tokens": 6521777,
+    "time_in_ms": 541219,
+    "cost_usd": 0.711241075
+  }
+}

@@ -106,6 +106,11 @@ def test_the_run_spec_carries_the_prompt_as_the_turns_input():
     assert _streamer(prompt="/help")._run_spec().input_messages == (HumanMessage(content="/help"),)
 
 
+def test_a_blank_ref_runs_on_the_default_branch():
+    streamer = ChatRunStreamer(repo_id="a/b", ref="", thread_id="t-stream", run_id="r-1", input_data=_run_input())
+    assert streamer._run_spec().ref is None
+
+
 def _mock_agent(events):
     """Patch ``RuntimeContextLangGraphAGUIAgent`` so its instance's ``run()`` yields
     the supplied iterable of AGUI events.
@@ -528,10 +533,8 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
     ):
         seen = [e async for e in _streamer().events()]
 
-    assert seen[0].type == EventType.STATE_SNAPSHOT
-    assert seen[-1].type == EventType.RUN_ERROR
-    assert seen[-1].code == "run_cancelled"
-    assert len(seen) == 2  # the stop closed the stream before the second snapshot
+    assert [e.type for e in seen] == [EventType.CUSTOM, EventType.STATE_SNAPSHOT, EventType.RUN_ERROR]
+    assert seen[-1].code == "run_cancelled"  # the stop closed the stream before the second snapshot
     assert finalize_calls == [{"success": False, "error_message": "Stopped by user."}]
     assert release_calls == [("t-stream", "r-1")]
 
@@ -617,10 +620,8 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
     ):
         seen = [e async for e in _streamer().events()]
 
-    assert seen[0].type == EventType.STATE_SNAPSHOT
-    assert seen[-1].type == EventType.RUN_ERROR
-    assert seen[-1].code == "run_interrupted"
-    assert len(seen) == 2  # the stop closed the stream before the second snapshot
+    assert [e.type for e in seen] == [EventType.CUSTOM, EventType.STATE_SNAPSHOT, EventType.RUN_ERROR]
+    assert seen[-1].code == "run_interrupted"  # the stop closed the stream before the second snapshot
     assert finalize_calls == [{"success": False, "error_message": "Run was interrupted before completing."}]
 
 
@@ -1000,6 +1001,25 @@ class TestChatAfterRunMatrix:
 
         assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
 
+    async def test_the_run_row_is_named_once_before_the_agents_first_event(self):
+        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()])):
+            events = [event async for event in _streamer().events()]
+
+        records = [event for event in events if event.type == EventType.CUSTOM and event.name == "run_record"]
+        assert (events[0], len(records)) == (records[0], 1)
+        assert records[0].value == {"id": "run-pk"}
+
+    async def test_a_failure_before_the_agents_first_event_names_the_run_row_before_the_error(self):
+        graph = MagicMock(aget_state=AsyncMock(), aupdate_state=AsyncMock())
+
+        with _recorded_turn(_raising_agent(), graph=graph):
+            events = [event async for event in _streamer().events()]
+
+        assert [(event.type, getattr(event, "name", None)) for event in events] == [
+            (EventType.CUSTOM, "run_record"),
+            (EventType.RUN_ERROR, None),
+        ]
+
     async def test_a_setup_failure_before_the_run_row_only_releases_the_slot(self):
         with _recorded_turn(_mock_agent([]), runtime_ctx=_failing_ctx) as calls:
             events = [event async for event in _streamer().events()]
@@ -1068,7 +1088,11 @@ class TestChatAfterRunMatrix:
         ):
             events = [event async for event in _streamer().events()]
 
-        assert [event.type for event in events] == [EventType.STATE_SNAPSHOT, EventType.STATE_SNAPSHOT]
+        assert [event.type for event in events] == [
+            EventType.CUSTOM,
+            EventType.STATE_SNAPSHOT,
+            EventType.STATE_SNAPSHOT,
+        ]
         assert heartbeat.await_count == 2
         assert ("finalize", True, "") in calls
         assert "heartbeat failed" in caplog.text
@@ -1244,7 +1268,7 @@ class TestChatAfterRunMatrix:
         with _recorded_turn(_mock_agent([err, _snapshot()])) as calls:
             events = [event async for event in _streamer().events()]
 
-        assert [event.type for event in events] == [EventType.RUN_ERROR, EventType.STATE_SNAPSHOT]
+        assert [event.type for event in events] == [EventType.CUSTOM, EventType.RUN_ERROR, EventType.STATE_SNAPSHOT]
         assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
 
 

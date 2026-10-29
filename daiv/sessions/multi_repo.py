@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 MAX_REPOS_PER_SESSION = 5
 THREAD_NOT_FOUND = "thread_id not found"
+THREAD_ARCHIVED = "thread_id is archived; unarchive the session to continue it"
 
 
 class SharedSessionError(AdmissionError):
@@ -134,16 +135,20 @@ async def asubmit_jobs(
     """Admit and submit a jobs request: one run on a shared session when ``shared`` is set or ``thread_id`` continues
     a multi-repository session, else an independent run per repository.
 
-    ``thread_id`` must name a session ``user`` owns. Every refusal is an :class:`~sessions.admission.AdmissionError`.
-    The result holds one outcome per entry of ``repos``, or a shared session's single one, for its main repository.
+    ``thread_id`` must name a session ``user`` owns and has not archived. Every refusal is an
+    :class:`~sessions.admission.AdmissionError`. The result holds one outcome per entry of ``repos``, or a shared
+    session's single one, for its main repository.
     """
     if thread_id is not None:
-        owned = await Session.objects.by_owner(user).filter(thread_id=thread_id).aexists()
-        shared = shared or (owned and await ais_multi_repo(thread_id))
+        owned = Session.objects.by_owner(user).filter(thread_id=thread_id)
+        found = await owned.aexists()
+        shared = shared or (found and await ais_multi_repo(thread_id))
         if not shared and len(repos) != 1:
             raise AdmissionError("thread_id continuation requires exactly one repo")
-        if not owned:
+        if not found:
             raise AdmissionError(THREAD_NOT_FOUND)
+        if await owned.archived_for(user).aexists():
+            raise AdmissionError(THREAD_ARCHIVED)
     if shared:
         validate_shared_repos(repos, continuation=thread_id is not None)
     admission = await aadmit(

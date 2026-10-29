@@ -33,9 +33,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine, Sequence
     from contextlib import AbstractAsyncContextManager
 
-    from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
     from langgraph.checkpoint.base import BaseCheckpointSaver
+    from langgraph.graph.state import CompiledStateGraph
     from langgraph.types import StateSnapshot
 
     from automation.agent.agent_settings import AgentSettings
@@ -69,7 +69,7 @@ class AgentRun:
     both. ``requested_ref`` is the ref the clone asked for, which ``ctx.repo.ref`` differs from after a fallback."""
 
     ctx: RuntimeCtx
-    agent: CompiledAgent
+    agent: CompiledStateGraph[Any, RuntimeCtx]
     config: RunnableConfig
     usage: CostAwareUsageMetadataCallbackHandler
     thread_id: str

@@ -1,11 +1,7 @@
 {% extends "base_app.html" %}
-{% load i18n icon_tags static %}
+{% load i18n icon_tags session_tags static %}
 
 {% block title %}{% if session.title %}{{ session.title }} — {% endif %}DAIV Sessions{% endblock %}
-
-{% block container_width %}max-w-6xl flex flex-col min-h-full{% endblock %}
-{# The dock's sticky `bottom: 0` stops at <main>'s padding box, so it would float above the viewport bottom. #}
-{% block main_padding_bottom %}pb-0{% endblock %}
 
 {% block head_extra %}
   <link rel="stylesheet" href="{% static 'chat/css/diff.css' %}">
@@ -24,11 +20,12 @@
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
   {% if session %}
   <script defer src="{% static 'sessions/js/session-sync.js' %}"></script>
+  <script defer src="{% static 'sessions/js/session-page.js' %}"></script>
   {% endif %}
   {% include "sandbox_envs/_scripts.html" %}
 {% endblock alpine_plugins %}
 
-{% block app_content %}
+{% block app_body %}
   {{ turns|json_script:"chat-initial-turns" }}
   {{ merge_request|json_script:"chat-initial-merge-request" }}
   {{ diff_stats|json_script:"chat-initial-diff-stats" }}
@@ -39,6 +36,13 @@
   {{ session_spend|json_script:"chat-session-spend" }}
 
   {% if session %}
+  {{ header|json_script:"session-header" }}
+  {% translate "Running" as running_label %}
+  {% translate "Queued" as queued_label %}
+  {% translate "Watching: {state}" as watching_label %}
+  {% translate "Off for this merge request" as watch_off_label %}
+  {% translate "Couldn't change the CI watch; try again" as watch_failed_label %}
+  {% session_title session as page_title %}
   <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}', active: {{ is_in_flight|yesno:'true,false' }} })"
        @daiv:live-run-ended.window="resume()"
        style="display:none" aria-hidden="true"></div>
@@ -94,6 +98,8 @@
          {# Any run in flight, streamed from the relay or polled until it holds the slot, so the load-time #}
          {# scroll can tell "still working" from "finished" without duplicating that logic in JS. #}
          sessionLive: {{ is_in_flight|yesno:"true,false" }},
+         archived: {{ archived|yesno:"true,false" }},
+         diffInDetails: {{ session|yesno:"true,false" }},
          waitingSince: "{{ waiting_since|default:''|escapejs }}",
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if session %}{
@@ -137,7 +143,20 @@
        @daiv:session-live-run.window="followLiveRun($event.detail)"
        @daiv:session-settled.window="holdReload($event)"
        x-cloak
-       class="chat-shell">
+       class="session-page">
+  <div class="contents"
+       {% if session %}x-data="sessionPage({ sessionUrl: '{% url 'api:session_update' session.thread_id %}', ciWatchUrl: '{% url 'api:session_ci_watch' session.thread_id %}', archiveUrl: '{% url 'api:session_archive' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', title: '{{ page_title|escapejs }}', titleSuffix: 'DAIV Sessions', labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}', watching: '{{ watching_label|escapejs }}', watchOff: '{{ watch_off_label|escapejs }}', watchFailed: '{{ watch_failed_label|escapejs }}' } })"
+       @daiv:session-turns.window="applyHeader($event.detail)"
+       @daiv:session-header.window="applyHeader($event.detail)"
+       @daiv:live-run-ended.window="settle()"{% endif %}>
+  {% if session %}
+    {% include "sessions/_session_topbar.html" %}
+  {% endif %}
+  <div class="session-page__body">
+  {# The dock's sticky `bottom: 0` stops at <main>'s padding box, so <main> carries no bottom padding. #}
+  <main class="scrollbar-thin min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pt-6 pb-0 sm:px-(--app-content-gutter) sm:pt-8">
+  <div class="mx-auto flex min-h-full max-w-6xl flex-col">
+  <div class="chat-shell">
 
     <div class="chat-column"
          :class="{ 'chat-column--empty': !thread && turns.length === 0 }">
@@ -182,16 +201,22 @@
           <template x-if="isTurnVisible(turn, ti === turns.length - 1)">
             <div class="chat-turn-wrap">
               <template x-if="turn.role === 'run_status'">
-                <div class="chat-run-status" :class="`chat-run-status--${turn.status}`" role="status" aria-live="polite">
+                <div class="chat-run-status" :id="runAnchorId(turn)" :class="`chat-run-status--${turn.status}`" role="status" aria-live="polite">
                   <span class="chat-run-status__icon" aria-hidden="true">
                     <template x-if="turn.status === 'aborted'">{% icon "x-mark" "h-4 w-4" %}</template>
                     <template x-if="turn.status !== 'aborted'">{% icon "exclamation-triangle" "h-4 w-4" %}</template>
                   </span>
                   <span class="chat-run-status__text" x-text="turn.message"></span>
+                  {% if session %}
+                    <button type="button" class="chat-run-status__retry" x-show="canRetry(turn)" @click="submit(latest.retry)"
+                            data-testid="run-retry">
+                      {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
+                    </button>
+                  {% endif %}
                 </div>
               </template>
               <template x-if="turn.role !== 'run_status'">
-                <article class="chat-turn"
+                <article class="chat-turn" :id="runAnchorId(turn)"
                          :class="{ [`chat-turn--${turn.role}`]: true, 'chat-turn--daiv': turn.author === 'daiv', 'chat-turn--pending': turn.pending }"
                          :data-role="turn.role">
                   <div class="chat-turn__body">
@@ -417,6 +442,14 @@
       {% endif %}
     </div>
   </div>
+  </div>
+  </main>
+  {% if session %}
+    {% include "sessions/_session_details.html" %}
+  {% endif %}
+  </div>
+  </div>
+  </div>
 
   {% include "sandbox_envs/_env_drawer.html" %}
-{% endblock app_content %}
+{% endblock app_body %}

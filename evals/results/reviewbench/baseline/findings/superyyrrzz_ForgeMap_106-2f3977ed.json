@@ -1,0 +1,53 @@
+{
+  "pr": {
+    "repo": "https://github.com/superyyrrzz/ForgeMap",
+    "pr_number": 106,
+    "base": "2ce83d91f981fc579ec53baf9bce4957fdc240fc",
+    "head": "2f3977edabcb8fdf5f947704e727d798a46fe96f"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": ".github/workflows/docs.yml",
+      "start_line": 27,
+      "end_line": 27,
+      "message": "Shared Pages concurrency group with `cancel-in-progress: true` can cancel a deploy to `main`\n\nThe group `pages-${{ github.ref }}` resolves to `pages-refs/heads/main` for both a push to `main` and a `workflow_dispatch` on `main`. A newer run in that group cancels the run in progress. If a push run is in `deploy` (gated at [line 58](https://github.com/superyyrrzz/ForgeMap/blob/2f3977edabcb8fdf5f947704e727d798a46fe96f/.github/workflows/docs.yml#L58) to push on `main`) and someone starts a dispatch on `main`, the dispatch's `deploy` job is skipped. The cancelled commit is never published, and the site stays stale or mid-deploy until the next docs push. Back-to-back pushes to `main` have the same effect. The previous shared `\"pages\"` group with `cancel-in-progress: false` queued the later run instead. GitHub's Pages starter workflow uses `cancel-in-progress: false` for this reason; I could not check that offline. This change is also not mentioned in the PR description.\n\nFix: restore `cancel-in-progress: false`, or cancel only non-`main` runs with `cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "docfx/templates/forgemap/public/main.css",
+      "start_line": 9,
+      "end_line": 9,
+      "message": "Google Fonts loaded via CSS `@import` is render-blocking\n\nThe stylesheet previously had no external dependencies. The `@import` makes every page wait for a cross-origin CSS request to `fonts.googleapis.com` before its rules apply, then fetch woff2 files from `fonts.gstatic.com`. On cold connections this adds DNS, TCP, and TLS setup plus a round trip before first paint. `display=swap` does not help with the `@import` itself. The request also includes weights the stylesheet does not appear to use; for example, Outfit 400 and 500 are not referenced.\n\nFix: remove the `@import`, load the font stylesheet as a `<link rel=\"stylesheet\">` in the page head with preconnect hints so it loads in parallel with `main.css`, and trim the requested weights. This needs a head partial or equivalent in the DocFX template.",
+      "producer": "daiv"
+    },
+    {
+      "file": "docfx/templates/forgemap/public/main.css",
+      "start_line": 29,
+      "end_line": 29,
+      "message": "Palette values are duplicated across tokens, RGB triplets, and literals\n\n- The `--bs-*-rgb` triplets at lines 29, 31, 58, and 60 are hand-kept copies of the ember hex value.\n- Literal `rgba(232, 118, 10, \u2026)` values at lines 115, 120, 174, and 413 bypass the tokens.\n- `--forge-ember-glow` is defined at lines 17 and 47 but never used.\n- Token roles flip between modes. `--forge-ash` and `--forge-steel` are light in one mode and dark in the other, which forces hard-coded neutrals such as `#f4f1ed` (lines 102, 291) and `#e0ddd8` (line 238).\n\nChanging `--forge-ember` leaves the glows and selection color on the old hue, and maintainers cannot tell which values are authoritative.\n\nFix: define one RGB triplet per mode (for example `--forge-ember-rgb: 232, 118, 10;`), derive `--forge-ember` and the `--bs-*-rgb` variables from it, write the alpha colors as `rgb(var(--forge-ember-rgb) / a)`, and either use or delete `--forge-ember-glow`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "docfx/templates/forgemap/public/main.css",
+      "start_line": 160,
+      "end_line": 160,
+      "message": "Dark-mode search field renders as a light box with about 2.5:1 placeholder contrast\n\nIn dark mode, `--forge-steel-light` is `#c0bbb4` and `--forge-ash` is `#1a1f28`. The `header .form-control` rule uses both with `!important`, so the search field becomes a light box with dark text inside the always-dark navbar. The placeholder (`#6b7280` on `#c0bbb4`) measures about 2.5:1. Light mode has the inverse problem, with a dark field, and its placeholder is about 3.8:1. This assumes the DocFX search input is a `.form-control` inside `header`; I could not confirm that because the DocFX template sources are not in the repo.\n\nFix: give the field a mode-independent dark background and light text, or scope a `[data-bs-theme=\"dark\"] header .form-control` override.",
+      "producer": "daiv"
+    },
+    {
+      "file": "docfx/templates/forgemap/public/main.css",
+      "start_line": 331,
+      "end_line": 331,
+      "message": "Dead `transition` on `.toc .nav-link`\n\nLine 331 sets `transition: all 0.15s ease` on `.toc .nav-link`. The \"Smooth theme transitions\" group at lines 422\u2013430 sets the same selector with the same specificity and no `!important`. The later shorthand replaces the earlier one, so line 331 never applies. The two hand-maintained lists have also drifted: `header .form-control` is in the reduced-motion list but has no transition, and `a` has a transition but is not listed there.\n\nFix: delete line 331, or remove `.toc .nav-link` from the group at line 430, and keep one owner for each transition.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 835285,
+    "completion_tokens": 128985,
+    "total_tokens": 964270,
+    "time_in_ms": 336311,
+    "cost_usd": 0.091294905
+  }
+}

@@ -13,14 +13,12 @@ from typing import TYPE_CHECKING
 
 from django.utils.translation import gettext as _
 
-from codebase.base import Scope
-from sessions.ids import compute_thread_id
 from sessions.models import WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.judgment import Judgment, PipelineReport
 from sessions.pipeline_watch.platform import WatchPlatform, log_read_failure
 from sessions.pipeline_watch.policy import WatchPolicy
-from sessions.pipeline_watch.store import WatchStore
+from sessions.pipeline_watch.store import WatchStore, watch_thread_id
 from sessions.repo_state import mr_to_payload
 from sessions.signal_defs import watch_exhausted
 
@@ -60,7 +58,11 @@ class PipelineWatch:
         return self._policy
 
     def _thread_id(self, merge_request_iid: int) -> str:
-        return compute_thread_id(repo_slug=self.repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request_iid)
+        return watch_thread_id(self.repo_id, merge_request_iid)
+
+    async def astate(self, merge_request_iid: int) -> str | None:
+        """The state of the watch on the merge request, or ``None`` while nothing ever armed one."""
+        return await self._store.astate(self._thread_id(merge_request_iid))
 
     async def aarm(
         self,
@@ -98,6 +100,45 @@ class PipelineWatch:
             reset_attempts=not was_fix_run,
         )
         return thread_id
+
+    async def aturn_on(
+        self, *, merge_request_iid: int, user_id: int | None = None, sandbox_environment_id: str | None = None
+    ) -> str | None:
+        """Watch a merge request because someone asked to, then judge its head pipeline at once.
+
+        Arms on the merge request's current source branch, read from the platform rather than a session's ``ref``,
+        which lags a branch the agent renamed. Attempts start over: a person asking again is a new budget, but a
+        watch still open is left as it is. Returns the watch's thread id, or ``None`` when the repository has the
+        watch off. Raises when the merge request cannot be read.
+        """
+        from sessions.tasks import evaluate_pipeline_watch_task
+
+        if await self.astate(merge_request_iid) in WatchState.open():
+            return self._thread_id(merge_request_iid)
+        if not (await self._apolicy()).enabled:
+            return None
+        merge_request = await self._platform.aread_merge_request(merge_request_iid)
+        armed = await self.aarm(
+            merge_request_iid=merge_request_iid,
+            ref=merge_request.source_branch,
+            was_fix_run=False,
+            user_id=user_id,
+            sandbox_environment_id=sandbox_environment_id,
+        )
+        await evaluate_pipeline_watch_task.aenqueue(repo_id=self.repo_id, ref=merge_request.source_branch)
+        return armed
+
+    async def aturn_off(self, *, merge_request_iid: int, seen_state: str) -> bool:
+        """Stop watching because someone asked to, reporting whether the watch is off now.
+
+        ``seen_state`` is the state the person turned off. The move is conditional on it, so one that lost to a
+        fix run claiming the watch, or to a verdict landing, changes nothing and the caller shows them the new state.
+        """
+        if seen_state == WatchState.OFF:
+            return True
+        return await self._store.atransition(
+            self._thread_id(merge_request_iid), expect=seen_state, watch_state=WatchState.OFF
+        )
 
     async def aexhaust(self, *, merge_request_iid: int, reason: str) -> None:
         """End a watch that cannot make progress, whatever state it is in.
@@ -141,6 +182,9 @@ class PipelineWatch:
             return
 
         was_fix_run = await self._store.ais_fix_run(run_id)
+        if was_fix_run and await self.astate(merge_request_iid) == WatchState.OFF:
+            # Someone turned the watch off while this fix run worked; its re-arm must not turn it back on.
+            return
 
         if not published:
             # A fix run that pushed nothing will get no pipeline and therefore no event, so

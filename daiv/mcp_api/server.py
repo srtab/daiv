@@ -195,8 +195,9 @@ async def submit_job(
             description=(
                 "Optional. Continue an existing thread by passing its UUID (from a prior"
                 " submit_job or get_job_status response). When set, ``repos`` must contain"
-                " exactly one entry whose session belongs to the calling user; a multi-repository"
-                " session also accepts its full list, in order, with no ``ref``."
+                " exactly one entry whose session belongs to the calling user, who has not"
+                " archived it; a multi-repository session also accepts its full list, in order,"
+                " with no ``ref``."
                 " If a prior run on this thread is still in flight, the new job is queued"
                 " and runs FIFO after it terminates."
             )

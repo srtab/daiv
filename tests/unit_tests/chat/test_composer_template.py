@@ -33,15 +33,27 @@ def test_summary_strip_and_rail_are_gone(member_client, member_user):
 
 
 @pytest.mark.django_db
-def test_context_row_lives_in_the_dock_above_the_composer(member_client, member_user):
+def test_context_row_lives_in_the_dock_above_the_composer(member_client):
     """Repo and branch belong to the sticky dock, not the scrolling column — the two facts
     people misjudge have to stay on screen."""
-    html = render_thread(member_client, create_session(member_user))
+    html = render_new_chat(member_client)
 
     dock = html.index('class="chat-dock"')
     context_row = html.index('class="chat-context"')
     composer = html.index('class="chat-composer"')
     assert dock < context_row < composer
+
+
+@pytest.mark.django_db
+def test_a_thread_shows_repo_and_branch_in_its_details_not_the_dock(member_client, member_user):
+    """The session page's details panel carries them, so a second copy in the dock would only repeat it."""
+    html = render_thread(member_client, create_session(member_user))
+
+    assert 'class="chat-context"' not in html
+    start = html.index('data-testid="session-details"')
+    details = html[start : html.index("</aside>", start)]
+    assert "group/project" in details
+    assert "thread?.ref" in details
 
 
 @pytest.mark.django_db
@@ -301,16 +313,26 @@ def test_every_composer_control_goes_inert_while_a_turn_is_in_flight(member_clie
 
 
 @pytest.mark.django_db
-def test_context_meter_trigger_and_sheet_render(member_client, member_user):
-    """The meter is the third composer sheet: ring trigger in the buttons cluster, panel on
-    the same ``sheet`` state, seeds in json_scripts."""
-    html = render_thread(member_client, create_session(member_user))
+def test_context_meter_trigger_and_sheet_render(member_client):
+    """Before a thread exists the meter is the third composer sheet: ring trigger in the buttons
+    cluster, panel on the same ``sheet`` state, seeds in json_scripts."""
+    html = render_new_chat(member_client)
 
     assert 'class="context-meter"' in html
     assert "composer-sheet--context" in html
     assert "toggleSheet('context')" in html
     assert "chat-context-usage" in html
     assert "chat-session-spend" in html
+
+
+@pytest.mark.django_db
+def test_a_threads_context_meter_opens_the_details_panel(member_client, member_user):
+    """A session page shows usage in its details panel, so the ring opens that instead of a sheet."""
+    html = render_thread(member_client, create_session(member_user))
+
+    assert 'class="context-meter"' in html
+    assert "openDetails('context')" in html
+    assert "composer-sheet--context" not in html
 
 
 @pytest.mark.django_db

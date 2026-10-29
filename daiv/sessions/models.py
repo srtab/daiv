@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.sessions")
 
+CHAT_PROMPT_MAX_LENGTH = 2000
+
 
 class RunStatus(models.TextChoices):
     QUEUED = "QUEUED", _("Queued")
@@ -66,6 +68,13 @@ class SessionOrigin(models.TextChoices):
     def prompt_driven(cls) -> frozenset[str]:
         """Job triggers created from an explicit prompt (API / MCP / UI batch submits and an agent's delegation)."""
         return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB})
+
+    @classmethod
+    def retryable(cls) -> frozenset[str]:
+        """Triggers whose failed run a follow-up chat turn in the same session retries: chat, and the jobs and
+        schedules a person started. A webhook run reports back through its own flow and a delegated run to its
+        coordinator, which a chat turn does neither of."""
+        return frozenset({cls.CHAT, cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.SCHEDULE})
 
     @classmethod
     def daiv_authored(cls) -> frozenset[str]:
@@ -617,6 +626,26 @@ class RunArtifact(models.Model):
     @property
     def kind(self) -> ArtifactKind:
         return artifact_kind(self.content_type)
+
+
+class HiddenSession(models.Model):
+    """A session one user archived out of their own session list; everyone else still lists it."""
+
+    session = models.ForeignKey(
+        Session, on_delete=models.CASCADE, related_name="hidden_by", verbose_name=_("session"), db_index=False
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="hidden_sessions", verbose_name=_("user")
+    )
+    hidden_at = models.DateTimeField(_("archived at"), default=timezone.now, editable=False)
+
+    class Meta:
+        verbose_name = _("Archived Session")
+        verbose_name_plural = _("Archived Sessions")
+        constraints = [models.UniqueConstraint(fields=["session", "user"], name="hidden_session_unique")]
+
+    def __str__(self) -> str:
+        return f"Session {self.session_id} archived by {self.user_id}"
 
 
 class SessionArchive(models.Model):

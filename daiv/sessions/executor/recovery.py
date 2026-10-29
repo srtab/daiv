@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, Any
 from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
 
 if TYPE_CHECKING:
-    from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
+    from langgraph.graph.state import CompiledStateGraph
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
@@ -17,7 +17,7 @@ logger = logging.getLogger("daiv.sessions")
 
 async def recover_draft(
     ctx: RuntimeCtx,
-    agent: CompiledAgent,
+    agent: CompiledStateGraph[Any, RuntimeCtx],
     config: RunnableConfig,
     *,
     thread_id: str,
@@ -51,7 +51,7 @@ async def recover_draft(
 
 async def _recover_main_draft(
     ctx: RuntimeCtx,
-    agent: CompiledAgent,
+    agent: CompiledStateGraph[Any, RuntimeCtx],
     config: RunnableConfig,
     *,
     thread_id: str,
@@ -90,7 +90,7 @@ async def _recover_main_draft(
 
 async def _recover_extra_repo_drafts(
     ctx: RuntimeCtx,
-    agent: CompiledAgent,
+    agent: CompiledStateGraph[Any, RuntimeCtx],
     config: RunnableConfig,
     *,
     thread_id: str,

@@ -9,12 +9,19 @@ from django.utils import timezone
 
 from sandbox_envs.models import SandboxEnvironment
 
+from codebase.base import Scope
+from sessions.ids import compute_thread_id
 from sessions.models import Run, Session, SessionOrigin, WatchState
 
 if TYPE_CHECKING:
     from datetime import datetime
 
     from django.db.models import QuerySet
+
+
+def watch_thread_id(repo_id: str, merge_request_iid: int) -> str:
+    """The merge request's own thread: the row its watch lives on, whichever session published the merge request."""
+    return compute_thread_id(repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request_iid)
 
 
 class WatchStore:
@@ -35,6 +42,14 @@ class WatchStore:
             **updates
         )
         return updated == 1
+
+    def state(self, thread_id: str) -> str | None:
+        """SYNC ONLY: the watch's state, or ``None`` when the thread has no row yet."""
+        return Session.objects.filter(thread_id=thread_id).values_list("watch_state", flat=True).first()
+
+    async def astate(self, thread_id: str) -> str | None:
+        """:meth:`state` for async callers."""
+        return await Session.objects.filter(thread_id=thread_id).values_list("watch_state", flat=True).afirst()
 
     async def aopen_watch(self, repo_id: str, ref: str) -> Session | None:
         return await (

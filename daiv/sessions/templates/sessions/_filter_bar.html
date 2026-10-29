@@ -1,7 +1,17 @@
 {% load i18n icon_tags session_tags %}
 <div class="animate-fade-up relative z-10 mt-8 flex flex-col gap-3" style="animation-delay: 50ms"
-     x-data="filterBar()">
+     x-data="filterBar()" data-scope="{{ current_scope }}">
     <div class="flex flex-wrap items-center gap-3">
+        <div class="filter-seg" role="group" aria-label="{% translate 'Whose sessions' %}">
+            {% for value, label in scopes %}
+            <a href="{% querystring scope=value page=None %}"
+               class="filter-seg-item {% if current_scope == value %}filter-seg-item--active{% endif %}"
+               @click.prevent="setScope('{{ value }}')" :class="{ 'filter-seg-item--active': scope === '{{ value }}' }"
+               :aria-current="scope === '{{ value }}' ? 'true' : null"
+               {% if current_scope == value %}aria-current="true"{% endif %}>{{ label }}</a>
+            {% endfor %}
+        </div>
+
         {# Search (title or repo) — replaces the repo picker #}
         <div class="relative min-w-[240px] flex-1">
             <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
@@ -38,7 +48,7 @@
                    class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear type filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
                 <span x-show="!trigger" style="{% if current_trigger %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
             </button>
-            <div class="filter-menu" x-show="open === 'type'" x-cloak>
+            <div data-surface class="filter-menu" x-show="open === 'type'" x-cloak>
                 <a href="{{ clear_trigger_url }}"
                    class="filter-menu-item {% if not current_trigger %}filter-menu-item--active{% endif %}"
                    @click.prevent="clearTrigger()" :class="{ 'filter-menu-item--active': !trigger }">{% translate "All types" %}</a>
@@ -70,7 +80,7 @@
                    class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear time filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
                 <span x-show="!timeActive" style="{% if current_range or current_from or current_to %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
             </button>
-            <div class="filter-menu" x-show="open === 'time'" x-cloak>
+            <div data-surface class="filter-menu" x-show="open === 'time'" x-cloak>
                 <a href="{{ clear_time_url }}"
                    class="filter-menu-item {% if not current_range and not current_from and not current_to %}filter-menu-item--active{% endif %}"
                    @click.prevent="clearTime()" :class="{ 'filter-menu-item--active': !range && !from && !to }">{% translate "All time" %}</a>
@@ -94,6 +104,16 @@
                 </div>
             </div>
         </div>
+
+        {# Archived sessions are a list of their own, so this swaps the list rather than narrowing it #}
+        <a href="{% if current_archived %}{% querystring archived=None page=None %}{% else %}{% querystring archived='true' page=None %}{% endif %}"
+           class="filter-control {% if current_archived %}filter-control--active{% endif %}"
+           :class="{ 'filter-control--active': archived }"
+           @click.prevent="toggleArchived()"
+           :aria-pressed="archived.toString()" aria-pressed="{{ current_archived|yesno:'true,false' }}"
+           role="button" data-testid="filter-archived">
+            {% icon "archive-box" "h-4 w-4" %}{% translate "Archived" %}
+        </a>
     </div>
 
     {# Deep-link filters (no control) + Clear all — visibility driven by client state #}
@@ -102,32 +122,39 @@
         {% if current_repo %}
         <span class="filter-chip" x-show="!!repo">
             <span>{% blocktranslate with name=current_repo %}Repository: {{ name }}{% endblocktranslate %}</span>
-            <a href="{% querystring repo=None mr=None page=None %}" @click.prevent="clearParam('repo', 'mr')"
+            <a href="{% querystring repo=None mr=None page=None scope=current_scope %}" @click.prevent="clearParam('repo', 'mr')"
                class="filter-chip__x" aria-label="{% translate 'Clear repository filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
         {% if current_mr %}
         <span class="filter-chip" x-show="!!mr">
             <span>{% blocktranslate with iid=current_mr %}Merge request !{{ iid }}{% endblocktranslate %}</span>
-            <a href="{% querystring mr=None page=None %}" @click.prevent="clearParam('mr')"
+            <a href="{% querystring mr=None page=None scope=current_scope %}" @click.prevent="clearParam('mr')"
                class="filter-chip__x" aria-label="{% translate 'Clear merge request filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
+        </span>
+        {% endif %}
+        {% if current_ran_on %}
+        <span class="filter-chip" x-show="!!ranOn">
+            <span>{% blocktranslate with day=current_ran_on %}Ran on {{ day }}{% endblocktranslate %}</span>
+            <a href="{% querystring ran_on=None page=None scope=current_scope %}" @click.prevent="clearParam('ranOn')"
+               class="filter-chip__x" aria-label="{% translate 'Clear run day filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
         {% if current_schedule %}
         <span class="filter-chip" x-show="!!schedule">
             <span>{% blocktranslate with name=schedule_name %}Schedule: {{ name }}{% endblocktranslate %}</span>
-            <a href="{% querystring schedule=None page=None %}" @click.prevent="clearParam('schedule')"
+            <a href="{% querystring schedule=None page=None scope=current_scope %}" @click.prevent="clearParam('schedule')"
                class="filter-chip__x" aria-label="{% translate 'Clear schedule filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
         {% if current_batch %}
         <span class="filter-chip" x-show="!!batch">
             <span>{% blocktranslate with id=current_batch_short %}Batch {{ id }}{% endblocktranslate %}</span>
-            <a href="{% querystring batch=None page=None %}" @click.prevent="clearParam('batch')"
+            <a href="{% querystring batch=None page=None scope=current_scope %}" @click.prevent="clearParam('batch')"
                class="filter-chip__x" aria-label="{% translate 'Clear batch filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
-        <a href="{% url 'session_list' %}" @click.prevent="clearAll()"
+        <a href="{% url 'session_list' %}?scope={{ current_scope }}" @click.prevent="clearAll()"
            class="filter-clear" x-show="hasActiveFilters">{% translate "Clear all" %}</a>
     </div>
 </div>

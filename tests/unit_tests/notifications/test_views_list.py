@@ -1,7 +1,8 @@
 from django.utils import timezone
 
 import pytest
-from notifications.models import Notification
+from notifications.choices import DeliveryStatus, EventType
+from notifications.models import Notification, NotificationDelivery
 
 
 @pytest.mark.django_db
@@ -21,6 +22,44 @@ class TestNotificationListView:
         )
         response = member_client.get("/dashboard/notifications/")
         assert "Secret" not in response.content.decode()
+
+    def test_rows_show_their_outcome(self, member_client, member_user):
+        Notification.objects.create(
+            recipient=member_user, event_type=EventType.PIPELINE_WATCH_EXHAUSTED, subject="s", body="b", link_url="/"
+        )
+        Notification.objects.create(
+            recipient=member_user,
+            event_type=EventType.JOB_BATCH_FINISHED,
+            subject="s",
+            body="b",
+            link_url="/",
+            context={"needs_input_count": 1},
+        )
+        content = member_client.get("/dashboard/notifications/").content.decode()
+        assert 'data-outcome="ci-still-failing"' in content
+        assert 'data-outcome="needs-input"' in content
+        assert "outcome--fail" in content
+
+    def test_rows_hide_sent_deliveries_and_flag_failed_ones(self, member_client, member_user):
+        sent = Notification.objects.create(
+            recipient=member_user, event_type=EventType.JOB_FINISHED, subject="s", body="b", link_url="/"
+        )
+        NotificationDelivery.objects.create(
+            notification=sent,
+            channel_type="email",
+            address="m@x.io",
+            status=DeliveryStatus.SENT,
+            delivered_at=timezone.now(),
+        )
+        content = member_client.get("/dashboard/notifications/").content.decode()
+        assert "Sent" not in content
+        assert "not delivered" not in content
+
+        NotificationDelivery.objects.create(
+            notification=sent, channel_type="telegram", address="1", status=DeliveryStatus.FAILED
+        )
+        content = member_client.get("/dashboard/notifications/").content.decode()
+        assert "Telegram not delivered" in content
 
     def test_filter_unread(self, member_client, member_user):
         Notification.objects.create(
@@ -51,7 +90,7 @@ class TestNotificationListView:
 class TestMarkAsRead:
     def test_marks_single_as_read(self, member_client, notification):
         response = member_client.post(f"/dashboard/notifications/{notification.id}/read/")
-        assert response.status_code in (200, 204)
+        assert response.status_code == 204
         notification.refresh_from_db()
         assert notification.read_at is not None
 

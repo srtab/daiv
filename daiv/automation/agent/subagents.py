@@ -53,7 +53,14 @@ logger = logging.getLogger("daiv.agent")
 GENERAL_PURPOSE_NAME = "general-purpose"
 EXPLORE_NAME = "explore"
 
-CODE_REVIEW_DETECTOR_NAMES = ("cr-correctness", "cr-security", "cr-performance", "cr-structure", "cr-custom-rules")
+CODE_REVIEW_DETECTOR_NAMES = (
+    "cr-correctness",
+    "cr-security",
+    "cr-performance",
+    "cr-structure",
+    "cr-tests",
+    "cr-custom-rules",
+)
 
 _CODE_REVIEW_SKILL_PATH = BUILTIN_SKILLS_PATH / "code-review"
 CODE_REVIEW_AGENTS_PATH = _CODE_REVIEW_SKILL_PATH / "agents"

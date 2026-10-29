@@ -3,7 +3,6 @@ from types import SimpleNamespace
 
 import pytest
 from langchain_anthropic import ChatAnthropic
-from langchain_anthropic.chat_models import _supports_mid_conversation_system_messages
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
@@ -13,7 +12,12 @@ from pydantic import BaseModel, Field
 from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.deferred import inline as inline_module
 from automation.agent.deferred.index import DeferredToolsIndex
-from automation.agent.deferred.inline import LOADED_TOOLS_ARTIFACT_KEY, inline_block_builder, with_inline_definitions
+from automation.agent.deferred.inline import (
+    LOADED_TOOLS_ARTIFACT_KEY,
+    _supports_mid_conversation_system_messages,
+    inline_block_builder,
+    with_inline_definitions,
+)
 
 
 class _DigestArgs(BaseModel):
@@ -103,11 +107,14 @@ class TestInlineBlockBuilder:
     def test_other_models_get_nothing(self, model):
         assert inline_block_builder(model) is None
 
-    @pytest.mark.parametrize("model", ["claude-haiku-5-5", "claude-sonnet-5", "claude-sonnet-4-6"])
+    @pytest.mark.parametrize("model", ["claude-sonnet-4-6"])
     def test_claude_model_langchain_would_hoist_gets_nothing(self, model):
         # langchain-anthropic raises on a non-leading system message for such a model, so it must not inline.
-        assert not _supports_mid_conversation_system_messages(model)
-        assert inline_block_builder(_anthropic(model)) is None
+        # In 1.7.6 the gate moved to the model profile; claude-haiku-5-5 and claude-sonnet-5 now set
+        # ``mid_conversation_system_messages=True`` and so no longer hoist, but claude-sonnet-4-6 still does.
+        instance = _anthropic(model)
+        assert not _supports_mid_conversation_system_messages(instance)
+        assert inline_block_builder(instance) is None
 
     def test_unlisted_claude_model_gets_nothing(self, monkeypatch):
         monkeypatch.setattr(inline_module.deferred_settings, "INLINE_TOOLS_MODELS", ["claude-fable-5"])

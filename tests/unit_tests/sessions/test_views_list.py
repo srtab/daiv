@@ -9,7 +9,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 import pytest
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
@@ -97,6 +97,97 @@ class TestSessionListView:
         assert mine.pk in session_pks
         assert theirs.pk not in session_pks
 
+    def test_a_plain_visit_shows_only_the_users_own_sessions(self, admin_client, admin_user):
+        client = admin_client
+        mine = _create_session(user=admin_user)
+        theirs = _create_session(user=User.objects.create_user(username="bob", email="b@test.com", password="x"))  # noqa: S106
+
+        response = client.get(reverse("session_list"))
+
+        assert [s.pk for s in response.context["sessions"]] == [mine.pk]
+        assert response.context["current_scope"] == "mine"
+        assert response.context["has_active_filters"] is False
+        response = client.get(reverse("session_list"), {"scope": "all"})
+        assert {s.pk for s in response.context["sessions"]} == {mine.pk, theirs.pk}
+
+    def test_a_deep_link_defaults_to_all_and_clear_all_keeps_it(self, admin_client):
+        client = admin_client
+        theirs = _create_session(user=User.objects.create_user(username="bob", email="b@test.com", password="x"))  # noqa: S106
+
+        response = client.get(reverse("session_list"), {"repo": "group/project"})
+
+        assert [s.pk for s in response.context["sessions"]] == [theirs.pk]
+        assert response.context["current_scope"] == "all"
+        assert f'href="{reverse("session_list")}?scope=all"' in response.content.decode()
+
+    @pytest.mark.parametrize("param", ["repo", "schedule", "batch", "mr"])
+    def test_a_deep_link_without_scope_shows_teammates_sessions(self, admin_client, admin_user, other_user, param):
+        schedule = _create_schedule(other_user, "Nightly")
+        batch_id = uuid.uuid4()
+        _create_session(user=admin_user, repo_id="group/other")
+        theirs = _create_session(user=other_user, scheduled_job=schedule, merge_request_iid=42)
+        _create_run(theirs, batch_id=batch_id)
+        value = {"repo": "group/project", "schedule": str(schedule.pk), "batch": str(batch_id), "mr": "42"}[param]
+
+        response = admin_client.get(reverse("session_list"), {param: value})
+
+        assert [s.pk for s in response.context["sessions"]] == [theirs.pk]
+        assert response.context["current_scope"] == "all"
+        response = admin_client.get(reverse("session_list"), {param: value, "scope": "mine"})
+        assert list(response.context["sessions"]) == []
+
+    def test_filter_bar_renders_the_scope_toggle(self, logged_in_client, user):
+        html = logged_in_client.get(reverse("session_list")).content.decode()
+        assert "setScope('mine')" in html
+        assert "setScope('all')" in html
+
+    def test_archived_sessions_have_a_list_of_their_own(self, logged_in_client, user):
+        shown = _create_session(user=user)
+        hidden = _create_session(user=user)
+        HiddenSession.objects.create(session=hidden, user=user)
+
+        default = logged_in_client.get(reverse("session_list"))
+        archived = logged_in_client.get(reverse("session_list"), {"archived": "true"})
+        unrecognised = logged_in_client.get(reverse("session_list"), {"archived": "1"})
+
+        assert [s.pk for s in default.context["sessions"]] == [shown.pk]
+        assert [s.pk for s in archived.context["sessions"]] == [hidden.pk]
+        assert [s.pk for s in unrecognised.context["sessions"]] == [shown.pk]
+        assert (default.context["current_archived"], archived.context["current_archived"]) == (False, True)
+        assert unrecognised.context["current_archived"] is False
+        assert archived.context["has_active_filters"] is True
+
+    def test_a_filtered_list_says_how_many_archived_sessions_match_too(self, logged_in_client, user):
+        _create_session(user=user, repo_id="group/project", merge_request_iid=7)
+        for _ in range(2):
+            HiddenSession.objects.create(
+                session=_create_session(user=user, repo_id="group/project", merge_request_iid=7), user=user
+            )
+        HiddenSession.objects.create(session=_create_session(user=user, repo_id="group/other"), user=user)
+
+        resp = logged_in_client.get(reverse("session_list"), {"repo": "group/project", "mr": "7"})
+        html = resp.content.decode()
+
+        assert resp.context["archived_matches"] == 2
+        assert "2 archived sessions match too." in html
+        assert "?repo=group%2Fproject&amp;mr=7&amp;archived=true" in html
+
+    def test_an_unfiltered_or_archived_list_does_not_count_archived_matches(self, logged_in_client, user):
+        HiddenSession.objects.create(session=_create_session(user=user), user=user)
+
+        unfiltered = logged_in_client.get(reverse("session_list"))
+        archived = logged_in_client.get(reverse("session_list"), {"archived": "true"})
+
+        assert "archived_matches" not in unfiltered.context
+        assert "archived_matches" not in archived.context
+
+    def test_filter_bar_renders_the_archived_toggle(self, logged_in_client, user):
+        html = logged_in_client.get(reverse("session_list"), {"archived": "true"}).content.decode()
+        control = html[html.index('data-testid="filter-archived"') - 400 : html.index('data-testid="filter-archived"')]
+
+        assert 'aria-pressed="true"' in control
+        assert "toggleArchived()" in control
+
     def test_hides_ci_watch_placeholder_until_a_run_lands(self, logged_in_client, user):
         placeholder = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=7)
         fixed = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=8)
@@ -144,6 +235,12 @@ class TestSessionListView:
         assert "statuses" in response.context
         assert len(response.context["origins"]) > 0
         assert len(response.context["statuses"]) > 0
+
+    def test_status_filter_renders_needs_input_and_failed_first(self, logged_in_client, user):
+        response = logged_in_client.get(reverse("session_list"))
+        html = response.content.decode()
+        positions = [html.index(f"setStatus('{status}')") for status in ("WAITING_INPUT", "FAILED", "SUCCESSFUL")]
+        assert positions == sorted(positions)
 
     def test_date_param_names_are_date_from_and_date_to(self, logged_in_client, user):
         """Lock in the URL param names; values round-trip to template context."""
@@ -259,6 +356,23 @@ class TestSessionListView:
 
         assert response.context["schedule_name"] == ""
         assert "Secret audit" not in response.content.decode()
+
+    def test_schedule_filter_chip_names_the_schedule_when_mine_has_no_rows(self, admin_client, other_user):
+        schedule = _create_schedule(other_user, "Their audit")
+        _create_session(user=other_user, scheduled_job=schedule)
+
+        response = admin_client.get(reverse("session_list"), {"schedule": str(schedule.pk), "scope": "mine"})
+
+        assert list(response.context["sessions"]) == []
+        assert response.context["schedule_name"] == "Their audit"
+
+    def test_clearing_a_deep_link_chip_keeps_the_scope(self, admin_client):
+        _create_session(repo_id="group/project", merge_request_iid=42)
+
+        html = admin_client.get(reverse("session_list"), {"repo": "group/project", "mr": "42"}).content.decode()
+
+        assert 'href="?scope=all"' in html
+        assert 'href="?repo=group%2Fproject&amp;scope=all"' in html
 
     def test_runs_are_prefetched_newest_first(self, logged_in_client, user, django_assert_num_queries):
         session = _create_session(user=user)

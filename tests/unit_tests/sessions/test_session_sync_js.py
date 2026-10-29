@@ -35,6 +35,7 @@ let hold = false;
 
 const sandbox = {
   document: { addEventListener: (name, cb) => { if (name === "alpine:init") cb(); } },
+  performance: { now: () => now },
   console: { warn() {} },
   CustomEvent: class {
     constructor(type, init) { this.type = type; this.detail = init?.detail; this.defaultPrevented = false; }
@@ -109,6 +110,15 @@ def test_it_stays_quiet_while_a_live_run_streams():
     assert result["events"] == []
 
 
+def test_each_turns_event_says_when_its_request_was_sent():
+    """The session page drops a watch read before its own toggle answered, so it needs the poll's send time."""
+    payload = {"active": True, "live_run": None, "turns": [], "watch": None}
+
+    result = _run({"liveRunId": ""}, [["hold", None], ["advance", 5000], ["advance", 2000], ["release", [0, payload]]])
+
+    assert result["events"][0]["detail"] == {**payload, "requestedAt": 5000}
+
+
 def test_a_new_holder_is_handed_to_the_chat():
     payload = {"active": True, "live_run": {"id": "r2", "stoppable": False}, "turns": []}
 
@@ -136,7 +146,7 @@ def test_the_finished_run_is_not_followed_again():
 
     result = _run(
         {"liveRunId": "r1"},
-        [["event", "daiv:live-run-ended"], ["respond", payload], ["respond", payload], ["advance", 5000]],
+        [["respond", payload], ["respond", payload], ["event", "daiv:live-run-ended"], ["advance", 5000]],
     )
 
     assert "daiv:session-live-run" not in [e["type"] for e in result["events"]]
@@ -223,10 +233,14 @@ def test_an_engaged_page_does_not_check(live_run_id):
     assert result["fetches"] == 0
 
 
-def test_an_idle_page_ignores_its_own_chat_turn_ending():
-    result = _idle([["event", "daiv:live-run-ended"], ["advance", 15000]])
+def test_an_idle_pages_own_chat_turn_ending_refreshes_only_the_header():
+    payload = {"active": False, "live_run": None, "latest_run": None, "turns": []}
 
-    assert result["fetches"] == 0
+    result = _idle([["respond", payload], ["event", "daiv:live-run-ended"], ["advance", 15000]])
+
+    assert result["fetches"] == 1
+    assert [e["type"] for e in result["events"]] == ["daiv:live-run-ended", "daiv:session-header"]
+    assert result["events"][1]["detail"] == {**payload, "requestedAt": 0}
     assert result["reloads"] == 0
 
 

@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 
-from automation.agent.mcp.client import StatusTrackingClient, build_client, list_tools
+from automation.agent.mcp.client import StatusTrackingClient, build_client, list_tools, read_only_hint
 from automation.agent.mcp.errors import FailureKind, classify
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from core.encryption import DecryptionError
@@ -189,14 +189,6 @@ def _build_client(payload: dict[str, Any]) -> StatusTrackingClient:
     return build_client(payload.get("transport"), url, headers or None)
 
 
-def _read_only_hint(tool) -> bool | None:
-    """MCP's optional ``readOnlyHint`` annotation; ``None`` means the server left it unannotated."""
-    node: Any = tool.metadata
-    for key in ("mcp", "tool", "annotations"):
-        node = node.get(key) if isinstance(node, dict) else None
-    return node.get("read_only_hint") if isinstance(node, dict) else None
-
-
 async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
     """Open a transient MCP session against ``payload`` and return either
     ``{ok: True, tools: [...]}`` or ``{ok: False, error: ...}``."""
@@ -215,7 +207,7 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
         "tools": [
-            {"name": tool.name, "description": tool.description or "", "read_only": _read_only_hint(tool)}
+            {"name": tool.name, "description": tool.description or "", "read_only": read_only_hint(tool)}
             for tool in tools
         ],
     }

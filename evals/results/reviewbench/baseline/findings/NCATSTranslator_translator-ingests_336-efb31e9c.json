@@ -1,0 +1,88 @@
+{
+  "pr": {
+    "repo": "https://github.com/NCATSTranslator/translator-ingests",
+    "pr_number": 336,
+    "base": "58d880509f9cf6d37715153b7cf261205dfa0f96",
+    "head": "efb31e9c764865f416230073c6d0b1686a0f44b7"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "src/translator_ingest/ingests/gtopdb/gtopdb.py",
+      "start_line": 413,
+      "end_line": 413,
+      "message": "`break` used as a per-record skip ends the whole record loop, silently dropping later rows\n\nEach `print(\"not applicable\"); break` sits inside `for record in data:` (line 135). The first matching row stops processing, and `transform_ingest_all` returns the partial graph at line 1094 with no error. The base file has no `break` in these branches and emitted edges for these combinations (for example, base line 400 handles Allosteric `Neutral`/blank). This is new output loss.\n\nFix: replace each `break` with `continue`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/translator_ingest/ingests/gtopdb/gtopdb.py",
+      "start_line": 167,
+      "end_line": 167,
+      "message": "`'Agnoist'` typo drops Agonist-action edges and leaves branches unreachable\n\n- The three lists spell `'Agnoist'`, not `'Agonist'`.\n- Type `Agonist` + Action `Agonist` (258): not in the list, and the base's `Type == 'Agonist' and Action != \"Binding\"` fallback was removed. No edge is emitted, and the `elif` at 263 is dead.\n- Type `Allosteric modulator` + `Agonist` (331\u2013341): same pattern; the branch at 341 is dead.\n- Type `Activator` + `Agonist` (167 \u2192 217): falls to the not-in block, which has no Agonist case, so `causal_mechanism_qualifier` becomes None. The base set `agonism` (base line 178).\n\nFix: correct the three strings to `'Agonist'`, and add an Agonist-type fallback as the Activator and Inhibitor blocks have. Confirm the action values against the source data first.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/translator_ingest/ingests/gtopdb/gtopdb.py",
+      "start_line": 100,
+      "end_line": 100,
+      "message": "Pandas `groupby` drops rows with blank Type, Action, or Endogenous before the transform\n\n`group_cols` includes `Type`, `Action`, and `Endogenous`. `groupby` defaults to `dropna=True`, so rows with a missing key are removed. The transform handles `record[\"Action\"] is None` in several branches (for example, 970), which suggests blank actions are expected input. Those rows previously produced edges and now vanish, and the `is None` branches become unreachable.\n\nFix: use `groupby(group_cols, as_index=False, dropna=False)` and normalize NaN keys to `None`. Not executed: pandas could not be installed offline. This rests on pandas' documented default. I did not confirm that the GtoPdb data contains blank keys.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/translator_ingest/ingests/gtopdb/gtopdb.py",
+      "start_line": 138,
+      "end_line": 138,
+      "message": "`\"None\"` predicate sentinel can reach emitted edges\n\n`predicate` starts as the string `\"None\"`. In the Type-None not-in block (970), only Action `None` and `Potentiation` assign it. Any other unlisted action still builds an association with `predicate = \"None\"`, which is not a CURIE. Unverified against data: the repo has no GtoPdb fixture.\n\nFix: assign a valid predicate on every path, or `continue` when none applies.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/translator_ingest/ingests/gtopdb/gtopdb.py",
+      "start_line": 195,
+      "end_line": 195,
+      "message": "Repeated identical `directly_physically_interacts_with` edges per ligand\u2013target pair\n\nEach aggregated record whose Type/Action falls in a new physical-interaction list also emits a `PairwiseMolecularInteraction`. The aggregation key includes Type and Action, so one ligand\u2013target pair with several Type/Action combinations yields several edges with the same subject, object, and predicate. This roughly doubles edges on the affected records. Materiality is unmeasured.\n\nFix: emit one pairwise edge per distinct (subject, object) pair, merging publications, or confirm that the duplicates are intended.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/translator_ingest/ingests/gtopdb/gtopdb.py",
+      "start_line": 167,
+      "end_line": 167,
+      "message": "Each type's action list and elif chain must be kept in sync by hand\n\nAdding or renaming an action means editing a list and a chain 10\u201340 lines apart. The `Agnoist` typo (#2) and its dead branches came from this.\n\nFix: define each type's handled actions once, as a table mapping action to mechanism, direction index, and paired-edge flag. Log or raise on unmapped actions.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/translator_ingest/ingests/gtopdb/gtopdb_rig.yaml",
+      "start_line": 177,
+      "end_line": 177,
+      "message": "RIG YAML disagrees with what the code emits\n\n- The code emits `Protein` objects (`gtopdb.py:145`; the base used `Gene`), but `node_type_info` still declares `biolink:Gene` for UniProt (yaml:178).\n- Yaml:177 still has the `\"GTOPDBLigand ID\"` typo that this PR fixed at line 174.\n- The code emits `biolink:related_to` (`gtopdb.py:973`), which `edge_type_info` (yaml:84) does not declare.\n- `# Gene,` is commented out in the import list (`gtopdb.py:14`) rather than removed.\n- `src/docs/scripts/rig_to_markdown.py` reads the RIG, so generated docs will describe nodes and edges the ingest no longer produces.\n\nFix: update yaml:178 to `biolink:Protein`, fix yaml:177, declare or stop emitting `related_to`, and remove the commented import.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/translator_ingest/ingests/gtopdb/gtopdb.py",
+      "start_line": 80,
+      "end_line": 81,
+      "message": "Aggregation key is described three ways, and `Ligand Context` is silently dropped\n\n- The comment at `gtopdb.py:96` cites \"SPO + qualifier pair (\u2026, MECHANISM, EFFECT, DIRECT)\". Those columns are not selected here; the comment looks copied from the SIGNOR config.\n- The RIG note (yaml:113) says \"ligand, target, and type + action\" and omits Endogenous. The code does group by Endogenous, and Endogenous decides regulates versus affects.\n- `Ligand Context` is selected (`gtopdb.py:81`) but is neither grouped nor aggregated, so it disappears at the groupby.\n\nFix: correct the comment and the RIG note. Remove `Ligand Context` from `sele_cols`, or aggregate it explicitly.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/translator_ingest/ingests/gtopdb/gtopdb_rig.yaml",
+      "start_line": 113,
+      "end_line": 113,
+      "message": "Aggregation key is described three ways, and `Ligand Context` is silently dropped\n\n- The comment at `gtopdb.py:96` cites \"SPO + qualifier pair (\u2026, MECHANISM, EFFECT, DIRECT)\". Those columns are not selected here; the comment looks copied from the SIGNOR config.\n- The RIG note (yaml:113) says \"ligand, target, and type + action\" and omits Endogenous. The code does group by Endogenous, and Endogenous decides regulates versus affects.\n- `Ligand Context` is selected (`gtopdb.py:81`) but is neither grouped nor aggregated, so it disappears at the groupby.\n\nFix: correct the comment and the RIG note. Remove `Ligand Context` from `sele_cols`, or aggregate it explicitly.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/translator_ingest/ingests/gtopdb/gtopdb.py",
+      "start_line": 158,
+      "end_line": 158,
+      "message": "Edge direction is an unlabelled positional tuple indexed at 48 sites\n\n`current_direction_mapping` is first set to `None`, which is dead, and the comment at 157 (\"assigned later\") is wrong. Call sites use `[0]` and `[1]` to mean up/down. A transposed index silently flips direction.\n\nFix: bind `up, down = ...` or use a helper that takes a direction flag. Remove the dead `None`.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 3070972,
+    "completion_tokens": 187265,
+    "total_tokens": 3258237,
+    "time_in_ms": 448008,
+    "cost_usd": 0.16858311
+  }
+}
