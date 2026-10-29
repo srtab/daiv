@@ -97,8 +97,6 @@ def context_usage_payload(*, model: str, usage: Mapping[str, Any], window: Resol
     }
 
 
-# Custom LangGraph event carrying the run's one publish result, also saved in state as
-# ``publish_result``. Ignored by the webhook and MCP transports, like ASSISTANT_MESSAGE_EVENT.
 PUBLISH_RESULT_EVENT = "daiv_publish_result"
 
 
