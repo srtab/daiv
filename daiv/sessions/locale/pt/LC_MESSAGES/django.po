@@ -536,6 +536,273 @@ msgstr "Ecrã inteiro"
 msgid "Open full size"
 msgstr "Abrir em tamanho real"
 
+msgid "read {count} file"
+msgstr "leu {count} ficheiro"
+
+msgid "read {count} files"
+msgstr "leu {count} ficheiros"
+
+msgid "edited {count} file"
+msgstr "editou {count} ficheiro"
+
+msgid "edited {count} files"
+msgstr "editou {count} ficheiros"
+
+msgid "created {count} file"
+msgstr "criou {count} ficheiro"
+
+msgid "created {count} files"
+msgstr "criou {count} ficheiros"
+
+msgid "ran {count} command"
+msgstr "executou {count} comando"
+
+msgid "ran {count} commands"
+msgstr "executou {count} comandos"
+
+msgid "searched for {count} pattern"
+msgstr "pesquisou {count} padrão"
+
+msgid "searched for {count} patterns"
+msgstr "pesquisou {count} padrões"
+
+msgid "listed {count} folder"
+msgstr "listou {count} pasta"
+
+msgid "listed {count} folders"
+msgstr "listou {count} pastas"
+
+msgid "ran {count} subagent"
+msgstr "executou {count} subagente"
+
+msgid "ran {count} subagents"
+msgstr "executou {count} subagentes"
+
+msgid "fetched {count} page"
+msgstr "obteve {count} página"
+
+msgid "fetched {count} pages"
+msgstr "obteve {count} páginas"
+
+msgid "searched the web"
+msgstr "pesquisou na web"
+
+msgid "used a skill"
+msgstr "usou uma competência"
+
+msgid "used {count} skills"
+msgstr "usou {count} competências"
+
+msgid "loaded tools"
+msgstr "carregou ferramentas"
+
+msgid "called {name}"
+msgstr "chamou {name}"
+
+msgid "called {name} {count} times"
+msgstr "chamou {name} {count} vezes"
+
+msgid "used {name}"
+msgstr "usou {name}"
+
+msgid "opened {count} artifact"
+msgstr "abriu {count} artefacto"
+
+msgid "opened {count} artifacts"
+msgstr "abriu {count} artefactos"
+
+msgid "checked delegated jobs"
+msgstr "consultou as tarefas delegadas"
+
+msgid "checked delegated jobs {count} times"
+msgstr "consultou as tarefas delegadas {count} vezes"
+
+msgid "used {count} tool"
+msgstr "usou {count} ferramenta"
+
+msgid "used {count} tools"
+msgstr "usou {count} ferramentas"
+
+msgid "({count} failed)"
+msgstr "({count} com falha)"
+
+msgid "Worked for {duration}"
+msgstr "Trabalhou durante {duration}"
+
+msgid "{count} step"
+msgstr "{count} passo"
+
+msgid "{count} steps"
+msgstr "{count} passos"
+
+msgid "Read {name}"
+msgstr "Leu {name}"
+
+msgid "Reading {name}"
+msgstr "A ler {name}"
+
+msgid "Edited {name}"
+msgstr "Editou {name}"
+
+msgid "Editing {name}"
+msgstr "A editar {name}"
+
+msgid "Created {name}"
+msgstr "Criou {name}"
+
+msgid "Creating {name}"
+msgstr "A criar {name}"
+
+msgid "Ran {command}"
+msgstr "Executou {command}"
+
+msgid "Running {command}"
+msgstr "A executar {command}"
+
+msgid "Searched for \"{pattern}\""
+msgstr "Pesquisou \"{pattern}\""
+
+msgid "Searching for \"{pattern}\""
+msgstr "A pesquisar \"{pattern}\""
+
+msgid "Found files matching {pattern}"
+msgstr "Encontrou ficheiros que correspondem a {pattern}"
+
+msgid "Finding files matching {pattern}"
+msgstr "A procurar ficheiros que correspondem a {pattern}"
+
+msgid "Listed {name}"
+msgstr "Listou {name}"
+
+msgid "Listing {name}"
+msgstr "A listar {name}"
+
+msgid "Subagent · {name}"
+msgstr "Subagente · {name}"
+
+msgid "Used skill"
+msgstr "Usou competência"
+
+msgid "Loading skill"
+msgstr "A carregar competência"
+
+msgid "Searched the web"
+msgstr "Pesquisou na web"
+
+msgid "Searching the web"
+msgstr "A pesquisar na web"
+
+msgid "Fetched"
+msgstr "Obteve"
+
+msgid "Fetching"
+msgstr "A obter"
+
+msgid "Loaded tools"
+msgstr "Carregou ferramentas"
+
+msgid "Loading tools"
+msgstr "A carregar ferramentas"
+
+msgid "Opened artifact"
+msgstr "Abriu artefacto"
+
+msgid "Opening artifact"
+msgstr "A abrir artefacto"
+
+msgid "Published"
+msgstr "Publicou"
+
+msgid "Publishing"
+msgstr "A publicar"
+
+msgid "Delegated jobs"
+msgstr "Delegou tarefas"
+
+msgid "Delegating jobs"
+msgstr "A delegar tarefas"
+
+msgid "Checked delegated jobs"
+msgstr "Consultou as tarefas delegadas"
+
+msgid "Checking delegated jobs"
+msgstr "A consultar as tarefas delegadas"
+
+msgid "Cancelled delegated jobs"
+msgstr "Cancelou as tarefas delegadas"
+
+msgid "Cancelling delegated jobs"
+msgstr "A cancelar as tarefas delegadas"
+
+msgid "Asked a question"
+msgstr "Fez uma pergunta"
+
+msgid "Asking a question"
+msgstr "A fazer uma pergunta"
+
+msgid "{server} · {tool}"
+msgstr "{server} · {tool}"
+
+msgid "Thinking…"
+msgstr "A pensar…"
+
+msgid "Thought for {duration}"
+msgstr "Pensou durante {duration}"
+
+msgid "Thought"
+msgstr "Pensou"
+
+msgid "passed"
+msgstr "passou"
+
+msgid "exit {code}"
+msgstr "código {code}"
+
+msgid "Pick one."
+msgstr "Escolha uma."
+
+msgid "Pick any that apply."
+msgstr "Escolha as que se aplicarem."
+
+msgid "Opened"
+msgstr "Aberto"
+
+msgid "Pushed to"
+msgstr "Enviado para"
+
+msgid "Pushed"
+msgstr "Enviado"
+
+msgid "Not published:"
+msgstr "Não publicado:"
+
+msgid "{count} file"
+msgstr "{count} ficheiro"
+
+msgid "{count} files"
+msgstr "{count} ficheiros"
+
+msgid "Committing changes"
+msgstr "A submeter as alterações"
+
+msgid "Creating merge request"
+msgstr "A criar o merge request"
+
+msgid "Merge conflicts are left in the changed files"
+msgstr "Ficaram conflitos de merge nos ficheiros alterados"
+
+msgid "The merge request isn't created yet"
+msgstr "O merge request ainda não foi criado"
+
+msgid "The push was rejected"
+msgstr "O envio foi rejeitado"
+
+msgid "The merge request couldn't be created"
+msgstr "Não foi possível criar o merge request"
+
+msgid "Couldn't publish the changes"
+msgstr "Não foi possível publicar as alterações"
+
 #~ msgid "Session context"
 #~ msgstr "Contexto da sessão"
 
@@ -562,3 +829,144 @@ msgstr "Abrir em tamanho real"
 
 #~ msgid "You stopped this run."
 #~ msgstr "Parou esta execução."
+
+msgid "What went wrong"
+msgstr "O que correu mal"
+
+msgid "Changed"
+msgstr "Alterado"
+
+msgid "Input"
+msgstr "Entrada"
+
+msgid "Loaded into context"
+msgstr "Carregado no contexto"
+
+msgid "Raw"
+msgstr "Em bruto"
+
+msgid "Arguments"
+msgstr "Argumentos"
+
+msgid "Result"
+msgstr "Resultado"
+
+msgid "{count} line"
+msgstr "{count} linha"
+
+msgid "{count} lines"
+msgstr "{count} linhas"
+
+msgid "{size} KB"
+msgstr "{size} KB"
+
+msgid "Too large to load whole: the model saw only a preview. The full result is in {path}."
+msgstr "Demasiado grande para carregar por inteiro: o modelo viu apenas uma pré-visualização. O resultado completo está em {path}."
+
+msgid "No result: the run ended before this call returned."
+msgstr "Sem resultado: a execução terminou antes de esta chamada responder."
+
+msgid "Show all {count} lines"
+msgstr "Mostrar todas as {count} linhas"
+
+msgid "and {count} more"
+msgstr "e mais {count}"
+
+msgid "The whole skill, always: skills are never cut to a file."
+msgstr "A competência inteira, sempre: as competências nunca são cortadas para um ficheiro."
+
+msgid "Open {name} in Skills ↗"
+msgstr "Abrir {name} em Competências ↗"
+
+msgid "Show the whole prompt"
+msgstr "Mostrar o prompt completo"
+
+msgid "What the subagent did inside is not shown."
+msgstr "O que o subagente fez internamente não é mostrado."
+
+msgid "Page"
+msgstr "Página"
+
+msgid "Asked"
+msgstr "Pedido"
+
+msgid "a summary of the page"
+msgstr "um resumo da página"
+
+msgid "Redirected to"
+msgstr "Redirecionado para"
+
+msgid "Jump to first error"
+msgstr "Ir para o primeiro erro"
+
+msgid "{count} earlier line not shown"
+msgstr "{count} linha anterior não mostrada"
+
+msgid "{count} earlier lines not shown"
+msgstr "{count} linhas anteriores não mostradas"
+
+msgid "Open ↗"
+msgstr "Abrir ↗"
+
+msgid "Saved to {path} as asked: the model saw only a preview."
+msgstr "Guardado em {path}, como pedido: o modelo viu apenas uma pré-visualização."
+
+msgid "read-only tool"
+msgstr "ferramenta só de leitura"
+
+msgid "can change things"
+msgstr "pode alterar coisas"
+
+msgid "{count} tool schema"
+msgstr "{count} esquema de ferramenta"
+
+msgid "{count} tool schemas"
+msgstr "{count} esquemas de ferramentas"
+
+msgid "new"
+msgstr "novo"
+
+msgid "updated"
+msgstr "atualizado"
+
+msgid "Goal"
+msgstr "Objetivo"
+
+msgid "Branch"
+msgstr "Ramo"
+
+msgid "Job"
+msgstr "Tarefa"
+
+msgid "Status"
+msgstr "Estado"
+
+msgid "Session →"
+msgstr "Sessão →"
+
+msgid "default branch"
+msgstr "ramo predefinido"
+
+msgid "starts after this turn"
+msgstr "começa depois deste turno"
+
+msgid "batch {id} · {count} started"
+msgstr "lote {id} · iniciadas: {count}"
+
+msgid "No job started."
+msgstr "Nenhuma tarefa foi iniciada."
+
+msgid "batch {id}"
+msgstr "lote {id}"
+
+msgid "merge request"
+msgstr "merge request"
+
+msgid "Show the whole reply"
+msgstr "Mostrar a resposta completa"
+
+msgid "stopping"
+msgstr "a parar"
+
+msgid "Suggested answer"
+msgstr "Resposta sugerida"

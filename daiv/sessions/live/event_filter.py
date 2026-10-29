@@ -15,12 +15,8 @@ if TYPE_CHECKING:
 # configured to stay silent still streams its thinking. The filter applies the
 # same gate to reasoning.
 #
-# Scoping it to reasoning is upstream's own taxonomy, not a DAIV carve-out:
-# upstream splits the flag in two (``emit-messages`` and ``emit-tool-calls``), so
-# "messages ⊃ text + reasoning" while tool calls are a separate axis. Extending
-# this gate to TOOL_CALL_* would also break the publish pipeline, which runs under
-# ``emit-messages: False`` and relies on its tool frames reaching the chat as
-# progress chips ("Creating merge request…").
+# Reasoning only, as upstream gives tool calls their own flag (``emit-tool-calls``): the publish pipeline
+# runs under ``emit-messages: False``, and its tool frames name the step on the chat's working line.
 REASONING_EVENT_TYPES = frozenset({
     EventType.REASONING_START,
     EventType.REASONING_MESSAGE_START,

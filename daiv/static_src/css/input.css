@@ -1246,13 +1246,12 @@ html {
   .chat-turn {
     padding: 0.5rem 0;
     animation: fade-up 0.45s ease-out backwards;
-    /* Breathing room left above a turn the page scrolls to, so it reads as the
-       top of a block rather than as content clipped by the viewport edge.
-       Consumed by chat-stream.js's parkViewport() via scrollIntoView(). */
+    /* Room above a `#run-<id>` prompt the page scrolls to, so it reads as the top of a block. */
     scroll-margin-top: 1rem;
   }
 
-  .chat-turn__body {
+  .chat-turn__body,
+  .run-items {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -1353,8 +1352,6 @@ html {
     border-radius: 3px;
   }
 
-  .chat-turn-wrap { display: contents; }
-
   /* Muted per-turn action row (copy + relative timestamp). Base opacity keeps it
      tappable on touch (no hover to reveal); it only brightens on hover/focus. */
   .chat-turn__actions {
@@ -1368,6 +1365,7 @@ html {
     transition: opacity 0.15s ease;
   }
   .chat-turn:hover .chat-turn__actions,
+  .run-block:hover > .run-block__actions,
   .chat-turn__actions:focus-within {
     opacity: 1;
   }
@@ -1762,81 +1760,13 @@ html {
     font-size: 12px;
   }
 
-  /* Tool call */
-
-  .chat-tool {
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    background: rgba(255, 255, 255, 0.02);
-    border-radius: 10px;
-    overflow: hidden;
-    transition: border-color 0.15s ease, background 0.15s ease;
-  }
-
-  .chat-tool:hover {
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .chat-tool[open] {
-    background: rgba(255, 255, 255, 0.025);
-  }
-
-  .chat-tool--running {
-    border-color: rgba(251, 191, 36, 0.2);
-    background: rgba(251, 191, 36, 0.03);
-  }
-
-  .chat-tool--error {
-    border-color: rgba(248, 113, 113, 0.25);
-    background: rgba(248, 113, 113, 0.03);
-  }
-
-  .chat-tool__summary {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 9px 12px;
-    cursor: pointer;
-    list-style: none;
-    @apply font-mono;
-    font-size: 12px;
-  }
-
-  .chat-tool__summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .chat-tool__icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    border-radius: 999px;
-    flex-shrink: 0;
-    font-size: 10px;
-  }
-
-  .chat-tool--running .chat-tool__icon {
-    color: #fbbf24;
-    background: rgba(251, 191, 36, 0.12);
-  }
-
-  .chat-tool--done .chat-tool__icon {
-    color: #34d399;
-    background: rgba(52, 211, 153, 0.1);
-  }
-
-  .chat-tool--error .chat-tool__icon {
-    color: #f87171;
-    background: rgba(248, 113, 113, 0.12);
-  }
-
-  .chat-tool__spinner {
+  .chat-spinner {
     width: 10px;
     height: 10px;
     border-radius: 999px;
     border: 1.5px solid currentColor;
     border-top-color: transparent;
+    color: var(--color-status-found);
     animation: spin 0.9s linear infinite;
   }
 
@@ -1844,167 +1774,520 @@ html {
     to { transform: rotate(360deg); }
   }
 
-  /* Publish-phase chip — compact inline status emitted by the diff_to_metadata
-     subagents during commit/MR creation. Sits in the assistant turn body where
-     a regular tool card would, but reads as a single line so a reader scans
-     past it once it's done. */
-  .chat-phase {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 12px;
-    border-radius: 999px;
-    border: 1px solid rgba(96, 165, 250, 0.22);
-    background: rgba(96, 165, 250, 0.08);
-    color: #bfdbfe;
-    font-size: 12.5px;
-    font-weight: 500;
-    width: fit-content;
-    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+  .publish-row {
+    @apply mx-auto my-1 flex max-w-2xl items-center gap-2 text-[13px] text-gray-400;
   }
-
-  .chat-phase--done {
-    border-color: rgba(34, 197, 94, 0.28);
-    background: rgba(34, 197, 94, 0.08);
-    color: #bbf7d0;
+  .publish-row__main {
+    @apply inline-flex min-w-0 flex-wrap items-center gap-x-1.5;
   }
-
-  .chat-phase__icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    font-size: 11px;
-    line-height: 1;
+  .publish-row__link {
+    @apply font-medium text-gray-200 hover:underline;
   }
-
-  .chat-phase__spinner {
-    width: 10px;
-    height: 10px;
-    border-radius: 999px;
-    border: 1.5px solid currentColor;
-    border-top-color: transparent;
-    animation: spin 0.9s linear infinite;
+  .publish-row__files {
+    @apply text-gray-500;
   }
-
-  .chat-phase__suffix {
-    opacity: 0.7;
-    margin-left: -4px;
-  }
-
-  .chat-tool__name {
-    color: #a5b4fc;
-    font-weight: 500;
-  }
-
-  .chat-tool--error .chat-tool__name {
-    color: #fca5a5;
-  }
-
-  .chat-tool__path {
-    color: #64748b;
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .chat-tool__badge {
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 10px;
-    @apply font-mono;
-    flex-shrink: 0;
-  }
-
-  .chat-tool__badge--success { background: rgba(52, 211, 153, 0.1); color: #34d399; }
-  .chat-tool__badge--danger  { background: rgba(248, 113, 113, 0.1); color: #f87171; }
-  .chat-tool__badge--warn    { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
-  .chat-tool__badge--info    { background: rgba(96, 165, 250, 0.1); color: #60a5fa; }
-  .chat-tool__badge--violet  { background: rgba(167, 139, 250, 0.12); color: #c4b5fd; }
-  .chat-tool__badge--neutral { background: rgba(255, 255, 255, 0.04); color: #94a3b8; }
-
-  .chat-tool__chev {
-    color: #475569;
-    transition: transform 0.2s ease;
-    flex-shrink: 0;
-  }
-
-  .chat-tool[open] .chat-tool__chev {
-    transform: rotate(180deg);
+  .publish-row--failed {
+    @apply text-red-300;
   }
 
   .chat-tool__body {
-    padding: 0 12px 12px;
     display: flex;
     flex-direction: column;
     gap: 10px;
     animation: fade-up 0.2s ease-out backwards;
   }
 
-  .chat-tool__block {
-    border-top: 1px dashed rgba(255, 255, 255, 0.06);
-    padding-top: 10px;
+  .body-section,
+  .body-error {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
   }
 
-  .chat-tool__block-label {
+  .body-label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 8px;
     @apply font-mono;
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
+    color: var(--color-text-faint);
+  }
+
+  .body-size {
+    @apply font-mono;
+    font-size: 11px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--color-text-muted);
+  }
+
+  .body-section:has(> .body-offload) > .body-label > .body-size {
+    color: var(--color-status-found);
+  }
+
+  .body-tag {
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .body-tag--read-only {
+    color: var(--color-status-clear);
+    background: color-mix(in srgb, var(--color-status-clear) 12%, transparent);
+  }
+
+  .body-tag--can-change {
+    color: var(--color-status-found);
+    background: color-mix(in srgb, var(--color-status-found) 14%, transparent);
+  }
+
+  .body-pre,
+  .body-grep,
+  .body-log {
+    margin: 0;
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    @apply font-mono;
+    font-size: 12px;
+    line-height: 1.55;
+    color: #cbd5e1;
+  }
+
+  .body-pre {
+    max-height: 420px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    scrollbar-width: thin;
+  }
+
+  .body-code {
+    white-space: pre;
+    overflow-wrap: normal;
+  }
+
+  .body-term,
+  .body-log {
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .chat-diff {
+    @apply font-mono;
+    font-size: 12px;
+  }
+
+  .body-error .body-label {
+    color: var(--color-status-fail);
+  }
+
+  .body-error .body-pre {
+    border-color: rgba(248, 113, 113, 0.22);
+    background: rgba(248, 113, 113, 0.06);
+    color: #fecaca;
+  }
+
+  .ln {
+    display: inline-block;
+    min-width: 4ch;
+    margin-right: 1.5ch;
+    text-align: right;
     color: #64748b;
+    user-select: none;
+  }
+
+  .body-note,
+  .body-and-more {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-text-faint);
+  }
+
+  .body-offload {
+    padding: 6px 8px;
+    border: 1px solid rgba(251, 191, 36, 0.2);
+    border-radius: 6px;
+    background: rgba(251, 191, 36, 0.07);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: #fde68a;
+    overflow-wrap: anywhere;
+  }
+
+  .body-offload > .body-size {
+    color: inherit;
+  }
+
+  .body-more > summary,
+  .body-raw > summary {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    width: fit-content;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+
+  .body-more > summary::-webkit-details-marker,
+  .body-raw > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .body-more > summary::before,
+  .body-raw > summary::before {
+    content: "›";
+    transition: transform 0.15s ease;
+  }
+
+  .body-more[open] > summary::before,
+  .body-raw[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .body-more > summary {
+    font-size: 12px;
+    color: #93c5fd;
+  }
+
+  .body-more > summary:hover {
+    text-decoration: underline;
+  }
+
+  .body-more[open] > summary {
     margin-bottom: 6px;
   }
 
-  .chat-tool__code {
-    @apply font-mono;
-    font-size: 12.5px;
-    line-height: 1.55;
-    color: #cbd5e1;
-    background: rgba(0, 0, 0, 0.28);
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    padding: 10px 12px;
-    border-radius: 8px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 360px;
-    overflow-y: auto;
+  .body-raw {
+    padding-top: 8px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.06);
   }
 
-  .chat-bash {
+  .body-raw > summary {
+    @apply font-mono;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--color-text-faint);
+  }
+
+  .body-raw > summary:hover {
+    color: var(--color-text);
+  }
+
+  .body-raw > .body-section {
+    margin-top: 8px;
+  }
+
+  .body-raw .body-pre {
+    font-size: 11.5px;
+    color: var(--color-text-muted);
+  }
+
+  .body-md {
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: normal;
+  }
+
+  .body-fields {
+    display: grid;
+    grid-template-columns: fit-content(40%) minmax(0, 1fr);
+    gap: 3px 12px;
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .body-fields dt {
+    color: var(--color-text-faint);
+    overflow-wrap: anywhere;
+  }
+
+  .body-fields dd {
+    min-width: 0;
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .body-table-wrap {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .body-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+
+  .body-table th {
+    padding: 4px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-text-faint);
+    white-space: nowrap;
+  }
+
+  .body-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    vertical-align: top;
+    overflow-wrap: break-word;
+  }
+
+  .body-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .body-table td > .body-more {
+    margin-top: 4px;
+  }
+
+  .body-row-failed td {
+    color: #fca5a5;
+  }
+
+  .body-grep {
+    max-height: 420px;
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+
+  .body-grep-group + .body-grep-group {
+    margin-top: 6px;
+  }
+
+  .body-grep-file {
+    font-weight: 500;
+    color: var(--color-text);
+  }
+
+  .body-grep-hit {
+    white-space: pre;
+    color: var(--color-text-muted);
+  }
+
+  .body-grep mark {
+    border-radius: 2px;
+    background: rgba(251, 191, 36, 0.18);
+    color: #fde68a;
+  }
+
+  .body-files,
+  .body-jobs {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    @apply font-mono;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .body-files li {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .body-files li > * {
+    min-width: 0;
+  }
+
+  .body-files li > :first-child:not(.body-op) {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--color-text-faint);
+  }
+
+  .body-op {
+    flex-shrink: 0;
+    width: 1.5ch;
+    font-weight: 600;
+    color: var(--color-status-found);
+  }
+
+  .body-run {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .body-run + .body-run {
+    margin-top: 6px;
+  }
+
+  .body-cmd {
+    @apply font-mono;
+    font-size: 12px;
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+  }
+
+  .body-prompt {
+    margin-right: 2px;
+    color: var(--color-status-clear);
+    user-select: none;
+  }
+
+  .body-exit {
+    align-self: flex-start;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(248, 113, 113, 0.08);
+    @apply font-mono;
+    font-size: 11px;
+    color: #f87171;
+  }
+
+  /* `column-reverse` makes the log open scrolled to its end, where the failure is. */
+  .body-log {
+    display: flex;
+    flex-direction: column-reverse;
+    max-height: 22rem;
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+
+  .lgl {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .lgl:empty::before {
+    content: " ";
+  }
+
+  .lgl.err {
+    color: #fca5a5;
+  }
+
+  .body-jump,
+  .body-open {
+    align-self: flex-start;
+    font-size: 12.5px;
+  }
+
+  .body-jump {
+    color: #93c5fd;
+  }
+
+  .body-jump:hover {
+    text-decoration: underline;
+  }
+
+  .body-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .body-button {
+    display: inline-flex;
+    max-width: 100%;
+    padding: 2px 8px;
+    border: 1px solid rgba(147, 197, 253, 0.25);
+    border-radius: 6px;
+    @apply font-mono;
+    font-size: 11.5px;
+    color: #bfdbfe;
+    overflow-wrap: anywhere;
+    transition: background 0.15s ease;
+  }
+
+  .body-button:hover {
+    background: rgba(147, 197, 253, 0.08);
+  }
+
+  .body-tools {
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
 
-  .chat-bash + .chat-bash {
-    margin-top: 6px;
-    padding-top: 10px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.06);
+  .body-tools li {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
   }
 
-  .chat-bash__cmd {
+  .body-tool-name {
     @apply font-mono;
     font-size: 12.5px;
-    color: #e2e8f0;
-    word-break: break-word;
+    font-weight: 500;
+    color: var(--color-text);
   }
 
-  .chat-bash__prompt {
-    color: #a78bfa;
-    margin-right: 6px;
+  .body-tool-about {
+    font-size: 12.5px;
+    color: var(--color-text-muted);
   }
 
-  .chat-bash__exit--err {
+  .body-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .body-chip {
+    padding: 0 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
     @apply font-mono;
     font-size: 11px;
-    color: #f87171;
-    align-self: flex-start;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: rgba(248, 113, 113, 0.08);
+    line-height: 18px;
+    color: #cbd5e1;
+  }
+
+  .body-chip--more {
+    background: none;
+    color: var(--color-text-faint);
+  }
+
+  .body-artifact {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 10px;
+    font-size: 13px;
+  }
+
+  .body-meta {
+    @apply font-mono;
+    font-size: 11.5px;
+    color: var(--color-text-faint);
+  }
+
+  .body-download {
+    font-size: 12.5px;
+  }
+
+  .body-line {
+    @apply font-mono;
+    font-size: 12px;
+    color: #cbd5e1;
+    overflow-wrap: anywhere;
+  }
+
+  /* Preflight's `img { height: auto }` overrides the height attribute. */
+  .step-row__icon > img {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    object-fit: contain;
   }
 
   .chat-tool__highlight {
@@ -2018,6 +2301,273 @@ html {
     to {
       box-shadow: 0 0 0 0 rgba(167, 139, 250, 0);
     }
+  }
+
+  /* Run blocks: a run's prompt, its steps (folded once it finishes), its ending and its cards */
+
+  .run-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+    padding-bottom: 0.5rem;
+    scroll-margin-top: 1rem;
+  }
+
+  /* Where parkViewport() lands a finished session: room above it reads as the top of the answer. */
+  [data-run-ending] {
+    scroll-margin-top: 1rem;
+  }
+
+  .run-fold__summary,
+  .step-group__line,
+  .step-row__summary,
+  .question-answered__summary {
+    display: flex;
+    gap: 8px;
+    min-width: 0;
+    line-height: 20px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+
+  .run-fold__summary::-webkit-details-marker,
+  .step-group__line::-webkit-details-marker,
+  .step-row__summary::-webkit-details-marker,
+  .question-answered__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .chat-chev {
+    flex-shrink: 0;
+    color: #64748b;
+    transition: transform 0.15s ease;
+  }
+
+  details[open] > summary > .chat-chev--down {
+    transform: rotate(180deg);
+  }
+
+  details[open] > summary > .chat-chev--right {
+    transform: rotate(90deg);
+  }
+
+  .run-fold__summary {
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 13.5px;
+    color: var(--color-text-muted);
+    transition: color 0.15s ease;
+  }
+
+  .run-fold__summary:hover {
+    color: var(--color-text);
+  }
+
+  .run-fold__label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .run-fold__body {
+    margin: 6px 0 0 4px;
+    padding: 2px 0 6px 12px;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .run-failed {
+    flex-shrink: 0;
+    font-size: 12.5px;
+    color: var(--color-status-fail);
+  }
+
+  /* `+A −R` as one tight counter, sized to the 20px line it sits on. */
+  .line-counts {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: baseline;
+    gap: 3px;
+    margin-block: 1px;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    @apply font-mono;
+    font-size: 11px;
+    line-height: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .line-counts__added {
+    color: var(--color-status-clear);
+  }
+
+  .line-counts__removed {
+    color: var(--color-status-fail);
+  }
+
+  .step-group__line {
+    align-items: flex-start;
+    padding: 3px 0;
+    font-size: 13.5px;
+    color: var(--color-text-muted);
+  }
+
+  .step-group__line > * {
+    flex-shrink: 0;
+  }
+
+  .step-group__line > .step-group__text {
+    flex: 0 1 auto;
+    min-width: 0;
+    transition: color 0.15s ease;
+  }
+
+  .step-group__line:hover > .step-group__text {
+    color: var(--color-text);
+  }
+
+  .step-group__now {
+    color: var(--color-status-found);
+  }
+
+  .step-group__chev,
+  .question-answered__icon,
+  .question-answered__chev {
+    margin-top: 3px;
+  }
+
+  .step-group__icon,
+  .step-row__icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 20px;
+    color: var(--color-text-faint);
+  }
+
+  .step-group__rows {
+    margin: 2px 0 6px 7px;
+    padding-left: 14px;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  /* The running group: about six 26px rows, scrolled to the newest. */
+  .step-group__rows--live {
+    max-height: calc(6 * 26px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  .step-group__rows--live.step-group__rows--clipped {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.75rem);
+            mask-image: linear-gradient(to bottom, transparent, #000 1.75rem);
+  }
+
+  .step-row__summary {
+    align-items: center;
+    padding: 3px 0;
+    font-size: 13px;
+    color: var(--color-text);
+  }
+
+  .step-row__phrase {
+    flex-shrink: 0;
+    max-width: 70%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .step-row__detail {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text-faint);
+  }
+
+  .step-row__badge {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    @apply font-mono;
+    font-size: 10.5px;
+  }
+
+  .step-row__badge--warn    { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
+  .step-row__badge--info    { background: rgba(96, 165, 250, 0.1); color: #60a5fa; }
+  .step-row__badge--neutral { background: rgba(255, 255, 255, 0.04); color: #94a3b8; }
+
+  .step-row__chev {
+    margin-left: auto;
+  }
+
+  .step-row--failed .step-row__phrase {
+    color: #fca5a5;
+  }
+
+  .step-row--failed .step-row__icon {
+    color: var(--color-status-fail);
+  }
+
+  .step-row__thinking {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-brand-bright);
+    animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+
+  .step-row__body {
+    min-width: 0;
+    margin: 4px 0 8px 24px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    font-size: 12.5px;
+  }
+
+  .step-row__thought {
+    color: var(--color-text-muted);
+    font-size: 13.5px;
+    line-height: 1.65;
+  }
+
+  .question-answered__summary {
+    align-items: flex-start;
+    padding: 3px 0;
+    font-size: 13.5px;
+    color: var(--color-text-muted);
+    transition: color 0.15s ease;
+  }
+
+  .question-answered__summary:hover {
+    color: var(--color-text);
+  }
+
+  .question-answered__icon {
+    flex-shrink: 0;
+  }
+
+  .question-answered__text {
+    min-width: 0;
+  }
+
+  .question-answered__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin: 4px 0 6px 7px;
+    padding: 4px 0 4px 14px;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   /* Chat question card */
@@ -2052,13 +2602,29 @@ html {
   }
 
   .chat-question__options {
-    @apply flex flex-wrap gap-2;
+    @apply flex flex-col gap-1.5;
   }
 
   .chat-question__option {
-    @apply flex flex-col items-start gap-0.5 rounded-lg border border-white/[0.08] bg-white/[0.02]
-      px-3 py-1.5 text-left transition-colors duration-150 disabled:cursor-not-allowed
-      enabled:hover:border-white/[0.16] enabled:hover:bg-white/[0.05];
+    @apply flex cursor-pointer items-start gap-2.5 rounded-lg border border-white/[0.08] bg-white/[0.02]
+      px-3 py-2 text-left transition-colors duration-150;
+  }
+
+  .chat-question__option:has(:disabled) {
+    @apply cursor-default;
+  }
+
+  .chat-question__option:not(:has(:disabled)):hover {
+    @apply border-white/[0.16] bg-white/[0.05];
+  }
+
+  .chat-question__control {
+    @apply mt-1 shrink-0;
+    accent-color: var(--color-status-found);
+  }
+
+  .chat-question__option-text {
+    @apply flex min-w-0 flex-col gap-0.5;
   }
 
   .chat-question__option--selected {
@@ -2195,64 +2761,6 @@ html {
   .chat-thinking__timer::after {
     content: "·";
     margin-left: 8px;
-  }
-
-  /* Per-turn reasoning disclosure */
-
-  .chat-thinking-seg {
-    margin: 0.25rem 0;
-  }
-
-  .chat-thinking-seg__summary {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 2px 0;
-    color: #94a3b8;
-    @apply font-mono;
-    font-size: 12.5px;
-    cursor: pointer;
-    list-style: none;
-    user-select: none;
-    transition: color 0.15s ease;
-  }
-
-  .chat-thinking-seg__summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .chat-thinking-seg__summary::before {
-    content: "›";
-    display: inline-block;
-    width: 10px;
-    color: #64748b;
-    transition: transform 0.15s ease;
-  }
-
-  .chat-thinking-seg[open] > .chat-thinking-seg__summary::before {
-    transform: rotate(90deg);
-  }
-
-  .chat-thinking-seg__summary:hover {
-    color: #cbd5e1;
-  }
-
-  .chat-thinking-seg__dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 999px;
-    background: #a78bfa;
-    box-shadow: 0 0 8px rgba(167, 139, 250, 0.5);
-    animation: pulse-dot 1.4s ease-in-out infinite;
-  }
-
-  .chat-thinking-seg__body {
-    margin: 0.5rem 0 0.75rem 18px;
-    padding-left: 10px;
-    border-left: 2px solid rgba(148, 163, 184, 0.18);
-    color: #94a3b8;
-    font-size: 13.5px;
-    line-height: 1.65;
   }
 
   /* Composer */

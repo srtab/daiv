@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from django.contrib.sites.models import Site
+from django.urls import reverse
 from django.utils import timezone
 
 import pytest
@@ -14,8 +15,16 @@ from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
 from sessions.executor.lock import LiveRun, SessionActivity
 from sessions.models import CHAT_PROMPT_MAX_LENGTH, Run, RunArtifact, RunStatus, Session, SessionOrigin
-from sessions.transcript import RETRY_MESSAGE, annotate_transcript, expired_run_turns, retry_message
-from sessions.turns import build_turns
+from sessions.transcript import (
+    RETRY_MESSAGE,
+    annotate_transcript,
+    expired_run_turns,
+    mark_skill_links,
+    marker_id,
+    retry_message,
+)
+from sessions.turns import build_turns, tool_call_segment
+from skills.models import GlobalSkill, SkillInvocation
 
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
@@ -26,6 +35,7 @@ from core.constants import (
 from tests.unit_tests.sessions.conftest import make_artifact
 
 CREATED_AT = datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC)
+STARTED_AT = datetime(2026, 7, 31, 12, 0, 2, tzinfo=UTC)
 FINISHED_AT = datetime(2026, 7, 31, 12, 5, 0, tzinfo=UTC)
 
 
@@ -38,8 +48,17 @@ def _run(
     prompt="",
     trigger_type=SessionOrigin.CHAT,
     created_at=None,
+    started_at=None,
     finished_at=None,
     is_cancelled=False,
+    publish_status="",
+    publish_error="",
+    files_changed=None,
+    lines_added=None,
+    lines_removed=None,
+    merge_request_iid=None,
+    merge_request_web_url="",
+    code_changes=False,
 ):
     return SimpleNamespace(
         id=rid,
@@ -49,8 +68,17 @@ def _run(
         prompt=prompt,
         trigger_type=trigger_type,
         created_at=created_at,
+        started_at=started_at,
         finished_at=finished_at,
         is_cancelled=is_cancelled,
+        publish_status=publish_status,
+        publish_error=publish_error,
+        files_changed=files_changed,
+        lines_added=lines_added,
+        lines_removed=lines_removed,
+        merge_request_iid=merge_request_iid,
+        merge_request_web_url=merge_request_web_url,
+        code_changes=code_changes,
     )
 
 
@@ -330,6 +358,20 @@ def test_unmatched_message_id_logs_only_for_finished_runs(caplog):
         result = annotate_transcript(turns, [_run("rs", message_id="gone", status=RunStatus.SUCCESSFUL)])
     assert [t["id"] for t in result] == ["h1", "a1"]  # finished run contributes nothing
     assert any("no matching" in r.message and "gone" in r.getMessage() for r in caplog.records)
+
+
+def test_started_at_stamped_on_the_runs_user_turn():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", message_id="h1", created_at=CREATED_AT, started_at=STARTED_AT, finished_at=FINISHED_AT)]
+    result = annotate_transcript(turns, runs)
+    assert result[0]["started_at"] == STARTED_AT.isoformat()
+    assert "started_at" not in result[1]
+
+
+def test_started_at_absent_for_a_run_that_never_started():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", message_id="h1", created_at=CREATED_AT, started_at=None, finished_at=FINISHED_AT)]
+    assert all("started_at" not in t for t in annotate_transcript(turns, runs))
 
 
 # --- Run-level sent/received timestamp stamping ---------------------------------
@@ -648,3 +690,369 @@ def test_retry_message_offers_nothing_for_a_stopped_run_or_one_a_chat_turn_canno
 
 def test_retry_message_offers_nothing_without_runs():
     assert retry_message([], []) == ""
+
+
+def skill_segment(name, key="skill"):
+    return tool_call_segment({"id": "t1", "name": "skill", "args": {key: name}})
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "source,uploaded,linked",
+    [("builtin", False, True), ("global", True, True), ("global", False, False), ("repo", False, False)],
+)
+def test_skill_calls_link_to_their_skills_page(source, uploaded, linked):
+    thread_id = uuid.uuid4()
+    SkillInvocation.objects.create(name="systematic-debugging", source=source, repo_slug="a/b", thread_id=thread_id)
+    if uploaded:
+        GlobalSkill.objects.create(name="systematic-debugging", size_bytes=1, file_count=1, checksum="c")
+    turns = [{"role": "assistant", "segments": [skill_segment("systematic-debugging")]}]
+
+    mark_skill_links(turns, thread_id)
+
+    url = turns[0]["segments"][0].get("skill_url")
+    assert (url == reverse("skills:detail", args=["systematic-debugging"])) if linked else url is None
+
+
+@pytest.mark.django_db
+def test_a_skill_without_an_invocation_gets_no_link():
+    turns = [{"role": "assistant", "segments": [skill_segment("x")]}]
+
+    mark_skill_links(turns, uuid.uuid4())
+
+    assert "skill_url" not in turns[0]["segments"][0]
+
+
+@pytest.mark.django_db
+def test_skill_links_read_the_name_key_and_ignore_other_threads_and_unparseable_args(django_assert_num_queries):
+    thread_id = uuid.uuid4()
+    SkillInvocation.objects.create(name="a-skill", source="builtin", repo_slug="a/b", thread_id=thread_id)
+    SkillInvocation.objects.create(name="other", source="builtin", repo_slug="a/b", thread_id=uuid.uuid4())
+    broken = {**skill_segment("a-skill"), "args": "{not json"}
+    turns = [{"role": "assistant", "segments": [skill_segment("a-skill", key="name"), skill_segment("other"), broken]}]
+
+    with django_assert_num_queries(1):
+        mark_skill_links(turns, thread_id)
+
+    linked, other, unparsed = turns[0]["segments"]
+    assert linked["skill_url"] == reverse("skills:detail", args=["a-skill"])
+    assert "skill_url" not in other
+    assert "skill_url" not in unparsed
+
+
+@pytest.mark.django_db
+def test_the_latest_invocation_decides_whether_a_skill_links():
+    thread_id = uuid.uuid4()
+    SkillInvocation.objects.create(name="a-skill", source="builtin", repo_slug="a/b", thread_id=thread_id)
+    SkillInvocation.objects.create(name="a-skill", source="repo", repo_slug="a/b", thread_id=thread_id)
+    turns = [{"role": "assistant", "segments": [skill_segment("a-skill")]}]
+
+    mark_skill_links(turns, thread_id)
+
+    assert "skill_url" not in turns[0]["segments"][0]
+
+
+@pytest.mark.django_db
+def test_a_thread_id_that_is_not_a_uuid_gets_no_skill_links(django_assert_num_queries):
+    turns = [{"role": "assistant", "segments": [skill_segment("a-skill")]}]
+
+    with django_assert_num_queries(0):
+        mark_skill_links(turns, "not-a-uuid")
+
+    assert "skill_url" not in turns[0]["segments"][0]
+
+
+def test_opened_result_is_stamped_on_the_runs_last_turn():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            publish_status="opened",
+            merge_request_iid=1832,
+            merge_request_web_url="https://git/mr/1832",
+            lines_added=16,
+            lines_removed=4,
+            files_changed=3,
+        )
+    ]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert result[-1]["publish"] == [
+        {
+            "status": "opened",
+            "merge_request_iid": 1832,
+            "merge_request_web_url": "https://git/mr/1832",
+            "files_changed": 3,
+            "lines_added": 16,
+            "lines_removed": 4,
+            "error": "",
+        }
+    ]
+    assert "publish" not in result[0]
+
+
+def test_failed_publish_replaces_the_generic_marker_with_its_own_message():
+    runs = [
+        _run("r1", message_id="h1", status=RunStatus.FAILED, publish_status="failed", publish_error="push_rejected")
+    ]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert all(t.get("role") != "run_status" for t in result)
+    (entry,) = result[-1]["publish"]
+    assert (entry["status"], entry["error"]) == ("failed", "The push was rejected")
+    assert entry["id"] == marker_id(runs[0])
+    assert entry["lines_added"] is None
+
+
+@pytest.mark.parametrize("message_id", ["h1", "gone"], ids=["checkpointed", "rebuilt"])
+@pytest.mark.parametrize(
+    "error_message", [CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE], ids=["cancelled", "interrupted"]
+)
+def test_a_stopped_run_keeps_its_marker_below_its_failed_publish_line(message_id, error_message):
+    run = _run(
+        "r1",
+        message_id=message_id,
+        status=RunStatus.FAILED,
+        error_message=error_message,
+        prompt="fix it",
+        publish_status="failed",
+        publish_error="unknown",
+    )
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")] if message_id == "h1" else [], [run])
+
+    assert [p["status"] for p in result[-2]["publish"]] == ["failed"]
+    assert (result[-1]["role"], result[-1]["status"]) == ("run_status", "aborted")
+
+
+def test_published_then_failed_keeps_the_result_and_the_marker():
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, publish_status="pushed", merge_request_iid=7)]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert result[-1]["role"] == "run_status"
+    assert [p["status"] for p in result[-2]["publish"]] == ["pushed"]
+    assert "id" not in result[-2]["publish"][0]
+
+
+def test_not_published_result_carries_its_error_but_not_the_sessions_merge_request():
+    runs = [
+        _run("r1", message_id="h1", publish_status="not_published", publish_error="conflicts", merge_request_iid=12)
+    ]
+
+    (entry,) = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
+
+    assert (entry["status"], entry["error"]) == ("not_published", "Merge conflicts are left in the changed files")
+    assert (entry["merge_request_iid"], entry["merge_request_web_url"]) == (None, "")
+
+
+def test_failed_publish_with_a_recovered_draft_shows_red_then_opened():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            status=RunStatus.FAILED,
+            publish_status="failed",
+            publish_error="mr_failed",
+            code_changes=True,
+            merge_request_iid=9,
+            merge_request_web_url="https://git/mr/9",
+            files_changed=2,
+            lines_added=5,
+            lines_removed=1,
+        )
+    ]
+
+    red, draft = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
+
+    assert (red["status"], red["lines_added"], red["id"]) == ("failed", None, marker_id(runs[0]))
+    assert (draft["status"], draft["merge_request_iid"], draft["files_changed"], draft["error"]) == ("opened", 9, 2, "")
+    assert "id" not in draft
+
+
+def test_failed_publish_on_a_run_that_already_had_an_mr_shows_only_the_red_entry():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            status=RunStatus.FAILED,
+            publish_status="failed",
+            publish_error="push_rejected",
+            merge_request_iid=9,
+        )
+    ]
+
+    publish = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
+
+    assert [p["status"] for p in publish] == ["failed"]
+
+
+def test_a_draft_recovered_after_the_run_failed_shows_opened_above_the_marker():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            status=RunStatus.FAILED,
+            publish_status="opened",
+            code_changes=True,
+            merge_request_iid=9,
+            merge_request_web_url="https://git/mr/9",
+            files_changed=2,
+        )
+    ]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    (entry,) = result[-2]["publish"]
+    assert (entry["status"], entry["merge_request_iid"], entry["files_changed"], entry["error"]) == ("opened", 9, 2, "")
+    assert result[-1]["role"] == "run_status"
+
+
+def test_an_old_failed_run_on_a_merge_request_gets_no_result():
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, merge_request_iid=9)]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert all("publish" not in t for t in result)
+
+
+def test_old_runs_get_no_result():
+    result = annotate_transcript([_user("h1"), _assistant("a1")], [_run("r1", message_id="h1")])
+
+    assert all("publish" not in t for t in result)
+
+
+def test_a_run_without_an_assistant_turn_gets_a_carrier_turn_never_the_user_turn():
+    runs = [_run("r1", message_id="h1", publish_status="pushed")]
+
+    result = annotate_transcript([_user("h1")], runs)
+
+    assert "publish" not in result[0]
+    assert result[-1]["id"] == "run-r1-publish"
+    assert result[-1]["role"] == "assistant"
+    assert result[-1]["segments"] == []
+    assert result[-1]["publish"][0]["status"] == "pushed"
+
+
+def test_a_rebuilt_failed_run_carries_its_result_on_a_rebuilt_carrier_turn():
+    runs = [
+        _run(
+            "r1",
+            status=RunStatus.FAILED,
+            message_id="gone",
+            prompt="fix it",
+            publish_status="failed",
+            publish_error="unknown",
+        )
+    ]
+
+    result = annotate_transcript([], runs)
+
+    assert [t["role"] for t in result] == ["user", "assistant"]
+    assert "publish" not in result[0]
+    assert result[1]["rebuilt"] is True
+    assert result[1]["publish"][0]["error"] == "Couldn't publish the changes"
+
+
+def test_a_rebuilt_run_that_published_then_failed_puts_the_result_before_its_marker():
+    runs = [_run("r1", status=RunStatus.FAILED, message_id="gone", prompt="fix it", publish_status="opened")]
+
+    result = annotate_transcript([], runs)
+
+    assert [t["role"] for t in result] == ["user", "assistant", "run_status"]
+    assert "publish" not in result[2]
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_stamp_the_result_on_the_artifacts_turn():
+    session = _db_session()
+    run = _db_run(session, publish_status="opened", merge_request_iid=4, lines_added=2)
+    make_artifact(run, filename="report.md")
+
+    (turn,) = expired_run_turns([run], [])
+
+    assert turn["id"] == f"run-{run.id}-artifacts"
+    assert turn["publish"][0]["merge_request_iid"] == 4
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_add_a_carrier_turn_for_a_result_without_artifacts():
+    session = _db_session()
+    run = _db_run(session, prompt="do it", publish_status="pushed")
+
+    result = expired_run_turns([run], [])
+
+    assert [t["role"] for t in result] == ["user", "assistant"]
+    assert "publish" not in result[0]
+    assert result[1]["id"] == f"run-{run.id}-publish"
+    assert result[1]["publish"][0]["status"] == "pushed"
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_time_the_carrier_turn_as_the_runs_last():
+    run = _db_run(_db_session(), prompt="do it", publish_status="pushed", finished_at=FINISHED_AT)
+
+    user, carrier = expired_run_turns([run], [])
+
+    assert "received_at" not in user
+    assert carrier["received_at"] == FINISHED_AT.isoformat()
+
+
+def test_a_rebuilt_runs_carrier_turn_is_timed_as_the_runs_last():
+    runs = [
+        _run(
+            "r1",
+            status=RunStatus.FAILED,
+            message_id="gone",
+            prompt="fix it",
+            publish_status="pushed",
+            finished_at=FINISHED_AT,
+        )
+    ]
+
+    user, carrier, marker = annotate_transcript([], runs)
+
+    assert "received_at" not in user and "received_at" not in marker
+    assert carrier["received_at"] == FINISHED_AT.isoformat()
+
+
+def test_a_checkpointed_run_without_an_assistant_turn_times_its_carrier_turn():
+    runs = [_run("r1", message_id="h1", publish_status="pushed", finished_at=FINISHED_AT)]
+
+    user, carrier = annotate_transcript([_user("h1")], runs)
+
+    assert "received_at" not in user
+    assert carrier["received_at"] == FINISHED_AT.isoformat()
+
+
+def test_retry_stays_offered_on_a_failed_publish_run_and_its_red_entry_is_the_retry_anchor():
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, publish_status="failed", publish_error="mr_failed")]
+
+    turns = annotate_transcript([_user("h1", "fix it"), _assistant("a1")], runs)
+
+    assert retry_message(turns, runs) == RETRY_MESSAGE
+    assert turns[-1]["publish"][0]["id"] == marker_id(runs[0])
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("with_artifact", [False, True])
+def test_expired_run_turns_do_not_stamp_a_result_an_already_rebuilt_run_carries(with_artifact):
+    session = _db_session()
+    run = _db_run(
+        session,
+        status=RunStatus.FAILED,
+        prompt="fix it",
+        message_id="gone",
+        publish_status="failed",
+        publish_error="unknown",
+    )
+    if with_artifact:
+        make_artifact(run, filename="report.md")
+    shown = annotate_transcript([], [run])
+
+    turns = [*shown, *expired_run_turns([run], shown)]
+
+    assert sum("publish" in turn for turn in turns) == 1
+    assert len({turn["id"] for turn in turns}) == len(turns)

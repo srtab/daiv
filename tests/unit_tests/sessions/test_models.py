@@ -3,10 +3,24 @@ import uuid
 from django.db import IntegrityError
 
 import pytest
+from gitlab.exceptions import GitlabCreateError
 from sessions.executor.result import parse_agent_result
-from sessions.models import Run, RunStatus, Session, SessionOrigin, agent_result_field_updates
+from sessions.models import (
+    PublishErrorKind,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    agent_result_field_updates,
+    publish_field_updates,
+)
 
+from automation.agent.events import publish_result_payload
+from automation.agent.publish_errors import publish_error_kind
+from automation.agent.workspace.git_manager import GitPushStaleError
 from automation.agent.workspace.session import SandboxAcquisition
+from codebase.base import MergeRequestDiffStats
+from tests.unit_tests.automation.agent.conftest import make_merge_request
 
 pytestmark = pytest.mark.django_db
 
@@ -407,3 +421,30 @@ def test_artifact_visible_to_follows_session_visibility(admin_user, member_user,
 def test_agent_result_field_updates_maps_code_changes_only_when_set(code_changes, expected):
     """False is left out so a later empty result never clears a flag an earlier sync recorded."""
     assert agent_result_field_updates(parse_agent_result({"code_changes": code_changes})) == expected
+
+
+def test_publish_fields_carry_the_publish_result():
+    payload = publish_result_payload(
+        status="opened",
+        merge_request=make_merge_request(merge_request_id=7, web_url="https://git.example/mr/7"),
+        diff_stats=MergeRequestDiffStats(lines_added=12, lines_removed=3, files_changed=2),
+    )
+    assert publish_field_updates(payload) == {
+        "publish_status": "opened",
+        "merge_request_iid": 7,
+        "merge_request_web_url": "https://git.example/mr/7",
+        "lines_added": 12,
+        "lines_removed": 3,
+        "files_changed": 2,
+    }
+
+
+def test_publish_fields_leave_out_a_zero_figure_and_a_missing_error():
+    payload = publish_result_payload(status="not_published", error_kind="conflicts", diff_stats=MergeRequestDiffStats())
+    assert publish_field_updates(payload) == {"publish_status": "not_published", "publish_error": "conflicts"}
+
+
+def test_every_kind_a_publish_reports_has_a_label():
+    raised = {publish_error_kind(exc) for exc in (GitPushStaleError("x"), GitlabCreateError("x"), RuntimeError("x"))}
+
+    assert raised | {"conflicts", "mr_pending"} <= set(PublishErrorKind.values)

@@ -5,6 +5,7 @@ import pytest
 from git import GitCommandError
 from langchain_core.messages import AIMessage
 
+from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflictsError
 from automation.agent.workspace.git_manager import GitPushPermissionError
@@ -51,6 +52,89 @@ def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
     runtime.context.config = Mock(default_branch="main")
     runtime.context.git_platform = Mock(value="gitlab")
     return runtime
+
+
+@pytest.fixture(autouse=True)
+def dispatched():
+    with patch("automation.agent.middlewares.git.adispatch_custom_event", new=AsyncMock()) as dispatch:
+        yield dispatch
+
+
+class TestPublishResult:
+    @staticmethod
+    async def _after_agent(*, outcome=None, raises=None):
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=outcome, side_effect=raises)
+            return await mw.aafter_agent({"merge_request": None}, runtime)
+
+    @pytest.mark.parametrize(
+        ("outcome", "status", "error_kind"),
+        [
+            (PublishOutcome(merge_request=_mr(), published=True, created_merge_request=True), "opened", None),
+            (PublishOutcome(merge_request=_mr(), published=True), "pushed", None),
+            (PublishOutcome(merge_request=None, published=True), "pushed", "mr_pending"),
+        ],
+        ids=["opened", "pushed", "mr-pending"],
+    )
+    async def test_the_status_follows_what_the_publish_did(self, dispatched, outcome, status, error_kind):
+        await self._after_agent(outcome=outcome)
+
+        dispatched.assert_awaited_once()
+        name, payload = dispatched.await_args.args
+        assert (name, payload["status"], payload["error_kind"]) == (PUBLISH_RESULT_EVENT, status, error_kind)
+
+    async def test_the_result_carries_the_merge_request_and_diff_stats(self, dispatched):
+        stats = MergeRequestDiffStats(files_changed=2, lines_added=5, lines_removed=1)
+        outcome = PublishOutcome(merge_request=_mr(), published=True, created_merge_request=True, diff_stats=stats)
+
+        await self._after_agent(outcome=outcome)
+
+        dispatched.assert_awaited_once_with(
+            PUBLISH_RESULT_EVENT, publish_result_payload(status="opened", merge_request=_mr(), diff_stats=stats)
+        )
+
+    async def test_a_turn_with_nothing_to_publish_dispatches_no_result(self, dispatched):
+        await self._after_agent(outcome=PublishOutcome(merge_request=_mr(), published=False))
+
+        dispatched.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{"workspace": FakeWorkspace(is_ready=False)}, {"workspace": FakeWorkspace(), "auto_commit_changes": False}],
+        ids=["workspace-not-ready", "auto-commit-off"],
+    )
+    async def test_a_turn_end_that_skips_the_publish_dispatches_no_result(self, dispatched, kwargs):
+        await GitMiddleware(settings=SETTINGS, **kwargs).aafter_agent({}, _make_runtime(scope=Scope.GLOBAL))
+
+        dispatched.assert_not_awaited()
+
+    async def test_conflicts_are_not_published(self, dispatched):
+        await self._after_agent(raises=UnresolvedMergeConflictsError(["a.py", "b.py"]))
+
+        dispatched.assert_awaited_once_with(
+            PUBLISH_RESULT_EVENT, publish_result_payload(status="not_published", error_kind="conflicts")
+        )
+
+    @pytest.mark.parametrize(
+        ("failure", "kind"), [(GitPushPermissionError("denied"), "push_rejected"), (RuntimeError("boom"), "unknown")]
+    )
+    async def test_a_failure_is_emitted_as_failed_then_raised_as_is(self, dispatched, failure, kind):
+        with pytest.raises(type(failure)) as info:
+            await self._after_agent(raises=failure)
+
+        assert info.value is failure
+        dispatched.assert_awaited_once_with(
+            PUBLISH_RESULT_EVENT, publish_result_payload(status="failed", error_kind=kind)
+        )
+
+    async def test_a_failed_dispatch_does_not_fail_the_turn(self, dispatched):
+        dispatched.side_effect = RuntimeError("no parent run")
+
+        update = await self._after_agent(outcome=PublishOutcome(merge_request=_mr(), published=True))
+
+        assert update["published"] is True
 
 
 class TestGitMiddleware:

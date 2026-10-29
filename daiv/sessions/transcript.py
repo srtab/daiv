@@ -10,8 +10,14 @@ annotated turns for what the newest run's Retry sends.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any, Literal
+from uuid import UUID
+
+from django.urls import reverse
+
+from skills.models import GlobalSkill, SkillInvocation
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
 from core.constants import (
@@ -22,7 +28,14 @@ from core.constants import (
 )
 from sessions.artifacts import published_tool_result
 from sessions.executor.lock import SessionActivity
-from sessions.models import CHAT_PROMPT_MAX_LENGTH, RunArtifact, RunStatus, SessionOrigin
+from sessions.models import (
+    CHAT_PROMPT_MAX_LENGTH,
+    PublishErrorKind,
+    PublishStatus,
+    RunArtifact,
+    RunStatus,
+    SessionOrigin,
+)
 from sessions.turns import tool_call_segment
 
 if TYPE_CHECKING:
@@ -72,17 +85,87 @@ def marker_id(run: Run) -> str:
     return f"run-status-{run.id}"
 
 
+def _red_line_replaces(marker: dict[str, Any], run: Run) -> bool:
+    """Whether ``run``'s failed publish line stands in for its ``marker``; a stop keeps its own marker below it."""
+    return marker["status"] == "failed" and run.publish_status == PublishStatus.FAILED
+
+
+def _publish_entry(run: Run, status: str, *, error: str = "") -> dict[str, Any]:
+    """Only a publish that landed shows the run's merge request and figures, as the live line does."""
+    entry = {
+        "status": str(status),
+        "merge_request_iid": None,
+        "merge_request_web_url": "",
+        "files_changed": None,
+        "lines_added": None,
+        "lines_removed": None,
+        "error": error,
+    }
+    if status in (PublishStatus.OPENED, PublishStatus.PUSHED):
+        entry |= {
+            "merge_request_iid": run.merge_request_iid,
+            "merge_request_web_url": run.merge_request_web_url or "",
+            "files_changed": run.files_changed,
+            "lines_added": run.lines_added,
+            "lines_removed": run.lines_removed,
+        }
+    return entry
+
+
+def _publish_error(run: Run) -> str:
+    if not run.publish_error:
+        return ""
+    try:
+        kind = PublishErrorKind(run.publish_error)
+    except ValueError:
+        kind = PublishErrorKind.UNKNOWN
+    return str(kind.label)
+
+
+def _publish_entries(run: Run) -> list[dict[str, Any]]:
+    """The entries of ``run``'s publish result; a failed publish is the red line and carries the retry anchor, followed
+    by the draft recovery opened after it."""
+    if not run.publish_status:
+        return []
+    entry = _publish_entry(run, run.publish_status, error=_publish_error(run))
+    if run.publish_status != PublishStatus.FAILED:
+        return [entry]
+    entries = [{"id": marker_id(run), **entry}]
+    if run.code_changes and run.merge_request_iid:
+        entries.append(_publish_entry(run, PublishStatus.OPENED))
+    return entries
+
+
+def _stamp_publish(run_turns: list[dict[str, Any]], run: Run) -> None:
+    """Stamp ``run``'s publish result on its last assistant turn, appending an empty one to carry it when none."""
+    entries = _publish_entries(run)
+    if not entries:
+        return
+    carrier = next((turn for turn in reversed(run_turns) if turn.get("role") == "assistant"), None)
+    if carrier is None:
+        carrier = {"id": f"run-{run.id}-publish", "role": "assistant", "segments": []}
+        run_turns.append(carrier)
+    carrier["publish"] = entries
+
+
+def _stamp_prompt_times(user_turn: dict[str, Any], run: Run) -> None:
+    """Stamp ``sent_at`` (creation time) and ``started_at`` (execution start) on ``run``'s prompt turn."""
+    if run.created_at is not None:
+        user_turn["sent_at"] = run.created_at.isoformat()
+    if run.started_at is not None:
+        user_turn["started_at"] = run.started_at.isoformat()
+
+
 def _stamp_run_times(seg_turns: list[dict[str, Any]], run: Run) -> None:
     """Stamp run-level timings onto a segment's boundary turns (machine ISO-8601).
 
-    ``sent_at`` (creation time) lands on the owning user turn — the segment's first
-    turn when it is a user turn — and ``received_at`` (finish time) on the run's last
-    turn, only once the run has finished.
+    ``sent_at`` (creation time) and ``started_at`` (execution start) land on the owning user turn — the segment's
+    first turn when it is a user turn — and ``received_at`` (finish time) on the run's last turn, once finished.
     """
     if not seg_turns:
         return
-    if run.created_at is not None and seg_turns[0].get("role") == "user":
-        seg_turns[0]["sent_at"] = run.created_at.isoformat()
+    if seg_turns[0].get("role") == "user":
+        _stamp_prompt_times(seg_turns[0], run)
     if run.finished_at is not None:
         seg_turns[-1]["received_at"] = run.finished_at.isoformat()
 
@@ -99,8 +182,7 @@ def _prompt_turns(run: Run, *, pending: bool = False) -> list[dict[str, Any]]:
     if not run.prompt:
         return []
     user_turn = {"id": f"run-{run.id}", "role": "user", "segments": [{"type": "text", "content": run.prompt}]}
-    if run.created_at is not None:
-        user_turn["sent_at"] = run.created_at.isoformat()
+    _stamp_prompt_times(user_turn, run)
     if pending:
         user_turn["pending"] = True
     _mark_author(user_turn, run)
@@ -111,7 +193,14 @@ def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     """A run that produced no visible user turn. Recover a FAILED run's prompt as a
     user turn plus its marker, flagged ``rebuilt``; a non-failed run with no turn contributes nothing."""
     marker = _marker(run)
-    return [] if marker is None else [{**turn, "rebuilt": True} for turn in (*_prompt_turns(run), marker)]
+    if marker is None:
+        return []
+    run_turns = _prompt_turns(run)
+    _stamp_publish(run_turns, run)
+    _stamp_run_times(run_turns, run)
+    if not _red_line_replaces(marker, run):
+        run_turns.append(marker)
+    return [{**turn, "rebuilt": True} for turn in run_turns]
 
 
 def _anchor(run_turns: list[dict[str, Any]], run: Run) -> list[dict[str, Any]]:
@@ -189,12 +278,13 @@ def annotate_transcript(
         # received_at targets the segment's own turns; the run_status marker is appended
         # to `result` separately below, so it never receives a timestamp.
         owned = _anchor(segments[matched]["turns"], run)
+        _stamp_publish(owned, run)
         _stamp_run_times(owned, run)
         if owned[0].get("role") == "user":
             _mark_author(owned[0], run)
         result.extend(owned)
         cursor = matched + 1
-        if (marker := _marker(run)) is not None:
+        if (marker := _marker(run)) is not None and not _red_line_replaces(marker, run):
             result.append(marker)
 
     # Flush trailing segments with no owning run.
@@ -227,6 +317,7 @@ def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[
         if run.id in by_run:
             run_turns.append({"id": f"run-{run.id}-artifacts", "role": "assistant", "segments": by_run[run.id]})
         if unshown:
+            _stamp_publish(run_turns, run)
             _stamp_run_times(run_turns, run)
             _anchor(run_turns, run)
         result.extend(run_turns)
@@ -254,3 +345,44 @@ def retry_message(turns: list[dict[str, Any]], runs: list[Run]) -> str:
     if run.trigger_type == SessionOrigin.CHAT and len(run.prompt) >= CHAT_PROMPT_MAX_LENGTH:
         return ""
     return run.prompt
+
+
+def _skill_name(segment: dict[str, Any]) -> str | None:
+    try:
+        args = json.loads(segment.get("args") or "")
+    except ValueError:
+        return None
+    if not isinstance(args, dict):
+        return None
+    name = args.get("skill") or args.get("name")
+    return name if isinstance(name, str) and name else None
+
+
+def mark_skill_links(turns: list[dict[str, Any]], thread_id: str | UUID) -> None:
+    """Set ``skill_url`` on skill tool calls whose skill has a Skills page (built-in or global).
+
+    One query for the whole transcript, plus one when a global skill is named, which must still exist; the latest
+    invocation in the thread decides the source. Sync only.
+    """
+    named = [
+        (segment, name)
+        for turn in turns
+        for segment in turn.get("segments", ())
+        if segment.get("type") == "tool_call" and segment.get("name") == "skill" and (name := _skill_name(segment))
+    ]
+    if not named:
+        return
+    try:
+        UUID(str(thread_id))
+    except ValueError:
+        return
+    latest: dict[str, str] = {}
+    rows = SkillInvocation.objects.filter(thread_id=thread_id, name__in={n for _, n in named})
+    for name, source in rows.order_by("created").values_list("name", "source"):
+        latest[name] = source
+    linkable = {name for name, source in latest.items() if source == SkillInvocation.Source.BUILTIN}
+    if global_names := [name for name, source in latest.items() if source == SkillInvocation.Source.GLOBAL]:
+        linkable.update(GlobalSkill.objects.filter(name__in=global_names).values_list("name", flat=True))
+    for segment, name in named:
+        if name in linkable:
+            segment["skill_url"] = reverse("skills:detail", args=[name])
