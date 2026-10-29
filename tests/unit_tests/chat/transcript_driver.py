@@ -4,20 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from tests.unit_tests.chat.chat_stream_driver import CHAT_STREAM_JS
+from tests.unit_tests.chat.chat_stream_driver import (
+    DIFF_STUB,
+    TOOL_RENDERERS_JS,
+    TRANSCRIPT_BLOCKS_JS,
+    TRANSCRIPT_LABELS_JS,
+)
 from tests.unit_tests.jsdriver import run_node
-
-JS_DIR = CHAT_STREAM_JS.parent
-TRANSCRIPT_LABELS_JS = JS_DIR / "transcript-labels.js"
-TOOL_RENDERERS_JS = JS_DIR / "tool-renderers.js"
-TRANSCRIPT_BLOCKS_JS = JS_DIR / "transcript-blocks.js"
-
-DIFF_STUB = """{
-  diffLines: (a, b) => {
-    const count = (s) => (s ? s.split("\\n").length - (s.endsWith("\\n") ? 1 : 0) : 0);
-    return [{ removed: true, count: count(a) }, { added: true, count: count(b) }];
-  },
-}"""
 
 _HARNESS = f"""
 import {{ readFileSync }} from "node:fs";

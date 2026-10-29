@@ -198,22 +198,21 @@
   const normalizeSpend = (raw) => (raw && typeof raw === "object" && Number(raw.turns) > 0 ? raw : null);
   const loadInitialSpend = () => normalizeSpend(loadJSONScript("chat-session-spend", null));
 
-  const THINKING_LABELS = [
-    "Thinking…",
-    "Reading files…",
-    "Exploring the codebase…",
-    "Understanding context…",
-    "Planning the change…",
-    "Running tools…",
-  ];
+  const formatElapsed = (sec) => window.TranscriptLabels.duration(sec);
 
-  // Tiers mirror the ``duration`` template filter (sessions/templatetags/session_tags.py)
-  // so a run reads the same live as it does once it lands in the sessions list.
-  const formatElapsed = (sec) => {
-    if (sec < 60) return `${sec}s`;
-    const min = Math.floor(sec / 60);
-    if (min < 60) return `${min}m ${sec % 60}s`;
-    return `${Math.floor(min / 60)}h ${min % 60}m`;
+  // Empty between steps and while thinking: the working line then says "Thinking…".
+  const activityOf = (block) => {
+    if (!block?.live) return "";
+    for (let i = block.items.length - 1; i >= 0; i--) {
+      const item = block.items[i];
+      if (item.kind === "special" && item.seg.type === "publish_phase" && item.seg.status === "running") {
+        return `${item.seg.label}…`;
+      }
+      const steps = item.kind === "group" ? item.steps : item.kind === "step" ? [item.step] : [];
+      const step = steps.findLast((s) => s.seg.status === "running");
+      if (step) return step.seg.type === "thinking" ? "" : `${step.row.livePhrase}…`;
+    }
+    return "";
   };
 
   // The transcript getters below re-derive from `turns` on every read, and parsing the
@@ -337,6 +336,9 @@
   let publishedTodos = [];
   let publishedFiles = [];
   let publishedArtifacts = [];
+  let publishedArtifactsById = new Map();
+  let publishedGroupKey = null;
+  let publishedActivity = "";
   return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
@@ -398,9 +400,7 @@
     // The `run-<id>` element the URL's hash names, until it has rendered and been scrolled to.
     _pendingRunAnchor: "",
     _runAnchorWatch: null,
-    _thinkingTimer: null,
     _scrollListener: null,
-    _thinkingPhrase: THINKING_LABELS[0],
     _deriveTranscript: null,
     // Wall-clock origin of the run in progress, 0 when idle. Read by the loader's
     // `elapsed` clock; set where a run actually starts, never inferred.
@@ -416,6 +416,11 @@
     latestTodos: [],
     filesTouched: [],
     latestArtifactsById: new Map(),
+    runBlocks: [],
+    currentGroupKey: null,
+    liveActivity: "",
+    // User-toggled open state by block/group/step key, kept outside `runBlocks` so a re-derive never resets it.
+    openKeys: {},
     filesTouchedLimit: 20,
     // Reactive clock backing relative timestamps: a single interval bumps it
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
@@ -728,11 +733,12 @@
         : this._defaultMcpNames();
       this._freezeMcpOrder();
 
-      // The one walk of the transcript. It subscribes to everything `latestTodos`, `filesTouched`
-      // and `latestArtifactsById` read — every segment's type, name and payload — so a pushed turn, a
-      // streamed `args` delta and a landed result all re-derive with no bookkeeping at the
+      // The one derivation of the transcript. It subscribes to everything `latestTodos`, `filesTouched`,
+      // `latestArtifactsById` and `runBlocks` read — every segment's type, name and payload — so a pushed
+      // turn, a streamed `args` delta and a landed result all re-derive with no bookkeeping at the
       // mutation sites. `Alpine.effect`, not `$watch`: `$watch` compares the expression's
       // value, and a mutation inside `turns` leaves its identity alone.
+      const mcpServers = this.mcpCatalog.map((s) => s.name);
       this._deriveTranscript = window.Alpine.effect(() => {
         const todos = findLatestTodos(this.turns);
         const { files, artifacts } = collectOutputs(this.turns);
@@ -740,8 +746,21 @@
         if (!sameList(files, publishedFiles, FILE_FIELDS)) this.filesTouched = publishedFiles = files;
         if (!sameList(artifacts, publishedArtifacts, ARTIFACT_FIELDS)) {
           publishedArtifacts = artifacts;
-          this.latestArtifactsById = new Map(artifacts.map((a) => [a.id, a]));
+          publishedArtifactsById = new Map(artifacts.map((a) => [a.id, a]));
+          this.latestArtifactsById = publishedArtifactsById;
         }
+        const blocks = window.buildRunBlocks(this.turns, {
+          inFlight: this.streaming || this.resuming || Boolean(config.sessionLive),
+          latestArtifactsById: publishedArtifactsById,
+          mcpServers,
+        });
+        this.runBlocks = blocks;
+        const live = blocks[blocks.length - 1];
+        const last = live?.live ? live.items[live.items.length - 1] : null;
+        const groupKey = last?.kind === "group" ? last.key : null;
+        if (groupKey !== publishedGroupKey) this.currentGroupKey = publishedGroupKey = groupKey;
+        const activity = activityOf(live);
+        if (activity !== publishedActivity) this.liveActivity = publishedActivity = activity;
       });
 
       // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
@@ -765,18 +784,7 @@
       }
 
       this.$watch("streaming", (on) => {
-        if (on || this.resuming) {
-          let i = 0;
-          this._thinkingPhrase = THINKING_LABELS[0];
-          this._thinkingTimer = setInterval(() => {
-            i = (i + 1) % THINKING_LABELS.length;
-            this._thinkingPhrase = THINKING_LABELS[i];
-          }, 1800);
-        } else {
-          clearInterval(this._thinkingTimer);
-          this._thinkingTimer = null;
-          this.runStartedAt = 0;
-        }
+        if (!on && !this.resuming) this.runStartedAt = 0;
       });
 
       if (this.resuming && this.thread && config.activeRunId) {
@@ -813,7 +821,6 @@
       if (this._scrollListener && this._scrollEl) {
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
-      if (this._thinkingTimer) clearInterval(this._thinkingTimer);
       if (this._nowTimer) clearInterval(this._nowTimer);
       if (this._source) this._source.close();
       this._settleRunAnchor();
@@ -953,6 +960,11 @@
     },
 
     _finishTurn(turn, reason) {
+      const anchor = this.runBlocks[this.runBlocks.length - 1]?.anchor;
+      if (anchor && !anchor.started_at && this.runStartedAt) {
+        anchor.started_at = new Date(this.runStartedAt).toISOString();
+      }
+      if (!turn.received_at) turn.received_at = new Date().toISOString();
       turn.streaming = false;
       // A call still running when the run ends never returned, unless the run finished cleanly.
       // Checkpointed turns count too: they hold the calls the rejoin found unanswered.
@@ -1011,18 +1023,8 @@
         return { tone: "thinking", label: "catching up on the running session…" };
       }
       if (!this.streaming) return { tone: "idle", label: "idle" };
-      // Publish-phase chips win over generic tool calls in the status bar:
-      // when GitMiddleware is committing/creating an MR, that's the most
-      // informative thing to surface.
-      const activePhase = last?.segments.slice().reverse().find(
-        (s) => s.type === "publish_phase" && s.status === "running",
-      );
-      if (activePhase) return { tone: "running", label: `${activePhase.label}…` };
-      const activeTool = last?.segments.slice().reverse().find(
-        (s) => s.type === "tool_call" && s.status === "running",
-      );
-      if (activeTool) return { tone: "running", label: `running ${activeTool.name}…` };
-      return { tone: "thinking", label: this._thinkingPhrase };
+      if (this.liveActivity) return { tone: "running", label: this.liveActivity };
+      return { tone: "thinking", label: window.TranscriptLabels.t("thinking") };
     },
 
     get todosProgress() {
@@ -1215,6 +1217,29 @@
       return out;
     },
 
+    // ---------- Run blocks ---------------------------------------------
+
+    isOpen(key, autoOpen = false) {
+      const open = this.openKeys[key];
+      return typeof open === "boolean" ? open : autoOpen;
+    },
+
+    // A <details> fires `toggle` when `:open` applies an auto-open too; recording that would pin it open.
+    setOpen(key, open, autoOpen = false) {
+      if (open === this.isOpen(key, autoOpen)) return;
+      this.openKeys[key] = open;
+    },
+
+    workedForLabel(block) {
+      const T = window.TranscriptLabels;
+      const steps = T.tn("steps", block.stats.steps);
+      const started = Date.parse(block.startedAt ?? "");
+      const ended = Date.parse(block.endedAt ?? "");
+      if (!Number.isFinite(started) || !Number.isFinite(ended)) return steps;
+      const seconds = Math.max(1, Math.round((ended - started) / 1000));
+      return `${T.t("worked_for", { duration: formatElapsed(seconds) })} · ${steps}`;
+    },
+
     // ---------- ask_user_question card ---------------------------------
 
     isQuestionCard(seg) {
@@ -1238,6 +1263,18 @@
     _questionDraft(seg) {
       if (!this.questionDrafts[seg.id]) this.questionDrafts[seg.id] = { selected: {}, text: {} };
       return this.questionDrafts[seg.id];
+    },
+
+    isQuestionAnswered(item) {
+      return this.isQuestionCard(item.seg) && !this.isQuestionOpen(item.turnIndex);
+    },
+
+    answeredSummary(seg, ti) {
+      return parseQuestions(seg)
+        .map((question, qi) =>
+          [question.header, this._answeredLabels(seg, qi, ti).join(MULTI_ANSWER_SEP)].filter(Boolean).join(" · "),
+        )
+        .join(" · ");
     },
 
     isOptionSelected(seg, qi, label, ti) {
@@ -1819,7 +1856,7 @@
 
     // Where the viewport lands on page load. A live session belongs at the
     // bottom, so streamed output arrives in view. A finished one opens at the
-    // *top of the last assistant message* instead: that final answer is what
+    // *top of the last run's ending* instead: that final answer is what
     // the reader came for, and anchoring to the bottom buries its opening
     // lines above the fold whenever it is taller than the viewport.
     // A `#run-<id>` hash outranks both, once that run's turn has rendered.
@@ -1843,12 +1880,7 @@
         }
         const el = this._scrollEl;
         if (!el) return;
-        // Last rendered assistant turn — querying the DOM rather than `turns`
-        // keeps this in step with isTurnVisible(), which drops empty turns.
-        // `data-role` is the handle, not the `chat-turn--${role}` class: that
-        // one is composed at render time and no stylesheet declares the
-        // assistant variant, so keying on it would break silently.
-        const rendered = el.querySelectorAll('.chat-turn[data-role="assistant"]');
+        const rendered = el.querySelectorAll("[data-run-ending]");
         const target = rendered[rendered.length - 1];
         if (!target) {
           // A run that failed before answering: the tail is still the most
