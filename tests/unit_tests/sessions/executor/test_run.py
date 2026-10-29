@@ -23,6 +23,7 @@ from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
+from automation.agent.events import publish_result_payload
 from automation.agent.publishers import PublishOutcome
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
@@ -1027,6 +1028,82 @@ async def test_a_failed_recovered_draft_write_is_logged_not_raised(caplog):
         await _record_recovered_draft("run-1", _recovery_outcome(created=True))
 
     assert "failed to record the recovered draft" in caplog.text
+
+
+async def _fail_with_checkpoint(state: dict, *, via_stream: bool = False, update: AsyncMock | None = None):
+    agent = _agent(state=state)
+    spec = make_spec(run_id="run-1")
+    error = RuntimeError("agent blew up")
+    agent.ainvoke = AsyncMock(side_effect=error)
+    update = update or AsyncMock()
+    with (
+        agent_stack(agent),
+        patch("sessions.executor.run.Run.objects") as objects,
+        pytest.raises(RuntimeError, match="agent blew up"),
+    ):
+        objects.filter.return_value.aupdate = update
+        if via_stream:
+            await _drain(spec, _stream(error=error))
+        else:
+            await execute_run(spec)
+    return [c.kwargs for c in update.await_args_list if PUBLISH_KEYS & c.kwargs.keys()]
+
+
+PUBLISH_KEYS = {"publish_status", "merge_request_iid", "lines_added"}
+
+
+@pytest.mark.parametrize("via_stream", [False, True], ids=["execute_run", "stream_run"])
+async def test_a_run_that_failed_after_publishing_keeps_its_publish_result(via_stream):
+    payload = publish_result_payload(
+        status="opened",
+        merge_request=make_merge_request(merge_request_id=7, web_url="https://git.example/mr/7"),
+        diff_stats=MergeRequestDiffStats(lines_added=4, lines_removed=1, files_changed=2),
+    )
+
+    writes = await _fail_with_checkpoint({"publish_result": payload}, via_stream=via_stream)
+
+    assert writes == [
+        {
+            "merge_request_iid": 7,
+            "merge_request_web_url": "https://git.example/mr/7",
+            "publish_status": "opened",
+            "files_changed": 2,
+            "lines_added": 4,
+            "lines_removed": 1,
+        }
+    ]
+
+
+@pytest.mark.parametrize("state", [{}, {"publish_result": None}])
+async def test_a_run_that_failed_without_a_publish_result_writes_nothing(state):
+    assert await _fail_with_checkpoint(state) == []
+
+
+async def test_a_failed_publish_result_write_is_logged_and_the_run_error_still_propagates(caplog):
+    with caplog.at_level("ERROR", logger="daiv.sessions"):
+        await _fail_with_checkpoint(
+            {"publish_result": publish_result_payload(status="pushed")}, update=AsyncMock(side_effect=OSError("db"))
+        )
+
+    assert "failed to record the publish result" in caplog.text
+
+
+async def test_a_recovered_draft_is_not_overwritten_by_the_earlier_publish_result():
+    agent = _agent(state={"publish_result": publish_result_payload(status="pushed")})
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
+    updates = AsyncMock()
+    with (
+        agent_stack(agent),
+        patch("sessions.executor.run.Run.objects") as objects,
+        patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=_recovery_outcome(created=True))),
+        pytest.raises(RuntimeError, match="agent blew up"),
+    ):
+        objects.filter.return_value.aupdate = updates
+        await execute_run(make_spec(run_id="run-1", recover_draft=True))
+
+    writes = [c.kwargs for c in updates.await_args_list if PUBLISH_KEYS & c.kwargs.keys()]
+    assert [w["merge_request_iid"] for w in writes if "merge_request_iid" in w] == [11]
+    assert writes[-1] == {"publish_status": "pushed"}
 
 
 async def test_a_setup_error_skips_draft_recovery():

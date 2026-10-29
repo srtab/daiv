@@ -23,7 +23,7 @@ from sessions.delegation import adelegator_for
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
-from sessions.models import Run
+from sessions.models import Run, publish_field_updates
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import apersist_session_ref, areset_session_ref
 
@@ -73,6 +73,7 @@ class AgentRun:
     workspace: Workspace
     settings: AgentSettings
     session_links: SessionLinksResolver | None
+    run_id: str | None = None
 
 
 async def execute_run(
@@ -256,6 +257,7 @@ class _Recovery:
     """What draft recovery leaves for ``on_failure``: filled inside the run's context, read after it closes."""
 
     draft_published: bool = False
+    draft_recorded: bool = False
     snapshot: StateSnapshot | None = None
 
 
@@ -294,8 +296,12 @@ async def _ainvoke(run: AgentRun, spec: RunSpec, run_relay: RunRelay | None) -> 
 async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     """Publish a draft from the checkpoint after the agent or its stream raises, if the spec asks for it, and re-read
     the checkpoint for ``on_failure``. Runs while the clone and the sandbox are still open."""
-    if not spec.recover_draft:
-        return
+    if spec.recover_draft:
+        await _recover_draft(spec, run, recovery)
+    await _record_publish_result(run, recovery)
+
+
+async def _recover_draft(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     outcome = await recover_draft(
         run.ctx,
         run.agent,
@@ -307,16 +313,34 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     )
     recovery.draft_published = outcome is not None
     if outcome is not None and outcome.created_merge_request:
-        await _record_recovered_draft(spec.run_id, outcome)
+        recovery.draft_recorded = await _record_recovered_draft(spec.run_id, outcome)
     recovery.snapshot = await _read_snapshot_after_recovery(run)
 
 
-async def _record_recovered_draft(run_id: str | None, outcome: PublishOutcome) -> None:
+async def _record_publish_result(run: AgentRun, recovery: _Recovery) -> None:
+    """Keep what the run published before it failed: the checkpoint's ``publish_result`` goes onto the ``Run``, minus
+    the merge request and figures a recovered draft already recorded. Best-effort: logged, never raised."""
+    if not run.run_id:
+        return
+    try:
+        snapshot = recovery.snapshot or await run.agent.aget_state(config=run.config)
+        publish = snapshot.values.get("publish_result")
+        if not isinstance(publish, dict) or not publish.get("status"):
+            return
+        fields = publish_field_updates(publish)
+        if recovery.draft_recorded:
+            fields = {k: v for k, v in fields.items() if k.startswith("publish_")}
+        await Run.objects.filter(pk=run.run_id).aupdate(**fields)
+    except Exception:
+        logger.exception("executor: failed to record the publish result on run_id=%s", run.run_id)
+
+
+async def _record_recovered_draft(run_id: str | None, outcome: PublishOutcome) -> bool:
     """Record the draft merge request that recovery opened on the failed ``Run``. Best-effort: a failed write is
     logged, never raised over the failure being recovered."""
     merge_request = outcome.merge_request
     if not run_id or merge_request is None:
-        return
+        return False
     fields: dict[str, Any] = {
         "merge_request_iid": merge_request.merge_request_id,
         "merge_request_web_url": merge_request.web_url or "",
@@ -332,6 +356,8 @@ async def _record_recovered_draft(run_id: str | None, outcome: PublishOutcome) -
         await Run.objects.filter(pk=run_id).aupdate(**fields)
     except Exception:
         logger.exception("executor: failed to record the recovered draft on run_id=%s", run_id)
+        return False
+    return True
 
 
 @asynccontextmanager
@@ -435,6 +461,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     workspace=workspace,
                     settings=settings,
                     session_links=session_links,
+                    run_id=run_id,
                 )
                 try:
                     yield run

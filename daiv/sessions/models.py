@@ -284,11 +284,21 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
 
     Shared by the same two paths as :func:`usage_field_updates`, for the same reason.
     """
-    publish = result["publish"] or {}
     updates = {
         "code_changes": result["code_changes"],
-        "merge_request_iid": result["merge_request_id"] or publish.get("merge_request_iid"),
-        "merge_request_web_url": result["merge_request_web_url"] or publish.get("merge_request_web_url"),
+        "merge_request_iid": result["merge_request_id"],
+        "merge_request_web_url": result["merge_request_web_url"],
+    }
+    updates = {field: value for field, value in updates.items() if value}
+    return publish_field_updates(result["publish"]) | updates
+
+
+def publish_field_updates(publish: dict[str, Any] | None) -> dict[str, Any]:
+    """Map a ``publish_result`` payload to the ``Run`` fields it fills, leaving out the ones it has no value for."""
+    publish = publish or {}
+    updates = {
+        "merge_request_iid": publish.get("merge_request_iid"),
+        "merge_request_web_url": publish.get("merge_request_web_url"),
         "publish_status": publish.get("status"),
         "publish_error": publish.get("error_kind"),
         "files_changed": publish.get("files_changed"),
