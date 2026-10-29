@@ -978,7 +978,9 @@ def _recovery_outcome(*, created: bool) -> PublishOutcome:
     )
 
 
-async def _fail_after_recovering(outcome: PublishOutcome | None) -> AsyncMock:
+async def _fail_after_recovering(
+    outcome: PublishOutcome | None, *, run_id: str | None = "run-1", hooks: RunHooks | None = None
+) -> AsyncMock:
     agent = _agent()
     agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
     with (
@@ -987,7 +989,7 @@ async def _fail_after_recovering(outcome: PublishOutcome | None) -> AsyncMock:
         patch("sessions.executor.run._record_recovered_draft", new=AsyncMock()) as record,
         pytest.raises(RuntimeError, match="agent blew up"),
     ):
-        await execute_run(make_spec(recover_draft=True, run_id="run-1"))
+        await execute_run(make_spec(recover_draft=True, run_id=run_id), hooks)
     return record
 
 
@@ -997,6 +999,16 @@ async def test_a_draft_recovery_opened_is_recorded_on_the_run():
     record = await _fail_after_recovering(outcome)
 
     record.assert_awaited_once_with("run-1", outcome)
+
+
+async def test_a_recovered_draft_is_recorded_on_the_run_its_context_hook_started():
+    outcome = _recovery_outcome(created=True)
+
+    record = await _fail_after_recovering(
+        outcome, run_id=None, hooks=RunHooks(on_context_ready=AsyncMock(return_value="run-started"))
+    )
+
+    record.assert_awaited_once_with("run-started", outcome)
 
 
 @pytest.mark.parametrize("outcome", [_recovery_outcome(created=False), None], ids=["existing-mr", "nothing-landed"])

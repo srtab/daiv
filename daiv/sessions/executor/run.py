@@ -299,11 +299,11 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     """Publish a draft from the checkpoint after the agent or its stream raises, if the spec asks for it, and re-read
     the checkpoint for ``on_failure``. Runs while the clone and the sandbox are still open."""
     if spec.recover_draft:
-        await _recover_draft(spec, run, recovery)
+        await _recover_draft(run, recovery)
     await _record_publish_result(run, recovery)
 
 
-async def _recover_draft(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
+async def _recover_draft(run: AgentRun, recovery: _Recovery) -> None:
     outcome = await recover_draft(
         run.ctx,
         run.agent,
@@ -315,7 +315,7 @@ async def _recover_draft(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> N
     )
     recovery.draft_published = outcome is not None
     if outcome is not None and outcome.created_merge_request:
-        recovery.draft_recorded = await _record_recovered_draft(spec.run_id, outcome)
+        recovery.draft_recorded = await _record_recovered_draft(run.run_id, outcome)
     recovery.snapshot = await _read_snapshot_after_recovery(run)
 
 
