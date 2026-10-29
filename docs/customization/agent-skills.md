@@ -154,6 +154,21 @@ description: Brief description of what this skill does and when the agent should
 | `metadata` | Arbitrary key-value pairs for additional properties |
 | `allowed-tools` | Space-delimited list of tool names the skill recommends using |
 
+### Running a skill on another model
+
+Set `metadata.model` to a model spec (`provider-slug:model`, as in [subagents](../features/subagents.md)) and the agent switches to that model once it invokes the skill, until your next message:
+
+```yaml
+---
+name: changelog
+description: Update CHANGELOG.md for the current changes.
+metadata:
+  model: openrouter:anthropic/claude-haiku-5.5
+---
+```
+
+The run's thinking level carries over. The run's model stays in place when the spec names no configured provider, and for any model call whose conversation no longer fits the skill model's context window. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
+
 ### Writing a good description
 
 The `description` field is how the agent decides whether to use your skill. Include specific trigger phrases:

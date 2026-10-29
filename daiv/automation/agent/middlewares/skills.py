@@ -11,24 +11,32 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import PrivateStateAttr
 from langchain.tools import ToolRuntime, tool  # noqa: TC002
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
 from skills.services import global_skill_files, record_invocation
 
+from automation.agent.base import get_model
 from automation.agent.constants import SKILLS_TOOL_NAME
 from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
+from automation.agent.middlewares.summarization import COMPACTION_WINDOW_FRACTION
 from automation.agent.synthetic import is_person_message
+from automation.agent.usage_tracking import resolve_context_window
 from automation.agent.utils import extract_body_from_frontmatter
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
 
-    from langchain.agents.middleware.types import ToolCallRequest
+    from langchain.agents.middleware import ModelRequest, ModelResponse
+    from langchain.agents.middleware.types import ModelCallResult, ToolCallRequest
+    from langchain.chat_models import BaseChatModel
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
+
+    from automation.agent.base import ThinkingLevel
 
 
 logger = logging.getLogger("daiv.tools")
@@ -43,9 +51,10 @@ def _keep_read_only(old: str | None, new: str | None) -> str | None:
 
 
 class DAIVSkillsState(SkillsState):
-    """Extended skills state that tracks the active skill mode."""
+    """Extended skills state that tracks the active skill's mode and model."""
 
     active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr, _keep_read_only]]
+    active_skill_model: NotRequired[Annotated[str | None, PrivateStateAttr]]
 
 
 SKILLS_TOOL_DESCRIPTION = """Execute a skill within the main conversation.
@@ -109,6 +118,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     into the ``/workspace/skills`` cache so they are available even when the project skills directory is not set up.
     A sandbox's seed provisions them itself, so its workspace turns the copy off and hands over what the seed left out
     as ``provisioning_errors``, reported like the copy's own.
+
+    A skill whose ``metadata.model`` names a model spec (``slug:model``) moves the model calls after its invocation
+    onto that model, built with the run's ``thinking_level``, until the user's next follow-up. The run's model keeps
+    any call whose messages would not fit the skill model's window, since compaction is tuned to the run's model,
+    and the whole skill when the spec cannot be built.
     """
 
     state_schema = DAIVSkillsState
@@ -117,9 +131,16 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     abefore_model = AgentMiddleware.abefore_model
 
     def __init__(
-        self, *args, copy_global_skills: bool = True, provisioning_errors: Sequence[str] = (), **kwargs
+        self,
+        *args,
+        copy_global_skills: bool = True,
+        provisioning_errors: Sequence[str] = (),
+        thinking_level: ThinkingLevel | None = None,
+        **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
+        self._thinking_level = thinking_level
+        self._skill_models: dict[str, BaseChatModel | None] = {}
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]
         self._copies_global_skills = copy_global_skills
@@ -137,9 +158,15 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         and are never cleared mid-session, so a misconfig fixed mid-session keeps surfacing in
         ``<skill_load_warnings>`` until restart.
         """
-        clear_skill_mode = state.get("active_skill_mode") is not None and self._has_user_followup(state["messages"])
-        if clear_skill_mode:
-            logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
+        skill_active = state.get("active_skill_mode") is not None or state.get("active_skill_model") is not None
+        clear_skill_state = skill_active and self._has_user_followup(state["messages"])
+        if clear_skill_state:
+            logger.info(
+                "[%s] Clearing active skill mode '%s' and model '%s' on user follow-up",
+                self.name,
+                state.get("active_skill_mode"),
+                state.get("active_skill_model"),
+            )
 
         # Every turn, not only when ``skills_metadata`` is unset: the ``SKILLS_PATH`` cache is per-container but
         # ``skills_metadata`` persists in the checkpoint, so a fresh-worker resume would hit ``file_not_found``.
@@ -162,8 +189,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             if merged != baseline:
                 skills_update = {**(skills_update or {}), "skills_load_errors": merged}
 
-        if clear_skill_mode:
-            return {**(skills_update or {}), "active_skill_mode": None}
+        if clear_skill_state:
+            return {**(skills_update or {}), "active_skill_mode": None, "active_skill_model": None}
 
         return skills_update
 
@@ -212,6 +239,40 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             return f"(No skills available yet. You can create skills in {' or '.join(paths)})"
 
         return AVAILABLE_SKILLS_TEMPLATE.format(skills_list=skills)
+
+    @override
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelCallResult:
+        """Serve the call on the active skill's model when one is set and the messages fit its window."""
+        if (
+            (spec := request.state.get("active_skill_model"))
+            and (skill_model := self._skill_model(spec)) is not None
+            and self._fits_context_window(request, skill_model, spec)
+        ):
+            request = request.override(model=skill_model)
+        return await super().awrap_model_call(request, handler)
+
+    def _skill_model(self, spec: str) -> BaseChatModel | None:
+        """The model ``spec`` names, built once per run; ``None`` when it cannot be built."""
+        if spec not in self._skill_models:
+            try:
+                self._skill_models[spec] = get_model(model=spec, thinking_level=self._thinking_level)
+            except ValueError:
+                logger.warning("[%s] Invalid skill model '%s'; keeping the run's model", self.name, spec)
+                self._skill_models[spec] = None
+            except Exception:
+                logger.exception("[%s] Failed to initialize skill model '%s'; keeping the run's model", self.name, spec)
+                self._skill_models[spec] = None
+        return self._skill_models[spec]
+
+    def _fits_context_window(self, request: ModelRequest, model: BaseChatModel, spec: str) -> bool:
+        name = getattr(model, "model_name", None) or getattr(model, "model", None)
+        window = resolve_context_window(model, name if isinstance(name, str) else "")
+        if window is None or count_tokens_approximately(request.messages) <= window.tokens * COMPACTION_WINDOW_FRACTION:
+            return True
+        logger.info("[%s] Context exceeds skill model '%s' window; the run's model serves this call", self.name, spec)
+        return False
 
     @override
     async def awrap_tool_call(
@@ -340,9 +401,12 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
 
             skill_mode = loaded_skill.get("metadata", {}).get("mode")
+            skill_model = loaded_skill.get("metadata", {}).get("model")
             update: dict = {"messages": [ToolMessage(content=body, tool_call_id=runtime.tool_call_id)]}
             if skill_mode:
                 update["active_skill_mode"] = skill_mode
+            if skill_model and self._skill_model(skill_model) is not None:
+                update["active_skill_model"] = skill_model
 
             await record_invocation(name=skill, skill_path=loaded_skill["path"], runtime=runtime)
 

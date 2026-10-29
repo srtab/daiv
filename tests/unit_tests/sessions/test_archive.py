@@ -362,6 +362,7 @@ _RESET_CHANNELS = {
     "_skill_tools_disclosed",
     "_summarization_session_id",
     "active_skill_mode",
+    "active_skill_model",
     "code_changes",
     "github_token",
     "github_token_expires_at",

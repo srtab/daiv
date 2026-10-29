@@ -292,6 +292,7 @@ async def create_daiv_agent(
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
             copy_global_skills=not workspace.provisions_skills,
             provisioning_errors=workspace.skills_provisioning_errors,
+            thinking_level=chain.thinking_level,
         ),
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),

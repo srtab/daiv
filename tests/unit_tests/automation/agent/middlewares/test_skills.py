@@ -997,6 +997,7 @@ _SKILL_BODIES = {
     "/skills/audit/SKILL.md": b"---\nname: audit\ndescription: Audit\n---\nAudit it.",
     "/skills/demo/SKILL.md": b"---\nname: demo\ndescription: Demo\n---\nRun this.",
     "/skills/review/SKILL.md": b"---\nname: review\ndescription: Review\n---\nReview it.",
+    "/skills/cheap/SKILL.md": b"---\nname: cheap\ndescription: Cheap\n---\nRun cheap.",
 }
 _SKILLS_METADATA = [
     {
@@ -1013,17 +1014,20 @@ _SKILLS_METADATA = [
     },
     {"name": "demo", "description": "Demo", "path": "/skills/demo/SKILL.md"},
     {"name": "review", "description": "Review", "path": "/skills/review/SKILL.md", "metadata": {"mode": "interactive"}},
+    {"name": "cheap", "description": "Cheap", "path": "/skills/cheap/SKILL.md", "metadata": {"model": "fake:cheap"}},
 ]
 
 
-def _skills_agent(replies: list[AIMessage], tools: list, **agent_kwargs):
+def _skills_agent(replies: list[AIMessage], tools: list, *, thinking_level: str | None = None, **agent_kwargs):
     backend = Mock()
 
     async def download(paths):
         return [Mock(error=None, content=_SKILL_BODIES[path]) for path in paths]
 
     backend.adownload_files = AsyncMock(side_effect=download)
-    middleware = SkillsMiddleware(backend=backend, sources=["/skills"], copy_global_skills=False)
+    middleware = SkillsMiddleware(
+        backend=backend, sources=["/skills"], copy_global_skills=False, thinking_level=thinking_level
+    )
     return create_agent(model=_ToolModel(messages=iter(replies)), tools=tools, middleware=[middleware], **agent_kwargs)
 
 
@@ -1136,3 +1140,75 @@ def test_skills_prompt_states_the_invocation_rule_in_one_bullet():
     assert sum(rule in line for line in SKILLS_SYSTEM_PROMPT.splitlines()) == 1
     for shouted in ("IMMEDIATELY", "BLOCKING", "NEVER just announce"):
         assert shouted not in SKILLS_SYSTEM_PROMPT
+
+
+CHEAP_SKILL_CALL = {"name": "skill", "args": {"skill": "cheap"}, "id": "call_cheap"}
+
+
+class TestSkillModel:
+    async def _run(self, run_replies: list[AIMessage], get_model: Mock, **agent_kwargs) -> dict:
+        agent = _skills_agent(run_replies, [], **agent_kwargs)
+        with (
+            patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock),
+            patch("automation.agent.middlewares.skills.get_model", get_model),
+        ):
+            return await agent.ainvoke({"messages": [HumanMessage(content="go")], "skills_metadata": _SKILLS_METADATA})
+
+    async def test_the_skill_model_answers_once_the_skill_is_invoked(self):
+        skill_model = _ToolModel(messages=iter([AIMessage(content="from the skill model")]))
+
+        result = await self._run([AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL])], Mock(return_value=skill_model))
+
+        assert result["messages"][-1].content == "from the skill model"
+
+    async def test_builds_the_skill_model_once_with_the_run_thinking_level(self):
+        skill_model = _ToolModel(
+            messages=iter([AIMessage(content="", tool_calls=[WRITE_CALL]), AIMessage(content="done")])
+        )
+        get_model = Mock(return_value=skill_model)
+
+        await self._run([AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL])], get_model, thinking_level="high")
+
+        get_model.assert_called_once_with(model="fake:cheap", thinking_level="high")
+
+    async def test_the_run_model_keeps_the_turn_when_the_context_exceeds_the_skill_model_window(self):
+        skill_model = _ToolModel(messages=iter([]), profile={"max_input_tokens": 10})
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
+            Mock(return_value=skill_model),
+        )
+
+        assert result["messages"][-1].content == "from the run model"
+
+    async def test_an_unresolvable_skill_model_leaves_the_run_model_in_place(self):
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
+            Mock(side_effect=ValueError("Unknown provider prefix 'fake'")),
+        )
+
+        assert _tool_result(result, "call_cheap").content.endswith("Run cheap.")
+        assert result["messages"][-1].content == "from the run model"
+
+    async def test_user_follow_up_returns_the_turn_to_the_run_model(self):
+        skill_model = _ToolModel(messages=iter([AIMessage(content="the plan")]))
+        agent = _skills_agent(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
+            [],
+            checkpointer=InMemorySaver(),
+        )
+        config = {"configurable": {"thread_id": "thread-1"}}
+
+        with (
+            patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock),
+            patch("automation.agent.middlewares.skills.get_model", Mock(return_value=skill_model)),
+        ):
+            await agent.ainvoke(
+                {"messages": [HumanMessage(content="/cheap")], "skills_metadata": _SKILLS_METADATA}, config
+            )
+            result = await agent.ainvoke({"messages": [HumanMessage(content="proceed")]}, config)
+
+        assert [m.content for m in result["messages"] if isinstance(m, AIMessage)][-2:] == [
+            "the plan",
+            "from the run model",
+        ]
