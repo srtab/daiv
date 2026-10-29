@@ -1221,3 +1221,13 @@ def test_detail_reads_the_watch_of_a_merge_request_found_by_its_branch(member_cl
     resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
 
     assert resp.context["header"]["watch"]["state"] == WatchState.FIXING
+
+
+@pytest.mark.django_db
+def test_detail_and_new_chat_embed_the_transcript_labels(member_client, member_user):
+    session = _create_session(user=member_user)
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        detail = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+        new_chat = member_client.get(reverse("session_new_chat"))
+    assert 'id="chat-transcript-labels"' in detail.content.decode()
+    assert 'id="chat-transcript-labels"' in new_chat.content.decode()

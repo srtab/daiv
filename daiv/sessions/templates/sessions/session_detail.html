@@ -14,6 +14,7 @@
   <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/diff@9.0.0/dist/diff.min.js"></script>
   <script defer src="{% static 'chat/js/markdown.js' %}"></script>
+  <script defer src="{% static 'chat/js/transcript-labels.js' %}"></script>
   <script defer src="{% static 'chat/js/tool-renderers.js' %}"></script>
   <script defer src="{% static 'sessions/js/prompt-box.js' %}"></script>
   <script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
@@ -34,6 +35,7 @@
   {{ slash_command_rows|json_script:"chat-slash-commands" }}
   {{ context_usage|json_script:"chat-context-usage" }}
   {{ session_spend|json_script:"chat-session-spend" }}
+  {{ transcript_labels_payload|json_script:"chat-transcript-labels" }}
 
   {% if session %}
   {{ header|json_script:"session-header" }}

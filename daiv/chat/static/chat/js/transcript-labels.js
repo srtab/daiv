@@ -1,0 +1,114 @@
+(function () {
+  const DEFAULTS = {
+    sum_read: ["read {count} file", "read {count} files"],
+    sum_edit: ["edited {count} file", "edited {count} files"],
+    sum_create: ["created {count} file", "created {count} files"],
+    sum_run: ["ran {count} command", "ran {count} commands"],
+    sum_search: ["searched for {count} pattern", "searched for {count} patterns"],
+    sum_list: ["listed {count} folder", "listed {count} folders"],
+    sum_subagent: ["ran {count} subagent", "ran {count} subagents"],
+    sum_fetch: ["fetched {count} page", "fetched {count} pages"],
+    sum_web: "searched the web",
+    sum_skill: ["used a skill", "used {count} skills"],
+    sum_tools: "loaded tools",
+    sum_platform: ["called {name}", "called {name} {count} times"],
+    sum_mcp: "used {name}",
+    sum_artifact: ["opened {count} artifact", "opened {count} artifacts"],
+    sum_jobs: ["checked delegated jobs", "checked delegated jobs {count} times"],
+    sum_other: ["used {count} tool", "used {count} tools"],
+    failed: "({count} failed)",
+    worked_for: "Worked for {duration}",
+    steps: ["{count} step", "{count} steps"],
+    row_read: "Read {name}",
+    live_read: "Reading {name}",
+    row_edit: "Edited {name}",
+    live_edit: "Editing {name}",
+    row_create: "Created {name}",
+    live_create: "Creating {name}",
+    row_run: "Ran {command}",
+    live_run: "Running {command}",
+    row_grep: "Searched for \"{pattern}\"",
+    live_grep: "Searching for \"{pattern}\"",
+    row_glob: "Found files matching {pattern}",
+    live_glob: "Finding files matching {pattern}",
+    row_ls: "Listed {name}",
+    live_ls: "Listing {name}",
+    row_subagent: "Subagent · {name}",
+    row_skill: "Used skill",
+    live_skill: "Loading skill",
+    row_web: "Searched the web",
+    live_web: "Searching the web",
+    row_fetch: "Fetched",
+    live_fetch: "Fetching",
+    row_tools: "Loaded tools",
+    live_tools: "Loading tools",
+    row_artifact_open: "Opened artifact",
+    live_artifact_open: "Opening artifact",
+    row_published: "Published",
+    row_delegate: "Delegated jobs",
+    row_check_jobs: "Checked delegated jobs",
+    row_cancel_jobs: "Cancelled delegated jobs",
+    row_mcp: "{server} · {tool}",
+    thinking: "Thinking…",
+    thought_for: "Thought for {duration}",
+    thought: "Thought",
+  };
+
+  const loadPayload = () => {
+    try {
+      const el = document.getElementById("chat-transcript-labels");
+      const parsed = el ? JSON.parse(el.textContent) : null;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  };
+
+  const payload = loadPayload();
+  const overrides = payload.labels && typeof payload.labels === "object" ? payload.labels : {};
+  const iconBase = typeof payload.icon_base === "string" ? payload.icon_base : "/static/core/img/icons/";
+
+  const fill = (template, values) =>
+    template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
+
+  const lookup = (key) => (key in overrides ? overrides[key] : DEFAULTS[key]);
+
+  const t = (key, vars) => {
+    const value = lookup(key);
+    if (typeof value !== "string") return key;
+    return fill(value, vars || {});
+  };
+
+  const tn = (key, count, vars) => {
+    const value = lookup(key);
+    if (!Array.isArray(value)) return typeof value === "string" ? fill(value, { count, ...vars }) : key;
+    return fill(count === 1 ? value[0] : value[1], { count, ...vars });
+  };
+
+  const escapeAttr = (s) =>
+    String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#x27;");
+
+  const iconHTML = (name, cls) => {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(String(name))) return "";
+    const url = iconBase + name + ".svg";
+    return (
+      `<span class="inline-block ${escapeAttr(cls || "")}" style="background-color: currentColor; ` +
+      `-webkit-mask: url('${url}') no-repeat center / contain; ` +
+      `mask: url('${url}') no-repeat center / contain;"></span>`
+    );
+  };
+
+  const duration = (sec) => {
+    if (sec < 60) return `${sec}s`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ${sec % 60}s`;
+    return `${Math.floor(min / 60)}h ${min % 60}m`;
+  };
+
+  window.TranscriptLabels = { defaults: DEFAULTS, t, tn, iconHTML, duration };
+})();
