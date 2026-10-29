@@ -99,8 +99,8 @@ class GitState(AgentState):
 
     publish_result: NotRequired[dict[str, Any] | None]
     """
-    The run's one publish result (see ``events.publish_result_payload``), cleared each turn.
-    Absent when there was nothing to publish. The run result reads it from the checkpoint;
+    The run's one publish result (see ``events.publish_result_payload``), written at every turn end:
+    ``None`` when the turn published nothing. The run result reads it from the checkpoint;
     chat's ``STATE_SNAPSHOT`` stream never carries it (``STREAMED_STATE_KEYS``) because the
     live page gets it from ``PUBLISH_RESULT_EVENT``.
     """
@@ -390,7 +390,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             diff_stats=outcome.diff_stats,
         )
 
-    async def aafter_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
+    async def aafter_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any]:
         """
         After the agent finishes, optionally capture the run's patch, then publish any new changes.
 
@@ -402,23 +402,25 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         :class:`PublishOutcome`: a no-op turn (clean tree already on its MR, or no changes at
         all) publishes nothing. We map the outcome onto the streamed ``merge_request`` field
         and the private ``code_changes`` / ``protected_branch_fallback_source`` flags. A merge the agent left with
-        conflict markers is not published: the turn ends with a reply naming the files instead of failing.
+        conflict markers is not published: the turn ends with a reply naming the files instead of failing. Every
+        return writes ``publish_result``, ``None`` unless this turn built one: a run that skipped ``abefore_agent``
+        must not hand the previous run's result to the checkpoint's readers.
 
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
         straight to the after_agent chain) never ran the agent loop, so nothing was captured or changed. Unless
         the command reads the repository, the run executor acquires no sandbox session for it either: its
         workspace is then not ready, and probing git through it would raise (``SandboxFileBackend is not
-        bound to a sandbox session``), so this no-ops. A disk workspace is always ready and correctly
-        reports a clean tree.
+        bound to a sandbox session``), so this only clears ``publish_result``. A disk workspace is always ready and
+        correctly reports a clean tree.
         """
+        update: dict[str, Any] = {"publish_result": None}
         if not self._workspace.is_ready:
             logger.debug(
                 "Workspace not ready at turn end (run short-circuited before the agent loop); "
                 "skipping patch capture and publish"
             )
-            return None
+            return update
 
-        update: dict[str, Any] = {}
         if self.capture_patch:
             try:
                 update["model_patch"] = await self._workspace.git.get_diff()
@@ -432,7 +434,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 logger.exception("Patch capture failed; publishing without model_patch")
 
         if not self.auto_commit_changes:
-            return update or None
+            return update
 
         try:
             agent_summary = final_assistant_text(state.get("messages", []))
@@ -480,7 +482,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # that work landed so the run isn't persisted as an indistinguishable no-op.
             if outcome.published:
                 update["code_changes"] = True
-            return update or None
+            return update
 
         self._record_issue_mr(outcome.merge_request, runtime)
         update |= {"merge_request": outcome.merge_request, "code_changes": True}

@@ -96,10 +96,23 @@ class TestPublishResult:
             status="opened", merge_request=_mr(), diff_stats=stats
         )
 
-    async def test_a_turn_with_nothing_to_publish_has_no_result(self, dispatched):
+    async def test_a_turn_with_nothing_to_publish_clears_the_result(self, dispatched):
         update = await self._after_agent(outcome=PublishOutcome(merge_request=_mr(), published=False))
 
-        assert "publish_result" not in update
+        assert update["publish_result"] is None
+        dispatched.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{"workspace": FakeWorkspace(is_ready=False)}, {"workspace": FakeWorkspace(), "auto_commit_changes": False}],
+        ids=["workspace-not-ready", "auto-commit-off"],
+    )
+    async def test_a_turn_end_that_skips_the_publish_still_clears_the_previous_result(self, dispatched, kwargs):
+        mw = GitMiddleware(settings=SETTINGS, **kwargs)
+
+        update = await mw.aafter_agent({"publish_result": {"status": "opened"}}, _make_runtime(scope=Scope.GLOBAL))
+
+        assert update == {"publish_result": None}
         dispatched.assert_not_awaited()
 
     async def test_conflicts_are_not_published_and_carry_their_count(self, dispatched):
@@ -261,12 +274,12 @@ class TestGitMiddleware:
     @pytest.mark.parametrize(
         ("stats", "expected"),
         [
-            pytest.param(None, None, id="nothing-measured"),
+            pytest.param(None, {"publish_result": None}, id="nothing-measured"),
             # A turn that reverts its predecessor's work publishes zeros, and those have to reach
             # state or the earlier turn's numbers stand after a reload.
             pytest.param(
                 MergeRequestDiffStats(),
-                {"diff_stats": {"lines_added": 0, "lines_removed": 0, "files_changed": 0}},
+                {"diff_stats": {"lines_added": 0, "lines_removed": 0, "files_changed": 0}, "publish_result": None},
                 id="measured-zero",
             ),
         ],
@@ -314,7 +327,7 @@ class TestGitMiddleware:
             )
             result = await middleware.aafter_agent({"merge_request": state_mr}, runtime)
 
-        assert result == {"merge_request": state_mr, "code_changes": True}
+        assert result == {"merge_request": state_mr, "code_changes": True, "publish_result": None}
 
     @pytest.mark.parametrize(
         ("scope", "state_branch", "current_ref", "keeps_mr", "levels"),
@@ -433,14 +446,14 @@ class TestGitMiddleware:
         """Builtin slash commands (``/clear``, ``/help``, ...) jump to the after_agent chain from
         ``SlashCommandMiddleware.abefore_agent``, skipping ``SandboxMiddleware.abefore_agent`` — so a sandbox run's
         session is never acquired and the agent loop never ran. Probing git through that workspace would raise
-        (``SandboxFileBackend is not bound to a sandbox session``); aafter_agent must no-op instead."""
+        (``SandboxFileBackend is not bound to a sandbox session``); aafter_agent must skip the publish instead."""
         mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace(is_ready=False), auto_commit_changes=True)
         runtime = _make_runtime(scope=Scope.GLOBAL)
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             result = await mw.aafter_agent({"merge_request": None}, runtime)
 
-        assert result is None
+        assert result == {"publish_result": None}
         pub_cls.assert_not_called()
 
     async def test_aafter_agent_skips_patch_capture_when_the_workspace_is_not_ready(self):
@@ -451,7 +464,7 @@ class TestGitMiddleware:
 
         result = await mw.aafter_agent({"merge_request": None}, _make_runtime(scope=Scope.GLOBAL))
 
-        assert result is None
+        assert result == {"publish_result": None}
         assert workspace.git.mock_calls == []
 
     async def test_aafter_agent_skips_when_auto_commit_disabled(self):
@@ -461,7 +474,7 @@ class TestGitMiddleware:
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             result = await middleware.aafter_agent({"merge_request": None}, runtime)
 
-        assert result is None
+        assert result == {"publish_result": None}
         publisher_cls.assert_not_called()
 
     async def test_abefore_agent_seeds_open_mr_when_state_empty(self):
@@ -859,7 +872,7 @@ class TestGitMiddleware:
         result = await mw.aafter_agent({"merge_request": None}, _make_runtime(scope=Scope.GLOBAL))
 
         workspace.git.get_diff.assert_awaited_once_with()
-        assert result == {"model_patch": "diff --git a/x b/x\n"}
+        assert result == {"model_patch": "diff --git a/x b/x\n", "publish_result": None}
 
     async def test_a_turn_never_reads_the_worker_clone(self):
         """A turn reaches git only through the workspace, never ``context.gitrepo``: the pre-run check, the MR lookup,
@@ -910,7 +923,7 @@ class TestGitMiddleware:
         result = await mw.aafter_agent({"merge_request": None}, runtime)
 
         assert workspace.git.mock_calls == []
-        assert result is None
+        assert result == {"publish_result": None}
 
     async def test_aafter_agent_captures_patch_before_publish(self):
         """With both flags on, capture must run BEFORE publish — the publisher's commit moves
