@@ -727,6 +727,27 @@ def test_failed_publish_replaces_the_generic_marker_with_its_own_message():
     assert entry["lines_added"] is None
 
 
+@pytest.mark.parametrize("message_id", ["h1", "gone"], ids=["checkpointed", "rebuilt"])
+@pytest.mark.parametrize(
+    "error_message", [CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE], ids=["cancelled", "interrupted"]
+)
+def test_a_stopped_run_keeps_its_marker_below_its_failed_publish_line(message_id, error_message):
+    run = _run(
+        "r1",
+        message_id=message_id,
+        status=RunStatus.FAILED,
+        error_message=error_message,
+        prompt="fix it",
+        publish_status="failed",
+        publish_error="unknown",
+    )
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")] if message_id == "h1" else [], [run])
+
+    assert [p["status"] for p in result[-2]["publish"]] == ["failed"]
+    assert (result[-1]["role"], result[-1]["status"]) == ("run_status", "aborted")
+
+
 def test_published_then_failed_keeps_the_result_and_the_marker():
     runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, publish_status="pushed", merge_request_iid=7)]
 

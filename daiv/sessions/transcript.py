@@ -79,6 +79,11 @@ def marker_id(run: Run) -> str:
     return f"run-status-{run.id}"
 
 
+def _red_line_replaces(marker: dict[str, Any], run: Run) -> bool:
+    """Whether ``run``'s failed publish line stands in for its ``marker``; a stop keeps its own marker below it."""
+    return marker["status"] == "failed" and run.publish_status == PublishStatus.FAILED
+
+
 def _publish_entry(run: Run, status: str, *, error: str = "", with_mr: bool = True) -> dict[str, Any]:
     return {
         "status": str(status),
@@ -178,7 +183,7 @@ def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
         return []
     run_turns = _prompt_turns(run)
     _stamp_publish(run_turns, run)
-    if run.publish_status != PublishStatus.FAILED:
+    if not _red_line_replaces(marker, run):
         run_turns.append(marker)
     return [{**turn, "rebuilt": True} for turn in run_turns]
 
@@ -264,7 +269,7 @@ def annotate_transcript(
         _stamp_publish(owned, run)
         result.extend(owned)
         cursor = matched + 1
-        if run.publish_status != PublishStatus.FAILED and (marker := _marker(run)) is not None:
+        if (marker := _marker(run)) is not None and not _red_line_replaces(marker, run):
             result.append(marker)
 
     # Flush trailing segments with no owning run.
