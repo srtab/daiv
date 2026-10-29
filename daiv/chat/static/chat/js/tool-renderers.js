@@ -1,4 +1,7 @@
-// Per-tool UI strategies. Four exports on window:
+// Per-tool UI strategies. Exports on window:
+//
+//   toolRow(seg, ctx?)
+//     -> one compact transcript row for a tool_call or thinking segment (see toolRow below)
 //
 //   toolSignature(name, argsStr, result, status)
 //     -> { label, path, badges: [{text, tone}] }
@@ -511,6 +514,267 @@
       label: String(name || "tool"),
       path: truncate(String(argsStr ?? "").replace(/\s+/g, " "), 84),
       badges: [],
+    };
+  };
+
+  // --- one compact row per tool call ---------------------------------------
+
+  const REPO_PREFIX = "/workspace/repo/";
+
+  const repoRelative = (p) => {
+    const str = String(p ?? "");
+    return str.startsWith(REPO_PREFIX) ? str.slice(REPO_PREFIX.length) : str;
+  };
+
+  const repoDir = (p) => {
+    const rel = repoRelative(p);
+    const idx = rel.lastIndexOf("/");
+    return idx > 0 ? rel.slice(0, idx) : "";
+  };
+
+  const countLines = (text) => {
+    const str = String(text ?? "");
+    if (!str) return 0;
+    return str.split("\n").length - (str.endsWith("\n") ? 1 : 0);
+  };
+
+  const joinDetail = (...parts) => parts.filter(Boolean).join(" · ");
+
+  const rowBadges = (sig) =>
+    sig.badges.filter((b) => b.text !== "error" && !/^[+−]\d/.test(b.text));
+
+  const toolPath = (args, argsStr) => pickKeyOrPartial(args, ["path", "file_path"], argsStr) ?? "";
+
+  // Each builder returns { icon, key | phrase, vars?, detail?, diff?, badges?, category }.
+  const ROW_BY_TOOL = {
+    read_file: ({ args, result, argsStr }) => {
+      const path = toolPath(args, argsStr);
+      const range = sigReadFile(args, result, argsStr).badges.find((b) => b.tone === "neutral");
+      return {
+        icon: "document-text",
+        key: "read",
+        vars: { name: basename(path) },
+        detail: joinDetail(repoDir(path), range?.text),
+        category: { key: "read" },
+      };
+    },
+    edit_file: ({ args, argsStr }) => {
+      const path = toolPath(args, argsStr);
+      const counts = editDiffCounts(args);
+      return {
+        icon: "pencil",
+        key: "edit",
+        vars: { name: basename(path) },
+        detail: repoDir(path),
+        diff: counts ? { added: counts.plus, removed: counts.minus } : null,
+        category: { key: "edit" },
+      };
+    },
+    write_file: ({ args, argsStr }) => {
+      const path = toolPath(args, argsStr);
+      const content = pickKeyOrPartial(args, ["content", "text"], argsStr);
+      return {
+        icon: "document-plus",
+        key: "create",
+        vars: { name: basename(path) },
+        detail: repoDir(path),
+        diff: content == null ? null : { added: countLines(content), removed: 0 },
+        category: { key: "edit" },
+      };
+    },
+    grep: (a) => {
+      const pattern = pickKeyOrPartial(a.args, ["pattern", "query", "regex"], a.argsStr) ?? "";
+      const path = pickKeyOrPartial(a.args, ["path", "scope", "include"], a.argsStr) ?? "";
+      const glob = pickKeyOrPartial(a.args, ["glob"], a.argsStr) ?? "";
+      return {
+        icon: "magnifying-glass",
+        key: "grep",
+        vars: { pattern: truncate(pattern, 60) },
+        detail: [path && repoRelative(path), glob].filter(Boolean).join(" / "),
+        badges: rowBadges(sigGrep(a.args, a.result, a.argsStr)),
+        category: { key: "search" },
+      };
+    },
+    glob: (a) => {
+      const sig = sigGlob(a.args, a.result, a.argsStr);
+      return {
+        icon: "document-magnifying-glass",
+        key: "glob",
+        vars: { pattern: truncate(sig.path, 60) },
+        badges: rowBadges(sig),
+        category: { key: "search" },
+      };
+    },
+    ls: (a) => {
+      const sig = sigLs(a.args, a.result, a.argsStr);
+      return {
+        icon: "folder",
+        key: "ls",
+        vars: { name: repoRelative(sig.path) || "." },
+        badges: rowBadges(sig),
+        category: { key: "list" },
+      };
+    },
+    bash: ({ args, result, argsStr }) => {
+      const command = String(pickKeyOrPartial(args, ["command", "cmd", "script"], argsStr) ?? "");
+      const exit = sigBash(args, result, argsStr).badges.find((b) => b.tone === "danger");
+      return {
+        icon: "command-line",
+        key: "run",
+        vars: { command: truncate(command.split("\n")[0], 80) },
+        detail: exit?.text ?? "",
+        category: { key: "run" },
+      };
+    },
+    skill: ({ args }) => ({
+      icon: "beaker",
+      key: "skill",
+      detail: sigSkill(args).path,
+      category: { key: "skill" },
+    }),
+    task: ({ args }) => {
+      const sig = sigTask(args);
+      return {
+        icon: "agent",
+        key: "subagent",
+        vars: { name: pickKey(args, ["subagent_type", "agent", "type"]) ?? "general-purpose" },
+        detail: sig.path,
+        category: { key: "subagent" },
+      };
+    },
+    web_search: (a) => {
+      const sig = sigWebSearch(a.args, a.result, a.argsStr);
+      return { icon: "web-search", key: "web", detail: sig.path, badges: rowBadges(sig), category: { key: "web" } };
+    },
+    web_fetch: (a) => {
+      const sig = sigWebFetch(a.args, a.result, a.argsStr);
+      return { icon: "web-fetch", key: "fetch", detail: sig.path, badges: rowBadges(sig), category: { key: "fetch" } };
+    },
+    gitlab: (a) => {
+      const sig = sigGitlab(a.args, a.result, a.argsStr);
+      return {
+        icon: "gitlab",
+        phrase: "GitLab",
+        detail: sig.path,
+        badges: rowBadges(sig),
+        category: { key: "platform", name: "GitLab" },
+      };
+    },
+    gh: (a) => {
+      const sig = sigGh(a.args, a.result, a.argsStr);
+      return {
+        icon: "github",
+        phrase: "GitHub",
+        detail: sig.path,
+        badges: rowBadges(sig),
+        category: { key: "platform", name: "GitHub" },
+      };
+    },
+    tool_search: ({ args }) => {
+      const select = pickKey(args, ["select"]);
+      const query = pickKey(args, ["query"]);
+      return {
+        icon: "squares-plus",
+        key: "tools",
+        detail: Array.isArray(select) ? select.join(", ") : String(query ?? ""),
+        category: { key: "tools" },
+      };
+    },
+    fetch_artifact: (a) => ({
+      icon: "paper-clip",
+      key: "artifact_open",
+      detail: sigFetchArtifact(a.args, a.result, a.argsStr).path,
+      category: { key: "artifact" },
+    }),
+    publish_artifact: ({ args, result, argsStr }) => ({
+      icon: "paper-clip",
+      key: "published",
+      detail:
+        parseArtifactResult(result)?.title ||
+        pickKeyOrPartial(args, ["title"], argsStr) ||
+        basename(pickKeyOrPartial(args, ["path"], argsStr) ?? ""),
+      category: { key: "artifact" },
+    }),
+    delegate_jobs: () => ({ icon: "share", key: "delegate", category: { key: "jobs" } }),
+    check_delegated_jobs: ({ args }) => ({
+      icon: "share",
+      key: "check_jobs",
+      detail: String(pickKey(args, ["batch_id"]) ?? ""),
+      category: { key: "jobs" },
+    }),
+    cancel_delegated_jobs: ({ args }) => ({
+      icon: "share",
+      key: "cancel_jobs",
+      detail: String(pickKey(args, ["batch_id"]) ?? ""),
+      category: { key: "jobs" },
+    }),
+  };
+
+  const mcpRow = (name, { args }, servers) => {
+    const server = servers
+      .filter((s) => name.startsWith(`${s}_`))
+      .sort((a, b) => b.length - a.length)[0];
+    if (!server) {
+      return { icon: "puzzle-piece", phrase: name, category: { key: "other" } };
+    }
+    const first = Object.values(args).find((v) => ["string", "number"].includes(typeof v) && String(v));
+    return {
+      icon: "puzzle-piece",
+      key: "mcp",
+      vars: { server, tool: name.slice(server.length + 1).replaceAll("_", " ") },
+      detail: first == null ? "" : truncate(String(first).replace(/\s+/g, " "), 80),
+      category: { key: "mcp", name: server },
+    };
+  };
+
+  const thinkingRow = (seg) => {
+    const T = window.TranscriptLabels;
+    const timed = seg.startedAt != null && seg.endedAt != null;
+    const secs = Math.max(1, Math.round((seg.endedAt - seg.startedAt) / 1000));
+    const phrase = timed ? T.t("thought_for", { duration: T.duration(secs) }) : T.t("thought");
+    return {
+      icon: "light-bulb",
+      phrase,
+      livePhrase: seg.status === "running" ? T.t("thinking") : phrase,
+      detail: "",
+      diff: null,
+      badges: [],
+      failed: false,
+      category: { key: "thinking" },
+    };
+  };
+
+  const rowFailed = (name, seg) => {
+    if (seg.status === "error") return true;
+    if (name === "delegate_jobs") return false;
+    const result = seg.result;
+    if (result != null && ERROR_PREFIX_RE.test(String(result).trim())) return true;
+    if (name === "bash") {
+      const commands = parseBashSuccess(result)?.commands ?? [];
+      return commands.some((c) => c.exit_code != null && Number(c.exit_code) !== 0);
+    }
+    return false;
+  };
+
+  window.toolRow = (seg, ctx) => {
+    if (seg.type === "thinking") return thinkingRow(seg);
+    const T = window.TranscriptLabels;
+    const name = String(seg.name ?? "");
+    const input = { args: parseArgs(seg.args), argsStr: seg.args, result: seg.result, status: seg.status };
+    const build = Object.hasOwn(ROW_BY_TOOL, name) ? ROW_BY_TOOL[name] : null;
+    const part = build ? build(input) : mcpRow(name, input, ctx?.mcpServers ?? []);
+    const phrase = part.phrase ?? T.t(`row_${part.key}`, part.vars);
+    const liveKey = `live_${part.key}`;
+    const livePhrase = part.phrase ?? (liveKey in T.defaults ? T.t(liveKey, part.vars) : phrase);
+    return {
+      icon: part.icon,
+      phrase,
+      livePhrase,
+      detail: part.detail ?? "",
+      diff: part.diff ?? null,
+      badges: part.badges ?? [],
+      failed: rowFailed(name, seg),
+      category: part.category,
     };
   };
 
