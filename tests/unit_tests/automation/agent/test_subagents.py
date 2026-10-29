@@ -29,6 +29,7 @@ from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
+    EXPLORE_MODEL_NAME,
     SUBAGENT_ALWAYS_LOADED_TOOLS,
     _build_detector_middleware,
     _build_general_purpose_middleware,
@@ -38,12 +39,7 @@ from automation.agent.subagents import (
 )
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
 from tests.unit_tests.automation.agent.configured_model_fakes import FakeModels, FakeNotices
-from tests.unit_tests.conftest import (
-    OPENROUTER_CACHE_SETTINGS,
-    FakeWorkspace,
-    agent_settings,
-    model_attempts_with_failing_primary,
-)
+from tests.unit_tests.conftest import OPENROUTER_CACHE_SETTINGS, FakeWorkspace, model_attempts_with_failing_primary
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -563,7 +559,7 @@ class TestExploreSubagent:
         p.save()
 
         result = create_explore_subagent(
-            _workspace(Mock(spec=BackendProtocol), sandbox=True), "/workspace/repo/", models=agent_settings().explore
+            _workspace(Mock(spec=BackendProtocol), sandbox=True), "/workspace/repo/", model=Mock()
         )
 
         assert isinstance(result, dict)
@@ -914,54 +910,29 @@ class TestCustomSubagents:
 
 def _explore_permissions(*, sandbox: bool) -> list:
     with (
-        patch("automation.agent.subagents.get_model"),
+        patch("automation.agent.configured_models.get_model"),
         patch("automation.agent.subagents.create_agent") as create_agent,
     ):
         create_explore_subagent(
-            _workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/", models=ModelChain(("explore",))
+            _workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/", model=Mock()
         )
 
     [fs] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, FilesystemMiddleware)]
     return fs._permissions
 
 
-def test_explore_skips_a_fallback_that_fails_to_build(caplog):
-    built = {"explore": Mock(), "working-fallback": Mock()}
-
-    def get_model(*, model, thinking_level=None):
-        if model == "broken-fallback":
-            raise RuntimeError("Provider 'x' has no API key configured.")
-        return built[model]
-
-    with (
-        patch("automation.agent.subagents.get_model", side_effect=get_model),
-        patch("automation.agent.subagents.create_agent") as create_agent,
-        caplog.at_level(logging.ERROR, logger="daiv.agent"),
-    ):
-        create_explore_subagent(
-            _workspace(Mock(spec=BackendProtocol), sandbox=True),
-            "/workspace/repo/",
-            models=ModelChain(("explore", "broken-fallback", "working-fallback")),
-        )
-
-    [fallback] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, ModelFallbackMiddleware)]
-    assert fallback.models == [built["working-fallback"]]
-    assert "Could not initialize explore fallback model 'broken-fallback'" in caplog.text
-    assert "no API key configured" in caplog.text
-
-
 async def test_explore_fallback_attempt_carries_no_openrouter_cache_control():
     primary, fallback = _openrouter("anthropic/claude-haiku-4.5"), _openrouter("openai/gpt-5.4")
-    built = {"explore": primary, "explore-fallback": fallback}
 
     with (
-        patch("automation.agent.subagents.get_model", side_effect=lambda *, model, thinking_level: built[model]),
+        patch("automation.agent.configured_models.get_model", return_value=primary),
         patch("automation.agent.subagents.create_agent") as create_agent,
     ):
         create_explore_subagent(
             _workspace(Mock(spec=BackendProtocol), sandbox=True),
             "/workspace/repo/",
-            models=ModelChain(("explore", "explore-fallback")),
+            model=Mock(),
+            fallback_models=[fallback],
         )
 
     assert await model_attempts_with_failing_primary(create_agent.call_args.kwargs["middleware"], primary) == [
@@ -1612,6 +1583,55 @@ class TestConfiguredDetectorModels:
         )
 
         assert served == {}
+
+
+class TestConfiguredExploreModel:
+    def _served(self, models: FakeModels, configured: dict | ConfiguredModels, **kwargs) -> dict:
+        with (
+            patch("automation.agent.configured_models.get_model", models),
+            patch("automation.agent.subagents.create_agent") as create_agent,
+        ):
+            create_explore_subagent(
+                _workspace(Mock(spec=BackendProtocol), sandbox=True),
+                "/workspace/repo/",
+                model=RUN_MODEL,
+                configured_models=configured if isinstance(configured, ConfiguredModels) else _configured(configured),
+                **kwargs,
+            )
+        return create_agent.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        ("configured", "served"), [({"explore": "fake:configured"}, "fake:configured"), ({}, EXPLORE_MODEL_NAME)]
+    )
+    def test_a_configured_entry_beats_the_default_model(self, configured, served):
+        models = FakeModels(EXPLORE_MODEL_NAME, "fake:configured")
+
+        assert self._served(models, configured)["model"] is models.by_spec[served]
+
+    def test_an_unusable_default_model_leaves_the_runs_model_serving(self, caplog):
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            kwargs = self._served(FakeModels(), {})
+
+        assert kwargs["model"] is RUN_MODEL
+        assert f"Explore's default model '{EXPLORE_MODEL_NAME}' failed to initialize" in caplog.text
+
+    async def test_an_unusable_entry_falls_back_to_the_default_model_and_is_recorded_once_dispatched(self):
+        models = FakeModels(EXPLORE_MODEL_NAME)
+        notices = FakeNotices()
+        configured_models = _configured({"explore": "nosuch:model"}, notices)
+
+        assert self._served(models, configured_models)["model"] is models.by_spec[EXPLORE_MODEL_NAME]
+        assert notices.recorded == []
+        await configured_models.areport_dispatch("explore")
+        assert [(n.name, n.served_model) for n in notices.recorded] == [("explore", EXPLORE_MODEL_NAME)]
+
+    def test_it_falls_back_to_the_runs_fallback_models(self):
+        fallback = Mock(name="run-fallback")
+
+        kwargs = self._served(FakeModels(EXPLORE_MODEL_NAME), {}, fallback_models=[fallback])
+
+        [middleware] = [m for m in kwargs["middleware"] if isinstance(m, ModelFallbackMiddleware)]
+        assert middleware.models == [fallback]
 
 
 class TestConfiguredCustomSubagentModels:

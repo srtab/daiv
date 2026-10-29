@@ -14,7 +14,6 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE
 
-from automation.agent.base import get_model
 from automation.agent.configured_models import ConfiguredModels
 from automation.agent.constants import (
     BUILTIN_SUBAGENT_NAMES,
@@ -43,6 +42,7 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
+from core.constants import ModelName
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -51,7 +51,6 @@ if TYPE_CHECKING:
     from langchain.chat_models import BaseChatModel
     from langchain_core.tools import BaseTool
 
-    from automation.agent.agent_settings import ModelChain
     from automation.agent.context import RuntimeCtx
     from automation.agent.workspace.base import Workspace
 
@@ -354,27 +353,35 @@ Complete the user's search request efficiently and report your findings clearly.
 """  # noqa: E501
 
 
+EXPLORE_MODEL_NAME = ModelName.CLAUDE_HAIKU_5_5
+
 EXPLORE_SUBAGENT_DESCRIPTION = """Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions."""  # noqa: E501
 
 
-def create_explore_subagent(workspace: Workspace, working_directory: str, *, models: ModelChain) -> CompiledSubAgent:
+def create_explore_subagent(
+    workspace: Workspace,
+    working_directory: str,
+    *,
+    model: BaseChatModel,
+    fallback_models: list[BaseChatModel] | None = None,
+    configured_models: ConfiguredModels | None = None,
+) -> CompiledSubAgent:
     """
-    Create the explore subagent on ``models``, the run's explore chain.
+    Create the explore subagent on its ``configured_models`` entry, else ``EXPLORE_MODEL_NAME``, else ``model`` (see
+    ``ConfiguredModels.for_subagent``).
     """
     # Local import to break a circular dependency: graph.py imports this module.
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
-    model_name, *fallback_model_names = models.names
-    model = get_model(model=model_name, thinking_level=models.thinking_level)
-
-    fallback_models = []
-    for fallback_model_name in fallback_model_names:
-        try:
-            fallback_models.append(get_model(model=fallback_model_name, thinking_level=models.fallback_thinking_level))
-        except Exception:
-            logger.exception(
-                "Could not initialize explore fallback model '%s', proceeding without fallback", fallback_model_name
-            )
+    configured_models = configured_models or ConfiguredModels("subagent")
+    try:
+        explore_model = configured_models.for_subagent(EXPLORE_NAME, EXPLORE_MODEL_NAME, model)
+    except Exception:
+        # Safe to continue: unlike a detector, explore is not skipped; the run's model serves it.
+        logger.exception(
+            "Explore's default model '%s' failed to initialize; the run's model serves", EXPLORE_MODEL_NAME
+        )
+        explore_model = model
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
@@ -384,11 +391,11 @@ def create_explore_subagent(workspace: Workspace, working_directory: str, *, mod
             tools=READ_ONLY_FS_TOOLS,
             _permissions=[*READ_ONLY_PERMISSIONS, *(workspace.fs_permissions or [])],
         ),
-        *_shared_subagent_middleware(model, workspace.backend, fallback_models),
+        *_shared_subagent_middleware(explore_model, workspace.backend, fallback_models),
     ]
 
     runnable = create_agent(
-        model=model,
+        model=explore_model,
         tools=[],
         system_prompt=_explore_system_prompt(working_directory),
         middleware=middleware,

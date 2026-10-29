@@ -19,7 +19,7 @@ The configuration is split into the following groups, organized by category.
 
 | Group | Category | What it configures |
 |-------|----------|--------------------|
-| **Agent** | AI tasks | Primary, fallback, `daiv-max`, and explore models; their thinking levels; the agent recursion limit; whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests; and **Skill and subagent models**, rows of a skill or subagent name and the model it runs on in every repository (see [Agent Skills](../customization/agent-skills.md#running-a-skill-on-another-model) and [Subagents](../features/subagents.md#choosing-a-subagents-model)). |
+| **Agent** | AI tasks | Primary, fallback and `daiv-max` models; their thinking levels; the agent recursion limit; whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests; and **Skill and subagent models**, rows of a skill or subagent name and the model it runs on in every repository (see [Agent Skills](../customization/agent-skills.md#running-a-skill-on-another-model) and [Subagents](../features/subagents.md#choosing-a-subagents-model)). |
 | **Commit & PR Writer** | AI tasks | Primary and fallback models that generate commit messages and pull/merge request descriptions from diffs. |
 | **Titling** | AI tasks | Primary and fallback models that generate session and run titles from prompts. |
 | **Providers** | Models | LLM provider records — slug, wire protocol, base URL, API key, and extra headers — that every model field draws from. |

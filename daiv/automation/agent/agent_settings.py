@@ -10,21 +10,19 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
  2. Agent thinking level: exact: the run's · override and default: run, then repo (a null repo level disables
     thinking) · max: site max, run value ignored.
  3. Fallback-model thinking: site ``agent_fallback_thinking_level``, every branch.
- 4. Explore subagent chain: site only.
- 5. Diff-to-metadata chain: ``[repo model, repo fallback]`` from ``models.diff_to_metadata``.
- 6. Recursion limit: site ``agent_recursion_limit``.
- 7. Web search, web fetch: the run's option, then site.
- 8. Memory: site AND repo.
- 9. Consolidation chain: ``[site memory_consolidation_model_name or repo model, repo fallback]``. Outside
+ 4. Diff-to-metadata chain: ``[repo model, repo fallback]`` from ``models.diff_to_metadata``.
+ 5. Recursion limit: site ``agent_recursion_limit``.
+ 6. Web search, web fetch: the run's option, then site.
+ 7. Memory: site AND repo.
+ 8. Consolidation chain: ``[site memory_consolidation_model_name or repo model, repo fallback]``. Outside
     ``AgentSettings``: consolidation runs outside a run, through ``resolve_consolidation_chain``, which never raises.
-10. Suggest context file, session link: site AND repo; the session link's thread check stays at its call site.
-11. Slash commands: repo only.
-12. Pipeline watch: enabled: site AND repo · attempts: min(repo, site). Outside ``AgentSettings``: ``WatchPolicy``
+ 9. Suggest context file, session link: site AND repo; the session link's thread check stays at its call site.
+10. Slash commands: repo only.
+11. Pipeline watch: enabled: site AND repo · attempts: min(repo, site). Outside ``AgentSettings``: ``WatchPolicy``
     resolves them when the watch arms, so a run never reads them.
-13. Orchestration (``delegate_jobs``): repo only, on unless ``.daiv.yml`` turns it off.
-14. Skill and subagent models: repo ``models.skills`` / ``models.subagents`` entries over the site's
-    ``agent_skill_models`` / ``agent_subagent_models``, by name, every branch; an empty repo entry is unset. Explore
-    keeps row 4: nothing reads an ``explore`` entry.
+12. Orchestration (``delegate_jobs``): repo only, on unless ``.daiv.yml`` turns it off.
+13. Skill and subagent models: repo ``models.skills`` / ``models.subagents`` entries over the site's
+    ``agent_skill_models`` / ``agent_subagent_models``, by name, every branch; an empty repo entry is unset.
 
 A non-empty site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as
 an error; ``.daiv.yml`` levels are validated when the file loads.
@@ -84,7 +82,6 @@ class Features:
 @dataclass(frozen=True)
 class AgentSettings:
     agent: ModelChain
-    explore: ModelChain
     diff_to_metadata: ModelChain
     recursion_limit: int
     web_search_enabled: bool
@@ -98,7 +95,6 @@ def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: R
     """Every per-run agent setting, by the precedence in this module's docstring."""
     return AgentSettings(
         agent=_resolve_agent(site=site, repo_agent=repo.models.agent, run=run),
-        explore=ModelChain(names=(site.agent_explore_model_name, site.agent_explore_fallback_model_name)),
         diff_to_metadata=ModelChain(
             names=_repo_chain(
                 repo.models.diff_to_metadata,
@@ -116,7 +112,7 @@ def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: R
 
 
 def resolve_features(*, site: SiteSnapshot, repo: RepositoryConfig) -> Features:
-    """Rows 8, 10, 11 and 13: the run's feature switches."""
+    """Rows 7, 9, 10 and 12: the run's feature switches."""
     return Features(
         memory=repo.memory.enabled and site.memory_enabled,
         suggest_context_file=repo.suggest_context_file and site.suggest_context_file_enabled,
@@ -127,19 +123,19 @@ def resolve_features(*, site: SiteSnapshot, repo: RepositoryConfig) -> Features:
 
 
 def resolve_consolidation_chain(*, site: SiteSnapshot, repo: RepositoryConfig) -> ModelChain:
-    """Row 9. Unlike ``resolve_agent_settings`` it never raises, so a site consolidation model still consolidates
+    """Row 8. Unlike ``resolve_agent_settings`` it never raises, so a site consolidation model still consolidates
     when no agent model is set anywhere."""
     repo_model, repo_fallback = _repo_agent_chain(site, repo.models.agent)
     return ModelChain(names=(site.memory_consolidation_model_name or repo_model, repo_fallback))
 
 
 def resolve_pipeline_watch_enabled(*, site: SiteSnapshot, repo: RepositoryConfig) -> bool:
-    """Row 12's switch."""
+    """Row 11's switch."""
     return repo.pipeline_watch.enabled and site.pipeline_watch_enabled
 
 
 def resolve_pipeline_watch_max_attempts(*, site: SiteSnapshot, repo: RepositoryConfig) -> int:
-    """Row 12's attempt cap."""
+    """Row 11's attempt cap."""
     site_cap = site.pipeline_watch_max_attempts
     return min(_repo_value(repo.pipeline_watch, "max_attempts", site_cap), site_cap)
 

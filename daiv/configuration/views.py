@@ -12,7 +12,7 @@ from django.views import View
 
 from skills.services import list_global_skills
 
-from automation.agent.constants import BUILTIN_SUBAGENT_NAMES, EXPLORE_NAME
+from automation.agent.constants import BUILTIN_SUBAGENT_NAMES
 from configuration.forms import (
     PROVIDERS_FORMSET_PREFIX,
     SKILL_MODELS,
@@ -202,7 +202,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
                 unknown_warning=gettext(
                     "No built-in subagent is named '%(name)s'; its entry applies where a repository defines it."
                 ),
-                suggestions=sorted(BUILTIN_SUBAGENT_NAMES - {EXPLORE_NAME}),
+                suggestions=sorted(BUILTIN_SUBAGENT_NAMES),
             ),
         ]
 

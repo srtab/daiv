@@ -541,18 +541,3 @@ class TestSubagentModelsFormset:
 
         assert formset.is_valid(), formset.errors
         assert model_map_from_formset(formset) == {"cr-security": "openai:gpt-5.4"}
-
-    def test_an_explore_row_is_refused_pointing_to_the_explore_setting(self, usable_openai):
-        formset = self._formset([{"name": "explore", "model": "openai:gpt-5.4"}])
-
-        assert not formset.is_valid()
-        assert "explore model" in formset.forms[0].errors["name"][0]
-
-    def test_explore_is_only_reserved_for_subagents(self, usable_openai):
-        formset = build_model_map_formset(
-            SKILL_MODELS,
-            data=formset_data(SKILL_MODELS.prefix, [{"name": "explore", "model": "openai:gpt-5.4"}]),
-            stored={},
-        )
-
-        assert formset.is_valid(), formset.errors

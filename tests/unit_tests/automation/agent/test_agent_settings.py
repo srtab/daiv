@@ -146,20 +146,6 @@ def test_the_fallback_thinking_level_is_the_sites_on_every_branch(run):
     assert agent_settings(site=site, repo=repo, run=run).agent.fallback_thinking_level == "low"
 
 
-@pytest.mark.parametrize("run", BRANCHES.values(), ids=list(BRANCHES))
-def test_the_explore_chain_is_the_sites_whatever_the_run_chooses(run):
-    site = site_snapshot(agent_explore_model_name="explore", agent_explore_fallback_model_name="explore-fallback")
-    repo = RepositoryConfig(models={"agent": {"model": "repo-model", "thinking_level": "high"}})
-
-    assert agent_settings(site=site, repo=repo, run=run).explore == ModelChain(names=("explore", "explore-fallback"))
-
-
-def test_the_explore_chain_has_no_fallback_when_the_site_sets_none():
-    site = site_snapshot(agent_explore_model_name="explore", agent_explore_fallback_model_name="")
-
-    assert agent_settings(site=site).explore == ModelChain(names=("explore",))
-
-
 @pytest.mark.parametrize(
     ("repo_d2m", "expected"),
     [

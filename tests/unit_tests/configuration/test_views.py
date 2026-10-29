@@ -1568,16 +1568,16 @@ class TestSkillModelsSection:
 
 @pytest.mark.django_db
 class TestSubagentModelsSection:
-    def test_the_built_in_subagents_but_explore_are_suggested(self, admin_client, global_skills):
+    def test_the_built_in_subagents_are_suggested(self, admin_client, global_skills):
         from automation.agent.subagents import BUILTIN_SUBAGENT_NAMES
 
         content = admin_client.get(AGENT_GROUP_URL).content.decode()
 
-        assert _datalist_options(content, SUBAGENT_MODELS.names_id) == sorted(BUILTIN_SUBAGENT_NAMES - {"explore"})
+        assert _datalist_options(content, SUBAGENT_MODELS.names_id) == sorted(BUILTIN_SUBAGENT_NAMES)
 
-    def test_an_explore_row_saves_nothing(self, admin_client, global_skills):
+    def test_an_explore_row_is_saved(self, admin_client, global_skills):
         _enable_seed_provider("openai")
 
         _post_model_map(admin_client, SUBAGENT_MODELS, [{"name": "explore", "model": "openai:gpt-5.4"}])
 
-        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {}
+        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {"explore": "openai:gpt-5.4"}

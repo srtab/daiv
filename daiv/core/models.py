@@ -240,16 +240,6 @@ class SiteConfiguration(models.Model):
             "Thinking depth for daiv-max tasks. Choose Off to disable thinking; leave unset to use the default."
         ),
     )
-    agent_explore_model_name = models.CharField(
-        _("explore model"), max_length=255, blank=True, null=True, help_text=_("Fast model for the explore subagent.")
-    )
-    agent_explore_fallback_model_name = models.CharField(
-        _("explore fallback model"),
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text=_("Fallback model when the explore model fails."),
-    )
     agent_recursion_limit = models.PositiveIntegerField(
         _("recursion limit"),
         blank=True,
@@ -566,8 +556,6 @@ class SiteConfiguration(models.Model):
         "agent_model_name",
         "agent_fallback_model_name",
         "agent_max_model_name",
-        "agent_explore_model_name",
-        "agent_explore_fallback_model_name",
         "diff_to_metadata_model_name",
         "diff_to_metadata_fallback_model_name",
         "titling_model_name",

@@ -5,7 +5,6 @@ import logging
 import re
 from dataclasses import dataclass
 from functools import cached_property
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 from urllib.parse import urlparse
 
@@ -13,7 +12,6 @@ from django import forms
 from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
-from automation.agent.constants import EXPLORE_NAME
 from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, parse_model_spec
 from core.models import (
     THINKING_OFF,
@@ -239,8 +237,6 @@ class SiteConfigurationForm(forms.ModelForm):
             "agent_fallback_thinking_level",
             "agent_max_model_name",
             "agent_max_thinking_level",
-            "agent_explore_model_name",
-            "agent_explore_fallback_model_name",
             "agent_recursion_limit",
             "diff_to_metadata_model_name",
             "diff_to_metadata_fallback_model_name",
@@ -604,21 +600,17 @@ class SiteConfigurationForm(forms.ModelForm):
 
 @dataclass(frozen=True)
 class ModelMap:
-    """A ``{name: model spec}`` map of the Agent group: the ``SiteConfiguration`` field it saves to, its formset prefix,
-    the ``<datalist>`` that suggests its names, and the names it refuses, with why."""
+    """A ``{name: model spec}`` map of the Agent group: the ``SiteConfiguration`` field it saves to, its formset prefix
+    and the ``<datalist>`` that suggests its names."""
 
     site_field: str
     prefix: str
     names_id: str
-    reserved_names: Mapping[str, str] = MappingProxyType({})
 
 
 SKILL_MODELS = ModelMap(site_field="agent_skill_models", prefix="skill_models", names_id="skill-model-names")
 SUBAGENT_MODELS = ModelMap(
-    site_field="agent_subagent_models",
-    prefix="subagent_models",
-    names_id="subagent-model-names",
-    reserved_names=MappingProxyType({EXPLORE_NAME: _("Explore keeps its own model: set the explore model above.")}),
+    site_field="agent_subagent_models", prefix="subagent_models", names_id="subagent-model-names"
 )
 
 
@@ -628,11 +620,8 @@ class ModelMapRowForm(forms.Form):
     name = forms.CharField(label=_("Name"), max_length=255, required=False)
     model = forms.CharField(label=_("Model"), max_length=255, required=False, widget=_AgentPickerWidget())
 
-    def __init__(
-        self, *args: Any, reserved_names: Mapping[str, str] | None = None, name_list: str = "", **kwargs: Any
-    ) -> None:
+    def __init__(self, *args: Any, name_list: str = "", **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.reserved_names = reserved_names or {}
         self.fields["name"].widget.attrs.update({"list": name_list, "aria-label": _("Name"), "autocomplete": "off"})
 
     def has_changed(self) -> bool:
@@ -647,8 +636,6 @@ class ModelMapRowForm(forms.Form):
         model = cleaned.get("model") or ""
         if not name:
             self.add_error("name", _("Required."))
-        elif name in self.reserved_names:
-            self.add_error("name", self.reserved_names[name])
         if not model:
             self.add_error("model", _("Pick a model."))
         elif error := model_spec_error(model):
@@ -677,7 +664,7 @@ def build_model_map_formset(
         data if data is not None and f"{model_map.prefix}-TOTAL_FORMS" in data else None,
         initial=[{"name": name, "model": spec} for name, spec in stored.items()],
         prefix=model_map.prefix,
-        form_kwargs={"reserved_names": model_map.reserved_names, "name_list": model_map.names_id},
+        form_kwargs={"name_list": model_map.names_id},
     )
 
 

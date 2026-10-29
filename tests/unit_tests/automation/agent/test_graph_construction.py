@@ -5,7 +5,7 @@ import inspect
 import re
 from contextlib import ExitStack
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
@@ -21,6 +21,7 @@ from automation.agent.middlewares.subagent_models import SubagentModelNoticesMid
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.model_spec import ModelSpecError
+from automation.agent.subagents import EXPLORE_MODEL_NAME
 from codebase.repo_config import RepositoryConfig
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings, site_snapshot
 
@@ -175,8 +176,6 @@ _SITE = {
     "agent_fallback_model_name": "site-fallback",
     "agent_thinking_level": "medium",
     "agent_fallback_thinking_level": "low",
-    "agent_explore_model_name": "site-explore",
-    "agent_explore_fallback_model_name": "",
     "agent_recursion_limit": 500,
     "web_fetch_enabled": False,
     "web_search_enabled": False,
@@ -222,11 +221,10 @@ async def _construct(
             name: stack.enter_context(patch(f"automation.agent.graph.{name}", **kwargs))
             for name, kwargs in graph_patches.items()
         }
-        explore_models = stack.enter_context(patch("automation.agent.subagents.get_model"))
         configured = stack.enter_context(
             patch("automation.agent.configured_models.get_model", configured_get_model or MagicMock())
         )
-        stack.enter_context(patch("automation.agent.subagents.create_agent"))
+        subagent_agents = stack.enter_context(patch("automation.agent.subagents.create_agent"))
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
         ctx = MagicMock()
         ctx.config.context_file_name = "AGENTS.md"
@@ -244,7 +242,7 @@ async def _construct(
     return SimpleNamespace(
         models=[(c.kwargs["model"], c.kwargs["thinking_level"]) for c in mocks["get_model"].call_args_list],
         run_model=mocks["get_model"].return_value,
-        explore_models=[c.kwargs["model"] for c in explore_models.call_args_list],
+        explore_model=next(c.kwargs["model"] for c in subagent_agents.call_args_list if c.kwargs["name"] == "explore"),
         middleware=deep_agent.call_args.kwargs["middleware"],
         subagent_web={
             toggle: mocks["create_general_purpose_subagent"].call_args.kwargs[toggle]
@@ -290,17 +288,18 @@ async def test_fallback_models_take_the_sites_fallback_thinking_level_whatever_t
     assert built.models == expected
 
 
-async def test_the_explore_subagent_runs_on_the_sites_explore_chain_whatever_the_run_chooses():
-    site = {"agent_explore_model_name": "explore-a", "agent_explore_fallback_model_name": "explore-b"}
-    built = await _construct(site=site, run={"model_names": ("run-a", "run-b"), "agent_thinking_level": "high"})
+async def test_the_explore_subagent_runs_on_its_default_model_whatever_the_run_chooses():
+    built = await _construct(run={"model_names": ("run-a", "run-b"), "agent_thinking_level": "high"})
 
-    assert built.explore_models == ["explore-a", "explore-b"]
+    assert built.explore_model is built.configured.return_value
+    built.configured.assert_called_once_with(model=EXPLORE_MODEL_NAME)
 
 
-async def test_the_explore_subagent_has_no_fallback_when_the_site_sets_none():
-    built = await _construct(site={"agent_explore_model_name": "explore-a", "agent_explore_fallback_model_name": ""})
+async def test_the_explore_subagent_runs_on_its_configured_model():
+    built = await _construct(site={"agent_subagent_models": {"explore": "fake:explore"}})
 
-    assert built.explore_models == ["explore-a"]
+    assert built.explore_model is built.configured.return_value
+    built.configured.assert_called_once_with(model="fake:explore", thinking_level="medium")
 
 
 async def test_skills_run_on_the_runs_skill_map_and_report_to_its_notices():
@@ -322,7 +321,7 @@ async def test_the_general_purpose_subagent_runs_on_its_configured_model():
     built = await _construct(site={"agent_subagent_models": {"general-purpose": "fake:gp"}})
 
     assert built.general_purpose.call_args.args[0] is built.configured.return_value
-    built.configured.assert_called_once_with(model="fake:gp", thinking_level="medium")
+    assert built.configured.call_args_list.count(call(model="fake:gp", thinking_level="medium")) == 1
 
 
 async def test_the_general_purpose_subagent_falls_back_to_the_runs_model_and_is_reported_once_dispatched():

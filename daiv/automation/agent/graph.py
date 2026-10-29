@@ -257,7 +257,13 @@ async def create_daiv_agent(
             fallback_models=fallback_models,
             mcp_tools=mcp_tools,
         ),
-        create_explore_subagent(workspace, working_directory, models=settings.explore),
+        create_explore_subagent(
+            workspace,
+            working_directory,
+            model=model,
+            fallback_models=fallback_models,
+            configured_models=subagent_models,
+        ),
         *load_builtin_code_review_detectors(
             model, backend, working_directory, fallback_models=fallback_models, configured_models=subagent_models
         ),

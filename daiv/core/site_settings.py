@@ -88,8 +88,6 @@ def _build_field_defaults() -> dict[str, Any]:
         "agent_fallback_thinking_level": ThinkingLevelChoices.MEDIUM,
         "agent_max_model_name": ModelName.CLAUDE_OPUS_5_5,
         "agent_max_thinking_level": ThinkingLevelChoices.HIGH,
-        "agent_explore_model_name": ModelName.CLAUDE_HAIKU_5_5,
-        "agent_explore_fallback_model_name": ModelName.GPT_6_LUNA,
         "agent_recursion_limit": 500,
         "agent_skill_models": {},
         "agent_subagent_models": {},
@@ -174,8 +172,6 @@ class SiteSnapshot:
     agent_fallback_thinking_level: str
     agent_max_model_name: str
     agent_max_thinking_level: str
-    agent_explore_model_name: str
-    agent_explore_fallback_model_name: str
     agent_recursion_limit: int
     agent_skill_models: Mapping[str, str]
     agent_subagent_models: Mapping[str, str]

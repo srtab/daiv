@@ -167,8 +167,7 @@ class Models(BaseModel):
         default_factory=dict,
         description=(
             "Model spec per subagent name, overriding the site configuration's entry for that name. "
-            "A null or empty value leaves the site's entry in place; an explore entry is ignored. "
-            "Checked when a run uses it, not on load."
+            "A null or empty value leaves the site's entry in place. Checked when a run uses it, not on load."
         ),
     )
 

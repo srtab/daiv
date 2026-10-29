@@ -180,7 +180,7 @@ Run a skill or a subagent on a chosen model in this repository, by name. An entr
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `models.skills.<name>` | `str \| null` | site entry | Model for the skill's model calls, from its invocation until your next message. |
-| `models.subagents.<name>` | `str \| null` | site entry | Model for every call the subagent makes. `explore` is ignored: it keeps its own setting. |
+| `models.subagents.<name>` | `str \| null` | site entry | Model for every call the subagent makes. |
 
 ```yaml
 models:
