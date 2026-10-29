@@ -31,7 +31,7 @@
     {% include "dashboard/_new_split.html" with testid="nav-new" compact=False %}
   </div>
 
-  <nav class="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-4">
+  <nav class="scrollbar-thin flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-4">
     {# Daily work — no group label #}
     <a href="{% url 'dashboard' %}"
        title="{% translate 'Home' %}"
