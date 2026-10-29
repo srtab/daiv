@@ -1155,12 +1155,20 @@ def test_publish_artifact_body_shows_the_artifact_then_status_and_url():
     assert "published · " in context and 'href="https://d/dashboard/artifacts/a1/"' in context
 
 
-def test_publish_artifact_body_shows_the_latest_version_in_changed_and_this_result_in_context():
+def test_publish_artifact_body_links_the_latest_version_but_names_this_calls_own_change():
     newer = {**PUBLISHED, "status": "updated", "title": "Report v2", "url": "https://d/dashboard/artifacts/a1/?v=2"}
     seg = tool_call("c1", "publish_artifact", {"path": "/workspace/tmp/report.md"}, result=json.dumps(PUBLISHED))
     changed, context = _body_artifacts(seg, {"a1": newer}).split("Loaded into context")
-    assert ">Report v2</a>" in changed and '<span class="body-meta">updated</span>' in changed
+    assert ">Report v2</a>" in changed and 'href="https://d/dashboard/artifacts/a1/?v=2"' in changed
+    assert '<span class="body-meta">new</span>' in changed and "updated" not in changed
     assert "published · " in context and "?v=2" not in context
+
+
+def test_publish_artifact_that_updated_says_so_whatever_the_latest_version():
+    updated = {**PUBLISHED, "status": "updated"}
+    seg = tool_call("c1", "publish_artifact", {"path": "/workspace/tmp/report.md"}, result=json.dumps(updated))
+    changed = _body_artifacts(seg, {"a1": {**PUBLISHED, "status": "published"}}).split("Loaded into context")[0]
+    assert '<span class="body-meta">updated</span>' in changed and ">new<" not in changed
 
 
 def test_publish_artifact_relative_url_and_warning_are_shown():

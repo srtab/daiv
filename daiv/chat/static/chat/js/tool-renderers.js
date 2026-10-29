@@ -1833,7 +1833,9 @@
     tool_search: toolSearchBody,
     publish_artifact: ({ seg, ctx, result }) => {
       const item = window.artifactItem(seg, ctx.latestArtifactsById);
-      const changed = item.state === "published" ? artifactHTML(item) : "";
+      // The link and title follow the latest version; new or updated is what this call did.
+      const own = { ...item, updated: parseArtifactResult(result)?.status === "updated" };
+      const changed = item.state === "published" ? artifactHTML(own) : "";
       return section("body_changed", changed) + contextSection(result, publishedHTML);
     },
     fetch_artifact: ({ ctx, result }) => {
