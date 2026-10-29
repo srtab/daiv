@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from django.core.cache import cache
 
 import yaml
-from pydantic import AliasChoices, BaseModel, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, Field, ValidationError, field_validator
 from yaml.parser import ParserError
 
 from core.constants import ModelName  # noqa: TC001
@@ -52,6 +52,30 @@ class PipelineWatch(BaseModel):
     max_attempts: int | None = Field(
         default=None, description="How many fix attempts to spend on one merge request before handing back."
     )
+
+
+class Hooks(BaseModel):
+    """
+    Commands DAIV runs at fixed points of a run.
+    """
+
+    before_publish: tuple[str, ...] | None = Field(
+        default=None,
+        description=(
+            "Commands DAIV runs before publishing a run's changes. Each must exit 0. An empty list turns verification "
+            "off for the repository."
+        ),
+    )
+
+    @field_validator("before_publish")
+    @classmethod
+    def _strip_commands(cls, commands: tuple[str, ...] | None) -> tuple[str, ...] | None:
+        if commands is None:
+            return None
+        stripped = tuple(command.strip() for command in commands)
+        if not all(stripped):
+            raise ValueError("before_publish commands must not be blank")
+        return stripped
 
 
 class SlashCommands(BaseModel):
@@ -206,6 +230,7 @@ class RepositoryConfig(BaseModel):
     pipeline_watch: PipelineWatch = Field(
         default_factory=PipelineWatch, description="Configure CI babysitting for published merge requests."
     )
+    hooks: Hooks = Field(default_factory=Hooks, description="Configure commands DAIV runs at fixed points of a run.")
     memory: Memory = Field(default_factory=Memory, description="Configure learned repository memory features.")
     orchestration: Orchestration = Field(
         default_factory=Orchestration,

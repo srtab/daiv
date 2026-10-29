@@ -136,7 +136,7 @@ def _fs_transport_failure_text(exc: httpx.HTTPError, op: str, target: str) -> st
 DOWNLOAD_TOO_LARGE = "file_too_large"
 _DOWNLOAD_MARKER = "__DAIV_DOWNLOAD__"
 _DOWNLOAD_EXIT_ERRORS = {3: IS_DIRECTORY, 4: FILE_NOT_FOUND, 5: PERMISSION_DENIED, 6: DOWNLOAD_TOO_LARGE}
-_SANDBOX_TIMEOUT_EXIT = 124
+SANDBOX_TIMEOUT_EXIT = 124
 
 
 def _download_command(path: str, max_bytes: int) -> str:
@@ -167,7 +167,7 @@ def _download_response(path: str, result: RunCommandResult | None) -> FileDownlo
         error = "the sandbox returned no result for this file"
     elif result.exit_code in _DOWNLOAD_EXIT_ERRORS:
         return FileDownloadResponse(path=path, error=_DOWNLOAD_EXIT_ERRORS[result.exit_code])
-    elif result.exit_code == _SANDBOX_TIMEOUT_EXIT:
+    elif result.exit_code == SANDBOX_TIMEOUT_EXIT:
         error = "reading the file timed out in the sandbox"
     elif result.exit_code != 0:
         error = f"the file could not be read (exit {result.exit_code})"
@@ -256,19 +256,27 @@ class SandboxFileBackend(BackendProtocol):
             raise RuntimeError("SandboxFileBackend is not bound to a sandbox session")
         return self._session.client, session_id
 
-    async def run_commands(self, commands: list[str], *, fail_fast: bool) -> RunCommandsResponse:
+    async def run_commands(
+        self, commands: list[str], *, fail_fast: bool, timeout: int | None = None, http_timeout: float | None = None
+    ) -> RunCommandsResponse:
         """Run shell commands in the bound session's workspace.
 
         The run's command-execution handle (used by the ``bash`` tool and ``SandboxGitRunner``). A thin
         pass-through to ``DAIVSandboxClient.run_commands`` — it takes a *list* + ``fail_fast`` (not a single
-        command) so multi-command batches run in one round-trip. Like the other methods here it **raises** on
-        transport/HTTP errors; callers that need graceful degradation (the ``bash`` tool) wrap it.
+        command) so multi-command batches run in one round-trip. ``timeout`` is the sandbox's limit for each command
+        (``None``: its default) and ``http_timeout`` how long to wait for the response (``None``: the client's). Like
+        the other methods here it **raises** on transport/HTTP errors; callers that need graceful degradation (the
+        ``bash`` tool) wrap it.
 
         Intentionally NOT deepagents' ``SandboxBackendProtocol.aexecute``: implementing that
         protocol would activate deepagents' always-registered, ungated ``execute`` tool.
         """
         client, session_id = self._require_bound()
-        return await client.run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=fail_fast))
+        return await client.run_commands(
+            session_id,
+            RunCommandsRequest(commands=commands, fail_fast=fail_fast, timeout=timeout),
+            http_timeout=http_timeout,
+        )
 
     # -- path mapping -------------------------------------------------------
     # The sandbox is authoritative and the agent addresses files by their sandbox-absolute path

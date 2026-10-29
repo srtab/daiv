@@ -912,3 +912,31 @@ def test_off_forces_null_policy_even_with_hosts(make_form_data):
     form = build_env_form(data)
     assert form.is_valid(), form.errors
     assert form.cleaned_data["egress_policy"] is None
+
+
+@pytest.mark.django_db
+class TestBeforePublishField:
+    def _form(self, make_form_data, **overrides):
+        user = User.objects.create(username="bp", email="bp@x.test")
+        return SandboxEnvironmentForm(data=make_form_data(**overrides), user=user, is_admin=False)
+
+    def test_before_publish_lines_become_list(self, make_form_data):
+        form = self._form(make_form_data, before_publish="make lint\n\n make test \n")
+
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["before_publish"] == ["make lint", "make test"]
+        assert form.save().before_publish == ["make lint", "make test"]
+
+    def test_blank_before_publish_saves_none(self, make_form_data):
+        form = self._form(make_form_data, before_publish="  \n")
+
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["before_publish"] is None
+        assert form.save().before_publish is None
+
+    def test_form_shows_saved_commands_one_per_line(self):
+        env = SandboxEnvironment.objects.create(name="e", scope=Visibility.GLOBAL, before_publish=["a", "b"])
+
+        form = SandboxEnvironmentForm(instance=env, is_admin=True)
+
+        assert form["before_publish"].value() == "a\nb"

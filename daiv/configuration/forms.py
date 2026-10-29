@@ -256,6 +256,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "telegram_enabled",
             "pipeline_watch_enabled",
             "pipeline_watch_max_attempts",
+            "verification_enabled",
             "jobs_throttle_rate",
             "auth_login_enabled",
             "auth_signup_open",

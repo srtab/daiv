@@ -478,8 +478,79 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
             "published": True,
             "user_id": 7,
             "sandbox_environment_id": "env-1",
+            "verification_failed": False,
         }
     ]
+
+
+def _verification(status: str, **extra) -> dict:
+    command = {"command": "make test", "exit_code": 1, "timed_out": False, "already_failing": False}
+    return {"status": status, "commands": [command], "rounds": 2, "suspicious_paths": [], **extra}
+
+
+@pytest.mark.parametrize(
+    ("verification", "expected"),
+    [
+        (_verification("failed"), True),
+        (_verification("passed"), False),
+        (_verification("not_verified"), False),
+        (None, False),
+    ],
+)
+async def test_after_run_passes_verification_failed_to_watch(verification, expected):
+    state = {"merge_request": MR, "published": True}
+    if verification is not None:
+        state["verification"] = verification
+
+    with agent_stack(_agent(state=state)) as stack:
+        await execute_run(make_spec(arm_watch=True))
+
+    assert stack.armed[0]["verification_failed"] is expected
+
+
+async def test_the_reply_carries_the_verification_report_when_no_description_did():
+    with agent_stack(_agent(state={"verification": _verification("failed")})):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.response_text.startswith("done\n\n### Verification\n")
+    assert "`make test` failed (exit 1)" in outcome.response_text
+    assert "draft" not in outcome.response_text
+    assert outcome.agent_result["response"] == outcome.response_text
+
+
+@pytest.mark.parametrize(
+    "verification", [_verification("failed", reported=True), _verification("not_configured", commands=[]), None]
+)
+async def test_the_reply_has_no_verification_report_when_there_is_none_to_add(verification):
+    state = {} if verification is None else {"verification": verification}
+
+    with agent_stack(_agent(state=state)):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.response_text == "done"
+
+
+async def test_a_run_that_does_not_arm_still_ends_the_watch_when_its_checks_fail():
+    state = {"merge_request": MR, "published": True, "verification": _verification("failed")}
+
+    with agent_stack(_agent(state=state)) as stack:
+        await execute_run(make_spec(arm_watch=False))
+
+    assert [call_["verification_failed"] for call_ in stack.armed] == [True]
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"merge_request": MR, "published": False, "verification": _verification("failed")},
+        {"merge_request": MR, "published": True, "verification": _verification("passed")},
+    ],
+)
+async def test_a_run_that_does_not_arm_leaves_the_watch_alone_otherwise(state):
+    with agent_stack(_agent(state=state)) as stack:
+        await execute_run(make_spec(arm_watch=False))
+
+    assert stack.armed == []
 
 
 @pytest.mark.parametrize(("persist_ref", "arm_watch"), [(True, False), (False, True), (False, False)])
@@ -673,6 +744,7 @@ async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
             "published": False,
             "user_id": None,
             "sandbox_environment_id": None,
+            "verification_failed": False,
         }
     ]
     assert stack.build_result.call_args.kwargs["snapshot"] is None

@@ -521,6 +521,30 @@ async def test_run_commands_forwards_to_client(backend, client):
     assert sent.fail_fast is False
 
 
+async def test_run_commands_forwards_timeout(backend, client):
+    client.run_commands.return_value = RunCommandsResponse(results=[])
+    await backend.run_commands(["make test"], fail_fast=False, timeout=600)
+
+    assert client.run_commands.await_args.args[1] == RunCommandsRequest(
+        commands=["make test"], fail_fast=False, timeout=600
+    )
+
+
+async def test_run_commands_omits_timeout_by_default(backend, client):
+    client.run_commands.return_value = RunCommandsResponse(results=[])
+    await backend.run_commands(["ls"], fail_fast=True)
+
+    assert client.run_commands.await_args.args[1].timeout is None
+    assert client.run_commands.await_args.kwargs["http_timeout"] is None
+
+
+async def test_run_commands_forwards_http_timeout(backend, client):
+    client.run_commands.return_value = RunCommandsResponse(results=[])
+    await backend.run_commands(["make test"], fail_fast=False, timeout=600, http_timeout=660)
+
+    assert client.run_commands.await_args.kwargs["http_timeout"] == 660
+
+
 async def test_run_commands_before_bind_raises():
     be = unacquired_backend()
     with pytest.raises(RuntimeError, match="not bound"):

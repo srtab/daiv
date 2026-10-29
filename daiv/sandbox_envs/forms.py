@@ -56,12 +56,18 @@ class SandboxEnvironmentForm(forms.ModelForm):
         required=False, choices=[("default", "default"), ("custom", "custom")], initial="default"
     )
 
+    before_publish = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text=SandboxEnvironment._meta.get_field("before_publish").help_text,
+    )
+
     class Meta:
         model = SandboxEnvironment
         # Excludes ``is_default`` deliberately: the template renders no checkbox,
         # so including it here would demote the default on save (missing
         # BooleanField → ``False``). Promotion is handled by a dedicated view.
-        fields = ("name", "description", "scope", "base_image", "cpus")
+        fields = ("name", "description", "scope", "base_image", "cpus", "before_publish")
         widgets = {"description": forms.Textarea(attrs={"rows": 2})}
 
     def __init__(self, *args, user=None, is_admin=False, **kwargs):
@@ -87,6 +93,8 @@ class SandboxEnvironmentForm(forms.ModelForm):
                     self.initial.setdefault("memory_unit", "MiB")
             self.initial.setdefault("memory_mode", "custom" if instance.memory_bytes else "default")
             self.initial.setdefault("cpu_mode", "custom" if instance.cpus else "default")
+        if instance.before_publish:
+            self.initial["before_publish"] = "\n".join(instance.before_publish)
         self.fields["env_vars_json"].initial = self._initial_env_vars_json()
         self.fields["repo_ids_json"].initial = self._initial_repo_ids_json()
         self.fields["egress_json"].initial = self._initial_egress_json()
@@ -176,6 +184,10 @@ class SandboxEnvironmentForm(forms.ModelForm):
                 "has_existing_value": has_cred,
             })
         return json.dumps({"default": policy.get("default", "deny"), "hosts": hosts})
+
+    def clean_before_publish(self) -> list[str] | None:
+        lines = [line.strip() for line in self.cleaned_data["before_publish"].splitlines()]
+        return [line for line in lines if line] or None
 
     def clean_scope(self):
         scope = self.cleaned_data["scope"]

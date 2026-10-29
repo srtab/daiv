@@ -95,6 +95,16 @@ class SandboxEnvironment(TimeStampedModel):
     base_image = models.CharField(_("base image"), max_length=255, blank=True, default="")
     memory_bytes = models.PositiveBigIntegerField(_("memory (bytes)"), null=True, blank=True)
     cpus = models.DecimalField(_("CPUs"), max_digits=5, decimal_places=2, null=True, blank=True)
+    before_publish = models.JSONField(
+        _("before publish commands"),
+        null=True,
+        blank=True,
+        default=None,
+        help_text=_(
+            "Commands every repository using this environment runs before DAIV publishes, "
+            "unless its .daiv.yml declares its own. One per line."
+        ),
+    )
 
     _env_vars_encrypted = models.TextField(blank=True, null=True, editable=False)  # noqa: DJ001 — NULL means "no env vars set"
     env_vars = EncryptedJSONFieldDescriptor("env_vars")

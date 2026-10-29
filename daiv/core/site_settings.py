@@ -115,6 +115,8 @@ def _build_field_defaults() -> dict[str, Any]:
         # Pipeline watch
         "pipeline_watch_enabled": True,
         "pipeline_watch_max_attempts": 3,
+        # Verification
+        "verification_enabled": True,
         # Authentication
         "auth_login_enabled": False,
         "auth_signup_open": False,
@@ -188,6 +190,7 @@ class SiteSnapshot:
     jobs_throttle_rate: str
     pipeline_watch_enabled: bool
     pipeline_watch_max_attempts: int
+    verification_enabled: bool
     auth_login_enabled: bool
     auth_signup_open: bool
     auth_client_id: str | None

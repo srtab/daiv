@@ -545,6 +545,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         response_text = extract_text_content(messages[-1].content) if messages else ""
     merge_request = values.get("merge_request")
     published = bool(values.get("published"))
+    verification = values.get("verification")
     # An unread checkpoint must not pass for one that published nothing: that would pin a blank ref to the clone's.
     if spec.persist_ref and snapshot is not None:
         try:
@@ -556,7 +557,8 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
             )
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
-    if spec.arm_watch:
+    verification_failed = bool(verification) and verification.get("status") == "failed"
+    if spec.arm_watch or (published and verification_failed):
         try:
             await PipelineWatch(spec.repo_id).aarm_after_run(
                 run_id=spec.run_id,
@@ -564,10 +566,12 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
                 published=published,
                 user_id=spec.acting_user_id,
                 sandbox_environment_id=spec.sandbox_env_id,
+                verification_failed=verification_failed,
             )
         except Exception:
             logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)
 
+    response_text = _with_verification_report(response_text, verification)
     agent_result = build_agent_result(
         response=response_text,
         usage=build_usage_summary(run.usage).to_dict(),
@@ -575,6 +579,19 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         question=pending_question(messages),
     )
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
+
+
+def _with_verification_report(response_text: str, verification: dict[str, Any] | None) -> str:
+    """The run's reply followed by its before_publish report, unless the description of a merge request the run
+    opened carries it or no checks are configured."""
+    from automation.agent.verification.outcome import render_report
+
+    if not verification or verification.get("reported"):
+        return response_text
+    report = render_report(verification, new_merge_request=False)
+    if report is None:
+        return response_text
+    return f"{response_text.rstrip()}\n\n{report}" if response_text.strip() else report
 
 
 async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:

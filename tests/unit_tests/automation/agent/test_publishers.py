@@ -19,6 +19,7 @@ from automation.agent.publishers import (
 )
 from automation.agent.references import ExternalRef
 from automation.agent.session_links import SessionLinks
+from automation.agent.verification.outcome import render_report, report_section
 from automation.agent.workspace.git_manager import PendingMerge, RepoStatus
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import GitPlatform, Issue, MergeRequestDiffStats, Pipeline, Scope, TriggeredPipeline, User
@@ -280,6 +281,37 @@ class TestCreateMergeRequestDescription:
         await publisher._create_merge_request("feature", "Title", "Body", target_branch="master")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "master"
+
+    async def test_verification_report_is_rendered_as_markdown_after_the_escaped_description(self):
+        publisher = _publisher_no_issue()
+        outcome = {
+            "status": "failed",
+            "commands": [
+                {
+                    "command": "make test",
+                    "exit_code": 1,
+                    "timed_out": False,
+                    "already_failing": False,
+                    "output_tail": 'E   assert name == "daiv" in /workspace/repo/tests/test_a.py',
+                }
+            ],
+            "rounds": 2,
+            "suspicious_paths": [],
+        }
+
+        await publisher._create_merge_request(
+            "feature", "Title", "Fixes <b>bold</b>", target_branch="main", verification_report=render_report(outcome)
+        )
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert description.startswith(
+            "Fixes &lt;b&gt;bold&lt;/b&gt;\n\n<!-- daiv:verification -->\n\n### Verification\n"
+        )
+        assert "\n\n<details><summary>Output of make test</summary>\n" in description
+        assert 'E   assert name == "daiv" in tests/test_a.py' in description
+        assert "&lt;details&gt;" not in description
+        assert "&quot;" not in description
+        assert "opened as a draft.\n\n<!-- /daiv:verification -->\n\n---\n" in description
 
     async def test_title_and_description_are_repo_relative(self):
         publisher = _publisher_no_issue()
@@ -928,6 +960,119 @@ class TestPublishSessionLinks:
         assert create_mr.await_args.kwargs["session_links"] is _LINKS
 
 
+_FAILED = {
+    "status": "failed",
+    "commands": [{"command": "make test", "exit_code": 1, "timed_out": False, "already_failing": False}],
+    "rounds": 2,
+    "suspicious_paths": [],
+}
+_PASSED = {
+    "status": "passed",
+    "commands": [{"command": "make test", "exit_code": 0, "timed_out": False, "already_failing": False}],
+    "rounds": 2,
+    "suspicious_paths": [],
+}
+
+
+class TestPublishVerification:
+    async def test_report_reaches_a_new_merge_request_apart_from_the_description(self):
+        publisher = _publisher_no_issue()
+        _use_git_manager(publisher, _fake_git_manager())
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=make_merge_request()) as create_mr,
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            await publisher.publish(merge_request=None, verification=_FAILED)
+
+        assert create_mr.await_args.args[2] == "Body"
+        assert create_mr.await_args.kwargs["verification_report"] == render_report(_FAILED)
+
+    async def test_report_replaces_the_one_in_an_existing_merge_requests_description(self):
+        publisher = _publisher_no_issue()
+        _use_git_manager(publisher, _fake_git_manager())
+        old = f"Body\n\n{report_section(render_report(_FAILED))}\n\n---\nfooter"
+        publisher.client.get_merge_request.return_value = make_merge_request(description=old)
+
+        with patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()):
+            await publisher.publish(merge_request=make_merge_request(), verification=_PASSED)
+
+        new = f"Body\n\n{report_section(render_report(_PASSED, new_merge_request=False))}\n\n---\nfooter"
+        publisher.client.update_merge_request.assert_called_once_with("owner/repo", 42, description=new)
+
+    async def test_an_existing_description_without_a_report_is_left_alone(self):
+        publisher = _publisher_no_issue()
+        _use_git_manager(publisher, _fake_git_manager())
+        publisher.client.get_merge_request.return_value = make_merge_request(description="Written by a person")
+
+        with patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()):
+            await publisher.publish(merge_request=make_merge_request(), verification=_PASSED)
+
+        publisher.client.update_merge_request.assert_not_called()
+
+    async def test_a_failed_report_update_is_logged_not_raised(self, caplog):
+        publisher = _publisher_no_issue()
+        _use_git_manager(publisher, _fake_git_manager())
+        publisher.client.get_merge_request.side_effect = RuntimeError("API down")
+
+        with patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()):
+            outcome = await publisher.publish(merge_request=make_merge_request(), verification=_PASSED)
+
+        assert outcome.published is True
+        assert "Could not update the verification report on MR !42" in caplog.text
+
+    async def test_no_report_leaves_an_existing_merge_request_alone(self):
+        publisher = _publisher_no_issue()
+        _use_git_manager(publisher, _fake_git_manager())
+        not_configured = {"status": "not_configured", "commands": [], "rounds": 0, "suspicious_paths": []}
+
+        with patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()):
+            await publisher.publish(merge_request=make_merge_request(), verification=not_configured)
+
+        publisher.client.get_merge_request.assert_not_called()
+
+    async def test_outcome_flags_a_created_merge_request(self):
+        publisher = _publisher_no_issue()
+        _use_git_manager(publisher, _fake_git_manager())
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=make_merge_request()),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            created = await publisher.publish(merge_request=None)
+            pushed = await publisher.publish(merge_request=make_merge_request(source_branch="feature"))
+
+        assert created.created_merge_request is True
+        assert pushed.created_merge_request is False
+
+    async def test_a_protected_branch_fallback_counts_as_created(self):
+        publisher = _publisher_no_issue()
+        publisher.client.is_branch_protected.return_value = True
+        _use_git_manager(publisher, _fake_git_manager())
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=make_merge_request()),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            outcome = await publisher.publish(merge_request=make_merge_request(source_branch="feature"))
+
+        assert outcome.created_merge_request is True
+
+    async def test_as_draft_leaves_an_existing_draft_merge_request_alone(self):
+        publisher = _publisher_no_issue()
+        _use_git_manager(publisher, _fake_git_manager())
+        draft = make_merge_request(source_branch="feature", draft=True)
+
+        with patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()):
+            outcome = await publisher.publish(merge_request=draft, as_draft=True)
+
+        publisher.client.update_merge_request.assert_not_called()
+        assert outcome.merge_request is draft
+
+
 class TestPublishSuggestsContextFile:
     @pytest.fixture
     def publisher(self):
@@ -958,7 +1103,9 @@ class TestPublishSuggestsContextFile:
             # Fresh branch for a brand-new MR: no remote work to integrate, so no rebase-on-reject.
             gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
             mock_suggest.assert_called_once_with(mr)
-            assert result == PublishOutcome(merge_request=mr, published=True, diff_stats=_LOCAL_STATS)
+            assert result == PublishOutcome(
+                merge_request=mr, published=True, diff_stats=_LOCAL_STATS, created_merge_request=True
+            )
 
     async def test_degrades_to_pending_when_branch_not_visible(self, publisher, monkeypatch, caplog):
         """A pushed branch GitLab won't open an MR for degrades to a partial publish, not a failed job.
@@ -1056,7 +1203,11 @@ class TestPublishSuggestsContextFile:
             # Fallback source is exposed on the outcome so the manager can bundle a footer onto the
             # agent's reply instead of posting a separate comment.
             assert result == PublishOutcome(
-                merge_request=new_mr, published=True, protected_branch_fallback_source="dev", diff_stats=_LOCAL_STATS
+                merge_request=new_mr,
+                published=True,
+                protected_branch_fallback_source="dev",
+                diff_stats=_LOCAL_STATS,
+                created_merge_request=True,
             )
 
     async def test_protected_branch_fallback_is_per_call(self, publisher, monkeypatch):

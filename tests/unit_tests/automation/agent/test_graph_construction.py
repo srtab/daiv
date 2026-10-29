@@ -8,14 +8,17 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from sandbox_envs.spec import SandboxSpec
 
 from automation.agent import graph as graph_module
 from automation.agent import subagents as subagents_module
 from automation.agent.agent_settings import RunOverrides
 from automation.agent.graph import create_daiv_agent
 from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
+from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
+from automation.agent.middlewares.verification import VerificationMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from codebase.repo_config import RepositoryConfig
@@ -122,15 +125,6 @@ def test_parent_stack_includes_loop_breaker_with_finalize_terminal():
     )
 
 
-def test_loop_breaker_registered_before_prompt_caching():
-    # The injected reminder must be visible to AnthropicPromptCachingMiddleware, so the breaker is
-    # registered before it (same rationale as StepBudgetMiddleware).
-    src = inspect.getsource(graph_module)
-    breaker = src.index("LoopBreakerMiddleware(")
-    caching = src.index("AnthropicPromptCachingMiddleware(")
-    assert breaker < caching, "LoopBreakerMiddleware must be registered before AnthropicPromptCachingMiddleware"
-
-
 def test_repository_memory_middleware_registered_after_dynamic_prompt():
     # RepositoryMemoryMiddleware appends to the system prompt, so it must be registered AFTER
     # dynamic_daiv_system_prompt — otherwise it would append to a half-built prompt. rindex targets
@@ -179,6 +173,10 @@ async def _construct(
     run: dict | None = None,
     slash_commands: bool = True,
     memory: bool = True,
+    bash: bool = False,
+    auto_commit_changes: bool = False,
+    sandbox: SandboxSpec | None = None,
+    before_publish: tuple[str, ...] | None = ("make test",),
     delegator: object | None = None,
     fork_branch: bool = False,
 ):
@@ -186,11 +184,16 @@ async def _construct(
 
     ``site`` overrides site values, ``run`` is what the run asks for (``RunOverrides`` fields), and ``slash_commands``
     and ``memory`` are the repo's switches. The builder gets them resolved, as the executor hands them over, along with
-    ``delegator`` and ``fork_branch``.
+    ``delegator`` and ``fork_branch``. ``bash`` gives the workspace a shell, ``sandbox`` is the run's sandbox spec, and
+    ``before_publish`` the repo's checks (``None``: it declares none).
     """
     settings = agent_settings(
         site=site_snapshot(**(_SITE | (site or {}))),
-        repo=RepositoryConfig(slash_commands={"enabled": slash_commands}, memory={"enabled": memory}),
+        repo=RepositoryConfig(
+            slash_commands={"enabled": slash_commands},
+            memory={"enabled": memory},
+            hooks={"before_publish": before_publish},
+        ),
         run=RunOverrides(**(run or {})),
     )
     graph_patches = {
@@ -199,6 +202,7 @@ async def _construct(
         "create_deep_agent": {},
         "get_model": {},
         "SkillsMiddleware": {},
+        "SandboxMiddleware": {},
         "GitMiddleware": {},
         "GitPlatformMiddleware": {},
         "AnthropicPromptCachingMiddleware": {},
@@ -212,13 +216,14 @@ async def _construct(
         explore_models = stack.enter_context(patch("automation.agent.subagents.get_model"))
         stack.enter_context(patch("automation.agent.subagents.create_agent"))
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
-        ctx = MagicMock()
+        ctx = MagicMock(sandbox=sandbox)
         ctx.config.context_file_name = "AGENTS.md"
+        ctx.config.hooks.before_publish = before_publish
         await create_daiv_agent(
             settings=settings,
             ctx=ctx,
-            workspace=FakeWorkspace(),
-            auto_commit_changes=False,
+            workspace=FakeWorkspace(bash=MagicMock() if bash else None),
+            auto_commit_changes=auto_commit_changes,
             delegator=delegator,
             fork_branch=fork_branch,
         )
@@ -235,6 +240,7 @@ async def _construct(
         bound_config=deep_agent.return_value.with_config.call_args.args[0],
         settings=settings,
         git_middleware=mocks["GitMiddleware"],
+        caching=mocks["AnthropicPromptCachingMiddleware"].return_value,
     )
 
 
@@ -324,6 +330,92 @@ async def test_the_git_middleware_gets_the_runs_settings():
     built = await _construct()
 
     assert built.git_middleware.call_args.kwargs["settings"] is built.settings
+
+
+def _verification(middleware: list) -> list[VerificationMiddleware]:
+    return [m for m in middleware if isinstance(m, VerificationMiddleware)]
+
+
+async def test_loop_breaker_registered_before_prompt_caching():
+    # The injected reminder must be visible to AnthropicPromptCachingMiddleware, so the breaker is
+    # registered before it (same rationale as StepBudgetMiddleware).
+    built = await _construct()
+
+    [breaker] = [m for m in built.middleware if isinstance(m, LoopBreakerMiddleware)]
+    assert built.middleware.index(breaker) < built.middleware.index(built.caching)
+
+
+async def test_verification_middleware_sits_before_loop_breaker():
+    built = await _construct(bash=True, auto_commit_changes=True)
+
+    [verification] = _verification(built.middleware)
+    breaker = built.middleware[built.middleware.index(verification) + 1]
+    assert isinstance(breaker, LoopBreakerMiddleware)
+    assert verification._loop_breaker is breaker
+
+
+async def test_verification_middleware_absent_without_bash():
+    built = await _construct(bash=False, auto_commit_changes=True)
+
+    assert _verification(built.middleware) == []
+
+
+async def test_verification_middleware_absent_when_site_switch_off():
+    built = await _construct(site={"verification_enabled": False}, bash=True, auto_commit_changes=True)
+
+    assert _verification(built.middleware) == []
+
+
+async def test_verification_middleware_absent_without_auto_commit():
+    built = await _construct(bash=True, auto_commit_changes=False)
+
+    assert _verification(built.middleware) == []
+
+
+async def test_verification_middleware_absent_when_the_repo_declares_no_commands():
+    sandbox = SandboxSpec(
+        base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={}, before_publish=("make lint",)
+    )
+
+    built = await _construct(bash=True, auto_commit_changes=True, sandbox=sandbox, before_publish=())
+
+    assert _verification(built.middleware) == []
+
+
+async def test_check_output_masks_the_sandbox_env_values():
+    sandbox = SandboxSpec(
+        base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={"TOKEN": "abcd1234efgh", "DEBUG": "1"}
+    )
+
+    built = await _construct(bash=True, auto_commit_changes=True, sandbox=sandbox)
+
+    [verification] = _verification(built.middleware)
+    assert verification._redact == ("abcd1234efgh",)
+
+
+async def test_the_git_middleware_rechecks_through_the_verification_middleware():
+    built = await _construct(bash=True, auto_commit_changes=True)
+
+    [verification] = _verification(built.middleware)
+    assert built.git_middleware.call_args.kwargs["recheck"] == verification.recheck
+
+
+async def test_the_git_middleware_has_no_recheck_without_verification():
+    built = await _construct(bash=False, auto_commit_changes=True)
+
+    assert built.git_middleware.call_args.kwargs["recheck"] is None
+
+
+@pytest.mark.parametrize(("before_publish", "expected"), [(None, ("make lint",)), (("make test",), ("make test",))])
+async def test_verification_runs_the_sandbox_default_unless_the_repo_declares_its_own(before_publish, expected):
+    sandbox = SandboxSpec(
+        base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={}, before_publish=("make lint",)
+    )
+
+    built = await _construct(bash=True, auto_commit_changes=True, sandbox=sandbox, before_publish=before_publish)
+
+    [verification] = _verification(built.middleware)
+    assert verification._commands == expected
 
 
 @pytest.mark.parametrize("fork_branch", [True, False])

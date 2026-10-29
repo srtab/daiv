@@ -162,13 +162,16 @@ class PipelineWatch:
         run_id: str | None = None,
         user_id: int | None = None,
         sandbox_environment_id: str | None = None,
+        verification_failed: bool = False,
     ) -> None:
         """Point the CI watch at the merge request a finished run published, then evaluate at once.
 
         Every trigger that arms reaches this through the run executor's ``arm_watch`` (jobs, the issue
         addressor and chat), so the watch does not depend on which one ran. The immediate
         evaluation is load-bearing: the push happened during publish, so the pipeline event it
-        triggered can arrive before this watch exists.
+        triggered can arrive before this watch exists. A run whose ``before_publish`` checks still
+        fail ends any open watch instead of arming one; the executor sends such a run here even
+        when it does not arm.
 
         ``published`` must be the publisher's own verdict, never ``code_changes``: that stays true
         for a clean tree already on its merge request, which every fix run is by definition.
@@ -193,6 +196,16 @@ class PipelineWatch:
                 await self.aexhaust(
                     merge_request_iid=merge_request_iid, reason=_("I could not find a change that would fix it")
                 )
+            return
+
+        if verification_failed:
+            # The agent already spent its fix rounds on these failures, so a person looks before any CI fix run.
+            await self.aexhaust(
+                merge_request_iid=merge_request_iid,
+                reason=_("the before_publish checks still fail after the fix attempt")
+                if was_fix_run
+                else _("the before_publish checks still fail"),
+            )
             return
 
         armed = await self.aarm(

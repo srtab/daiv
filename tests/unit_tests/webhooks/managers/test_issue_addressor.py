@@ -206,11 +206,26 @@ class TestIssueAfterRunMatrix:
                 "published": True,
                 "user_id": None,
                 "sandbox_environment_id": "env-1",
+                "verification_failed": False,
             }
         ]
         run.recover.assert_not_awaited()
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == "done"
+
+    async def test_issue_follow_up_reply_carries_verification_footer(self, captured_client):
+        outcome = {"status": "failed", "commands": [], "rounds": 2, "suspicious_paths": [], "reason": "tests fail"}
+        agent = addressor_agent(
+            return_value={"messages": [AIMessage(content="done")]}, state_values={"verification": outcome}
+        )
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address(**_mention(captured_client))
+
+        [reply] = captured_client.create_issue_comment.call_args_list
+        assert reply.args[2].startswith("done\n\n### Verification\n")
+        assert reply.args[2].count("### Verification") == 1
+        assert "opened as a draft" not in reply.args[2]
 
     async def test_a_question_is_posted_under_the_mention_with_the_reply_footer(self, captured_client):
         with addressor_run(_question_agent(), ctx=_ctx()):

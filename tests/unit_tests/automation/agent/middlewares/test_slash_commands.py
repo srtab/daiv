@@ -31,11 +31,11 @@ def _command_stub(*, resets_thread=False, **execute_kwargs):
     return command
 
 
-async def _run_command(*, raw, commands, skills=None, scope=Scope.GLOBAL):
+async def _run_command(*, raw, commands, skills=None, scope=Scope.GLOBAL, state=None):
     """Drive ``abefore_agent`` past the parser with the registry and skill list stubbed.
 
     The command stubs stay addressable through the ``commands`` passed in; the dispatched events
-    through the ``emit_custom_event`` fixture.
+    through the ``emit_custom_event`` fixture. ``state`` adds keys to the state the hook sees.
     """
     mw = SlashCommandMiddleware(subagents=[])
     parsed = SlashCommandCommand(raw=raw, command=raw.removeprefix("/"), args=[])
@@ -45,7 +45,9 @@ async def _run_command(*, raw, commands, skills=None, scope=Scope.GLOBAL):
         patch("automation.agent.middlewares.slash_commands.list_global_skills", return_value=skills or {}),
     ):
         registry.get_commands.return_value = [MagicMock(return_value=c) for c in commands]
-        return await mw.abefore_agent({"messages": [HumanMessage(content=raw)]}, _runtime(scope=scope), {"cfg": 1})
+        return await mw.abefore_agent(
+            {"messages": [HumanMessage(content=raw)], **(state or {})}, _runtime(scope=scope), {"cfg": 1}
+        )
 
 
 async def test_no_slash_command_returns_none():
@@ -87,6 +89,22 @@ async def test_command_failure_jumps_to_end_with_error_message(emit_custom_event
     assert "Failed to execute `/help`." in result["messages"][-1].content
     # The failure reply streams like any other, else the turn reports the error only on reload.
     assert emit_custom_event.await_args.args[1]["message"] == "Failed to execute `/help`."
+
+
+@pytest.mark.parametrize("execute", [{"return_value": "help text"}, {"side_effect": RuntimeError("boom")}])
+async def test_a_command_clears_the_previous_runs_verification_outcome(emit_custom_event, execute):
+    """The jump skips ``VerificationMiddleware.abefore_agent``, which clears it on every other run."""
+    previous = {"status": "failed", "commands": [], "rounds": 2, "suspicious_paths": []}
+
+    result = await _run_command(raw="/help", commands=[_command_stub(**execute)], state={"verification": previous})
+
+    assert result["verification"] is None
+
+
+async def test_a_command_writes_no_verification_outcome_when_there_is_none(emit_custom_event):
+    result = await _run_command(raw="/help", commands=[_command_stub(return_value="help text")])
+
+    assert "verification" not in result
 
 
 async def test_unknown_command_falls_through_without_jump(emit_custom_event):
