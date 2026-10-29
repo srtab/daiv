@@ -42,17 +42,6 @@
     </details>
   </template>
 
-  <template x-if="item.kind === 'special' && !item.row">
-    <div class="chat-phase" :class="`chat-phase--${item.seg.status}`" :data-status="item.seg.status">
-      <span class="chat-phase__icon" aria-hidden="true">
-        <template x-if="item.seg.status === 'running'"><span class="chat-spinner"></span></template>
-        <template x-if="item.seg.status === 'done'"><span>✓</span></template>
-      </span>
-      <span class="chat-phase__label" x-text="item.seg.label"></span>
-      <span class="chat-phase__suffix" x-show="item.seg.status === 'running'">…</span>
-    </div>
-  </template>
-
   <template x-if="item.kind === 'question' && !block.live && isQuestionAnswered(item)">
     <details class="question-answered" :open="isOpen(item.key)" @toggle="setOpen(item.key, $el.open)">
       <summary class="question-answered__summary">

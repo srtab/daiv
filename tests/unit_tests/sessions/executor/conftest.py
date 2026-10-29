@@ -187,6 +187,8 @@ def publisher_through_workspace(created: list, *, publishes: MergeRequest):
         async def publish(self, *, merge_request: MergeRequest | None, as_draft: bool):
             self.target = (merge_request, as_draft)
             await self.workspace.bash.run_commands(["git push origin HEAD"], fail_fast=True)
-            return SimpleNamespace(merge_request=publishes, protected_branch_fallback_source=None)
+            return SimpleNamespace(
+                merge_request=publishes, protected_branch_fallback_source=None, created_merge_request=False
+            )
 
     return _Publisher

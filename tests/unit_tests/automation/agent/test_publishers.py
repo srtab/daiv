@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableLambda
 from pydantic import SecretStr
 
 from accounts.utils import PlatformIdentity
+from automation.agent.publish_errors import PushRejectedError
 from automation.agent.publishers import (
     SESSION_TRAILER,
     GitChangePublisher,
@@ -958,7 +959,9 @@ class TestPublishSuggestsContextFile:
             # Fresh branch for a brand-new MR: no remote work to integrate, so no rebase-on-reject.
             gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
             mock_suggest.assert_called_once_with(mr)
-            assert result == PublishOutcome(merge_request=mr, published=True, diff_stats=_LOCAL_STATS)
+            assert result == PublishOutcome(
+                merge_request=mr, published=True, created_merge_request=True, diff_stats=_LOCAL_STATS
+            )
 
     async def test_degrades_to_pending_when_branch_not_visible(self, publisher, monkeypatch, caplog):
         """A pushed branch GitLab won't open an MR for degrades to a partial publish, not a failed job.
@@ -1056,7 +1059,11 @@ class TestPublishSuggestsContextFile:
             # Fallback source is exposed on the outcome so the manager can bundle a footer onto the
             # agent's reply instead of posting a separate comment.
             assert result == PublishOutcome(
-                merge_request=new_mr, published=True, protected_branch_fallback_source="dev", diff_stats=_LOCAL_STATS
+                merge_request=new_mr,
+                published=True,
+                created_merge_request=True,
+                protected_branch_fallback_source="dev",
+                diff_stats=_LOCAL_STATS,
             )
 
     async def test_protected_branch_fallback_is_per_call(self, publisher, monkeypatch):
@@ -1117,6 +1124,46 @@ class TestPublishSuggestsContextFile:
 
             mock_create.assert_not_called()
             mock_suggest.assert_not_called()
+
+    async def test_a_push_onto_an_existing_mr_is_not_reported_as_created(self, publisher):
+        mr = make_merge_request()
+        _use_git_manager(publisher, _fake_git_manager())
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            outcome = await publisher.publish(merge_request=mr)
+
+        assert outcome.published
+        assert not outcome.created_merge_request
+
+    async def test_a_failed_push_is_raised_as_push_rejected(self, publisher):
+        gm = _fake_git_manager()
+        gm.push_head_to = AsyncMock(side_effect=GitCommandError("push", 1, stderr="remote: boom"))
+        _use_git_manager(publisher, gm)
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            pytest.raises(PushRejectedError) as info,
+        ):
+            await publisher.publish(merge_request=None)
+
+        assert isinstance(info.value.__cause__, GitCommandError)
 
     async def test_does_not_suggest_on_existing_mr(self, publisher, monkeypatch):
         mr = make_merge_request()

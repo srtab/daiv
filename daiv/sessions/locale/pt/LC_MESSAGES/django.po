@@ -764,6 +764,45 @@ msgstr "Escolha uma."
 msgid "Pick any that apply."
 msgstr "Escolha as que se aplicarem."
 
+msgid "Opened"
+msgstr "Aberto"
+
+msgid "Pushed to"
+msgstr "Enviado para"
+
+msgid "Pushed"
+msgstr "Enviado"
+
+msgid "Not published:"
+msgstr "Não publicado:"
+
+msgid "{count} file"
+msgstr "{count} ficheiro"
+
+msgid "{count} files"
+msgstr "{count} ficheiros"
+
+msgid "Committing changes"
+msgstr "A submeter as alterações"
+
+msgid "Creating merge request"
+msgstr "A criar o merge request"
+
+msgid "Merge conflicts are left in the changed files"
+msgstr "Ficaram conflitos de merge nos ficheiros alterados"
+
+msgid "The merge request isn't created yet"
+msgstr "O merge request ainda não foi criado"
+
+msgid "The push was rejected"
+msgstr "O envio foi rejeitado"
+
+msgid "The merge request couldn't be created"
+msgstr "Não foi possível criar o merge request"
+
+msgid "Couldn't publish the changes"
+msgstr "Não foi possível publicar as alterações"
+
 #~ msgid "Session context"
 #~ msgstr "Contexto da sessão"
 

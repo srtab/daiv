@@ -1256,3 +1256,52 @@ def test_show_raw_follows_the_setting_then_debug(
 def test_step_rows_show_an_mcp_servers_own_icon_as_an_image(member_client, member_user):
     html = _detail_html(member_client, _create_session(user=member_user))
     assert '<img :src="step.row.iconSrc" alt="" width="14" height="14" referrerpolicy="no-referrer">' in html
+
+
+@pytest.mark.django_db
+def test_detail_has_no_publish_chip_template(member_client, member_user):
+    assert "chat-phase" not in _detail_html(member_client, _create_session(user=member_user))
+
+
+@pytest.mark.django_db
+def test_detail_renders_publish_lines_from_blocks(member_client, member_user):
+    content = _detail_html(member_client, _create_session(user=member_user))
+
+    assert 'x-for="(p, pi) in block.publish"' in content
+    assert content.index("block.endingTail") < content.index("block.publish") < content.index("block.statuses")
+
+
+@pytest.mark.django_db
+def test_detail_renders_retry_on_the_publish_line(member_client, member_user):
+    content = _detail_html(member_client, _create_session(user=member_user))
+
+    publish_row = content[content.index('x-for="(p, pi) in block.publish"') : content.index("block.statuses")]
+    assert 'x-show="canRetry(p)"' in publish_row
+    assert 'data-testid="run-retry"' in publish_row
+
+
+@pytest.mark.django_db
+def test_detail_gives_an_unpublished_line_the_run_status_semantics(member_client, member_user):
+    content = _detail_html(member_client, _create_session(user=member_user))
+
+    publish_row = content[content.index('x-for="(p, pi) in block.publish"') : content.index("block.statuses")]
+    assert ":role=\"publishFailed(p) ? 'status' : null\"" in publish_row
+    assert ":aria-live=\"publishFailed(p) ? 'polite' : null\"" in publish_row
+    assert ":data-run-ending=\"publishFailed(p) && !block.items.length ? '' : false\"" in publish_row
+
+
+@pytest.mark.parametrize("name", ["session_detail.html", "_run_item.html"])
+def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
+    import re
+    from pathlib import Path
+
+    from sessions.transcript_labels import transcript_labels
+
+    labels = transcript_labels()
+    source = (Path(__file__).resolve().parents[3] / "daiv/sessions/templates/sessions" / name).read_text()
+    calls = re.findall(r"TranscriptLabels\.(tn?)\(\s*'(\w+)'", source)
+
+    assert calls or name == "_run_item.html"
+    for helper, key in calls:
+        assert key in labels, key
+        assert isinstance(labels[key], list) == (helper == "tn"), f"{helper}('{key}') does not match its label shape"
