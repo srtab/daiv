@@ -7,37 +7,14 @@ from requests import RequestException
 from automation.agent.workspace.git_manager import GitPushNetworkError, GitPushPermissionError, GitPushStaleError
 
 
-class PublishError(Exception):
-    kind: str
-
-
-class PushRejectedError(PublishError):
+class PushRejectedError(Exception):
     kind = "push_rejected"
 
 
-class MergeRequestFailedError(PublishError):
-    kind = "mr_failed"
-
-
-class PublishFailedError(PublishError):
-    kind = "unknown"
-
-
-_KIND_BY_PATH = {
-    f"{cls.__module__}.{cls.__qualname__}": cls.kind
-    for cls in (PushRejectedError, MergeRequestFailedError, PublishFailedError)
-}
-
-
-def classify(exc: BaseException) -> type[PublishError]:
-    if isinstance(exc, PublishError):
-        return type(exc)
-    if isinstance(exc, GitPushStaleError | GitPushPermissionError | GitPushNetworkError):
-        return PushRejectedError
+def publish_error_kind(exc: BaseException) -> str:
+    """The ``sessions.models.PublishErrorKind`` value a publish that raised ``exc`` reports."""
+    if isinstance(exc, PushRejectedError | GitPushStaleError | GitPushPermissionError | GitPushNetworkError):
+        return PushRejectedError.kind
     if isinstance(exc, GitlabError | GithubException | RequestException):
-        return MergeRequestFailedError
-    return PublishFailedError
-
-
-def kind_from_exception_path(path: str) -> str | None:
-    return _KIND_BY_PATH.get(path)
+        return "mr_failed"
+    return "unknown"

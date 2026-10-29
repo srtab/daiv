@@ -29,7 +29,7 @@ class Migration(migrations.Migration):
                 blank=True,
                 choices=[
                     ("conflicts", "Merge conflicts are left in the changed files"),
-                    ("mr_pending", "Branch pushed; the merge request isn't created yet"),
+                    ("mr_pending", "The merge request isn't created yet"),
                     ("push_rejected", "The push was rejected"),
                     ("mr_failed", "The merge request couldn't be created"),
                     ("unknown", "Couldn't publish the changes"),

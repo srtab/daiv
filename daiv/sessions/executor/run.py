@@ -39,7 +39,6 @@ if TYPE_CHECKING:
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
     from automation.agent.events import PublishResultRecorder
-    from automation.agent.publishers import PublishOutcome
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
@@ -116,7 +115,7 @@ async def stream_run(
             entered = True
             recovery = _Recovery()
             try:
-                async with _agent_run(spec, hooks) as run:
+                async with _agent_run(spec, hooks, recovery) as run:
                     try:
                         async with contextlib.aclosing(
                             _supervised(stream(run), run.thread_id, holder_id, should_stop)
@@ -256,17 +255,18 @@ async def _live_relay(spec: RunSpec, holder_id: str | None) -> AsyncGenerator[Ru
 
 @dataclass
 class _Recovery:
-    """What draft recovery leaves for ``on_failure``: filled inside the run's context, read after it closes."""
+    """What draft recovery leaves for ``on_failure``: filled inside the run's context, read after it closes.
+    ``draft`` is the publish result of the draft merge request it opened."""
 
     draft_published: bool = False
-    draft_recorded: bool = False
+    draft: dict[str, Any] | None = None
     snapshot: StateSnapshot | None = None
 
 
 async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery, run_relay: RunRelay | None) -> RunOutcome:
     from automation.agent.utils import extract_text_content
 
-    async with _agent_run(spec, hooks) as run:
+    async with _agent_run(spec, hooks, recovery) as run:
         try:
             result = await _ainvoke(run, spec, run_relay)
         except Exception:
@@ -298,12 +298,10 @@ async def _ainvoke(run: AgentRun, spec: RunSpec, run_relay: RunRelay | None) -> 
 async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     """Publish a draft from the checkpoint after the agent or its stream raises, if the spec asks for it, and re-read
     the checkpoint for ``on_failure``. Runs while the clone and the sandbox are still open."""
-    if spec.recover_draft:
-        await _recover_draft(run, recovery)
-    await _record_publish_result(run, recovery)
+    if not spec.recover_draft:
+        return
+    from automation.agent.events import publish_result_payload
 
-
-async def _recover_draft(run: AgentRun, recovery: _Recovery) -> None:
     outcome = await recover_draft(
         run.ctx,
         run.agent,
@@ -315,53 +313,34 @@ async def _recover_draft(run: AgentRun, recovery: _Recovery) -> None:
     )
     recovery.draft_published = outcome is not None
     if outcome is not None and outcome.created_merge_request:
-        recovery.draft_recorded = await _record_recovered_draft(run.run_id, outcome)
+        recovery.draft = publish_result_payload(
+            status=PublishStatus.OPENED, merge_request=outcome.merge_request, diff_stats=outcome.diff_stats
+        )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
 
 
 async def _record_publish_result(run: AgentRun, recovery: _Recovery) -> None:
-    """Keep what this run published before it failed: the last publish result it dispatched goes onto the ``Run``,
-    minus the merge request and figures a recovered draft already recorded. Never the checkpoint's, which can be the
-    previous run's; a ``failed`` one is the failure's own to record. Best-effort: logged, never raised."""
-    publish = run.publish.payload or {}
-    if not run.run_id or not publish.get("status") or publish["status"] == PublishStatus.FAILED:
-        return
+    """Write the run's publish result onto its ``Run`` once, however the run ended: the last one it dispatched, never
+    the checkpoint's, which can still hold the previous run's. A draft recovery opened replaces it, unless the publish
+    failed: the failure then stays, with the draft's merge request beside it. Best-effort: logged, never raised."""
+    publish, draft = run.publish.payload, recovery.draft
+    if draft is not None and publish is not None and publish.get("status") == PublishStatus.FAILED:
+        publish = {**draft, "status": publish["status"], "error_kind": publish["error_kind"]}
+    elif draft is not None:
+        publish = draft
     fields = publish_field_updates(publish)
-    if recovery.draft_recorded:
-        fields = {k: v for k, v in fields.items() if k.startswith("publish_")}
+    if draft is not None:
+        fields["code_changes"] = True
+    if not run.run_id or not fields:
+        return
     try:
         await Run.objects.filter(pk=run.run_id).aupdate(**fields)
     except Exception:
         logger.exception("executor: failed to record the publish result on run_id=%s", run.run_id)
 
 
-async def _record_recovered_draft(run_id: str | None, outcome: PublishOutcome) -> bool:
-    """Record the draft merge request that recovery opened on the failed ``Run``. Best-effort: a failed write is
-    logged, never raised over the failure being recovered."""
-    merge_request = outcome.merge_request
-    if not run_id or merge_request is None:
-        return False
-    fields: dict[str, Any] = {
-        "merge_request_iid": merge_request.merge_request_id,
-        "merge_request_web_url": merge_request.web_url or "",
-        "code_changes": True,
-    }
-    if (stats := outcome.diff_stats) is not None:
-        fields |= {
-            "files_changed": stats.files_changed,
-            "lines_added": stats.lines_added,
-            "lines_removed": stats.lines_removed,
-        }
-    try:
-        await Run.objects.filter(pk=run_id).aupdate(**fields)
-    except Exception:
-        logger.exception("executor: failed to record the recovered draft on run_id=%s", run_id)
-        return False
-    return True
-
-
 @asynccontextmanager
-async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]:
+async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> AsyncGenerator[AgentRun]:
     # Deferred so importing this module never loads the agent stack.
     from langgraph.checkpoint.memory import InMemorySaver
     from mcp_connectors.services import build_runtime_servers
@@ -472,6 +451,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     handed_over = await _handed_over(run)
                     raise
                 finally:
+                    await _record_publish_result(run, recovery)
                     if archiving:
                         await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:

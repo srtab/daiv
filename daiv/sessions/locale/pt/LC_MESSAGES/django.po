@@ -770,6 +770,9 @@ msgstr "Aberto"
 msgid "Pushed to"
 msgstr "Enviado para"
 
+msgid "Pushed"
+msgstr "Enviado"
+
 msgid "Not published:"
 msgstr "Não publicado:"
 
@@ -785,17 +788,11 @@ msgstr "A submeter as alterações"
 msgid "Creating merge request"
 msgstr "A criar o merge request"
 
-msgid "Merge conflicts left in {count} file"
-msgstr "Conflitos de merge por resolver em {count} ficheiro"
-
-msgid "Merge conflicts left in {count} files"
-msgstr "Conflitos de merge por resolver em {count} ficheiros"
-
 msgid "Merge conflicts are left in the changed files"
 msgstr "Ficaram conflitos de merge nos ficheiros alterados"
 
-msgid "Branch pushed; the merge request isn't created yet"
-msgstr "Branch enviado; o merge request ainda não foi criado"
+msgid "The merge request isn't created yet"
+msgstr "O merge request ainda não foi criado"
 
 msgid "The push was rejected"
 msgstr "O envio foi rejeitado"

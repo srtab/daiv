@@ -161,6 +161,13 @@ def test_a_block_exposes_the_publish_list_of_its_last_assistant_turn():
     assert [b["publish"] for b in blocks] == [[entry], []]
 
 
+def test_a_publish_list_survives_a_later_turn_that_joins_its_run():
+    entry = {"status": "failed", "id": "run-status-r1"}
+    carrier = {**asst("r1-publish"), "publish": [entry]}
+    (block,) = _blocks([user("u1"), carrier, asst("r1-artifacts", publish("p1"))])
+    assert block["publish"] == [entry]
+
+
 def test_write_todos_and_blank_text_add_nothing_and_do_not_split_a_group():
     todos = tool_call("w1", "write_todos", {"todos": []}, result="ok")
     b = _blocks([user("u1"), asst("a1", read("c1"), todos, text("  "), read("c2"))], in_flight=True)[0]

@@ -89,7 +89,6 @@ def test_the_publish_result_payload_carries_the_merge_request_and_stats():
         "lines_added": 10,
         "lines_removed": 2,
         "error_kind": None,
-        "conflicts": None,
     }
 
 
@@ -102,7 +101,6 @@ def test_the_publish_result_payload_defaults_absent_values_to_none():
         "lines_added": None,
         "lines_removed": None,
         "error_kind": "push_rejected",
-        "conflicts": None,
     }
 
 

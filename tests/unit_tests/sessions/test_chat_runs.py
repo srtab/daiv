@@ -146,7 +146,7 @@ async def test_finalize_chat_run_keeps_the_usage_of_a_reaped_run(django_user_mod
     assert f"run={run.pk} finished before its stream did" in caplog.text
 
 
-async def _failed_publish_run(django_user_model, **finalize_kwargs) -> Run:
+async def _finalized_run(django_user_model, **finalize_kwargs) -> Run:
     user = await _mk_user(django_user_model)
     session = await _mk_chat_session(user)
     run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hi", repo_id="g/r", ref="main")
@@ -155,19 +155,7 @@ async def _failed_publish_run(django_user_model, **finalize_kwargs) -> Run:
     return run
 
 
-async def test_a_failed_turn_records_the_publish_error_kind(django_user_model):
-    run = await _failed_publish_run(django_user_model, success=False, publish_error="push_rejected")
-    assert (run.status, run.publish_status, run.publish_error) == (RunStatus.FAILED, "failed", "push_rejected")
-
-
-async def test_a_failed_turn_ignores_a_publish_error_kind_it_does_not_know(django_user_model):
-    run = await _failed_publish_run(django_user_model, success=False, publish_error="boom")
-    assert (run.publish_status, run.publish_error) == ("", "")
-
-
 async def test_a_successful_turn_records_its_publish_result(django_user_model):
     payload = publish_result_payload(status="pushed", diff_stats=MergeRequestDiffStats(lines_added=4, files_changed=1))
-    run = await _failed_publish_run(
-        django_user_model, success=True, agent_result=parse_agent_result({"publish": payload})
-    )
+    run = await _finalized_run(django_user_model, success=True, agent_result=parse_agent_result({"publish": payload}))
     assert (run.publish_status, run.lines_added, run.files_changed, run.lines_removed) == ("pushed", 4, 1, None)

@@ -44,9 +44,6 @@
 
   const publishEntry = (value, labels) => {
     const v = value || {};
-    let error = "";
-    if (v.conflicts) error = labels.tn("publish_conflicts", v.conflicts);
-    else if (v.error_kind) error = labels.t(`publish_error_${v.error_kind}`);
     return {
       status: v.status,
       merge_request_iid: v.merge_request_iid ?? null,
@@ -54,7 +51,7 @@
       files_changed: v.files_changed ?? null,
       lines_added: v.lines_added ?? null,
       lines_removed: v.lines_removed ?? null,
-      error,
+      error: v.error_kind ? labels.t(`publish_error_${v.error_kind}`) : "",
     };
   };
 

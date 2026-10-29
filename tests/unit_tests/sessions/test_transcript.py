@@ -758,12 +758,15 @@ def test_published_then_failed_keeps_the_result_and_the_marker():
     assert "id" not in result[-2]["publish"][0]
 
 
-def test_not_published_result_carries_its_error():
-    runs = [_run("r1", message_id="h1", publish_status="not_published", publish_error="conflicts")]
+def test_not_published_result_carries_its_error_but_not_the_sessions_merge_request():
+    runs = [
+        _run("r1", message_id="h1", publish_status="not_published", publish_error="conflicts", merge_request_iid=12)
+    ]
 
     (entry,) = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
 
     assert (entry["status"], entry["error"]) == ("not_published", "Merge conflicts are left in the changed files")
+    assert (entry["merge_request_iid"], entry["merge_request_web_url"]) == (None, "")
 
 
 def test_failed_publish_with_a_recovered_draft_shows_red_then_opened():
@@ -813,6 +816,7 @@ def test_a_draft_recovered_after_the_run_failed_shows_opened_above_the_marker():
             "r1",
             message_id="h1",
             status=RunStatus.FAILED,
+            publish_status="opened",
             code_changes=True,
             merge_request_iid=9,
             merge_request_web_url="https://git/mr/9",

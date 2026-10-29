@@ -15,7 +15,7 @@ from langsmith import get_current_run_tree
 from automation.agent.context import RuntimeCtx  # noqa: TC001
 from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload
 from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
-from automation.agent.publish_errors import classify
+from automation.agent.publish_errors import publish_error_kind
 from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
@@ -381,9 +381,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
     @staticmethod
     def _publish_result(outcome: PublishOutcome) -> dict[str, Any]:
         if outcome.merge_request is None:
-            return publish_result_payload(
-                status="not_published", diff_stats=outcome.diff_stats, error_kind="mr_pending"
-            )
+            return publish_result_payload(status="pushed", diff_stats=outcome.diff_stats, error_kind="mr_pending")
         return publish_result_payload(
             status="opened" if outcome.created_merge_request else "pushed",
             merge_request=outcome.merge_request,
@@ -458,15 +456,12 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 f"{'has' if len(exc.paths) == 1 else 'have'} conflict markers, so nothing was committed or pushed. "
                 "Ask me to finish resolving them."
             )
-            update["publish_result"] = publish_result_payload(
-                status="not_published", error_kind="conflicts", conflicts=len(exc.paths)
-            )
+            update["publish_result"] = publish_result_payload(status="not_published", error_kind="conflicts")
             await self._emit_publish_result(update["publish_result"])
             return {**update, "messages": [await streamed_assistant_message(notice)]}
         except Exception as exc:
-            error = classify(exc)(str(exc))
-            await self._emit_publish_result(publish_result_payload(status="failed", error_kind=error.kind))
-            raise error from exc
+            await self._emit_publish_result(publish_result_payload(status="failed", error_kind=publish_error_kind(exc)))
+            raise
 
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()

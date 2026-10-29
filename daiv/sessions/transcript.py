@@ -84,16 +84,26 @@ def _red_line_replaces(marker: dict[str, Any], run: Run) -> bool:
     return marker["status"] == "failed" and run.publish_status == PublishStatus.FAILED
 
 
-def _publish_entry(run: Run, status: str, *, error: str = "", with_mr: bool = True) -> dict[str, Any]:
-    return {
+def _publish_entry(run: Run, status: str, *, error: str = "") -> dict[str, Any]:
+    """Only a publish that landed shows the run's merge request and figures, as the live line does."""
+    entry = {
         "status": str(status),
-        "merge_request_iid": run.merge_request_iid if with_mr else None,
-        "merge_request_web_url": (run.merge_request_web_url or "") if with_mr else "",
-        "files_changed": run.files_changed if with_mr else None,
-        "lines_added": run.lines_added if with_mr else None,
-        "lines_removed": run.lines_removed if with_mr else None,
+        "merge_request_iid": None,
+        "merge_request_web_url": "",
+        "files_changed": None,
+        "lines_added": None,
+        "lines_removed": None,
         "error": error,
     }
+    if status in (PublishStatus.OPENED, PublishStatus.PUSHED):
+        entry |= {
+            "merge_request_iid": run.merge_request_iid,
+            "merge_request_web_url": run.merge_request_web_url or "",
+            "files_changed": run.files_changed,
+            "lines_added": run.lines_added,
+            "lines_removed": run.lines_removed,
+        }
+    return entry
 
 
 def _publish_error(run: Run) -> str:
@@ -107,19 +117,17 @@ def _publish_error(run: Run) -> str:
 
 
 def _publish_entries(run: Run) -> list[dict[str, Any]]:
-    """The entries of ``run``'s publish result; a failed publish is the red line and carries the retry anchor. A run
-    that failed elsewhere shows only the draft recovery opened for it."""
+    """The entries of ``run``'s publish result; a failed publish is the red line and carries the retry anchor, followed
+    by the draft recovery opened after it."""
     if not run.publish_status:
-        if run.status == RunStatus.FAILED and run.code_changes and run.merge_request_iid:
-            return [_publish_entry(run, PublishStatus.OPENED)]
         return []
-    if run.publish_status == PublishStatus.FAILED:
-        red = _publish_entry(run, run.publish_status, error=_publish_error(run), with_mr=False)
-        entries = [{"id": marker_id(run), **red}]
-        if run.code_changes and run.merge_request_iid:
-            entries.append(_publish_entry(run, PublishStatus.OPENED))
-        return entries
-    return [_publish_entry(run, run.publish_status, error=_publish_error(run))]
+    entry = _publish_entry(run, run.publish_status, error=_publish_error(run))
+    if run.publish_status != PublishStatus.FAILED:
+        return [entry]
+    entries = [{"id": marker_id(run), **entry}]
+    if run.code_changes and run.merge_request_iid:
+        entries.append(_publish_entry(run, PublishStatus.OPENED))
+    return entries
 
 
 def _stamp_publish(run_turns: list[dict[str, Any]], run: Run) -> None:

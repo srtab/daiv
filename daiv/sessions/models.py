@@ -12,7 +12,6 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from automation.agent.publish_errors import kind_from_exception_path
 from automation.agent.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
@@ -48,10 +47,10 @@ class PublishStatus(models.TextChoices):
 
 
 class PublishErrorKind(models.TextChoices):
-    """Why a run's changes did not reach the repository; the labels are the only text shown, never exception text."""
+    """What kept a run's publish from completing; the labels are the only text shown, never exception text."""
 
     CONFLICTS = "conflicts", _("Merge conflicts are left in the changed files")
-    MR_PENDING = "mr_pending", _("Branch pushed; the merge request isn't created yet")
+    MR_PENDING = "mr_pending", _("The merge request isn't created yet")
     PUSH_REJECTED = "push_rejected", _("The push was rejected")
     MR_FAILED = "mr_failed", _("The merge request couldn't be created")
     UNKNOWN = "unknown", _("Couldn't publish the changes")
@@ -558,13 +557,6 @@ class Run(models.Model):
             if tr.traceback:
                 self.error_message += f"\n{tr.traceback}"
             changed.append("error_message")
-
-        if tr.status == RunStatus.FAILED and not self.publish_status:
-            kind = kind_from_exception_path(tr.exception_class_path)
-            if kind:
-                self.publish_status = PublishStatus.FAILED
-                self.publish_error = kind
-                changed += ["publish_status", "publish_error"]
 
         return changed
 

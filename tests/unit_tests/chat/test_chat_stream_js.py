@@ -611,11 +611,15 @@ def test_the_live_failed_entry_takes_the_page_run_id_before_the_server_names_the
 
 
 @pytest.mark.parametrize(
-    ("count", "message"), [(1, "Merge conflicts left in 1 file"), (3, "Merge conflicts left in 3 files")]
+    ("status", "kind", "message"),
+    [
+        ("not_published", "conflicts", "Merge conflicts are left in the changed files"),
+        ("pushed", "mr_pending", "The merge request isn't created yet"),
+    ],
 )
-def test_live_conflicts_count_picks_the_plural_label(count, message):
-    kwargs = {"status": "opened", "merge_request": MR, "error_kind": "conflicts", "conflicts": count}
-    assert _drive(PUBLISHING, script=[_publish_custom(**kwargs), "block0.publish"])[-1][0]["error"] == message
+def test_live_entry_shows_the_kinds_label_as_a_reload_does(status, kind, message):
+    script = [_publish_custom(status=status, error_kind=kind), "block0.publish"]
+    assert _drive(PUBLISHING, script=script)[-1][0]["error"] == message
 
 
 def test_failed_publish_suppresses_the_generic_failure_marker():

@@ -301,12 +301,14 @@
                   <span class="publish-row__main">
                     {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
                     <span x-show="p.status === 'opened'">{% translate "Opened" %}</span>
-                    <span x-show="p.status === 'pushed'">{% translate "Pushed to" %}</span>
+                    <span x-show="p.status === 'pushed' && p.merge_request_iid">{% translate "Pushed to" %}</span>
+                    <span x-show="p.status === 'pushed' && !p.merge_request_iid">{% translate "Pushed" %}</span>
                     <a class="publish-row__link" x-show="p.merge_request_iid" :href="p.merge_request_web_url || null"
                        target="_blank" rel="noopener" x-text="'!' + p.merge_request_iid"></a>
                     <span class="publish-row__files" x-show="p.files_changed"
                           x-text="TranscriptLabels.tn('publish_files', p.files_changed)"></span>
                     {% include "sessions/_line_counts.html" with counts="({ added: p.lines_added, removed: p.lines_removed })" %}
+                    <span class="publish-row__files" x-show="p.error" x-text="p.error"></span>
                   </span>
                 </template>
                 <template x-if="p.status === 'not_published' || p.status === 'failed'">
@@ -314,8 +316,6 @@
                     {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
                     <span>{% translate "Not published:" %}</span>
                     <span x-text="p.error"></span>
-                    <a class="publish-row__link" x-show="p.merge_request_iid" :href="p.merge_request_web_url || null"
-                       target="_blank" rel="noopener" x-text="'!' + p.merge_request_iid"></a>
                   </span>
                 </template>
                 {% if session %}

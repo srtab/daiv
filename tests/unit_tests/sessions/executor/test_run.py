@@ -20,7 +20,14 @@ from redisvl.exceptions import RedisSearchError
 from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
-from sessions.executor.run import RunStoppedError, _record_recovered_draft, _until_stopped, execute_run, stream_run
+from sessions.executor.run import (
+    RunStoppedError,
+    _record_publish_result,
+    _Recovery,
+    _until_stopped,
+    execute_run,
+    stream_run,
+)
 from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
@@ -978,87 +985,24 @@ def _recovery_outcome(*, created: bool) -> PublishOutcome:
     )
 
 
-async def _fail_after_recovering(
-    outcome: PublishOutcome | None, *, run_id: str | None = "run-1", hooks: RunHooks | None = None
-) -> AsyncMock:
-    agent = _agent()
-    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
-    with (
-        agent_stack(agent),
-        patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=outcome)),
-        patch("sessions.executor.run._record_recovered_draft", new=AsyncMock()) as record,
-        pytest.raises(RuntimeError, match="agent blew up"),
-    ):
-        await execute_run(make_spec(recover_draft=True, run_id=run_id), hooks)
-    return record
-
-
-async def test_a_draft_recovery_opened_is_recorded_on_the_run():
-    outcome = _recovery_outcome(created=True)
-
-    record = await _fail_after_recovering(outcome)
-
-    record.assert_awaited_once_with("run-1", outcome)
-
-
-async def test_a_recovered_draft_is_recorded_on_the_run_its_context_hook_started():
-    outcome = _recovery_outcome(created=True)
-
-    record = await _fail_after_recovering(
-        outcome, run_id=None, hooks=RunHooks(on_context_ready=AsyncMock(return_value="run-started"))
-    )
-
-    record.assert_awaited_once_with("run-started", outcome)
-
-
-@pytest.mark.parametrize("outcome", [_recovery_outcome(created=False), None], ids=["existing-mr", "nothing-landed"])
-async def test_a_recovery_that_opened_no_draft_records_nothing_on_the_run(outcome):
-    record = await _fail_after_recovering(outcome)
-
-    record.assert_not_awaited()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_the_recovered_draft_lands_on_the_run_row():
-    thread_id = await amake_job_session()
-    run = await Run.objects.acreate(
-        session_id=thread_id, trigger_type=SessionOrigin.UI_JOB, repo_id="owner/repo", status=RunStatus.RUNNING
-    )
-
-    await _record_recovered_draft(str(run.pk), _recovery_outcome(created=True))
-
-    await run.arefresh_from_db()
-    assert (run.merge_request_iid, run.merge_request_web_url, run.code_changes) == (
-        11,
-        "https://git.example/mr/11",
-        True,
-    )
-    assert (run.files_changed, run.lines_added, run.lines_removed) == (3, 5, 2)
-
-
-async def test_a_failed_recovered_draft_write_is_logged_not_raised(caplog):
-    with patch("sessions.executor.run.Run.objects") as objects, caplog.at_level("ERROR", logger="daiv.sessions"):
-        objects.filter.return_value.aupdate = AsyncMock(side_effect=RuntimeError("db down"))
-        await _record_recovered_draft("run-1", _recovery_outcome(created=True))
-
-    assert "failed to record the recovered draft" in caplog.text
-
-
 async def _dispatch_publish_result(payload: dict) -> None:
     await adispatch_custom_event(PUBLISH_RESULT_EVENT, payload)
 
 
-async def _fail_after_dispatching(
+async def _publish_writes(
     payload: dict | None,
     *,
+    error: type[BaseException] | None = RuntimeError,
     state: dict | None = None,
     via_stream: bool = False,
     update: AsyncMock | None = None,
     recovered: PublishOutcome | None = None,
-) -> list[dict]:
-    """Fail a run after a runnable invoked under the run's config dispatched ``payload``; return the run's publish
-    writes. ``state`` is the checkpoint the run reads, ``recovered`` what draft recovery opens."""
-    error = RuntimeError("agent blew up")
+    run_id: str | None = "run-1",
+    hooks: RunHooks | None = None,
+) -> list[tuple[str, dict]]:
+    """Run after a runnable invoked under the run's config dispatched ``payload``, then raise ``error`` (``None``: the
+    run succeeds); return the run's publish writes as ``(pk, fields)``. ``state`` is the checkpoint the run reads,
+    ``recovered`` what draft recovery opens."""
 
     async def _publish(config) -> None:
         if payload is not None:
@@ -1066,29 +1010,42 @@ async def _fail_after_dispatching(
 
     async def _ainvoke(_input, *, config, **_kwargs):
         await _publish(config)
-        raise error
+        if error is not None:
+            raise error("agent blew up")
+        return {"messages": [MagicMock(content="done")]}
 
     async def _events(run):
         await _publish(run.config)
-        raise error
-        yield
+        if error is not None:
+            raise error("agent blew up")
+        yield "done"
 
     agent = _agent(state=state)
     agent.ainvoke = AsyncMock(side_effect=_ainvoke)
     update = update or AsyncMock()
-    spec = make_spec(run_id="run-1", recover_draft=recovered is not None)
+    writes = []
+
+    def _filter(**lookup):
+        async def _aupdate(**fields):
+            await update(**fields)
+            if PUBLISH_KEYS & fields.keys():
+                writes.append((lookup.get("pk"), fields))
+
+        return SimpleNamespace(aupdate=_aupdate)
+
+    spec = make_spec(run_id=run_id, recover_draft=recovered is not None)
     with (
         agent_stack(agent),
         patch("sessions.executor.run.Run.objects") as objects,
         patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=recovered)),
-        pytest.raises(RuntimeError, match="agent blew up"),
+        pytest.raises(error) if error is not None else nullcontext(),
     ):
-        objects.filter.return_value.aupdate = update
+        objects.filter.side_effect = _filter
         if via_stream:
-            await _drain(spec, _events)
+            await _drain(spec, _events, hooks)
         else:
-            await execute_run(spec)
-    return [c.kwargs for c in update.await_args_list if PUBLISH_KEYS & c.kwargs.keys()]
+            await execute_run(spec, hooks)
+    return writes
 
 
 PUBLISH_KEYS = {"publish_status", "merge_request_iid", "lines_added"}
@@ -1097,49 +1054,119 @@ OPENED = publish_result_payload(
     merge_request=make_merge_request(merge_request_id=7, web_url="https://git.example/mr/7"),
     diff_stats=MergeRequestDiffStats(lines_added=4, lines_removed=1, files_changed=2),
 )
+OPENED_FIELDS = {
+    "merge_request_iid": 7,
+    "merge_request_web_url": "https://git.example/mr/7",
+    "publish_status": "opened",
+    "files_changed": 2,
+    "lines_added": 4,
+    "lines_removed": 1,
+}
+DRAFT_FIELDS = {
+    "merge_request_iid": 11,
+    "merge_request_web_url": "https://git.example/mr/11",
+    "files_changed": 3,
+    "lines_added": 5,
+    "lines_removed": 2,
+    "code_changes": True,
+}
 
 
 @pytest.mark.parametrize("via_stream", [False, True], ids=["execute_run", "stream_run"])
 async def test_a_run_that_failed_after_publishing_keeps_its_publish_result(via_stream):
-    writes = await _fail_after_dispatching(OPENED, via_stream=via_stream)
+    assert await _publish_writes(OPENED, via_stream=via_stream) == [("run-1", OPENED_FIELDS)]
 
-    assert writes == [
-        {
-            "merge_request_iid": 7,
-            "merge_request_web_url": "https://git.example/mr/7",
-            "publish_status": "opened",
-            "files_changed": 2,
-            "lines_added": 4,
-            "lines_removed": 1,
-        }
-    ]
+
+async def test_a_run_that_succeeds_records_its_publish_result():
+    assert await _publish_writes(OPENED, error=None) == [("run-1", OPENED_FIELDS)]
+
+
+async def test_a_cancelled_run_keeps_the_result_it_already_published():
+    assert await _publish_writes(OPENED, error=asyncio.CancelledError) == [("run-1", OPENED_FIELDS)]
 
 
 @pytest.mark.parametrize("via_stream", [False, True], ids=["execute_run", "stream_run"])
 async def test_a_failed_run_never_takes_the_previous_runs_publish_result_from_the_checkpoint(via_stream):
-    assert await _fail_after_dispatching(None, state={"publish_result": OPENED}, via_stream=via_stream) == []
+    assert await _publish_writes(None, state={"publish_result": OPENED}, via_stream=via_stream) == []
 
 
-async def test_a_failed_publish_is_left_to_the_failures_own_record():
-    assert await _fail_after_dispatching(publish_result_payload(status="failed", error_kind="push_rejected")) == []
+@pytest.mark.parametrize("via_stream", [False, True], ids=["execute_run", "stream_run"])
+async def test_a_failed_publish_records_its_kind(via_stream):
+    writes = await _publish_writes(
+        publish_result_payload(status="failed", error_kind="push_rejected"), via_stream=via_stream
+    )
+
+    assert writes == [("run-1", {"publish_status": "failed", "publish_error": "push_rejected"})]
 
 
 async def test_a_failed_publish_result_write_is_logged_and_the_run_error_still_propagates(caplog):
     with caplog.at_level("ERROR", logger="daiv.sessions"):
-        await _fail_after_dispatching(
-            publish_result_payload(status="pushed"), update=AsyncMock(side_effect=OSError("db"))
-        )
+        await _publish_writes(publish_result_payload(status="pushed"), update=AsyncMock(side_effect=OSError("db")))
 
     assert "failed to record the publish result" in caplog.text
 
 
-async def test_a_recovered_draft_is_not_overwritten_by_the_earlier_publish_result():
-    writes = await _fail_after_dispatching(
-        publish_result_payload(status="pushed"), recovered=_recovery_outcome(created=True)
+async def test_a_draft_recovery_opened_is_recorded_on_the_run():
+    writes = await _publish_writes(None, recovered=_recovery_outcome(created=True))
+
+    assert writes == [("run-1", {**DRAFT_FIELDS, "publish_status": "opened"})]
+
+
+async def test_a_recovered_draft_is_recorded_on_the_run_its_context_hook_started():
+    writes = await _publish_writes(
+        None,
+        recovered=_recovery_outcome(created=True),
+        run_id=None,
+        hooks=RunHooks(on_context_ready=AsyncMock(return_value="run-started")),
     )
 
-    assert [w["merge_request_iid"] for w in writes if "merge_request_iid" in w] == [11]
-    assert writes[-1] == {"publish_status": "pushed"}
+    assert [pk for pk, _fields in writes] == ["run-started"]
+
+
+@pytest.mark.parametrize("outcome", [_recovery_outcome(created=False), None], ids=["existing-mr", "nothing-landed"])
+async def test_a_recovery_that_opened_no_draft_records_nothing_on_the_run(outcome):
+    assert await _publish_writes(None, recovered=outcome) == []
+
+
+async def test_a_recovered_draft_replaces_the_pushed_branch_it_opened_the_merge_request_for():
+    pushed = publish_result_payload(
+        status="pushed", error_kind="mr_pending", diff_stats=MergeRequestDiffStats(files_changed=1, lines_added=1)
+    )
+
+    writes = await _publish_writes(pushed, recovered=_recovery_outcome(created=True))
+
+    assert writes == [("run-1", {**DRAFT_FIELDS, "publish_status": "opened"})]
+
+
+async def test_a_draft_recovered_after_a_failed_publish_keeps_the_failure_beside_it():
+    failed = publish_result_payload(status="failed", error_kind="mr_failed")
+
+    writes = await _publish_writes(failed, recovered=_recovery_outcome(created=True))
+
+    assert writes == [("run-1", {**DRAFT_FIELDS, "publish_status": "failed", "publish_error": "mr_failed"})]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_recovered_draft_lands_on_the_run_row():
+    thread_id = await amake_job_session()
+    run = await Run.objects.acreate(
+        session_id=thread_id, trigger_type=SessionOrigin.UI_JOB, repo_id="owner/repo", status=RunStatus.RUNNING
+    )
+    outcome = _recovery_outcome(created=True)
+    draft = publish_result_payload(status="opened", merge_request=outcome.merge_request, diff_stats=outcome.diff_stats)
+
+    await _record_publish_result(
+        SimpleNamespace(run_id=str(run.pk), publish=SimpleNamespace(payload=None)), _Recovery(draft=draft)
+    )
+
+    await run.arefresh_from_db()
+    assert (run.merge_request_iid, run.merge_request_web_url, run.code_changes, run.publish_status) == (
+        11,
+        "https://git.example/mr/11",
+        True,
+        "opened",
+    )
+    assert (run.files_changed, run.lines_added, run.lines_removed) == (3, 5, 2)
 
 
 async def test_a_setup_error_skips_draft_recovery():

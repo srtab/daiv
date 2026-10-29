@@ -3,11 +3,13 @@ import uuid
 from django.db import IntegrityError
 
 import pytest
+from gitlab.exceptions import GitlabCreateError
 from sessions.executor.result import parse_agent_result
 from sessions.models import PublishErrorKind, Run, RunStatus, Session, SessionOrigin, agent_result_field_updates
 
 from automation.agent.events import publish_result_payload
-from automation.agent.publish_errors import PublishError
+from automation.agent.publish_errors import publish_error_kind
+from automation.agent.workspace.git_manager import GitPushStaleError
 from automation.agent.workspace.session import SandboxAcquisition
 from codebase.base import MergeRequestDiffStats
 from tests.unit_tests.automation.agent.conftest import make_merge_request
@@ -437,35 +439,6 @@ def test_agent_result_fields_leave_out_a_zero_figure_and_a_missing_error():
 
 
 def test_every_kind_a_publish_reports_has_a_label():
-    kinds = {cls.kind for cls in PublishError.__subclasses__()} | {"conflicts", "mr_pending"}
+    raised = {publish_error_kind(exc) for exc in (GitPushStaleError("x"), GitlabCreateError("x"), RuntimeError("x"))}
 
-    assert kinds <= set(PublishErrorKind.values)
-
-
-def _mk_task_run(create_db_task_result, exception_class_path, **run_fields) -> Run:
-    task_result = create_db_task_result(status="FAILED", exception_class_path=exception_class_path)
-    return _mk_run(_mk_session(), status=RunStatus.RUNNING, task_result=task_result, **run_fields)
-
-
-def test_a_failed_task_with_a_publish_error_records_its_kind(create_db_task_result):
-    run = _mk_task_run(create_db_task_result, "automation.agent.publish_errors.PushRejectedError")
-    run.sync_from_task_result()
-    assert (run.publish_status, run.publish_error) == ("failed", "push_rejected")
-
-
-def test_a_failed_task_with_another_error_records_no_publish_error(create_db_task_result):
-    run = _mk_task_run(create_db_task_result, "builtins.ValueError")
-    run.sync_from_task_result()
-    assert (run.publish_status, run.publish_error) == ("", "")
-
-
-def test_a_failed_task_keeps_the_draft_recovery_recorded(create_db_task_result):
-    run = _mk_task_run(
-        create_db_task_result,
-        "automation.agent.publish_errors.MergeRequestFailedError",
-        merge_request_iid=9,
-        merge_request_web_url="https://git.example/mr/9",
-        code_changes=True,
-    )
-    run.sync_from_task_result()
-    assert (run.merge_request_iid, run.code_changes, run.publish_error) == (9, True, "mr_failed")
+    assert raised | {"conflicts", "mr_pending"} <= set(PublishErrorKind.values)

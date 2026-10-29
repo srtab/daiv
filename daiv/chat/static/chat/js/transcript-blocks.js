@@ -319,7 +319,7 @@
         endingTail,
         statuses: run.statuses,
         lastTurn,
-        publish: lastTurn?.publish ?? NO_PUBLISH,
+        publish: run.turns.findLast(({ turn }) => turn.publish)?.turn.publish ?? NO_PUBLISH,
         // A run's answer is copyable once nothing in it streams; a later tool-only turn does not hide it.
         copyTurn: !streaming && lastText ? lastText.turn : null,
         activity: live ? activityOf(entries, servers, serversId, latest) : "",

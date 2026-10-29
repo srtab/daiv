@@ -106,7 +106,6 @@ def publish_result_payload(
     merge_request: MergeRequest | None = None,
     diff_stats: MergeRequestDiffStats | None = None,
     error_kind: str | None = None,
-    conflicts: int | None = None,
 ) -> dict[str, Any]:
     """Build the wire payload for :data:`PUBLISH_RESULT_EVENT`; values that do not apply are ``None``."""
     return {
@@ -117,7 +116,6 @@ def publish_result_payload(
         "lines_added": diff_stats.lines_added if diff_stats else None,
         "lines_removed": diff_stats.lines_removed if diff_stats else None,
         "error_kind": error_kind,
-        "conflicts": conflicts,
     }
 
 

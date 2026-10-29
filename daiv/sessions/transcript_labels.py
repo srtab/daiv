@@ -99,9 +99,5 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "publish_committing": gettext("Committing changes"),
         "publish_creating": gettext("Creating merge request"),
         "publish_files": [gettext("{count} file"), gettext("{count} files")],
-        "publish_conflicts": [
-            gettext("Merge conflicts left in {count} file"),
-            gettext("Merge conflicts left in {count} files"),
-        ],
         **{f"publish_error_{kind.value}": str(kind.label) for kind in PublishErrorKind},
     }
