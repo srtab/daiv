@@ -541,6 +541,22 @@ def test_a_failure_before_the_run_row_exists_keeps_the_pages_run_id():
     assert run_chat_stream(MARKER_BODY, {"events": [RUN_FAILED]}) == ["run-status-client-run"]
 
 
+SKILL_LINKS_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat" });
+chat.turns = payload.turns;
+chat.applySkillLinks(payload.server);
+process.stdout.write(JSON.stringify(chat.turns[1].segments.map((seg) => seg.skill_url ?? null)));
+"""
+
+
+def test_a_streamed_skill_call_takes_its_link_from_the_turns_fetched_after_the_run():
+    skill = tool_call("s1", "skill", {"skill": "plan"}, result="body")
+    other = tool_call("s2", "skill", {"skill": "mine"}, result="body")
+    server = [user("u1"), asst("a1", {**skill, "skill_url": "/dashboard/skills/plan/"}, other)]
+    payload = {"turns": [user("u1"), asst("a1", skill, other)], "server": server}
+    assert run_chat_stream(SKILL_LINKS_BODY, payload, extra_globals=GLOBALS) == ["/dashboard/skills/plan/", None]
+
+
 CTX_BODY = """
 const chat = registry.chat({ endpoint: "/api/chat" });
 chat.mcpCatalog = payload.catalog;

@@ -1253,6 +1253,12 @@ def test_show_raw_follows_the_setting_then_debug(
 
 
 @pytest.mark.django_db
+def test_the_labels_payload_names_the_session_page_path(member_client, member_user):
+    payload = _labels_payload(_detail_html(member_client, _create_session(user=member_user)))
+    assert payload["session_path"] == reverse("session_detail", args=["x"]).replace("/x/", "/{thread_id}/")
+
+
+@pytest.mark.django_db
 def test_step_rows_show_an_mcp_servers_own_icon_as_an_image(member_client, member_user):
     html = _detail_html(member_client, _create_session(user=member_user))
     assert '<img :src="step.row.iconSrc" alt="" width="14" height="14" referrerpolicy="no-referrer">' in html

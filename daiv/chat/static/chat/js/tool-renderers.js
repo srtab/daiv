@@ -599,7 +599,7 @@
 
   const rowFailed = (name, seg, part) => {
     if (seg.status === "error") return true;
-    if (name === "delegate_jobs") return false;
+    if (name === "delegate_jobs") return delegateFailed(jobsResult(seg.result));
     if (JOBS_STATUS_TOOLS.has(name) && jobsFailure(jobsResult(seg.result), seg.result)) return true;
     return Boolean(part.failed) || failedResult(name, seg.result);
   };
@@ -1084,10 +1084,16 @@
     return `<div class="body-grep">${html.join("")}</div>`;
   };
 
-  // `total` counts the hits of the whole result; the view parses only the lines sliceText keeps.
-  const grepHTML = (pattern, total) => (text) => {
-    const { hits, before, after } = parseGrep(sliceText(text).lines);
+  // The lines parseGrep reads as hits: ripgrep's `file:line:`, or an indented `line:` / `line-`.
+  const GREP_HIT_LINE_RE = /^(?:[^:\s][^:\n]*:\d+:|[ \t]+\d+[:-])/gm;
+
+  // The view parses only the lines sliceText keeps; the hits past them are counted, not parsed.
+  const grepHTML = (pattern) => (text) => {
+    const sliced = sliceText(text);
+    const { hits, before, after } = parseGrep(sliced.lines);
     if (!hits.length) return textHTML(text);
+    const cut = sliced.lines.length < sliced.total;
+    const total = cut ? Math.max(hits.length, String(text).match(GREP_HIT_LINE_RE)?.length ?? 0) : hits.length;
     return notesHTML(before) + clampItems(hits, grepGroupsHTML(patternRE(pattern)), total) + notesHTML(after);
   };
 
@@ -1114,9 +1120,9 @@
   const FILE_OPS = { added: "A", modified: "M", deleted: "D", renamed: "R" };
 
   const changesHTML = (files) => {
-    const items = files
+    const records = files.filter(isRecord);
+    const items = records
       .slice(0, LINE_CAP)
-      .filter(isRecord)
       .map((file) => {
         const path = String(file.path ?? "");
         const shown = file.op === "renamed" && file.from_path ? `${file.from_path} → ${path}` : path;
@@ -1124,7 +1130,7 @@
         return `<li><span class="body-op">${op}</span><span>${escapeHtml(shown)}</span></li>`;
       });
     if (!items.length) return "";
-    return clampItems(items, (part) => `<ul class="body-files">${part.join("")}</ul>`, files.length);
+    return clampItems(items, (part) => `<ul class="body-files">${part.join("")}</ul>`, records.length);
   };
 
   // Shown as Input only when the row cut it: several lines, or longer than the row's COMMAND_CHARS.
@@ -1646,6 +1652,9 @@
 
   const jobsFailure = (data, result) => (data?.error != null ? jobsError(data, result) : "");
 
+  // As delegateBody reads it: the call errored, or started no leg.
+  const delegateFailed = (data) => data != null && (data.error != null || !recordsOf(data.started).length);
+
   const firstLine = (value) => valueText(value).trim().split("\n")[0];
 
   const branchText = (ref) => valueText(ref).trim() || t("jobs_default_branch");
@@ -1654,7 +1663,9 @@
   const sessionLink = (leg) => {
     const threadId = valueText(leg.thread_id);
     const sessionUrl = valueText(leg.session_url);
-    const href = SLUG_RE.test(threadId) ? `/dashboard/sessions/${threadId}/` : sessionUrl;
+    const path = window.TranscriptLabels.sessionPath;
+    const own = path && SLUG_RE.test(threadId) ? window.TranscriptLabels.fill(path, { thread_id: threadId }) : "";
+    const href = own || sessionUrl;
     return linkable(href, true) ? externalLink(href, t("jobs_open_session"), { local: true }) : "";
   };
 
@@ -1827,8 +1838,7 @@
       return section("body_changed", changed) + contextSection(result, textHTML);
     },
     grep: ({ args, result }) => {
-      const total = parseGrep(String(result ?? "").split("\n")).hits.length;
-      return contextSection(result, grepHTML(pickKey(args, ["pattern", "query", "regex"]), total));
+      return contextSection(result, grepHTML(pickKey(args, ["pattern", "query", "regex"])));
     },
     glob: ({ result }) => contextSection(result, pathsHTML),
     ls: ({ result }) => contextSection(result, pathsHTML),

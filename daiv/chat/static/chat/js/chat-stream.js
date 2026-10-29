@@ -685,6 +685,19 @@
       });
     },
 
+    // A streamed skill call has no Skills link; the turns fetch after its run names it.
+    applySkillLinks(turns) {
+      if (this.streaming || this.resuming || !Array.isArray(turns)) return;
+      const urls = new Map();
+      for (const turn of turns) {
+        for (const seg of turn?.segments ?? []) if (seg?.skill_url) urls.set(seg.id, seg.skill_url);
+      }
+      if (!urls.size) return;
+      for (const turn of this.turns) {
+        for (const seg of turn.segments ?? []) if (!seg.skill_url && urls.has(seg.id)) seg.skill_url = urls.get(seg.id);
+      }
+    },
+
     applySandboxEnvSelection(detail) {
       this.selectedSandboxEnvId = detail?.id || "";
       // ``daiv:env-changed`` payload is {id, name, scope}; empty id = Auto pick. An id

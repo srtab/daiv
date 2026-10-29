@@ -17,7 +17,7 @@ from uuid import UUID
 
 from django.urls import reverse
 
-from skills.models import SkillInvocation
+from skills.models import GlobalSkill, SkillInvocation
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
 from core.constants import (
@@ -361,8 +361,8 @@ def _skill_name(segment: dict[str, Any]) -> str | None:
 def mark_skill_links(turns: list[dict[str, Any]], thread_id: str | UUID) -> None:
     """Set ``skill_url`` on skill tool calls whose skill has a Skills page (built-in or global).
 
-    One query for the whole transcript; the latest invocation in the thread decides the source.
-    Sync only.
+    One query for the whole transcript, plus one when a global skill is named, which must still exist; the latest
+    invocation in the thread decides the source. Sync only.
     """
     named = [
         (segment, name)
@@ -380,7 +380,9 @@ def mark_skill_links(turns: list[dict[str, Any]], thread_id: str | UUID) -> None
     rows = SkillInvocation.objects.filter(thread_id=thread_id, name__in={n for _, n in named})
     for name, source in rows.order_by("created").values_list("name", "source"):
         latest[name] = source
-    linkable = {SkillInvocation.Source.BUILTIN, SkillInvocation.Source.GLOBAL}
+    linkable = {name for name, source in latest.items() if source == SkillInvocation.Source.BUILTIN}
+    if global_names := [name for name, source in latest.items() if source == SkillInvocation.Source.GLOBAL]:
+        linkable.update(GlobalSkill.objects.filter(name__in=global_names).values_list("name", flat=True))
     for segment, name in named:
-        if latest.get(name) in linkable:
+        if name in linkable:
             segment["skill_url"] = reverse("skills:detail", args=[name])

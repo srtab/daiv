@@ -314,6 +314,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
             "labels": transcript_labels(),
             "icons": transcript_icons(),
             "show_raw": settings.DEBUG if show_raw is None else show_raw,
+            "session_path": reverse("session_detail", args=["THREAD-ID"]).replace("THREAD-ID", "{thread_id}"),
         }
 
         if session is None:

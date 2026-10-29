@@ -43,11 +43,14 @@
 
   const artifactFor = memoBySeg(["args", "result", "status"], (seg, latest) => window.artifactItem(seg, latest));
 
+  let lastServers = null;
   let lastServersKey = null;
   let lastServersId = 0;
 
-  // By value, as a caller may rebuild the lists on every derive; a counter, so the memo never compares long icon URIs.
+  // By value, as a caller may rebuild the lists on every derive; the same lists skip stringifying their icon URIs.
   const serversIdOf = ({ mcpServers, mcpRows }) => {
+    if (lastServers?.mcpServers === mcpServers && lastServers.mcpRows === mcpRows) return lastServersId;
+    lastServers = { mcpServers, mcpRows };
     const key = JSON.stringify([mcpServers, mcpRows.map((row) => [row?.name, row?.icon, row?.read_only_tools])]);
     if (key !== lastServersKey) {
       lastServersKey = key;

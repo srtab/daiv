@@ -24,7 +24,7 @@ from sessions.transcript import (
     retry_message,
 )
 from sessions.turns import build_turns, tool_call_segment
-from skills.models import SkillInvocation
+from skills.models import GlobalSkill, SkillInvocation
 
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
@@ -697,10 +697,15 @@ def skill_segment(name, key="skill"):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("source,linked", [("builtin", True), ("global", True), ("repo", False)])
-def test_skill_calls_link_to_their_skills_page(source, linked):
+@pytest.mark.parametrize(
+    "source,uploaded,linked",
+    [("builtin", False, True), ("global", True, True), ("global", False, False), ("repo", False, False)],
+)
+def test_skill_calls_link_to_their_skills_page(source, uploaded, linked):
     thread_id = uuid.uuid4()
     SkillInvocation.objects.create(name="systematic-debugging", source=source, repo_slug="a/b", thread_id=thread_id)
+    if uploaded:
+        GlobalSkill.objects.create(name="systematic-debugging", size_bytes=1, file_count=1, checksum="c")
     turns = [{"role": "assistant", "segments": [skill_segment("systematic-debugging")]}]
 
     mark_skill_links(turns, thread_id)

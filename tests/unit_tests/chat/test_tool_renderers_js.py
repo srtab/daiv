@@ -86,6 +86,18 @@ def test_delegate_jobs_result_is_not_judged_by_row():
     assert _row("delegate_jobs", {}, result="error: nope")["failed"] is False
 
 
+@pytest.mark.parametrize(
+    "result,failed",
+    [
+        ({"error": "rate limited"}, True),
+        ({"batch_id": "b", "started": [], "failed": [{"repo_id": "a/x", "error": "denied"}]}, True),
+        ({"batch_id": "b", "started": [{"repo_id": "a/x", "thread_id": "t"}], "failed": []}, False),
+    ],
+)
+def test_delegate_jobs_row_fails_when_the_call_errored_or_started_no_leg(result, failed):
+    assert _row("delegate_jobs", {}, result=json.dumps(result))["failed"] is failed
+
+
 def test_grep_scope_goes_to_detail_and_not_badges():
     row = _row("grep", {"pattern": "foo", "path": "/workspace/repo/daiv/chat"}, result="a.py\nb.py")
     assert row["phrase"] == 'Searched for "foo"'
@@ -159,11 +171,15 @@ def test_finished_thinking_row_shows_duration_only_when_timed(extra, phrase):
     assert _row_seg({"type": "thinking", "content": "x", "status": "done", **extra})["phrase"] == phrase
 
 
+SESSION_PATH = "/dashboard/sessions/{thread_id}/"
+
+
 def _body_seg(seg: dict, *, show_raw: bool = False, servers: list[dict] | None = None, mr_url: str | None = None):
     rows = servers or []
     ctx = {"mcpServers": [row["name"] for row in rows], "mcpRows": rows, "mergeRequestUrl": mr_url}
     expr = "toolBodyHTML(vars.seg, { ...vars.ctx, latestArtifactsById: new Map() })"
-    return run_transcript(expr, {"seg": seg, "ctx": ctx}, blocks=False, labels={"show_raw": show_raw}, markdown=True)
+    labels = {"show_raw": show_raw, "session_path": SESSION_PATH}
+    return run_transcript(expr, {"seg": seg, "ctx": ctx}, blocks=False, labels=labels, markdown=True)
 
 
 def _body(
@@ -495,6 +511,12 @@ def test_grep_shows_twelve_matches_and_the_rest_under_show_all():
     assert "Show all 20 lines" in more and "a.py" in more
 
 
+def test_grep_counts_the_hits_past_what_the_view_keeps():
+    result = "a.py:\n" + "\n".join(f"  {i}: hit {i}" for i in range(1, 601)) + "\nb.py:\n  1- context"
+    html = _body("grep", {"pattern": "hit", "output_mode": "content"}, result=result)
+    assert "Show all 499 lines" in html and "and 102 more" in html
+
+
 def test_grep_keeps_the_note_that_the_search_stopped_early():
     result = "a.py:\n  1: foo\n\nNote: the search stopped early (it hit its time limit or the maximum match count)."
     assert "the search stopped early" in _body("grep", {"pattern": "foo", "output_mode": "content"}, result=result)
@@ -570,6 +592,13 @@ def test_bash_changes_map_each_operation_and_show_renames():
     result = json.dumps({"commands": [{"command": "x", "exit_code": 0, "output": "done"}], "files_changed": files})
     changed = _body("bash", {"command": "x"}, result=result).split("Loaded into context")[0]
     assert all(f">{op}<" in changed for op in "ADRM") and "old.py → new.py" in changed
+
+
+def test_bash_changes_count_only_the_entries_they_can_show():
+    files = [{"path": "a.py", "op": "added"}, "junk", None]
+    result = json.dumps({"commands": [{"command": "x", "exit_code": 0, "output": "done"}], "files_changed": files})
+    changed = _body("bash", {"command": "x"}, result=result).split("Loaded into context")[0]
+    assert "a.py" in changed and "more" not in changed
 
 
 def test_bash_text_result_is_shown_as_text():
@@ -1280,6 +1309,14 @@ def test_delegate_jobs_session_link_falls_back_to_a_safe_session_url(session_url
     assert href in html if href else "Session →" not in html
 
 
+def test_delegate_jobs_session_link_uses_session_url_without_the_page_path():
+    leg = {"repo_id": "a/x", "ref": "", "thread_id": "t-x", "session_url": "https://d/s/t-x/"}
+    args = {"goal": "g", "targets": [{"repo_id": "a/x", "prompt": "p"}]}
+    seg = tool_call("c1", "delegate_jobs", args, result=json.dumps({"batch_id": "b", "started": [leg], "failed": []}))
+    html = run_transcript("toolBodyHTML(vars.seg, {})", {"seg": seg}, blocks=False)
+    assert 'href="https://d/s/t-x/"' in html and "/dashboard/sessions/" not in html
+
+
 @pytest.mark.parametrize(
     "name,result",
     [
@@ -1444,10 +1481,6 @@ def test_write_failure_wording_fails_only_a_file_write(name):
 def test_a_delegated_job_check_that_errored_reads_failed(name):
     assert _row(name, {"batch_id": "b"}, result=json.dumps({"error": "no batch b"}))["failed"] is True
     assert _row(name, {"batch_id": "b"}, result=json.dumps({"batch_id": "b", "legs": []}))["failed"] is False
-
-
-def test_delegate_jobs_keeps_its_row_rule_for_an_error():
-    assert _row("delegate_jobs", {"goal": "g"}, result=json.dumps({"error": "too many"}))["failed"] is False
 
 
 @pytest.mark.parametrize(
