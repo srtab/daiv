@@ -131,11 +131,20 @@ class DiffToMetadataModelConfig(BaseModel):
     )
 
 
-def _drop_unset_specs(value: Any) -> Any:
-    return {name: spec for name, spec in value.items() if spec} if isinstance(value, dict) else value
+def _model_spec_entries(value: Any) -> dict[str, str]:
+    """``value``'s ``{name: model spec}`` entries; a null or empty spec is unset, and anything else that is not a string
+    is logged and dropped, so it cannot invalidate the rest of ``.daiv.yml``."""
+    if not isinstance(value, dict):
+        if value is not None:
+            logger.error("Ignoring a models map in %s that is not a mapping: %r", CONFIGURATION_FILE_NAME, value)
+        return {}
+    entries = {name: spec for name, spec in value.items() if isinstance(name, str) and isinstance(spec, str) and spec}
+    if dropped := [name for name, spec in value.items() if spec and name not in entries]:
+        logger.error("Ignoring models entries in %s without a model spec string: %s", CONFIGURATION_FILE_NAME, dropped)
+    return entries
 
 
-ModelSpecMap = Annotated[dict[str, str], BeforeValidator(_drop_unset_specs)]
+ModelSpecMap = Annotated[dict[str, str], BeforeValidator(_model_spec_entries)]
 
 
 class Models(BaseModel):

@@ -16,7 +16,7 @@ from skills.constants import SKILLS_PATH
 
 from automation.agent.base import get_model
 from automation.agent.configured_models import ConfiguredModels
-from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
+from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES, TASK_TOOL_NAME
 from automation.agent.context import RuntimeCtx
 from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
 from automation.agent.mcp.toolkits import load_mcp_tools
@@ -46,6 +46,7 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
+from automation.agent.middlewares.subagent_models import SubagentModelNoticesMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
@@ -96,7 +97,7 @@ ALWAYS_LOADED_TOOLS = frozenset({
     BASH_TOOL_NAME,
     "write_todos",
     SKILLS_TOOL_NAME,
-    "task",
+    TASK_TOOL_NAME,
     ASK_USER_QUESTION_TOOL_NAME,
     DELEGATE_JOBS_TOOL_NAME,
 })
@@ -244,40 +245,36 @@ async def create_daiv_agent(
     mcp_tools = await load_mcp_tools(mcp_servers)
 
     subagent_models = ConfiguredModels("subagent", settings.subagent_models, chain=chain, notices=notices)
-    try:
-        subagents = [
-            create_general_purpose_subagent(
-                subagent_models.for_subagent(GENERAL_PURPOSE_NAME, "", model),
-                workspace,
-                ctx,
-                working_directory,
-                web_search_enabled=settings.web_search_enabled,
-                web_fetch_enabled=settings.web_fetch_enabled,
-                fallback_models=fallback_models,
-                mcp_tools=mcp_tools,
-            ),
-            create_explore_subagent(workspace, working_directory, models=settings.explore),
-            *load_builtin_code_review_detectors(
-                model, backend, working_directory, fallback_models=fallback_models, configured_models=subagent_models
-            ),
-        ]
-
-        custom_subagents = await load_custom_subagents(
-            model=model,
-            workspace=workspace,
-            runtime=ctx,
-            sources=[f"{agent_root}/{source}" for source in SUBAGENTS_SOURCES],
-            working_directory=working_directory,
+    subagents = [
+        create_general_purpose_subagent(
+            subagent_models.for_subagent(GENERAL_PURPOSE_NAME, "", model),
+            workspace,
+            ctx,
+            working_directory,
             web_search_enabled=settings.web_search_enabled,
             web_fetch_enabled=settings.web_fetch_enabled,
             fallback_models=fallback_models,
             mcp_tools=mcp_tools,
-            configured_models=subagent_models,
-        )
-        subagents.extend(custom_subagents)
-    finally:
-        if notices is not None:
-            await notices.aflush()
+        ),
+        create_explore_subagent(workspace, working_directory, models=settings.explore),
+        *load_builtin_code_review_detectors(
+            model, backend, working_directory, fallback_models=fallback_models, configured_models=subagent_models
+        ),
+    ]
+
+    custom_subagents = await load_custom_subagents(
+        model=model,
+        workspace=workspace,
+        runtime=ctx,
+        sources=[f"{agent_root}/{source}" for source in SUBAGENTS_SOURCES],
+        working_directory=working_directory,
+        web_search_enabled=settings.web_search_enabled,
+        web_fetch_enabled=settings.web_fetch_enabled,
+        fallback_models=fallback_models,
+        mcp_tools=mcp_tools,
+        configured_models=subagent_models,
+    )
+    subagents.extend(custom_subagents)
 
     deferred_tools = deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools)
     step_budget = StepBudgetMiddleware()
@@ -307,7 +304,9 @@ async def create_daiv_agent(
             copy_global_skills=not workspace.provisions_skills,
             provisioning_errors=workspace.skills_provisioning_errors,
             configured_models=ConfiguredModels("skill", settings.skill_models, chain=chain, notices=notices),
+            run_model=model,
         ),
+        SubagentModelNoticesMiddleware(subagent_models),
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),

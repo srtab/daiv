@@ -16,7 +16,12 @@ from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE
 
 from automation.agent.base import get_model
 from automation.agent.configured_models import ConfiguredModels
-from automation.agent.constants import EXPLORE_NAME
+from automation.agent.constants import (
+    BUILTIN_SUBAGENT_NAMES,
+    CODE_REVIEW_DETECTOR_NAMES,
+    EXPLORE_NAME,
+    GENERAL_PURPOSE_NAME,
+)
 from automation.agent.middlewares.deferred_tools import (
     deferred_tools_middleware,
     direct_mcp_tools,
@@ -51,17 +56,6 @@ if TYPE_CHECKING:
     from automation.agent.workspace.base import Workspace
 
 logger = logging.getLogger("daiv.agent")
-
-GENERAL_PURPOSE_NAME = "general-purpose"
-
-CODE_REVIEW_DETECTOR_NAMES = (
-    "cr-correctness",
-    "cr-security",
-    "cr-performance",
-    "cr-structure",
-    "cr-tests",
-    "cr-custom-rules",
-)
 
 _CODE_REVIEW_SKILL_PATH = BUILTIN_SKILLS_PATH / "code-review"
 CODE_REVIEW_AGENTS_PATH = _CODE_REVIEW_SKILL_PATH / "agents"
@@ -401,10 +395,6 @@ def create_explore_subagent(workspace: Workspace, working_directory: str, *, mod
         name=EXPLORE_NAME,
     )
     return CompiledSubAgent(name=EXPLORE_NAME, description=EXPLORE_SUBAGENT_DESCRIPTION, runnable=runnable)
-
-
-# Names reserved for built-in subagents. Custom (per-repo) subagents may not use these names.
-BUILTIN_SUBAGENT_NAMES: frozenset[str] = frozenset({GENERAL_PURPOSE_NAME, EXPLORE_NAME, *CODE_REVIEW_DETECTOR_NAMES})
 
 
 def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str] | None:

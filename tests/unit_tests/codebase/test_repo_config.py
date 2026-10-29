@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from core.site_settings import site_settings
 
 
@@ -114,3 +116,25 @@ def test_an_unusable_model_spec_does_not_drop_the_rest_of_the_file(mock_repo_cli
     assert (config.default_branch, config.suggest_context_file) == ("develop", False)
     assert config.models.skills == {"code-review": "nosuchprovider:model"}
     assert config.models.subagents == {"cr-tests": "nosuchprovider:model"}
+
+
+@pytest.mark.parametrize(
+    ("models_yaml", "skills"),
+    [
+        ("  skills:\n    # code-review: fake:review\n", {}),
+        ("  skills:\n    code-review: 5\n    plan: fake:plan\n", {"plan": "fake:plan"}),
+        ("  skills: [code-review]\n", {}),
+    ],
+    ids=["no-entries", "a-non-string-spec", "not-a-mapping"],
+)
+def test_a_malformed_models_map_does_not_drop_the_rest_of_the_file(mock_repo_client, models_yaml, skills):
+    from codebase.repo_config import RepositoryConfig
+
+    mock_repo_client.get_repository_file.return_value = "suggest_context_file: false\nmodels:\n" + models_yaml
+    repo_id = "group/malformed-models-map"
+    try:
+        config = RepositoryConfig.get_config(repo_id)
+    finally:
+        RepositoryConfig.invalidate_cache(repo_id)
+
+    assert (config.suggest_context_file, config.models.skills) == (False, skills)

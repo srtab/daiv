@@ -5,6 +5,7 @@ import pytest
 
 from automation.agent.agent_settings import ModelChain
 from automation.agent.configured_models import ConfiguredModels, build_configured_model
+from automation.agent.model_spec import ModelSpecError
 from automation.agent.notices import ModelFallbackNotice
 from tests.unit_tests.automation.agent.configured_model_fakes import FakeModels, FakeNotices
 
@@ -29,7 +30,7 @@ def test_builds_the_spec_with_the_given_thinking_level():
 @pytest.mark.parametrize(
     ("error", "reason"),
     [
-        (ValueError(f"Unknown provider prefix {EXCEPTION_TEXT}"), "unknown_provider"),
+        (ModelSpecError(f"Unknown provider prefix {EXCEPTION_TEXT}"), "unknown_provider"),
         (RuntimeError(f"Provider disabled {EXCEPTION_TEXT}"), "provider_unavailable"),
     ],
     ids=["unknown-provider", "provider-unavailable"],
@@ -41,9 +42,10 @@ def test_a_spec_that_cannot_be_used_returns_its_reason_without_logging(caplog, e
     assert caplog.records == []
 
 
-def test_any_other_failure_is_init_failed_and_keeps_its_traceback_in_the_log(caplog):
+@pytest.mark.parametrize("error", [TypeError(EXCEPTION_TEXT), ValueError(EXCEPTION_TEXT)], ids=["type", "value"])
+def test_any_other_failure_is_init_failed_and_keeps_its_traceback_in_the_log(caplog, error):
     with caplog.at_level(logging.ERROR, logger="daiv.agent"):
-        assert _build(Mock(side_effect=TypeError(EXCEPTION_TEXT))) == "init_failed"
+        assert _build(Mock(side_effect=error)) == "init_failed"
 
     assert [record.exc_info is not None for record in caplog.records] == [True]
     assert "openrouter:vendor/model" in caplog.text
@@ -53,6 +55,16 @@ def _for_subagent(models: FakeModels, *, configured: dict, file_spec: str = "", 
     configured_models = ConfiguredModels("subagent", configured, chain=CHAIN, notices=notices)
     with patch("automation.agent.configured_models.get_model", models):
         return configured_models.for_subagent("cr-tests", file_spec, RUN_MODEL)
+
+
+async def _dispatched(models: FakeModels, *, configured: dict, file_spec: str = "", notices=None):
+    """``cr-tests``'s model, built and then dispatched as many times as a run might."""
+    configured_models = ConfiguredModels("subagent", configured, chain=CHAIN, notices=notices)
+    with patch("automation.agent.configured_models.get_model", models):
+        served = configured_models.for_subagent("cr-tests", file_spec, RUN_MODEL)
+    for _ in range(2):
+        await configured_models.areport_dispatch("cr-tests")
+    return served
 
 
 class TestForSubagent:
@@ -77,12 +89,12 @@ class TestForSubagent:
         [("fake:file", "fake:file"), ("", "fake:run"), ("broken:file", "fake:run")],
         ids=["file", "no-file-model", "broken-file-model"],
     )
-    def test_an_unusable_entry_falls_back_and_is_recorded(self, caplog, file_spec, served_spec):
+    async def test_an_unusable_entry_falls_back_and_is_recorded_once_dispatched(self, caplog, file_spec, served_spec):
         models = FakeModels("fake:file")
         notices = FakeNotices()
 
         with caplog.at_level(logging.ERROR, logger="daiv.agent"):
-            served = _for_subagent(
+            served = await _dispatched(
                 models, configured={"cr-tests": "nosuch:model"}, file_spec=file_spec, notices=notices
             )
 
@@ -96,8 +108,16 @@ class TestForSubagent:
                 reason="unknown_provider",
             )
         ]
-        assert notices.flushed_with == []
+        assert notices.flushed_with == [1]
         assert "nosuch:model" in caplog.text
+
+    def test_an_unusable_entry_is_not_reported_while_the_subagent_is_only_built(self, caplog):
+        notices = FakeNotices()
+
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            _for_subagent(FakeModels(), configured={"cr-tests": "nosuch:model"}, notices=notices)
+
+        assert (notices.recorded, caplog.records) == ([], [])
 
     def test_an_invalid_file_model_without_an_entry_raises(self):
         with pytest.raises(ValueError, match="broken:file"):
@@ -116,19 +136,19 @@ class TestForSubagent:
         assert models.calls == [("fake:configured", None)]
 
 
-def test_a_fallback_without_notices_is_still_logged_at_error_with_every_field(caplog):
+async def test_a_fallback_without_notices_is_still_logged_at_error_with_every_field(caplog):
     with caplog.at_level(logging.ERROR, logger="daiv.agent"):
-        _for_subagent(FakeModels(), configured={"cr-tests": "nosuch:model"})
+        await _dispatched(FakeModels(), configured={"cr-tests": "nosuch:model"})
 
     assert [record.levelno for record in caplog.records] == [logging.ERROR]
     for field in ("subagent", "cr-tests", "nosuch:model", "fake:run", "unknown_provider"):
         assert field in caplog.text
 
 
-def test_the_notice_never_carries_exception_text():
+async def test_the_notice_never_carries_exception_text():
     notices = FakeNotices()
 
-    _for_subagent(
+    await _dispatched(
         Mock(side_effect=RuntimeError(EXCEPTION_TEXT)), configured={"cr-tests": "nosuch:model"}, notices=notices
     )
 

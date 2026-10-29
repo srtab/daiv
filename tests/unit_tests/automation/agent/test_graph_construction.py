@@ -16,8 +16,10 @@ from automation.agent.graph import create_daiv_agent
 from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
+from automation.agent.middlewares.subagent_models import SubagentModelNoticesMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
+from automation.agent.model_spec import ModelSpecError
 from codebase.repo_config import RepositoryConfig
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings, site_snapshot
 
@@ -304,6 +306,7 @@ async def test_skills_run_on_the_runs_skill_map_and_report_to_its_notices():
         built.settings.agent,
         notices,
     )
+    assert built.skills_middleware.call_args.kwargs["run_model"] is built.run_model
 
 
 async def test_the_general_purpose_subagent_runs_on_its_configured_model():
@@ -313,48 +316,26 @@ async def test_the_general_purpose_subagent_runs_on_its_configured_model():
     built.configured.assert_called_once_with(model="fake:gp", thinking_level="medium")
 
 
-async def test_the_general_purpose_subagent_falls_back_to_the_runs_model_and_records_it():
+async def test_the_general_purpose_subagent_falls_back_to_the_runs_model_and_is_reported_once_dispatched():
     notices = MagicMock(aflush=AsyncMock())
     built = await _construct(
         site={"agent_subagent_models": {"general-purpose": "nosuch:model"}},
         notices=notices,
-        configured_get_model=MagicMock(side_effect=ValueError("Unknown provider prefix")),
+        configured_get_model=MagicMock(side_effect=ModelSpecError("Unknown provider prefix")),
     )
+    [dispatch] = [m for m in built.middleware if isinstance(m, SubagentModelNoticesMiddleware)]
+    handler = AsyncMock()
 
     assert built.general_purpose.call_args.args[0] is built.run_model
+    notices.record.assert_not_called()
+
+    for name, args in [("read_file", {}), ("task", {"subagent_type": "general-purpose"})]:
+        await dispatch.awrap_tool_call(SimpleNamespace(tool_call={"name": name, "args": args}), handler)
+
     [(notice,), _] = notices.record.call_args
     assert (notice.name, notice.served_model, notice.reason) == ("general-purpose", "site-model", "unknown_provider")
-
-
-async def test_notices_recorded_while_building_are_flushed_once_the_agent_is_built():
-    notices = MagicMock(aflush=AsyncMock())
-    calls = MagicMock()
-    calls.attach_mock(notices.record, "record")
-    calls.attach_mock(notices.aflush, "aflush")
-
-    await _construct(
-        site={"agent_subagent_models": {"cr-tests": "nosuch:model"}},
-        notices=notices,
-        configured_get_model=MagicMock(side_effect=ValueError("Unknown provider prefix")),
-    )
-
-    assert [name for name, _args, _kwargs in calls.mock_calls] == ["record", "aflush"]
-    assert notices.record.call_args.args[0].name == "cr-tests"
-
-
-async def test_notices_recorded_before_the_build_fails_are_still_flushed():
-    notices = MagicMock(aflush=AsyncMock())
-
-    with pytest.raises(RuntimeError, match="no subagents"):
-        await _construct(
-            site={"agent_subagent_models": {"cr-tests": "nosuch:model"}},
-            notices=notices,
-            configured_get_model=MagicMock(side_effect=ValueError("Unknown provider prefix")),
-            build_error=RuntimeError("no subagents"),
-        )
-
     notices.aflush.assert_awaited_once()
-    assert notices.record.call_args.args[0].name == "cr-tests"
+    assert handler.await_count == 2
 
 
 async def test_the_agent_is_bound_to_the_sites_recursion_limit():

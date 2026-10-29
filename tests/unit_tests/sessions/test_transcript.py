@@ -211,6 +211,15 @@ def test_the_slot_holder_shows_its_notices_before_it_checkpoints():
     assert [t["id"] for t in result] == ["run-r1", "run-notice-r1-0"]
 
 
+def test_a_finished_run_whose_turn_never_matched_still_shows_its_notices():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", message_id="h1"), _run("r2", message_id="h-missing", notices=[_fallback("cr-tests")])]
+
+    result = annotate_transcript(turns, runs)
+
+    assert [(t["id"], t.get("run_id")) for t in result[2:]] == [("run-notice-r2-0", "r2")]
+
+
 def test_a_run_without_notices_adds_none():
     turns = [_user("h1"), _assistant("a1")]
 
@@ -735,3 +744,15 @@ def test_retry_message_offers_nothing_for_a_stopped_run_or_one_a_chat_turn_canno
 
 def test_retry_message_offers_nothing_without_runs():
     assert retry_message([], []) == ""
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_restore_a_finished_runs_notices_after_its_turns():
+    run = _db_run(_db_session(), prompt="audit it", finished_at=timezone.now(), notices=[_fallback("cr-tests")])
+    make_artifact(run)
+
+    assert annotate_transcript([], [run]) == []
+    prompt, artifacts, notice = expired_run_turns([run], [])
+
+    assert (prompt["run_id"], artifacts["received_at"]) == (str(run.id), run.finished_at.isoformat())
+    assert (notice["id"], notice["role"]) == (f"run-notice-{run.id}-0", "run_notice")

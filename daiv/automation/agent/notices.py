@@ -26,7 +26,7 @@ class ModelFallbackNotice:
 
 class RunNotices(Protocol):
     def record(self, notice: ModelFallbackNotice) -> None:
-        """Buffer ``notice``; synchronous so the synchronous subagent loaders can call it."""
+        """Buffer ``notice`` until the next ``aflush``."""
         ...
 
     async def aflush(self) -> None:

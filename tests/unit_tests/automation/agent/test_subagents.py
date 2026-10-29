@@ -1564,7 +1564,8 @@ def _served_by(create_agent: Mock) -> dict:
 
 
 class TestConfiguredDetectorModels:
-    def _load(self, tmp_path, models: FakeModels, *, configured: dict, notices=None, charters: dict | None = None):
+    def _load(self, tmp_path, models: FakeModels, *, configured, charters: dict | None = None):
+        """``configured`` is the entries, or the ``ConfiguredModels`` to load with."""
         from automation.agent.subagents import load_builtin_code_review_detectors
 
         agents_dir = tmp_path / "agents"
@@ -1582,7 +1583,7 @@ class TestConfiguredDetectorModels:
                 "/workspace/repo/",
                 agents_dir=agents_dir,
                 expected_names=tuple(charters),
-                configured_models=_configured(configured, notices),
+                configured_models=configured if isinstance(configured, ConfiguredModels) else _configured(configured),
             )
         return _served_by(create_agent)
 
@@ -1593,19 +1594,16 @@ class TestConfiguredDetectorModels:
 
         assert served == {"cr-security": models.by_spec["fake:configured"], "cr-tests": RUN_MODEL}
 
-    def test_an_unusable_entry_falls_back_to_the_charter_model_and_is_recorded(self, tmp_path):
+    async def test_an_unusable_entry_falls_back_to_the_charter_model_and_is_recorded_once_dispatched(self, tmp_path):
         models = FakeModels("fake:charter")
         notices = FakeNotices()
+        configured_models = _configured({"cr-tests": "nosuch:model"}, notices)
 
-        served = self._load(
-            tmp_path,
-            models,
-            configured={"cr-tests": "nosuch:model"},
-            notices=notices,
-            charters={"cr-tests": "fake:charter"},
-        )
+        served = self._load(tmp_path, models, configured=configured_models, charters={"cr-tests": "fake:charter"})
 
         assert served == {"cr-tests": models.by_spec["fake:charter"]}
+        assert notices.recorded == []
+        await configured_models.areport_dispatch("cr-tests")
         assert [(n.name, n.served_model) for n in notices.recorded] == [("cr-tests", "fake:charter")]
 
     def test_an_invalid_charter_model_without_an_entry_still_skips_the_detector(self, tmp_path):

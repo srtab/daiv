@@ -12,7 +12,7 @@ from django.views import View
 
 from skills.services import list_global_skills
 
-from automation.agent.constants import EXPLORE_NAME
+from automation.agent.constants import BUILTIN_SUBAGENT_NAMES, EXPLORE_NAME
 from configuration.forms import (
     PROVIDERS_FORMSET_PREFIX,
     SKILL_MODELS,
@@ -176,7 +176,6 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         """The Agent group's model maps. A POST without a map's rows leaves that map as stored."""
         if self.group.key != "agent":
             return []
-        from automation.agent.subagents import BUILTIN_SUBAGENT_NAMES
 
         def section(model_map: ModelMap, **labels: Any) -> _ModelMapSection:
             if site_settings.is_env_locked(model_map.site_field):

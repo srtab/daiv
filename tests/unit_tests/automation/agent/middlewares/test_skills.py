@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from langchain.agents import create_agent
+from langchain.agents.middleware import ModelFallbackMiddleware
 from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -17,6 +18,7 @@ from automation.agent.agent_settings import ModelChain
 from automation.agent.configured_models import ConfiguredModels
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
 from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, SKILLS_SYSTEM_PROMPT, SkillsMiddleware
+from automation.agent.model_spec import ModelSpecError
 from automation.agent.synthetic import synthetic_message
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
@@ -943,6 +945,11 @@ class _ToolModel(GenericFakeChatModel):
         return self
 
 
+class _FailingModel(_ToolModel):
+    def _generate(self, *args, **kwargs):
+        raise RuntimeError("provider down")
+
+
 @tool("read_file")
 def _read_file(file_path: str) -> str:
     """Read a file."""
@@ -1029,14 +1036,20 @@ def _skills_agent(
     thinking_level: str | None = None,
     configured: dict | None = None,
     notices: FakeNotices | None = None,
+    run_profile: dict | None = None,
+    run_model_is_the_agents: bool = True,
+    fallback_replies: list[AIMessage] | None = None,
     **agent_kwargs,
 ):
+    """``run_model_is_the_agents`` off hands ``SkillsMiddleware`` another run model, so the agent's own model reads as
+    a fallback model; ``fallback_replies`` puts a fallback model behind a ``ModelFallbackMiddleware`` outside it."""
     backend = Mock()
 
     async def download(paths):
         return [Mock(error=None, content=_SKILL_BODIES[path]) for path in paths]
 
     backend.adownload_files = AsyncMock(side_effect=download)
+    run_model = _ToolModel(messages=iter(replies), profile=run_profile)
     middleware = SkillsMiddleware(
         backend=backend,
         sources=["/skills"],
@@ -1047,8 +1060,10 @@ def _skills_agent(
             chain=ModelChain(names=("fake:run",), thinking_level=thinking_level),
             notices=notices,
         ),
+        run_model=run_model if run_model_is_the_agents else _ToolModel(messages=iter([])),
     )
-    return create_agent(model=_ToolModel(messages=iter(replies)), tools=tools, middleware=[middleware], **agent_kwargs)
+    fallback = [ModelFallbackMiddleware(_ToolModel(messages=iter(fallback_replies)))] if fallback_replies else []
+    return create_agent(model=run_model, tools=tools, middleware=[*fallback, middleware], **agent_kwargs)
 
 
 async def _run_turns_with_skills_middleware(turns: list[list[dict]], tools: list) -> dict:
@@ -1219,6 +1234,56 @@ class TestSkillModel:
 
         assert result["messages"][-1].content == answer
 
+    async def test_the_window_check_counts_the_last_calls_measured_usage(self):
+        skill_model = _ToolModel(
+            messages=iter([AIMessage(content="from the skill model")]), profile={"max_input_tokens": 1000}
+        )
+        measured = {"input_tokens": 5000, "output_tokens": 10, "total_tokens": 5010}
+
+        result = await self._run(
+            [
+                AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL], usage_metadata=measured),
+                AIMessage(content="from the run model"),
+            ],
+            Mock(return_value=skill_model),
+        )
+
+        assert result["messages"][-1].content == "from the run model"
+
+    async def test_a_skill_model_with_a_window_no_smaller_than_the_runs_skips_the_check(self):
+        skill_model = _ToolModel(
+            messages=iter([AIMessage(content="from the skill model")]), profile={"max_input_tokens": 1000}
+        )
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
+            Mock(return_value=skill_model),
+            system_prompt="x" * 8000,
+            run_profile={"max_input_tokens": 1000},
+        )
+
+        assert result["messages"][-1].content == "from the skill model"
+
+    async def test_a_failing_skill_model_hands_the_call_to_the_run_model_before_its_fallbacks(self):
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
+            Mock(return_value=_FailingModel(messages=iter([]))),
+            fallback_replies=[AIMessage(content="from the fallback model")],
+        )
+
+        assert result["messages"][-1].content == "from the run model"
+
+    async def test_a_call_on_another_model_than_the_runs_keeps_it(self):
+        skill_model = _ToolModel(messages=iter([AIMessage(content="from the skill model")]))
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the agent's model")],
+            Mock(return_value=skill_model),
+            run_model_is_the_agents=False,
+        )
+
+        assert result["messages"][-1].content == "from the agent's model"
+
     async def test_a_later_skill_with_no_model_returns_the_calls_to_the_run_model(self):
         skill_model = _ToolModel(messages=iter([AIMessage(content="", tool_calls=[DEMO_SKILL_CALL])]))
 
@@ -1232,7 +1297,7 @@ class TestSkillModel:
     async def test_an_unresolvable_skill_model_leaves_the_run_model_in_place(self):
         result = await self._run(
             [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
-            Mock(side_effect=ValueError("Unknown provider prefix 'fake'")),
+            Mock(side_effect=ModelSpecError("Unknown provider prefix 'fake'")),
         )
 
         assert _tool_result(result, "call_cheap").content.endswith("Run cheap.")
@@ -1351,16 +1416,20 @@ class TestConfiguredSkillModel:
         assert result["messages"][-1].content == "from the run model"
         assert [n.served_model for n in notices.recorded] == ["fake:run"]
 
-    async def test_a_failing_file_model_without_an_entry_warns_and_records_nothing(self, caplog):
+    async def test_a_failing_file_model_without_an_entry_is_reported_at_error(self, caplog):
         notices = FakeNotices()
 
         with caplog.at_level(logging.WARNING, logger="daiv.agent"):
-            await self._run(
+            result = await self._run(
                 [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
                 FakeModels(),
                 configured={},
                 notices=notices,
             )
 
-        assert [r.levelno for r in caplog.records if "fake:cheap" in r.getMessage()] == [logging.WARNING]
-        assert notices.recorded == []
+        assert result["messages"][-1].content == "from the run model"
+        assert [r.levelno for r in caplog.records if "fake:cheap" in r.getMessage()] == [logging.ERROR]
+        assert [(n.target, n.name, n.configured_model, n.served_model, n.reason) for n in notices.recorded] == [
+            ("skill", "cheap", "fake:cheap", "fake:run", "unknown_provider")
+        ]
+        assert notices.flushed_with == [1]

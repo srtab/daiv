@@ -643,7 +643,7 @@ class ModelMapRowForm(forms.Form):
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean() or {}
-        name = cleaned["name"] = (cleaned.get("name") or "").strip()
+        name = cleaned.get("name") or ""
         model = cleaned.get("model") or ""
         if not name:
             self.add_error("name", _("Required."))

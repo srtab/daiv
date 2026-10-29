@@ -176,9 +176,9 @@ metadata:
 ---
 ```
 
-The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
+The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window, and any call the skill model fails, before the run's fallback models. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
 
-When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model. The failure is logged at ERROR, and the session view shows a notice naming the skill, the model that could not be used and the model that served. A `metadata.model` that can't be used keeps the run's model, logged as a warning.
+When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model. The failure is logged at ERROR, and the session view shows a notice naming the skill, the model that could not be used and the model that served. A `metadata.model` that can't be used keeps the run's model, logged and shown the same way.
 
 ### Writing a good description
 

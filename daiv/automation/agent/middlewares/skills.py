@@ -13,6 +13,7 @@ from langchain.tools import ToolRuntime, tool  # noqa: TC002
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.prompts import PromptTemplate
+from langgraph.errors import GraphBubbleUp
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 from skills.constants import SKILLS_CACHE_PATH, SKILLS_PATH
@@ -51,6 +52,18 @@ def _keep_read_only(old: str | None, new: str | None) -> str | None:
 def _last_write_wins(old: str | None, new: str | None) -> str | None:
     """Parallel skill calls each write the model in one step; without a reducer LangGraph rejects the second write."""
     return new
+
+
+def _estimated_request_tokens(request: ModelRequest) -> int:
+    """``request``'s size: the latest call's measured prompt and reply, which count everything the stack adds, plus the
+    messages since; an approximate count of the whole request before any call reports usage."""
+    for index in range(len(request.messages) - 1, -1, -1):
+        message = request.messages[index]
+        if isinstance(message, AIMessage) and (usage := message.usage_metadata):
+            since = count_tokens_approximately(request.messages[index + 1 :])
+            return usage["input_tokens"] + usage["output_tokens"] + since
+    counted = [request.system_message, *request.messages] if request.system_message else request.messages
+    return count_tokens_approximately(counted, tools=request.tools)
 
 
 class DAIVSkillsState(SkillsState):
@@ -125,7 +138,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     An invoked skill moves the model calls after its invocation onto a model spec (``slug:model``) until the user's next
     follow-up: its ``configured_models`` entry, else its ``metadata.model`` (see ``ConfiguredModels.askill_spec``).
     The run's model keeps any call whose request would not fit the skill model's window, since compaction is tuned to
-    the run's model, and the whole skill when neither spec can be built.
+    the run's model, and the whole skill when neither spec can be built. It also serves a call the skill model fails,
+    before ``ModelFallbackMiddleware`` (outside this one) tries the run's fallbacks, whose calls pass through.
     """
 
     state_schema = DAIVSkillsState
@@ -139,10 +153,12 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         copy_global_skills: bool = True,
         provisioning_errors: Sequence[str] = (),
         configured_models: ConfiguredModels | None = None,
+        run_model: BaseChatModel | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._models = configured_models or ConfiguredModels("skill")
+        self._run_model = run_model
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]
         self._copies_global_skills = copy_global_skills
@@ -246,21 +262,42 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelCallResult:
-        """Serve the call on the active skill's model when one is set and the request fits its window."""
-        if (
-            (spec := request.state.get("active_skill_model"))
-            and (skill_model := self._models.build(spec)) is not None
-            and self._fits_context_window(request, skill_model, spec)
-        ):
-            request = request.override(model=skill_model)
+        """Serve the call on the active skill's model when one is set and the request fits its window; the run's model
+        serves it when the skill's model fails."""
+        skill_model = self._skill_model(request)
+        if skill_model is None:
+            return await super().awrap_model_call(request, handler)
+        try:
+            return await super().awrap_model_call(request.override(model=skill_model), handler)
+        except GraphBubbleUp:
+            raise
+        except Exception:
+            # Safe to continue: the run's model serves the call, as it does with no skill model.
+            logger.warning(
+                "[%s] Skill model '%s' failed; the run's model serves this call",
+                self.name,
+                chat_model_name(skill_model),
+                exc_info=True,
+            )
         return await super().awrap_model_call(request, handler)
+
+    def _skill_model(self, request: ModelRequest) -> BaseChatModel | None:
+        """The active skill's model for ``request``, or ``None`` to keep ``request.model``: a fallback model's call, no
+        skill model, one that cannot be built, or a request that does not fit its window."""
+        if self._run_model is not None and request.model is not self._run_model:
+            return None
+        if not (spec := request.state.get("active_skill_model")) or (model := self._models.build(spec)) is None:
+            return None
+        return model if self._fits_context_window(request, model, spec) else None
 
     def _fits_context_window(self, request: ModelRequest, model: BaseChatModel, spec: str) -> bool:
         window = resolve_context_window(model, chat_model_name(model))
         if window is None:
             return True
-        counted = [request.system_message, *request.messages] if request.system_message else request.messages
-        if count_tokens_approximately(counted, tools=request.tools) <= window.tokens * COMPACTION_WINDOW_FRACTION:
+        run_window = resolve_context_window(request.model, chat_model_name(request.model))
+        if run_window is not None and window.tokens >= run_window.tokens:
+            return True
+        if _estimated_request_tokens(request) <= window.tokens * COMPACTION_WINDOW_FRACTION:
             return True
         logger.info("[%s] Context exceeds skill model '%s' window; the run's model serves this call", self.name, spec)
         return False
