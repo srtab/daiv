@@ -108,6 +108,8 @@
     return { label: "read_file", path, badges };
   };
 
+  const isUnifiedDiff = (result) => /^@@|^(---|\+\+\+)\s/m.test(String(result ?? ""));
+
   const countDiffLines = (patch) => {
     let plus = 0;
     let minus = 0;
@@ -144,8 +146,7 @@
       if (counts.minus) badges.push(badge(`−${counts.minus}`, "danger"));
     } else {
       // Fallback for legacy runs where result happens to be a unified diff.
-      const isDiff = /^@@|^(---|\+\+\+)\s/m.test(String(result ?? ""));
-      if (isDiff) {
+      if (isUnifiedDiff(result)) {
         const { plus, minus } = countDiffLines(result);
         if (plus) badges.push(badge(`+${plus}`, "success"));
         if (minus) badges.push(badge(`−${minus}`, "danger"));
@@ -545,6 +546,13 @@
 
   const toolPath = (args, argsStr) => pickKeyOrPartial(args, ["path", "file_path"], argsStr) ?? "";
 
+  const bashExit = (result) => {
+    const commands = parseBashSuccess(result)?.commands;
+    if (!commands) return { known: false, code: null };
+    const bad = commands.find((c) => c.exit_code != null && Number(c.exit_code) !== 0);
+    return { known: true, code: bad ? Number(bad.exit_code) : null };
+  };
+
   // Each builder returns { icon, key | phrase, vars?, detail?, diff?, badges?, category }.
   const ROW_BY_TOOL = {
     read_file: ({ args, result, argsStr }) => {
@@ -558,9 +566,9 @@
         category: { key: "read" },
       };
     },
-    edit_file: ({ args, argsStr }) => {
+    edit_file: ({ args, argsStr, result }) => {
       const path = toolPath(args, argsStr);
-      const counts = editDiffCounts(args);
+      const counts = editDiffCounts(args) ?? (isUnifiedDiff(result) ? countDiffLines(result) : null);
       return {
         icon: "pencil",
         key: "edit",
@@ -617,12 +625,16 @@
     },
     bash: ({ args, result, argsStr }) => {
       const command = String(pickKeyOrPartial(args, ["command", "cmd", "script"], argsStr) ?? "");
-      const exit = sigBash(args, result, argsStr).badges.find((b) => b.tone === "danger");
+      const T = window.TranscriptLabels;
+      const exit = bashExit(result);
+      let detail = "";
+      if (exit.code != null) detail = T.t("detail_exit", { code: exit.code });
+      else if (exit.known) detail = T.t("detail_passed");
       return {
         icon: "command-line",
         key: "run",
         vars: { command: truncate(command.split("\n")[0], 80) },
-        detail: exit?.text ?? "",
+        detail,
         category: { key: "run" },
       };
     },
@@ -749,11 +761,7 @@
     if (name === "delegate_jobs") return false;
     const result = seg.result;
     if (result != null && ERROR_PREFIX_RE.test(String(result).trim())) return true;
-    if (name === "bash") {
-      const commands = parseBashSuccess(result)?.commands ?? [];
-      return commands.some((c) => c.exit_code != null && Number(c.exit_code) !== 0);
-    }
-    return false;
+    return name === "bash" && bashExit(result).code != null;
   };
 
   window.toolRow = (seg, ctx) => {

@@ -58,4 +58,6 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "thinking": gettext("Thinking…"),
         "thought_for": gettext("Thought for {duration}"),
         "thought": gettext("Thought"),
+        "detail_passed": gettext("passed"),
+        "detail_exit": gettext("exit {code}"),
     }

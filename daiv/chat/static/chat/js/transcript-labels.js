@@ -52,6 +52,8 @@
     thinking: "Thinking…",
     thought_for: "Thought for {duration}",
     thought: "Thought",
+    detail_passed: "passed",
+    detail_exit: "exit {code}",
   };
 
   const loadPayload = () => {

@@ -79,7 +79,25 @@ def test_bash_non_zero_exit_is_failed():
 def test_bash_zero_exit_is_not_failed():
     result = json.dumps({"commands": [{"command": "ls", "exit_code": 0, "output": ""}], "files_changed": []})
     row = _row("bash", {"command": "ls"}, result=result)
-    assert row["failed"] is False and row["detail"] == ""
+    assert row["failed"] is False and row["detail"] == "passed"
+
+
+def test_bash_detail_and_failed_come_from_the_same_structured_result():
+    free_text = _row("bash", {"command": "x"}, result="exit 2")
+    assert (free_text["failed"], free_text["detail"]) == (False, "")
+    no_code = json.dumps({"commands": [{"command": "x", "output": ""}], "files_changed": []})
+    row = _row("bash", {"command": "x"}, result=no_code)
+    assert (row["failed"], row["detail"]) == (False, "passed")
+
+
+def test_bash_without_result_has_no_detail():
+    assert _row("bash", {"command": "x"}, status="running")["detail"] == ""
+
+
+def test_legacy_edit_with_a_unified_diff_result_still_has_counts():
+    patch = "--- a/f\n+++ b/f\n@@ -1,2 +1,3 @@\n-old\n+new\n+more\n ctx\n"
+    row = _row("edit_file", {"file_path": "/workspace/repo/f.py"}, result=patch)
+    assert row["diff"] == {"added": 2, "removed": 1}
 
 
 @pytest.mark.parametrize("result,status", [("error: boom", "done"), (None, "error")])
