@@ -1249,6 +1249,17 @@ def test_detail_renders_retry_on_the_publish_line(member_client, member_user):
     assert 'data-testid="run-retry"' in publish_row
 
 
+@pytest.mark.django_db
+def test_detail_gives_an_unpublished_line_the_run_status_semantics(member_client, member_user):
+    content = _detail_html(member_client, _create_session(user=member_user))
+
+    publish_row = content[content.index('x-for="(p, pi) in block.publish"') : content.index("block.statuses")]
+    unpublished = "p.status === 'failed' || p.status === 'not_published'"
+    assert f":role=\"{unpublished} ? 'status' : null\"" in publish_row
+    assert f":aria-live=\"{unpublished} ? 'polite' : null\"" in publish_row
+    assert f":data-run-ending=\"({unpublished}) && !block.items.length ? '' : false\"" in publish_row
+
+
 @pytest.mark.parametrize("name", ["session_detail.html", "_run_item.html"])
 def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
     import re

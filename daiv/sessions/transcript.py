@@ -183,6 +183,7 @@ def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
         return []
     run_turns = _prompt_turns(run)
     _stamp_publish(run_turns, run)
+    _stamp_run_times(run_turns, run)
     if not _red_line_replaces(marker, run):
         run_turns.append(marker)
     return [{**turn, "rebuilt": True} for turn in run_turns]
@@ -263,10 +264,10 @@ def annotate_transcript(
         # received_at targets the segment's own turns; the run_status marker is appended
         # to `result` separately below, so it never receives a timestamp.
         owned = _anchor(segments[matched]["turns"], run)
+        _stamp_publish(owned, run)
         _stamp_run_times(owned, run)
         if owned[0].get("role") == "user":
             _mark_author(owned[0], run)
-        _stamp_publish(owned, run)
         result.extend(owned)
         cursor = matched + 1
         if (marker := _marker(run)) is not None and not _red_line_replaces(marker, run):
@@ -302,8 +303,8 @@ def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[
         if run.id in by_run:
             run_turns.append({"id": f"run-{run.id}-artifacts", "role": "assistant", "segments": by_run[run.id]})
         if unshown:
-            _stamp_run_times(run_turns, run)
             _stamp_publish(run_turns, run)
+            _stamp_run_times(run_turns, run)
             _anchor(run_turns, run)
         result.extend(run_turns)
     return result

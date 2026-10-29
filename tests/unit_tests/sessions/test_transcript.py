@@ -907,6 +907,43 @@ def test_expired_run_turns_add_a_carrier_turn_for_a_result_without_artifacts():
     assert result[1]["publish"][0]["status"] == "pushed"
 
 
+@pytest.mark.django_db
+def test_expired_run_turns_time_the_carrier_turn_as_the_runs_last():
+    run = _db_run(_db_session(), prompt="do it", publish_status="pushed", finished_at=FINISHED_AT)
+
+    user, carrier = expired_run_turns([run], [])
+
+    assert "received_at" not in user
+    assert carrier["received_at"] == FINISHED_AT.isoformat()
+
+
+def test_a_rebuilt_runs_carrier_turn_is_timed_as_the_runs_last():
+    runs = [
+        _run(
+            "r1",
+            status=RunStatus.FAILED,
+            message_id="gone",
+            prompt="fix it",
+            publish_status="pushed",
+            finished_at=FINISHED_AT,
+        )
+    ]
+
+    user, carrier, marker = annotate_transcript([], runs)
+
+    assert "received_at" not in user and "received_at" not in marker
+    assert carrier["received_at"] == FINISHED_AT.isoformat()
+
+
+def test_a_checkpointed_run_without_an_assistant_turn_times_its_carrier_turn():
+    runs = [_run("r1", message_id="h1", publish_status="pushed", finished_at=FINISHED_AT)]
+
+    user, carrier = annotate_transcript([_user("h1")], runs)
+
+    assert "received_at" not in user
+    assert carrier["received_at"] == FINISHED_AT.isoformat()
+
+
 def test_retry_stays_offered_on_a_failed_publish_run_and_its_red_entry_is_the_retry_anchor():
     runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, publish_status="failed", publish_error="mr_failed")]
 
