@@ -715,10 +715,14 @@
 
   const isRecord = (value) => value != null && typeof value === "object" && !Array.isArray(value);
 
-  const valueText = (value) => {
+  const wholeValueText = (value) => {
     if (value === undefined) return "";
-    return truncate(typeof value === "string" ? value : JSON.stringify(value), VALUE_CHARS);
+    return typeof value === "string" ? value : JSON.stringify(value);
   };
+
+  const valueText = (value) => truncate(wholeValueText(value), VALUE_CHARS);
+
+  const fits = (text) => text.length <= VALUE_CHARS;
 
   const parseJSON = (text) => {
     try {
@@ -728,6 +732,7 @@
     }
   };
 
+  // `whole` is false when the view leaves something out: a column, a row or pair past the fiftieth, a cut value.
   const structured = (text) => {
     const source = String(text ?? "");
     const trimmed = source.trim();
@@ -735,16 +740,23 @@
     if (Array.isArray(parsed) && parsed.length && parsed.every(isRecord)) {
       const headers = Object.keys(parsed[0]).slice(0, TABLE_COLUMNS);
       if (headers.length) {
-        const rows = parsed.slice(0, STRUCTURED_ROWS).map((item) => headers.map((key) => valueText(item[key])));
-        return { kind: "table", headers, rows, more: parsed.length - rows.length };
+        const cells = parsed.slice(0, STRUCTURED_ROWS).map((item) => headers.map((key) => wholeValueText(item[key])));
+        const more = parsed.length - cells.length;
+        const columns = parsed.every((item) => Object.keys(item).every((key) => headers.includes(key)));
+        const whole = columns && !more && cells.flat().every(fits);
+        const rows = cells.map((row) => row.map((cell) => truncate(cell, VALUE_CHARS)));
+        return { kind: "table", headers, rows, more, whole, data: parsed };
       }
     }
     if (isRecord(parsed) && Object.keys(parsed).length) {
       const entries = Object.entries(parsed);
-      const pairs = entries.slice(0, STRUCTURED_ROWS).map(([key, value]) => [key, valueText(value)]);
-      return { kind: "fields", pairs, more: entries.length - pairs.length };
+      const values = entries.slice(0, STRUCTURED_ROWS).map(([key, value]) => [key, wholeValueText(value)]);
+      const more = entries.length - values.length;
+      const whole = !more && values.every(([, value]) => fits(value));
+      const pairs = values.map(([key, value]) => [key, truncate(value, VALUE_CHARS)]);
+      return { kind: "fields", pairs, more, whole, data: parsed };
     }
-    return { kind: "markdown", text: source };
+    return { kind: "markdown", text: source, whole: true };
   };
 
   const tableMarkup = (headers, cells, rowClasses = []) => {
@@ -764,9 +776,16 @@
 
   const fieldsHTML = (pairs) => definitionsHTML(pairs.map(([key, value]) => [key, escapeHtml(value)]));
 
+  const showAllTextHTML = (text) => {
+    const { lines, total } = sliceText(text);
+    const full = `<pre class="body-pre">${lines.map(escapeHtml).join("\n")}</pre>`;
+    return moreHTML(lines.length, full) + andMoreHTML(total - lines.length);
+  };
+
   const structuredDataHTML = (data) => {
-    if (data.kind === "table") return tableHTML(data.headers, data.rows) + andMoreHTML(data.more);
-    if (data.kind === "fields") return fieldsHTML(data.pairs) + andMoreHTML(data.more);
+    const all = data.whole ? "" : showAllTextHTML(JSON.stringify(data.data, null, 2));
+    if (data.kind === "table") return tableHTML(data.headers, data.rows) + andMoreHTML(data.more) + all;
+    if (data.kind === "fields") return fieldsHTML(data.pairs) + andMoreHTML(data.more) + all;
     return markdownHTML(data.text);
   };
 
@@ -1433,9 +1452,7 @@
     const pairs = entries.slice(0, STRUCTURED_ROWS).map(([key, value]) => [key, valueText(value)]);
     const list = fieldsHTML(pairs) + andMoreHTML(entries.length - pairs.length);
     if (pairs.length === entries.length && pairs.every(([, text]) => text.length <= VALUE_CHARS)) return list;
-    const { lines, total } = sliceText(prettyJSON(argsStr));
-    const full = `<pre class="body-pre">${lines.map(escapeHtml).join("\n")}</pre>`;
-    return list + moreHTML(lines.length, full) + andMoreHTML(total - lines.length);
+    return list + showAllTextHTML(prettyJSON(argsStr));
   };
 
   const URL_RE = /https?:\/\/[^\s<>"'`\\)\]]+/gi;

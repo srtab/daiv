@@ -1373,3 +1373,35 @@ def test_cancel_delegated_jobs_that_cancelled_nothing_has_no_changed():
 def test_cancel_delegated_jobs_error_is_what_went_wrong():
     html = _body("cancel_delegated_jobs", {"batch_id": "b"}, result=json.dumps({"error": "not a batch"}))
     assert html.startswith('<div class="body-error"') and "not a batch" in html
+
+
+def test_json_table_columns_it_cannot_fit_stay_under_show_all():
+    result = json.dumps([{f"k{i}": f"v{i}" for i in range(10)}, {"k0": "w0", "extra": "e"}])
+    visible, rest = _body("some_tool", {}, result=result).split('<details class="body-more">')
+    assert visible.count("<th>") == 6 and "v9" not in visible and "extra" not in visible
+    assert '"k9": "v9"' in rest and '"extra": "e"' in rest
+
+
+def test_json_rows_past_fifty_stay_under_show_all():
+    visible, rest = _body("some_tool", {}, result=json.dumps([{"id": i} for i in range(60)])).split(
+        '<details class="body-more">'
+    )
+    assert visible.count("<tr>") == 51 and "and 10 more" in visible and '"id": 59' in rest
+
+
+def test_json_value_cut_in_the_field_list_is_whole_under_show_all():
+    result = json.dumps({"description": "d" * 1500, "state": "opened"})
+    visible, rest = _body("some_tool", {}, result=result).split('<details class="body-more">')
+    assert "d" * 1000 + "…" in visible and "d" * 1001 not in visible and "d" * 1500 in rest
+
+
+@pytest.mark.parametrize("data", [[{"id": 1, "title": "x"}, {"id": 2}], {"state": "opened"}], ids=["table", "fields"])
+def test_json_view_that_leaves_nothing_out_has_no_show_all(data):
+    assert "Show all" not in _body("some_tool", {}, result=json.dumps(data))
+
+
+def test_json_show_all_stays_bounded():
+    data = [{"id": i, "k": "v" * 50} for i in range(5000)]
+    rest = _body("some_tool", {}, result=json.dumps(data)).split('<details class="body-more">')[1]
+    total = len(json.dumps(data, indent=2).split("\n"))
+    assert "Show all 500 lines" in rest and f"and {total - 500} more" in rest
