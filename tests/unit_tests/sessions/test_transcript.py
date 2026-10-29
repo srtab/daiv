@@ -722,3 +722,13 @@ def test_the_latest_invocation_decides_whether_a_skill_links():
     mark_skill_links(turns, thread_id)
 
     assert "skill_url" not in turns[0]["segments"][0]
+
+
+@pytest.mark.django_db
+def test_a_thread_id_that_is_not_a_uuid_gets_no_skill_links(django_assert_num_queries):
+    turns = [{"role": "assistant", "segments": [skill_segment("a-skill")]}]
+
+    with django_assert_num_queries(0):
+        mark_skill_links(turns, "not-a-uuid")
+
+    assert "skill_url" not in turns[0]["segments"][0]

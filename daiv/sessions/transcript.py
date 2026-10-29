@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import TYPE_CHECKING, Any, Literal
+from uuid import UUID
 
 from django.urls import reverse
 
@@ -278,7 +279,7 @@ def _skill_name(segment: dict[str, Any]) -> str | None:
     return name if isinstance(name, str) and name else None
 
 
-def mark_skill_links(turns: list[dict[str, Any]], thread_id) -> None:
+def mark_skill_links(turns: list[dict[str, Any]], thread_id: str | UUID) -> None:
     """Set ``skill_url`` on skill tool calls whose skill has a Skills page (built-in or global).
 
     One query for the whole transcript; the latest invocation in the thread decides the source.
@@ -291,6 +292,10 @@ def mark_skill_links(turns: list[dict[str, Any]], thread_id) -> None:
         if segment.get("type") == "tool_call" and segment.get("name") == "skill" and (name := _skill_name(segment))
     ]
     if not named:
+        return
+    try:
+        UUID(str(thread_id))
+    except ValueError:
         return
     latest: dict[str, str] = {}
     rows = SkillInvocation.objects.filter(thread_id=thread_id, name__in={n for _, n in named})
