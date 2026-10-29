@@ -34,7 +34,7 @@ KEYS = """((blocks) => {
     keys.push(item.key);
     if (item.kind === "group") item.steps.forEach((step) => keys.push(step.key));
   });
-  blocks.forEach((b) => { keys.push(b.key); add(b.items); add(b.ending); add(b.cards); });
+  blocks.forEach((b) => { keys.push(b.key); add(b.items); add(b.endingText); add(b.cards); add(b.endingTail); });
   return keys;
 })"""
 
@@ -77,7 +77,7 @@ def test_text_splits_steps_into_groups_and_a_lone_step_is_not_wrapped():
 def test_finished_run_folds_and_ending_is_everything_after_the_last_step():
     blocks = _blocks([user("u1"), asst("a1", read("c1"), read("c2"), text("answer"))])
     b = blocks[0]
-    assert b["folded"] and [i["kind"] for i in b["ending"]] == ["text"] and b["stats"]["steps"] == 2
+    assert b["folded"] and _kinds(b["endingText"]) == ["text"] and b["endingTail"] == [] and b["stats"]["steps"] == 2
 
 
 def test_live_run_does_not_fold():
@@ -86,7 +86,7 @@ def test_live_run_does_not_fold():
 
 def test_special_calls_are_not_steps():
     blocks = _blocks([user("u1"), asst("a1", read("c1"), publish("p1"), read("c2"), question("q1"))])
-    assert blocks[0]["stats"]["steps"] == 2 and blocks[0]["ending"][-1]["kind"] == "question"
+    assert blocks[0]["stats"]["steps"] == 2 and blocks[0]["endingTail"][-1]["kind"] == "question"
 
 
 def test_folded_run_hoists_its_artifacts_below_the_ending():
@@ -121,11 +121,20 @@ def test_pending_prompt_is_its_own_block_without_items():
     assert blocks[-1]["anchor"]["pending"] and blocks[-1]["items"] == []
 
 
-def test_a_publish_after_the_last_step_shows_only_in_the_cards_and_the_ending_puts_text_first():
+def test_a_publish_after_the_last_step_shows_only_in_the_cards_and_the_ending_splits_text_from_the_rest():
     b = _blocks([user("u1"), asst("a1", read("c1"), read("c2"), publish("p1"), delegate("d1"), text("done"))])[0]
-    assert _kinds(b["ending"]) == ["text", "special"]
-    assert b["ending"][1]["seg"]["id"] == "d1"
+    assert _kinds(b["endingText"]) == ["text"]
+    assert [i["seg"]["id"] for i in b["endingTail"]] == ["d1"]
     assert [len(card["items"]) for card in b["cards"]] == [1]
+
+
+def test_a_folded_runs_closing_question_comes_after_its_text_and_its_cards():
+    b = _blocks([user("u1"), asst("a1", read("c1"), publish("p1"), text("Written up."), question("q1"))])[0]
+    assert (_kinds(b["endingText"]), _kinds(b["cards"]), _kinds(b["endingTail"])) == (
+        ["text"],
+        ["artifacts"],
+        ["question"],
+    )
 
 
 def test_a_publish_inside_the_fold_is_a_published_row():
@@ -137,7 +146,7 @@ def test_live_run_keeps_its_publishes_in_place_as_one_card():
     b = _blocks([user("u1"), asst("a1", read("c1"), publish("p1"), publish("p2"), read("c2"), streaming=True)])[0]
     assert _kinds(b["items"]) == ["step", "artifacts", "step"]
     assert [it["id"] for it in b["items"][1]["items"]] == ["art-p1", "art-p2"]
-    assert b["cards"] == [] and b["ending"] == []
+    assert b["cards"] == [] and b["endingText"] == [] and b["endingTail"] == []
 
 
 def test_checking_delegated_jobs_is_a_step_and_delegating_is_not():
@@ -263,7 +272,7 @@ def test_block_key_is_the_anchor_id_with_or_without_its_run_id():
 
 def test_question_item_carries_its_turn_index():
     b = _blocks([user("u1"), asst("a1", read("c1")), asst("a2", question("q1"))])[0]
-    assert b["ending"][0]["turnIndex"] == 2
+    assert b["endingTail"][0]["turnIndex"] == 2
 
 
 def test_a_block_carries_its_anchor_and_last_turn_indices_and_its_runs_retry_link():

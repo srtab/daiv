@@ -1256,3 +1256,10 @@ def test_session_page_renders_blocks_not_turns(member_client, member_user):
 def test_session_page_marks_each_runs_ending_cards_and_step_rows(member_client, member_user):
     html = _detail_html(member_client, _create_session(user=member_user))
     assert "data-run-ending" in html and "data-run-cards" in html and 'class="step-row"' in html
+
+
+@pytest.mark.django_db
+def test_session_page_puts_a_folded_runs_closing_question_below_its_cards(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+    text, cards, tail = (html.index(f'x-for="item in block.{name}"') for name in ("endingText", "cards", "endingTail"))
+    assert text < cards < tail

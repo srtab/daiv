@@ -141,7 +141,9 @@
   };
 
   const reuseBlock = (prev, block) => {
-    const prevItems = new Map([...prev.items, ...prev.ending, ...prev.cards].map((item) => [item.key, item]));
+    const prevItems = new Map(
+      [...prev.items, ...prev.endingText, ...prev.cards, ...prev.endingTail].map((item) => [item.key, item]),
+    );
     const keep = (list, prevList) => {
       const next = list.map((item) => {
         const old = prevItems.get(item.key);
@@ -153,8 +155,9 @@
       ...block,
       stats: shallowSame(prev.stats, block.stats) ? prev.stats : block.stats,
       items: keep(block.items, prev.items),
-      ending: keep(block.ending, prev.ending),
+      endingText: keep(block.endingText, prev.endingText),
       cards: keep(block.cards, prev.cards),
+      endingTail: keep(block.endingTail, prev.endingTail),
       statuses: sameList(block.statuses, prev.statuses, identical) ? prev.statuses : block.statuses,
     };
     return shallowSame(prev, next) ? prev : next;
@@ -256,12 +259,15 @@
       }
       flush();
 
-      const ending = [];
+      // A folded run shows its closing text, then its cards, then the rest of its ending (a question, a special call).
+      const endingText = [];
+      const endingTail = [];
       const cards = [];
       if (folded) {
-        // A publish after the last step shows in the run's cards, right below the ending.
-        const rest = entries.slice(foldEnd).filter((e) => e.kind !== "publish").map(itemOf);
-        ending.push(...rest.filter((i) => i.kind === "text"), ...rest.filter((i) => i.kind !== "text"));
+        // A publish after the last step shows only in the run's cards.
+        for (const item of entries.slice(foldEnd).filter((e) => e.kind !== "publish").map(itemOf)) {
+          (item.kind === "text" ? endingText : endingTail).push(item);
+        }
         const published = [];
         const seen = new Set();
         for (const e of entries) {
@@ -288,8 +294,9 @@
         startedAt: run.anchor?.started_at || null,
         endedAt: own[own.length - 1]?.received_at || null,
         items,
-        ending,
+        endingText,
         cards,
+        endingTail,
         statuses: run.statuses,
         lastTurn: last?.turn ?? null,
         lastTurnIndex: last?.ti ?? null,

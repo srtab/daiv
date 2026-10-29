@@ -205,7 +205,7 @@ const stepFor = (id) => {
   }
   return null;
 };
-const itemsOf = (block) => [...block.items, ...block.ending, ...block.cards];
+const itemsOf = (block) => [...block.items, ...block.endingText, ...block.cards, ...block.endingTail];
 let snapshot = [];
 const out = [];
 for (const entry of script) {
@@ -231,7 +231,8 @@ for (const entry of script) {
   if (op === "jump") chat.jumpToTool(`tool-${arg}`);
   if (op === "stepRows") {
     const block = chat.runBlocks[0];
-    out.push([...block.items, ...block.ending].map((item) => [item.kind, chat.stepRowsOf(item).map((s) => s.key)]));
+    const rows = (item) => [item.kind, chat.stepRowsOf(item).map((s) => s.key)];
+    out.push([...block.items, ...block.endingText, ...block.endingTail].map(rows));
   }
   if (op === "stepOpen") {
     const step = stepFor(arg);

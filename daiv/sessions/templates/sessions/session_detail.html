@@ -259,7 +259,7 @@
 
             <template x-if="block.folded">
               <details class="run-fold"
-                       :data-run-ending="block.ending.length ? false : ''"
+                       :data-run-ending="block.endingText.length ? false : ''"
                        :open="isOpen(block.key)"
                        @toggle="setOpen(block.key, $el.open)">
                 <summary class="run-fold__summary">
@@ -287,9 +287,9 @@
               </div>
             </template>
 
-            <template x-if="block.ending.length">
+            <template x-if="block.endingText.length">
               <div class="run-items" data-run-ending>
-                <template x-for="item in block.ending" :key="item.key">
+                <template x-for="item in block.endingText" :key="item.key">
                   {% include "sessions/_run_item.html" %}
                 </template>
               </div>
@@ -298,6 +298,14 @@
             <template x-if="block.cards.length">
               <div class="run-items" data-run-cards>
                 <template x-for="item in block.cards" :key="item.key">
+                  {% include "sessions/_run_item.html" %}
+                </template>
+              </div>
+            </template>
+
+            <template x-if="block.endingTail.length">
+              <div class="run-items">
+                <template x-for="item in block.endingTail" :key="item.key">
                   {% include "sessions/_run_item.html" %}
                 </template>
               </div>
