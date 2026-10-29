@@ -1225,3 +1225,26 @@ def test_session_page_marks_each_runs_ending_and_step_rows(member_client, member
 def test_session_page_puts_a_folded_runs_closing_question_below_its_cards(member_client, member_user):
     html = _detail_html(member_client, _create_session(user=member_user))
     assert "block.endingText, block.cards, block.endingTail]" in html
+
+
+@pytest.mark.django_db
+def test_detail_has_no_publish_chip_template(member_client, member_user):
+    assert "chat-phase" not in _detail_html(member_client, _create_session(user=member_user))
+
+
+@pytest.mark.django_db
+def test_detail_renders_publish_lines_from_blocks(member_client, member_user):
+    content = _detail_html(member_client, _create_session(user=member_user))
+
+    assert 'x-for="(p, pi) in block.publish"' in content
+    assert content.index("block.endingTail") < content.index("block.publish") < content.index("block.statuses")
+
+
+@pytest.mark.django_db
+def test_detail_renders_retry_on_the_publish_line(member_client, member_user):
+    content = _detail_html(member_client, _create_session(user=member_user))
+
+    publish_row = content[content.index('x-for="(p, pi) in block.publish"') : content.index("block.statuses")]
+    assert 'x-show="canRetry(p)"' in publish_row
+    assert 'data-testid="run-retry"' in publish_row
+    assert ':id="p.id ? runAnchorId(p) : null"' in publish_row

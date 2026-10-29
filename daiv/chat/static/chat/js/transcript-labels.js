@@ -62,6 +62,7 @@
     detail_exit: "exit {code}",
     publish_committing: "Committing changes",
     publish_creating: "Creating merge request",
+    publish_files: ["{count} file", "{count} files"],
     publish_conflicts: ["Merge conflicts left in {count} file", "Merge conflicts left in {count} files"],
     publish_error_conflicts: "Merge conflicts are left in the changed files",
     publish_error_mr_pending: "Branch pushed; the merge request isn't created yet",

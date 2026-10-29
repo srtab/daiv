@@ -291,6 +291,39 @@
               </template>
             </template>
 
+            <template x-for="(p, pi) in block.publish" :key="pi">
+              <div class="publish-row" :class="{ 'publish-row--failed': p.status === 'failed' || p.status === 'not_published' }"
+                   :id="p.id ? runAnchorId(p) : null" data-testid="publish-row" :data-status="p.status">
+                <template x-if="p.status === 'opened' || p.status === 'pushed'">
+                  <span class="publish-row__main">
+                    {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
+                    <span x-show="p.status === 'opened'">{% translate "Opened" %}</span>
+                    <span x-show="p.status === 'pushed'">{% translate "Pushed to" %}</span>
+                    <a class="publish-row__link" x-show="p.merge_request_iid" :href="p.merge_request_web_url || null"
+                       target="_blank" rel="noopener" x-text="'!' + p.merge_request_iid"></a>
+                    <span class="publish-row__files" x-show="p.files_changed"
+                          x-text="TranscriptLabels.t('publish_files', { count: p.files_changed })"></span>
+                    {% include "sessions/_line_counts.html" with counts="({ added: p.lines_added, removed: p.lines_removed })" %}
+                  </span>
+                </template>
+                <template x-if="p.status === 'not_published' || p.status === 'failed'">
+                  <span class="publish-row__main">
+                    {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
+                    <span>{% translate "Not published:" %}</span>
+                    <span x-text="p.error"></span>
+                    <a class="publish-row__link" x-show="p.merge_request_iid" :href="p.merge_request_web_url || null"
+                       target="_blank" rel="noopener" x-text="'!' + p.merge_request_iid"></a>
+                  </span>
+                </template>
+                {% if session %}
+                  <button type="button" class="chat-run-status__retry" x-show="canRetry(p)" @click="submit(latest.retry)"
+                          data-testid="run-retry">
+                    {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
+                  </button>
+                {% endif %}
+              </div>
+            </template>
+
             <template x-for="status in block.statuses" :key="status.id">
               <div class="chat-run-status" :id="runAnchorId(status)" :class="`chat-run-status--${status.status}`"
                    :data-run-ending="block.items.length ? false : ''"
