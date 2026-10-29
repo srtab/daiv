@@ -10,7 +10,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import MCPError
 from mcp_types import Icon
 
-from automation.agent.mcp.client import StatusRecorder, build_client, list_tools, pick_icon_src
+from automation.agent.mcp.client import StatusRecorder, build_client, list_tools, list_tools_and_icon, pick_icon_src
 from automation.agent.mcp.errors import classify
 from tests.unit_tests.automation.agent.mcp.helpers import (
     APP_TOOLS,
@@ -363,3 +363,20 @@ class TestServerLogNotifications:
 )
 def test_pick_icon_src(icons, expected):
     assert pick_icon_src(icons) == expected
+
+
+class TestListToolsAndIcon:
+    @pytest.mark.parametrize("routes", [{}, LEGACY_SERVER], ids=["modern", "legacy"])
+    async def test_returns_the_icon_the_server_advertises(self, routes):
+        server = MCPServer(name="iconic", icons=[Icon(src="https://x.test/i.png")])
+        async with serve(server, routes=routes) as gate:
+            _, icon = await list_tools_and_icon(client_for(gate))
+
+        assert icon == "https://x.test/i.png"
+
+    async def test_no_icon_when_the_server_advertises_none(self):
+        async with serve() as gate:
+            tools, icon = await list_tools_and_icon(client_for(gate))
+
+        assert icon is None
+        assert {tool.name for tool in tools} == APP_TOOLS
