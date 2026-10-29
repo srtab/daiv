@@ -54,6 +54,7 @@ const seg = chat.turns[1].segments[0];
 const out = {};
 for (const step of script) {
   if (step.op === "toggle") chat.toggleQuestionOption(seg, step.qi, step.label);
+  if (step.op === "unpick") chat.unpickQuestionOption(seg, step.qi, step.label);
   if (step.op === "type") chat.setQuestionText(seg, step.qi, step.value);
   if (step.op === "streaming") chat.streaming = step.value;
   if (step.op === "setDraft") chat.draftMessage = step.value;
@@ -117,6 +118,20 @@ def test_answer_composes_one_line_per_question():
     ])
     assert out["s"]["highlighted"] == [["SQLite"], ["API", "UI"]]
     assert out["s"]["answer"] == "**Database** — SQLite\n**Targets** — API, UI"
+
+
+def test_clicking_the_picked_option_of_a_single_choice_question_clears_it():
+    out = _drive([
+        {"op": "toggle", "qi": 0, "label": "SQLite"},
+        {"op": "unpick", "qi": 0, "label": "PostgreSQL"},
+        {"op": "read", "key": "kept"},
+        {"op": "unpick", "qi": 0, "label": "SQLite"},
+        {"op": "toggle", "qi": 1, "label": "API"},
+        {"op": "unpick", "qi": 1, "label": "API"},
+        {"op": "read", "key": "cleared"},
+    ])
+    assert out["kept"]["highlighted"] == [["SQLite"], []]
+    assert out["cleared"]["highlighted"] == [[], ["API"]]
 
 
 def test_typed_text_wins_over_a_selection():

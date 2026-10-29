@@ -243,6 +243,7 @@ for (const entry of script) {
   if (op === "recorded") out.push(chat.openKeys[arg] ?? null);
   if (op === "currentGroupKey") out.push(chat.currentGroupKey);
   if (op === "runStatus") out.push(chat.runStatus.label);
+  if (op === "runActions") out.push(chat.runBlocks.map((block) => chat.runHasActions(block)));
   if (op === "readBlocks") chat.runBlocks.length;
   if (op === "blockCount") out.push(chat.runBlocks.length);
   if (op === "snapshot") snapshot = chat.runBlocks.map((block) => ({ block, items: itemsOf(block) }));
@@ -326,6 +327,29 @@ def test_working_line_names_the_running_step():
 def test_working_line_between_steps_and_while_publishing(segment, label):
     turns = [user("u1"), asst("a1", text("Done."), segment, streaming=True)]
     assert _drive(turns, script=["runStatus"])[-1] == label
+
+
+@pytest.mark.parametrize(
+    ("name", "label"),
+    [
+        ("publish_artifact", "Publishing…"),
+        ("delegate_jobs", "Delegating jobs…"),
+        ("ask_user_question", "Asking a question…"),
+    ],
+)
+def test_working_line_names_a_running_call_that_is_not_a_step(name, label):
+    running = tool_call("x1", name, {}, result=None, status="running")
+    turns = [user("u1"), asst("a1", text("Done."), running, streaming=True)]
+    assert _drive(turns, script=["runStatus"])[-1] == label
+
+
+def test_a_run_whose_answer_precedes_a_tool_only_turn_still_offers_its_copy_button():
+    turns = [
+        user("u1"),
+        asst("a1", text("Final answer"), bash("c1"), received_at=None),
+        asst("a2", read("c2"), received_at=None),
+    ]
+    assert _drive(turns, script=["runActions"]) == [[True]]
 
 
 def test_blocks_are_built_once_per_change_not_per_read():

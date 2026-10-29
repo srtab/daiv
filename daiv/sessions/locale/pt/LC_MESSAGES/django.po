@@ -713,14 +713,26 @@ msgstr "A abrir artefacto"
 msgid "Published"
 msgstr "Publicou"
 
+msgid "Publishing"
+msgstr "A publicar"
+
 msgid "Delegated jobs"
 msgstr "Delegou tarefas"
+
+msgid "Delegating jobs"
+msgstr "A delegar tarefas"
 
 msgid "Checked delegated jobs"
 msgstr "Consultou as tarefas delegadas"
 
+msgid "Checking delegated jobs"
+msgstr "A consultar as tarefas delegadas"
+
 msgid "Cancelled delegated jobs"
 msgstr "Cancelou as tarefas delegadas"
+
+msgid "Cancelling delegated jobs"
+msgstr "A cancelar as tarefas delegadas"
 
 msgid "Asked a question"
 msgstr "Fez uma pergunta"

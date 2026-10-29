@@ -208,7 +208,11 @@
       if (item.kind === "special" && item.seg.type === "publish_phase" && item.seg.status === "running") {
         return `${item.seg.label}…`;
       }
-      const steps = item.kind === "group" ? item.steps : item.kind === "step" ? [item.step] : [];
+      if (item.kind === "artifacts" && item.items.some((artifact) => artifact.state === "running")) {
+        return `${window.TranscriptLabels.t("live_published")}…`;
+      }
+      // A question or special call carries its own seg and row, like a step.
+      const steps = item.kind === "group" ? item.steps : item.kind === "step" ? [item.step] : item.row ? [item] : [];
       const step = steps.findLast((s) => s.seg.status === "running");
       if (step) return step.seg.type === "thinking" ? "" : `${step.row.livePhrase}…`;
     }
@@ -1311,6 +1315,13 @@
       }
     },
 
+    // Clicking the checked radio fires no change event, so its click clears the pick.
+    unpickQuestionOption(seg, qi, label) {
+      const question = parseQuestions(seg)[qi];
+      const draft = this.questionDrafts[seg.id];
+      if (question && !question.multi_select && draft?.selected[qi]?.includes(label)) draft.selected[qi] = [];
+    },
+
     questionText(seg, qi) {
       return this.questionDrafts[seg.id]?.text[qi] || "";
     },
@@ -1394,6 +1405,12 @@
     turnHasActions(turn, ti) {
       if (turn.role === "run_status") return false;
       return !!turn.sent_at || !!turn.received_at || !!turn.retry_url || this.canCopyTurn(turn, ti);
+    },
+
+    // The copy button sits on the run's closing text turn, which a later tool-only turn can leave behind.
+    runHasActions(block) {
+      if (block.retryUrl || (block.lastTurn && this.turnHasActions(block.lastTurn, block.lastTurnIndex))) return true;
+      return Boolean(block.closingTurn) && this.canCopyTurn(block.closingTurn, block.closingTurnIndex);
     },
 
     // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.

@@ -323,10 +323,10 @@
               </div>
             </template>
 
-            <template x-if="block.retryUrl || (block.lastTurn && turnHasActions(block.lastTurn, block.lastTurnIndex))">
+            <template x-if="runHasActions(block)">
               <div class="chat-turn__actions run-block__actions">
-                <template x-if="block.lastTurn">
-                  {% include "sessions/_copy_turn_button.html" with turn="block.lastTurn" ti="block.lastTurnIndex" %}
+                <template x-if="block.closingTurn">
+                  {% include "sessions/_copy_turn_button.html" with turn="block.closingTurn" ti="block.closingTurnIndex" %}
                 </template>
                 <template x-if="block.retryUrl">
                   <a class="chat-turn__action-btn" :href="block.retryUrl" title="{% translate 'Retry this run' %}">

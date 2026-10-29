@@ -1,4 +1,4 @@
-"""Behavioral tests for ``buildRunBlocks`` / ``groupLine`` in ``transcript-blocks.js``, under node."""
+"""Behavioral tests for ``buildRunBlocks`` in ``transcript-blocks.js``, under node."""
 
 from __future__ import annotations
 
@@ -44,8 +44,8 @@ def _blocks(turns, *, in_flight=False, servers=()):
 
 
 def _group_line(segs, servers=()):
-    expr = "groupLine(vars.segs.map((seg, i) => ({key: `s${i}`, seg, turn: null})), {mcpServers: vars.servers})"
-    return run_transcript(expr, {"segs": segs, "servers": list(servers)})
+    (group,) = _blocks([user("u1"), asst("a1", *segs)], in_flight=True, servers=servers)[0]["items"]
+    return group["line"]
 
 
 def _keys(turns):
@@ -225,6 +225,21 @@ def test_a_second_build_reuses_rows_of_unchanged_segments():
     assert run_transcript(expr, {"turns": turns}) == [3, 0, 1, 3]
 
 
+def test_a_second_build_reuses_artifacts_and_group_lines_of_unchanged_segments():
+    expr = """(() => {
+      let calls = 0;
+      const artifactItem = window.artifactItem;
+      window.artifactItem = (seg, latest) => { calls++; return artifactItem(seg, latest); };
+      const latest = new Map();
+      const build = () => buildRunBlocks(vars.turns, {inFlight: true, latestArtifactsById: latest, mcpServers: []});
+      const first = build();
+      const second = build();
+      return [calls, first[0].items[0].line === second[0].items[0].line];
+    })()"""
+    turns = [user("u1"), asst("a1", read("c1"), read("c2"), publish("p1"), streaming=True)]
+    assert run_transcript(expr, {"turns": turns}) == [1, True]
+
+
 def test_step_keys_survive_in_place_replay_mutation():
     expr = f"""(() => {{
       const keys = {KEYS};
@@ -250,6 +265,13 @@ def test_run_status_attaches_to_the_preceding_block_and_does_not_end_it():
     blocks = _blocks([user("u1"), asst("a1", read("c1")), status_turn("aborted"), user("u2"), asst("a2", text("ok"))])
     assert [len(b["statuses"]) for b in blocks] == [1, 0]
     assert blocks[0]["endedAt"] == ENDED and blocks[0]["lastTurn"]["id"] == "a1"
+
+
+def test_a_marker_carrying_its_own_run_id_is_its_own_block():
+    marker = {**status_turn("failed"), "run_id": "run-9", "retry_url": "/runs/new?from=9"}
+    blocks = _blocks([user("u1"), asst("a1", text("ok")), marker])
+    assert [len(b["statuses"]) for b in blocks] == [0, 1]
+    assert (blocks[1]["runId"], blocks[1]["retryUrl"]) == ("run-9", "/runs/new?from=9")
 
 
 def test_a_turn_carrying_a_new_run_id_starts_a_block_without_an_anchor():
@@ -289,6 +311,11 @@ def test_a_block_carries_its_anchor_and_last_turn_indices_and_its_runs_retry_lin
         (0, 2, "/runs/new?from=1"),
         (3, 4, None),
     ]
+
+
+def test_the_closing_turn_is_the_last_with_text_even_when_a_tool_only_turn_follows():
+    b = _blocks([user("u1"), asst("a1", text("Final answer"), bash("c1")), asst("a2", read("c2"))])[0]
+    assert (b["lastTurnIndex"], b["closingTurnIndex"]) == (2, 1)
 
 
 def test_an_anchorless_block_takes_its_retry_link_from_its_first_turn():

@@ -14,26 +14,23 @@
     return Object.hasOwn(CALL_KINDS, seg.name) ? CALL_KINDS[seg.name] : "step";
   };
 
-  const rowCache = new WeakMap();
-
-  const rowFor = (seg, servers, serversId) => {
-    const hit = rowCache.get(seg);
-    if (
-      hit &&
-      hit.args === seg.args &&
-      hit.result === seg.result &&
-      hit.status === seg.status &&
-      hit.startedAt === seg.startedAt &&
-      hit.endedAt === seg.endedAt &&
-      hit.serversId === serversId
-    ) {
-      return hit.row;
-    }
-    const row = window.toolRow(seg, { mcpServers: servers });
-    const { args, result, status, startedAt, endedAt } = seg;
-    rowCache.set(seg, { args, result, status, startedAt, endedAt, serversId, row });
-    return row;
+  // Built once per value of `fields` on the segment and per `ctxId`, so a streamed token does not rebuild every row.
+  const memoBySeg = (fields, build) => {
+    const cache = new WeakMap();
+    return (seg, ctx, ctxId) => {
+      const hit = cache.get(seg);
+      if (hit && hit.ctxId === ctxId && fields.every((f) => hit.values[f] === seg[f])) return hit.value;
+      const value = build(seg, ctx);
+      cache.set(seg, { ctxId, values: Object.fromEntries(fields.map((f) => [f, seg[f]])), value });
+      return value;
+    };
   };
+
+  const rowFor = memoBySeg(["args", "result", "status", "startedAt", "endedAt"], (seg, servers) =>
+    window.toolRow(seg, { mcpServers: servers }),
+  );
+
+  const artifactFor = memoBySeg(["args", "result", "status"], (seg, latest) => window.artifactItem(seg, latest));
 
   const serversIdOf = (servers) => servers.join("\n");
 
@@ -41,26 +38,30 @@
 
   const sentenceCase = (s) => s.charAt(0).toLocaleUpperCase() + s.slice(1);
 
+  const tally = (rows) => {
+    const counts = { failed: 0, added: 0, removed: 0 };
+    for (const row of rows) {
+      if (row.failed) counts.failed++;
+      if (row.diff) {
+        counts.added += row.diff.added;
+        counts.removed += row.diff.removed;
+      }
+    }
+    return counts;
+  };
+
   const summarize = (steps) => {
     const T = window.TranscriptLabels;
-    const line = { icon: steps[0]?.row.icon ?? "", text: "", failed: 0, added: 0, removed: 0, running: null };
+    const line = { icon: steps[0]?.row.icon ?? "", text: "", ...tally(steps.map((s) => s.row)), running: null };
     const clauses = new Map();
     let thoughtSecs = 0;
     let timed = true;
     for (const { seg, row } of steps) {
-      if (row.failed) line.failed++;
-      if (row.diff) {
-        line.added += row.diff.added;
-        line.removed += row.diff.removed;
-      }
       if (seg.status === "running") line.running = row.livePhrase;
       const { key, name } = row.category;
       if (key === "thinking") {
-        if (seg.startedAt != null && seg.endedAt != null) {
-          thoughtSecs += Math.max(1, Math.round((seg.endedAt - seg.startedAt) / 1000));
-        } else {
-          timed = false;
-        }
+        if (row.thoughtSecs == null) timed = false;
+        else thoughtSecs += row.thoughtSecs;
         continue;
       }
       const id = `${key}\n${name ?? ""}`;
@@ -81,10 +82,16 @@
     return line;
   };
 
-  window.groupLine = (steps, ctx) => {
-    const servers = ctx?.mcpServers ?? [];
-    const serversId = serversIdOf(servers);
-    return summarize(steps.map((step) => (step.row ? step : { ...step, row: rowFor(step.seg, servers, serversId) })));
+  // A row is cached per segment value, so the same rows mean the same line.
+  const lineCache = new WeakMap();
+
+  const lineFor = (steps) => {
+    const rows = steps.map((s) => s.row);
+    const hit = lineCache.get(rows[0]);
+    if (hit && sameList(hit.rows, rows, identical)) return hit.line;
+    const line = summarize(steps);
+    lineCache.set(rows[0], { rows, line });
+    return line;
   };
 
   const turnKey = (turn, ti) => turn.id || `@${ti}`;
@@ -105,7 +112,8 @@
     };
     turns.forEach((turn, ti) => {
       if (turn.role === "run_status") {
-        if (!run) open(turn, ti);
+        // A marker carries a run_id only when it is its run's first turn: a failed run without a prompt.
+        if (!run || (turn.run_id && turn.run_id !== run.runId)) open(turn, ti);
         run.statuses.push(turn);
         return;
       }
@@ -192,7 +200,7 @@
       const key = claim(run.anchor?.id || run.anchor?.run_id || `head-${turnKey(run.first, run.firstIndex)}`);
 
       const entries = [];
-      const stats = { steps: 0, failed: 0, added: 0, removed: 0 };
+      const stepRows = [];
       let lastStep = -1;
       for (const { turn, ti } of run.turns) {
         if (turn.role === "user") continue;
@@ -203,18 +211,14 @@
           const entry = { kind, seg, turn, ti, at: `${tk}-${si}`, ref: seg.id || `${tk}-${si}`, row: null };
           if (kind === "step") {
             entry.row = rowFor(seg, servers, serversId);
-            stats.steps++;
-            if (entry.row.failed) stats.failed++;
-            if (entry.row.diff) {
-              stats.added += entry.row.diff.added;
-              stats.removed += entry.row.diff.removed;
-            }
+            stepRows.push(entry.row);
             lastStep = entries.length;
           }
           entries.push(entry);
         });
       }
 
+      const stats = { steps: stepRows.length, ...tally(stepRows) };
       const live = run.turns.some(({ turn }) => turn.streaming) || (ri === runs.length - 1 && Boolean(opts.inFlight));
       const folded = !live && stats.steps > 0;
       const foldEnd = folded ? lastStep + 1 : entries.length;
@@ -235,7 +239,7 @@
         if (pending.length === 1) {
           items.push({ kind: "step", key: pending[0].key, step: pending[0] });
         } else if (pending.length > 1) {
-          items.push({ kind: "group", key: claim(`g-${pending[0].key}`), steps: pending, line: summarize(pending) });
+          items.push({ kind: "group", key: claim(`g-${pending[0].key}`), steps: pending, line: lineFor(pending) });
         }
         pending = [];
       };
@@ -246,7 +250,7 @@
         }
         flush();
         if (e.kind === "publish" && !folded) {
-          const artifact = window.artifactItem(e.seg, latest);
+          const artifact = artifactFor(e.seg, latest, latest);
           const last = items[items.length - 1];
           if (last?.kind !== "artifacts") {
             items.push({ kind: "artifacts", key: claim(`a-${e.ref}`), items: [artifact] });
@@ -272,7 +276,7 @@
         const seen = new Set();
         for (const e of entries) {
           if (e.kind !== "publish") continue;
-          const artifact = window.artifactItem(e.seg, latest);
+          const artifact = artifactFor(e.seg, latest, latest);
           if (artifact.id && seen.has(artifact.id)) continue;
           if (artifact.id) seen.add(artifact.id);
           published.push(artifact);
@@ -282,6 +286,9 @@
 
       const own = run.turns.map(({ turn }) => turn);
       const last = run.turns.findLast(({ turn }) => turn.role === "assistant");
+      const closing = run.turns.findLast(
+        ({ turn }) => turn.role === "assistant" && (turn.segments || []).some((seg) => seg.type === "text"),
+      );
       return {
         key,
         anchor: run.anchor,
@@ -300,6 +307,8 @@
         statuses: run.statuses,
         lastTurn: last?.turn ?? null,
         lastTurnIndex: last?.ti ?? null,
+        closingTurn: closing?.turn ?? null,
+        closingTurnIndex: closing?.ti ?? null,
       };
     });
     return reuse(blocks, opts.previous);

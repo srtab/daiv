@@ -9,6 +9,7 @@
              :type="q.multi_select ? 'checkbox' : 'radio'"
              :name="`${item.key}-${qi}`"
              :checked="isOptionSelected(item.seg, qi, opt.label, item.turnIndex)"
+             @click="unpickQuestionOption(item.seg, qi, opt.label)"
              @change="toggleQuestionOption(item.seg, qi, opt.label)">
       <span class="chat-question__option-text">
         <span class="chat-question__option-label" x-text="opt.label"></span>

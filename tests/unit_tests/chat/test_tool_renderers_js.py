@@ -113,17 +113,23 @@ def test_platform_rows_use_brand_names():
 
 
 @pytest.mark.parametrize(
-    "name,phrase,icon,category",
+    "name,phrase,live,icon,category",
     [
-        ("publish_artifact", "Published", "paper-clip", {"key": "artifact"}),
-        ("delegate_jobs", "Delegated jobs", "share", {"key": "jobs"}),
-        ("check_delegated_jobs", "Checked delegated jobs", "share", {"key": "jobs"}),
-        ("cancel_delegated_jobs", "Cancelled delegated jobs", "share", {"key": "jobs"}),
+        ("publish_artifact", "Published", "Publishing", "paper-clip", {"key": "artifact"}),
+        ("delegate_jobs", "Delegated jobs", "Delegating jobs", "share", {"key": "jobs"}),
+        ("check_delegated_jobs", "Checked delegated jobs", "Checking delegated jobs", "share", {"key": "jobs"}),
+        ("cancel_delegated_jobs", "Cancelled delegated jobs", "Cancelling delegated jobs", "share", {"key": "jobs"}),
     ],
 )
-def test_special_calls_have_rows(name, phrase, icon, category):
+def test_special_calls_have_rows(name, phrase, live, icon, category):
     row = _row(name, {"batch_id": "b1", "path": "/workspace/tmp/a.md"})
-    assert (row["phrase"], row["livePhrase"], row["icon"], row["category"]) == (phrase, phrase, icon, category)
+    assert (row["phrase"], row["livePhrase"], row["icon"], row["category"]) == (phrase, live, icon, category)
+
+
+def test_the_repo_root_reads_as_dot_and_drops_out_of_a_search_scope():
+    assert _row("ls", {"path": "/workspace/repo"})["phrase"] == "Listed ."
+    assert _row("grep", {"pattern": "foo", "path": "/workspace/repo", "glob": "*.py"})["detail"] == "*.py"
+    assert _row("ls", {"path": "/workspace/repository"})["phrase"] == "Listed /workspace/repository"
 
 
 def test_question_row_shows_the_question_while_it_streams_and_when_refused():

@@ -433,12 +433,7 @@
 
   // --- one compact row per tool call ---------------------------------------
 
-  const REPO_PREFIX = "/workspace/repo/";
-
-  const repoRelative = (p) => {
-    const str = String(p ?? "");
-    return str.startsWith(REPO_PREFIX) ? str.slice(REPO_PREFIX.length) : str;
-  };
+  const repoRelative = (p) => String(p ?? "").replace(/^\/workspace\/repo(?:\/|$)/, "");
 
   const repoDir = (p) => {
     const rel = repoRelative(p);
@@ -665,7 +660,7 @@
   const thinkingRow = (seg) => {
     const T = window.TranscriptLabels;
     const timed = seg.startedAt != null && seg.endedAt != null;
-    const secs = Math.max(1, Math.round((seg.endedAt - seg.startedAt) / 1000));
+    const secs = timed ? Math.max(1, Math.round((seg.endedAt - seg.startedAt) / 1000)) : null;
     const phrase = timed ? T.t("thought_for", { duration: T.duration(secs) }) : T.t("thought");
     return {
       icon: "light-bulb",
@@ -676,6 +671,7 @@
       badges: [],
       failed: false,
       category: { key: "thinking" },
+      thoughtSecs: secs,
     };
   };
 
