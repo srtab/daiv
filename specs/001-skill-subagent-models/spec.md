@@ -70,7 +70,7 @@ A repository maintainer wants their repository's code reviews on a different mod
 
 ### Edge Cases
 
-- **Unusable model**: An entry names a provider that is not configured, is disabled, or has no API key. The skill or subagent runs on the model it would use without the entry, the run continues, operators see the failure at ERROR level, and the run shows a notice in DAIV's session view. A subagent is never left out of the run because its configured model is unusable.
+- **Unusable model**: An entry names a provider that is not configured, is disabled, or has no API key. The skill or subagent runs on the model it would use with no configured entry, neither the repository's nor the site configuration's. The run continues, operators see the failure at ERROR level, and the run shows a notice in DAIV's session view. A subagent is never left out of the run because its configured model is unusable.
 - **Unknown name**: An entry names a skill or subagent that the run does not have. The entry is ignored and the run is unaffected. In site configuration, saving such an entry shows a warning when the name matches no built-in or global skill or subagent.
 - **Conversation too large**: The conversation no longer fits the configured skill model's context window. Those calls are served by the run's model, as for a model declared in the skill file.
 - **Two skills in one turn**: Two skills with different models are invoked in the same turn. The most recently applied skill model serves the calls that follow.
@@ -91,7 +91,7 @@ A repository maintainer wants their repository's code reviews on a different mod
 - **FR-007**: A configured model MUST run with the run's thinking level and fall back to the run's fallback models when it fails.
 - **FR-008**: Site configuration MUST present assignments as rows of a name and a model. The name field MUST suggest the built-in and global skills and subagents and MUST accept any typed name. The model MUST be picked from the models of the configured providers.
 - **FR-008a**: Saving site configuration MUST refuse an entry whose model spec names no configured provider and say which entry is invalid. It MUST warn about, but still save, an entry whose name matches no built-in or global skill or subagent, since that name may exist only in repositories.
-- **FR-009**: When a configured model cannot be used at run time, the skill or subagent MUST run on the model it would use without the entry, and the run MUST continue. The failure MUST be logged at ERROR level naming the entry, and the run MUST show a notice in DAIV's session view naming the skill or subagent, the model that could not be used, and the model that served instead. The run MUST NOT post anything extra to the merge or pull request.
+- **FR-009**: When a configured model cannot be used at run time, the skill or subagent MUST run on the model it would use with no configured entry, neither the repository's nor the site configuration's, and the run MUST continue. The failure MUST be logged at ERROR level naming the entry, and the run MUST show a notice in DAIV's session view naming the skill or subagent, the model that could not be used, and the model that served instead. The run MUST NOT post anything extra to the merge or pull request.
 - **FR-010**: Entries naming a skill or subagent that the run does not have MUST be ignored without affecting the run.
 - **FR-011**: When the conversation does not fit a configured skill model's context window, the run's model MUST serve that call.
 - **FR-012**: A configuration change MUST take effect for runs that start after it, without a deploy and without editing or copying any skill or subagent file.
@@ -113,7 +113,7 @@ A repository maintainer wants their repository's code reviews on a different mod
 - **SC-002**: An operator changes the model of any single code-review detector with one configuration change, without a deploy.
 - **SC-003**: A repository maintainer overrides the instance's model for one skill or subagent by adding one entry to their repository's configuration.
 - **SC-004**: In 100% of runs where a configured model is unusable, the run completes on the fallback model rather than failing, an operator can find the failure in the logs, and anyone viewing the run's session sees which entry could not be used.
-- **SC-005**: For any run, an operator can tell from the run's usage which model served the skill's calls and each subagent's calls.
+- **SC-005**: For any run, the run's usage lists every model that served a call, so an operator can confirm each configured model was used.
 
 ## Assumptions
 
