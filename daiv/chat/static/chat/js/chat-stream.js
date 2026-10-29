@@ -1209,25 +1209,6 @@
       return window.renderMarkdown ? window.renderMarkdown(raw) : "";
     },
 
-    // Recomputed on every render (no memoization), so a publish streaming mid-group
-    // joins the existing card as its args/result grow.
-    visibleSegments(turn) {
-      const out = [];
-      for (const s of turn.segments) {
-        if (s.type === "tool_call" && s.name === "write_todos") continue;
-        if (s.type === "text" && !String(s.content ?? "").trim()) continue;
-        if (s.type === "tool_call" && s.name === "publish_artifact") {
-          const last = out[out.length - 1];
-          const item = window.artifactItem(s, this.latestArtifactsById);
-          if (last?.type !== "artifact_group") out.push({ type: "artifact_group", items: [item] });
-          else if (!item.id || !last.items.some((it) => it.id === item.id)) last.items.push(item);
-        } else {
-          out.push(s);
-        }
-      }
-      return out;
-    },
-
     // ---------- Run blocks ---------------------------------------------
 
     isOpen(key, autoOpen = false) {
@@ -1363,13 +1344,6 @@
       await this.submit(SKIP_ANSWER);
     },
 
-    isTurnVisible(turn, isLast) {
-      if (turn.role === "run_status") return true;
-      if (this.visibleSegments(turn).length) return true;
-      // Keep an empty assistant turn only while it is streaming (thinking indicator).
-      return turn.role === "assistant" && isLast && turn.streaming;
-    },
-
     // ---------- Per-turn action row (copy + timestamps) ---------------
 
     // The copy payload and the gate for whether the copy button renders: the raw
@@ -1445,21 +1419,9 @@
       return Number.isFinite(d.getTime()) ? d.toLocaleString() : "";
     },
 
-    toolSignature(seg) {
-      if (!window.toolSignature) return { label: seg.name, path: "", badges: [] };
-      return window.toolSignature(seg.name, seg.args, seg.result, seg.status);
-    },
-
     toolBodyHTML(seg) {
       if (!window.toolBodyHTML) return "";
       return window.toolBodyHTML(seg.name, seg.args, seg.result, seg.status);
-    },
-
-    thinkingLabel(seg) {
-      if (seg.status === "running") return "Thinking…";
-      if (!seg.startedAt || !seg.endedAt) return "Reasoning";
-      const s = Math.max(1, Math.round((seg.endedAt - seg.startedAt) / 1000));
-      return `Thought for ${formatElapsed(s)}`;
     },
 
     // Status-letter marks, as the progress sheet's rows are specified. ``+``/``−``/``~``

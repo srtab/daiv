@@ -18,13 +18,14 @@ chat.$watch = () => {};
 chat.$nextTick = () => {};
 chat.turns = payload.turns;
 chat.init();
-const rows = (turn) => chat.visibleSegments(turn)
-  .filter((s) => s.type === "artifact_group")
+const itemsOf = (block) => [...block.items, ...block.endingText, ...block.cards, ...block.endingTail];
+const rows = (block) => itemsOf(block)
+  .filter((item) => item.kind === "artifacts")
   .map((group) => group.items.map((it) => [
     it.state, it.title, it.kindLabel ?? "", it.sizeLabel ?? "", it.url ?? "",
     it.updated ? "Updated" : it.updating ? "Updating…" : "",
   ]));
-process.stdout.write(JSON.stringify(chat.turns.map(rows)));
+process.stdout.write(JSON.stringify(chat.runBlocks.map(rows)));
 chat.destroy();
 """
 
@@ -52,7 +53,7 @@ def _rows(*assistant_turns: list[dict]) -> list:
         turns.append({"id": f"u-{i}", "role": "user", "segments": [{"type": "text", "content": "go"}]})
         turns.append({"id": f"a-{i}", "role": "assistant", "segments": segments})
     payload = {"turns": turns, "renderers": str(TOOL_RENDERERS_JS)}
-    return run_chat_stream(BODY, payload, extra_globals="surfaceGroup: { join: () => () => {} },")[1::2]
+    return run_chat_stream(BODY, payload, extra_globals="surfaceGroup: { join: () => () => {} },")
 
 
 def test_an_earlier_row_shows_what_a_later_revision_published():

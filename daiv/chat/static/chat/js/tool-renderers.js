@@ -3,9 +3,6 @@
 //   toolRow(seg, ctx?)
 //     -> one compact transcript row for a tool_call or thinking segment (see toolRow below)
 //
-//   toolSignature(name, argsStr, result, status)
-//     -> { label, path, badges: [{text, tone}] }
-//
 //   toolBodyHTML(name, argsStr, result, status)
 //     -> HTML string rendered inside <details> when the card is expanded.
 //
@@ -137,41 +134,6 @@
     return { plus, minus };
   };
 
-  const sigEditFile = (args, result, argsStr) => {
-    const path = pickKeyOrPartial(args, ["path", "file_path"], argsStr) ?? "";
-    const badges = [];
-    const counts = editDiffCounts(args);
-    if (counts) {
-      if (counts.plus) badges.push(badge(`+${counts.plus}`, "success"));
-      if (counts.minus) badges.push(badge(`−${counts.minus}`, "danger"));
-    } else {
-      // Fallback for legacy runs where result happens to be a unified diff.
-      if (isUnifiedDiff(result)) {
-        const { plus, minus } = countDiffLines(result);
-        if (plus) badges.push(badge(`+${plus}`, "success"));
-        if (minus) badges.push(badge(`−${minus}`, "danger"));
-      }
-    }
-    if (result && ERROR_PREFIX_RE.test(String(result).trim())) {
-      badges.push(badge("error", "danger"));
-    }
-    return { label: "edit_file", path, badges };
-  };
-
-  const sigWriteFile = (args, result, argsStr) => {
-    const path = pickKeyOrPartial(args, ["path", "file_path"], argsStr) ?? "";
-    const content = pickKeyOrPartial(args, ["content", "text"], argsStr) ?? "";
-    const badges = [];
-    if (content) {
-      const lines = String(content).split("\n").length;
-      badges.push(badge(`+${lines}`, "success"));
-    }
-    if (result && ERROR_PREFIX_RE.test(String(result).trim())) {
-      badges.push(badge("error", "danger"));
-    }
-    return { label: "write_file", path, badges };
-  };
-
   const sigGrep = (args, result, argsStr) => {
     const pattern = pickKeyOrPartial(args, ["pattern", "query", "regex"], argsStr) ?? "";
     const path = pickKeyOrPartial(args, ["path", "scope", "include"], argsStr) ?? "";
@@ -265,27 +227,6 @@
   window.parseBashSuccess = parseBashSuccess;
 
   const parseBashResult = (result) => parseBashSuccess(result)?.commands ?? null;
-
-  const aggregateBashExit = (entries) => {
-    if (!entries || !entries.length) return null;
-    const failed = entries.find((e) => Number(e.exit_code) !== 0);
-    return failed ? Number(failed.exit_code) : Number(entries[entries.length - 1].exit_code);
-  };
-
-  const sigBash = (args, result, argsStr) => {
-    const command = pickKeyOrPartial(args, ["command", "cmd", "script"], argsStr) ?? "";
-    const badges = [];
-    const entries = parseBashResult(result);
-    let code = aggregateBashExit(entries);
-    if (code == null) {
-      const m = String(result ?? "").match(/exit(?: code)?[:=\s]+(-?\d+)/i);
-      if (m) code = Number(m[1]);
-    }
-    if (code != null) {
-      badges.push(badge(code === 0 ? "ok" : `exit ${code}`, code === 0 ? "success" : "danger"));
-    }
-    return { label: "bash", path: `$ ${truncate(command, 120)}`, badges };
-  };
 
   const sigSkill = (args) => {
     const name = pickKey(args, ["skill", "name"]) ?? "";
@@ -446,23 +387,6 @@
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const SIGNATURE_BY_TOOL = {
-    read_file: sigReadFile,
-    write_file: sigWriteFile,
-    edit_file: sigEditFile,
-    grep: sigGrep,
-    glob: sigGlob,
-    ls: sigLs,
-    bash: sigBash,
-    skill: sigSkill,
-    task: sigTask,
-    web_fetch: sigWebFetch,
-    web_search: sigWebSearch,
-    gitlab: sigGitlab,
-    gh: sigGh,
-    fetch_artifact: sigFetchArtifact,
-  };
-
   const basename = (p) => {
     const str = String(p ?? "");
     const idx = str.lastIndexOf("/");
@@ -505,17 +429,6 @@
     }
 
     return { state: "error", title: pathArg, message: String(seg.result ?? "").trim() || "Publishing failed." };
-  };
-
-  window.toolSignature = (name, argsStr, result, _status) => {
-    const args = parseArgs(argsStr);
-    const fn = SIGNATURE_BY_TOOL[name];
-    if (fn) return fn(args, result, argsStr);
-    return {
-      label: String(name || "tool"),
-      path: truncate(String(argsStr ?? "").replace(/\s+/g, " "), 84),
-      badges: [],
-    };
   };
 
   // --- one compact row per tool call ---------------------------------------

@@ -536,6 +536,216 @@ msgstr "Ecrã inteiro"
 msgid "Open full size"
 msgstr "Abrir em tamanho real"
 
+msgid "read {count} file"
+msgstr "leu {count} ficheiro"
+
+msgid "read {count} files"
+msgstr "leu {count} ficheiros"
+
+msgid "edited {count} file"
+msgstr "editou {count} ficheiro"
+
+msgid "edited {count} files"
+msgstr "editou {count} ficheiros"
+
+msgid "created {count} file"
+msgstr "criou {count} ficheiro"
+
+msgid "created {count} files"
+msgstr "criou {count} ficheiros"
+
+msgid "ran {count} command"
+msgstr "executou {count} comando"
+
+msgid "ran {count} commands"
+msgstr "executou {count} comandos"
+
+msgid "searched for {count} pattern"
+msgstr "pesquisou {count} padrão"
+
+msgid "searched for {count} patterns"
+msgstr "pesquisou {count} padrões"
+
+msgid "listed {count} folder"
+msgstr "listou {count} pasta"
+
+msgid "listed {count} folders"
+msgstr "listou {count} pastas"
+
+msgid "ran {count} subagent"
+msgstr "executou {count} subagente"
+
+msgid "ran {count} subagents"
+msgstr "executou {count} subagentes"
+
+msgid "fetched {count} page"
+msgstr "obteve {count} página"
+
+msgid "fetched {count} pages"
+msgstr "obteve {count} páginas"
+
+msgid "searched the web"
+msgstr "pesquisou na web"
+
+msgid "used a skill"
+msgstr "usou uma competência"
+
+msgid "used {count} skills"
+msgstr "usou {count} competências"
+
+msgid "loaded tools"
+msgstr "carregou ferramentas"
+
+msgid "called {name}"
+msgstr "chamou {name}"
+
+msgid "called {name} {count} times"
+msgstr "chamou {name} {count} vezes"
+
+msgid "used {name}"
+msgstr "usou {name}"
+
+msgid "opened {count} artifact"
+msgstr "abriu {count} artefacto"
+
+msgid "opened {count} artifacts"
+msgstr "abriu {count} artefactos"
+
+msgid "checked delegated jobs"
+msgstr "consultou as tarefas delegadas"
+
+msgid "checked delegated jobs {count} times"
+msgstr "consultou as tarefas delegadas {count} vezes"
+
+msgid "used {count} tool"
+msgstr "usou {count} ferramenta"
+
+msgid "used {count} tools"
+msgstr "usou {count} ferramentas"
+
+msgid "({count} failed)"
+msgstr "({count} com falha)"
+
+msgid "Worked for {duration}"
+msgstr "Trabalhou durante {duration}"
+
+msgid "{count} step"
+msgstr "{count} passo"
+
+msgid "{count} steps"
+msgstr "{count} passos"
+
+msgid "Read {name}"
+msgstr "Leu {name}"
+
+msgid "Reading {name}"
+msgstr "A ler {name}"
+
+msgid "Edited {name}"
+msgstr "Editou {name}"
+
+msgid "Editing {name}"
+msgstr "A editar {name}"
+
+msgid "Created {name}"
+msgstr "Criou {name}"
+
+msgid "Creating {name}"
+msgstr "A criar {name}"
+
+msgid "Ran {command}"
+msgstr "Executou {command}"
+
+msgid "Running {command}"
+msgstr "A executar {command}"
+
+msgid "Searched for \"{pattern}\""
+msgstr "Pesquisou \"{pattern}\""
+
+msgid "Searching for \"{pattern}\""
+msgstr "A pesquisar \"{pattern}\""
+
+msgid "Found files matching {pattern}"
+msgstr "Encontrou ficheiros que correspondem a {pattern}"
+
+msgid "Finding files matching {pattern}"
+msgstr "A procurar ficheiros que correspondem a {pattern}"
+
+msgid "Listed {name}"
+msgstr "Listou {name}"
+
+msgid "Listing {name}"
+msgstr "A listar {name}"
+
+msgid "Subagent · {name}"
+msgstr "Subagente · {name}"
+
+msgid "Used skill"
+msgstr "Usou competência"
+
+msgid "Loading skill"
+msgstr "A carregar competência"
+
+msgid "Searched the web"
+msgstr "Pesquisou na web"
+
+msgid "Searching the web"
+msgstr "A pesquisar na web"
+
+msgid "Fetched"
+msgstr "Obteve"
+
+msgid "Fetching"
+msgstr "A obter"
+
+msgid "Loaded tools"
+msgstr "Carregou ferramentas"
+
+msgid "Loading tools"
+msgstr "A carregar ferramentas"
+
+msgid "Opened artifact"
+msgstr "Abriu artefacto"
+
+msgid "Opening artifact"
+msgstr "A abrir artefacto"
+
+msgid "Published"
+msgstr "Publicou"
+
+msgid "Delegated jobs"
+msgstr "Delegou tarefas"
+
+msgid "Checked delegated jobs"
+msgstr "Consultou as tarefas delegadas"
+
+msgid "Cancelled delegated jobs"
+msgstr "Cancelou as tarefas delegadas"
+
+msgid "{server} · {tool}"
+msgstr "{server} · {tool}"
+
+msgid "Thinking…"
+msgstr "A pensar…"
+
+msgid "Thought for {duration}"
+msgstr "Pensou durante {duration}"
+
+msgid "Thought"
+msgstr "Pensou"
+
+msgid "passed"
+msgstr "passou"
+
+msgid "exit {code}"
+msgstr "código {code}"
+
+msgid "Pick one."
+msgstr "Escolha uma."
+
+msgid "Pick any that apply."
+msgstr "Escolha as que se aplicarem."
+
 #~ msgid "Session context"
 #~ msgstr "Contexto da sessão"
 
