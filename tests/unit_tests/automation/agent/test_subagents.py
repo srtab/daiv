@@ -8,7 +8,6 @@ the compiled runnable, which keeps coverage focused on DAIV's choices about
 which middlewares to compose.
 """
 
-import logging
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, call, patch
 
@@ -1608,12 +1607,16 @@ class TestConfiguredExploreModel:
 
         assert self._served(models, configured)["model"] is models.by_spec[served]
 
-    def test_an_unusable_default_model_leaves_the_runs_model_serving(self, caplog):
-        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
-            kwargs = self._served(FakeModels(), {})
+    async def test_an_unusable_default_model_leaves_the_runs_model_serving_and_is_recorded_once_dispatched(self):
+        notices = FakeNotices()
+        configured_models = _configured({}, notices)
 
-        assert kwargs["model"] is RUN_MODEL
-        assert f"Explore's default model '{EXPLORE_MODEL_NAME}' failed to initialize" in caplog.text
+        assert self._served(FakeModels(), configured_models)["model"] is RUN_MODEL
+        assert notices.recorded == []
+        await configured_models.areport_dispatch("explore")
+        assert [(n.configured_model, n.served_model, n.reason) for n in notices.recorded] == [
+            (EXPLORE_MODEL_NAME, "fake:run", "unknown_provider")
+        ]
 
     async def test_an_unusable_entry_falls_back_to_the_default_model_and_is_recorded_once_dispatched(self):
         models = FakeModels(EXPLORE_MODEL_NAME)

@@ -58,16 +58,27 @@ class ConfiguredModels:
         built = self._build(spec)
         return None if isinstance(built, str) else built
 
-    def for_subagent(self, name: str, file_spec: str, run_model: BaseChatModel) -> BaseChatModel:
+    def for_subagent(
+        self, name: str, file_spec: str, run_model: BaseChatModel, *, run_model_serves_unusable_file_spec: bool = False
+    ) -> BaseChatModel:
         """Subagent ``name``'s model: its entry, else ``file_spec``, else ``run_model``.
 
-        With no entry, building ``file_spec`` raises as is, so the caller skips the subagent. An entry that cannot be
-        built falls back to ``file_spec``, else ``run_model``, so it never leaves the subagent out; ``areport_dispatch``
-        reports it.
+        With no entry, building ``file_spec`` raises as is, so the caller skips the subagent, unless
+        ``run_model_serves_unusable_file_spec``: then ``run_model`` serves and ``areport_dispatch`` reports it. An entry
+        that cannot be built falls back to ``file_spec``, else ``run_model``, so it never leaves the subagent out;
+        ``areport_dispatch`` reports it.
         """
         configured = self.entries.get(name)
         if not configured:
-            return get_model(model=file_spec) if file_spec else run_model
+            if not file_spec:
+                return run_model
+            if not run_model_serves_unusable_file_spec:
+                return get_model(model=file_spec)
+            built = build_configured_model(spec=file_spec, thinking_level=None)
+            if isinstance(built, str):
+                self._undispatched[name] = (file_spec, None, built)
+                return run_model
+            return built
         built = self._build(configured)
         if not isinstance(built, str):
             return built

@@ -374,14 +374,9 @@ def create_explore_subagent(
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
     configured_models = configured_models or ConfiguredModels("subagent")
-    try:
-        explore_model = configured_models.for_subagent(EXPLORE_NAME, EXPLORE_MODEL_NAME, model)
-    except Exception:
-        # Safe to continue: unlike a detector, explore is not skipped; the run's model serves it.
-        logger.exception(
-            "Explore's default model '%s' failed to initialize; the run's model serves", EXPLORE_MODEL_NAME
-        )
-        explore_model = model
+    explore_model = configured_models.for_subagent(
+        EXPLORE_NAME, EXPLORE_MODEL_NAME, model, run_model_serves_unusable_file_spec=True
+    )
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
