@@ -24,6 +24,7 @@ const sandbox = {{
   document: {{ getElementById: (id) => (id === "chat-transcript-labels" ? script : null) }},
   Diff: {DIFF_STUB},
   vars: payload.vars,
+  console,
 }};
 if (payload.markdown) sandbox.renderMarkdown = markdown;
 sandbox.window = sandbox;

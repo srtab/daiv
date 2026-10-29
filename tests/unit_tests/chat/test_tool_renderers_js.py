@@ -1481,3 +1481,11 @@ def test_web_search_answer_without_a_title_is_labelled_in_the_page_language():
     labels = {"labels": {"suggested_answer": "Resposta sugerida"}}
     html = run_transcript("toolBodyHTML(vars.seg, {})", {"seg": seg}, blocks=False, labels=labels)
     assert "Resposta sugerida" in html and "Suggested answer" not in html
+
+
+def test_a_body_builder_that_throws_falls_back_to_the_result_as_text():
+    args = {"file_path": "/workspace/repo/a.py", "old_string": "a\n", "new_string": "b\n"}
+    seg = tool_call("c1", "edit_file", args, result="Successfully replaced 1 instance(s) of the string in 'a.py'")
+    html = _body_with(seg, 'window.Diff = { diffLines() { throw new Error("boom"); } }')
+    assert html.startswith('<div class="body-section"><div class="body-label">Loaded into context')
+    assert '<pre class="body-pre">Successfully replaced 1 instance(s)' in html and "Changed" not in html
