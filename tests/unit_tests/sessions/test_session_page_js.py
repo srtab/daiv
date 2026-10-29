@@ -1,7 +1,7 @@
 """Drive ``session-page.js``'s real Alpine state under Node.
 
-The component sits inside ``chat({…})``, whose ``streaming`` / ``resuming`` / ``waiting`` flags it reads through
-Alpine's merged scope; here they are plain properties on the component, which is how that scope resolves them.
+The component sits inside ``chat({…})``, whose ``streaming`` / ``resuming`` / ``waiting`` / ``archived`` flags it uses
+through Alpine's merged scope; here they are plain properties on the component, which is how that scope resolves them.
 """
 
 from __future__ import annotations
@@ -67,11 +67,11 @@ const labels = {
 };
 const page = components.sessionPage({
   sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", storageKey: "key",
-  title: "Old", titleSuffix: "DAIV Sessions", archived, labels,
+  title: "Old", titleSuffix: "DAIV Sessions", labels,
 });
 const focused = [];
 Object.assign(page, {
-  streaming: false, resuming: false, waiting: false, csrfToken: "tok", $nextTick: (cb) => cb(),
+  streaming: false, resuming: false, waiting: false, archived, csrfToken: "tok", $nextTick: (cb) => cb(),
   $refs: {
     titleInput: { focus: () => focused.push("input"), select() {} },
     titleButton: { focus: () => focused.push("button"), getBoundingClientRect: () => ({ width: 312 }) },
@@ -95,9 +95,10 @@ for (const [action, value] of steps) {
   else if (action === "toggle") page.toggleDetails();
   else if (action === "open-details") page.openDetails("context");
   else if (action === "frame") { section.shown = value; frames.splice(0).forEach((cb) => cb()); }
+  else if (action === "offers-retry") seen.push(value.map((marker) => page.canRetry(marker)));
   else if (action === "read") {
     seen.push({
-      status: page.status, retry: page.retryUrl, watch: page.watch, open: page.detailsOpen, runs: page.runCount,
+      status: page.status, watch: page.watch, open: page.detailsOpen, runs: page.runCount,
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
       ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn,
@@ -109,8 +110,8 @@ process.stdout.write(JSON.stringify({
 }));
 """
 
-DONE = {"label": "Done", "variant": "success", "retry_url": "/runs/new/?from=r1"}
-FAILED = {"label": "Failed", "variant": "failed", "retry_url": ""}
+DONE = {"label": "Done", "variant": "success"}
+FAILED = {"label": "Failed", "variant": "failed"}
 RUNNING = {"variant": "running", "label": "Running"}
 WATCHING = {"state": "watching", "label": "Waiting for CI", "tone": "attn", "open": True}
 
@@ -136,24 +137,18 @@ def _read(**kwargs) -> dict:
 def test_it_shows_the_server_rendered_latest_run_and_watch():
     seen = _read(watch=WATCHING)
 
-    assert (seen["status"], seen["retry"], seen["watch"], seen["runs"], seen["scrolled"]) == (
-        DONE,
-        "/runs/new/?from=r1",
-        WATCHING,
-        1,
-        0,
-    )
+    assert (seen["status"], seen["watch"], seen["runs"], seen["scrolled"]) == (DONE, WATCHING, 1, 0)
 
 
 def test_a_session_without_runs_has_no_status():
     assert _read(initial=None)["status"] is None
 
 
-def test_a_streamed_or_queued_run_overrides_the_status_and_hides_retry():
+def test_a_streamed_or_queued_run_overrides_the_status():
     steps = [["set", {"streaming": True}], ["read", None], ["set", {"streaming": False, "waiting": True}]]
     seen = _run([*steps, ["read", None]])["seen"]
 
-    assert [(s["status"], s["retry"]) for s in seen] == [(RUNNING, ""), ({"variant": "queued", "label": "Queued"}, "")]
+    assert [s["status"] for s in seen] == [RUNNING, {"variant": "queued", "label": "Queued"}]
 
 
 def test_each_poll_replaces_the_latest_run_and_the_watch():
@@ -395,3 +390,27 @@ def test_a_refused_archive_restores_the_state():
     result = _run([["archive", True], ["reply", {"status": 403, "body": {}}], ["read", None]])
 
     assert result["seen"][0]["archived"] is False
+
+
+RETRYABLE = {"marker_id": "run-status-r2", "label": "Failed", "variant": "failed", "retry": "Please try again."}
+
+
+def _marker(marker_id):
+    return {"id": marker_id, "role": "run_status", "status": "failed"}
+
+
+def test_retry_is_offered_on_the_latest_runs_marker_only():
+    markers = [_marker("run-status-r2"), _marker("run-status-r1")]
+
+    assert _run([["offers-retry", markers]], initial=RETRYABLE)["seen"] == [[True, False]]
+
+
+def test_no_retry_when_the_server_offers_none():
+    assert _run([["offers-retry", [_marker("run-status-r2")]]], initial={**RETRYABLE, "retry": ""})["seen"] == [[False]]
+
+
+@pytest.mark.parametrize(
+    "step", [["set", {"streaming": True}], ["set", {"waiting": True}], ["run-ended", None], ["set", {"archived": True}]]
+)
+def test_no_retry_while_a_run_is_busy_or_settling_or_the_session_is_archived(step):
+    assert _run([step, ["offers-retry", [_marker("run-status-r2")]]], initial=RETRYABLE)["seen"] == [[False]]

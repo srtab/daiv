@@ -21,12 +21,11 @@
   --app-sidebar-width: 4rem;
   --app-content-gutter: 1.5rem;
 
-  /* Dark-only semantic token layer, declared once here — DESIGN.md's front matter mirrors
-     the values (test_design_md.py checks) and documents the roles. They live in the
-     Tailwind v4 `--color-*` namespace so the utilities generate (bg-ground,
-     text-text-muted, border-border, …). There is no light variant. The `status-*` ramp
-     is declared ahead of the surfaces that read it; Tailwind emits nothing for a token
-     no utility uses. */
+  /* Dark-only semantic token layer, declared once here — DESIGN.md mirrors the values and
+     documents the roles. They live in the Tailwind v4 `--color-*` namespace so the
+     utilities generate (bg-ground, text-text-muted, border-border, …). There is no light
+     variant. The `status-*` ramp is declared ahead of the surfaces that read it; Tailwind
+     emits nothing for a token no utility uses. */
   --color-ground: #0d1117; /* base plane */
   --color-surface-1: #10151d; /* sidebar + mobile top bar */
   --color-surface-2: #161c26; /* cards + hero */
@@ -846,10 +845,6 @@ html {
   .session-topbar__actions {
     @apply ml-auto flex shrink-0 items-center gap-2;
   }
-  .session-topbar__retry {
-    @apply inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-medium
-      text-accent transition-colors hover:bg-surface-3 hover:text-accent-bright;
-  }
   .session-topbar__icon-btn {
     @apply inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted
       transition-colors hover:bg-surface-3 hover:text-text;
@@ -1493,6 +1488,10 @@ html {
     @apply mx-auto my-2 flex max-w-2xl items-center gap-2 rounded-lg border px-3 py-2 text-sm;
   }
   .chat-run-status__icon { @apply shrink-0; }
+  .chat-run-status__retry {
+    @apply ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md border border-red-500/30 px-2 py-0.5
+      text-[12px] font-medium transition-colors hover:bg-red-500/[0.12];
+  }
   .chat-run-status--failed {
     @apply border-red-500/25 bg-red-500/[0.08] text-red-200;
   }
@@ -2403,6 +2402,11 @@ html {
     font-size: 11px;
     line-height: 1.4;
     color: #64748b;
+  }
+
+  .chat-archived {
+    @apply mx-auto flex w-fit max-w-full flex-wrap items-center gap-3 rounded-lg border border-white/10
+           bg-white/[0.04] px-3 py-1.5 text-[13px] text-gray-300;
   }
 
   .chat-composer {

@@ -4,20 +4,16 @@
 already-fetched run rows) so the segmentation logic is unit-testable without the database,
 mirroring ``sessions.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
 and messages, then zip them here; for a checkpoint with no messages, ``expired_run_turns``
-restores the prompts and queries the artifacts it no longer carries, and ``mark_retryable``
-queries the viewer's repository access.
+restores the prompts and queries the artifacts it no longer carries. ``retry_message`` reads the
+annotated turns for what the newest run's Retry sends.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urlencode
-
-from django.urls import reverse
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
-from codebase.authorization import runnable_repo_ids
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
     CANCELLED_BY_USER_MESSAGE,
@@ -26,16 +22,17 @@ from core.constants import (
 )
 from sessions.artifacts import published_tool_result
 from sessions.executor.lock import SessionActivity
-from sessions.models import RunArtifact, RunStatus, SessionOrigin
+from sessions.models import CHAT_PROMPT_MAX_LENGTH, RunArtifact, RunStatus, SessionOrigin
 from sessions.turns import tool_call_segment
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from accounts.models import User
     from sessions.models import Run
 
 logger = logging.getLogger("daiv.sessions")
+
+RETRY_MESSAGE = "The previous run failed. Please try again."
 
 # Closed value set for a run-status marker's ``status`` key: ``failed`` renders the red
 # error chip, ``aborted`` the neutral "stopped" one. Mirrored client-side in
@@ -67,7 +64,12 @@ def _marker(run: Run) -> dict[str, Any] | None:
         message = RUN_FAILED_MESSAGE
         aborted = False
     status: RunStatusValue = "aborted" if aborted else "failed"
-    return {"id": f"run-status-{run.id}", "role": "run_status", "status": status, "message": message}
+    return {"id": marker_id(run), "role": "run_status", "status": status, "message": message}
+
+
+def marker_id(run: Run) -> str:
+    """The id of ``run``'s run-status marker; the live page names the marker it pushes the same way."""
+    return f"run-status-{run.id}"
 
 
 def _stamp_prompt_times(user_turn: dict[str, Any], run: Run) -> None:
@@ -113,9 +115,9 @@ def _prompt_turns(run: Run, *, pending: bool = False) -> list[dict[str, Any]]:
 
 def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     """A run that produced no visible user turn. Recover a FAILED run's prompt as a
-    user turn plus its marker; a non-failed run with no turn contributes nothing."""
+    user turn plus its marker, flagged ``rebuilt``; a non-failed run with no turn contributes nothing."""
     marker = _marker(run)
-    return [] if marker is None else [*_prompt_turns(run), marker]
+    return [] if marker is None else [{**turn, "rebuilt": True} for turn in (*_prompt_turns(run), marker)]
 
 
 def _anchor(run_turns: list[dict[str, Any]], run: Run) -> list[dict[str, Any]]:
@@ -237,23 +239,24 @@ def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[
     return result
 
 
-def retry_urls(runs: Iterable[Run], user: User) -> dict[str, str]:
-    """SYNC ONLY: the run composer's retry link for each of ``runs`` that ``user`` may retry, keyed by run id.
+def retry_message(turns: list[dict[str, Any]], runs: list[Run]) -> str:
+    """What Retry on the newest of ``runs`` sends, for ``turns`` annotated from them; empty when it offers none.
 
-    Decided here rather than in the browser: ``runnable_repo_ids`` needs the user's synced repository access.
+    Offered on a run that failed rather than stopped, from a ``SessionOrigin.retryable`` trigger. Retry posts a chat
+    turn, which hands the agent only its own message: a run whose turns are in the checkpoint gets
+    ``RETRY_MESSAGE``, and one ``rebuilt`` from its row has its prompt sent again.
     """
-    retryable = [run for run in runs if run.is_retryable]
-    if not retryable:
-        return {}
-    allowed = runnable_repo_ids(user, {run.repo_id for run in retryable})
-    composer = reverse("runs:agent_run_new")
-    return {str(run.id): f"{composer}?{urlencode({'from': run.id})}" for run in retryable if run.repo_id in allowed}
-
-
-def mark_retryable(turns: list[dict[str, Any]], runs: list[Run], user: User) -> dict[str, str]:
-    """SYNC ONLY: stamp ``retry_url`` on the anchor turn of each run ``user`` may retry; returns ``retry_urls``."""
-    urls = retry_urls(runs, user)
-    for turn in turns:
-        if url := urls.get(turn.get("run_id", "")):
-            turn["retry_url"] = url
-    return urls
+    if not runs:
+        return ""
+    run = runs[-1]
+    marker = _marker(run)
+    if marker is None or marker["status"] != "failed" or run.trigger_type not in SessionOrigin.retryable():
+        return ""
+    run_id = str(run.id)
+    anchor = next((turn for turn in turns if turn.get("run_id") == run_id), None)
+    if anchor is not None and not anchor.get("rebuilt"):
+        return RETRY_MESSAGE
+    # A chat run's stored prompt is cut at the cap, so one that long may not be the whole message.
+    if run.trigger_type == SessionOrigin.CHAT and len(run.prompt) >= CHAT_PROMPT_MAX_LENGTH:
+        return ""
+    return run.prompt

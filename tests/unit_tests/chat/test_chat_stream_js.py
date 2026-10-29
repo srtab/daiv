@@ -1,5 +1,5 @@
-"""Behavioral tests for ``chat-stream.js`` under node: the ``#run-<id>`` link target, the progress pill's diff and
-the run blocks the transcript renders."""
+"""Behavioral tests for ``chat-stream.js`` under node: the ``#run-<id>`` link target, the progress pill's diff, the
+run blocks the transcript renders and the id a live run-status marker takes."""
 
 from __future__ import annotations
 
@@ -507,3 +507,25 @@ def test_jumping_to_a_folded_step_opens_its_fold_group_and_row():
         True,
         {"kind": "group", "open": True},
     ]
+
+
+MARKER_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat" });
+Object.assign(chat, { scrollToBottom: () => {}, _activeRun: { threadId: "t1", runId: "client-run" } });
+const turn = { id: "a-1", role: "assistant", segments: [] };
+chat.turns = [turn];
+for (const evt of payload.events) chat.dispatch(evt, turn, 0);
+process.stdout.write(JSON.stringify(chat.turns.filter((t) => t.role === "run_status").map((t) => t.id)));
+"""
+
+RUN_FAILED = {"type": "RUN_ERROR", "code": "run_failed", "message": "Run failed."}
+
+
+def test_a_live_failure_marker_takes_the_run_rows_id_once_the_server_names_it():
+    events = [{"type": "CUSTOM", "name": "run_record", "value": {"id": "pk-1"}}, RUN_FAILED]
+
+    assert run_chat_stream(MARKER_BODY, {"events": events}) == ["run-status-pk-1"]
+
+
+def test_a_failure_before_the_run_row_exists_keeps_the_pages_run_id():
+    assert run_chat_stream(MARKER_BODY, {"events": [RUN_FAILED]}) == ["run-status-client-run"]

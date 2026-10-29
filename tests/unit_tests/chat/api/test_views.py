@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ninja.testing import TestAsyncClient
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from daiv.api import api
@@ -103,13 +103,23 @@ async def test_missing_repo_id_header_returns_404(client: TestAsyncClient, authe
     await user.adelete()
 
 
-@pytest.mark.django_db
-async def test_missing_ref_header_returns_404(client: TestAsyncClient, authed):
+@pytest.mark.django_db(transaction=True)
+async def test_blank_ref_follows_up_a_session_started_without_one(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    """A job submitted without a ref leaves ``Session.ref`` blank until a run syncs it back, so the page sends
+    ``X-Ref: ""``; the follow-up runs on the default branch instead of 404ing."""
     _, raw, user = authed
+    await Session.objects.acreate(origin=SessionOrigin.API_JOB, thread_id="t-no-ref", user=user, repo_id="a/b", ref="")
+
     response = await client.post(
-        "/chat/completions", json=_run_agent_input(), headers=_auth_headers(raw, **{"X-Repo-ID": "owner/repo"})
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-no-ref"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": ""}),
     )
-    assert response.status_code == 404
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    assert patched_streamer.call_args.kwargs["ref"] == ""
     await user.adelete()
 
 
@@ -426,6 +436,24 @@ async def test_concurrent_run_returns_409(client: TestAsyncClient, authed):
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
     assert response.status_code == 409
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_on_a_session_you_archived_returns_400(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-archived", user=user, repo_id="a/b", ref="main"
+    )
+    await HiddenSession.objects.acreate(session=session, user=user)
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-archived"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "You archived this session. Unarchive it to send follow-ups."
+    assert await active_holder("t-archived") is None
     await user.adelete()
 
 

@@ -18,7 +18,14 @@ from sessions.live import relay
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import SubagentEventFilter
 from sessions.live.publisher import close_graph_stream, sanitize_run_error
-from sessions.models import Run, RunStatus, SessionOrigin, agent_result_field_updates, usage_field_updates
+from sessions.models import (
+    CHAT_PROMPT_MAX_LENGTH,
+    Run,
+    RunStatus,
+    SessionOrigin,
+    agent_result_field_updates,
+    usage_field_updates,
+)
 
 from automation.agent.usage_tracking import build_usage_summary
 from codebase.base import Scope
@@ -49,7 +56,7 @@ async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str,
         trigger_type=SessionOrigin.CHAT,
         status=RunStatus.RUNNING,
         user_id=user_id,
-        prompt=prompt[:2000],
+        prompt=prompt[:CHAT_PROMPT_MAX_LENGTH],
         message_id=message_id,
         repo_id=repo_id,
         ref=ref,
@@ -102,6 +109,7 @@ class _Turn:
     """What a chat turn has recorded so far, filled in as the executor reaches each step."""
 
     chat_run: Run | None = None
+    announced: bool = False
     usage: CostAwareUsageMetadataCallbackHandler | None = None
     response: str = ""
     error: str | None = None
@@ -174,6 +182,8 @@ class ChatRunStreamer:
                 )
             ) as stream:
                 async for event in stream:
+                    if (record := self._announce(turn)) is not None:
+                        yield record
                     yield event
             finished = True
         except _ReportedRunError:
@@ -202,9 +212,20 @@ class ChatRunStreamer:
             # The exception stays in the server log: its text can carry internal names and paths.
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)
             turn.error = RUN_FAILED_MESSAGE
+            if (record := self._announce(turn)) is not None:
+                yield record
             yield RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
         finally:
             await self._end_turn(turn, succeeded=finished)
+
+    @staticmethod
+    def _announce(turn: _Turn) -> CustomEvent | None:
+        """A ``run_record`` event naming the turn's ``Run`` row, once it exists, so the page keys this run's live
+        marker as a reload renders it; ``None`` before the row exists and after it was announced."""
+        if turn.chat_run is None or turn.announced:
+            return None
+        turn.announced = True
+        return CustomEvent(type=EventType.CUSTOM, name="run_record", value={"id": str(turn.chat_run.pk)})
 
     def _run_spec(self) -> RunSpec:
         return RunSpec(
@@ -214,7 +235,7 @@ class ChatRunStreamer:
             input_messages=(HumanMessage(content=self.prompt),),
             trigger="chat",
             lock=Held(holder_id=self.run_id),
-            ref=self.ref,
+            ref=self.ref or None,
             fallback_ref_on_missing=True,
             agent_model=self.agent_model,
             agent_thinking_level=self.agent_thinking_level,
@@ -250,9 +271,9 @@ class ChatRunStreamer:
             turn.response = outcome.response_text
 
     async def _agui_events(self, turn: _Turn, run: AgentRun) -> AsyncGenerator[BaseEvent]:
-        """The turn's AG-UI stream: a ``ref_fallback`` frame when the clone fell back, then the agent's events through
-        the subagent filter, recorded on ``turn``. Raises ``_ReportedRunError`` after the last event when one of them
-        was a RUN_ERROR."""
+        """The turn's AG-UI stream: a ``ref_fallback`` frame when the clone fell back or resolved a blank ref to the
+        default branch, then the agent's events through the subagent filter, recorded on ``turn``. Raises
+        ``_ReportedRunError`` after the last event when one of them was a RUN_ERROR."""
         turn.usage = run.usage
         if run.ctx.repo.ref != self.ref:
             yield CustomEvent(

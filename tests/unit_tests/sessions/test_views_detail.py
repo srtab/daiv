@@ -874,43 +874,15 @@ def test_detail_in_flight_run_on_an_expired_session_keeps_the_working_state(memb
     assert len(resp.context["turns"]) == 1
 
 
-@pytest.mark.django_db
-@pytest.mark.parametrize("can_run", [True, False])
-def test_detail_links_retry_only_when_the_viewer_can_run_on_the_repo(member_client, member_user, can_run):
-    from langchain_core.messages import AIMessage, HumanMessage
-
-    session = _create_session(user=member_user, origin=SessionOrigin.UI_JOB)
-    run = _create_run(session, trigger_type=SessionOrigin.UI_JOB, prompt="fix it")
-    messages = [HumanMessage(content="fix it", id="m-1"), AIMessage(content="done", id="m-2")]
-
-    with (
-        patch("sessions.views.ahydrate_thread", _hydration(messages)),
-        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
-        patch(
-            "sessions.transcript.runnable_repo_ids",
-            side_effect=lambda user, repo_ids: set(repo_ids) if can_run else set(),
-        ),
-    ):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-
-    first = resp.context["turns"][0]
-    expected = f"{reverse('runs:agent_run_new')}?from={run.id}" if can_run else None
-    assert (first["run_id"], first.get("retry_url")) == (str(run.id), expected)
-
-
 # ---------------------------------------------------------------------------
 # session top bar + details panel
 # ---------------------------------------------------------------------------
 
 
-def _get_detail(client, session: Session, *, merge_request=None, runnable: bool = True):
+def _get_detail(client, session: Session, *, merge_request=None):
     with (
         patch("sessions.views.ahydrate_thread", _null_hydration()),
         patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=merge_request)),
-        patch(
-            "sessions.transcript.runnable_repo_ids",
-            side_effect=lambda user, repo_ids: set(repo_ids) if runnable else set(),
-        ),
     ):
         return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
@@ -1052,29 +1024,6 @@ def test_detail_has_no_issue_item_for_other_origins(member_client, member_user):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("trigger_type", "prompt", "runnable", "shown"),
-    [
-        (SessionOrigin.UI_JOB, "fix it", True, True),
-        (SessionOrigin.UI_JOB, "fix it", False, False),
-        (SessionOrigin.CHAT, "fix it", True, False),
-        (SessionOrigin.UI_JOB, "", True, False),
-    ],
-)
-def test_detail_retry_is_for_a_retryable_latest_run_the_viewer_can_run(
-    member_client, member_user, trigger_type, prompt, runnable, shown
-):
-    session = _create_session(user=member_user, origin=SessionOrigin.UI_JOB)
-    run = _create_run(session, trigger_type=trigger_type, status=RunStatus.FAILED, prompt=prompt)
-
-    resp = _get_detail(member_client, session, runnable=runnable)
-
-    expected = f"{reverse('runs:agent_run_new')}?from={run.id}" if shown else ""
-    assert resp.context["header"]["latest_run"]["retry_url"] == expected
-    assert (f"?from={run.id}" in _topbar(resp)) is shown
-
-
-@pytest.mark.django_db
 def test_detail_hands_the_ci_watch_to_the_page(member_client, member_user):
     session = _create_session(user=member_user, origin=SessionOrigin.CHAT, watch_state=WatchState.FIXING)
     _create_run(session)
@@ -1091,6 +1040,18 @@ def test_detail_shows_the_ci_watch_without_a_merge_request_payload(member_client
 
     assert 'x-if="watch && !thread?.merge_request"' in _topbar(resp)
     assert 'x-show="thread?.merge_request || watch"' in _details(resp)
+
+
+@pytest.mark.django_db
+def test_detail_hands_the_latest_runs_retry_to_the_page(member_client, member_user):
+    session = _create_session(user=member_user)
+    run = _create_run(session, status=RunStatus.FAILED, prompt="fix it")
+
+    with patch("sessions.views.can_run", return_value=True):
+        resp = _get_detail(member_client, session)
+
+    latest = resp.context["header"]["latest_run"]
+    assert (latest["marker_id"], latest["retry"]) == (f"run-status-{run.id}", "fix it")
 
 
 @pytest.mark.django_db
@@ -1188,7 +1149,10 @@ def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, 
     note = topbar[: topbar.index('data-testid="session-archived"')].rsplit("<span", 1)[1]
 
     assert ("x-cloak" not in note) is archived
-    assert f"archived: {'true' if archived else 'false'}," in resp.content.decode()
+    html = resp.content.decode()
+    assert f"archived: {'true' if archived else 'false'}," in html
+    assert 'x-show="archived" data-testid="composer-archived"' in html
+    assert 'x-show="!archived"' in html
     item = topbar[topbar.index('data-testid="session-archive"') :]
     assert (">Unarchive</span>" in item) is archived
 
@@ -1200,12 +1164,9 @@ def test_detail_reads_the_watch_off_the_merge_requests_thread(member_client, mem
     session = _create_session(user=member_user)
     _create_session(thread_id=watch_thread_id(session.repo_id, 5), merge_request_iid=5, watch_state=WatchState.WATCHING)
 
-    with (
-        patch(
-            "sessions.views.ahydrate_thread",
-            AsyncMock(return_value=HydratedThread([], False, {"id": 5, "source_branch": "b"}, None, None)),
-        ),
-        patch("sessions.transcript.runnable_repo_ids", return_value=set()),
+    with patch(
+        "sessions.views.ahydrate_thread",
+        AsyncMock(return_value=HydratedThread([], False, {"id": 5, "source_branch": "b"}, None, None)),
     ):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 

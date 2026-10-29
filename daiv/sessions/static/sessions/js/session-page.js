@@ -28,7 +28,6 @@ document.addEventListener("alpine:init", () => {
     titleDraft: "",
     titleWidth: 0,
     editingTitle: false,
-    archived: Boolean(config.archived),
     ciWatchBusy: false,
     ciWatchDisabled: "",
     ciWatchError: "",
@@ -93,8 +92,8 @@ document.addEventListener("alpine:init", () => {
       if (this.waiting) return { variant: "queued", label: config.labels.queued };
       return this.latest;
     },
-    get retryUrl() {
-      return this.busy ? "" : this.latest?.retry_url || "";
+    canRetry(turn) {
+      return !this.busy && !this.archived && Boolean(this.latest?.retry) && turn.id === this.latest.marker_id;
     },
     // Holds "running" from a run's end until sessionSync's next fetch brings its settled status, rather than
     // flashing the previous run's.

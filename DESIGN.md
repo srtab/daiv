@@ -88,7 +88,6 @@ spacing:
   xl: 1.5rem
   2xl: 2rem
   page-x: 1rem
-  gutter: 1.5rem
 components:
   page:
     backgroundColor: "{colors.ground}"
@@ -232,14 +231,13 @@ counts, timestamps, repo tags — is set in Geist Mono, prose in Geist.
 The front matter above holds the tokens in Google's [design.md](https://github.com/google-labs-code/design.md)
 format, so agents and design tools can read them. `input.css`'s `@theme` owns the values:
 
-- The front matter mirrors its `--color-*` set and `--app-content-gutter`;
-  `tests/unit_tests/test_design_md.py` fails when they drift. Change a value in `input.css`
-  first, then here.
+- The front matter mirrors its `--color-*` set; `tests/unit_tests/test_design_md.py` fails
+  when they drift. Change a value in `input.css` first, then here.
 - `make lint-design` runs the official linter (version pinned in the `Makefile`) and fails on
   any error or warning, CI included.
-- `components` is where the linter measures contrast: it checks each entry's `textColor` on
-  its `backgroundColor` against WCAG AA. A new text/background pairing gets an entry, so the
-  check sees it.
+- Every text token clears WCAG AA on every surface (`test_surface_contrast.py`). The linter
+  also measures each `components` entry's `textColor` on its `backgroundColor`, so a pairing
+  outside that set, like text on a solid status fill, gets an entry.
 
 ### Stack
 
@@ -263,8 +261,7 @@ use the raw Tailwind utilities in the legacy table that follows. Prefer the toke
 
 Declared as `--color-*` / `--font-*` / `--shadow-*` in `input.css`'s `@theme`
 block, so utilities generate automatically (`bg-ground`, `text-text-muted`,
-`border-border`, `text-status-found`, `font-mono`, `shadow-overlay`, …). `input.css`
-declares each value; the front matter's `colors` mirrors them and the table below
+`border-border`, `text-status-found`, `font-mono`, `shadow-overlay`, …). The table below
 documents the roles.
 
 | Token | Role |
@@ -631,9 +628,8 @@ Defined in `input.css` under `@layer components`. Handles headings, lists, links
 - Add `aria-label` on navigation landmarks
 - Focus is global: `input.css` puts a teal `:focus-visible` ring on everything. Only
   opt out (`focus:outline-none`) when replacing it with an equally visible ring
-- Ensure color contrast: the whole text ramp and every `status-*` token are AA-legible
-  on `ground` and on every surface, hover (`surface-3`) included. Check anything else
-  by adding it to the front matter's `components`
+- Ensure color contrast: every text token is AA-legible on `ground` and on every surface,
+  hover (`surface-3`) included; any other pairing goes in the front matter's `components`
 - Use `x-cloak` to prevent flash of unstyled Alpine content
 
 ## Icon System
@@ -776,3 +772,4 @@ All pages extend `core/templates/base.html`, which provides:
 | Icon template tag       | `daiv/core/templatetags/icon_tags.py`         |
 | Repo + branch picker    | `daiv/codebase/templates/codebase/_repo_picker.html` |
 | Front matter ↔ `@theme` check | `tests/unit_tests/test_design_md.py`    |
+| Token contrast check    | `tests/unit_tests/test_surface_contrast.py`   |

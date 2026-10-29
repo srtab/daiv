@@ -276,10 +276,10 @@ def test_run_status_attaches_to_the_preceding_block_and_does_not_end_it():
 
 
 def test_a_marker_carrying_its_own_run_id_is_its_own_block():
-    marker = {**status_turn("failed"), "run_id": "run-9", "retry_url": "/runs/new?from=9"}
+    marker = {**status_turn("failed"), "run_id": "run-9"}
     blocks = _blocks([user("u1"), asst("a1", text("ok")), marker])
     assert [len(b["statuses"]) for b in blocks] == [0, 1]
-    assert (blocks[1]["runId"], blocks[1]["retryUrl"]) == ("run-9", "/runs/new?from=9")
+    assert blocks[1]["runId"] == "run-9"
 
 
 def test_a_turn_carrying_a_new_run_id_starts_a_block_without_an_anchor():
@@ -311,11 +311,9 @@ def test_question_item_carries_its_turn_index():
     assert b["endingTail"][0]["turnIndex"] == 2
 
 
-def test_a_block_carries_its_last_turn_and_its_runs_retry_link():
+def test_a_block_carries_its_last_turn():
     turns = [user("u1"), asst("a1", read("c1")), asst("a2", text("ok")), user("u2"), asst("a3", text("hi"))]
-    turns[0]["retry_url"] = "/runs/new?from=1"
-    blocks = _blocks(turns)
-    assert [(b["lastTurn"]["id"], b["retryUrl"]) for b in blocks] == [("a2", "/runs/new?from=1"), ("a3", None)]
+    assert [b["lastTurn"]["id"] for b in _blocks(turns)] == ["a2", "a3"]
 
 
 def test_the_copy_turn_is_the_last_with_text_even_when_a_tool_only_turn_follows():
@@ -326,12 +324,6 @@ def test_the_copy_turn_is_the_last_with_text_even_when_a_tool_only_turn_follows(
 def test_a_streaming_run_offers_no_copy_turn():
     b = _blocks([user("u1"), asst("a1", text("Partial")), asst("a2", read("c1"), streaming=True)])[0]
     assert b["copyTurn"] is None
-
-
-def test_an_anchorless_block_takes_its_retry_link_from_its_first_turn():
-    first = {**asst("x1", read("c1")), "run_id": "run-9", "retry_url": "/runs/new?from=9"}
-    block = _blocks([first, asst("x2", text("done"))])[0]
-    assert (block["anchor"], block["lastTurn"]["id"], block["retryUrl"]) == (None, "x2", "/runs/new?from=9")
 
 
 def test_a_question_the_agent_could_not_ask_carries_a_failed_row():

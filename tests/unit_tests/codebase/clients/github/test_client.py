@@ -25,6 +25,7 @@ class TestGitHubClient:
         mock_installation = Mock()
         mock_github = Mock()
 
+        mock_installation.permissions = {"contents": "write"}
         mock_installation.get_github_for_installation.return_value = mock_github
         integration.get_app_installation.return_value = mock_installation
 
@@ -201,6 +202,35 @@ class TestGitHubClient:
 
         with pytest.raises(RuntimeError, match="installation.token response.*67890"):
             github_client._mint_installation_token(repository)
+
+    @pytest.mark.parametrize(
+        ("granted", "expected"),
+        [
+            ({"contents": "write", "workflows": "write"}, {"contents": "write", "workflows": "write"}),
+            ({"contents": "write", "workflows": "read"}, {"contents": "write"}),
+            ({"contents": "write"}, {"contents": "write"}),
+        ],
+    )
+    def test_mint_installation_token_requests_workflows_only_when_granted(self, github_client, granted, expected):
+        """Requesting a permission the installation lacks makes GitHub refuse the mint (422)."""
+        github_client._integration.get_app_installation.return_value = Mock(permissions=granted)
+        github_client._integration.requester.requestJsonAndCheck.return_value = ({}, {"token": "ghs-install"})
+        repository = Repository(
+            pk=1,
+            slug="owner/repo",
+            name="repo",
+            clone_url="https://github.com/owner/repo.git",
+            html_url="https://github.com/owner/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITHUB,
+        )
+
+        github_client._mint_installation_token(repository)
+
+        assert github_client._integration.requester.requestJsonAndCheck.call_args.kwargs["input"] == {
+            "permissions": expected,
+            "repository_ids": [1],
+        }
 
     def test_get_merge_request_commits_returns_commit_list(self, github_client):
         """Test that commits are returned with author email and stats."""

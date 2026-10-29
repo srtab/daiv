@@ -11,12 +11,12 @@ from ninja.security import django_auth
 from accounts.api.security import AuthBearer
 from codebase.authorization import can_run
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
-from sessions.header import awatch_state, latest_run_payload, merge_request_iid, watch_payload
+from sessions.header import awatch_state, latest_run_payload, merge_request_iid, retry_for, watch_payload
 from sessions.hydration import ahydrate_thread
 from sessions.models import HiddenSession, Session, WatchState
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns, mark_retryable
+from sessions.transcript import annotate_transcript, expired_run_turns
 from sessions.turns import build_turns
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ async def _get_visible_session(user, thread_id: str) -> Session:
 
 
 async def _get_runnable_session(user, thread_id: str) -> Session:
-    """A visible session whose repository ``user`` may run on: the rule Retry follows, for the page's other actions."""
+    """A visible session whose repository ``user`` may run on: the rule the page's actions follow."""
     session = await _get_visible_session(user, thread_id)
     if not await sync_to_async(can_run)(user, session.repo_id):
         raise HttpError(403, "You need run access to this session's repository")
@@ -131,8 +131,8 @@ async def session_turns(request: HttpRequest, thread_id: str):
     def finish_turns():
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
-        retry_urls = mark_retryable(turns, runs, user)
-        return live_run_for(activity.live, session, user), latest_run_payload(runs, retry_urls)
+        retry = retry_for(session, runs, turns, user)
+        return live_run_for(activity.live, session, user), latest_run_payload(runs, retry)
 
     live, latest_run = await sync_to_async(finish_turns)()
     response = {

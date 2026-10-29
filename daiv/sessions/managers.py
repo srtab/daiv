@@ -31,6 +31,12 @@ def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]
     return Run.objects.filter(session=session).order_by(*_NEWEST_FIRST)
 
 
+def _archived_by(user: User, session: models.OuterRef) -> models.Exists:
+    from sessions.models import HiddenSession
+
+    return models.Exists(HiddenSession.objects.filter(session=session, user=user))
+
+
 class SessionQuerySet(models.QuerySet["Session"]):
     def _owner_q(self, user: User) -> models.Q:
         """Ownership predicate shared by ``by_owner``/``visible_to``.
@@ -115,9 +121,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
 
     def archived_for(self, user: User, *, archived: bool = True) -> models.QuerySet[Session]:
         """The sessions ``user`` archived out of their own list, or with ``archived=False`` the rest."""
-        from sessions.models import HiddenSession
-
-        hidden = models.Exists(HiddenSession.objects.filter(session=models.OuterRef("pk"), user=user))
+        hidden = _archived_by(user, models.OuterRef("pk"))
         return self.filter(hidden if archived else ~hidden)
 
     def with_latest_status(self) -> models.QuerySet[Session]:
@@ -162,6 +166,10 @@ class RunQuerySet(models.QuerySet["Run"]):
         """Runs the user started, by account or by git platform username; not those of a schedule they subscribe to."""
         return self.filter(_started_by_q(user))
 
+    def not_archived_by(self, user: User) -> models.QuerySet[Run]:
+        """Runs outside the sessions ``user`` archived out of their own lists."""
+        return self.filter(~_archived_by(user, models.OuterRef("session")))
+
     def latest_in_session(self) -> models.QuerySet[Run]:
         """Each session's newest run, whoever started it: the run ``with_latest_status`` reads the status of."""
         newest = _session_runs_newest_first(models.OuterRef("session")).values("pk")[:1]
@@ -170,8 +178,8 @@ class RunQuerySet(models.QuerySet["Run"]):
     def with_retried(self, user: User) -> models.QuerySet[Run]:
         """Annotate ``retried``: a later run in another session took the run up again.
 
-        A job's Retry starts a new session, so that is a later run of the same schedule, or a later prompt-driven
-        run ``user`` started on the same repository with the same prompt.
+        That is a later run of the same schedule, or a later prompt-driven run ``user`` started on the same
+        repository with the same prompt.
         """
         from sessions.models import SessionOrigin
 

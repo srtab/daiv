@@ -310,7 +310,6 @@
         key,
         anchor: run.anchor,
         runId: run.runId,
-        retryUrl: run.first.retry_url || null,
         live,
         folded,
         stats,

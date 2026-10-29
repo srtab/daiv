@@ -332,6 +332,8 @@
     // from the first render — assigning a *new* key onto an existing reactive
     // proxy after init doesn't always re-render templates.
     thread: config.thread ? { ...config.thread, merge_request: loadInitialMergeRequest() } : null,
+    // Set by sessionPage's Archive through Alpine's merged scope; an archived session takes no follow-ups.
+    archived: Boolean(config.archived),
     selectedSandboxEnvId: config.selectedSandboxEnvId || "",
     // Locked-pill labels for the composer chips. Server-side ``_composer.html`` renders
     // the static text at template time, which on a brand-new chat is the empty-thread
@@ -1228,12 +1230,16 @@
 
     // Open only in the transcript's last message turn, with no run in flight; anything later means answered.
     isQuestionOpen(ti) {
-      if (this.streaming || this.resuming) return false;
+      if (this.archived || this.streaming || this.resuming) return false;
+      return !this._repliedAfter(ti);
+    },
+
+    _repliedAfter(ti) {
       for (let i = ti + 1; i < this.turns.length; i++) {
         const role = this.turns[i].role;
-        if (role === "user" || role === "assistant") return false;
+        if (role === "user" || role === "assistant") return true;
       }
-      return true;
+      return false;
     },
 
     _questionDraft(seg) {
@@ -1241,8 +1247,10 @@
       return this.questionDrafts[seg.id];
     },
 
+    // Archiving closes a card without answering it, so it stays a card rather than an answered summary.
     isQuestionAnswered(item) {
-      return this.isQuestionCard(item.seg) && !this.isQuestionOpen(item.turnIndex);
+      if (!this.isQuestionCard(item.seg)) return false;
+      return this.streaming || this.resuming || this._repliedAfter(item.turnIndex);
     },
 
     answeredSummary(seg, ti) {
@@ -1365,11 +1373,11 @@
     // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
     turnHasActions(turn) {
       if (turn.role === "run_status") return false;
-      return !!turn.sent_at || !!turn.received_at || !!turn.retry_url || this.canCopyTurn(turn);
+      return !!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn);
     },
 
     runHasActions(block) {
-      return Boolean(block.retryUrl || block.copyTurn || block.lastTurn?.received_at);
+      return Boolean(block.copyTurn || block.lastTurn?.received_at);
     },
 
     // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.
@@ -1421,7 +1429,7 @@
     // ---------- User actions ------------------------------------------
 
     canSend(text = this.draftMessage) {
-      if (!text.trim() || this.waiting) return false;
+      if (!text.trim() || this.waiting || this.archived) return false;
       if (this.thread) return true;
       return !!(this.draftRepoId && this.draftRef);
     },
@@ -1739,6 +1747,8 @@
         const v = evt.value || {};
         if (v.using) this._applyRepoState({ ref: v.using });
         console.debug("chat: ref_fallback %o → %o", v.requested, v.using);
+      } else if (type === AGUI.CUSTOM && evt.name === "run_record") {
+        if (this._activeRun && evt.value?.id) this._activeRun.recordId = evt.value.id;
       } else if (type === AGUI.CUSTOM && evt.name === "resolved_env") {
         // Server resolved Auto → real env for this run. Swap the locked pill text in
         // place when the user is still on Auto client-side; an explicit mid-flight
@@ -1804,9 +1814,14 @@
       }
     },
 
+    // Keyed by the Run row once the server names it, so the marker matches the one a reload renders.
+    _runStatusId() {
+      const run = this._activeRun;
+      return `run-status-${run ? run.recordId || run.runId : uuid()}`;
+    },
+
     _pushRunStatus(status, message) {
-      const runId = this._activeRun ? this._activeRun.runId : uuid();
-      const id = `run-status-${runId}`;
+      const id = this._runStatusId();
       const existing = this.turns.find((t) => t.id === id);
       if (existing) {
         existing.status = status;
@@ -1818,8 +1833,9 @@
     },
 
     _hasRunStatusMarker() {
-      const runId = this._activeRun ? this._activeRun.runId : null;
-      return runId != null && this.turns.some((t) => t.id === `run-status-${runId}`);
+      if (!this._activeRun) return false;
+      const id = this._runStatusId();
+      return this.turns.some((t) => t.id === id);
     },
 
     _appendTextSegment(turn, content) {

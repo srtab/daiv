@@ -84,6 +84,7 @@ continue polling with `get_job_status` if the result is not yet available.\
 )
 
 _THREAD_NOT_FOUND = "thread_id not found"
+_THREAD_ARCHIVED = "thread_id is archived; unarchive the session to continue it"
 
 
 def _allow_job_submission(user) -> bool:
@@ -190,7 +191,8 @@ async def submit_job(
             description=(
                 "Optional. Continue an existing thread by passing its UUID (from a prior"
                 " submit_job or get_job_status response). When set, ``repos`` must contain"
-                " exactly one entry whose session belongs to the calling user."
+                " exactly one entry whose session belongs to the calling user, who has not"
+                " archived it."
                 " If a prior run on this thread is still in flight, the new job is queued"
                 " and runs FIFO after it terminates."
             )
@@ -265,9 +267,11 @@ async def submit_job(
         except ValueError, TypeError:
             logger.info("submit_job: rejecting malformed thread_id", extra={"user_id": mcp_user.pk})
             return json.dumps({"error": _THREAD_NOT_FOUND})
-        owned = await Session.objects.by_owner(mcp_user).filter(thread_id=thread_id_str).aexists()
-        if not owned:
+        owned = Session.objects.by_owner(mcp_user).filter(thread_id=thread_id_str)
+        if not await owned.aexists():
             return json.dumps({"error": _THREAD_NOT_FOUND})
+        if await owned.archived_for(mcp_user).aexists():
+            return json.dumps({"error": _THREAD_ARCHIVED})
 
     try:
         admission = await aadmit(

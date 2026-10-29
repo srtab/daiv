@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.sessions")
 
+CHAT_PROMPT_MAX_LENGTH = 2000
+
 
 class RunStatus(models.TextChoices):
     QUEUED = "QUEUED", _("Queued")
@@ -69,8 +71,10 @@ class SessionOrigin(models.TextChoices):
 
     @classmethod
     def retryable(cls) -> frozenset[str]:
-        """Triggers whose prompt the run composer can start again: the prompt-driven jobs and schedules."""
-        return cls.prompt_driven() | {cls.SCHEDULE}
+        """Triggers whose failed run a follow-up chat turn in the same session retries: chat, and the jobs and
+        schedules a person started. A webhook run reports back through its own flow and a delegated run to its
+        coordinator, which a chat turn does neither of."""
+        return frozenset({cls.CHAT, cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.SCHEDULE})
 
     @classmethod
     def daiv_authored(cls) -> frozenset[str]:
@@ -429,17 +433,6 @@ class Run(models.Model):
         if schedule is not None:
             return schedule.muted
         return False  # non-scheduled runs notify unless the run itself is muted
-
-    @property
-    def is_retryable(self) -> bool:
-        """Whether the run composer can start this run again: a done or failed run on a repo, with a prompt, from a
-        ``SessionOrigin.retryable`` trigger."""
-        return (
-            self.status in (RunStatus.SUCCESSFUL, RunStatus.FAILED)
-            and bool(self.prompt)
-            and bool(self.repo_id)
-            and self.trigger_type in SessionOrigin.retryable()
-        )
 
     @property
     def is_cancelled(self) -> bool:
