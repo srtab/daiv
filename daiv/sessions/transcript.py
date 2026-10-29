@@ -73,14 +73,16 @@ def _marker(run: Run) -> dict[str, Any] | None:
 def _stamp_run_times(seg_turns: list[dict[str, Any]], run: Run) -> None:
     """Stamp run-level timings onto a segment's boundary turns (machine ISO-8601).
 
-    ``sent_at`` (creation time) lands on the owning user turn — the segment's first
-    turn when it is a user turn — and ``received_at`` (finish time) on the run's last
-    turn, only once the run has finished.
+    ``sent_at`` (creation time) and ``started_at`` (execution start) land on the owning user turn — the segment's
+    first turn when it is a user turn — and ``received_at`` (finish time) on the run's last turn, once finished.
     """
     if not seg_turns:
         return
-    if run.created_at is not None and seg_turns[0].get("role") == "user":
-        seg_turns[0]["sent_at"] = run.created_at.isoformat()
+    if seg_turns[0].get("role") == "user":
+        if run.created_at is not None:
+            seg_turns[0]["sent_at"] = run.created_at.isoformat()
+        if run.started_at is not None:
+            seg_turns[0]["started_at"] = run.started_at.isoformat()
     if run.finished_at is not None:
         seg_turns[-1]["received_at"] = run.finished_at.isoformat()
 
@@ -99,6 +101,8 @@ def _prompt_turns(run: Run, *, pending: bool = False) -> list[dict[str, Any]]:
     user_turn = {"id": f"run-{run.id}", "role": "user", "segments": [{"type": "text", "content": run.prompt}]}
     if run.created_at is not None:
         user_turn["sent_at"] = run.created_at.isoformat()
+    if run.started_at is not None:
+        user_turn["started_at"] = run.started_at.isoformat()
     if pending:
         user_turn["pending"] = True
     _mark_author(user_turn, run)

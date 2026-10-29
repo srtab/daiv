@@ -28,6 +28,7 @@ from core.constants import (
 from tests.unit_tests.sessions.conftest import make_artifact
 
 CREATED_AT = datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC)
+STARTED_AT = datetime(2026, 7, 31, 12, 0, 2, tzinfo=UTC)
 FINISHED_AT = datetime(2026, 7, 31, 12, 5, 0, tzinfo=UTC)
 
 
@@ -40,6 +41,7 @@ def _run(
     prompt="",
     trigger_type=SessionOrigin.CHAT,
     created_at=None,
+    started_at=None,
     finished_at=None,
     is_cancelled=False,
 ):
@@ -51,6 +53,7 @@ def _run(
         prompt=prompt,
         trigger_type=trigger_type,
         created_at=created_at,
+        started_at=started_at,
         finished_at=finished_at,
         is_cancelled=is_cancelled,
     )
@@ -330,6 +333,20 @@ def test_unmatched_message_id_logs_only_for_finished_runs(caplog):
         result = annotate_transcript(turns, [_run("rs", message_id="gone", status=RunStatus.SUCCESSFUL)])
     assert [t["id"] for t in result] == ["h1", "a1"]  # finished run contributes nothing
     assert any("no matching" in r.message and "gone" in r.getMessage() for r in caplog.records)
+
+
+def test_started_at_stamped_on_the_runs_user_turn():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", message_id="h1", created_at=CREATED_AT, started_at=STARTED_AT, finished_at=FINISHED_AT)]
+    result = annotate_transcript(turns, runs)
+    assert result[0]["started_at"] == STARTED_AT.isoformat()
+    assert "started_at" not in result[1]
+
+
+def test_started_at_absent_for_a_run_that_never_started():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", message_id="h1", created_at=CREATED_AT, started_at=None, finished_at=FINISHED_AT)]
+    assert all("started_at" not in t for t in annotate_transcript(turns, runs))
 
 
 # --- Run-level sent/received timestamp stamping ---------------------------------
