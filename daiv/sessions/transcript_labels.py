@@ -108,4 +108,5 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "unanswered": gettext("No result: the run ended before this call returned."),
         "show_all": gettext("Show all {count} lines"),
         "and_more": gettext("and {count} more"),
+        "size_matches": [gettext("{count} match"), gettext("{count} matches")],
     }

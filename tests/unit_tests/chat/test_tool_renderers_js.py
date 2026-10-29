@@ -337,3 +337,240 @@ def test_lines_past_the_size_cap_are_counted_not_lost(name):
     kept = html.count("y" * 2000 + "…")
     assert 12 < kept < 100
     assert f"Show all {kept} lines" in html and f"and {100 - kept} more" in html
+
+
+def _body_with(seg: dict, setup: str, *, labels: dict | None = None) -> str:
+    return run_transcript(f"({setup}, toolBodyHTML(vars.seg, {{}}))", {"seg": seg}, blocks=False, labels=labels or {})
+
+
+FAKE_HLJS = """window.hljs = {
+  getLanguage: (lang) => (lang === "py" ? { name: "python" } : undefined),
+  highlight: (code) => {
+    const escaped = code.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    return { value: `<span class="hljs-string">${escaped}</span>` };
+  },
+}"""
+
+ICONS = {"document-text": '<svg data-icon="doc"></svg>', "folder": '<svg data-icon="folder"></svg>'}
+
+
+def test_read_file_keeps_the_files_line_numbers():
+    html = _body("read_file", {"file_path": "/workspace/repo/a.py"}, result="86  def f():\n87      return 1")
+    assert '<span class="ln">86</span>' in html and '<span class="ln">87</span>' in html
+
+
+def test_read_file_numbers_its_lines_from_the_read_header():
+    result = "@@ lines 86-87 of 412 | next offset 88 @@\ndef f():\n    return 1"
+    html = _body("read_file", {"file_path": "/workspace/repo/a.py", "offset": 85, "limit": 2}, result=result)
+    assert '<span class="ln">86</span>def f():' in html and '<span class="ln">87</span>    return 1' in html
+    assert "@@" not in html
+
+
+def test_read_file_keeps_continuation_markers_and_the_legacy_tab_gutter():
+    html = _body("read_file", {"file_path": "/workspace/repo/a.txt"}, result="  5  aaa\n5.1  bbb\n  6  ")
+    assert '<span class="ln">5</span>aaa' in html and '<span class="ln">5.1</span>bbb' in html
+    assert '<span class="ln">6</span>' in html
+    legacy = _body("read_file", {"file_path": "/workspace/repo/a.txt"}, result="     1\tfrom x import y\n     2\t\tz")
+    assert '<span class="ln">1</span>from x import y' in legacy and '<span class="ln">2</span>\tz' in legacy
+
+
+def test_read_file_highlights_by_extension_and_keeps_each_line_whole():
+    seg = tool_call(
+        "c1", "read_file", {"file_path": "/workspace/repo/a.py"}, result='@@ lines 1-2 @@\ns = """a\nb <c>"""'
+    )
+    html = _body_with(seg, FAKE_HLJS)
+    assert '<span class="ln">1</span><span class="hljs-string">s = """a</span>' in html
+    assert '<span class="ln">2</span><span class="hljs-string">b &lt;c&gt;"""</span>' in html
+
+
+def test_read_file_in_an_unknown_language_stays_plain():
+    seg = tool_call("c1", "read_file", {"file_path": "/workspace/repo/a.xyz"}, result="1  <b>")
+    html = _body_with(seg, FAKE_HLJS)
+    assert "hljs-" not in html and '<span class="ln">1</span>&lt;b&gt;' in html
+
+
+def test_read_file_clamps_at_twelve_lines():
+    result = "\n".join(f"{i}  line {i}" for i in range(1, 31))
+    html = _body("read_file", {"file_path": "/workspace/repo/a.py"}, result=result)
+    visible, more = html.split('<details class="body-more">')
+    assert visible.count('class="ln"') == 12 and more.count('class="ln"') == 18 and "Show all 30 lines" in more
+
+
+def test_read_file_keeps_its_notices_and_numbers_no_line_past_its_window():
+    notice = "[Requested offset -1 is before the start of the file; read from line 1 instead.]"
+    html = _body(
+        "read_file", {"file_path": "/workspace/repo/a.txt"}, result=f"{notice}\n@@ lines 1-1 of 1 @@\nx\n\n[banner]"
+    )
+    assert "Requested offset -1" in html and '<span class="ln">1</span>x' in html
+    assert "[banner]" in html and 'class="ln">2<' not in html
+
+
+def test_edit_diff_has_no_line_numbers():
+    html = _body(
+        "edit_file",
+        {"file_path": "/workspace/repo/a.py", "old_string": "a\n", "new_string": "b\n"},
+        result="Successfully replaced 1 instance",
+    )
+    assert "@@" not in html and 'class="ln"' not in html
+
+
+def test_edit_shows_the_removed_and_added_lines_then_the_reply():
+    html = _body(
+        "edit_file",
+        {"file_path": "/workspace/repo/a.py", "old_string": "a\n", "new_string": "<b>\n"},
+        result="Successfully replaced 1 instance",
+    )
+    changed, context = html.split("Loaded into context")
+    assert "Changed" in changed and '<div class="diff-del">-a</div><div class="diff-add">+&lt;b&gt;</div>' in changed
+    assert "Successfully replaced 1 instance" in context
+
+
+def test_edit_diff_keeps_two_lines_of_context_around_each_change():
+    stub = r"""window.Diff = { diffLines: () => [
+      { value: "c1\nc2\nc3\nc4\n" }, { removed: true, value: "x\n" }, { added: true, value: "y\n" },
+      { value: "c5\nc6\nc7\nc8\nc9\n" }, { removed: true, value: "z\n" },
+    ] }"""
+    args = {"file_path": "/workspace/repo/a.py", "old_string": "o", "new_string": "n"}
+    html = _body_with(tool_call("c1", "edit_file", args, result="Successfully replaced 1 instance"), stub)
+    assert all(f"c{i}" in html for i in (3, 4, 5, 6, 8, 9)) and not any(f"c{i}" in html for i in (1, 2, 7))
+    assert html.count('class="diff-gap"') == 1
+
+
+EDIT_ARGS = {"file_path": "/workspace/repo/a.py", "old_string": "a\n", "new_string": "b\n"}
+WRITE_ARGS = {"file_path": "/workspace/repo/n.py", "content": "a\n"}
+
+
+@pytest.mark.parametrize("name,args", [("edit_file", EDIT_ARGS), ("write_file", WRITE_ARGS)])
+@pytest.mark.parametrize(
+    "result,status",
+    [(None, "error"), (None, "running"), ("Error: file not found", "done")],
+    ids=["unanswered", "running", "error"],
+)
+def test_nothing_changed_until_the_write_succeeded(name, args, result, status):
+    assert "Changed" not in _body(name, args, result=result, status=status)
+
+
+@pytest.mark.parametrize(
+    "name,args,result",
+    [("edit_file", EDIT_ARGS, "Successfully replaced 1 instance"), ("write_file", WRITE_ARGS, "Updated file n.py")],
+)
+def test_a_successful_write_shows_what_changed(name, args, result):
+    assert "Changed" in _body(name, args, result=result)
+
+
+def test_write_file_changed_is_the_new_content_without_line_numbers():
+    args = {"file_path": "/workspace/repo/n.py", "content": "a\n<b>\n"}
+    html = _body("write_file", args, result="Updated file /workspace/repo/n.py")
+    assert '<div class="diff-add">+a</div><div class="diff-add">+&lt;b&gt;</div>' in html and 'class="ln"' not in html
+
+
+def test_grep_invalid_js_regex_still_renders():
+    html = _body("grep", {"pattern": "(?i)foo", "output_mode": "content"}, result="a.py:\n  3: Foo")
+    assert "Foo" in html and "<mark>" not in html
+
+
+def test_grep_marks_the_pattern_and_counts_the_matches():
+    result = "Mode: content — matching lines.\n\na.py:\n  3: foo <b> foo\nb.py:\n  9: foo"
+    html = _body("grep", {"pattern": "foo", "output_mode": "content"}, result=result)
+    assert html.count("<mark>foo</mark>") == 3 and "&lt;b&gt;" in html
+    assert '<span class="body-size">2 matches · ' in html
+
+
+def test_grep_highlight_never_cuts_an_escaped_character():
+    html = _body("grep", {"pattern": "lt|amp", "output_mode": "content"}, result="a.py:\n  1: a<b & lt")
+    assert "a&lt;b &amp; <mark>lt</mark>" in html
+
+
+def test_grep_without_content_mode_has_no_match_count():
+    html = _body("grep", {"pattern": "foo"}, result="Mode: files_with_matches\n\na.py\nb.py")
+    assert '<span class="body-size">4 lines · 0.1 KB</span>' in html
+
+
+def test_grep_shows_twelve_matches_and_the_rest_under_show_all():
+    result = "a.py:\n" + "\n".join(f"  {i}: hit {i}" for i in range(1, 21))
+    html = _body("grep", {"pattern": "hit", "output_mode": "content"}, result=result)
+    visible, more = html.split('<details class="body-more">')
+    assert visible.count("<mark>hit</mark>") == 12 and more.count("<mark>hit</mark>") == 8
+    assert "Show all 20 lines" in more and "a.py" in more
+
+
+def test_grep_keeps_the_note_that_the_search_stopped_early():
+    result = "a.py:\n  1: foo\n\nNote: the search stopped early (it hit its time limit or the maximum match count)."
+    assert "the search stopped early" in _body("grep", {"pattern": "foo", "output_mode": "content"}, result=result)
+
+
+@pytest.mark.parametrize("name", ["glob", "ls"])
+def test_paths_get_a_file_icon_and_no_folder_icon(name):
+    seg = tool_call(
+        "c1",
+        name,
+        {"pattern": "*", "path": "/workspace/repo"},
+        result="['/workspace/repo/a/b.py', '/workspace/repo/daiv']",
+    )
+    html = _body_with(seg, "0", labels={"icons": ICONS})
+    assert html.count('<li><svg data-icon="doc"></svg>') == 2 and 'data-icon="folder"' not in html
+    assert "a/b.py" in html and "/workspace/repo/" not in html
+
+
+@pytest.mark.parametrize("result", ["No files found", "No files found\n\nNote: some directories could not be read."])
+def test_a_search_with_no_files_found_is_plain_text(result):
+    html = _body("glob", {"pattern": "*.nope"}, result=result)
+    assert "No files found" in html and "<li>" not in html
+
+
+def test_a_cut_path_list_shows_its_notes_apart_from_the_paths():
+    result = "['a.py', '... [results truncated, try being more specific with your parameters]']\n\nNote: stopped early."
+    html = _body("glob", {"pattern": "*"}, result=result)
+    assert html.count("<li>") == 1 and "results truncated" in html and "stopped early" in html
+
+
+def test_a_newline_separated_listing_is_still_a_list():
+    assert _body("ls", {"path": "/workspace/repo"}, result="a.py\nb.py").count("<li>") == 2
+
+
+def test_bash_single_command_omits_the_command_line_and_lists_changes():
+    result = json.dumps({
+        "commands": [{"command": "make fmt", "exit_code": 0, "output": "ok"}],
+        "files_changed": [{"path": "a.py", "op": "modified"}],
+    })
+    html = _body("bash", {"command": "make fmt"}, result=result)
+    assert "make fmt" not in html and ">M<" in html and "a.py" in html
+
+
+def test_bash_with_no_changes_has_no_changed_section():
+    result = json.dumps({"commands": [{"command": "ls", "exit_code": 0, "output": "x"}], "files_changed": []})
+    assert "Changed" not in _body("bash", {"command": "ls"}, result=result)
+
+
+def test_bash_single_command_does_not_repeat_its_exit_code_and_sizes_its_output():
+    result = json.dumps({"commands": [{"command": "pytest", "exit_code": 1, "output": "1 failed\n<done>"}]})
+    html = _body("bash", {"command": "pytest"}, result=result)
+    assert "1 failed\n&lt;done&gt;" in html and "exit 1" not in html and "pytest" not in html
+    assert '<span class="body-size">2 lines · 0.1 KB</span>' in html
+
+
+def test_bash_several_commands_show_each_command_and_its_failure():
+    commands = [
+        {"command": "make a", "exit_code": 0, "output": "A"},
+        {"command": "make <b>", "exit_code": 2, "output": "B"},
+    ]
+    html = _body("bash", {"command": "make a; make b"}, result=json.dumps({"commands": commands, "files_changed": []}))
+    assert html.count('<span class="body-prompt">$</span>') == 2 and "make a" in html and "make &lt;b&gt;" in html
+    assert "exit 2" in html and "exit 0" not in html
+
+
+def test_bash_changes_map_each_operation_and_show_renames():
+    files = [
+        {"path": "a.py", "op": "added"},
+        {"path": "b.py", "op": "deleted"},
+        {"path": "new.py", "op": "renamed", "from_path": "old.py"},
+        {"path": "m.py", "op": "modified"},
+    ]
+    result = json.dumps({"commands": [{"command": "x", "exit_code": 0, "output": "done"}], "files_changed": files})
+    changed = _body("bash", {"command": "x"}, result=result).split("Loaded into context")[0]
+    assert all(f">{op}<" in changed for op in "ADRM") and "old.py → new.py" in changed
+
+
+def test_bash_text_result_is_shown_as_text():
+    html = _body("bash", {"command": "x"}, result="The sandbox is unavailable; retry once.")
+    assert "The sandbox is unavailable; retry once." in html

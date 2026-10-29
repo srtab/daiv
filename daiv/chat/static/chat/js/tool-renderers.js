@@ -199,8 +199,6 @@
   };
   window.parseBashSuccess = parseBashSuccess;
 
-  const parseBashResult = (result) => parseBashSuccess(result)?.commands ?? null;
-
   const skillDetail = (args) => {
     const name = pickKey(args, ["skill", "name"]) ?? "";
     const skillArgs = pickKey(args, ["skill_args", "args"]) ?? "";
@@ -807,88 +805,240 @@
 
   // --- per-tool bodies (each returns its middle sections, or { wrong, html }) ---
 
-  const diffHTML = (patch) => {
-    const lines = String(patch ?? "").split("\n");
-    const html = lines
-      .map((line) => {
-        const esc = escapeHtml(line);
-        if (line.startsWith("@@")) return `<div class="diff-hunk">${esc}</div>`;
-        if (line.startsWith("+++") || line.startsWith("---")) return `<div class="diff-meta">${esc}</div>`;
-        if (line.startsWith("+")) return `<div class="diff-add">${esc}</div>`;
-        if (line.startsWith("-")) return `<div class="diff-del">${esc}</div>`;
-        return `<div class="diff-ctx">${esc}</div>`;
-      })
-      .join("");
-    return `<div class="chat-diff">${html}</div>`;
+  const clampItems = (items, wrap, total = items.length) => {
+    const kept = items.slice(0, LINE_CAP);
+    const hidden = kept.slice(VISIBLE_LINES);
+    const more = hidden.length ? moreHTML(kept.length, wrap(hidden)) : "";
+    return wrap(kept.slice(0, VISIBLE_LINES)) + more + andMoreHTML(total - kept.length);
   };
 
-  // Returns null when jsdiff isn't loaded so callers can fall back to text.
-  const jsdiffHTML = (path, oldStr, newStr, context) => {
-    if (!window.Diff?.createPatch) return null;
-    const patch = window.Diff.createPatch(path, oldStr, newStr, "", "", { context });
-    return diffHTML(patch.split("\n").filter((l) => !l.startsWith("Index:") && !/^=+$/.test(l)).join("\n"));
-  };
+  const notesHTML = (notes) => notes.map((note) => `<p class="body-note">${escapeHtml(note)}</p>`).join("");
 
-  const grepHTML = (text) => {
-    const groups = new Map();
-    let currentFile = null;
-    for (const line of sliceText(text).lines) {
-      // Ripgrep-style "file:lineno:body" (single line per hit).
-      const inline = line.match(/^([^:\s][^:]*):(\d+):(.*)$/);
-      if (inline) {
-        const [, file, lineno, body] = inline;
-        if (!groups.has(file)) groups.set(file, []);
-        groups.get(file).push({ lineno, body });
-        continue;
-      }
-      // Deepagents "content" mode: "<file>:" header followed by indented "  <lineno>: <body>" rows.
-      const header = line.match(/^([^\s][^:]*):$/);
-      if (header) {
-        currentFile = header[1];
-        if (!groups.has(currentFile)) groups.set(currentFile, []);
-        continue;
-      }
-      const hit = line.match(/^\s+(\d+):\s?(.*)$/);
-      if (hit && currentFile) {
-        groups.get(currentFile).push({ lineno: hit[1], body: hit[2] });
-      }
+  const succeeded = (seg) => seg.status !== "error" && seg.result != null && !isError(seg.result);
+
+  // deepagents' read result: bracketed notices, then `@@ lines A-B … @@`, then the lines verbatim. Older
+  // results numbered each line instead (`N  text`, `N.1` for a long line's continuation, or `cat -n`'s tab).
+  const READ_HEADER_RE = /^@@ lines (\d+)-(\d+)\b.*@@$/;
+  const READ_NOTICE_RE = /^\[.*\]$/;
+  const GUTTER_START_RE = /^\s*\d+(?: {2}|\t)/;
+  const GUTTER_RE = /^\s*(\d+(?:\.\d+)?)(?: {2}|\t|$)(.*)$/;
+
+  const readRows = (lines) => {
+    let start = 0;
+    while (start < lines.length && READ_NOTICE_RE.test(lines[start])) start += 1;
+    const header = lines[start]?.match(READ_HEADER_RE);
+    if (header) {
+      const [first, last] = [Number(header[1]), Number(header[2])];
+      const rows = lines.slice(start + 1).map((code, i) => ({ ln: first + i <= last ? String(first + i) : "", code }));
+      return { notes: lines.slice(0, start), skipped: start + 1, rows };
     }
-    if (!groups.size) return textHTML(text);
-    const html = [...groups.entries()]
-      .map(([file, hits]) => {
-        const rows = hits
-          .map(
-            ({ lineno, body }) =>
-              `<div class="chat-grep__hit"><span class="chat-grep__lineno">${escapeHtml(lineno)}</span>${escapeHtml(body)}</div>`,
-          )
-          .join("");
-        return `<div class="chat-grep__group"><div class="chat-grep__file">${escapeHtml(file)}</div>${rows}</div>`;
+    const gutter = GUTTER_START_RE.test(lines.find((line) => line.trim()) ?? "");
+    const rows = lines.map((line) => {
+      const numbered = gutter ? line.match(GUTTER_RE) : null;
+      return numbered ? { ln: numbered[1], code: numbered[2] } : { ln: "", code: line };
+    });
+    return { notes: [], skipped: 0, rows };
+  };
+
+  const languageOf = (path) => {
+    const name = basename(path).toLowerCase();
+    const dot = name.lastIndexOf(".");
+    return dot > 0 ? name.slice(dot + 1) : name;
+  };
+
+  // hljs spans can run across lines: each line closes the spans still open and the next reopens them.
+  const splitHighlighted = (html) => {
+    const lines = [];
+    const open = [];
+    let line = "";
+    for (const [token] of html.matchAll(/<span[^>]*>|<\/span>|\n|<|[^<\n]+/g)) {
+      if (token === "\n") {
+        lines.push(line + "</span>".repeat(open.length));
+        line = open.join("");
+        continue;
+      }
+      if (token.startsWith("<span")) open.push(token);
+      else if (token === "</span>") open.pop();
+      line += token === "<" ? "&lt;" : token;
+    }
+    lines.push(line + "</span>".repeat(open.length));
+    return lines;
+  };
+
+  const highlightLines = (codes, language) => {
+    const hljs = window.hljs;
+    if (!language || typeof hljs?.getLanguage !== "function" || !hljs.getLanguage(language)) return null;
+    try {
+      const lines = splitHighlighted(hljs.highlight(codes.join("\n"), { language, ignoreIllegals: true }).value);
+      return lines.length === codes.length ? lines : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const codeHTML = (path) => (text) => {
+    const { lines, total } = sliceText(text);
+    const { notes, skipped, rows } = readRows(lines);
+    const codes = rows.map((row) => row.code);
+    const code = highlightLines(codes, languageOf(path)) ?? codes.map(escapeHtml);
+    const html = rows.map((row, i) => (row.ln ? `<span class="ln">${escapeHtml(row.ln)}</span>` : "") + code[i]);
+    return notesHTML(notes) + clampLines(html, VISIBLE_LINES, { total: total - skipped, cls: "body-code" });
+  };
+
+  const DIFF_CONTEXT = 2;
+  const DIFF_KINDS = { "+": "diff-add", "-": "diff-del", " ": "diff-ctx" };
+  const DIFF_GAP = "~";
+
+  // Rows are unified-diff lines (sign + text); the sign is never "~", so that row marks a gap between changes.
+  const diffRows = (oldStr, newStr) => {
+    const rows = [];
+    for (const part of window.Diff.diffLines(oldStr, newStr)) {
+      if (!part.value) continue;
+      const sign = part.added ? "+" : part.removed ? "-" : " ";
+      for (const line of part.value.replace(/\n$/, "").split("\n")) rows.push(sign + line);
+    }
+    const near = rows.map(() => false);
+    rows.forEach((row, i) => {
+      if (row[0] === " ") return;
+      const last = Math.min(rows.length - 1, i + DIFF_CONTEXT);
+      for (let j = Math.max(0, i - DIFF_CONTEXT); j <= last; j += 1) near[j] = true;
+    });
+    const kept = [];
+    rows.forEach((row, i) => {
+      if (!near[i]) return;
+      if (kept.length && !near[i - 1]) kept.push(DIFF_GAP);
+      kept.push(row);
+    });
+    return kept;
+  };
+
+  const diffHTML = (rows) => {
+    if (!rows.length) return "";
+    const { lines, total } = sliceText(rows.join("\n"));
+    const html = lines.map((row) => {
+      if (row === DIFF_GAP) return '<div class="diff-gap">⋯</div>';
+      return `<div class="${DIFF_KINDS[row[0]]}">${escapeHtml(row)}</div>`;
+    });
+    return clampItems(html, (part) => `<div class="chat-diff">${part.join("")}</div>`, total);
+  };
+
+  const GREP_INLINE_RE = /^([^:\s][^:]*):(\d+):(.*)$/;
+  const GREP_FILE_RE = /^([^\s][^:]*):$/;
+  const GREP_HIT_RE = /^\s+(\d+)([:-])\s?(.*)$/;
+  const GREP_SEPARATOR_RE = /^\s+--$/;
+
+  // Ripgrep's `file:line:text`, or deepagents' `file:` followed by `  line: text` (`line- text` for context).
+  const parseGrep = (lines) => {
+    const hits = [];
+    const before = [];
+    const after = [];
+    let file = null;
+    for (const line of lines) {
+      const inline = line.match(GREP_INLINE_RE);
+      const header = inline ? null : line.match(GREP_FILE_RE);
+      const hit = inline || header || file == null ? null : line.match(GREP_HIT_RE);
+      if (inline) hits.push({ file: inline[1], lineno: inline[2], text: inline[3], match: true });
+      else if (header) file = header[1];
+      else if (hit) hits.push({ file, lineno: hit[1], text: hit[3], match: hit[2] === ":" });
+      else if (line.trim() && !GREP_SEPARATOR_RE.test(line)) (hits.length || file != null ? after : before).push(line);
+    }
+    return { hits, before, after };
+  };
+
+  const patternRE = (pattern) => {
+    if (!pattern) return null;
+    try {
+      return new RegExp(pattern, "g");
+    } catch {
+      return null;
+    }
+  };
+
+  const markHTML = (text, re) => {
+    if (!re) return escapeHtml(text);
+    let html = "";
+    let last = 0;
+    for (const match of text.matchAll(re)) {
+      if (!match[0]) continue;
+      html += `${escapeHtml(text.slice(last, match.index))}<mark>${escapeHtml(match[0])}</mark>`;
+      last = match.index + match[0].length;
+    }
+    return html + escapeHtml(text.slice(last));
+  };
+
+  const grepGroupsHTML = (re) => (hits) => {
+    const groups = [];
+    for (const hit of hits) {
+      if (groups.at(-1)?.file !== hit.file) groups.push({ file: hit.file, rows: [] });
+      const lineno = `<span class="ln">${escapeHtml(hit.lineno)}</span>`;
+      groups.at(-1).rows.push(`<div class="body-grep-hit">${lineno}${markHTML(hit.text, re)}</div>`);
+    }
+    const html = groups.map(({ file, rows }) => {
+      const name = `<div class="body-grep-file">${escapeHtml(file)}</div>`;
+      return `<div class="body-grep-group">${name}${rows.join("")}</div>`;
+    });
+    return `<div class="body-grep">${html.join("")}</div>`;
+  };
+
+  // `total` counts the hits of the whole result; the view parses only the lines sliceText keeps.
+  const grepHTML = (pattern, total) => (text) => {
+    const { hits, before, after } = parseGrep(sliceText(text).lines);
+    if (!hits.length) return textHTML(text);
+    return notesHTML(before) + clampItems(hits, grepGroupsHTML(patternRE(pattern)), total) + notesHTML(after);
+  };
+
+  // deepagents lists paths as a Python list repr (notes may follow it) and appends this item when it cut the list.
+  const CUT_LIST_RE = /^\.\.\. \[results truncated\b/;
+
+  const pathsHTML = (text) => {
+    const source = String(text).trim();
+    const [first, ...rest] = source.split("\n");
+    if (first === "No files found") return textHTML(source);
+    const repr = first.startsWith("[") && first.endsWith("]");
+    const entries = parseLsEntries(repr ? first : source);
+    const paths = entries.filter((entry) => !CUT_LIST_RE.test(entry));
+    if (!paths.length) return textHTML(source);
+    const notes = [...entries.filter((entry) => CUT_LIST_RE.test(entry)), ...(repr ? rest : [])];
+    const icon = window.TranscriptLabels.iconHTML("document-text");
+    const items = paths
+      .slice(0, LINE_CAP)
+      .map((path) => `<li>${icon}<span>${escapeHtml(truncate(repoRelative(path) || path, LINE_CHARS))}</span></li>`);
+    const list = clampItems(items, (part) => `<ul class="body-files">${part.join("")}</ul>`, paths.length);
+    return list + notesHTML(notes.filter((note) => note.trim()).slice(0, VISIBLE_LINES));
+  };
+
+  const FILE_OPS = { added: "A", modified: "M", deleted: "D", renamed: "R" };
+
+  const changesHTML = (files) => {
+    const items = files
+      .slice(0, LINE_CAP)
+      .filter(isRecord)
+      .map((file) => {
+        const path = String(file.path ?? "");
+        const shown = file.op === "renamed" && file.from_path ? `${file.from_path} → ${path}` : path;
+        const op = Object.hasOwn(FILE_OPS, file.op) ? FILE_OPS[file.op] : "M";
+        return `<li><span class="body-op">${op}</span><span>${escapeHtml(shown)}</span></li>`;
+      });
+    if (!items.length) return "";
+    return clampItems(items, (part) => `<ul class="body-files">${part.join("")}</ul>`, files.length);
+  };
+
+  const exitCode = (command) =>
+    command.exit_code != null && Number(command.exit_code) !== 0 ? Number(command.exit_code) : null;
+
+  // One command: the row already shows it and its exit code. Several: each gets its `$ command` line.
+  const terminalHTML = (commands) => {
+    if (commands.length === 1) return commands[0].output ? textHTML(String(commands[0].output), "body-term") : "";
+    return commands
+      .map((command) => {
+        const line = escapeHtml(command.command ?? "");
+        const prompt = `<div class="body-cmd"><span class="body-prompt">$</span> ${line}</div>`;
+        const output = command.output ? textHTML(String(command.output), "body-term") : "";
+        const code = exitCode(command);
+        const exit = code == null ? "" : `<div class="body-exit">${escapeHtml(t("detail_exit", { code }))}</div>`;
+        return `<div class="body-run">${prompt}${output}${exit}</div>`;
       })
       .join("");
-    return `<div class="chat-grep">${html}</div>`;
-  };
-
-  const entriesHTML = (text) => {
-    const entries = parseLsEntries(text);
-    return textHTML(entries.length ? entries.join("\n") : text);
-  };
-
-  const bashRunHTML = (command, output, exitCode) => {
-    const cmdLine = command
-      ? `<div class="chat-bash__cmd"><span class="chat-bash__prompt">$</span> ${escapeHtml(command)}</div>`
-      : "";
-    const outBlock = output ? textHTML(output, "chat-tool__code--bash") : "";
-    const exitLine =
-      exitCode != null && Number(exitCode) !== 0
-        ? `<div class="chat-bash__exit chat-bash__exit--err">exit ${Number(exitCode)}</div>`
-        : "";
-    return `<div class="chat-bash">${cmdLine}${outBlock}${exitLine}</div>`;
-  };
-
-  const bashHTML = (text) => {
-    const entries = parseBashResult(text);
-    if (!entries) return textHTML(text, "chat-tool__code--bash");
-    return entries.map((e) => bashRunHTML(e.command ?? "", e.output ?? "", e.exit_code)).join("");
   };
 
   // Open in a new tab so we never replace the chat tab; rel=noopener for the
@@ -927,27 +1077,39 @@
   };
 
   const BODY_BY_TOOL = {
-    read_file: ({ result }) => contextSection(result, textHTML),
-    write_file: ({ args, result }) => {
+    read_file: ({ args, argsStr, result }) => contextSection(result, codeHTML(toolPath(args, argsStr))),
+    write_file: ({ seg, args, result }) => {
       const content = pickKey(args, ["content", "text"]);
-      const path = pickKey(args, ["path", "file_path"]) ?? "";
-      const changed =
-        content && !isError(result) ? jsdiffHTML(path, "", String(content), 0) ?? textHTML(String(content)) : "";
-      return section("body_changed", changed) + contextSection(result, textHTML);
+      const lines = succeeded(seg) && content ? String(content).replace(/\n$/, "").split("\n") : [];
+      const rows = lines.map((line) => `+${line}`);
+      return section("body_changed", diffHTML(rows)) + contextSection(result, textHTML);
     },
-    edit_file: ({ args, result }) => {
+    edit_file: ({ seg, args, result }) => {
       const oldStr = pickKey(args, ["old_string"]);
       const newStr = pickKey(args, ["new_string"]);
-      const path = pickKey(args, ["path", "file_path"]) ?? "";
-      // Partial streaming args would produce misleading hunks, so require both.
-      const complete = oldStr != null && newStr != null && !isError(result);
-      const changed = complete ? jsdiffHTML(path, String(oldStr), String(newStr), 2) : null;
-      return section("body_changed", changed ?? "") + contextSection(result, textHTML);
+      const complete = succeeded(seg) && oldStr != null && newStr != null && Boolean(window.Diff?.diffLines);
+      const changed = complete ? diffHTML(diffRows(String(oldStr), String(newStr))) : "";
+      return section("body_changed", changed) + contextSection(result, textHTML);
     },
-    grep: ({ result }) => contextSection(result, grepHTML),
-    glob: ({ result }) => contextSection(result, entriesHTML),
-    ls: ({ result }) => contextSection(result, entriesHTML),
-    bash: ({ result }) => contextSection(result, bashHTML),
+    grep: ({ args, result }) => {
+      const text = String(result ?? "");
+      const { hits } = parseGrep(text.split("\n"));
+      const content = pickKey(args, ["output_mode"]) === "content" && !parseOffload(text);
+      const matches = hits.filter((hit) => hit.match).length;
+      const size = content ? escapeHtml(`${tn("size_matches", matches)} · ${contextSize(text)}`) : null;
+      return contextSection(result, grepHTML(pickKey(args, ["pattern", "query", "regex"]), hits.length), size);
+    },
+    glob: ({ result }) => contextSection(result, pathsHTML),
+    ls: ({ result }) => contextSection(result, pathsHTML),
+    bash: ({ result }) => {
+      const parsed = parseBashSuccess(result);
+      if (!parsed) return contextSection(result, textHTML);
+      const commands = parsed.commands.filter(isRecord);
+      const output = commands.map((command) => String(command.output ?? "")).filter(Boolean).join("\n");
+      const size = output ? escapeHtml(contextSize(output)) : "";
+      const context = contextSection(result, () => terminalHTML(commands), size);
+      return section("body_changed", changesHTML(parsed.files_changed)) + context;
+    },
     skill: ({ result }) => contextSection(result, markdownHTML),
     task: ({ args, result }) => {
       const prompt = pickKey(args, ["prompt", "input", "task"]) ?? "";

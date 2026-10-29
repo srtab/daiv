@@ -24,7 +24,7 @@ TRANSCRIPT_BLOCKS_JS = JS_DIR / "transcript-blocks.js"
 DIFF_STUB = """{
   diffLines: (a, b) => {
     const count = (s) => (s ? s.split("\\n").length - (s.endsWith("\\n") ? 1 : 0) : 0);
-    return [{ removed: true, count: count(a) }, { added: true, count: count(b) }];
+    return [{ removed: true, count: count(a), value: a }, { added: true, count: count(b), value: b }];
   },
 }"""
 
