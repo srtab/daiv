@@ -20,10 +20,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
-from sessions.admission import AdmissionError, aadmit, aassert_repo_access, aresolve_environment, check_agent_override
+from sessions.admission import AdmissionError, aassert_repo_access, aresolve_environment, check_agent_override
 from sessions.artifacts import aserialize_run_artifacts_for_status
-from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.services import MAX_REPOS_PER_BATCH, BatchSubmitFailure, RepoTarget, alist_user_runs, asubmit_batch_runs
+from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.multi_repo import THREAD_NOT_FOUND, asubmit_jobs
+from sessions.services import MAX_REPOS_PER_BATCH, BatchSubmitFailure, RepoTarget, alist_user_runs
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 from codebase.authorization import asearch_viewable_repositories
@@ -69,6 +70,9 @@ new commit onto that same branch and updates the existing MR/PR — useful for f
 in-review branch. Otherwise DAIV creates a new branch off `ref` and opens a new MR/PR targeting \
 `ref` itself.
 
+Set `shared_session` to true to open one session over several repositories (at most 5, the first is the main one): \
+the agent sees all of them and DAIV opens one merge request per repository it changes.
+
 Jobs are rate-limited per user. Long-running jobs may exceed the 10-minute polling window; \
 continue polling with `get_job_status` if the result is not yet available.\
 """,
@@ -82,9 +86,6 @@ continue polling with `get_job_status` if the result is not yet available.\
     ),
     token_verifier=DjangoTokenVerifier(),
 )
-
-_THREAD_NOT_FOUND = "thread_id not found"
-_THREAD_ARCHIVED = "thread_id is archived; unarchive the session to continue it"
 
 
 def _allow_job_submission(user) -> bool:
@@ -121,7 +122,10 @@ class RepoSubmitSpec(RepoSpec):
     prompt: str | None = Field(
         default=None,
         pattern=r"\S",
-        description="Instruction for this repository only; replaces the batch prompt for it. Must not be blank.",
+        description=(
+            "Instruction for this repository only; replaces the batch prompt for it. Must not be blank. "
+            "Refused with `shared_session`."
+        ),
     )
 
 
@@ -139,7 +143,7 @@ async def submit_job(
                 " automatically after the job, and DAIV generates the branch name, commit message,"
                 " and MR/PR title/description itself. Be specific: include file paths, function"
                 " names, or error messages. The same prompt runs independently against each repository,"
-                " except one whose repos[].prompt replaces it."
+                " except one whose repos[].prompt replaces it; with `shared_session` it runs once across all of them."
             )
         ),
     ],
@@ -192,12 +196,22 @@ async def submit_job(
                 "Optional. Continue an existing thread by passing its UUID (from a prior"
                 " submit_job or get_job_status response). When set, ``repos`` must contain"
                 " exactly one entry whose session belongs to the calling user, who has not"
-                " archived it."
+                " archived it; a multi-repository session also accepts its full list, in order,"
+                " with no ``ref``."
                 " If a prior run on this thread is still in flight, the new job is queued"
                 " and runs FIFO after it terminates."
             )
         ),
     ] = None,
+    shared_session: Annotated[
+        bool,
+        Field(
+            description=(
+                "Run every repository in one session: the agent sees all of them and opens one merge request per "
+                "repository it changes. The first repository is the main one. At most 5."
+            )
+        ),
+    ] = False,
     references: Annotated[
         list[RefIn] | None,
         Field(
@@ -234,9 +248,6 @@ async def submit_job(
     if len(refs_in) > MAX_REFS_PER_SUBMISSION:
         return json.dumps({"error": f"At most {MAX_REFS_PER_SUBMISSION} references allowed per submission."})
 
-    if thread_id is not None and len(specs) != 1:
-        return json.dumps({"error": "thread_id continuation requires exactly one repo"})
-
     try:
         mcp_user = await get_current_user()
     except Exception:
@@ -266,36 +277,27 @@ async def submit_job(
             thread_id_str = str(uuid_mod.UUID(str(thread_id)))
         except ValueError, TypeError:
             logger.info("submit_job: rejecting malformed thread_id", extra={"user_id": mcp_user.pk})
-            return json.dumps({"error": _THREAD_NOT_FOUND})
-        owned = Session.objects.by_owner(mcp_user).filter(thread_id=thread_id_str)
-        if not await owned.aexists():
-            return json.dumps({"error": _THREAD_NOT_FOUND})
-        if await owned.archived_for(mcp_user).aexists():
-            return json.dumps({"error": _THREAD_ARCHIVED})
+            return json.dumps({"error": THREAD_NOT_FOUND})
 
     try:
-        admission = await aadmit(
+        result = await asubmit_jobs(
             user=mcp_user,
             repos=[RepoTarget(repo_id=s.repo_id, ref=s.ref or "", prompt=s.prompt or "") for s in specs],
+            shared=shared_session,
+            thread_id=thread_id_str,
+            prompt=prompt,
             agent_model=agent_model,
             agent_thinking_level=agent_thinking_level,
             environment=environment,
-        )
-        result = await asubmit_batch_runs(
-            user=mcp_user,
-            prompt=prompt,
-            repos=admission.targets,
-            agent_model=admission.agent_model,
-            agent_thinking_level=admission.agent_thinking_level,
             muted=muted,
             trigger_type=SessionOrigin.MCP_JOB,
-            thread_id=thread_id_str,
             references=refs_in,
         )
     except AdmissionError as err:
         return json.dumps({"error": str(err)})
 
-    # Walk the specs, not the runs, to echo the client-sent ref value (None vs "").
+    # Walk the specs, not the runs, to echo the client-sent ref value (None vs ""). A shared session's single
+    # outcome pairs with its main repository, the first spec.
     jobs = [
         {
             "job_id": str(outcome.id),
@@ -304,7 +306,7 @@ async def submit_job(
             "thread_id": str(outcome.session_id) if outcome.session_id else None,
             "status": str(outcome.status),
         }
-        for spec, outcome in zip(specs, result.outcomes, strict=True)
+        for spec, outcome in zip(specs, result.outcomes, strict=False)
         if not isinstance(outcome, BatchSubmitFailure)
     ]
     job_ids = [str(run.id) for run in result.runs]
@@ -331,7 +333,9 @@ async def _build_job_response_dict(run: Run) -> dict:
         "thread_id": str(run.session_id) if run.session_id else None,
         "result": result or None,
         "question": run.question,
-        "merge_request_url": run.merge_request_web_url or None,
+        "merge_request_url": run.primary_merge_request_url(),
+        "merge_requests": run.merge_request_links(),
+        "publish_errors": run.publish_errors,
         "artifacts": [artifact.model_dump() for artifact in artifacts],
         "artifacts_error": artifacts_error,
         "error": error,
@@ -447,7 +451,7 @@ async def get_job_status(
 
     Status is one of: QUEUED, READY, RUNNING, SUCCESSFUL, WAITING_INPUT, FAILED. WAITING_INPUT means the agent
     stopped to ask the user: ``question`` holds its questions and ``result`` their rendered text. To answer, call
-    ``submit_job`` with the same single repository, this response's ``thread_id``, and the answer as ``prompt``.
+    ``submit_job`` with the same repository, this response's ``thread_id``, and the answer as ``prompt``.
     """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:
@@ -565,7 +569,9 @@ def _serialize_job_summary(run: Run) -> dict:
         "trigger_type": str(run.trigger_type),
         "thread_id": str(run.session_id) if run.session_id else None,
         "batch_id": str(run.batch_id) if run.batch_id else None,
-        "merge_request_url": run.merge_request_web_url or None,
+        "merge_request_url": run.primary_merge_request_url(),
+        "merge_requests": run.merge_request_links(),
+        "publish_errors": run.publish_errors,
         "code_changes": run.code_changes,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,

@@ -14,7 +14,7 @@ from sessions.executor.tasks import run_job_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.conftest import stub_sandbox_spec
-from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, watch_recorder
+from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, make_task_result, watch_recorder
 from tests.unit_tests.sessions.executor.conftest import disk_ctx, resolved_to
 
 
@@ -226,6 +226,23 @@ async def test_run_job_task_reads_session_mcp_overrides():
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("extra_repos", "expected"), [(["g/mod"], True), ([], False)], ids=["multi-repo", "single-repo"]
+)
+async def test_job_falls_back_on_a_missing_ref_only_in_a_multi_repo_session(extra_repos, expected):
+    from sessions.models import SessionRepository
+
+    thread_id = str(uuid.uuid4())
+    await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="g/r")
+    for position, repo_id in enumerate(extra_repos, start=1):
+        await SessionRepository.objects.acreate(session_id=thread_id, position=position, repo_id=repo_id)
+
+    spec = (await _execute_run_call(thread_id))["spec"]
+
+    assert spec.fallback_ref_on_missing is expected
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolution():
     """A run that dies before the model is resolved (e.g. the git clone inside
     ``set_runtime_ctx``) leaves ``agent_model`` empty — the UI falls back to the
@@ -374,6 +391,36 @@ async def test_run_job_task_forwards_ref_and_acting_user():
 
     assert captured.get("ref") == "master"
     assert captured.get("acting_user_id") == 42
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_queued_multi_repo_turn_clones_main_on_the_branch_the_turn_before_moved_to(member_user):
+    from sessions.models import Run, RunStatus
+    from sessions.multi_repo import asubmit_shared_session_run
+    from sessions.queue import dispatch_next_queued
+    from sessions.services import RepoTarget
+
+    async def _enqueue(**_kwargs):
+        return MagicMock(id=(await sync_to_async(make_task_result)(status="READY")).id)
+
+    async def _submit(repos, thread_id=None):
+        result = await asubmit_shared_session_run(
+            user=member_user, prompt="fix", repos=repos, trigger_type=SessionOrigin.API_JOB, thread_id=thread_id
+        )
+        return result.runs[0]
+
+    with patch("sessions.queue.run_job_task") as task:
+        task.aenqueue = AsyncMock(side_effect=_enqueue)
+        first = await _submit([RepoTarget("g/app", "dev"), RepoTarget("g/mod")])
+        queued = await _submit([RepoTarget("g/app")], thread_id=first.session_id)
+        await Session.objects.filter(pk=first.session_id).aupdate(ref="daiv/fix-1")
+        await Run.objects.filter(pk=first.pk).aupdate(status=RunStatus.SUCCESSFUL)
+        await sync_to_async(dispatch_next_queued)(first.session_id)
+
+    dispatched = task.aenqueue.await_args.kwargs
+    assert (dispatched["run_id"], dispatched["ref"]) == (str(queued.pk), "dev")
+    captured = await _runtime_ctx_kwargs(first.session_id, ref=dispatched["ref"])
+    assert captured["ref"] == "daiv/fix-1"
 
 
 @pytest.mark.django_db(transaction=True)

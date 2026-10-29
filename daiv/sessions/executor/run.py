@@ -7,7 +7,7 @@ import uuid
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.urls import reverse
 
@@ -15,6 +15,7 @@ from asgiref.sync import sync_to_async
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
+from automation.agent.git_state import checkpointed_repo_publishes
 from automation.agent.session_links import SessionLinks
 from core.utils import build_absolute_url
 from sessions.archive import aarchive_thread, arestore_thread
@@ -23,12 +24,13 @@ from sessions.delegation import adelegator_for
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
-from sessions.models import Run
+from sessions.models import Run, SessionRepository
+from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
 from sessions.pipeline_watch.service import PipelineWatch
-from sessions.services import apersist_session_ref, areset_session_ref
+from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine, Sequence
     from contextlib import AbstractAsyncContextManager
 
     from langchain_core.runnables import RunnableConfig
@@ -38,10 +40,12 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
+    from automation.agent.git_state import RepoPublish
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.session import SandboxSession
+    from codebase.base import MergeRequest
     from sessions.executor.spec import RunSpec
     from sessions.live.relay import RunRelay
 
@@ -62,7 +66,7 @@ class AgentRun:
     ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``workspace`` is where the
     agent works; draft recovery publishes through it, and the executor releases its sandbox session. ``settings`` is
     what the run resolved once, and ``session_links`` what builds the links they allow; draft recovery publishes with
-    both."""
+    both. ``requested_ref`` is the ref the clone asked for, which ``ctx.repo.ref`` differs from after a fallback."""
 
     ctx: RuntimeCtx
     agent: CompiledStateGraph[Any, RuntimeCtx]
@@ -72,6 +76,8 @@ class AgentRun:
     workspace: Workspace
     settings: AgentSettings
     session_links: SessionLinksResolver | None
+    extra_repos: tuple[SessionRepository, ...] = ()
+    requested_ref: str = ""
 
 
 async def execute_run(
@@ -305,6 +311,8 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
         session_links=run.session_links,
     )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
+    if recovery.snapshot is not None:
+        await _record_sibling_publishes(spec, run, checkpointed_repo_publishes(recovery.snapshot.values))
 
 
 @asynccontextmanager
@@ -315,7 +323,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
     from sandbox_envs.services import build_sandbox_spec
 
     from automation.agent.agent_settings import resolve_agent_settings
-    from automation.agent.context import set_runtime_ctx
+    from automation.agent.context import ExtraRepo, set_runtime_ctx
     from automation.agent.graph import create_daiv_agent
     from automation.agent.middlewares.slash_commands import resets_thread, skips_sandbox
     from automation.agent.usage_tracking import track_usage_metadata
@@ -335,14 +343,18 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
         thread_id, checkpoints = str(uuid.uuid4()), nullcontext(InMemorySaver())
     else:
         thread_id, checkpoints = spec.thread_id, open_checkpointer()
+    extra_rows = await aload_extra_repos(spec.thread_id) if spec.thread_id is not None else []
+    # A turn queued behind another must continue on the branch that turn moved the main repository to.
+    main_ref = (await aget_session_ref(thread_id=thread_id) or None) if extra_rows else spec.ref
     async with (
         set_runtime_ctx(
             repo_id=spec.repo_id,
             scope=spec.scope,
-            ref=spec.ref,
+            ref=main_ref,
             issue=spec.issue,
             merge_request=spec.merge_request,
             fallback_ref_on_missing=spec.fallback_ref_on_missing,
+            extra_repos=[ExtraRepo(row.repo_id, row.ref) for row in extra_rows],
             sandbox_spec=sandbox_spec,
             acting_user_id=spec.acting_user_id,
             references=spec.references,
@@ -355,7 +367,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
         handed_over = False
         run_id = spec.run_id
         try:
-            if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
+            if spec.fallback_ref_on_missing and main_ref and ctx.repo.ref != main_ref:
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
             if hooks.on_context_ready is not None:
                 started_run_id = await hooks.on_context_ready(ctx.repo.ref)
@@ -408,6 +420,8 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     workspace=workspace,
                     settings=settings,
                     session_links=session_links,
+                    extra_repos=tuple(extra_rows),
+                    requested_ref=main_ref or cast("str", ctx.config.default_branch),
                 )
                 try:
                     yield run
@@ -545,6 +559,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         response_text = extract_text_content(messages[-1].content) if messages else ""
     merge_request = values.get("merge_request")
     published = bool(values.get("published"))
+    sibling_publishes = checkpointed_repo_publishes(values)
     # An unread checkpoint must not pass for one that published nothing: that would pin a blank ref to the clone's.
     if spec.persist_ref and snapshot is not None:
         try:
@@ -557,24 +572,55 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
     if spec.arm_watch:
-        try:
-            await PipelineWatch(spec.repo_id).aarm_after_run(
-                run_id=spec.run_id,
-                merge_request=merge_request,
-                published=published,
-                user_id=spec.acting_user_id,
-                sandbox_environment_id=spec.sandbox_env_id,
-            )
-        except Exception:
-            logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)
+        await _arm_watch(spec, run, spec.repo_id, merge_request, published, spec.sandbox_env_id)
+    await _record_sibling_publishes(spec, run, sibling_publishes)
 
     agent_result = build_agent_result(
         response=response_text,
         usage=build_usage_summary(run.usage).to_dict(),
         snapshot=snapshot,
         question=pending_question(messages),
+        main_repo_id=spec.repo_id,
     )
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
+
+
+async def _record_sibling_publishes(spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish]) -> None:
+    """Keep each extra repository's branch and merge request on its row and watch its CI, as ``spec`` allows."""
+    if not publishes:
+        return
+    if spec.persist_ref:
+        try:
+            await apersist_extra_repo_state(run.thread_id, publishes)
+        except Exception:
+            logger.exception("executor: failed to persist extra repository state for thread_id=%s", run.thread_id)
+    if not spec.arm_watch:
+        return
+    env_by_repo = {row.repo_id: row.sandbox_environment_id for row in run.extra_repos}
+    for rp in publishes:
+        if rp.merge_request is not None:
+            env_id = env_by_repo.get(rp.repo_id)
+            await _arm_watch(spec, run, rp.repo_id, rp.merge_request, rp.published, str(env_id) if env_id else None)
+
+
+async def _arm_watch(
+    spec: RunSpec,
+    run: AgentRun,
+    repo_id: str,
+    merge_request: MergeRequest | dict | None,
+    published: bool,
+    sandbox_env_id: str | None,
+) -> None:
+    try:
+        await PipelineWatch(repo_id).aarm_after_run(
+            run_id=spec.run_id,
+            merge_request=merge_request,
+            published=published,
+            user_id=spec.acting_user_id,
+            sandbox_environment_id=sandbox_env_id,
+        )
+    except Exception:
+        logger.exception("executor: failed to arm pipeline watch for %s of thread_id=%s", repo_id, run.thread_id)
 
 
 async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:

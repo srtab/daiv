@@ -9,12 +9,12 @@ from django.utils import timezone
 import pytest
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
+from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, SessionRepository
 from sessions.signal_defs import run_ended, run_finished
 
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
 from schedules.models import ScheduledJob
-from tests.unit_tests.sessions.conftest import make_task_result
+from tests.unit_tests.sessions.conftest import grant_read_access, make_task_result
 
 
 def _create_run(*, status: str = RunStatus.RUNNING, trigger_type: str = SessionOrigin.PIPELINE_WEBHOOK) -> Run:
@@ -294,6 +294,58 @@ class TestAfinish:
 
         publish.assert_not_called()
         assert not run_finished_spy.called
+
+
+@pytest.mark.django_db
+class TestMultiRepoVisibility:
+    @staticmethod
+    def _user(django_user_model, name):
+        return django_user_model.objects.create_user(username=name, email=f"{name}@x.io", password="x")  # noqa: S106
+
+    @staticmethod
+    def _session(extra=(), **kwargs):
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="g/app", **kwargs
+        )
+        for position, repo_id in enumerate(extra, start=1):
+            SessionRepository.objects.create(session=session, position=position, repo_id=repo_id)
+        run = Run.objects.create(session=session, trigger_type=SessionOrigin.API_JOB, repo_id="g/app")
+        return session, run
+
+    def test_hidden_from_user_reading_only_the_main_repository(self, django_user_model):
+        user = self._user(django_user_model, "main-only")
+        session, run = self._session(extra=["g/mod"])
+        grant_read_access(user, "g/app")
+
+        assert not Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert not Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_visible_to_user_reading_every_repository(self, django_user_model):
+        user = self._user(django_user_model, "all-repos")
+        session, run = self._session(extra=["g/mod", "g/lib"])
+        for repo_id in ("g/app", "g/mod", "g/lib"):
+            grant_read_access(user, repo_id)
+
+        assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_visible_to_owner_and_admin_without_repository_access(self, django_user_model, admin_user):
+        owner = self._user(django_user_model, "owner")
+        session, run = self._session(extra=["g/mod"], user=owner)
+        run.user = owner
+        run.save()
+
+        for user in (owner, admin_user):
+            assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+            assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_single_repository_session_still_visible_with_main_access(self, django_user_model):
+        user = self._user(django_user_model, "single")
+        session, run = self._session()
+        grant_read_access(user, "g/app")
+
+        assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
 
 
 @pytest.mark.django_db

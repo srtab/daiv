@@ -12,6 +12,7 @@ from codebase.clients.base import GitAuthEnv
 def _ctx(clone) -> MagicMock:
     ctx = MagicMock()
     ctx.gitrepo.working_dir = str(clone)
+    ctx.extra_repos = ()
     return ctx
 
 
@@ -128,3 +129,38 @@ async def test_a_directory_downloads_as_an_error(tmp_path):
 
     assert response.content is None
     assert response.error is not None
+
+
+def test_a_disk_workspace_sits_at_the_main_repo_path(tmp_path):
+    assert DiskWorkspace(_ctx(tmp_path)).repo_path == "/workspace/repo"
+
+
+async def test_extra_repos_are_routed_at_their_workspace_paths(tmp_path):
+    mod = MagicMock()
+    mod.repository.slug = "g/mod"
+    mod.gitrepo.working_dir = str(tmp_path / "mod")
+    (tmp_path / "mod").mkdir()
+    (tmp_path / "mod" / "README.md").write_text("mod\n")
+    ctx = _ctx(tmp_path)
+    ctx.extra_repos = (mod,)
+
+    [response] = await DiskWorkspace(ctx).backend.adownload_files(["/workspace/repos/g/mod/README.md"])
+
+    assert response.content == b"mod\n"
+
+
+async def test_for_repo_sibling_runs_git_in_its_clone_and_mints_its_auth(tmp_path):
+    ctx = _ctx(tmp_path)
+    sibling = MagicMock()
+    sibling.repository.slug = "g/mod"
+    auth_env = GitAuthEnv.for_token("https://gitlab.com/g/mod.git", "tok")
+    sibling.client.get_git_auth_env.return_value = auth_env
+    workspace = DiskWorkspace(ctx)
+
+    view = workspace.for_repo(sibling)
+
+    assert view.repo_path == "/workspace/repos/g/mod"
+    assert view.backend is workspace.backend
+    assert (await view.authenticated_git())._runner == LocalGitRunner(sibling.gitrepo, auth_env=auth_env)
+    sibling.client.get_git_auth_env.assert_called_once_with(sibling.repository)
+    ctx.repo.client.get_git_auth_env.assert_not_called()

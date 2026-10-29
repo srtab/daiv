@@ -136,6 +136,12 @@ def agent_stack(
             stack.events.append("watch armed")
             await super().aarm_after_run(**kwargs)
 
+    persist = AsyncMock(side_effect=_persist_ref)
+    persist_extra = AsyncMock()
+    reset = AsyncMock()
+    load_extra_repos = AsyncMock(return_value=[])
+    session_ref = AsyncMock(return_value="")
+
     with (
         stub_sandbox_spec() as build_spec,
         _stub_live_relay(stack) as (configured, build_client),
@@ -149,8 +155,14 @@ def agent_stack(
         patch("sessions.executor.result.build_agent_result", side_effect=_build_result) as build_result,
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
-        patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
+        patch.multiple(
+            "sessions.executor.run",
+            apersist_session_ref=persist,
+            apersist_extra_repo_state=persist_extra,
+            areset_session_ref=reset,
+            aload_extra_repos=load_extra_repos,
+            aget_session_ref=session_ref,
+        ),
         patch("sessions.executor.run.PipelineWatch", _Watch),
         patch("sessions.executor.run.adelegator_for", new=AsyncMock(return_value=MagicMock())) as delegator_for,
         patch(
@@ -170,7 +182,10 @@ def agent_stack(
         stack.langsmith = langsmith
         stack.build_result = build_result
         stack.persist = persist
+        stack.persist_extra = persist_extra
         stack.reset = reset
+        stack.load_extra_repos = load_extra_repos
+        stack.session_ref = session_ref
         stack.build_absolute_url = build_absolute_url
         stack.delegator_for = delegator_for
         yield stack

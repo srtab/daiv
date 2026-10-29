@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -56,6 +56,28 @@ async def test_authenticated_git_refreshes_the_credential_before_handing_back_gi
     session.refresh_credential.assert_awaited_once_with()
 
 
+async def test_publishes_close_together_share_one_credential_refresh():
+    session = acquired_session(FakeSandboxClient.opened())
+    session.refresh_credential = AsyncMock(return_value=True)
+    workspace = SandboxWorkspace(session)
+
+    await workspace.for_repo(MagicMock()).authenticated_git()
+    await workspace.authenticated_git()
+
+    session.refresh_credential.assert_awaited_once_with()
+
+
+async def test_a_failed_refresh_is_retried_by_the_next_publish():
+    session = acquired_session(FakeSandboxClient.opened())
+    session.refresh_credential = AsyncMock(side_effect=[httpx.ConnectError("down"), True])
+    workspace = SandboxWorkspace(session)
+
+    await workspace.authenticated_git()
+    await workspace.authenticated_git()
+
+    assert session.refresh_credential.await_count == 2
+
+
 async def test_authenticated_git_refuses_an_unacquired_session():
     session = SandboxSession(FakeSandboxClient.opened(), sandbox_spec())
     session.refresh_credential = AsyncMock()
@@ -94,3 +116,25 @@ async def test_a_sandbox_download_is_capped_inside_the_container():
     (command,) = client.run_commands.call_args.args[1].commands
     assert "-gt 1234 ]" in command
     assert response.error == DOWNLOAD_TOO_LARGE
+
+
+def test_a_sandbox_workspace_sits_at_the_main_repo_path():
+    assert SandboxWorkspace(SandboxSession(FakeSandboxClient.opened(), sandbox_spec())).repo_path == "/workspace/repo"
+
+
+async def test_for_repo_sibling_refreshes_credentials_then_returns_its_git():
+    session = acquired_session(FakeSandboxClient.opened())
+    session.refresh_credential = AsyncMock(return_value=True)
+    workspace = SandboxWorkspace(session)
+
+    handle = MagicMock()
+    handle.repository.slug = "g/mod"
+
+    view = workspace.for_repo(handle)
+    session.refresh_credential.assert_not_awaited()
+    git = await view.authenticated_git()
+
+    session.refresh_credential.assert_awaited_once_with()
+    assert view.repo_path == "/workspace/repos/g/mod"
+    assert git._runner == SandboxGitRunner(workspace.bash, repo_path="/workspace/repos/g/mod")
+    assert view.backend is workspace.backend

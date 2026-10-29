@@ -1,6 +1,11 @@
 import pytest
 
-from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
+from automation.agent.git_state import (
+    RepoPublish,
+    checkpointed_merge_request,
+    checkpointed_repo_publishes,
+    effective_merge_request,
+)
 from tests.unit_tests.automation.agent.conftest import make_merge_request
 
 
@@ -56,3 +61,24 @@ class TestCheckpointedMergeRequest:
             assert checkpointed_merge_request({"merge_request": {"source_branch": "a"}}, strict=False) is None
 
         assert "revived as dict" in caplog.text
+
+
+def test_checkpointed_repo_publishes_skips_unreadable_items(caplog):
+    readable = RepoPublish(
+        repo_id="g/mod", merge_request=make_merge_request(repo_id="g/mod"), published=True, current_ref="f"
+    ).to_state()
+    state = {
+        "repo_publishes": [
+            {"no_repo_id": True},
+            "not-a-dict",
+            readable,
+            {"repo_id": "g/bad", "merge_request": {"unexpected": 1}},
+        ]
+    }
+
+    with caplog.at_level("ERROR"):
+        publishes = checkpointed_repo_publishes(state)
+
+    assert [rp.repo_id for rp in publishes] == ["g/mod"]
+    assert "repo_id=g/bad" in caplog.text
+    assert checkpointed_repo_publishes({"repo_publishes": "nope"}) == []

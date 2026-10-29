@@ -249,6 +249,29 @@ class EgressRule(BaseModel):
     host: str = Field(description="Destination host glob (e.g. 'github.com', '*.githubusercontent.com').")
     methods: list[str] = Field(default_factory=lambda: ["*"], description="Allowed HTTP methods, or ['*'] for any.")
     inject: str | None = Field(default=None, description="Name of the secret whose header is injected for this host.")
+    path_prefix: str | None = Field(
+        default=None,
+        description=(
+            "Request path prefix this rule is limited to, matched on whole path segments "
+            "(e.g. '/group/app.git'); None matches every path."
+        ),
+    )
+
+    @field_validator("path_prefix", mode="after")
+    @classmethod
+    def _path_prefix_safe(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        if (
+            not value.startswith("/")
+            or value.endswith("/")
+            or any(c.isspace() or ord(c) < 0x20 or c in "?#" for c in value)
+        ):
+            raise ValueError(
+                "path_prefix must start with '/', not end with '/', and contain no whitespace, "
+                "control characters, '?' or '#'"
+            )
+        return value
 
     @field_validator("methods", mode="after")
     @classmethod
@@ -260,7 +283,7 @@ class EgressRule(BaseModel):
     @field_validator("host", mode="after")
     @classmethod
     def _host_safe(cls, value: str) -> str:
-        # Enforced on the type, not just the form: from_stored() and with_platform_credential() build
+        # Enforced on the type, not just the form: from_stored() and with_platform_credentials() build
         # rules outside the form, so a blank host or a CR/LF-smuggled host must be rejected here too.
         _reject_crlf(value, "host")
         host = value.strip()
@@ -277,7 +300,7 @@ class EgressSecret(BaseModel):
     @classmethod
     def _header_safe(cls, value: str) -> str:
         # Header-injection guard at the parse boundary, covering from_stored() (drifted row) and
-        # with_platform_credential() too — not only the form's clean_egress_json.
+        # with_platform_credentials() too — not only the form's clean_egress_json.
         _reject_crlf(value, "header name")
         if not value.strip():
             raise ValueError("header name must not be blank")

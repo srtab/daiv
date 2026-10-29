@@ -51,6 +51,7 @@ async def run_job_task(
     from langchain_core.messages import HumanMessage
 
     from sessions.executor.run import RunStoppedError, execute_run
+    from sessions.multi_repo import ais_multi_repo
 
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
@@ -91,6 +92,7 @@ async def run_job_task(
             mcp_overrides=session_row.mcp_overrides,
             references=session_row.external_references(),
             run_id=run_id,
+            fallback_ref_on_missing=await ais_multi_repo(thread_id),
             persist_ref=True,
             arm_watch=True,
             ask_user_enabled=ask_user_enabled,

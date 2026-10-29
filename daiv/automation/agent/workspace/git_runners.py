@@ -147,12 +147,14 @@ class LocalGitRunner:
 
 @dataclass(frozen=True)
 class SandboxGitRunner:
-    """Runs git in the sandbox's ``/workspace/repo``, where a sandbox run's changes live, through the run's backend.
+    """Runs git in the sandbox's ``repo_path`` (``/workspace/repo`` by default), where a sandbox run's changes live,
+    through the run's backend.
 
     In-sandbox git authenticates through the egress proxy's injected header, so this runner carries no credential.
     """
 
     backend: SandboxFileBackend
+    repo_path: str = REPO_PATH
 
     async def run(self, args: tuple[str, ...]) -> GitResult:
         response = await self.backend.run_commands([self._command(args)], fail_fast=True)
@@ -169,6 +171,5 @@ class SandboxGitRunner:
             )
         return [GitResult(exit_code=r.exit_code, output=r.output) for r in response.results]
 
-    @staticmethod
-    def _command(args: tuple[str, ...]) -> str:
-        return " ".join(_shell_quote(token) for token in ("git", "-C", REPO_PATH, *args))
+    def _command(self, args: tuple[str, ...]) -> str:
+        return " ".join(_shell_quote(token) for token in ("git", "-C", self.repo_path, *args))

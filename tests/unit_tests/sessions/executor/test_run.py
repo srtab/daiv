@@ -87,6 +87,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         "issue": None,
         "merge_request": None,
         "fallback_ref_on_missing": False,
+        "extra_repos": [],
         "sandbox_spec": stack.build_spec.return_value,
         "acting_user_id": 7,
         "references": refs,
@@ -121,6 +122,74 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
     )
     assert agent.ainvoke.call_args.args == ({"messages": list(spec.input_messages)},)
     assert agent.ainvoke.call_args.kwargs == {"config": stack.langsmith.return_value, "context": stack.ctx}
+
+
+async def test_session_run_clones_its_extra_repos():
+    from automation.agent.context import ExtraRepo
+
+    rows = [SimpleNamespace(repo_id="g/mod", ref="fix-x", sandbox_environment_id=None)]
+    spec = make_spec()
+    seen = {}
+
+    async def _stream(run):
+        seen["extra_repos"] = run.extra_repos
+        yield "event"
+
+    with agent_stack(_agent()) as stack:
+        stack.load_extra_repos.return_value = rows
+        async for _ in stream_run(spec, _stream, should_stop=AsyncMock(return_value=False)):
+            pass
+
+    stack.load_extra_repos.assert_awaited_once_with(spec.thread_id)
+    assert stack.context_kwargs["extra_repos"] == [ExtraRepo("g/mod", "fix-x")]
+    assert seen["extra_repos"] == tuple(rows)
+
+
+async def test_one_shot_run_loads_no_extra_repos():
+    with agent_stack(_agent()) as stack:
+        await execute_run(make_spec(thread_id=None))
+
+    stack.load_extra_repos.assert_not_awaited()
+    assert stack.context_kwargs["extra_repos"] == []
+
+
+async def test_a_multi_repo_run_clones_main_on_the_sessions_current_branch():
+    spec = make_spec(ref="dev", fallback_ref_on_missing=True)
+
+    with agent_stack(_agent()) as stack:
+        stack.load_extra_repos.return_value = [SimpleNamespace(repo_id="g/mod", ref="", sandbox_environment_id=None)]
+        stack.session_ref.return_value = "daiv/fix-1"
+        await execute_run(spec)
+
+    stack.session_ref.assert_awaited_once_with(thread_id=spec.thread_id)
+    assert stack.context_kwargs["ref"] == "daiv/fix-1"
+    stack.reset.assert_awaited_once_with(thread_id=spec.thread_id, new_ref="main")
+
+
+@pytest.mark.parametrize(("session_ref", "requested"), [("daiv/fix-1", "daiv/fix-1"), ("", "main")])
+async def test_a_multi_repo_run_requests_the_sessions_branch(session_ref, requested):
+    seen = {}
+
+    async def _stream(run):
+        seen["requested_ref"] = run.requested_ref
+        yield "event"
+
+    with agent_stack(_agent()) as stack:
+        stack.load_extra_repos.return_value = [SimpleNamespace(repo_id="g/mod", ref="", sandbox_environment_id=None)]
+        stack.session_ref.return_value = session_ref
+        stack.ctx.config.default_branch = "main"
+        async for _ in stream_run(make_spec(ref="dev"), _stream, should_stop=AsyncMock(return_value=False)):
+            pass
+
+    assert seen["requested_ref"] == requested
+
+
+async def test_a_single_repo_run_clones_the_ref_it_was_given():
+    with agent_stack(_agent()) as stack:
+        await execute_run(make_spec(ref="feat/x"))
+
+    stack.session_ref.assert_not_awaited()
+    assert stack.context_kwargs["ref"] == "feat/x"
 
 
 async def test_a_session_run_streams_under_its_slots_holder_id():
@@ -231,7 +300,7 @@ async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     assert outcome.snapshot is agent.aget_state.return_value
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
     stack.build_result.assert_called_once_with(
-        response="done", usage={}, snapshot=agent.aget_state.return_value, question=None
+        response="done", usage={}, snapshot=agent.aget_state.return_value, question=None, main_repo_id="owner/repo"
     )
     on_success.assert_awaited_once_with(outcome)
     on_failure.assert_not_awaited()
@@ -480,6 +549,119 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
             "sandbox_environment_id": "env-1",
         }
     ]
+
+
+def _sibling_state(*repo_ids: str) -> list[dict]:
+    from automation.agent.git_state import RepoPublish
+    from codebase.base import MergeRequest, User
+
+    return [
+        RepoPublish(
+            repo_id=repo_id,
+            merge_request=MergeRequest(
+                repo_id=repo_id,
+                merge_request_id=index,
+                source_branch=f"daiv/{index}",
+                target_branch="main",
+                title="t",
+                description="d",
+                web_url=f"https://git/{repo_id}/-/merge_requests/{index}",
+                author=User(id=1, username="bot"),
+            ),
+            published=True,
+            current_ref=f"daiv/{index}",
+        ).to_state()
+        for index, repo_id in enumerate(repo_ids, start=1)
+    ]
+
+
+async def test_after_run_arms_a_watch_per_sibling_mr_with_its_env():
+    rows = [
+        SimpleNamespace(repo_id="g/mod", ref="", sandbox_environment_id="env-b"),
+        SimpleNamespace(repo_id="g/lib", ref="", sandbox_environment_id=None),
+    ]
+    spec = make_spec(persist_ref=True, arm_watch=True, run_id="run-1", acting_user_id=7, sandbox_env_id="env-1")
+    state = {"merge_request": MR, "published": True, "repo_publishes": _sibling_state("g/mod", "g/lib")}
+
+    with (
+        agent_stack(_agent(state=state)) as stack,
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+    ):
+        stack.load_extra_repos.return_value = rows
+        await execute_run(spec)
+
+    assert [(a["repo_id"], a["sandbox_environment_id"], a["published"]) for a in stack.armed] == [
+        ("owner/repo", "env-1", True),
+        ("g/mod", "env-b", True),
+        ("g/lib", None, True),
+    ]
+    assert stack.armed[1]["merge_request"].merge_request_id == 1
+    assert stack.armed[1]["run_id"] == "run-1"
+    assert stack.armed[1]["user_id"] == 7
+    persisted = stack.persist_extra.await_args.args
+    assert persisted[0] == spec.thread_id
+    assert [rp.repo_id for rp in persisted[1]] == ["g/mod", "g/lib"]
+
+
+async def test_after_run_a_raising_sibling_arm_does_not_stop_the_next(caplog):
+    from sessions.executor import run as run_module
+
+    calls = []
+
+    class _Watch:
+        def __init__(self, repo_id):
+            self.repo_id = repo_id
+
+        async def aarm_after_run(self, **kwargs):
+            calls.append(self.repo_id)
+            if self.repo_id == "g/mod":
+                raise RuntimeError("boom")
+
+    spec = make_spec(persist_ref=True, arm_watch=True)
+    state = {"repo_publishes": _sibling_state("g/mod", "g/lib")}
+
+    with (
+        agent_stack(_agent(state=state)),
+        patch.object(run_module, "PipelineWatch", _Watch),
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+        caplog.at_level("ERROR"),
+    ):
+        await execute_run(spec)
+
+    assert calls == ["owner/repo", "g/mod", "g/lib"]
+    assert "failed to arm pipeline watch for g/mod" in caplog.text
+
+
+async def test_after_run_ignores_an_unreadable_sibling_publish():
+    spec = make_spec(persist_ref=True, arm_watch=True)
+    state = {"published": True, "repo_publishes": [{"oops": 1}, *_sibling_state("g/mod")]}
+
+    with (
+        agent_stack(_agent(state=state)) as stack,
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+    ):
+        await execute_run(spec)
+
+    assert [rp.repo_id for rp in stack.persist_extra.await_args.args[1]] == ["g/mod"]
+    assert [a["repo_id"] for a in stack.armed] == ["owner/repo", "g/mod"]
+
+
+async def test_after_run_skips_persist_without_snapshot():
+    agent = _agent()
+    agent.aget_state = AsyncMock(side_effect=RedisError("down"))
+
+    with (
+        agent_stack(agent) as stack,
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+    ):
+        await execute_run(make_spec(persist_ref=True))
+
+    stack.persist.assert_not_awaited()
+    stack.persist_extra.assert_not_awaited()
 
 
 @pytest.mark.parametrize(("persist_ref", "arm_watch"), [(True, False), (False, True), (False, False)])
@@ -964,6 +1146,26 @@ async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_f
     on_failure.assert_awaited_once_with(agent.ainvoke.side_effect, draft_published=True, snapshot=recovered_state)
 
 
+async def test_a_recovered_sibling_draft_is_kept_on_its_row_and_watched():
+    agent = _agent(state={"merge_request": None})
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
+
+    with agent_stack(agent) as stack:
+
+        async def _recover(*_args, **_kwargs):
+            agent.aget_state.return_value = MagicMock(values={"repo_publishes": _sibling_state("g/mod")})
+            return True
+
+        with (
+            patch("sessions.executor.run.recover_draft", new=AsyncMock(side_effect=_recover)),
+            pytest.raises(RuntimeError, match="agent blew up"),
+        ):
+            await execute_run(make_spec(recover_draft=True, persist_ref=True, arm_watch=True))
+
+    assert [rp.repo_id for rp in stack.persist_extra.await_args.args[1]] == ["g/mod"]
+    assert [a["repo_id"] for a in stack.armed] == ["g/mod"]
+
+
 async def test_a_setup_error_skips_draft_recovery():
     error = AgentConfigurationError("no default model configured")
     on_failure = AsyncMock()
@@ -1194,7 +1396,7 @@ async def test_the_sandbox_session_mints_its_egress_credential_from_the_context(
     client = FakeSandboxClient.opened()
     credential = GitEgressCredential.for_token(host="gitlab.com", token="tok")  # noqa: S106
 
-    with agent_stack(_agent(), ctx=_sandbox_ctx(client, credential_source=AsyncMock(return_value=credential))):
+    with agent_stack(_agent(), ctx=_sandbox_ctx(client, credential_source=AsyncMock(return_value=[credential]))):
         await execute_run(make_spec())
 
     [(request,)] = client.calls_to("start_session")

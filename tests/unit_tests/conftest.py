@@ -4,7 +4,7 @@ import json
 import os
 import tarfile
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -27,6 +27,8 @@ from accounts.models import Role
 from accounts.models import User as AccountUser
 from automation.agent.agent_settings import AgentSettings, RunOverrides, resolve_agent_settings
 from automation.agent.artifacts import ArtifactError, ArtifactFile
+from automation.agent.constants import REPO_PATH
+from automation.agent.context import extra_repo_path
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
@@ -120,6 +122,7 @@ class FakeSandboxSession:
     egress: EgressConfigRequest | None = None
     repo_files: frozenset[str] | None = None
     skills_files: frozenset[str] | None = None
+    repos_files: frozenset[str] | None = None
 
 
 class FakeSandboxClient:
@@ -217,16 +220,21 @@ class FakeSandboxClient:
         return session_id
 
     async def seed_session(
-        self, session_id: str, repo_archive: bytes | None = None, skills_archive: bytes | None = None
+        self,
+        session_id: str,
+        repo_archive: bytes | None = None,
+        skills_archive: bytes | None = None,
+        repos_archive: bytes | None = None,
     ) -> None:
-        if repo_archive is None and skills_archive is None:
-            raise ValueError("seed_session requires at least one of repo_archive or skills_archive")
+        if repo_archive is None and skills_archive is None and repos_archive is None:
+            raise ValueError("seed_session requires at least one archive")
         self._record("seed_session", session_id)
         session = self._require("seed_session", session_id)
-        if session.repo_files is not None or session.skills_files is not None:
+        if session.repo_files is not None or session.skills_files is not None or session.repos_files is not None:
             return
         session.repo_files = _archive_members(repo_archive)
         session.skills_files = _archive_members(skills_archive)
+        session.repos_files = _archive_members(repos_archive)
 
     async def session_exists(self, session_id: str) -> bool:
         try:
@@ -277,8 +285,8 @@ class FakeSandboxClient:
 @dataclass
 class FakeWorkspace:
     """A ``Workspace`` a test assembles from parts, disk-shaped until told otherwise: no shell, no session, always
-    ready. ``authenticated_git`` hands back ``git``, and ``download_file`` reads through ``backend`` as a disk read
-    does."""
+    ready. ``authenticated_git`` hands back ``git``, ``download_file`` reads through ``backend`` as a disk read does,
+    and ``for_repo`` hands back a copy sitting at the sibling's path."""
 
     backend: Any = field(default_factory=lambda: Mock(spec=BackendProtocol))
     git: Any = field(default_factory=AsyncMock)
@@ -288,6 +296,7 @@ class FakeWorkspace:
     provisions_skills: bool = False
     skills_provisioning_errors: Any = ()
     is_ready: bool = True
+    repo_path: str = REPO_PATH
 
     async def authenticated_git(self) -> Any:
         return self.git
@@ -295,6 +304,9 @@ class FakeWorkspace:
     async def download_file(self, path: str, *, max_bytes: int) -> Any:
         (response,) = await self.backend.adownload_files([path])
         return response
+
+    def for_repo(self, handle: Any) -> Any:
+        return replace(self, repo_path=extra_repo_path(handle))
 
 
 @dataclass

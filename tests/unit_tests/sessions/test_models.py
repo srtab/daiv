@@ -1,10 +1,10 @@
 import uuid
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 import pytest
 from sessions.executor.result import parse_agent_result
-from sessions.models import Run, RunStatus, Session, SessionOrigin, agent_result_field_updates
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository, agent_result_field_updates
 
 from automation.agent.workspace.session import SandboxAcquisition
 
@@ -407,3 +407,71 @@ def test_artifact_visible_to_follows_session_visibility(admin_user, member_user,
 def test_agent_result_field_updates_maps_code_changes_only_when_set(code_changes, expected):
     """False is left out so a later empty result never clears a flag an earlier sync recorded."""
     assert agent_result_field_updates(parse_agent_result({"code_changes": code_changes})) == expected
+
+
+def test_session_repository_unique_per_session():
+    session = _mk_session()
+    SessionRepository.objects.create(session=session, position=1, repo_id="g/mod")
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        SessionRepository.objects.create(session=session, position=2, repo_id="g/mod")
+    with pytest.raises(IntegrityError), transaction.atomic():
+        SessionRepository.objects.create(session=session, position=1, repo_id="g/lib")
+
+    SessionRepository.objects.create(session=_mk_session(), position=1, repo_id="g/mod")
+
+
+def test_merge_request_links_prefers_list_and_falls_back_to_legacy_url():
+    run = _mk_run(
+        _mk_session(),
+        merge_request_web_url="https://git/g/repo/-/merge_requests/1",
+        merge_requests=[
+            {"repo_id": "group/repo", "merge_request_id": 1, "web_url": "https://git/g/repo/-/merge_requests/1"},
+            {"repo_id": "g/mod", "merge_request_id": 7, "web_url": "https://git/g/mod/-/merge_requests/7"},
+        ],
+    )
+    assert run.merge_request_links() == [
+        {"repo_id": "group/repo", "url": "https://git/g/repo/-/merge_requests/1"},
+        {"repo_id": "g/mod", "url": "https://git/g/mod/-/merge_requests/7"},
+    ]
+
+    run.merge_requests = []
+    assert run.merge_request_links() == [{"repo_id": "group/repo", "url": "https://git/g/repo/-/merge_requests/1"}]
+
+    run.merge_request_web_url = ""
+    assert run.merge_request_links() == []
+
+
+def test_primary_merge_request_url_prefers_the_main_repositorys():
+    sibling = {"repo_id": "g/mod", "merge_request_id": 7, "web_url": "https://git/g/mod/-/merge_requests/7"}
+    run = _mk_run(
+        _mk_session(), merge_request_web_url="https://git/g/repo/-/merge_requests/1", merge_requests=[sibling]
+    )
+    assert run.primary_merge_request_url() == "https://git/g/repo/-/merge_requests/1"
+
+    run.merge_request_web_url = ""
+    assert run.primary_merge_request_url() == "https://git/g/mod/-/merge_requests/7"
+
+    run.merge_requests = []
+    assert run.primary_merge_request_url() is None
+
+
+def test_field_updates_include_merge_requests_and_errors():
+    result = parse_agent_result({
+        "response": "r",
+        "merge_requests": [
+            {"repo_id": "g/mod", "merge_request_id": 7, "web_url": "https://git/g/mod/-/merge_requests/7"}
+        ],
+        "publish_errors": [{"repo_id": "g/lib", "error": "boom"}],
+    })
+
+    updates = agent_result_field_updates(result)
+
+    assert updates["merge_requests"] == [
+        {"repo_id": "g/mod", "merge_request_id": 7, "web_url": "https://git/g/mod/-/merge_requests/7"}
+    ]
+    assert updates["publish_errors"] == [{"repo_id": "g/lib", "error": "boom"}]
+
+
+def test_field_updates_leave_out_empty_lists():
+    assert agent_result_field_updates(parse_agent_result({"response": "r"})) == {}

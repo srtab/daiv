@@ -15,17 +15,32 @@ if TYPE_CHECKING:
     from deepagents.backends.protocol import BackendProtocol, FileDownloadResponse
     from deepagents.middleware.filesystem import FilesystemPermission
 
+    from automation.agent.context import RepoHandle
     from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from automation.agent.workspace.session import SandboxSession
 
 
-class Workspace(Protocol):
+class PublishWorkspace(Protocol):
+    """What a publish reaches: the run's files, and git in the repository it publishes."""
+
     @property
     def backend(self) -> BackendProtocol:
         """The ``/workspace`` namespace the file tools, the skills and the subagents read and write."""
         ...
 
+    @property
+    def repo_path(self) -> str:
+        """Where, in ``/workspace``, the repository ``git`` reaches sits."""
+        ...
+
+    async def authenticated_git(self) -> GitManager:
+        """``git``, with a git-platform credential minted now for a publish's network commands (ls-remote, fetch,
+        push), so a turn that outlived its turn-start token still pushes."""
+        ...
+
+
+class Workspace(PublishWorkspace, Protocol):
     @property
     def git(self) -> GitManager:
         """Git in the repository the agent changes, for commands that need no platform credential."""
@@ -65,13 +80,13 @@ class Workspace(Protocol):
         which a turn that skips the sandbox (``skips_sandbox``) or a failed acquisition never gets to."""
         ...
 
-    async def authenticated_git(self) -> GitManager:
-        """``git``, with a git-platform credential minted now for a publish's network commands (ls-remote, fetch,
-        push), so a turn that outlived its turn-start token still pushes."""
-        ...
-
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         """Read one ``/workspace`` file to copy it out of the run. A sandbox refuses a file over ``max_bytes`` with
         ``DOWNLOAD_TOO_LARGE`` before it crosses the wire; a disk read is local and returns the file whole, leaving the
         limit to the caller."""
+        ...
+
+    def for_repo(self, handle: RepoHandle) -> PublishWorkspace:
+        """What a publish of ``handle``, one of the run's extra repositories, reaches: the run's files, and git in
+        ``handle``'s clone."""
         ...

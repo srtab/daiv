@@ -1,0 +1,24 @@
+{% load i18n icon_tags %}
+{% if repository_rows %}
+<section class="session-repositories" aria-label="{% translate 'Repositories' %}">
+    {% for repo in repository_rows %}
+    <div class="session-repositories__row">
+        <span class="session-repo" title="{{ repo.repo_id }}">{% icon "repo" "h-3 w-3 shrink-0" %}<span class="truncate">{{ repo.repo_id }}</span></span>
+        {% if forloop.first %}<span class="session-repositories__main">{% translate "main" %}</span>{% endif %}
+        {% if repo.ref %}<span class="session-branch min-w-0" title="{{ repo.ref }}">{% icon "branch" "h-3 w-3 shrink-0" %}<span class="truncate">{{ repo.ref }}</span></span>{% endif %}
+        {% if repo.mr_url %}
+        <a href="{{ repo.mr_url }}" target="_blank" rel="noopener" class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}{% if repo.mr_iid %}!{{ repo.mr_iid }}{% else %}{% translate "Merge request" %}{% endif %}</a>
+        {% elif repo.mr_iid %}
+        <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ repo.mr_iid }}</span>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% if latest_publish_errors %}
+    <ul class="session-repositories__errors" role="alert">
+        {% for item in latest_publish_errors %}
+        <li><span class="font-mono">{{ item.repo_id }}</span>: {{ item.error }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</section>
+{% endif %}

@@ -44,6 +44,7 @@ def _ctx() -> SimpleNamespace:
         config=RepositoryConfig(),
         repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=0.0),
         gitrepo=SimpleNamespace(working_dir="/clone"),
+        extra_repos=(),
         sandbox=None,
         sandbox_client=None,
         bot_username="daiv",

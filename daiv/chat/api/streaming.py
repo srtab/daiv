@@ -275,9 +275,11 @@ class ChatRunStreamer:
         default branch, then the agent's events through the subagent filter, recorded on ``turn``. Raises
         ``_ReportedRunError`` after the last event when one of them was a RUN_ERROR."""
         turn.usage = run.usage
-        if run.ctx.repo.ref != self.ref:
+        if run.ctx.repo.ref != run.requested_ref:
             yield CustomEvent(
-                type=EventType.CUSTOM, name="ref_fallback", value={"requested": self.ref, "using": run.ctx.repo.ref}
+                type=EventType.CUSTOM,
+                name="ref_fallback",
+                value={"requested": run.requested_ref, "using": run.ctx.repo.ref},
             )
         agui = RuntimeContextLangGraphAGUIAgent(
             name="DAIV",

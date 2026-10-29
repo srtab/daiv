@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlencode
@@ -12,9 +12,16 @@ from django.template.loader import render_to_string
 from asgiref.sync import sync_to_async
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
-from automation.agent.references import render_agent_context, render_commit_trailers, render_references_block
+from automation.agent.git_state import RepoPublish
+from automation.agent.references import (
+    PLATFORM_ISSUE_PROVIDERS,
+    render_agent_context,
+    render_commit_trailers,
+    render_references_block,
+)
 from automation.agent.utils import build_langsmith_config, repo_relative_text
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
+from codebase.clients.base import aget_open_merge_request
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
@@ -26,9 +33,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from automation.agent.agent_settings import AgentSettings
-    from automation.agent.context import RuntimeCtx
+    from automation.agent.context import RepoHandle, RuntimeCtx
     from automation.agent.session_links import SessionLinks, SessionLinksResolver
-    from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.base import PublishWorkspace, Workspace
     from automation.agent.workspace.git_manager import PendingMerge
 
 
@@ -114,7 +121,7 @@ class GitChangePublisher:
     def __init__(
         self,
         ctx: RuntimeCtx,
-        workspace: Workspace,
+        workspace: PublishWorkspace,
         *,
         settings: AgentSettings,
         session_links: SessionLinksResolver | None,
@@ -477,6 +484,7 @@ class GitChangePublisher:
             backend=self.workspace.backend,
             include_pr_metadata=bool(pr_metadata_diff),
             include_commit_message=commit_message_diff is not None,
+            repo_path=self.workspace.repo_path,
         )
         config = build_langsmith_config(
             self.ctx, trigger="diff_to_metadata", model=self.settings.diff_to_metadata.names[0]
@@ -522,13 +530,13 @@ class GitChangePublisher:
             source_branch=branch_name,
             target_branch=target_branch,
             labels=[BOT_LABEL],
-            title=repo_relative_text(title),
+            title=repo_relative_text(title, repo_path=self.workspace.repo_path),
             assignee_id=assignee_id,
             as_draft=as_draft,
             description=render_to_string(
                 "automation/issue_merge_request.txt",
                 {
-                    "description": repo_relative_text(description),
+                    "description": repo_relative_text(description, repo_path=self.workspace.repo_path),
                     "references_block": render_references_block(
                         self.ctx.references, repo_slug=self.ctx.repository.slug
                     ),
@@ -648,3 +656,89 @@ class GitChangePublisher:
 
         params = urlencode({"title": title, "body": body, "labels": BOT_AUTO_LABEL}, quote_via=quote)
         return f"{html_url}/issues/new?{params}"
+
+
+async def apublish_extra_repos(
+    ctx: RuntimeCtx,
+    workspace: Workspace,
+    *,
+    settings: AgentSettings,
+    session_links: SessionLinksResolver | None,
+    skip_ci: bool = False,
+    recovering: bool = False,
+) -> list[RepoPublish]:
+    """Publish each of ``ctx``'s extra repositories to its own branch and merge request, one after the other.
+
+    Each goes through its own views of ``ctx`` and ``workspace``, onto the open merge request of the branch its clone is
+    on. A repository that fails is recorded on its :class:`RepoPublish` and never raised, so it cannot stop the others
+    or the main repository. ``recovering`` is draft recovery: a new merge request opens as a draft, and a draft one
+    stays a draft. The agent's closing summary is left out: it covers the whole turn, not this repository.
+    """
+    return [
+        await _apublish_extra_repo(
+            ctx,
+            handle,
+            workspace,
+            settings=settings,
+            session_links=session_links,
+            skip_ci=skip_ci,
+            recovering=recovering,
+        )
+        for handle in ctx.extra_repos
+    ]
+
+
+async def _apublish_extra_repo(
+    ctx: RuntimeCtx,
+    handle: RepoHandle,
+    workspace: Workspace,
+    *,
+    settings: AgentSettings,
+    session_links: SessionLinksResolver | None,
+    skip_ci: bool,
+    recovering: bool,
+) -> RepoPublish:
+    slug = handle.repository.slug
+    branch = "" if handle.head_detached else handle.current_ref
+    try:
+        target = await aopen_branch_merge_request(handle)
+        publisher = GitChangePublisher(
+            _extra_repo_ctx(ctx, handle), workspace.for_repo(handle), settings=settings, session_links=session_links
+        )
+        outcome = await publisher.publish(
+            merge_request=target, skip_ci=skip_ci, as_draft=recovering and (target is None or target.draft)
+        )
+    except UnresolvedMergeConflictsError as exc:
+        logger.warning("Not publishing %s: %s", slug, exc)
+        error = str(exc)
+    except Exception as exc:
+        logger.exception("Publishing to %s failed", slug)
+        error = publish_failure(slug, exc)
+    else:
+        return RepoPublish(
+            repo_id=handle.repo_id, merge_request=outcome.merge_request, published=outcome.published, current_ref=branch
+        )
+    return RepoPublish(repo_id=handle.repo_id, merge_request=None, published=False, current_ref=branch, error=error)
+
+
+def publish_failure(slug: str, exc: Exception) -> str:
+    return f"Publishing to {slug} failed ({type(exc).__name__})"
+
+
+def _extra_repo_ctx(ctx: RuntimeCtx, handle: RepoHandle) -> RuntimeCtx:
+    """``ctx`` seen through ``handle`` alone, minus the platform-issue references: in ``handle``'s merge request their
+    ``Closes`` line would name an issue of ``handle``'s repository, not the one meant."""
+    references = tuple(ref for ref in ctx.references if ref.provider not in PLATFORM_ISSUE_PROVIDERS)
+    return replace(ctx, repos=(handle,), references=references)
+
+
+async def aopen_branch_merge_request(handle: RepoHandle) -> MergeRequest | None:
+    """The open merge request from the branch ``handle``'s clone is on; ``None`` on a detached HEAD (a commit-pinned
+    run, such as a SWE-bench eval on a raw SHA) or the default branch, which no run's merge request starts from."""
+    slug = handle.repository.slug
+    if handle.head_detached:
+        logger.debug("Skipping MR lookup for %s: detached HEAD (commit-pinned run)", slug)
+        return None
+    if not handle.current_ref or handle.current_ref == handle.config.default_branch:
+        return None
+    return await aget_open_merge_request(handle.client, slug, handle.current_ref)

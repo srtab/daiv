@@ -9,11 +9,13 @@ step sits where it does:
    another failure inside the claim — reaches ``hooks.on_failure`` without the slot, which was never claimed, so the
    trigger can tell its user. A one-shot run (``thread_id=None``, evals) has no session and holds no slot.
 2. The sandbox spec is built from ``spec.sandbox_env_id`` (``None``: the GLOBAL default alone); an id that names
-   no environment fails the run here, as a setup error. ``set_runtime_ctx`` clones the repository and opens
-   the sandbox client; the checkpointer opens, and a one-shot run checkpoints in memory under a fresh thread id
-   instead. If the spec allows it (``fallback_ref_on_missing``) and the clone fell back to another ref than
-   ``spec.ref``, the session's working branch is re-pinned to it at once, so the next turn doesn't ask for a
-   branch that is gone; a failed re-pin is logged.
+   no environment fails the run here, as a setup error. ``set_runtime_ctx`` clones the repository at ``spec.ref``
+   and opens the sandbox client; a multi-repository session clones its main repository at ``Session.ref`` instead,
+   read now that the slot is held, so a turn queued behind another continues on the branch that turn moved to. The
+   checkpointer opens, and a one-shot run checkpoints in memory under a fresh thread id instead. If the spec allows
+   it (``fallback_ref_on_missing``) and the clone fell back to another ref than the one it asked for, the session's
+   working branch is re-pinned to it at once, so the next turn doesn't ask for a branch that is gone; a failed
+   re-pin is logged.
    ``hooks.on_context_ready`` then learns the ref the clone landed on, and returns the id of any ``Run`` it creates;
    the agent then runs bound to it (``bind_active_run``), as it does to ``spec.run_id``, and step 6 measures it.
 3. The run's agent settings are resolved once, from one site snapshot, the repository's ``.daiv.yml`` and

@@ -1,7 +1,7 @@
 import logging
 import sys
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator  # noqa: TC003
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from time import monotonic
@@ -11,6 +11,7 @@ from asgiref.sync import sync_to_async
 from git import Repo  # noqa: TC002
 from sandbox_envs.spec import SandboxSpec  # noqa: TC002
 
+from automation.agent.constants import EXTRA_REPOS_PATH
 from automation.agent.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
@@ -27,30 +28,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.agent")
 
 
-class SingleRepoRequiredError(RuntimeError):
-    """Raised when a ``RuntimeCtx`` is constructed or accessed without exactly one repo handle.
+@dataclass(frozen=True)
+class ExtraRepo:
+    """A repository a session opens beside its main one; an empty ``ref`` means its default branch."""
 
-    Today every run is enforced to be single-repo; the error guards the multi-repo seam.
-    ``actual`` is the number of handles supplied — ``0`` means the caller forgot to
-    supply one (likely a misuse), ``>= 2`` means multi-repo, which isn't supported yet.
-    """
-
-    def __init__(self, actual: int) -> None:
-        detail = "got 0 (no repository supplied)" if actual == 0 else f"got {actual} (multi-repo not yet supported)"
-        super().__init__(f"RuntimeCtx requires exactly one repository handle, {detail}.")
-        self.actual = actual
+    repo_id: str
+    ref: str = ""
 
 
 @dataclass(frozen=True)
 class RepoHandle:
-    """Bindings for a single repository within a RuntimeCtx.
-
-    A RuntimeCtx holds exactly one of these today (enforced in
-    :meth:`RuntimeCtx.__post_init__`). The tuple shape on RuntimeCtx is the
-    multi-repo seam; the forwarding properties (``repository``, ``gitrepo``,
-    ``git_platform``, ``config``) make single-handle access read like a flat
-    dataclass.
-    """
+    """Bindings for a single repository within a RuntimeCtx."""
 
     repo_id: str
     client: RepoClient = field(compare=False, repr=False)
@@ -71,15 +59,17 @@ class RepoHandle:
     """How long the worker took to clone the repository; both attempts count when the fallback ran."""
 
 
+def extra_repo_path(handle: RepoHandle) -> str:
+    """Where one of the run's extra repositories sits in ``/workspace``."""
+    return f"{EXTRA_REPOS_PATH}/{handle.repository.slug}"
+
+
 @dataclass(frozen=True)
 class RuntimeCtx:
-    """Per-run context. Holds a tuple of repository handles plus shared agent-level state.
+    """Per-run context. Holds the run's repository handles plus shared agent-level state.
 
-    The constructor enforces ``len(repos) == 1`` (raising
-    :class:`SingleRepoRequiredError` otherwise); forwarding properties
-    (``repository``, ``gitrepo``, ``git_platform``, ``config``) delegate to
-    ``self.repo``. The tuple is the multi-repo seam for the future, not a
-    capability today.
+    ``repos[0]`` is the main repository, which drives the run; the rest are the session's extra repositories.
+    The forwarding properties (``repository``, ``gitrepo``, ``git_platform``, ``config``) read the main handle.
     """
 
     bot_username: str
@@ -89,11 +79,12 @@ class RuntimeCtx:
     egress."""
     sandbox_client: DAIVSandboxClient | None = field(default=None, compare=False, repr=False)
     """The run's sandbox transport: opened by :func:`set_runtime_ctx` for an enabled sandbox and closed with it."""
-    credential_source: Callable[[], Awaitable[GitEgressCredential | None]] | None = field(
+    credential_source: Callable[[], Awaitable[list[GitEgressCredential | None]]] | None = field(
         default=None, compare=False, repr=False
     )
-    """Mints the git platform's egress credential for the run's sandbox session; ``None`` without a sandbox. Each call
-    mints anew, so the session gets any token the clone's self-heal re-minted."""
+    """Mints every repository's git egress credential, main first and one per repository (``None`` where it has none),
+    for the run's sandbox session; ``None`` without a sandbox. Each call mints anew, so the session gets any token the
+    clone's self-heal re-minted."""
     scope: Scope | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None
@@ -109,14 +100,16 @@ class RuntimeCtx:
             object.__setattr__(self, "repos", tuple(self.repos))
         if not isinstance(self.references, tuple):
             object.__setattr__(self, "references", tuple(self.references))
-        if len(self.repos) != 1:
-            raise SingleRepoRequiredError(actual=len(self.repos))
+        if not self.repos:
+            raise ValueError("RuntimeCtx needs at least one repository handle")
 
     @property
     def repo(self) -> RepoHandle:
-        if len(self.repos) != 1:
-            raise SingleRepoRequiredError(actual=len(self.repos))
         return self.repos[0]
+
+    @property
+    def extra_repos(self) -> tuple[RepoHandle, ...]:
+        return self.repos[1:]
 
     @property
     def repository(self) -> Repository:
@@ -172,13 +165,42 @@ def _load_repo_with_optional_fallback(
         cm.__exit__(*sys.exc_info())
 
 
-def _credential_source(
-    repo_client: RepoClient, repository: Repository
-) -> Callable[[], Awaitable[GitEgressCredential | None]]:
-    """Mint the repository's git egress credential on each call: a turn can outlive the token minted at its start."""
+def _clone_handle(
+    clones: ExitStack,
+    repo_client: RepoClient,
+    repo_id: str,
+    repository: Repository,
+    config: RepositoryConfig,
+    ref: str,
+    *,
+    fallback: bool,
+) -> RepoHandle:
+    """Clone ``repository`` at ``ref`` for as long as ``clones`` stays open, and bind it into a handle."""
+    started = monotonic()
+    repo, effective_ref = clones.enter_context(
+        _load_repo_with_optional_fallback(repo_client, repository, ref, cast("str", config.default_branch), fallback)
+    )
+    return RepoHandle(
+        repo_id=repo_id,
+        client=repo_client,
+        repository=repository,
+        gitrepo=repo,
+        config=config,
+        ref=effective_ref,
+        current_ref=get_repo_ref(repo),
+        head_detached=repo.head.is_detached,
+        clone_seconds=monotonic() - started,
+    )
 
-    async def mint() -> GitEgressCredential | None:
-        return await sync_to_async(repo_client.get_git_egress_credential)(repository)
+
+def _credential_source(
+    repo_client: RepoClient, repositories: Sequence[Repository]
+) -> Callable[[], Awaitable[list[GitEgressCredential | None]]]:
+    """Mint each repository's git egress credential, main first, on each call: a turn can outlive the tokens minted
+    at its start. A repository without one keeps its ``None`` slot, since position tells the main credential apart."""
+
+    async def mint() -> list[GitEgressCredential | None]:
+        return [await sync_to_async(repo_client.get_git_egress_credential)(r) for r in repositories]
 
     return mint
 
@@ -197,6 +219,7 @@ async def set_runtime_ctx(
     references: Sequence[ExternalRef] | None = None,
     fallback_ref_on_missing: bool = False,
     repo_client: RepoClient | None = None,
+    extra_repos: Sequence[ExtraRepo] = (),
 ) -> AsyncGenerator[RuntimeCtx]:
     """Set the runtime context and load repository files to a temporary directory.
 
@@ -214,6 +237,8 @@ async def set_runtime_ctx(
             the remote (a merged-and-deleted branch) retries on the repository default branch
             instead of raising. ``ctx.repo.ref`` then reflects the branch actually used.
         repo_client: The run's platform client (``ctx.repo.client``); the configured platform's when omitted.
+        extra_repos: Repositories cloned beside the main one, in order; each falls back to its default branch
+            when its ref is gone.
 
     Yields:
         RuntimeCtx: The runtime context
@@ -235,28 +260,32 @@ async def set_runtime_ctx(
         sandbox_client = DAIVSandboxClient()
         await sandbox_client.open()
 
-    clone_started = monotonic()
     try:
-        with _load_repo_with_optional_fallback(
-            repo_client, repository, ref, cast("str", config.default_branch), fallback_ref_on_missing
-        ) as (repo, effective_ref):
-            handle = RepoHandle(
-                repo_id=repo_id,
-                client=repo_client,
-                repository=repository,
-                gitrepo=repo,
-                config=config,
-                ref=effective_ref,
-                current_ref=get_repo_ref(repo),
-                head_detached=repo.head.is_detached,
-                clone_seconds=monotonic() - clone_started,
-            )
+        with ExitStack() as clones:
+            handles = [
+                _clone_handle(clones, repo_client, repo_id, repository, config, ref, fallback=fallback_ref_on_missing)
+            ]
+            for extra in extra_repos:
+                extra_repository = repo_client.get_repository(extra.repo_id)
+                extra_config = RepositoryConfig.get_config(
+                    repo_id=extra.repo_id, repository=extra_repository, offline=offline, repo_client=repo_client
+                )
+                extra_ref = extra.ref or cast("str", extra_config.default_branch)
+                handles.append(
+                    _clone_handle(
+                        clones, repo_client, extra.repo_id, extra_repository, extra_config, extra_ref, fallback=True
+                    )
+                )
             ctx = RuntimeCtx(
                 bot_username=repo_client.current_user.username,
-                repos=(handle,),
+                repos=tuple(handles),
                 sandbox=sandbox_spec,
                 sandbox_client=sandbox_client,
-                credential_source=_credential_source(repo_client, repository) if sandbox_client is not None else None,
+                credential_source=(
+                    _credential_source(repo_client, [h.repository for h in handles])
+                    if sandbox_client is not None
+                    else None
+                ),
                 scope=scope,
                 issue=issue,
                 merge_request=merge_request,

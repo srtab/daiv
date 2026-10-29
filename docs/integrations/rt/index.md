@@ -65,6 +65,8 @@ Reload RT after editing: `apache2ctl graceful` (or whichever reload command your
 
 4. Edit the `%QUEUE_REPO_MAP` hash at the top of the pasted code so each queue you care about maps to the correct DAIV `repo_id` (e.g. `group/project`).
 
+A queue can map to several repositories. To have one agent session work across them, send them as one `repos` list with `"shared_session": true`: the first entry is the main repository and each changed repository gets its own merge request (see [Multi-repository sessions](../../features/jobs-api.md#multi-repository-sessions)). Without `shared_session`, each repository runs as a separate job.
+
 ### 3. Attach the Scrip to queues
 
 From the Scrip's **Applies To** tab in the RT admin UI, select the queues you want triaged. **The "Applies To" list and the keys of `%QUEUE_REPO_MAP` must stay in lockstep** — any queue where the Scrip runs but no repo is mapped will log a warning and skip (no ticket change, no job).

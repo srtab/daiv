@@ -21,9 +21,9 @@ the default branch always does.
 user and with their mute, whose prompt summarises every leg without quoting DAIV's own error text. The continuation
 ``waits_for`` whichever run is active on the coordinator's session then, whatever its trigger, and is released like
 any QUEUED run once it is not waiting. When several legs finish at once, ``run_one_continuation_per_batch`` lets one
-insert win. A user who has lost WRITE access to the coordinator's repository meanwhile gets the continuation FAILED
-instead. A batch none of whose legs reached the task queue or waited for the coordinator resumes nothing: the tool
-already told the agent nothing started, and neither does one whose every leg was cancelled.
+insert win. A user who has lost WRITE access to any of the coordinator session's repositories meanwhile gets the
+continuation FAILED instead. A batch none of whose legs reached the task queue or waited for the coordinator resumes
+nothing: the tool already told the agent nothing started, and neither does one whose every leg was cancelled.
 
 ``SessionJobDelegator.astatus`` reports the session's batches, its latest ``MAX_STATUS_BATCHES`` without a batch id,
 and ``acancel`` asks a batch's unfinished legs to stop through ``RunManager.cancel``: a leg that is not running yet
@@ -357,7 +357,7 @@ def _resume_batch(batch_id: uuid.UUID) -> bool:
         return False
 
     user = legs[0].user
-    denial = _access_denial(user, coordinator.repo_id)
+    denial = _access_denial(user, coordinator.repo_ids())
     agent_model, agent_thinking_level = pinned_agent_override(coordinator)
     try:
         with transaction.atomic():
@@ -410,12 +410,12 @@ def _active_run_id(thread_id: str) -> uuid.UUID | None:
     )
 
 
-def _access_denial(user: User | None, repo_id: str) -> str | None:
-    """Why the continuation may not run as ``user`` on ``repo_id``, or ``None`` when it may."""
+def _access_denial(user: User | None, repo_ids: list[str]) -> str | None:
+    """Why the continuation may not run as ``user`` on the coordinator's ``repo_ids``, or ``None`` when it may."""
     if user is None:
         return f"{ACCESS_DENIED_PREFIX}: the user who delegated these sub-jobs no longer exists."
     try:
-        assert_repo_access(user, [repo_id])
+        assert_repo_access(user, repo_ids)
     except RepoAccessError as err:
         return f"{ACCESS_DENIED_PREFIX}: {err}"
     return None

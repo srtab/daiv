@@ -119,7 +119,7 @@ async def test_submit_job_resolves_environment_name():
     fake_result = BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[fake_run])
     with (
         patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)),
-        patch("mcp_api.server.asubmit_batch_runs", new=AsyncMock(return_value=fake_result)) as submit,
+        patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock(return_value=fake_result)) as submit,
     ):
         await submit_job(prompt="p", repos=[{"repo_id": "r/p", "ref": ""}], environment="dev")
     targets = submit.await_args.kwargs["repos"]
@@ -136,7 +136,7 @@ async def test_submit_job_unknown_environment_returns_error():
 
     with (
         patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)),
-        patch("mcp_api.server.asubmit_batch_runs", new=AsyncMock()) as submit,
+        patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock()) as submit,
     ):
         result = await submit_job(prompt="p", repos=[{"repo_id": "r/p", "ref": ""}], environment="does-not-exist")
     import json
@@ -289,7 +289,7 @@ async def test_submit_job_cannot_resolve_other_users_env():
 
     with (
         patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)),
-        patch("mcp_api.server.asubmit_batch_runs", new=AsyncMock()) as submit,
+        patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock()) as submit,
     ):
         result = await submit_job(prompt="p", repos=[{"repo_id": "r/p", "ref": ""}], environment="theirs")
     import json
@@ -308,7 +308,7 @@ async def test_submit_job_auth_failure_returns_error_without_running():
 
     with (
         patch("mcp_api.server.get_current_user", new=AsyncMock(side_effect=RuntimeError("token check failed"))),
-        patch("mcp_api.server.asubmit_batch_runs", new=AsyncMock()) as submit,
+        patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock()) as submit,
     ):
         result = await submit_job(prompt="p", repos=[{"repo_id": "r/p", "ref": ""}])
     import json

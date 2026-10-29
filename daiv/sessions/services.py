@@ -21,7 +21,7 @@ from sessions.tasks import generate_batch_title_task
 from sessions.validators import MAX_REPOS_PER_BATCH
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Callable, Sequence
     from datetime import datetime
 
     from accounts.models import User
@@ -279,6 +279,77 @@ def create_run(
 acreate_run = sync_to_async(create_run)
 
 
+async def _aclaim_run(
+    create: Callable[[str], Awaitable[Run]],
+    *,
+    target: RepoTarget,
+    initial_status: str,
+    stored_refs: list[dict],
+    log_context: str,
+) -> Run | BatchSubmitFailure:
+    """Create the run in ``initial_status`` and merge ``stored_refs`` into its session, for :func:`_astart_run`."""
+    # Claim the session atomically by trying to create a READY row. The partial
+    # unique constraint ``run_one_active_per_session`` raises IntegrityError
+    # when a sibling (READY/RUNNING) is already active on this session — in that
+    # case we fall back to QUEUED, no task enqueue.
+    try:
+        run = await create(initial_status)
+    except IntegrityError:
+        try:
+            run = await create(RunStatus.QUEUED)
+        except Exception as inner_err:
+            logger.exception("%s: queued run creation failed for repo_id=%s", log_context, target.repo_id)
+            return BatchSubmitFailure(
+                repo_id=target.repo_id,
+                ref=target.ref,
+                error=f"RunCreationFailed: {type(inner_err).__name__}: {inner_err}",
+            )
+    except Exception as err:
+        logger.exception("%s: run creation failed for repo_id=%s", log_context, target.repo_id)
+        return BatchSubmitFailure(
+            repo_id=target.repo_id, ref=target.ref, error=f"RunCreationFailed: {type(err).__name__}: {err}"
+        )
+
+    if stored_refs:
+        try:
+            await _amerge_session_refs(run.session, stored_refs)
+        except Exception as err:  # noqa: BLE001
+            # A READY row left behind would hold the one-active-per-session claim forever
+            # (never enqueued → run_finished never fires → siblings stay QUEUED).
+            logger.exception("%s: session ref merge failed for repo_id=%s", log_context, target.repo_id)
+            await amark_failed_and_advance(run, prefix="refs_merge_failed", err=err, log_context=log_context)
+            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
+    return run
+
+
+async def _astart_run(claimed: Run | BatchSubmitFailure, *, log_context: str) -> Run | BatchSubmitFailure:
+    """Queue the task of a run :func:`_aclaim_run` created READY; a QUEUED one is left for the queue to start."""
+    if isinstance(claimed, BatchSubmitFailure) or claimed.status == RunStatus.QUEUED:
+        return claimed
+    if (failure := await aenqueue_run(claimed, log_context=log_context)) is not None:
+        return BatchSubmitFailure(
+            repo_id=claimed.repo_id, ref=claimed.ref, error=claimed.error_message, task_enqueued=failure.task_enqueued
+        )
+    return claimed
+
+
+async def _aenqueue_batch_title(
+    *, batch_id: uuid.UUID, prompt: str, user: User | None, trigger_type: str, runs: list[Run]
+) -> None:
+    if not (runs and trigger_type in SessionOrigin.prompt_driven() and prompt):
+        return
+    try:
+        await generate_batch_title_task.aenqueue(batch_id=str(batch_id), prompt=prompt)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Failed to enqueue batch title task for batch_id=%s user=%s trigger=%s runs=%d",
+            batch_id,
+            user.pk if user is not None else None,
+            trigger_type,
+            len(runs),
+        )
+
+
 async def asubmit_batch_runs(
     *,
     user: User | None,
@@ -358,52 +429,18 @@ async def asubmit_batch_runs(
         }
         initial_status = RunStatus.QUEUED if target.waits_for_run_id is not None else RunStatus.READY
 
-        # Claim the session atomically by trying to create a READY row. The partial
-        # unique constraint ``run_one_active_per_session`` raises IntegrityError
-        # when a sibling (READY/RUNNING) is already active on this session — in that
-        # case we fall back to QUEUED, no task enqueue.
-        try:
-            run = await acreate_run(**common_kwargs, task_result_id=None, status=initial_status)
-        except IntegrityError:
-            try:
-                run = await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.QUEUED)
-            except Exception as inner_err:
-                logger.exception("submit_batch_runs: queued run creation failed for repo_id=%s", target.repo_id)
-                return BatchSubmitFailure(
-                    repo_id=target.repo_id,
-                    ref=target.ref,
-                    error=f"RunCreationFailed: {type(inner_err).__name__}: {inner_err}",
-                )
-        except Exception as err:
-            logger.exception("submit_batch_runs: run creation failed for repo_id=%s", target.repo_id)
-            return BatchSubmitFailure(
-                repo_id=target.repo_id, ref=target.ref, error=f"RunCreationFailed: {type(err).__name__}: {err}"
-            )
-
-        if target_refs := [*stored_refs, *(ref.to_stored() for ref in target.references)]:
-            try:
-                await _amerge_session_refs(run.session, target_refs)
-            except Exception as err:  # noqa: BLE001
-                # A READY row left behind would hold the one-active-per-session claim forever
-                # (never enqueued → run_finished never fires → siblings stay QUEUED).
-                logger.exception("submit_batch_runs: session ref merge failed for repo_id=%s", target.repo_id)
-                await amark_failed_and_advance(
-                    run, prefix="refs_merge_failed", err=err, log_context="submit_batch_runs"
-                )
-                return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
-        return run
+        return await _aclaim_run(
+            lambda status: acreate_run(**common_kwargs, task_result_id=None, status=status),
+            target=target,
+            initial_status=initial_status,
+            stored_refs=[*stored_refs, *(ref.to_stored() for ref in target.references)],
+            log_context="submit_batch_runs",
+        )
 
     async def _start_one(created: Run | BatchSubmitFailure | BaseException) -> Run | BatchSubmitFailure | BaseException:
-        if isinstance(created, BatchSubmitFailure | BaseException) or created.status == RunStatus.QUEUED:
+        if isinstance(created, BaseException):
             return created
-        if (failure := await aenqueue_run(created, log_context="submit_batch_runs")) is not None:
-            return BatchSubmitFailure(
-                repo_id=created.repo_id,
-                ref=created.ref,
-                error=created.error_message,
-                task_enqueued=failure.task_enqueued,
-            )
-        return created
+        return await _astart_run(created, log_context="submit_batch_runs")
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
     # whole batch; _create_one and _start_one already catch Exception themselves.
@@ -421,20 +458,9 @@ async def asubmit_batch_runs(
         else:
             outcomes.append(outcome)
     result = BatchSubmitResult(batch_id=batch_id, outcomes=outcomes)
-    runs = result.runs
-
-    if runs and trigger_type in SessionOrigin.prompt_driven() and prompt:
-        try:
-            await generate_batch_title_task.aenqueue(batch_id=str(batch_id), prompt=prompt)
-        except Exception:  # noqa: BLE001
-            logger.exception(
-                "Failed to enqueue batch title task for batch_id=%s user=%s trigger=%s runs=%d",
-                batch_id,
-                user.pk if user is not None else None,
-                trigger_type,
-                len(runs),
-            )
-
+    await _aenqueue_batch_title(
+        batch_id=batch_id, prompt=prompt, user=user, trigger_type=trigger_type, runs=result.runs
+    )
     return result
 
 

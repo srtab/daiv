@@ -536,6 +536,15 @@ msgstr "Ecrã inteiro"
 msgid "Open full size"
 msgstr "Abrir em tamanho real"
 
+msgid "Repositories"
+msgstr "Repositórios"
+
+msgid "main"
+msgstr "principal"
+
+msgid "Merge request"
+msgstr "Merge request"
+
 #~ msgid "Session context"
 #~ msgstr "Contexto da sessão"
 
