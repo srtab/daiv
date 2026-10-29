@@ -2082,7 +2082,7 @@ html {
     scrollbar-width: thin;
   }
 
-  .step-group__rows--clipped {
+  .step-group__rows--live.step-group__rows--clipped {
     -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.75rem);
             mask-image: linear-gradient(to bottom, transparent, #000 1.75rem);
   }

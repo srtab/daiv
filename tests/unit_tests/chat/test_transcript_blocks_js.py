@@ -259,6 +259,12 @@ def test_a_turn_carrying_a_new_run_id_starts_a_block_without_an_anchor():
     assert blocks[1]["runId"] == "run-9" and blocks[0]["key"] == "u1"
 
 
+def test_a_stamped_turn_after_an_anchor_without_a_run_id_stays_in_its_block():
+    anchor = {k: v for k, v in user("u1").items() if k != "run_id"}
+    blocks = _blocks([anchor, {**asst("a1", read("c1")), "run_id": "run-u1"}])
+    assert [(b["key"], b["anchor"] and b["anchor"]["id"], b["stats"]["steps"]) for b in blocks] == [("u1", "u1", 1)]
+
+
 def test_while_in_flight_the_last_block_is_live_even_when_it_is_a_pending_prompt():
     blocks = _blocks([user("u1"), asst("a1", read("c1")), user("u2", pending=True)], in_flight=True)
     assert [b["live"] for b in blocks] == [False, True] and blocks[0]["folded"] is True

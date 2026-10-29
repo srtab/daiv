@@ -110,7 +110,7 @@
         return;
       }
       // A run without a prompt starts at its first turn, which carries its run_id.
-      if (!run || turn.role === "user" || (turn.run_id && turn.run_id !== run.runId)) open(turn, ti);
+      if (!run || turn.role === "user" || (turn.run_id && run.runId && turn.run_id !== run.runId)) open(turn, ti);
       run.turns.push({ turn, ti });
     });
     return runs;

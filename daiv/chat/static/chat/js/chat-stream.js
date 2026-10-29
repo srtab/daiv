@@ -1234,7 +1234,7 @@
       const steps = T.tn("steps", block.stats.steps);
       const started = Date.parse(block.startedAt ?? "");
       const ended = Date.parse(block.endedAt ?? "");
-      if (!Number.isFinite(started) || !Number.isFinite(ended)) return steps;
+      if (!Number.isFinite(started) || !Number.isFinite(ended) || ended < started) return steps;
       const seconds = Math.max(1, Math.round((ended - started) / 1000));
       return `${T.t("worked_for", { duration: formatElapsed(seconds) })} · ${steps}`;
     },

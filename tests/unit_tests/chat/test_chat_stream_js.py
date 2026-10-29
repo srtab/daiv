@@ -302,6 +302,11 @@ def test_a_run_without_timestamps_folds_behind_its_step_count():
     assert _drive(turns, script=["block0"])[0]["workedFor"] == "2 steps"
 
 
+def test_a_run_that_ends_before_it_starts_folds_behind_its_step_count():
+    turns = [user("u1", started_at="2026-10-29T10:05:00+00:00"), asst("a1", read("c1"), read("c2"), text("Done."))]
+    assert _drive(turns, script=["block0"])[0]["workedFor"] == "2 steps"
+
+
 def test_working_line_names_the_running_step():
     turns = [user("u1"), asst("a1", bash("c1", status="running"), streaming=True)]
     assert _drive(turns, script=["runStatus"])[-1] == "Running pytest…"
