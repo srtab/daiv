@@ -9,7 +9,7 @@ record(notice: ModelFallbackNotice) -> None   # buffers; callable from the synch
 async aflush() -> None                         # saves everything buffered so far to Run.notices
 ```
 
-`create_daiv_agent` calls `aflush()` once the agent is built. The skill tool calls it right after
+`create_daiv_agent` calls `aflush()` once the subagents are built, even when building them fails. The skill tool calls it right after
 it records a notice.
 
 - `create_daiv_agent(..., notices=None)` accepts an implementation. When it gets `None`, notices

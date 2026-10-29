@@ -15,7 +15,7 @@ from langchain.agents.middleware import (
 from skills.constants import SKILLS_PATH
 
 from automation.agent.base import get_model
-from automation.agent.configured_models import configured_subagent_model
+from automation.agent.configured_models import resolve_subagent_model
 from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
 from automation.agent.context import RuntimeCtx
 from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
@@ -243,56 +243,60 @@ async def create_daiv_agent(
     # receive it.
     mcp_tools = await load_mcp_tools(mcp_servers)
 
-    general_purpose_model = configured_subagent_model(
-        GENERAL_PURPOSE_NAME,
-        file_spec="",
-        configured_models=settings.subagent_models,
-        thinking_level=chain.thinking_level,
-        run_model=model,
-        run_model_spec=chain.names[0],
-        notices=notices,
-    )
+    try:
+        general_purpose_model = resolve_subagent_model(
+            GENERAL_PURPOSE_NAME,
+            file_spec="",
+            configured_models=settings.subagent_models,
+            thinking_level=chain.thinking_level,
+            run_model=model,
+            run_model_spec=chain.names[0],
+            notices=notices,
+        )
 
-    subagents = [
-        create_general_purpose_subagent(
-            general_purpose_model or model,
-            workspace,
-            ctx,
-            working_directory,
+        subagents = [
+            create_general_purpose_subagent(
+                general_purpose_model,
+                workspace,
+                ctx,
+                working_directory,
+                web_search_enabled=settings.web_search_enabled,
+                web_fetch_enabled=settings.web_fetch_enabled,
+                fallback_models=fallback_models,
+                mcp_tools=mcp_tools,
+            ),
+            create_explore_subagent(workspace, working_directory, models=settings.explore),
+            *load_builtin_code_review_detectors(
+                model,
+                backend,
+                working_directory,
+                fallback_models=fallback_models,
+                configured_models=settings.subagent_models,
+                thinking_level=chain.thinking_level,
+                run_model_spec=chain.names[0],
+                notices=notices,
+            ),
+        ]
+
+        custom_subagents = await load_custom_subagents(
+            model=model,
+            workspace=workspace,
+            runtime=ctx,
+            sources=[f"{agent_root}/{source}" for source in SUBAGENTS_SOURCES],
+            working_directory=working_directory,
             web_search_enabled=settings.web_search_enabled,
             web_fetch_enabled=settings.web_fetch_enabled,
             fallback_models=fallback_models,
             mcp_tools=mcp_tools,
-        ),
-        create_explore_subagent(workspace, working_directory, models=settings.explore),
-        *load_builtin_code_review_detectors(
-            model,
-            backend,
-            working_directory,
-            fallback_models=fallback_models,
             configured_models=settings.subagent_models,
             thinking_level=chain.thinking_level,
             run_model_spec=chain.names[0],
             notices=notices,
-        ),
-    ]
-
-    custom_subagents = await load_custom_subagents(
-        model=model,
-        workspace=workspace,
-        runtime=ctx,
-        sources=[f"{agent_root}/{source}" for source in SUBAGENTS_SOURCES],
-        working_directory=working_directory,
-        web_search_enabled=settings.web_search_enabled,
-        web_fetch_enabled=settings.web_fetch_enabled,
-        fallback_models=fallback_models,
-        mcp_tools=mcp_tools,
-        configured_models=settings.subagent_models,
-        thinking_level=chain.thinking_level,
-        run_model_spec=chain.names[0],
-        notices=notices,
-    )
-    subagents.extend(custom_subagents)
+        )
+        subagents.extend(custom_subagents)
+    finally:
+        if notices is not None:
+            await notices.aflush()
 
     deferred_tools = deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools)
     step_budget = StepBudgetMiddleware()
@@ -383,6 +387,4 @@ async def create_daiv_agent(
     # recursion_limit counts supersteps, not turns: each before_model/after_model hook adds one to every
     # turn on top of the model and tools nodes, so a new hook shrinks the turn budget.
     step_budget.bind(deep_agent)
-    if notices is not None:
-        await notices.aflush()
     return deep_agent.with_config({"recursion_limit": settings.recursion_limit})

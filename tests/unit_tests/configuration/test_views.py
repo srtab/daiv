@@ -1507,6 +1507,14 @@ class TestSkillModelsSection:
         assert len(warnings) == 1
         assert "my-repo-skill" in warnings[0]
 
+    def test_a_stored_name_outside_the_suggestions_is_not_warned_about_again(self, admin_client, global_skills):
+        _enable_seed_provider("openai")
+        self._post(admin_client, [{"name": "my-repo-skill", "model": "openai:gpt-5.4"}])
+
+        response = self._post(admin_client, [{"name": "my-repo-skill", "model": "openai:gpt-5.4"}])
+
+        assert [str(m) for m in response.context["messages"] if m.level_tag == "warning"] == []
+
     def test_an_invalid_row_saves_nothing(self, admin_client, global_skills):
         response = self._post(admin_client, [{"name": "code-review", "model": "nosuch:model"}])
 

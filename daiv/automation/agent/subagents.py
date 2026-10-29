@@ -15,7 +15,7 @@ from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE
 
 from automation.agent.base import get_model
-from automation.agent.configured_models import configured_subagent_model
+from automation.agent.configured_models import resolve_subagent_model
 from automation.agent.constants import EXPLORE_NAME
 from automation.agent.middlewares.deferred_tools import (
     deferred_tools_middleware,
@@ -230,7 +230,7 @@ def load_builtin_code_review_detectors(
     needs nothing from the run context.
 
     A detector with a ``configured_models`` entry runs on it, built with ``thinking_level``, over its charter's
-    ``model:`` (see ``configured_subagent_model``); ``run_model_spec`` names ``model`` in what ``notices`` records.
+    ``model:`` (see ``resolve_subagent_model``); ``run_model_spec`` names ``model`` in what ``notices`` records.
     """
     if not agents_dir.is_dir():
         # Louder than a single failed charter: this is the whole capability gone, every dimension
@@ -257,33 +257,30 @@ def load_builtin_code_review_detectors(
         frontmatter, body = parsed
 
         frontmatter_model = str(frontmatter.get("model", "")).strip()
-        detector_model = configured_subagent_model(
-            frontmatter["name"],
-            file_spec=frontmatter_model,
-            configured_models=configured_models or {},
-            thinking_level=thinking_level,
-            run_model=model,
-            run_model_spec=run_model_spec,
-            notices=notices,
-        )
-        if detector_model is None and frontmatter_model:
-            try:
-                detector_model = get_model(model=frontmatter_model)
-            except ValueError:
-                # Unknown/empty model spec — a charter config typo. Skip just this detector.
-                logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
-                failed.append(md_file.stem)
-                continue
-            except Exception:
-                # Anything else (disabled provider, missing API key, SDK init failure) is an
-                # environment problem, not a bad charter. Don't mislabel it "invalid model" —
-                # log the full traceback so it's distinguishable, then skip rather than abort
-                # the whole agent build over one detector.
-                logger.exception("Skipping detector %s: failed to initialize model '%s'", md_file, frontmatter_model)
-                failed.append(md_file.stem)
-                continue
+        try:
+            detector_model = resolve_subagent_model(
+                frontmatter["name"],
+                file_spec=frontmatter_model,
+                configured_models=configured_models or {},
+                thinking_level=thinking_level,
+                run_model=model,
+                run_model_spec=run_model_spec,
+                notices=notices,
+            )
+        except ValueError:
+            # Unknown/empty model spec — a charter config typo. Skip just this detector.
+            logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
+            failed.append(md_file.stem)
+            continue
+        except Exception:
+            # Anything else (disabled provider, missing API key, SDK init failure) is an
+            # environment problem, not a bad charter. Don't mislabel it "invalid model" —
+            # log the full traceback so it's distinguishable, then skip rather than abort
+            # the whole agent build over one detector.
+            logger.exception("Skipping detector %s: failed to initialize model '%s'", md_file, frontmatter_model)
+            failed.append(md_file.stem)
+            continue
 
-        detector_model = detector_model or model
         middleware = _build_detector_middleware(detector_model, backend, fallback_models)
         detectors.append(
             _compile_subagent(
@@ -588,7 +585,7 @@ async def load_custom_subagents(
         mcp_tools: The parent agent's MCP toolset, exposed to each custom subagent (deferred behind
             tool_search when deferral is on, bound directly when off) so a delegated MCP call works.
         configured_models: The run's subagent models; an entry beats the file's ``model:`` (see
-            ``configured_subagent_model``).
+            ``resolve_subagent_model``).
         thinking_level: The run's thinking level, for a configured model.
         run_model_spec: The spec ``model`` was built from, named in a recorded fallback.
         notices: Where a configured model that cannot be used is recorded.
@@ -645,22 +642,19 @@ async def load_custom_subagents(
                 continue
 
             frontmatter_model = str(frontmatter.get("model", "")).strip()
-            subagent_model = configured_subagent_model(
-                frontmatter["name"],
-                file_spec=frontmatter_model,
-                configured_models=configured_models or {},
-                thinking_level=thinking_level,
-                run_model=model,
-                run_model_spec=run_model_spec,
-                notices=notices,
-            )
-            if subagent_model is None and frontmatter_model:
-                try:
-                    subagent_model = get_model(model=frontmatter_model)
-                except Exception:
-                    logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
-                    continue
-            subagent_model = subagent_model or model
+            try:
+                subagent_model = resolve_subagent_model(
+                    frontmatter["name"],
+                    file_spec=frontmatter_model,
+                    configured_models=configured_models or {},
+                    thinking_level=thinking_level,
+                    run_model=model,
+                    run_model_spec=run_model_spec,
+                    notices=notices,
+                )
+            except Exception:
+                logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
+                continue
 
             middleware = _build_general_purpose_middleware(
                 subagent_model,

@@ -1301,7 +1301,7 @@ class TestBuiltinCodeReviewDetectors:
 
         with (
             caplog.at_level(logging.WARNING, logger="daiv.agent"),
-            patch("automation.agent.subagents.get_model", side_effect=ValueError("unknown provider")),
+            patch("automation.agent.configured_models.get_model", side_effect=ValueError("unknown provider")),
         ):
             result = load_builtin_code_review_detectors(
                 mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
@@ -1371,7 +1371,7 @@ class TestBuiltinCodeReviewDetectors:
 
         with (
             caplog.at_level(logging.WARNING, logger="daiv.agent"),
-            patch("automation.agent.subagents.get_model", side_effect=RuntimeError("provider disabled")),
+            patch("automation.agent.configured_models.get_model", side_effect=RuntimeError("provider disabled")),
         ):
             result = load_builtin_code_review_detectors(
                 mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
@@ -1536,7 +1536,7 @@ class TestBuiltinCodeReviewDetectors:
         override_model = Mock()
 
         with (
-            patch("automation.agent.subagents.get_model", return_value=override_model) as get_model,
+            patch("automation.agent.configured_models.get_model", return_value=override_model) as get_model,
             patch("automation.agent.subagents.create_agent") as mock_create,
         ):
             mock_create.return_value = Mock()
@@ -1590,7 +1590,6 @@ class TestConfiguredDetectorModels:
         for name, model in charters.items():
             (agents_dir / f"{name}.md").write_text(_make_subagent_md(name=name, description=name, model=model))
         with (
-            patch("automation.agent.subagents.get_model", models),
             patch("automation.agent.configured_models.get_model", models),
             patch("automation.agent.subagents.create_agent") as create_agent,
         ):
@@ -1676,7 +1675,6 @@ class TestConfiguredCustomSubagentModels:
         ctx = Mock()
         ctx.gitrepo.working_dir = str(tmp_path / "repo")
         with (
-            patch("automation.agent.subagents.get_model", models),
             patch("automation.agent.configured_models.get_model", models),
             patch("automation.agent.subagents.create_agent") as create_agent,
         ):

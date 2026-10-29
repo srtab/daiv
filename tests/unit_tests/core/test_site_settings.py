@@ -339,6 +339,11 @@ class TestModelMaps:
         with patch.object(SiteConfiguration, "get_cached", return_value=stored):
             assert getattr(ss, field) == {"code-review": "openrouter:env/model"}
 
+    def test_a_null_or_empty_spec_in_the_environment_is_unset(self, ss, field, monkeypatch):
+        monkeypatch.setenv(ss.get_env_var_name(field), '{"code-review": "openrouter:env/model", "plan": null, "x": ""}')
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert getattr(ss, field) == {"code-review": "openrouter:env/model"}
+
     @pytest.mark.parametrize("raw", ["{not json", '["code-review"]', '{"code-review": 3}'])
     def test_a_malformed_environment_value_is_logged_and_treated_as_empty(self, ss, field, monkeypatch, caplog, raw):
         monkeypatch.setenv(ss.get_env_var_name(field), raw)

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from deepagents.middleware import SummarizationMiddleware
 from deepagents.middleware.summarization import compute_summarization_defaults
 
-from automation.agent.usage_tracking import resolve_window_by_name
+from automation.agent.usage_tracking import chat_model_name, resolve_window_by_name
 
 if TYPE_CHECKING:
     from deepagents.backends import BackendProtocol
@@ -53,8 +53,7 @@ def build_summarization_middleware(model: BaseChatModel, backend: BackendProtoco
 
 def _window_by_name(model: BaseChatModel) -> int | None:
     """The context window DAIV's model catalog lists for ``model``, or ``None`` when it lists none."""
-    name = getattr(model, "model_name", None) or getattr(model, "model", None)
-    if not isinstance(name, str):
+    if not (name := chat_model_name(model)):
         return None
     resolved = resolve_window_by_name(name)
     return resolved.tokens if resolved else None

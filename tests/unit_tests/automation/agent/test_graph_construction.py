@@ -183,6 +183,7 @@ async def _construct(
     fork_branch: bool = False,
     notices: object | None = None,
     configured_get_model: object | None = None,
+    build_error: Exception | None = None,
 ):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
@@ -197,7 +198,7 @@ async def _construct(
     )
     graph_patches = {
         "create_general_purpose_subagent": {},
-        "load_custom_subagents": {"new": AsyncMock(return_value=[])},
+        "load_custom_subagents": {"new": AsyncMock(return_value=[], side_effect=build_error)},
         "create_deep_agent": {},
         "get_model": {},
         "SkillsMiddleware": {},
@@ -337,6 +338,21 @@ async def test_notices_recorded_while_building_are_flushed_once_the_agent_is_bui
     )
 
     assert [name for name, _args, _kwargs in calls.mock_calls] == ["record", "aflush"]
+    assert notices.record.call_args.args[0].name == "cr-tests"
+
+
+async def test_notices_recorded_before_the_build_fails_are_still_flushed():
+    notices = MagicMock(aflush=AsyncMock())
+
+    with pytest.raises(RuntimeError, match="no subagents"):
+        await _construct(
+            site={"agent_subagent_models": {"cr-tests": "nosuch:model"}},
+            notices=notices,
+            configured_get_model=MagicMock(side_effect=ValueError("Unknown provider prefix")),
+            build_error=RuntimeError("no subagents"),
+        )
+
+    notices.aflush.assert_awaited_once()
     assert notices.record.call_args.args[0].name == "cr-tests"
 
 

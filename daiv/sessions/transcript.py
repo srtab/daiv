@@ -203,7 +203,8 @@ def annotate_transcript(
                     run.status,
                     mid,
                 )
-            result.extend(_anchor(_prompt_turns(run) if run == activity.holder else _synthetic_turns(run), run))
+            unmatched = [*_prompt_turns(run), *_notice_turns(run)] if run == activity.holder else _synthetic_turns(run)
+            result.extend(_anchor(unmatched, run))
             continue
 
         # Flush any segments with no owning run (defensive; keeps ordering intact).

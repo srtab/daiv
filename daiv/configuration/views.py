@@ -57,7 +57,11 @@ class _ModelMapSection:
         return self.formset is not None and self.formset.is_bound
 
     def unknown_names(self) -> list[str]:
-        return [name for name in model_map_from_formset(self.formset) if name not in self.suggestions]
+        """Names this submission adds that no built-in or global entry has; stored ones were warned about already."""
+        stored = {row["name"] for row in self.formset.initial or ()}
+        return [
+            name for name in model_map_from_formset(self.formset) if name not in self.suggestions and name not in stored
+        ]
 
 
 class SiteConfigurationIndexView(AdminRequiredMixin, View):

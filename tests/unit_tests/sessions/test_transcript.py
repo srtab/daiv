@@ -203,6 +203,14 @@ def test_the_notice_names_its_reason(reason, label):
     assert result[-1]["message"].endswith(f"({label})")
 
 
+def test_the_slot_holder_shows_its_notices_before_it_checkpoints():
+    holder = _run("r1", status=RunStatus.RUNNING, prompt="please fix X", notices=[_fallback("cr-tests")])
+
+    result = annotate_transcript([], [holder], _holding(holder))
+
+    assert [t["id"] for t in result] == ["run-r1", "run-notice-r1-0"]
+
+
 def test_a_run_without_notices_adds_none():
     turns = [_user("h1"), _assistant("a1")]
 

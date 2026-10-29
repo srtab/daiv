@@ -64,11 +64,12 @@ MODEL_MAP_FIELDS = frozenset({"agent_skill_models", "agent_subagent_models"})
 
 
 def _parse_model_map_json(raw: str, env_var: str) -> dict[str, str]:
-    """Parse a ``{name: model spec}`` env value; malformed input is logged and treated as ``{}``."""
+    """Parse a ``{name: model spec}`` env value; a null or empty spec is unset, and malformed input is logged and
+    treated as ``{}``."""
     from pydantic import TypeAdapter, ValidationError
 
     try:
-        return TypeAdapter(dict[str, str]).validate_json(raw)
+        return {name: spec for name, spec in TypeAdapter(dict[str, str | None]).validate_json(raw).items() if spec}
     except ValidationError:
         logger.exception("%s could not be parsed as a JSON object of model specs; ignoring.", env_var)
         return {}

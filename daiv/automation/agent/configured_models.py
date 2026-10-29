@@ -65,7 +65,7 @@ def report_model_fallback(
         )
 
 
-def configured_subagent_model(
+def resolve_subagent_model(
     name: str,
     *,
     file_spec: str,
@@ -74,15 +74,17 @@ def configured_subagent_model(
     run_model: BaseChatModel,
     run_model_spec: str,
     notices: RunNotices | None,
-) -> BaseChatModel | None:
-    """The model subagent ``name`` runs on when it has a configured entry; ``None`` when it has none.
+) -> BaseChatModel:
+    """The model subagent ``name`` runs on: its configured entry, else ``file_spec``, else ``run_model``.
 
-    An entry that cannot be built falls back to ``file_spec``, else the run's model, so the subagent is never left out.
+    With no configured entry, building ``file_spec`` raises as is, so the caller skips the subagent. An entry that
+    cannot be built falls back to ``file_spec``, else the run's model, so it never leaves the subagent out.
     """
-    if not (configured := configured_models.get(name)):
-        return None
+    configured = configured_models.get(name)
+    if not configured:
+        return get_model(model=file_spec) if file_spec else run_model
     model, reason = build_configured_model(spec=configured, thinking_level=thinking_level)
-    if reason is None:
+    if model is not None:
         return model
     served, served_spec = run_model, run_model_spec
     if file_spec:
@@ -92,6 +94,11 @@ def configured_subagent_model(
             # Safe to continue: the run's model serves, and the fallback is reported below.
             logger.warning("Subagent %s: its file's model '%s' is unusable too", name, file_spec, exc_info=True)
     report_model_fallback(
-        notices, target="subagent", name=name, configured_model=configured, served_model=served_spec, reason=reason
+        notices,
+        target="subagent",
+        name=name,
+        configured_model=configured,
+        served_model=served_spec,
+        reason=reason or "init_failed",
     )
     return served

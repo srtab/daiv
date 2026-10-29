@@ -1162,7 +1162,7 @@ class TestSkillModel:
         agent = _skills_agent(run_replies, [], **agent_kwargs)
         with (
             patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock),
-            patch("automation.agent.middlewares.skills.get_model", get_model),
+            patch("automation.agent.configured_models.get_model", get_model),
         ):
             return await agent.ainvoke({"messages": [HumanMessage(content="go")], "skills_metadata": _SKILLS_METADATA})
 
@@ -1193,6 +1193,34 @@ class TestSkillModel:
 
         assert result["messages"][-1].content == "from the run model"
 
+    @pytest.mark.parametrize(
+        ("system_prompt", "answer"),
+        [(None, "from the skill model"), ("x" * 8000, "from the run model")],
+        ids=["fits", "the-system-prompt-overflows"],
+    )
+    async def test_the_window_check_counts_the_system_prompt(self, system_prompt, answer):
+        skill_model = _ToolModel(
+            messages=iter([AIMessage(content="from the skill model")]), profile={"max_input_tokens": 1000}
+        )
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
+            Mock(return_value=skill_model),
+            system_prompt=system_prompt,
+        )
+
+        assert result["messages"][-1].content == answer
+
+    async def test_a_later_skill_with_no_model_returns_the_calls_to_the_run_model(self):
+        skill_model = _ToolModel(messages=iter([AIMessage(content="", tool_calls=[DEMO_SKILL_CALL])]))
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
+            Mock(return_value=skill_model),
+        )
+
+        assert result["messages"][-1].content == "from the run model"
+
     async def test_an_unresolvable_skill_model_leaves_the_run_model_in_place(self):
         result = await self._run(
             [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
@@ -1213,7 +1241,7 @@ class TestSkillModel:
 
         with (
             patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock),
-            patch("automation.agent.middlewares.skills.get_model", Mock(return_value=skill_model)),
+            patch("automation.agent.configured_models.get_model", Mock(return_value=skill_model)),
         ):
             await agent.ainvoke(
                 {"messages": [HumanMessage(content="/cheap")], "skills_metadata": _SKILLS_METADATA}, config
@@ -1261,7 +1289,6 @@ class TestConfiguredSkillModel:
         )
         with (
             patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock),
-            patch("automation.agent.middlewares.skills.get_model", get_model),
             patch("automation.agent.configured_models.get_model", get_model),
         ):
             return await agent.ainvoke({"messages": [HumanMessage(content="go")], "skills_metadata": _SKILLS_METADATA})
@@ -1278,6 +1305,20 @@ class TestConfiguredSkillModel:
         )
 
         assert result["messages"][-1].content == "from the configured model"
+
+    async def test_two_skills_with_models_in_one_turn_run_on_one_of_them(self):
+        get_model = _models_by_spec(**{
+            spec: _ToolModel(messages=iter([AIMessage(content="from a skill model")]))
+            for spec in ("fake:cheap", "fake:configured")
+        })
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL, DEMO_SKILL_CALL])],
+            get_model,
+            configured={"demo": "fake:configured"},
+        )
+
+        assert result["messages"][-1].content == "from a skill model"
 
     async def test_a_configured_model_applies_to_a_skill_that_names_none(self):
         configured_model = _ToolModel(messages=iter([AIMessage(content="from the configured model")]))
