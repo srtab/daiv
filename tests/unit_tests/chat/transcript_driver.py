@@ -12,7 +12,6 @@ TRANSCRIPT_LABELS_JS = JS_DIR / "transcript-labels.js"
 TOOL_RENDERERS_JS = JS_DIR / "tool-renderers.js"
 TRANSCRIPT_BLOCKS_JS = JS_DIR / "transcript-blocks.js"
 
-# jsdiff loads from a CDN on the page; this stand-in diffs as a whole replacement.
 DIFF_STUB = """{
   diffLines: (a, b) => {
     const count = (s) => (s ? s.split("\\n").length - (s.endsWith("\\n") ? 1 : 0) : 0);

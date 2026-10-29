@@ -129,11 +129,9 @@
     };
 
     const runs = splitRuns(turns);
-    // A prompt queued behind the running run is never the live block.
-    const liveTail = opts.inFlight ? runs.findLastIndex((run) => !run.anchor?.pending) : -1;
 
     return runs.map((run, ri) => {
-      const key = claim(run.anchor?.run_id || run.anchor?.id || `head-${turnKey(run.first, run.firstIndex)}`);
+      const key = claim(run.anchor?.id || run.anchor?.run_id || `head-${turnKey(run.first, run.firstIndex)}`);
 
       const entries = [];
       const stats = { steps: 0, failed: 0, added: 0, removed: 0 };
@@ -159,7 +157,7 @@
         });
       }
 
-      const live = run.turns.some(({ turn }) => turn.streaming) || ri === liveTail;
+      const live = run.turns.some(({ turn }) => turn.streaming) || (ri === runs.length - 1 && Boolean(opts.inFlight));
       const folded = !live && stats.steps > 0;
       const foldEnd = folded ? lastStep + 1 : entries.length;
 

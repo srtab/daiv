@@ -247,12 +247,18 @@ def test_a_turn_carrying_a_new_run_id_starts_a_block_without_an_anchor():
     artifacts = {**asst("x1", publish("p1")), "run_id": "run-9"}
     blocks = _blocks([user("u1"), asst("a1", text("ok")), artifacts])
     assert [b["anchor"] and b["anchor"]["id"] for b in blocks] == ["u1", None]
-    assert blocks[1]["runId"] == "run-9" and blocks[0]["key"] == "run-u1"
+    assert blocks[1]["runId"] == "run-9" and blocks[0]["key"] == "u1"
 
 
-def test_in_flight_run_stays_live_behind_a_pending_prompt():
+def test_while_in_flight_the_last_block_is_live_even_when_it_is_a_pending_prompt():
     blocks = _blocks([user("u1"), asst("a1", read("c1")), user("u2", pending=True)], in_flight=True)
-    assert [b["live"] for b in blocks] == [True, False] and blocks[0]["folded"] is False
+    assert [b["live"] for b in blocks] == [False, True] and blocks[0]["folded"] is True
+
+
+def test_block_key_is_the_anchor_id_with_or_without_its_run_id():
+    turns = [user("u1"), asst("a1", read("c1"))]
+    streamed = [{k: v for k, v in turns[0].items() if k != "run_id"}, turns[1]]
+    assert _blocks(turns)[0]["key"] == _blocks(streamed)[0]["key"] == "u1"
 
 
 def test_question_item_carries_its_turn_index():
