@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
@@ -21,6 +22,7 @@ from skills.models import GlobalSkill, SkillInvocation
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
 from automation.agent.constants import SKILLS_TOOL_NAME
+from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
     CANCELLED_BY_USER_MESSAGE,
@@ -28,11 +30,13 @@ from core.constants import (
     RUN_FAILED_MESSAGE,
 )
 from sessions.artifacts import published_tool_result
+from sessions.delegation import leg_payloads
 from sessions.executor.lock import SessionActivity
 from sessions.models import (
     CHAT_PROMPT_MAX_LENGTH,
     PublishErrorKind,
     PublishStatus,
+    Run,
     RunArtifact,
     RunStatus,
     SessionOrigin,
@@ -42,7 +46,7 @@ from sessions.turns import tool_call_segment
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from sessions.models import Run
+    from accounts.models import User
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -389,3 +393,41 @@ def mark_skill_links(turns: list[dict[str, Any]], thread_id: str | UUID) -> None
     for segment, name in named:
         if name in linkable:
             segment["skill_url"] = reverse("skills:detail", args=[name])
+
+
+def _batch_id(segment: dict[str, Any]) -> UUID | None:
+    try:
+        result = json.loads(segment.get("result") or "")
+        return UUID(result["batch_id"])
+    except ValueError, TypeError, KeyError, AttributeError:
+        return None
+
+
+def mark_delegations(turns: list[dict[str, Any]], thread_id: str | UUID, user: User) -> None:
+    """Set ``legs`` on ``delegate_jobs`` tool calls from the database, which wins over the tool result.
+
+    Only legs of ``thread_id``'s own batches count; a batch with no runs leaves its segment as it was. Two queries
+    for the whole transcript, plus one for the viewer's visibility. Sync only.
+    """
+    named = [
+        (segment, batch_id)
+        for turn in turns
+        for segment in turn.get("segments", ())
+        if segment.get("type") == "tool_call"
+        and segment.get("name") == DELEGATE_JOBS_TOOL_NAME
+        and (batch_id := _batch_id(segment))
+    ]
+    if not named:
+        return
+    legs_by_batch: dict[UUID, list[Run]] = defaultdict(list)
+    legs = Run.objects.filter(
+        trigger_type=SessionOrigin.DELEGATED_JOB,
+        session__parent_id=thread_id,
+        batch_id__in={batch_id for _, batch_id in named},
+    )
+    for leg in legs:
+        legs_by_batch[leg.batch_id].append(leg)
+    payloads = leg_payloads(legs_by_batch, user)
+    for segment, batch_id in named:
+        if batch_id in payloads:
+            segment["legs"] = payloads[batch_id]

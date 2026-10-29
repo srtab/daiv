@@ -1311,3 +1311,27 @@ def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
     for helper, key in calls:
         assert key in labels, key
         assert isinstance(labels[key], list) == (helper == "tn"), f"{helper}('{key}') does not match its label shape"
+
+
+@pytest.mark.django_db
+def test_detail_shows_delegated_jobs_current_state(member_client, member_user):
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    from tests.unit_tests.sessions.test_delegation import _coordinator, _leg
+
+    coordinator = _coordinator(member_user)
+    batch = uuid.uuid4()
+    _leg(coordinator, batch, status=RunStatus.WAITING_INPUT)
+    messages = [
+        AIMessage(content="", id="a1", tool_calls=[{"id": "t1", "name": "delegate_jobs", "args": {"goal": "g"}}]),
+        ToolMessage(content=json.dumps({"batch_id": str(batch), "started": []}), tool_call_id="t1", id="m1"),
+    ]
+
+    with (
+        patch("sessions.views.ahydrate_thread", _hydration(messages)),
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": coordinator.thread_id}))
+
+    segment = next(s for t in resp.context["turns"] for s in t["segments"] if s.get("name") == "delegate_jobs")
+    assert [leg["state"] for leg in segment["legs"]] == ["waiting_input"]

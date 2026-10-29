@@ -16,7 +16,7 @@ from sessions.hydration import ahydrate_thread
 from sessions.models import HiddenSession, Session, WatchState
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns, mark_skill_links
+from sessions.transcript import annotate_transcript, expired_run_turns, mark_delegations, mark_skill_links
 from sessions.turns import build_turns
 
 if TYPE_CHECKING:
@@ -132,6 +132,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
         mark_skill_links(turns, session.thread_id)
+        mark_delegations(turns, session.thread_id, user)
         retry = retry_for(session, runs, turns, user)
         return live_run_for(activity.live, session, user), latest_run_payload(runs, retry)
 

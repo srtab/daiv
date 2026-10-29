@@ -464,6 +464,32 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
     assert resp.json()["run_count"] == 2
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_show_delegated_jobs_current_state(client, authed):
+    import json
+
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    from tests.unit_tests.sessions.test_delegation import _coordinator, _leg
+
+    _key_obj, raw, user = authed
+    coordinator = await sync_to_async(_coordinator)(user)
+    batch = uuid.uuid4()
+    await sync_to_async(_leg)(coordinator, batch, status=RunStatus.WAITING_INPUT)
+    messages = [
+        AIMessage(content="", id="a1", tool_calls=[{"id": "t1", "name": "delegate_jobs", "args": {"goal": "g"}}]),
+        ToolMessage(content=json.dumps({"batch_id": str(batch), "started": []}), tool_call_id="t1", id="m1"),
+    ]
+
+    with patch(
+        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread(messages, False, None, None, None))
+    ):
+        resp = await client.get(f"/sessions/{coordinator.thread_id}/turns", headers=_auth_headers(raw))
+
+    segment = next(s for t in resp.json()["turns"] for s in t["segments"] if s.get("name") == "delegate_jobs")
+    assert [leg["state"] for leg in segment["legs"]] == ["waiting_input"]
+
+
 # ---------------------------------------------------------------------------
 # session actions: rename, CI watch, archive
 # ---------------------------------------------------------------------------

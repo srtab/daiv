@@ -78,7 +78,7 @@ from sessions.queue import ENQUEUE_FAILED_PREFIX, LINK_FAILED_PREFIX, dispatch_n
 from sessions.services import RepoTarget, asubmit_batch_runs, create_run, pinned_agent_override
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from django.db.models import QuerySet
 
@@ -89,6 +89,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 LEG_REPLY_MAX_CHARS = 1000
+LEG_REPLY_LINE_MAX_CHARS = 200
 MAX_CONTINUATION_ATTEMPTS = 3
 MAX_RESUMES_IN_A_ROW = 3
 MAX_STATUS_BATCHES = 5
@@ -520,3 +521,35 @@ def leg_state(leg: Run) -> str:
     if leg.status == RunStatus.QUEUED and leg.waits_for_id:
         return "waits"
     return _LEG_STATES.get(leg.status, "queued")
+
+
+def leg_payloads[K](legs_by_group: Mapping[K, Sequence[Run]], user: User) -> dict[K, list[dict[str, str]]]:
+    """Each group's legs as the transcript and the session header show them: ``NEEDS_YOU`` first, then oldest first.
+
+    A leg whose session ``user`` may not see keeps its repository, ref and state, and nothing else. One query
+    decides visibility for every group. SYNC ONLY.
+    """
+    session_ids = {leg.session_id for legs in legs_by_group.values() for leg in legs}
+    visible = set(Session.objects.visible_to(user).filter(pk__in=session_ids).values_list("pk", flat=True))
+
+    def payload(leg: Run) -> dict[str, str]:
+        seen = leg.session_id in visible
+        return {
+            "repo_id": leg.repo_id,
+            "ref": leg.ref,
+            "state": leg_state(leg),
+            "merge_request_url": leg.merge_request_web_url if seen else "",
+            "reply": _first_line(leg.result_summary, LEG_REPLY_LINE_MAX_CHARS) if seen else "",
+            "session_url": reverse("session_detail", kwargs={"thread_id": leg.session_id}) if seen else "",
+        }
+
+    result = {}
+    for group, legs in legs_by_group.items():
+        payloads = [payload(leg) for leg in sorted(legs, key=lambda leg: (leg.created_at, leg.id))]
+        result[group] = sorted(payloads, key=lambda item: item["state"] not in NEEDS_YOU)
+    return result
+
+
+def _first_line(text: str, limit: int) -> str:
+    lines = text.strip().splitlines()
+    return lines[0][:limit] if lines else ""

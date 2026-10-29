@@ -56,7 +56,7 @@ from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns, mark_skill_links
+from sessions.transcript import annotate_transcript, expired_run_turns, mark_delegations, mark_skill_links
 from sessions.transcript_labels import transcript_icons, transcript_labels
 from sessions.turns import build_turns
 from slash_commands.composer import composer_command_rows
@@ -368,6 +368,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
         mark_skill_links(ctx["turns"], session.thread_id)
+        mark_delegations(ctx["turns"], session.thread_id, self.request.user)
         retry = retry_for(session, runs, ctx["turns"], self.request.user, can_act=ctx["can_act"])
         ctx["header"] = build_session_header(session, runs, retry=retry, merge_request=merge_request)
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
