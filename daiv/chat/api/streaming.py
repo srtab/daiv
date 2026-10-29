@@ -235,7 +235,7 @@ class ChatRunStreamer:
             input_messages=(HumanMessage(content=self.prompt),),
             trigger="chat",
             lock=Held(holder_id=self.run_id),
-            ref=self.ref,
+            ref=self.ref or None,
             fallback_ref_on_missing=True,
             agent_model=self.agent_model,
             agent_thinking_level=self.agent_thinking_level,
@@ -271,9 +271,9 @@ class ChatRunStreamer:
             turn.response = outcome.response_text
 
     async def _agui_events(self, turn: _Turn, run: AgentRun) -> AsyncGenerator[BaseEvent]:
-        """The turn's AG-UI stream: a ``ref_fallback`` frame when the clone fell back, then the agent's events through
-        the subagent filter, recorded on ``turn``. Raises ``_ReportedRunError`` after the last event when one of them
-        was a RUN_ERROR."""
+        """The turn's AG-UI stream: a ``ref_fallback`` frame when the clone fell back or resolved a blank ref to the
+        default branch, then the agent's events through the subagent filter, recorded on ``turn``. Raises
+        ``_ReportedRunError`` after the last event when one of them was a RUN_ERROR."""
         turn.usage = run.usage
         if run.ctx.repo.ref != self.ref:
             yield CustomEvent(

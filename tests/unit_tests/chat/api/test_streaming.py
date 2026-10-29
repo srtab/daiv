@@ -106,6 +106,11 @@ def test_the_run_spec_carries_the_prompt_as_the_turns_input():
     assert _streamer(prompt="/help")._run_spec().input_messages == (HumanMessage(content="/help"),)
 
 
+def test_a_blank_ref_runs_on_the_default_branch():
+    streamer = ChatRunStreamer(repo_id="a/b", ref="", thread_id="t-stream", run_id="r-1", input_data=_run_input())
+    assert streamer._run_spec().ref is None
+
+
 def _mock_agent(events):
     """Patch ``RuntimeContextLangGraphAGUIAgent`` so its instance's ``run()`` yields
     the supplied iterable of AGUI events.
