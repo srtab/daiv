@@ -1010,11 +1010,15 @@
 
   const MARK_CHARS = 300;
   const QUANTIFIERS = new Set(["*", "+", "{"]);
+  const UNBOUNDED_RE = /[*+]|\{\d+,\}/y;
+  const UNBOUNDED_LIMIT = 3;
 
-  // A repeated group that holds a quantifier, as in `(\w+\s?)+`, backtracks exponentially in JS (ERE does not).
-  const hasNestedQuantifier = (pattern) => {
+  // JS backtracks exponentially (ERE does not) on a repeated group holding a quantifier or an alternation, as in
+  // `(\w+\s?)+` or `(a|aa)*`, and polynomially on several unbounded quantifiers, as in `\s*\s*\s*y`.
+  const backtracksBadly = (pattern) => {
     const quantified = [false];
     let opened = false;
+    let unbounded = 0;
     for (let i = 0; i < pattern.length; i += 1) {
       const ch = pattern[i];
       const quantifier = QUANTIFIERS.has(ch) || (ch === "?" && !opened);
@@ -1031,8 +1035,13 @@
         const repeated = QUANTIFIERS.has(pattern[i + 1]);
         if (inner && repeated) return true;
         if (inner || repeated) quantified[quantified.length - 1] = true;
+      } else if (ch === "|") {
+        quantified[quantified.length - 1] = true;
       } else if (quantifier) {
         quantified[quantified.length - 1] = true;
+        UNBOUNDED_RE.lastIndex = i;
+        if (UNBOUNDED_RE.test(pattern)) unbounded += 1;
+        if (unbounded >= UNBOUNDED_LIMIT) return true;
       }
     }
     return false;
@@ -1040,7 +1049,7 @@
 
   // `u` makes patterns JS would read differently from ERE (`\K`, `[[:alpha:]]`) throw instead of mismatching.
   const patternRE = (pattern) => {
-    if (!pattern || hasNestedQuantifier(String(pattern))) return null;
+    if (!pattern || backtracksBadly(String(pattern))) return null;
     try {
       return new RegExp(pattern, "gu");
     } catch {

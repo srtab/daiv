@@ -1448,3 +1448,27 @@ def test_a_delegated_job_check_that_errored_reads_failed(name):
 
 def test_delegate_jobs_keeps_its_row_rule_for_an_error():
     assert _row("delegate_jobs", {"goal": "g"}, result=json.dumps({"error": "too many"}))["failed"] is False
+
+
+@pytest.mark.parametrize(
+    "pattern,text",
+    [
+        (r"x\s*\s*\s*\s*y", "x" + " " * 290 + "xy"),
+        (r"\s*\s*\s*\s*\s*y", " " * 290 + "xy"),
+        (r"(a|aa)*c", "a" * 40 + "bc"),
+    ],
+    ids=["three-unbounded", "five-unbounded", "repeated-alternation"],
+)
+def test_grep_never_runs_a_pattern_that_backtracks_badly_against_the_matches(pattern, text):
+    started = time.monotonic()
+    html = _body("grep", {"pattern": pattern, "output_mode": "content"}, result=f"a.py:\n  1: {text}")
+    assert time.monotonic() - started < 5 and "<mark>" not in html and text in html
+
+
+@pytest.mark.parametrize(
+    "pattern,text,marked",
+    [(r"def\s+\w+", "def run(x):", "def run"), ("foo|bar", "a foo b", "foo"), (r"a.*b", "xaab", "aab")],
+)
+def test_grep_still_marks_ordinary_patterns(pattern, text, marked):
+    html = _body("grep", {"pattern": pattern, "output_mode": "content"}, result=f"a.py:\n  1: {text}")
+    assert f"<mark>{marked}</mark>" in html
