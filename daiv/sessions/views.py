@@ -8,6 +8,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
@@ -36,6 +37,7 @@ from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
+from sessions.conf import settings as sessions_settings
 from sessions.executor.lock import live_run_for, session_activity
 from sessions.filters import (
     RANGE_CHOICES,
@@ -307,7 +309,12 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx.update(composer_mcp_context(self.request.user, session.mcp_overrides if session is not None else {}))
 
         ctx["slash_command_rows"] = composer_command_rows()
-        ctx["transcript_labels_payload"] = {"labels": transcript_labels(), "icons": transcript_icons()}
+        show_raw = sessions_settings.SHOW_RAW_TOOL_DATA
+        ctx["transcript_labels_payload"] = {
+            "labels": transcript_labels(),
+            "icons": transcript_icons(),
+            "show_raw": settings.DEBUG if show_raw is None else show_raw,
+        }
 
         if session is None:
             ctx.update({

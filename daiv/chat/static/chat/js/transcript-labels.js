@@ -76,6 +76,8 @@
   const overrides = payload.labels && typeof payload.labels === "object" ? payload.labels : {};
   const icons = payload.icons && typeof payload.icons === "object" ? payload.icons : {};
 
+  const showRaw = payload.show_raw === true;
+
   const fill = (template, values) =>
     template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
 
@@ -102,5 +104,5 @@
     return `${Math.floor(min / 60)}h ${min % 60}m`;
   };
 
-  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration };
+  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration, showRaw };
 })();
