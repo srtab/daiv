@@ -243,7 +243,7 @@ def test_clamp_shows_twelve_lines_and_caps_the_rest():
     html = _body("read_file", {"file_path": "/workspace/repo/a.py"}, result="\n".join(f"row {i}" for i in range(5000)))
     visible, more = html.split('<details class="body-more">')
     assert visible.count("row ") == 12 and more.count("row ") == 488
-    assert "Show all 5000 lines" in more and "and 4500 more" in more
+    assert "Show all 500 lines" in more and "and 4500 more" in more
 
 
 def test_short_result_is_not_clamped():
@@ -314,3 +314,26 @@ def test_text_result_renders_as_markdown_or_escaped_text_without_a_renderer():
     assert "<strong>hi</strong> &lt;b&gt;" in _body_seg(seg)
     bare = run_transcript("toolBodyHTML(vars.seg, {})", {"seg": seg}, blocks=False)
     assert '<pre class="body-pre">**hi** &lt;b&gt;</pre>' in bare
+
+
+@pytest.mark.parametrize("name", ["read_file", "some_tool"])
+def test_an_over_long_line_is_cut_and_the_lines_after_it_stay(name):
+    html = _body(name, {}, result="x" * 60000 + "\nDone, exit 0\nthird")
+    assert "Done, exit 0" in html and "third" in html and "body-and-more" not in html
+    assert "x" * 2000 + "…" in html and "x" * 2001 not in html
+
+
+@pytest.mark.parametrize("name", ["read_file", "some_tool"])
+def test_show_all_holds_the_lines_it_counts(name):
+    result = "\n".join(["x" * 60000] + [f"row {i}" for i in range(1, 20)])
+    visible, more = _body(name, {}, result=result).split('<details class="body-more">')
+    assert visible.count("row ") == 11 and more.count("row ") == 8
+    assert "Show all 20 lines" in more and "body-and-more" not in more
+
+
+@pytest.mark.parametrize("name", ["read_file", "some_tool"])
+def test_lines_past_the_size_cap_are_counted_not_lost(name):
+    html = _body(name, {}, result="\n".join(["y" * 2500] * 100))
+    kept = html.count("y" * 2000 + "…")
+    assert 12 < kept < 100
+    assert f"Show all {kept} lines" in html and f"and {100 - kept} more" in html

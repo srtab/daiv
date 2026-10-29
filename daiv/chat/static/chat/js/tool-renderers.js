@@ -600,6 +600,7 @@
 
   const VISIBLE_LINES = 12;
   const LINE_CAP = 500;
+  const LINE_CHARS = 2000;
   const CHAR_CAP = 50000;
   const STRUCTURED_ROWS = 50;
   const TABLE_COLUMNS = 6;
@@ -628,9 +629,10 @@
     const lines = [];
     let budget = CHAR_CAP;
     for (const line of all) {
-      if (lines.length === LINE_CAP || budget <= 0) break;
-      lines.push(line.length > budget ? `${line.slice(0, budget)}…` : line);
-      budget -= line.length + 1;
+      const kept = line.length > LINE_CHARS ? `${line.slice(0, LINE_CHARS)}…` : line;
+      if (lines.length === LINE_CAP || kept.length > budget) break;
+      lines.push(kept);
+      budget -= kept.length + 1;
     }
     return { lines, total: all.length };
   };
@@ -638,17 +640,17 @@
   const andMoreHTML = (count) =>
     count > 0 ? `<p class="body-and-more">${escapeHtml(t("and_more", { count }))}</p>` : "";
 
-  const moreHTML = (total, html, omitted) =>
-    `<details class="body-more"><summary>${escapeHtml(t("show_all", { count: total }))}</summary>` +
-    `${html}${andMoreHTML(omitted)}</details>`;
+  const moreHTML = (count, html) =>
+    `<details class="body-more"><summary>${escapeHtml(t("show_all", { count }))}</summary>${html}</details>`;
 
-  // `total` is the line count before the caller sliced `lines`, so the summary and the omitted note stay true.
+  // `total` is the line count before the caller sliced `lines`: "Show all" counts the lines it holds,
+  // and the lines never kept are counted in the "and N more" note.
   const clampLines = (lines, max = VISIBLE_LINES, { total = lines.length, cls = "" } = {}) => {
     const kept = lines.slice(0, LINE_CAP);
     const pre = (part) => `<pre class="body-pre${cls ? ` ${cls}` : ""}">${part.join("\n")}</pre>`;
-    if (total <= max) return pre(kept);
-    const rest = kept.slice(max);
-    return pre(kept.slice(0, max)) + moreHTML(total, rest.length ? pre(rest) : "", total - kept.length);
+    const hidden = kept.slice(max);
+    const more = hidden.length ? moreHTML(kept.length, pre(hidden)) : "";
+    return pre(kept.slice(0, max)) + more + andMoreHTML(total - kept.length);
   };
 
   const textHTML = (text, cls = "") => {
@@ -685,10 +687,9 @@
 
   const markdownHTML = (text) => {
     const { lines, total } = sliceText(text);
-    if (total <= VISIBLE_LINES) return markdownBlock(lines.join("\n"));
     const [head, tail] = splitMarkdown(lines, VISIBLE_LINES);
-    const rest = tail.length ? markdownBlock(tail.join("\n")) : "";
-    return markdownBlock(head.join("\n")) + moreHTML(total, rest, total - lines.length);
+    const more = tail.length ? moreHTML(lines.length, markdownBlock(tail.join("\n"))) : "";
+    return markdownBlock(head.join("\n")) + more + andMoreHTML(total - lines.length);
   };
 
   const isRecord = (value) => value != null && typeof value === "object" && !Array.isArray(value);
