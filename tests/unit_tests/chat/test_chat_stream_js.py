@@ -61,6 +61,7 @@ def test_server_turns_render_their_run_anchor():
         prompt="",
         trigger_type=SessionOrigin.UI_JOB,
         created_at=None,
+        started_at=None,
         finished_at=None,
         is_cancelled=False,
     )
