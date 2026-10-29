@@ -746,10 +746,12 @@ def test_gitlab_read_links_the_first_field_to_its_web_url():
     assert '<dd><a class="chat-tool__link" href="https://g/x/-/merge_requests/1"' in html
 
 
-def test_gitlab_nested_object_reads_as_one_field():
+def test_gitlab_nested_object_reads_as_one_field_and_keeps_the_rest_under_show_all():
     result = "iid: 1\nauthor:\n  id: 5\n  state: active\n  username: bob\nstate: opened\ntitle: Fix it"
     html = _body("gitlab", {"subcommand": "project-merge-request get --iid 1"}, result=result)
-    assert "<dt>author</dt><dd>bob</dd>" in html and "<dt>state</dt><dd>opened</dd>" in html and "active" not in html
+    visible, rest = html.split('<details class="body-more">')
+    assert "<dt>author</dt><dd>bob</dd>" in visible and "<dt>state</dt><dd>opened</dd>" in visible
+    assert "active" not in visible and "<summary>Show all 7 lines</summary>" in rest and "  state: active" in rest
 
 
 def test_gitlab_value_over_several_lines_stays_one_field():
@@ -886,3 +888,67 @@ def test_platform_result_saved_to_a_file_on_request_says_so_with_its_size():
 def test_an_evicted_result_is_still_too_large_to_load_whole():
     html = _body("gitlab", {"subcommand": "project-job trace --id 3"}, result=EVICTED)
     assert "Too large to load whole" in html and "as asked" not in html
+
+
+def test_gitlab_crlf_value_keeps_its_field():
+    result = "iid: 1\ncreated-at: 2024-01-01\ndescription: First line\r\nsecond line\r\nstate: opened\r\ntitle: T"
+    html = _body("gitlab", {"subcommand": "project-merge-request get --iid 1"}, result=result)
+    assert "<dt>created-at</dt><dd>2024-01-01</dd>" in html and "<dt>state</dt><dd>opened</dd>" in html
+    assert "<dt>description</dt><dd>First line\nsecond line</dd>" in html and "body-more" not in html
+
+
+def test_gitlab_crlf_note_body_after_a_nested_author_is_kept():
+    author = "author:\n  id: 5\n  username: bob"
+    note = f"id: {{}}\nattachment: None\n{author}\nbody: Please fix\r\n\r\nthe tests\r\nsystem: False"
+    result = f"{note.format(1)}\n\n{note.format(2)}"
+    html = _body("gitlab", {"subcommand": "project-merge-request-note list --mr-iid 1"}, result=result)
+    visible = html.split('<details class="body-more">')[0]
+    assert "<th>body</th>" in visible and visible.count("<td>Please fix\n\nthe tests</td>") == 2
+
+
+def test_gh_crlf_view_keeps_its_fields_and_body():
+    result = "title:\tFix it\r\nstate:\tOPEN\r\n--\r\n**Body** text\r\n"
+    html = _body("gh", {"subcommand": "pr view 3"}, result=result)
+    assert "<dt>title</dt><dd>Fix it</dd><dt>state</dt><dd>OPEN</dd>" in html and "<strong>Body</strong>" in html
+
+
+@pytest.mark.parametrize(
+    "result,line",
+    [
+        ("iid: 1\nauthor:\n  username: bob\nstray line\ntitle: T", "stray line"),
+        ("iid: 1\nauthor:\n  username: bob\n\nstray line\ntitle: T", "stray line"),
+        ("iid: 1\nauthor:\n    username: bob\n  odd: x\ntitle: T", "  odd: x"),
+    ],
+    ids=["unindented", "after-a-blank", "shallower"],
+)
+def test_gitlab_line_the_field_list_cannot_place_falls_back_to_text(result, line):
+    html = _body("gitlab", {"subcommand": "project-merge-request get --iid 1"}, result=result)
+    assert "<dl" not in html and line in html
+
+
+def test_gitlab_table_columns_it_cannot_fit_stay_under_show_all():
+    record = "\n".join(f"k{i}: v{i}" for i in range(8))
+    html = _body("gitlab", {"subcommand": "project-issue list"}, result=f"{record}\n\n{record}")
+    visible, rest = html.split('<details class="body-more">')
+    assert visible.count("<th>") == 6 and "v7" not in visible and "k7: v7" in rest
+
+
+def test_gitlab_table_row_missing_its_first_column_still_shows_its_link():
+    result = "iid: 1\ntitle: A\nweb-url: https://g/1\n\niid: 2\nweb-url: https://g/2"
+    html = _body("gitlab", {"subcommand": "project-merge-request list"}, result=result)
+    assert 'href="https://g/2" target="_blank" rel="noopener noreferrer">https://g/2</a>' in html
+
+
+def test_gitlab_repeated_key_keeps_the_earlier_value_under_show_all():
+    result = "iid: 1\ndescription: a\ntitle: inner\nmore\ntitle: Real"
+    html = _body("gitlab", {"subcommand": "project-merge-request get --iid 1"}, result=result)
+    visible, rest = html.split('<details class="body-more">')
+    assert "<dd>Real</dd>" in visible and "inner" not in visible and "title: inner\nmore" in rest
+
+
+def test_gitlab_value_cut_in_the_field_list_is_whole_under_show_all():
+    result = f"iid: 1\ndescription: {'d' * 1500}\ntitle: T"
+    visible, rest = _body("gitlab", {"subcommand": "project-issue get --iid 1"}, result=result).split(
+        '<details class="body-more">'
+    )
+    assert "d" * 1000 + "…" in visible and "d" * 1001 not in visible and "d" * 1500 in rest

@@ -1231,11 +1231,11 @@
     return `${jump}${omitted}<div class="body-log"><div class="body-log-lines">${rows.join("")}</div></div>`;
   };
 
-  const FIELD_RE = /^([a-z_][a-z0-9_-]*):(?:[ \t]+(.*))?$/;
-  const CHILD_RE = /^(\s+)([a-z_][a-z0-9_-]*):(?:[ \t]+(.*))?$/;
+  const FIELD_RE = /^([a-z_][a-z0-9_-]*):(?:[ \t]+(.*))?$/s;
 
   // python-gitlab prints `key: value` lines, a nested object as `key:` over indented lines, and a blank line between
   // objects (a value may itself run over several lines); gh prints `key:\tvalue` lines, then `--` and the body.
+  // Every line lands in a field, or the parse fails (null) so the caller shows the text instead.
   const parseRecords = (lines, { body = false } = {}) => {
     const records = [];
     let field = null;
@@ -1248,18 +1248,20 @@
         continue;
       }
       const top = line.match(FIELD_RE);
-      const child = top || !field?.nested ? null : line.match(CHILD_RE);
+      const indent = line.length - line.trimStart().length;
       if (top) {
         if (!records.length || (blank && top[1] === records[0][0].key)) records.push([]);
-        field = { key: top[1], value: top[2] ?? "", nested: top[2] == null, children: [], indent: null };
+        field = { key: top[1], value: top[2] ?? "", nested: top[2] == null, block: [], indent: 0 };
         records.at(-1).push(field);
-      } else if (child) {
-        field.indent ??= child[1].length;
-        if (child[1].length === field.indent) field.children.push([child[2], child[3] ?? ""]);
       } else if (!field) {
         return null;
       } else if (!field.nested) {
         field.value += `${blank ? "\n\n" : "\n"}${line}`;
+      } else if (indent > 0 && indent >= (field.indent || indent)) {
+        field.indent ||= indent;
+        field.block.push(line.slice(field.indent));
+      } else {
+        return null;
       }
       blank = false;
     }
@@ -1281,12 +1283,15 @@
 
   const byRank = (keys) => [...keys].sort((a, b) => keyRank(a) - keyRank(b));
 
-  const fieldText = (field) => {
-    if (!field.nested) return truncate(field.value, VALUE_CHARS);
-    const children = new Map(field.children.map(([key, value]) => [plainKey(key), value]));
-    const named = NESTED_KEYS.find((key) => children.get(key));
-    const text = named ? children.get(named) : field.children.map((pair) => pair.join(": ")).join(", ");
-    return truncate(text, VALUE_CHARS);
+  // A nested object reads as its username (or name, …) or as its `key: value` children; `whole` is false when the
+  // text shown leaves any of the field's lines or characters out.
+  const fieldView = (field) => {
+    if (!field.nested) return { text: truncate(field.value, VALUE_CHARS), whole: field.value.length <= VALUE_CHARS };
+    const children = field.block.map((line) => line.match(FIELD_RE)).filter(Boolean);
+    const named = NESTED_KEYS.map((key) => children.find((m) => plainKey(m[1]) === key && m[2])).find(Boolean);
+    const text = named ? named[2] : children.map((m) => `${m[1]}: ${m[2] ?? ""}`).join(", ");
+    const everyLine = named ? field.block.length === 1 : children.length === field.block.length;
+    return { text: truncate(text, VALUE_CHARS), whole: everyLine && text.length <= VALUE_CHARS };
   };
 
   const recordLink = (record) => {
@@ -1300,35 +1305,44 @@
   // The link field becomes the link on the record's first shown field, unless it is the only field.
   const recordRow = (record) => {
     const link = recordLink(record);
-    const fields = new Map(record.filter((one) => one !== link || record.length === 1).map((one) => [one.key, one]));
-    return { fields, href: link ? link.value.trim() : "" };
+    const shown = record.filter((one) => one !== link || record.length === 1);
+    const fields = new Map(shown.map((one) => [one.key, one]));
+    return { fields, href: link ? link.value.trim() : "", complete: fields.size === shown.length };
   };
 
-  const cellHTML = (field, href, first) => {
-    const text = field ? fieldText(field) : "";
-    return first && href ? externalLink(href, text) : escapeHtml(text);
-  };
+  const cellHTML = (view, href, first) =>
+    first && href ? externalLink(href, view.text || href) : escapeHtml(view.text);
 
+  const viewOf = (fields, key) => (fields.has(key) ? fieldView(fields.get(key)) : { text: "", whole: true });
+
+  // `whole` is false when the view leaves a line out: a nested object's other lines, a repeated key, columns past the
+  // sixth, rows past the fiftieth.
   const recordsHTML = (records) => {
     const rows = records.slice(0, STRUCTURED_ROWS).map(recordRow);
-    if (rows.length === 1) {
-      const { fields, href } = rows[0];
-      const items = byRank(fields.keys()).map((key, i) => [key, cellHTML(fields.get(key), href, i === 0)]);
-      return definitionsHTML(items);
-    }
-    const headers = byRank(new Set(rows.flatMap(({ fields }) => [...fields.keys()]))).slice(0, TABLE_COLUMNS);
-    const cells = rows.map(({ fields, href }) => headers.map((key, i) => cellHTML(fields.get(key), href, i === 0)));
-    return tableMarkup(headers, cells) + andMoreHTML(records.length - rows.length);
+    const keys = byRank(new Set(rows.flatMap(({ fields }) => [...fields.keys()])));
+    const headers = rows.length === 1 ? keys : keys.slice(0, TABLE_COLUMNS);
+    const views = rows.map(({ fields }) => headers.map((key) => viewOf(fields, key)));
+    const cells = views.map((row, r) => row.map((view, i) => cellHTML(view, rows[r].href, i === 0)));
+    const html =
+      rows.length === 1
+        ? definitionsHTML(headers.map((key, i) => [key, cells[0][i]]))
+        : tableMarkup(headers, cells) + andMoreHTML(records.length - rows.length);
+    const complete = headers.length === keys.length && rows.length === records.length && rows.every((r) => r.complete);
+    return { html, whole: complete && views.flat().every((view) => view.whole) };
   };
 
   const platformHTML = (platform) => (text) => {
     const data = structured(text);
     if (data.kind !== "markdown") return structuredDataHTML(data);
-    const { lines, total } = sliceText(text);
+    const sliced = sliceText(text);
+    const lines = sliced.lines.map((line) => line.replace(/\r$/, ""));
     const parsed = parseRecords(lines, { body: platform === "gh" });
     if (!parsed) return textHTML(text);
+    const view = recordsHTML(parsed.records);
+    const full = view.whole ? "" : `<pre class="body-pre">${lines.map(escapeHtml).join("\n")}</pre>`;
+    const all = full && moreHTML(lines.length, full);
     const body = parsed.body.trim() ? markdownHTML(parsed.body) : "";
-    return recordsHTML(parsed.records) + body + andMoreHTML(total - lines.length);
+    return view.html + all + body + andMoreHTML(sliced.total - lines.length);
   };
 
   const READ_ACTIONS = new Set(["get", "list", "trace", "diff", "view"]);
