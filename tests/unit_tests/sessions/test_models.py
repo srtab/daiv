@@ -4,9 +4,10 @@ from django.db import IntegrityError
 
 import pytest
 from sessions.executor.result import parse_agent_result
-from sessions.models import Run, RunStatus, Session, SessionOrigin, agent_result_field_updates
+from sessions.models import PublishErrorKind, Run, RunStatus, Session, SessionOrigin, agent_result_field_updates
 
 from automation.agent.events import publish_result_payload
+from automation.agent.publish_errors import PublishError
 from automation.agent.workspace.session import SandboxAcquisition
 from codebase.base import MergeRequestDiffStats
 from tests.unit_tests.automation.agent.conftest import make_merge_request
@@ -433,6 +434,12 @@ def test_agent_result_fields_leave_out_a_zero_figure_and_a_missing_error():
     payload = publish_result_payload(status="not_published", error_kind="conflicts", diff_stats=MergeRequestDiffStats())
     updates = agent_result_field_updates(parse_agent_result({"publish": payload}))
     assert updates == {"publish_status": "not_published", "publish_error": "conflicts"}
+
+
+def test_every_kind_a_publish_reports_has_a_label():
+    kinds = {cls.kind for cls in PublishError.__subclasses__()} | {"conflicts", "mr_pending"}
+
+    assert kinds <= set(PublishErrorKind.values)
 
 
 def _mk_task_run(create_db_task_result, exception_class_path, **run_fields) -> Run:

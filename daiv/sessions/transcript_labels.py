@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.utils.translation import gettext
 
 from core.templatetags.icon_tags import icon
+from sessions.models import PublishErrorKind
 
 TRANSCRIPT_ICONS = frozenset({
     "agent",
@@ -102,9 +103,5 @@ def transcript_labels() -> dict[str, str | list[str]]:
             gettext("Merge conflicts left in {count} file"),
             gettext("Merge conflicts left in {count} files"),
         ],
-        "publish_error_conflicts": gettext("Merge conflicts are left in the changed files"),
-        "publish_error_mr_pending": gettext("Branch pushed; the merge request isn't created yet"),
-        "publish_error_push_rejected": gettext("The push was rejected"),
-        "publish_error_mr_failed": gettext("The merge request couldn't be created"),
-        "publish_error_unknown": gettext("Couldn't publish the changes"),
+        **{f"publish_error_{kind.value}": str(kind.label) for kind in PublishErrorKind},
     }
