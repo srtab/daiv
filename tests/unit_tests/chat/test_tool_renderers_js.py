@@ -1438,3 +1438,13 @@ def test_write_failure_wording_fails_only_a_file_write(name):
     args = {"file_path": "/workspace/repo/a.py"}
     assert _row(name, args, result=WRITE_FAILED)["failed"] is False
     assert not _body(name, args, result=WRITE_FAILED).startswith('<div class="body-error"')
+
+
+@pytest.mark.parametrize("name", ["check_delegated_jobs", "cancel_delegated_jobs"])
+def test_a_delegated_job_check_that_errored_reads_failed(name):
+    assert _row(name, {"batch_id": "b"}, result=json.dumps({"error": "no batch b"}))["failed"] is True
+    assert _row(name, {"batch_id": "b"}, result=json.dumps({"batch_id": "b", "legs": []}))["failed"] is False
+
+
+def test_delegate_jobs_keeps_its_row_rule_for_an_error():
+    assert _row("delegate_jobs", {"goal": "g"}, result=json.dumps({"error": "too many"}))["failed"] is False

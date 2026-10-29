@@ -595,9 +595,12 @@
     return ERROR_PREFIX_RE.test(text) || Boolean(FAILURE_RE_BY_TOOL.get(name)?.test(text));
   };
 
+  const JOBS_STATUS_TOOLS = new Set(["check_delegated_jobs", "cancel_delegated_jobs"]);
+
   const rowFailed = (name, seg, part) => {
     if (seg.status === "error") return true;
     if (name === "delegate_jobs") return false;
+    if (JOBS_STATUS_TOOLS.has(name) && jobsFailure(jobsResult(seg.result), seg.result)) return true;
     return Boolean(part.failed) || failedResult(name, seg.result);
   };
 
@@ -1633,6 +1636,8 @@
 
   const jobsError = (data, result) => valueText(data.error).trim() || String(result).trim();
 
+  const jobsFailure = (data, result) => (data?.error != null ? jobsError(data, result) : "");
+
   const firstLine = (value) => valueText(value).trim().split("\n")[0];
 
   const branchText = (ref) => valueText(ref).trim() || t("jobs_default_branch");
@@ -1767,7 +1772,8 @@
   const checkJobsBody = ({ args, result }) => {
     const data = jobsResult(result);
     if (!data) return contextSection(result);
-    if (data.error != null) return { wrong: jobsError(data, result), html: "" };
+    const wrong = jobsFailure(data, result);
+    if (wrong) return { wrong, html: "" };
     const asked = valueText(args.batch_id).trim();
     return contextSection(result, () => batchesHTML(recordsOf(data.batches), asked) + noteOf(data));
   };
@@ -1789,7 +1795,8 @@
   const cancelJobsBody = ({ result }) => {
     const data = jobsResult(result);
     if (!data) return contextSection(result);
-    if (data.error != null) return { wrong: jobsError(data, result), html: "" };
+    const wrong = jobsFailure(data, result);
+    if (wrong) return { wrong, html: "" };
     return section("body_changed", cancelledHTML(data)) + contextSection(result, () => noteOf(data));
   };
 
