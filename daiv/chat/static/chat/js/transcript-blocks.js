@@ -116,6 +116,61 @@
     return runs;
   };
 
+  const shallowSame = (a, b) => {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+    const keys = Object.keys(b);
+    return keys.length === Object.keys(a).length && keys.every((k) => a[k] === b[k]);
+  };
+
+  const sameList = (a, b, same) => a.length === b.length && a.every((x, i) => same(x, b[i]));
+  const identical = (a, b) => a === b;
+
+  // Fields holding objects rebuilt on every derive; everything else must be the same value or object.
+  const NESTED = {
+    step: shallowSame,
+    line: shallowSame,
+    steps: (a, b) => sameList(a, b, shallowSame),
+    items: (a, b) => sameList(a, b, shallowSame),
+  };
+
+  const sameItem = (a, b) => {
+    const keys = Object.keys(b);
+    if (keys.length !== Object.keys(a).length) return false;
+    return keys.every((k) => a[k] === b[k] || (Object.hasOwn(NESTED, k) && NESTED[k](a[k], b[k])));
+  };
+
+  const reuseBlock = (prev, block) => {
+    const prevItems = new Map([...prev.items, ...prev.ending, ...prev.cards].map((item) => [item.key, item]));
+    const keep = (list, prevList) => {
+      const next = list.map((item) => {
+        const old = prevItems.get(item.key);
+        return old && sameItem(old, item) ? old : item;
+      });
+      return sameList(next, prevList, identical) ? prevList : next;
+    };
+    const next = {
+      ...block,
+      stats: shallowSame(prev.stats, block.stats) ? prev.stats : block.stats,
+      items: keep(block.items, prev.items),
+      ending: keep(block.ending, prev.ending),
+      cards: keep(block.cards, prev.cards),
+      statuses: sameList(block.statuses, prev.statuses, identical) ? prev.statuses : block.statuses,
+    };
+    return shallowSame(prev, next) ? prev : next;
+  };
+
+  // An unchanged block or item keeps its previous object, so x-for leaves its scope (and x-html bodies) alone.
+  const reuse = (blocks, previous) => {
+    if (!previous?.length) return blocks;
+    const prevBlocks = new Map(previous.map((block) => [block.key, block]));
+    const next = blocks.map((block) => {
+      const prev = prevBlocks.get(block.key);
+      return prev ? reuseBlock(prev, block) : block;
+    });
+    return sameList(next, previous, identical) ? previous : next;
+  };
+
   window.buildRunBlocks = (turns, opts = {}) => {
     const servers = opts.mcpServers ?? [];
     const serversId = serversIdOf(servers);
@@ -130,7 +185,7 @@
 
     const runs = splitRuns(turns);
 
-    return runs.map((run, ri) => {
+    const blocks = runs.map((run, ri) => {
       const key = claim(run.anchor?.id || run.anchor?.run_id || `head-${turnKey(run.first, run.firstIndex)}`);
 
       const entries = [];
@@ -235,5 +290,6 @@
         lastTurn: own.findLast((turn) => turn.role === "assistant") ?? null,
       };
     });
+    return reuse(blocks, opts.previous);
   };
 })();

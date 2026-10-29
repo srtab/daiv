@@ -16,6 +16,7 @@
   <script defer src="{% static 'chat/js/markdown.js' %}"></script>
   <script defer src="{% static 'chat/js/transcript-labels.js' %}"></script>
   <script defer src="{% static 'chat/js/tool-renderers.js' %}"></script>
+  <script defer src="{% static 'chat/js/transcript-blocks.js' %}"></script>
   <script defer src="{% static 'sessions/js/prompt-box.js' %}"></script>
   <script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
@@ -140,7 +141,7 @@
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
        @daiv:agent-changed.window="applyAgentSelection($event.detail)"
-       @daiv:session-turns.window="applyPolledTurns($event.detail.turns, $event.detail.waiting_since)"
+       @daiv:session-turns.window="applyPolledTurns($event.detail.turns, $event.detail.waiting_since, $event.detail.active)"
        @daiv:session-live-run.window="followLiveRun($event.detail)"
        @daiv:session-settled.window="holdReload($event)"
        x-cloak

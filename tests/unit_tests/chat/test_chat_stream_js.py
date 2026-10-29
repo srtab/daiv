@@ -169,12 +169,18 @@ def test_a_session_page_takes_the_diff_and_leaves_the_pill_its_counts():
 DRIVE_BODY = """
 const { turns, script, countBuilds, config } = payload;
 let builds = 0;
-if (countBuilds) {
-  const build = sandbox.window.buildRunBlocks;
-  sandbox.window.buildRunBlocks = (...args) => { builds++; return build(...args); };
-}
+let broken = Boolean(payload.broken);
+const errors = [];
+sandbox.console.error = (...args) => errors.push(args.map(String).join(" "));
+const build = sandbox.window.buildRunBlocks;
+sandbox.window.buildRunBlocks = (...args) => {
+  builds++;
+  if (broken) throw new Error("a renderer choked");
+  return build(...args);
+};
 const chat = reactive(registry.chat({ endpoint: "/api/chat", ...config }));
-chat.$watch = watchOn(chat);
+const watched = [];
+chat.$watch = (expr, cb) => { watched.push(expr); return watchOn(chat)(expr, cb); };
 chat.$nextTick = () => {};
 chat.scrollToBottom = () => {};
 chat.turns = turns;
@@ -182,47 +188,77 @@ chat.streaming = turns.some((t) => t.streaming);
 chat.init();
 const live = () => chat.turns.findLast((t) => t.streaming) ?? chat.turns[chat.turns.length - 1];
 const segment = (id) => chat.turns.flatMap((t) => t.segments || []).find((s) => s.id === id);
+const stepsOf = (item) => (item.kind === "group" ? item.steps : item.kind === "step" ? [item.step] : []);
 const running = (block) => {
   for (const item of block.items) {
-    const steps = item.kind === "group" ? item.steps : item.kind === "step" ? [item.step] : [];
-    const step = steps.find((s) => s.seg.status === "running");
+    const step = stepsOf(item).find((s) => s.seg.status === "running");
     if (step) return step.row.livePhrase;
   }
   return null;
 };
+const stepFor = (id) => {
+  for (const block of chat.runBlocks) {
+    for (const item of block.items) {
+      const step = stepsOf(item).find((s) => s.seg.id === id);
+      if (step) return { kind: item.kind, key: step.key };
+    }
+  }
+  return null;
+};
+const itemsOf = (block) => [...block.items, ...block.ending, ...block.cards];
+let snapshot = [];
 const out = [];
 for (const entry of script) {
   const [op, arg, value] = entry.split(":");
-  if (op === "block0") {
-    const block = chat.runBlocks[0];
+  if (op === "block0" || op === "block") {
+    const block = chat.runBlocks[op === "block" ? Number(arg) : 0];
     const workedFor = chat.workedForLabel(block);
     out.push({ stats: block.stats, running: running(block), folded: block.folded, workedFor });
   }
   if (op === "landResult") Object.assign(segment(arg), { result: "1  x", status: "done" });
+  if (op === "argsDelta") segment(arg).args = JSON.stringify({ file_path: "/workspace/repo/y" });
   if (op === "pushText") live().segments.push({ type: "text", content: "Found it." });
+  if (op === "token") live().segments.findLast((s) => s.type === "text").content += " more";
   if (op === "startedAgo") chat.runStartedAt = Date.now() - Number(arg) * 1000;
   if (op === "finish") chat._finishTurn(live(), arg);
+  if (op === "poll") chat.applyPolledTurns(JSON.parse(JSON.stringify(chat.turns)), "", arg === "true");
   if (op === "dropReplayedThinking") {
     chat._reasoningIndex.set("replayed", 0);
     chat._dropReplayedThinking(live());
   }
   if (op === "fillReplayedResult") chat._fillReplayedResult({ toolCallId: arg, content: "1  x" });
-  if (op === "open") chat.setOpen(arg, true);
-  if (op === "isOpen") out.push(chat.isOpen(arg));
+  if (op === "openStep") chat.setOpen(stepFor(arg).key, true);
+  if (op === "stepOpen") {
+    const step = stepFor(arg);
+    out.push({ kind: step.kind, open: chat.isOpen(step.key) });
+  }
   if (op === "toggle") chat.setOpen(arg, value === "true", arg === chat.currentGroupKey);
   if (op === "shown") out.push(chat.isOpen(arg, arg === chat.currentGroupKey));
   if (op === "recorded") out.push(chat.openKeys[arg] ?? null);
   if (op === "currentGroupKey") out.push(chat.currentGroupKey);
   if (op === "runStatus") out.push(chat.runStatus.label);
   if (op === "readBlocks") chat.runBlocks.length;
+  if (op === "blockCount") out.push(chat.runBlocks.length);
+  if (op === "snapshot") snapshot = chat.runBlocks.map((block) => ({ block, items: itemsOf(block) }));
+  if (op === "kept") {
+    out.push(chat.runBlocks.map((block, i) =>
+      block === snapshot[i].block && itemsOf(block).every((item, j) => item === snapshot[i].items[j])));
+  }
+  if (op === "liveText") {
+    const last = chat.runBlocks[chat.runBlocks.length - 1];
+    out.push(last.items.filter((item) => item.kind === "text").map((item) => item.seg.content));
+  }
+  if (op === "break") broken = true;
+  if (op === "errors") out.push(errors.length);
+  if (op === "watched") out.push(watched);
 }
 process.stdout.write(JSON.stringify(countBuilds ? builds : out));
 chat.destroy();
 """
 
 
-def _drive(turns, *, script, count_builds=False, config=None):
-    payload = {"turns": turns, "script": script, "countBuilds": count_builds, "config": config or {}}
+def _drive(turns, *, script, count_builds=False, config=None, broken=False):
+    payload = {"turns": turns, "script": script, "countBuilds": count_builds, "config": config or {}, "broken": broken}
     return run_chat_stream(DRIVE_BODY, payload, prelude=REACTIVITY, extra_globals=GLOBALS)
 
 
@@ -237,8 +273,8 @@ def test_run_blocks_rederive_when_a_result_lands():
 
 def test_opened_step_stays_open_after_replay_mutates_segments():
     turns = [user("u1"), asst("a1", thinking(), read("c1", result=None, status="running"), streaming=True)]
-    out = _drive(turns, script=["open:s-c1", "dropReplayedThinking", "fillReplayedResult:c1", "isOpen:s-c1"])
-    assert out[-1] is True
+    script = ["openStep:c1", "stepOpen:c1", "dropReplayedThinking", "fillReplayedResult:c1", "stepOpen:c1"]
+    assert _drive(turns, script=script) == [{"kind": "group", "open": True}, {"kind": "step", "open": True}]
 
 
 def test_finishing_a_turn_folds_the_run_with_a_duration():
@@ -283,8 +319,9 @@ def test_working_line_between_steps_and_while_publishing(segment, label):
 
 def test_blocks_are_built_once_per_change_not_per_read():
     turns = [user("u1"), asst("a1", *[read(f"c{i}") for i in range(500)])]
-    calls = _drive(turns, script=["readBlocks", "readBlocks", "readBlocks"], count_builds=True)
-    assert calls == 1
+    script = ["readBlocks", "readBlocks", "readBlocks", "pushText", "readBlocks", "readBlocks"]
+    calls = _drive(turns, script=script, count_builds=True)
+    assert calls == 2
 
 
 LIVE_GROUP = [user("u1"), asst("a1", read("c1"), read("c2"), streaming=True)]
@@ -299,3 +336,103 @@ def test_an_auto_opened_group_records_only_what_the_user_changed():
     closed = _drive(LIVE_GROUP, script=["toggle:g-s-c1:false", "recorded:g-s-c1", "pushText", "shown:g-s-c1"])
     assert opened == [None, False]
     assert closed == [False, False]
+
+
+TWO_RUNS = [
+    user("u1"),
+    asst("a1", read("c1"), read("c2"), text("Done.")),
+    user("u2"),
+    asst("a2", text("Looking"), read("c3", result=None, status="running"), streaming=True),
+]
+
+
+def test_streamed_tokens_and_args_leave_a_finished_run_untouched():
+    script = ["snapshot", "token", "token", "token", "kept", "liveText", "argsDelta:c3", "kept", "block:1"]
+    kept_after_tokens, live_text, kept_after_args, live = _drive(TWO_RUNS, script=script)
+    assert kept_after_tokens == [True, True]
+    assert live_text == ["Looking more more more"]
+    assert kept_after_args == [True, False]
+    assert live["running"] == "Reading y"
+
+
+def test_the_poll_keeps_the_last_run_live_while_the_session_runs():
+    turns = [user("u1"), asst("a1", read("c1"), text("Done."))]
+    out = _drive(turns, script=["poll:true", "block0", "poll:false", "block0"])
+    assert [out[0]["folded"], out[1]["folded"]] == [False, True]
+
+
+def test_a_derive_that_throws_keeps_the_last_blocks():
+    assert _drive(LIVE, script=["snapshot", "break", "argsDelta:c1", "kept", "errors"]) == [[True], 1]
+
+
+def test_a_first_derive_that_throws_does_not_abort_init():
+    blocks, errors, watched = _drive(LIVE, script=["blockCount", "errors", "watched"], broken=True)
+    assert (blocks, errors) == (0, 1)
+    assert "streaming" in watched
+
+
+EVENT_SOURCE = """
+let opened = null;
+class FakeEventSource {
+  static CLOSED = 2;
+  constructor() { this.readyState = 1; this.listeners = {}; opened = this; }
+  addEventListener(name, cb) { this.listeners[name] = cb; }
+  close() { this.readyState = 2; }
+}
+"""
+
+RUN_FRAMES = [
+    {"type": "TOOL_CALL_START", "toolCallId": "c1", "toolCallName": "read_file"},
+    {"type": "TOOL_CALL_ARGS", "toolCallId": "c1", "delta": '{"file_path": "/workspace/repo/x"}'},
+    {"type": "TOOL_CALL_END", "toolCallId": "c1"},
+    {"type": "TOOL_CALL_RESULT", "toolCallId": "c1", "content": "1  x"},
+    {"type": "TEXT_MESSAGE_START", "messageId": "m1"},
+    {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "Done."},
+]
+
+LIVE_PAGE_BODY = """
+const chat = reactive(registry.chat({
+  endpoint: "/api/chat",
+  streamEndpoint: "/api/chat/stream",
+  sessionLive: true,
+  activeRunId: "r1",
+  activeRunStartedAt: new Date(Date.now() - 5000).toISOString(),
+  thread: { thread_id: "t1", repo_id: "r", ref: "main" },
+}));
+chat.$watch = watchOn(chat);
+chat.$nextTick = () => {};
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+chat.turns = payload.turns;
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const play = () => {
+  for (const evt of payload.frames) opened.onmessage({ data: JSON.stringify(evt) });
+  opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+};
+const fold = (block) => ({ folded: block.folded, workedFor: chat.workedForLabel(block) });
+
+chat.init();
+play();
+await tick();
+const rejoined = fold(chat.runBlocks[0]);
+
+chat.draftMessage = "again";
+const sent = chat.submit();
+await tick();
+play();
+await sent;
+process.stdout.write(JSON.stringify({ rejoined, later: fold(chat.runBlocks[1]) }));
+chat.destroy();
+"""
+
+
+def test_a_page_loaded_live_folds_each_run_as_its_stream_finishes():
+    out = run_chat_stream(
+        LIVE_PAGE_BODY,
+        {"turns": [user("u1", started_at=None)], "frames": RUN_FRAMES},
+        prelude=REACTIVITY + EVENT_SOURCE,
+        extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, fetch: async () => ({ ok: true }),",
+    )
+    assert out["rejoined"] == {"folded": True, "workedFor": "Worked for 5s · 1 step"}
+    assert out["later"]["folded"] is True
+    assert out["later"]["workedFor"].startswith("Worked for ")

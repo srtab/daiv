@@ -337,6 +337,7 @@
   let publishedFiles = [];
   let publishedArtifacts = [];
   let publishedArtifactsById = new Map();
+  let publishedBlocks = [];
   let publishedGroupKey = null;
   let publishedActivity = "";
   return {
@@ -385,6 +386,8 @@
     draftRef: "",
     streaming: false,
     resuming: !!config.activeRunId,
+    // Whether the session has a run in flight, streamed here or not; the poll and this page's own runs keep it current.
+    sessionLive: !!config.sessionLive,
     waitingSince: config.waitingSince || "",
     runStoppable: config.liveRunStoppable ?? true,
     _source: null,
@@ -663,8 +666,9 @@
       });
     },
 
-    applyPolledTurns(turns, waitingSince) {
+    applyPolledTurns(turns, waitingSince, active) {
       this.waitingSince = waitingSince || "";
+      if (active !== undefined) this.sessionLive = Boolean(active);
       // While a stream is attached it owns ``turns``; swapping the array would detach
       // the streaming placeholder and hide live output.
       if (this.streaming || this.resuming) return;
@@ -749,13 +753,18 @@
           publishedArtifactsById = new Map(artifacts.map((a) => [a.id, a]));
           this.latestArtifactsById = publishedArtifactsById;
         }
-        const blocks = window.buildRunBlocks(this.turns, {
-          inFlight: this.streaming || this.resuming || Boolean(config.sessionLive),
-          latestArtifactsById: publishedArtifactsById,
-          mcpServers,
-        });
-        this.runBlocks = blocks;
-        const live = blocks[blocks.length - 1];
+        try {
+          publishedBlocks = window.buildRunBlocks(this.turns, {
+            inFlight: this.streaming || this.resuming || this.sessionLive,
+            latestArtifactsById: publishedArtifactsById,
+            mcpServers,
+            previous: publishedBlocks,
+          });
+        } catch (err) {
+          console.error("chat: failed to derive the run blocks; keeping the last ones", err);
+        }
+        this.runBlocks = publishedBlocks;
+        const live = publishedBlocks[publishedBlocks.length - 1];
         const last = live?.live ? live.items[live.items.length - 1] : null;
         const groupKey = last?.kind === "group" ? last.key : null;
         if (groupKey !== publishedGroupKey) this.currentGroupKey = publishedGroupKey = groupKey;
@@ -834,6 +843,7 @@
       if (this.streaming) return;
       this.waitingSince = "";
       this.runStoppable = stoppable;
+      this.sessionLive = true;
       this.resuming = true;
       this.runStartedAt = Date.parse(started_at || "") || Date.now();
       this._resumeRun(id);
@@ -965,6 +975,7 @@
         anchor.started_at = new Date(this.runStartedAt).toISOString();
       }
       if (!turn.received_at) turn.received_at = new Date().toISOString();
+      this.sessionLive = false;
       turn.streaming = false;
       // A call still running when the run ends never returned, unless the run finished cleanly.
       // Checkpointed turns count too: they hold the calls the rejoin found unanswered.

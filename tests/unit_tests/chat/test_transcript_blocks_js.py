@@ -264,3 +264,40 @@ def test_block_key_is_the_anchor_id_with_or_without_its_run_id():
 def test_question_item_carries_its_turn_index():
     b = _blocks([user("u1"), asst("a1", read("c1")), asst("a2", question("q1"))])[0]
     assert b["ending"][0]["turnIndex"] == 2
+
+
+REBUILD = """(() => {
+  const build = (previous) =>
+    buildRunBlocks(vars.turns, {latestArtifactsById: new Map(), mcpServers: [], previous});
+  const first = build();
+  const again = build(first);
+  vars.turns[3].segments[0].content += " more";
+  const streamed = build(again);
+  Object.assign(vars.turns[3].segments[1], {result: "1  x", status: "done"});
+  const landed = build(streamed);
+  return {
+    again: again === first,
+    streamed: streamed === first,
+    finished: landed[0] === first[0],
+    finishedItems: landed[0].items.every((item, i) => item === first[0].items[i]),
+    liveText: landed[1].items[0] === first[1].items[0],
+    liveStep: landed[1].items[1] === first[1].items[1],
+  };
+})()"""
+
+
+def test_a_rebuild_keeps_every_block_and_item_that_did_not_change():
+    turns = [
+        user("u1"),
+        asst("a1", read("c1"), read("c2"), text("Done.")),
+        user("u2"),
+        asst("a2", text("Looking"), read("c3", result=None, status="running"), streaming=True),
+    ]
+    assert run_transcript(REBUILD, {"turns": turns}) == {
+        "again": True,
+        "streamed": True,
+        "finished": True,
+        "finishedItems": True,
+        "liveText": True,
+        "liveStep": False,
+    }
