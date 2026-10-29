@@ -28,7 +28,6 @@ from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
-    EXPLORE_MODEL_NAME,
     SUBAGENT_ALWAYS_LOADED_TOOLS,
     _build_detector_middleware,
     _build_general_purpose_middleware,
@@ -542,21 +541,10 @@ class TestSubagentMcpTools:
         assert direct_mcp_tools([]) == []
 
 
-@pytest.mark.django_db
 class TestExploreSubagent:
     """Tests for the public ``create_explore_subagent`` factory."""
 
     def test_returns_compiled_subagent(self):
-        from core.models import Provider
-
-        # ``get_model`` resolves model_name → Provider row → live client; enable
-        # the seed row backing ``ModelName.CLAUDE_HAIKU_5_5`` (openrouter:anthropic/...)
-        # so the call doesn't error during init_chat_model.
-        p = Provider.objects.get(slug="openrouter")
-        p.api_key = "sk-test"
-        p.is_enabled = True
-        p.save()
-
         result = create_explore_subagent(
             _workspace(Mock(spec=BackendProtocol), sandbox=True), "/workspace/repo/", model=Mock()
         )
@@ -908,10 +896,7 @@ class TestCustomSubagents:
 
 
 def _explore_permissions(*, sandbox: bool) -> list:
-    with (
-        patch("automation.agent.configured_models.get_model"),
-        patch("automation.agent.subagents.create_agent") as create_agent,
-    ):
+    with patch("automation.agent.subagents.create_agent") as create_agent:
         create_explore_subagent(
             _workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/", model=Mock()
         )
@@ -923,14 +908,11 @@ def _explore_permissions(*, sandbox: bool) -> list:
 async def test_explore_fallback_attempt_carries_no_openrouter_cache_control():
     primary, fallback = _openrouter("anthropic/claude-haiku-4.5"), _openrouter("openai/gpt-5.4")
 
-    with (
-        patch("automation.agent.configured_models.get_model", return_value=primary),
-        patch("automation.agent.subagents.create_agent") as create_agent,
-    ):
+    with patch("automation.agent.subagents.create_agent") as create_agent:
         create_explore_subagent(
             _workspace(Mock(spec=BackendProtocol), sandbox=True),
             "/workspace/repo/",
-            model=Mock(),
+            model=primary,
             fallback_models=[fallback],
         )
 
@@ -1582,59 +1564,6 @@ class TestConfiguredDetectorModels:
         )
 
         assert served == {}
-
-
-class TestConfiguredExploreModel:
-    def _served(self, models: FakeModels, configured: dict | ConfiguredModels, **kwargs) -> dict:
-        with (
-            patch("automation.agent.configured_models.get_model", models),
-            patch("automation.agent.subagents.create_agent") as create_agent,
-        ):
-            create_explore_subagent(
-                _workspace(Mock(spec=BackendProtocol), sandbox=True),
-                "/workspace/repo/",
-                model=RUN_MODEL,
-                configured_models=configured if isinstance(configured, ConfiguredModels) else _configured(configured),
-                **kwargs,
-            )
-        return create_agent.call_args.kwargs
-
-    @pytest.mark.parametrize(
-        ("configured", "served"), [({"explore": "fake:configured"}, "fake:configured"), ({}, EXPLORE_MODEL_NAME)]
-    )
-    def test_a_configured_entry_beats_the_default_model(self, configured, served):
-        models = FakeModels(EXPLORE_MODEL_NAME, "fake:configured")
-
-        assert self._served(models, configured)["model"] is models.by_spec[served]
-
-    async def test_an_unusable_default_model_leaves_the_runs_model_serving_and_is_recorded_once_dispatched(self):
-        notices = FakeNotices()
-        configured_models = _configured({}, notices)
-
-        assert self._served(FakeModels(), configured_models)["model"] is RUN_MODEL
-        assert notices.recorded == []
-        await configured_models.areport_dispatch("explore")
-        assert [(n.configured_model, n.served_model, n.reason) for n in notices.recorded] == [
-            (EXPLORE_MODEL_NAME, "fake:run", "unknown_provider")
-        ]
-
-    async def test_an_unusable_entry_falls_back_to_the_default_model_and_is_recorded_once_dispatched(self):
-        models = FakeModels(EXPLORE_MODEL_NAME)
-        notices = FakeNotices()
-        configured_models = _configured({"explore": "nosuch:model"}, notices)
-
-        assert self._served(models, configured_models)["model"] is models.by_spec[EXPLORE_MODEL_NAME]
-        assert notices.recorded == []
-        await configured_models.areport_dispatch("explore")
-        assert [(n.name, n.served_model) for n in notices.recorded] == [("explore", EXPLORE_MODEL_NAME)]
-
-    def test_it_falls_back_to_the_runs_fallback_models(self):
-        fallback = Mock(name="run-fallback")
-
-        kwargs = self._served(FakeModels(EXPLORE_MODEL_NAME), {}, fallback_models=[fallback])
-
-        [middleware] = [m for m in kwargs["middleware"] if isinstance(m, ModelFallbackMiddleware)]
-        assert middleware.models == [fallback]
 
 
 class TestConfiguredCustomSubagentModels:

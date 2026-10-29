@@ -57,11 +57,13 @@ def _for_subagent(models: FakeModels, *, configured: dict, file_spec: str = "", 
         return configured_models.for_subagent("cr-tests", file_spec, RUN_MODEL)
 
 
-async def _dispatched(models: FakeModels, *, configured: dict, file_spec: str = "", notices=None):
+async def _dispatched(
+    models: FakeModels, *, configured: dict, file_spec: str = "", notices=None, never_skip: bool = False
+):
     """``cr-tests``'s model, built and then dispatched as many times as a run might."""
     configured_models = ConfiguredModels("subagent", configured, chain=CHAIN, notices=notices)
     with patch("automation.agent.configured_models.get_model", models):
-        served = configured_models.for_subagent("cr-tests", file_spec, RUN_MODEL)
+        served = configured_models.for_subagent("cr-tests", file_spec, RUN_MODEL, never_skip=never_skip)
     for _ in range(2):
         await configured_models.areport_dispatch("cr-tests")
     return served
@@ -122,6 +124,24 @@ class TestForSubagent:
     def test_an_invalid_file_model_without_an_entry_raises(self):
         with pytest.raises(ValueError, match="broken:file"):
             _for_subagent(FakeModels(), configured={}, file_spec="broken:file")
+
+    async def test_never_skip_serves_the_runs_model_for_an_invalid_file_model_and_records_it_once_dispatched(self):
+        notices = FakeNotices()
+
+        served = await _dispatched(
+            FakeModels(), configured={}, file_spec="broken:file", notices=notices, never_skip=True
+        )
+
+        assert served is RUN_MODEL
+        assert notices.recorded == [
+            ModelFallbackNotice(
+                target="subagent",
+                name="cr-tests",
+                configured_model="broken:file",
+                served_model="fake:run",
+                reason="unknown_provider",
+            )
+        ]
 
     def test_an_entry_shared_by_several_subagents_is_built_once(self):
         models = FakeModels("fake:configured")

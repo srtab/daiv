@@ -33,7 +33,7 @@ repository root.
   (`daiv/core/static/core/js/django-formset.js`). Each row has:
   - a name `<input>` with a `<datalist>` of suggestions: `skills.services.list_global_skills()`
     for skills (built-in and custom global, `daiv/skills/services.py:202`), and
-    `BUILTIN_SUBAGENT_NAMES` minus `explore` for subagents;
+    `BUILTIN_SUBAGENT_NAMES` for subagents;
   - the reusable picker `automation/_agent_picker.html` with `with_effort=False` (model only),
     named after the row's formset prefix, so its provider list is already limited to enabled
     `Provider` rows.
@@ -42,8 +42,7 @@ repository root.
   an API key. That check is extracted into a helper so both paths share it. An invalid row is a
   form error naming the entry (FR-008a). A name outside the suggestions is accepted and reported
   with `messages.warning` after save, the `_collect_provider_warnings` precedent
-  (`daiv/configuration/views.py:93-99`). A subagent entry named `explore` is refused, because
-  explore keeps its own setting (spec Assumptions). Duplicate names in one map are refused.
+  (`daiv/configuration/views.py:93-99`). Duplicate names in one map are refused.
 - **Env lock**: When the environment variable is set, the section renders read-only, like the
   web-fetch auth headers section (`daiv/configuration/views.py:116-127`).
 - **Alternatives considered**:

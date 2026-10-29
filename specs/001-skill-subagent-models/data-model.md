@@ -5,7 +5,7 @@
 | Field | Type | Default | Rules |
 |-------|------|---------|-------|
 | `agent_skill_models` | JSON object `{skill name: model spec}` | `{}` | Keys are non-blank and unique. Each value parses as a model spec whose provider is configured, enabled and has an API key (FR-008a). An unknown key is saved with a warning. |
-| `agent_subagent_models` | JSON object `{subagent name: model spec}` | `{}` | Same rules as above; the key `explore` is refused. |
+| `agent_subagent_models` | JSON object `{subagent name: model spec}` | `{}` | Same rules as above. |
 
 Both fields can be overridden from the environment with `DAIV_AGENT_SKILL_MODELS` and
 `DAIV_AGENT_SUBAGENT_MODELS` (a JSON object). While a variable is set, its section is read-only.
@@ -16,14 +16,14 @@ The `SiteSnapshot` exposes each map read-only.
 | Key | Type | Default | Rules |
 |-----|------|---------|-------|
 | `models.skills` | `dict[str, str \| None]` | `{}` | Values are not validated on load. A `null` or blank value counts as unset. |
-| `models.subagents` | `dict[str, str \| None]` | `{}` | Same as above. An `explore` key is ignored when the run's settings are resolved. |
+| `models.subagents` | `dict[str, str \| None]` | `{}` | Same as above. |
 
 ## AgentSettings (existing per-run value, two new fields)
 
 | Field | Type | Built from |
 |-------|------|------------|
 | `skill_models` | read-only `Mapping[str, str]` | `site.agent_skill_models` overlaid with the repository's non-empty `models.skills` entries |
-| `subagent_models` | read-only `Mapping[str, str]` | `site.agent_subagent_models` overlaid with the repository's non-empty `models.subagents`, without `explore` |
+| `subagent_models` | read-only `Mapping[str, str]` | `site.agent_subagent_models` overlaid with the repository's non-empty `models.subagents` |
 
 The run's overrides (exact pin, picker choice, Max) do not affect either map.
 

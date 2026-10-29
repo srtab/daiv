@@ -54,6 +54,8 @@ from automation.agent.profile import register as _register_harness_profile
 from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT, DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
+    EXPLORE_MODEL_NAME,
+    EXPLORE_NAME,
     GENERAL_PURPOSE_NAME,
     create_explore_subagent,
     create_general_purpose_subagent,
@@ -260,9 +262,8 @@ async def create_daiv_agent(
         create_explore_subagent(
             workspace,
             working_directory,
-            model=model,
+            model=subagent_models.for_subagent(EXPLORE_NAME, EXPLORE_MODEL_NAME, model, never_skip=True),
             fallback_models=fallback_models,
-            configured_models=subagent_models,
         ),
         *load_builtin_code_review_detectors(
             model, backend, working_directory, fallback_models=fallback_models, configured_models=subagent_models

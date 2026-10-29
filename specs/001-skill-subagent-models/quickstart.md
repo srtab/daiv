@@ -57,7 +57,6 @@ The unit tests listed in [plan.md](plan.md#source-code-repository-root) cover:
       - nothing extra is posted to the merge or pull request.
 6. **Form rules (FR-008, FR-008a).** In site configuration, try each case:
    - a model on a disabled provider: refused, with an error on that row;
-   - a subagent row named `explore`: refused;
    - a name such as `my-repo-skill`: saved, with a warning.
 7. **Environment lock.** Set `DAIV_AGENT_SKILL_MODELS='{"code-review": "<M_SKILL>"}'` and
    restart. The section is read-only and shows the environment value.

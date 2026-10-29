@@ -120,7 +120,7 @@ A repository maintainer wants their repository's code reviews on a different mod
 - **Builds on this branch**: The feature extends the per-skill model switching committed on this branch: a skill-declared model, its lifetime until the user's next message, and the context-window guard.
 - **Model only**: An entry holds a model spec only; the thinking level is always the run's. Per-entry thinking levels are out of scope.
 - **Repository trust**: Repositories can always override site entries, with the same trust they already have to choose the run's main model. Operators get no lock against repository overrides in this release; a lock, if one is needed later, should cover the run's main model too and is a separate feature.
-- **Explore keeps its own setting**: The explore subagent keeps its existing dedicated model setting and is not configured through these assignments, so one model has one place to configure it.
+- **Explore is configured like the others**: The explore subagent's dedicated model settings are removed; it is configured with an `explore` subagent entry, defaults to Claude Haiku 5.5 without thinking, and falls back to the main agent's fallback models.
 - **Exact names**: Entries match skill and subagent names exactly. A repository skill that shadows a built-in skill of the same name receives the same entry.
 - **Platform neutral**: The feature behaves the same on GitLab and GitHub, and with any configured provider.
 - **Detectors stay built-in**: Code-review detectors are still loaded only from the built-in skill. This feature changes their models, not where they come from.

@@ -3,8 +3,7 @@ from langsmith import testing as t
 from sandbox_envs.services import build_sandbox_spec
 
 from automation.agent.base import get_model
-from automation.agent.configured_models import ConfiguredModels
-from automation.agent.constants import EXPLORE_NAME, REPO_PATH
+from automation.agent.constants import REPO_PATH
 from automation.agent.context import set_runtime_ctx
 from automation.agent.middlewares.file_system import READ_ONLY_FS_TOOLS
 from automation.agent.subagents import create_explore_subagent
@@ -35,12 +34,7 @@ async def test_explore_reports_absolute_paths_using_only_its_own_tools(model_nam
     async with set_runtime_ctx(
         repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=await build_sandbox_spec(None)
     ) as ctx:
-        explore = create_explore_subagent(
-            DiskWorkspace(ctx),
-            f"{REPO_PATH}/",
-            model=get_model(model=model_name),
-            configured_models=ConfiguredModels("subagent", {EXPLORE_NAME: model_name}),
-        )
+        explore = create_explore_subagent(DiskWorkspace(ctx), f"{REPO_PATH}/", model=get_model(model=model_name))
         with measure(eval_request) as metrics:
             result = await explore["runnable"].ainvoke(
                 {"messages": [{"role": "user", "content": SEARCH_REQUEST}]}, context=ctx

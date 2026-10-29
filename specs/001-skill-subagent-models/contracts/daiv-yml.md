@@ -20,5 +20,5 @@ models:
 | Precedence | Overrides the site configuration entry with the same name only |
 | Invalid spec | The file still loads. At run time the entry falls back to the file-declared or run's model, not to the site entry, with an ERROR log and a notice on the run ([run-notice.md](run-notice.md)) |
 | Unknown name | Ignored |
-| `subagents.explore` | Ignored; explore keeps its own site setting |
+| `subagents.explore` | The explore subagent's model, over its Claude Haiku 5.5 default |
 | Run overrides | A run's picker choice, Max or exact pin does not change these entries |

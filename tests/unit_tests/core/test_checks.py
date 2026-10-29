@@ -1,4 +1,4 @@
-from core.checks import check_removed_env_vars
+from core.checks import REMOVED_ENV_VARS, check_removed_env_vars
 
 
 def test_a_removed_env_var_still_set_is_warned_about(monkeypatch):
@@ -12,7 +12,7 @@ def test_a_removed_env_var_still_set_is_warned_about(monkeypatch):
 
 
 def test_nothing_is_warned_about_when_no_removed_env_var_is_set(monkeypatch):
-    for name in ("DAIV_AGENT_EXPLORE_MODEL_NAME", "DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME"):
+    for name in REMOVED_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
 
     assert check_removed_env_vars(None) == []

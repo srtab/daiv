@@ -111,7 +111,7 @@ daiv/
 │   └── templates/sessions/session_detail.html  # notice chip
 ├── chat/static/chat/js/chat-stream.js # run_notice turns skipped like run-status markers
 ├── configuration/
-│   ├── forms.py                       # model-map formset, shared spec validation, explore refusal
+│   ├── forms.py                       # model-map formset, shared spec validation
 │   ├── views.py                       # formset wiring, unknown-name warnings, env lock
 │   └── templates/configuration/_agent_model_maps_section.html, agent_model_map_row.html
 └── static_src/css/input.css           # chat-run-status--notice variant
@@ -125,12 +125,12 @@ docs/
 tests/unit_tests/
 ├── core/test_site_settings.py         # JSON env override, read-only snapshot maps
 ├── codebase/test_repo_config.py       # maps load; a bad spec does not drop the file
-├── automation/agent/test_agent_settings.py      # overlay, empty entries, explore dropped, pin ignored
+├── automation/agent/test_agent_settings.py      # overlay, empty entries, pin ignored
 ├── automation/agent/test_subagents.py           # configured > frontmatter > run; fallback without skip
 ├── automation/agent/middlewares/test_skills.py  # configured > metadata; ERROR + notice on failure
 ├── sessions/test_notices.py           # recorder persists the list
 ├── sessions/test_transcript.py        # run_notice pseudo-turns
-└── configuration/test_forms.py, test_views.py   # row validation, warning, explore refusal, env lock
+└── configuration/test_forms.py, test_views.py   # row validation, warning, env lock
 ```
 
 **Structure Decision**: The changes extend existing apps in their own layers; no new app or

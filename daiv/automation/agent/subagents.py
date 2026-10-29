@@ -364,19 +364,12 @@ def create_explore_subagent(
     *,
     model: BaseChatModel,
     fallback_models: list[BaseChatModel] | None = None,
-    configured_models: ConfiguredModels | None = None,
 ) -> CompiledSubAgent:
     """
-    Create the explore subagent on its ``configured_models`` entry, else ``EXPLORE_MODEL_NAME``, else ``model`` (see
-    ``ConfiguredModels.for_subagent``).
+    Create the explore subagent on ``model``.
     """
     # Local import to break a circular dependency: graph.py imports this module.
     from automation.agent.graph import dynamic_write_todos_system_prompt
-
-    configured_models = configured_models or ConfiguredModels("subagent")
-    explore_model = configured_models.for_subagent(
-        EXPLORE_NAME, EXPLORE_MODEL_NAME, model, run_model_serves_unusable_file_spec=True
-    )
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
@@ -386,11 +379,11 @@ def create_explore_subagent(
             tools=READ_ONLY_FS_TOOLS,
             _permissions=[*READ_ONLY_PERMISSIONS, *(workspace.fs_permissions or [])],
         ),
-        *_shared_subagent_middleware(explore_model, workspace.backend, fallback_models),
+        *_shared_subagent_middleware(model, workspace.backend, fallback_models),
     ]
 
     runnable = create_agent(
-        model=explore_model,
+        model=model,
         tools=[],
         system_prompt=_explore_system_prompt(working_directory),
         middleware=middleware,

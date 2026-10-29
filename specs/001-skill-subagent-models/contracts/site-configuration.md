@@ -16,7 +16,7 @@
 Two lists of rows, one for skills and one for subagents. Each row has:
 
 - **Name**: a text input. It suggests `list_global_skills()` names for skills, and the built-in
-  subagents except `explore` for subagents. Any text is accepted.
+  subagents for subagents. Any text is accepted.
 - **Model**: the agent picker, without the thinking-effort row, limited to enabled providers.
 
 Rows can be added and removed.
@@ -26,6 +26,5 @@ Rows can be added and removed.
 | A row with a valid name and spec | Saved |
 | A spec whose provider is unknown, disabled or has no API key | Not saved; error on that row naming the entry |
 | A blank name, or a duplicate name in the same list | Not saved; error on that row |
-| A subagent row named `explore` | Not saved; error pointing to the Explore model setting |
 | A name outside the suggestions | Saved; warning message after save naming the entry |
 | A row with a name and no model | Not saved; error on that row |
