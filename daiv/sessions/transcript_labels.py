@@ -95,4 +95,15 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "thought": gettext("Thought"),
         "detail_passed": gettext("passed"),
         "detail_exit": gettext("exit {code}"),
+        "publish_committing": gettext("Committing changes"),
+        "publish_creating": gettext("Creating merge request"),
+        "publish_conflicts": [
+            gettext("Merge conflicts left in {count} file"),
+            gettext("Merge conflicts left in {count} files"),
+        ],
+        "publish_error_conflicts": gettext("Merge conflicts are left in the changed files"),
+        "publish_error_mr_pending": gettext("Branch pushed; the merge request isn't created yet"),
+        "publish_error_push_rejected": gettext("The push was rejected"),
+        "publish_error_mr_failed": gettext("The merge request couldn't be created"),
+        "publish_error_unknown": gettext("Couldn't publish the changes"),
     }

@@ -33,16 +33,29 @@
     };
   };
 
-  // Structured-response tool names emitted by the diff_to_metadata subagents.
-  // We render their TOOL_CALL_* lifecycle as compact phase chips ("Creating
-  // merge request…" / "Committing changes…") instead of letting the raw JSON
-  // structured response surface as a tool card. Subagent text + reasoning are
-  // already silenced server-side via `emit-messages: false`, so this is the
-  // only signal the chat sees from the publish pipeline before the post-publish
-  // STATE_SNAPSHOT carrying the new ``merge_request`` lands.
+  // Structured-response tools of the diff_to_metadata subagents: their lifecycle only names the
+  // working line's phase; the raw JSON never surfaces as a tool card.
+  const PUBLISH_RESULT_EVENT = "daiv_publish_result";
+
   const PUBLISH_PHASE_TOOLS = {
-    PullRequestMetadata: { label: "Creating merge request" },
-    CommitMetadata: { label: "Committing changes" },
+    PullRequestMetadata: "publish_creating",
+    CommitMetadata: "publish_committing",
+  };
+
+  const publishEntry = (value, labels) => {
+    const v = value || {};
+    let error = "";
+    if (v.conflicts) error = labels.tn("publish_conflicts", v.conflicts);
+    else if (v.error_kind) error = labels.t(`publish_error_${v.error_kind}`);
+    return {
+      status: v.status,
+      merge_request_iid: v.merge_request_iid ?? null,
+      merge_request_web_url: v.merge_request_web_url ?? "",
+      files_changed: v.files_changed ?? null,
+      lines_added: v.lines_added ?? null,
+      lines_removed: v.lines_removed ?? null,
+      error,
+    };
   };
 
   // Reads a Django ``json_script`` payload. Returns `fallback` when the element is
@@ -373,6 +386,8 @@
     sessionLive: !!config.sessionLive,
     waitingSince: config.waitingSince || "",
     runStoppable: config.liveRunStoppable ?? true,
+    publishPhase: "",
+    _phaseCalls: new Set(),
     _source: null,
     _activeRun: null,
     _replayDedup: null,
@@ -959,6 +974,8 @@
       turn.streaming = false;
       // A call still running when the run ends never returned, unless the run finished cleanly.
       // Checkpointed turns count too: they hold the calls the rejoin found unanswered.
+      this.publishPhase = "";
+      this._phaseCalls.clear();
       const hasMarker = this._hasRunStatusMarker();
       const unanswered = reason === "finished" && !hasMarker ? "done" : "error";
       for (const t of this.turns) {
@@ -1014,6 +1031,7 @@
         return { tone: "thinking", label: "catching up on the running session…" };
       }
       if (!this.streaming) return { tone: "idle", label: "idle" };
+      if (this.publishPhase) return { tone: "running", label: `${this.publishPhase}…` };
       const activity = this.runBlocks[this.runBlocks.length - 1]?.activity;
       if (activity) return { tone: "running", label: activity };
       return { tone: "thinking", label: window.TranscriptLabels.t("thinking") };
@@ -1668,66 +1686,48 @@
         }
         const phase = PUBLISH_PHASE_TOOLS[evt.toolCallName];
         if (phase) {
-          // Structured-response tool from the publish pipeline: drop the args/
-          // result rendering entirely and surface a phase chip. The chip stays
-          // on the running turn until TOOL_CALL_RESULT (or RUN_FINISHED) flips
-          // it to done.
-          turn.segments.push({
-            type: "publish_phase",
-            id: evt.toolCallId,
-            name: evt.toolCallName,
-            label: phase.label,
-            status: "running",
-          });
-        } else {
-          turn.segments.push({
-            type: "tool_call",
-            id: evt.toolCallId,
-            name: evt.toolCallName,
-            args: "",
-            result: null,
-            status: "running",
-          });
+          if (!this._phaseCalls.has(evt.toolCallId)) {
+            this._phaseCalls.add(evt.toolCallId);
+            this.publishPhase = window.TranscriptLabels.t(phase);
+          }
+          return;
         }
+        turn.segments.push({
+          type: "tool_call",
+          id: evt.toolCallId,
+          name: evt.toolCallName,
+          args: "",
+          result: null,
+          status: "running",
+        });
         this._toolIndex.set(evt.toolCallId, turn.segments.length - 1);
       } else if (type === AGUI.TOOL_CALL_ARGS) {
+        if (this._phaseCalls.has(evt.toolCallId)) return;
         const idx = this._toolIndex.get(evt.toolCallId);
         const seg = idx != null ? turn.segments[idx] : null;
         if (!seg) {
           console.warn("chat: TOOL_CALL_ARGS for unknown tool_call_id", evt.toolCallId);
         } else if (seg.type === "tool_call" && !seg.sealed) {
-          // Phase chips intentionally ignore args (the structured-response JSON
-          // is not user-facing).
           seg.args += evt.delta || "";
         }
       } else if (type === AGUI.TOOL_CALL_END) {
-        // Structured-response tool calls don't always trigger a TOOL_CALL_RESULT
-        // (the agent extracts the structured payload and stops without
-        // executing a tool), so use the END signal — which always fires once
-        // args streaming finishes — to flip the phase chip to done.
-        const idx = this._toolIndex.get(evt.toolCallId);
-        const seg = idx != null ? turn.segments[idx] : null;
-        if (!seg) {
-          console.warn("chat: TOOL_CALL_END for unknown tool_call_id", evt.toolCallId);
-        } else if (seg.type === "publish_phase") {
-          seg.status = "done";
-        }
+        if (this._phaseCalls.has(evt.toolCallId)) this.publishPhase = "";
       } else if (type === AGUI.TOOL_CALL_RESULT) {
+        if (this._phaseCalls.has(evt.toolCallId)) {
+          this.publishPhase = "";
+          return;
+        }
         const idx = this._toolIndex.get(evt.toolCallId);
         const seg = idx != null ? turn.segments[idx] : null;
         if (!seg) {
           console.warn("chat: TOOL_CALL_RESULT for unknown tool_call_id", evt.toolCallId);
           return;
         }
-        if (seg.type === "publish_phase") {
-          seg.status = "done";
-        } else {
-          seg.result = evt.content;
-          seg.status = "done";
-        }
+        seg.result = evt.content;
+        seg.status = "done";
       } else if (type === AGUI.RUN_ERROR) {
         turn.segments.forEach((s) => {
-          if ((s.type === "tool_call" || s.type === "publish_phase") && s.status === "running") {
+          if (s.type === "tool_call" && s.status === "running") {
             s.status = "error";
           }
         });
@@ -1738,7 +1738,7 @@
           this._pushRunStatus("aborted", "Stopped by user.");
         } else if (evt.code === "run_interrupted") {
           this._pushRunStatus("aborted", evt.message || "Run was interrupted before completing.");
-        } else {
+        } else if (!this._hasFailedPublish()) {
           this._pushRunStatus("failed", evt.message || "Run failed.");
         }
       } else if (type === AGUI.CUSTOM && evt.name === "ref_fallback") {
@@ -1759,6 +1759,11 @@
         } else if (this.selectedSandboxEnvId) {
           console.debug("chat: ignored resolved_env (user picked %o)", this.selectedSandboxEnvId, v);
         }
+      } else if (type === AGUI.CUSTOM && evt.name === PUBLISH_RESULT_EVENT) {
+        this.publishPhase = "";
+        const entry = publishEntry(evt.value, window.TranscriptLabels);
+        if (entry.status === "failed") entry.id = this._runStatusId();
+        turn.publish = [...(turn.publish || []), entry];
       } else if (type === AGUI.CUSTOM && evt.name === "daiv_context_usage") {
         // Last main-model call's usage (ContextUsageMiddleware). Whole-payload replace.
         const usage = normalizeContextUsage(evt.value);
@@ -1766,7 +1771,7 @@
       } else if (type === AGUI.STATE_SNAPSHOT) {
         // Snapshots fire on every node exit and almost always carry an
         // unchanged merge_request. Dedupe on identity so we don't churn
-        // Alpine reactivity (and the publish-phase chip sweep) per node.
+        // Alpine reactivity per node.
         const snap = evt.snapshot || {};
         if ("diff_stats" in snap) {
           const stats = normalizeDiffStats(snap.diff_stats);
@@ -1801,17 +1806,6 @@
         if ("merge_request" in value) next.merge_request = value.merge_request;
         this.thread = next;
       }
-      // Belt-and-braces: once a snapshot carrying the published MR lands, the
-      // publish pipeline is done. Any phase chip still marked running is stale
-      // (likely a missed TOOL_CALL_END for a fast-finishing structured tool).
-      if (value.merge_request) {
-        for (const t of this.turns) {
-          if (t.role === "run_status") continue;
-          for (const s of t.segments) {
-            if (s.type === "publish_phase" && s.status === "running") s.status = "done";
-          }
-        }
-      }
     },
 
     // Keyed by the Run row once the server names it, so the marker matches the one a reload renders.
@@ -1832,10 +1826,16 @@
       this.scrollToBottom();
     },
 
+    _hasFailedPublish() {
+      if (!this._activeRun) return false;
+      const id = this._runStatusId();
+      return this.turns.some((t) => (t.publish || []).some((p) => p.id === id));
+    },
+
     _hasRunStatusMarker() {
       if (!this._activeRun) return false;
       const id = this._runStatusId();
-      return this.turns.some((t) => t.id === id);
+      return this.turns.some((t) => t.id === id) || this._hasFailedPublish();
     },
 
     _appendTextSegment(turn, content) {
