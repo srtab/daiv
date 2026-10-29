@@ -166,8 +166,9 @@ The repository and ref are fixed for the life of the session. To work against a 
 
 As the agent works, the workspace streams updates live:
 
-- **Assistant text and reasoning** — replies render as Markdown; thinking/reasoning is shown in collapsible segments.
-- **Tool calls** — each tool call appears as an expandable card with its status (running, done, error), arguments, and result.
+- **Assistant text** — replies render as Markdown.
+- **Steps** — consecutive steps (thinking and tool calls) collapse into one line summarising what they did, such as "Read 3 files, ran 2 commands", with any failures and the lines added and removed. Open it to list the steps; each step opens to its details.
+- **Finished runs** — when a run ends, its steps fold behind one **Worked for 3m 12s · 14 steps** line; the answer, its artifacts and any question the agent asked stay visible below it. An answered question collapses to one quiet line.
 - **Todos** — when the agent plans with a todo list, the side rail shows the list with a `done/total` count.
 - **Files changed** — files the agent reads or edits are collected in the rail; click one to jump to the tool call that touched it.
 
