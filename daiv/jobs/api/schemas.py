@@ -43,8 +43,8 @@ class JobSubmitRequest(Schema):
         default=None,
         description=(
             "MCP servers to switch on or off for these jobs, relative to the default set: true adds an on-demand "
-            "server, false drops an active one. On a continued thread they replace the thread's own; omit them to "
-            "keep those."
+            "server, false drops an active one. On a continued thread they apply on top of the thread's own, and "
+            "can't change them while another run on the thread is unfinished."
         ),
     )
 

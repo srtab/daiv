@@ -146,6 +146,13 @@ def test_overrides_from_switches_keeps_only_deviations_from_the_defaults():
     assert overrides_from_switches({"a": True, "b": True, "mine": False}, POOL) == {"b": "on", "mine": "off"}
 
 
+def test_overrides_from_switches_keeps_the_settings_of_servers_it_does_not_name():
+    assert overrides_from_switches({"b": True, "a": True}, POOL, {"a": "off", "mine": "off"}) == {
+        "b": "on",
+        "mine": "off",
+    }
+
+
 def test_overrides_from_switches_names_the_unknown_and_the_valid_servers():
     with pytest.raises(ValueError, match=r"unknown MCP server\(s\) \['c'\]; valid: \['a', 'b', 'mine'\]"):
         overrides_from_switches({"c": True}, POOL)

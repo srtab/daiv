@@ -73,15 +73,18 @@ def parse_server_names(raw: object) -> list[str]:
     return list(dict.fromkeys(names))
 
 
-def overrides_from_switches(switches: dict[str, bool], pool: Sequence[PoolEntry]) -> dict[str, str]:
-    """``switches`` as the stored ``{server: "on"|"off"}`` deviations from ``pool``'s defaults.
+def overrides_from_switches(
+    switches: dict[str, bool], pool: Sequence[PoolEntry], current: dict | None = None
+) -> dict[str, str]:
+    """``current`` overrides with ``switches`` applied, as the stored deviations from ``pool``'s defaults.
 
     Raises ``ValueError`` for a server outside ``pool``: unlike a stored selection, a request naming one is a mistake.
     """
-    defaults = {entry.name: entry.is_default for entry in pool}
-    if unknown := sorted(set(switches) - set(defaults)):
-        raise ValueError(f"unknown MCP server(s) {unknown}; valid: {sorted(defaults)}")
-    return {name: "on" if enabled else "off" for name, enabled in switches.items() if enabled != defaults[name]}
+    names = {entry.name for entry in pool}
+    if unknown := sorted(set(switches) - names):
+        raise ValueError(f"unknown MCP server(s) {unknown}; valid: {sorted(names)}")
+    selected = effective_selection(current or {}, pool) | {name for name, on in switches.items() if on}
+    return diff_selection(selected - {name for name, on in switches.items() if not on}, pool)
 
 
 def default_names(pool: Sequence[PoolEntry]) -> set[str]:

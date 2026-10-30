@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from unittest.mock import Mock, patch
 
 import pytest
@@ -16,6 +17,7 @@ from sessions.admission import (
     assert_repo_access,
     check_agent_override,
 )
+from sessions.models import Session, SessionOrigin
 from sessions.services import RepoTarget
 
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
@@ -152,6 +154,15 @@ async def test_aresolve_mcp_overrides_refuses_an_unknown_server(member_user, mcp
         await aresolve_mcp_overrides(member_user, {"grafna": True})
 
 
-@pytest.mark.parametrize(("switches", "expected"), [(None, None), ({}, {})])
-async def test_aresolve_mcp_overrides_skips_the_pool_when_nothing_is_switched(switches, expected):
-    assert await aresolve_mcp_overrides(Mock(), switches) == expected
+@pytest.mark.django_db(transaction=True)
+async def test_aresolve_mcp_overrides_applies_the_switches_on_top_of_the_threads(member_user, mcp_pool):
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, repo_id="a/b", mcp_overrides={"rt": "off"}
+    )
+    overrides = await aresolve_mcp_overrides(member_user, {"grafana": True}, session.thread_id)
+    assert overrides == {"rt": "off", "grafana": "on"}
+
+
+@pytest.mark.parametrize("switches", [None, {}])
+async def test_aresolve_mcp_overrides_skips_the_pool_when_nothing_is_switched(switches):
+    assert await aresolve_mcp_overrides(Mock(), switches) is None

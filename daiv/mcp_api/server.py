@@ -21,7 +21,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
-from sessions.admission import AdmissionError, aadmit, aassert_repo_access, aresolve_environment, check_agent_override
+from sessions.admission import (
+    AdmissionError,
+    aadmit,
+    aassert_repo_access,
+    aresolve_environment,
+    aresolve_mcp_overrides,
+    check_agent_override,
+)
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import MAX_REPOS_PER_BATCH, BatchSubmitFailure, RepoTarget, alist_user_runs, asubmit_batch_runs
@@ -220,7 +227,8 @@ async def submit_job(
             description=(
                 "Optional MCP servers to switch on or off for every job in this batch, relative to the default set,"
                 ' e.g. {"grafana": true}: true adds an on-demand server, false drops an active one. On a'
-                " continued thread (thread_id) they replace the thread's own; omit them to keep those."
+                " continued thread (thread_id) they apply on top of the thread's own, and can't change them while"
+                " another run on the thread is unfinished."
             )
         ),
     ] = None,
@@ -292,6 +300,7 @@ async def submit_job(
             agent_thinking_level=agent_thinking_level,
             environment=environment,
             mcp_overrides=mcp_overrides,
+            thread_id=thread_id_str,
         )
         result = await asubmit_batch_runs(
             user=mcp_user,
@@ -873,6 +882,15 @@ async def schedule_job(
             description="Sandbox environment name or UUID. Omit to auto-resolve per repo each time the schedule fires."
         ),
     ] = None,
+    mcp_overrides: Annotated[
+        McpServerSwitches | None,
+        Field(
+            description=(
+                "Optional MCP servers to switch on or off for this schedule's runs, relative to the default set,"
+                ' e.g. {"grafana": true}: true adds an on-demand server, false drops an active one.'
+            )
+        ),
+    ] = None,
     muted: Annotated[bool, Field(description="Mute notifications for this schedule's runs.")] = False,
     intent: Annotated[
         Intent | None, Field(description="watch-find | do-change | report. Omit for the default (watch-find).")
@@ -913,6 +931,7 @@ async def schedule_job(
 
     try:
         env_row = await aresolve_environment(mcp_user, environment)
+        resolved_mcp_overrides = await aresolve_mcp_overrides(mcp_user, mcp_overrides)
     except AdmissionError as err:
         return {"error": str(err)}
 
@@ -929,6 +948,7 @@ async def schedule_job(
             agent_model=agent_model or "",
             agent_thinking_level=str(agent_thinking_level) if agent_thinking_level else "",
             sandbox_environment=env_row,
+            mcp_overrides=resolved_mcp_overrides or {},
             muted=muted,
             intent=intent or Intent.WATCH_FIND,
         )
