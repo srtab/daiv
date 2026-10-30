@@ -161,11 +161,6 @@ async def list_tools_and_icon(client: StatusTrackingClient) -> tuple[list[BaseTo
     return tools, icon
 
 
-def is_mcp_tool(tool: BaseTool | None) -> bool:
-    """Whether ``langchain.mcp`` built ``tool`` from an MCP server's tool."""
-    return tool is not None and isinstance(tool.metadata, dict) and "mcp" in tool.metadata
-
-
 def read_only_hint(tool: BaseTool) -> bool | None:
     """MCP's optional ``readOnlyHint`` annotation; ``None`` means the server left it unannotated."""
     node: Any = tool.metadata

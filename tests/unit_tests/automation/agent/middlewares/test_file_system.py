@@ -1,24 +1,19 @@
 from __future__ import annotations
 
-import base64
-import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
 import pytest
 from deepagents.backends.composite import CompositeBackend
-from deepagents.backends.protocol import FileUploadResponse
 from deepagents.graph import _apply_custom_middleware
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
 from deepagents.middleware.filesystem import FilesystemPermission, _check_fs_permission
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
-from mcp.server.mcpserver import MCPServer
 
 from automation.agent.constants import SKILLS_TOOL_NAME
-from automation.agent.mcp.client import list_tools
 from automation.agent.middlewares import file_system as fs_module
 from automation.agent.middlewares.file_system import (
     EDIT_SUCCESS_PREFIX,
@@ -30,7 +25,6 @@ from automation.agent.middlewares.file_system import (
     write_tool_result_to_file,
 )
 from automation.agent.workspace.backends import DAIVFilesystemBackend, build_disk_workspace_backend
-from tests.unit_tests.automation.agent.mcp.helpers import client_for, serve
 from tests.unit_tests.conftest import recording_backend, unacquired_backend
 
 if TYPE_CHECKING:
@@ -467,78 +461,3 @@ async def test_write_tool_result_to_file_fails_loudly_when_tool_call_id_missing(
     assert result.startswith("error:")
     assert "tool_call_id" in result
     backend.awrite.assert_not_called()
-
-
-PNG = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 400
-
-
-def _json_with_file(data: bytes) -> str:
-    return json.dumps({"id": 7, "name": "screenshot.png", "body": base64.encodebytes(data).decode()})
-
-
-def _server_returning(payload: str) -> MCPServer:
-    server = MCPServer(name="files-test")
-
-    @server.tool()
-    def fetch(item_id: int) -> str:
-        """Fetch an item."""
-        return payload
-
-    return server
-
-
-class TestEmbeddedMcpFiles:
-    """An MCP result can carry a file as base64 text, which the model can neither view nor read back."""
-
-    async def _call(self, setup, payload: str, fs: DAIVFilesystemMiddleware | None = None) -> ToolMessage:
-        async with serve(_server_returning(payload)) as gate:
-            (tool,) = await list_tools(client_for(gate))
-            request = ToolCallRequest(
-                tool_call={"name": tool.name, "args": {"item_id": 1}, "id": "call_1", "type": "tool_call"},
-                tool=tool,
-                state={"messages": []},
-                runtime=_runtime(state={}, working_dir=setup.repo),
-            )
-            return await (fs or setup.middleware).awrap_tool_call(request, lambda req: tool.ainvoke(req.tool_call))
-
-    async def test_file_is_saved_beside_evicted_results(self, setup):
-        result = await self._call(setup, _json_with_file(PNG[:300]))
-
-        path = f"{large_tool_results_prefix(setup.backend)}/call_1-1.png"
-        assert path in result.text
-        assert base64.b64encode(PNG[:300]).decode()[:40] not in result.text
-        assert (await setup.backend.adownload_files([path]))[0].content == PNG[:300]
-
-    async def test_large_file_no_longer_forces_eviction(self, setup):
-        fs = DAIVFilesystemMiddleware(backend=setup.backend, tool_token_limit_before_evict=20_000)
-        assert len(_json_with_file(PNG)) > 80_000
-
-        result = await self._call(setup, _json_with_file(PNG), fs)
-
-        assert f"{large_tool_results_prefix(setup.backend)}/call_1-1.png" in result.text
-        assert len(result.text) < 1_000
-
-    async def test_failed_upload_keeps_the_result_as_it_was(self, setup, monkeypatch):
-        failed = AsyncMock(return_value=[FileUploadResponse(path="x", error="permission_denied")])
-        monkeypatch.setattr(setup.backend, "aupload_files", failed)
-        payload = _json_with_file(PNG[:300])
-
-        result = await self._call(setup, payload)
-
-        assert result.text == payload
-
-    async def test_non_mcp_tool_results_are_left_alone(self, setup):
-        payload = _json_with_file(PNG[:300])
-        request = ToolCallRequest(
-            tool_call={"name": "bash", "args": {}, "id": "call_bash"},
-            tool=None,
-            state={"messages": []},
-            runtime=_runtime(state={}, working_dir=setup.repo),
-        )
-
-        async def handler(req: ToolCallRequest):
-            return ToolMessage(content=payload, tool_call_id="call_bash", name="bash")
-
-        result = await setup.middleware.awrap_tool_call(request, handler)
-
-        assert result.content == payload
