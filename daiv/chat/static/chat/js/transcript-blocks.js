@@ -3,7 +3,7 @@
     write_todos: null,
     ask_user_question: "question",
     publish_artifact: "publish",
-    delegate_jobs: "special",
+    delegate_jobs: "delegated",
   };
 
   const NO_PUBLISH = Object.freeze([]);
@@ -42,6 +42,8 @@
   );
 
   const artifactFor = memoBySeg(["args", "result", "status"], (seg, latest) => window.artifactItem(seg, latest));
+
+  const delegatedFor = memoBySeg(["args", "result", "status", "legs"], (seg) => window.delegatedItem(seg));
 
   let lastRows = null;
   let lastRowsKey = null;
@@ -271,7 +273,12 @@
           const row = rowFor(e.seg, servers, serversId);
           return { kind: "question", key: claim(`q-${e.ref}`), seg: e.seg, turnIndex: e.ti, row };
         }
+        if (e.kind === "delegated" && !folded) return delegatedCard(e);
         return { kind: "special", key: claim(`x-${e.ref}`), seg: e.seg, row: rowFor(e.seg, servers, serversId) };
+      };
+      const delegatedCard = (e) => {
+        const { legs, goal, error } = delegatedFor(e.seg, null, 0);
+        return { kind: "delegated", key: claim(`d-${e.ref}`), seg: e.seg, legs, goal, error };
       };
 
       const items = [];
@@ -309,9 +316,13 @@
       const endingTail = [];
       const cards = [];
       if (folded) {
-        // A publish after the last step shows only in the run's cards.
-        for (const item of entries.slice(foldEnd).filter((e) => e.kind !== "publish").map(itemOf)) {
+        // A publish or a delegate call after the last step shows only in the run's cards.
+        const inTail = (e) => e.kind !== "publish" && e.kind !== "delegated";
+        for (const item of entries.slice(foldEnd).filter(inTail).map(itemOf)) {
           (item.kind === "text" ? endingText : endingTail).push(item);
+        }
+        for (const e of entries) {
+          if (e.kind === "delegated") cards.push(delegatedCard(e));
         }
         const published = [];
         const seen = new Set();

@@ -617,6 +617,12 @@ msgstr "consultou as tarefas delegadas"
 msgid "checked delegated jobs {count} times"
 msgstr "consultou as tarefas delegadas {count} vezes"
 
+msgid "cancelled delegated jobs"
+msgstr "cancelou as tarefas delegadas"
+
+msgid "cancelled delegated jobs {count} times"
+msgstr "cancelou as tarefas delegadas {count} vezes"
+
 msgid "used {count} tool"
 msgstr "usou {count} ferramenta"
 
@@ -965,8 +971,36 @@ msgstr "merge request"
 msgid "Show the whole reply"
 msgstr "Mostrar a resposta completa"
 
-msgid "stopping"
-msgstr "a parar"
+msgctxt "delegated jobs card"
+msgid "Delegated jobs"
+msgstr "Tarefas delegadas"
+
+msgid "Delegated {count} job"
+msgstr "Delegou {count} tarefa"
+
+msgid "Delegated {count} jobs"
+msgstr "Delegou {count} tarefas"
+
+msgid "Couldn't delegate: {error}"
+msgstr "Não foi possível delegar: {error}"
+
+msgid "Starts after this turn"
+msgstr "Começa depois deste turno"
+
+msgid "Waiting for an answer"
+msgstr "À espera de uma resposta"
+
+msgid "Stopping"
+msgstr "A parar"
+
+msgid "Finished"
+msgstr "Concluída"
+
+msgid "Cancelled"
+msgstr "Cancelada"
+
+msgid "Lost"
+msgstr "Perdida"
 
 msgid "Suggested answer"
 msgstr "Resposta sugerida"

@@ -133,7 +133,13 @@ def test_platform_rows_use_brand_names():
         ("publish_artifact", "Published", "Publishing", "paper-clip", {"key": "artifact"}),
         ("delegate_jobs", "Delegated jobs", "Delegating jobs", "share", {"key": "jobs"}),
         ("check_delegated_jobs", "Checked delegated jobs", "Checking delegated jobs", "share", {"key": "jobs"}),
-        ("cancel_delegated_jobs", "Cancelled delegated jobs", "Cancelling delegated jobs", "share", {"key": "jobs"}),
+        (
+            "cancel_delegated_jobs",
+            "Cancelled delegated jobs",
+            "Cancelling delegated jobs",
+            "share",
+            {"key": "cancel_jobs"},
+        ),
     ],
 )
 def test_special_calls_have_rows(name, phrase, live, icon, category):
@@ -1362,7 +1368,7 @@ def test_check_delegated_jobs_shows_a_table_per_batch():
     html = _body("check_delegated_jobs", {"batch_id": "b-1"}, result=json.dumps(CHECKED))
     context = html.split("Loaded into context")[1]
     assert "<th>Repository</th><th>Branch</th><th>Status</th><th>Result</th><th>Session</th>" in context
-    assert "<td>a/x</td><td>main</td><td>running</td><td></td>" in context
+    assert "<td>a/x</td><td>main</td><td>Running</td><td></td>" in context
     assert 'href="https://g/a/y/-/merge_requests/7"' in context and ">!7</a>" in context
     assert "Fixed the lint." in context and "Show the whole reply" in context and "Details here." in context
     assert 'href="/dashboard/sessions/t-y/"' in context and "batch b-1" not in context
@@ -1375,7 +1381,28 @@ def test_check_delegated_jobs_names_each_batch_when_it_reports_several():
     assert html.index("batch b-1") < html.index("batch b-2") and html.count("<table") == 2
 
 
-def test_check_delegated_jobs_shows_the_raw_status_escaped_and_the_note():
+@pytest.mark.parametrize(
+    "word,label",
+    [
+        ("queued", "Queued"),
+        ("running", "Running"),
+        ("succeeded", "Finished"),
+        ("failed", "Failed"),
+        ("stopped to ask a question", "Waiting for an answer"),
+        ("stopping", "Stopping"),
+        ("cancelled", "Cancelled"),
+        ("started, but DAIV lost track of it", "Lost"),
+    ],
+)
+def test_check_and_cancel_bodies_show_the_status_vocabulary_of_the_card(word, label):
+    leg = _leg("a/x", "main", "t-x", status=word)
+    checked = _body("check_delegated_jobs", {}, result=json.dumps({"batches": [{"batch_id": "b", "legs": [leg]}]}))
+    assert f"<td>{label}</td>" in checked and f">{word}<" not in checked.split("Loaded into context")[1]
+    cancelled = _body("cancel_delegated_jobs", {}, result=json.dumps({"cancelled": ["t-x"], "legs": [leg]}))
+    assert f"a/x \u00b7 main \u00b7 {label}" in cancelled
+
+
+def test_check_delegated_jobs_shows_an_unknown_status_as_it_is_escaped_and_the_note():
     batch = {"batch_id": "b", "finished": True, "legs": [_leg("a/x", "", "t", status="<b>odd</b>")]}
     html = _body("check_delegated_jobs", {"batch_id": "b"}, result=json.dumps({"batches": [batch]}))
     assert "&lt;b&gt;odd&lt;/b&gt;" in html
@@ -1400,7 +1427,7 @@ CANCELLED = {
 def test_cancel_delegated_jobs_lists_each_cancelled_leg_then_the_note():
     html = _body("cancel_delegated_jobs", {"batch_id": "b-1"}, result=json.dumps(CANCELLED))
     changed, context = html.split("Loaded into context")
-    assert "Changed" in changed and "a/x" in changed and "stopping" in changed and "a/y" not in changed
+    assert "Changed" in changed and "a/x" in changed and "Stopping" in changed and "a/y" not in changed
     assert 'href="/dashboard/sessions/t-x/"' in changed
     assert "You are resumed once" in context and "a/y" not in context
 

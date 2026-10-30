@@ -496,7 +496,7 @@ def test_a_page_loaded_live_folds_each_run_as_its_stream_finishes():
     assert out["later"]["workedFor"].startswith("Worked for ")
 
 
-def test_a_lone_step_a_special_call_with_a_row_and_a_refused_question_render_as_step_rows():
+def test_a_lone_step_and_a_refused_question_render_as_step_rows_and_a_delegated_card_does_not():
     segs = [read("c1"), text("x"), read("c2"), read("c3"), delegate("d1"), refused_question("q1")]
     segs.append(question("q2"))
     rows = _drive([user("u1"), asst("a1", *segs, streaming=True)], script=["stepRows"])[0]
@@ -504,7 +504,7 @@ def test_a_lone_step_a_special_call_with_a_row_and_a_refused_question_render_as_
         ["step", ["s-c1"]],
         ["text", []],
         ["group", []],
-        ["special", ["x-d1"]],
+        ["delegated", []],
         ["question", ["q-q1"]],
         ["question", []],
     ]

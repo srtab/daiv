@@ -11,6 +11,10 @@
 //     -> one publish_artifact row for the Artifacts card: { state: "running" | "published" | "error", ... },
 //        showing the newest result `latestById` holds for its artifact id
 //
+//   delegatedItem(seg)
+//     -> one delegate_jobs call for the Delegated jobs card: { legs, goal, error }; `legs` are the server's
+//        `seg.legs` when present, else what the tool result says; `error` is set when the whole call failed
+//
 //   parseArtifactResult(result)
 //     -> the parsed publish_artifact success result, or null
 //
@@ -418,11 +422,11 @@
     };
   };
 
-  const jobsRow = (key) => ({ args }) => ({
+  const jobsRow = (key, category) => ({ args }) => ({
     icon: "share",
     key,
     detail: String(pickKey(args, ["batch_id"]) ?? ""),
-    category: { key: "jobs" },
+    category: { key: category },
   });
 
   // Each builder returns { icon, key | phrase, vars?, detail?, diff?, badges?, failed?, category }.
@@ -566,9 +570,13 @@
         category: { key: "question" },
       };
     },
-    delegate_jobs: () => ({ icon: "share", key: "delegate", category: { key: "jobs" } }),
-    check_delegated_jobs: jobsRow("check_jobs"),
-    cancel_delegated_jobs: jobsRow("cancel_jobs"),
+    delegate_jobs: ({ result }) => {
+      const started = recordsOf(jobsResult(result)?.started).length;
+      const row = { icon: "share", key: "delegate", category: { key: "jobs" } };
+      return started ? { ...row, phrase: tn("delegated_count", started) } : row;
+    },
+    check_delegated_jobs: jobsRow("check_jobs", "jobs"),
+    cancel_delegated_jobs: jobsRow("cancel_jobs", "cancel_jobs"),
   };
 
   const mcpServerOf = (name, ctx) =>
@@ -1641,13 +1649,89 @@
   };
 
   // The page's own session URL for a thread id; the absolute `session_url` carries the configured site's host.
-  const sessionLink = (leg) => {
+  const sessionHref = (leg) => {
     const threadId = valueText(leg.thread_id);
-    const sessionUrl = valueText(leg.session_url);
     const path = window.TranscriptLabels.sessionPath;
     const own = path && SLUG_RE.test(threadId) ? window.TranscriptLabels.fill(path, { thread_id: threadId }) : "";
-    const href = own || sessionUrl;
-    return linkable(href, true) ? externalLink(href, t("jobs_open_session"), { local: true }) : "";
+    const href = own || valueText(leg.session_url);
+    return linkable(href, true) ? href : "";
+  };
+
+  const sessionLink = (leg) => {
+    const href = sessionHref(leg);
+    return href ? externalLink(href, t("jobs_open_session"), { local: true }) : "";
+  };
+
+  const STATE_BY_WORD = new Map([
+    ["queued", "queued"],
+    ["running", "running"],
+    ["succeeded", "finished"],
+    ["failed", "failed"],
+    ["stopped to ask a question", "waiting_input"],
+    ["stopping", "stopping"],
+    ["cancelled", "cancelled"],
+    ["started, but DAIV lost track of it", "lost"],
+  ]);
+
+  const wordLabel = (word) => (STATE_BY_WORD.has(word) ? t(`leg_${STATE_BY_WORD.get(word)}`) : word);
+
+  const legText = (leg, key) => valueText(leg[key]).trim();
+
+  const cardLeg = (leg, state, error = "") => ({
+    repo_id: legText(leg, "repo_id"),
+    ref: legText(leg, "ref"),
+    state,
+    merge_request_url: legText(leg, "merge_request_url"),
+    reply: legText(leg, "reply"),
+    session_url: legText(leg, "session_url"),
+    error,
+  });
+
+  const LOST_OR_FAILED = new Set(["failed", "lost"]);
+
+  const resultLegs = (data) => [
+    ...recordsOf(data?.started).map((leg) => ({
+      ...cardLeg(leg, leg.starts_after_this_turn === true ? "waits" : "queued"),
+      session_url: sessionHref(leg),
+    })),
+    ...recordsOf(data?.failed).map((leg) =>
+      cardLeg(leg, leg.still_runs === true ? "lost" : "failed", legText(leg, "error")),
+    ),
+  ];
+
+  const mergedLegs = (enriched, data) => {
+    const legs = enriched.filter(isRecord).map((leg) => cardLeg(leg, legText(leg, "state")));
+    const claimed = new Set();
+    for (const failed of recordsOf(data?.failed)) {
+      const error = legText(failed, "error");
+      const mine = cardLeg(failed, "");
+      const index = legs.findIndex(
+        (leg, i) =>
+          !claimed.has(i) && leg.repo_id === mine.repo_id && leg.ref === mine.ref && LOST_OR_FAILED.has(leg.state),
+      );
+      if (index >= 0) {
+        claimed.add(index);
+        legs[index].error = error;
+      } else {
+        legs.push(cardLeg(failed, failed.still_runs === true ? "lost" : "failed", error));
+      }
+    }
+    return legs;
+  };
+
+  window.delegatedItem = (seg) => {
+    const goal = valueText(parseArgs(seg.args).goal).trim();
+    const text = seg.result == null ? "" : String(seg.result).trim();
+    const data = jobsResult(text);
+    let error = "";
+    if (data) {
+      const noBatch = data.batch_id == null && !recordsOf(data.started).length;
+      error = data.error != null || noBatch ? delegateWrong(data, text) : "";
+    } else if (text && text !== "null") {
+      error = text.replace(/^error:\s*/i, "") || text;
+    }
+    if (error) return { legs: [], goal, error };
+    return { legs: Array.isArray(seg.legs) ? mergedLegs(seg.legs, data) : resultLegs(data), goal, error };
   };
 
   const noteOf = (data) => noteHTML(valueText(data.note).trim());
@@ -1742,7 +1826,7 @@
     const rows = legs.slice(0, STRUCTURED_ROWS).map((leg) => [
       escapeHtml(valueText(leg.repo_id)),
       escapeHtml(branchText(leg.ref)),
-      escapeHtml(valueText(leg.status)),
+      escapeHtml(wordLabel(legText(leg, "status"))),
       legResultHTML(leg),
       sessionLink(leg),
     ]);
@@ -1774,7 +1858,7 @@
     const legs = recordsOf(data.legs);
     const lines = ids.slice(0, STRUCTURED_ROWS).map((id) => {
       const leg = legs.find((one) => valueText(one.thread_id) === id) ?? { thread_id: id };
-      const status = valueText(leg.status).trim() || t("stopping");
+      const status = wordLabel(legText(leg, "status")) || t("leg_stopping");
       const name = leg.repo_id == null ? [id] : [valueText(leg.repo_id), branchText(leg.ref)];
       const parts = [...name, status].map((part) => escapeHtml(part));
       const link = sessionLink(leg);
