@@ -1,7 +1,9 @@
 site_name: DAIV
 site_url: https://srtab.github.io/daiv/
 repo_url: https://github.com/srtab/daiv
-site_description: Documentation for DAIV
+site_description: >
+  DAIV is an open-source, self-hosted SWE agent for GitLab and GitHub that turns
+  issues into merge requests, answers review comments, and fixes failing CI.
 site_author: Sandro Rodrigues
 strict: true
 edit_uri: edit/main/docs/
@@ -12,9 +14,11 @@ validation:
 # Gitignored local scratch (.gitignore: docs/superpowers/) that lives inside docs_dir.
 exclude_docs: |
   superpowers/
+  overrides/
 
 theme:
   name: material
+  custom_dir: docs/overrides
   logo: assets/logo.svg
 
   font:
@@ -59,6 +63,8 @@ theme:
         name: Switch to system preference
 
 plugins:
+  - mike:
+      canonical_version: !ENV [DOCS_CANONICAL_VERSION, latest]
   - search
   - git-revision-date-localized:
       enable_creation_date: true
@@ -130,6 +136,7 @@ extra_css:
 
 extra:
   generator: false
+  noindex: !ENV [DOCS_NOINDEX, false]
   version:
     provider: mike
 

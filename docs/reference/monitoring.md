@@ -1,3 +1,7 @@
+---
+description: "Trace DAIV agent executions with LangSmith: setup, trace tags and metadata, dashboards, usage and cost tracking, and troubleshooting."
+---
+
 # Monitoring
 
 DAIV supports [LangSmith](https://smith.langchain.com) for tracing agent executions. This page covers how to set it up and what data is available.

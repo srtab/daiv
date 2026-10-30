@@ -1,3 +1,7 @@
+---
+description: "Connect Claude Code, Cursor or Codex CLI to DAIV over the Model Context Protocol (MCP) and delegate coding tasks to the agent from your editor."
+---
+
 # MCP Endpoint
 
 DAIV exposes a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server endpoint, allowing AI coding assistants to delegate tasks to the DAIV agent — directly from your editor or terminal.

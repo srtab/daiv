@@ -1,3 +1,7 @@
+---
+description: "The admin-only DAIV Site Configuration UI: tune agent models, tools, LLM providers and OAuth login at runtime, overriding environment variables."
+---
+
 # Site Configuration
 
 Site Configuration is the **admin-only** web UI for tuning DAIV's runtime behavior without redeploying. Settings are grouped by area, stored in the database, and **override the matching environment-variable defaults** — so you can pick agent models, toggle agent tools, register LLM providers, and switch OAuth login on or off, all from the dashboard.

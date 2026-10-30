@@ -1,3 +1,7 @@
+---
+description: "Every DAIV agent execution is recorded as a session: chat with the agent live, start background runs, and review transcripts, timelines and usage."
+---
+
 # Sessions
 
 DAIV records every agent execution in a **Session**. A session is one agent thread — a persistent conversation context tied to a repository and ref. Every way you can trigger DAIV (webhooks, the Jobs API, the MCP endpoint, scheduled jobs, or a chat conversation you type yourself) produces a session, and every time the agent runs against that thread produces a **Run** inside it.

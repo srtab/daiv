@@ -1,3 +1,7 @@
+---
+description: "Reference for every environment variable that configures DAIV, including which ones are sensitive and should be provided as Docker secrets."
+---
+
 # Environment Variables
 
 DAIV provides a large number of environment variables to configure its behavior. This page lists all supported variables.

@@ -1,3 +1,7 @@
+---
+description: "Let the DAIV agent delegate work to independent jobs on other repositories or new sessions on the same one, then report the combined outcome."
+---
+
 # Orchestration
 
 Orchestration lets the agent hand work to new, independent jobs — on your other repositories or on its own — and pick up again once they have all finished, to report the combined outcome or carry on.

@@ -82,6 +82,10 @@ jobs:
       - name: Deploy docs dev version
         run: uv run --only-group=docs mike deploy dev --push
         if: github.ref == 'refs/heads/main'
+        env:
+          # Self-canonical, not latest: Google can carry a noindex across a canonical to the target page.
+          DOCS_CANONICAL_VERSION: dev
+          DOCS_NOINDEX: "true"
 
       - name: Deploy docs release version
         run: uv run --only-group=docs mike deploy ${{ github.ref_name }} latest --update-aliases --push

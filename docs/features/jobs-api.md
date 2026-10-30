@@ -1,3 +1,7 @@
+---
+description: "Trigger DAIV agents programmatically with the Jobs REST API from CI pipelines, scripts or other tools: submit a prompt, get a job ID, poll the result."
+---
+
 # Jobs API
 
 The Jobs API lets you trigger DAIV agents programmatically — outside of the usual git webhook flow. Submit a prompt, get a job ID, and poll for the result.
