@@ -472,63 +472,63 @@ async def test_write_tool_result_to_file_fails_loudly_when_tool_call_id_missing(
 PNG = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 400
 
 
-def _rt_attachment(data: bytes) -> str:
-    return json.dumps({"id": 14039426, "ContentType": "image/png", "Content": base64.encodebytes(data).decode()})
+def _json_with_file(data: bytes) -> str:
+    return json.dumps({"id": 7, "name": "screenshot.png", "body": base64.encodebytes(data).decode()})
 
 
-def _rt_server(payload: str) -> MCPServer:
-    server = MCPServer(name="rt-test")
+def _server_returning(payload: str) -> MCPServer:
+    server = MCPServer(name="files-test")
 
     @server.tool()
-    def get_attachment(attachment_id: int) -> str:
-        """Fetch an RT attachment."""
+    def fetch(item_id: int) -> str:
+        """Fetch an item."""
         return payload
 
     return server
 
 
-class TestInlineMcpImages:
-    """RT's MCP server returns attachments as base64 inside JSON text, which the model cannot view."""
+class TestEmbeddedMcpFiles:
+    """An MCP result can carry a file as base64 text, which the model can neither view nor read back."""
 
     async def _call(self, setup, payload: str, fs: DAIVFilesystemMiddleware | None = None) -> ToolMessage:
-        async with serve(_rt_server(payload)) as gate:
+        async with serve(_server_returning(payload)) as gate:
             (tool,) = await list_tools(client_for(gate))
             request = ToolCallRequest(
-                tool_call={"name": tool.name, "args": {"attachment_id": 1}, "id": "call_rt", "type": "tool_call"},
+                tool_call={"name": tool.name, "args": {"item_id": 1}, "id": "call_1", "type": "tool_call"},
                 tool=tool,
                 state={"messages": []},
                 runtime=_runtime(state={}, working_dir=setup.repo),
             )
             return await (fs or setup.middleware).awrap_tool_call(request, lambda req: tool.ainvoke(req.tool_call))
 
-    async def test_image_is_saved_beside_evicted_results(self, setup):
-        result = await self._call(setup, _rt_attachment(PNG[:300]))
+    async def test_file_is_saved_beside_evicted_results(self, setup):
+        result = await self._call(setup, _json_with_file(PNG[:300]))
 
-        path = f"{large_tool_results_prefix(setup.backend)}/call_rt-image-1.png"
+        path = f"{large_tool_results_prefix(setup.backend)}/call_1-1.png"
         assert path in result.text
         assert base64.b64encode(PNG[:300]).decode()[:40] not in result.text
         assert (await setup.backend.adownload_files([path]))[0].content == PNG[:300]
 
-    async def test_large_image_no_longer_forces_eviction(self, setup):
+    async def test_large_file_no_longer_forces_eviction(self, setup):
         fs = DAIVFilesystemMiddleware(backend=setup.backend, tool_token_limit_before_evict=20_000)
-        assert len(_rt_attachment(PNG)) > 80_000
+        assert len(_json_with_file(PNG)) > 80_000
 
-        result = await self._call(setup, _rt_attachment(PNG), fs)
+        result = await self._call(setup, _json_with_file(PNG), fs)
 
-        assert f"{large_tool_results_prefix(setup.backend)}/call_rt-image-1.png" in result.text
+        assert f"{large_tool_results_prefix(setup.backend)}/call_1-1.png" in result.text
         assert len(result.text) < 1_000
 
-    async def test_failed_upload_keeps_the_image_inline(self, setup, monkeypatch):
+    async def test_failed_upload_keeps_the_result_as_it_was(self, setup, monkeypatch):
         failed = AsyncMock(return_value=[FileUploadResponse(path="x", error="permission_denied")])
         monkeypatch.setattr(setup.backend, "aupload_files", failed)
-        payload = _rt_attachment(PNG[:300])
+        payload = _json_with_file(PNG[:300])
 
         result = await self._call(setup, payload)
 
         assert result.text == payload
 
     async def test_non_mcp_tool_results_are_left_alone(self, setup):
-        payload = _rt_attachment(PNG[:300])
+        payload = _json_with_file(PNG[:300])
         request = ToolCallRequest(
             tool_call={"name": "bash", "args": {}, "id": "call_bash"},
             tool=None,
