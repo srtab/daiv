@@ -1002,5 +1002,34 @@ msgstr "Cancelada"
 msgid "Lost"
 msgstr "Perdida"
 
+msgid "{count} delegated"
+msgid_plural "{count} delegated"
+msgstr[0] "{count} delegada"
+msgstr[1] "{count} delegadas"
+
+msgid "{count} needs you"
+msgid_plural "{count} need you"
+msgstr[0] "{count} precisa de si"
+msgstr[1] "{count} precisam de si"
+
+msgid "{count} running"
+msgid_plural "{count} running"
+msgstr[0] "{count} a executar"
+msgstr[1] "{count} a executar"
+
+msgid "{count} failed"
+msgid_plural "{count} failed"
+msgstr[0] "{count} falhou"
+msgstr[1] "{count} falharam"
+
+msgid "Delegated by"
+msgstr "Delegada por"
+
+msgid "Open session →"
+msgstr "Abrir sessão →"
+
+msgid "Show in details"
+msgstr "Mostrar nos detalhes"
+
 msgid "Suggested answer"
 msgstr "Resposta sugerida"

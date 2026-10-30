@@ -1319,6 +1319,21 @@ def test_delegate_jobs_session_link_falls_back_to_a_safe_session_url(session_url
     assert href in html if href else "Session →" not in html
 
 
+@pytest.mark.parametrize(
+    ("url", "label"),
+    [
+        ("https://g/a/y/-/merge_requests/7", "!7"),
+        ("https://github.com/a/y/pull/12", "#12"),
+        ("https://g/a/y/-/tree/main", "merge request"),
+        ("javascript:alert(1)", ""),
+        ("", ""),
+        (None, ""),
+    ],
+)
+def test_a_merge_request_label_is_its_number_for_a_web_link_only(url, label):
+    assert run_transcript("mergeRequestLabel(vars.url)", {"url": url}, blocks=False) == label
+
+
 def test_delegate_jobs_session_link_uses_session_url_without_the_page_path():
     leg = {"repo_id": "a/x", "ref": "", "thread_id": "t-x", "session_url": "https://d/s/t-x/"}
     args = {"goal": "g", "targets": [{"repo_id": "a/x", "prompt": "p"}]}

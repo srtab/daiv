@@ -53,7 +53,13 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
         </dd>
         <dt>{% translate "Started by" %}</dt>
         <dd>
-          {% if header.issue %}
+          {% if header.parent %}
+            <span x-show="parent">
+              {% translate "Delegated by" %}
+              <a href="{{ header.parent.url }}" :href="parent?.url" x-text="parent?.title">{{ header.parent.title }}</a>
+            </span>
+            <span x-show="!parent" x-cloak>{{ session.get_origin_display }}</span>
+          {% elif header.issue %}
             {% blocktranslate with iid=header.issue.iid asvar issue_label %}Issue #{{ iid }}{% endblocktranslate %}
             {% if header.issue.url %}<a href="{{ header.issue.url }}" target="_blank" rel="noopener noreferrer">{{ issue_label }}</a>{% else %}{{ issue_label }}{% endif %}
           {% elif session.scheduled_job %}
@@ -90,6 +96,46 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
     </section>
 
     {% include "chat/_usage_body.html" with group_class="session-details__section" label_class="session-details__label" context_id="session-details-context" %}
+
+    <section class="session-details__section" id="session-details-delegations" x-show="delegations" x-cloak>
+      <h3 class="session-details__label">
+        {% translate "Delegated jobs" context "delegated jobs card" %}
+        <span class="session-details__count" x-text="delegations?.total"></span>
+      </h3>
+      <template x-for="(batch, bi) in delegations?.batches ?? []" :key="bi">
+        <div class="delegations-batch">
+          <p class="delegations-batch__line">
+            <span x-show="batch.goal" x-text="`${batch.goal} ·`"></span>
+            <time :datetime="batch.created_at" :title="absoluteTime(batch.created_at)"
+                  x-text="relativeTime(batch.created_at)"></time>
+          </p>
+          <ul class="session-details__list">
+            <template x-for="(leg, li) in batch.legs" :key="li">
+              <li class="delegated-leg">
+                <span class="leg-dot" :class="`leg-dot--${leg.state}`" aria-hidden="true"></span>
+                <span class="delegated-leg__body">
+                  <span class="delegated-leg__repo">
+                    <span x-text="leg.repo_id"></span>
+                    <template x-if="mergeRequestLabel(leg.merge_request_url)">
+                      <span>· <a :href="leg.merge_request_url" target="_blank" rel="noopener noreferrer"
+                                 x-text="mergeRequestLabel(leg.merge_request_url)"></a></span>
+                    </template>
+                  </span>
+                  <span class="delegated-leg__sub">
+                    <span x-text="TranscriptLabels.t(`leg_${leg.state}`)"></span>
+                    <template x-if="leg.session_url">
+                      <span>·
+                        <a :href="leg.session_url" target="_blank" rel="noopener">{% translate "Open session →" %}</a>
+                      </span>
+                    </template>
+                  </span>
+                </span>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
+    </section>
 
     <section class="session-details__section" x-show="latestArtifactsById.size" x-cloak>
       <h3 class="session-details__label">{% translate "Outputs" %}</h3>

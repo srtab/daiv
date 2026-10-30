@@ -15,6 +15,9 @@
 //     -> one delegate_jobs call for the Delegated jobs card: { legs, goal, error }; `legs` are the server's
 //        `seg.legs` when present, else what the tool result says; `error` is set when the whole call failed
 //
+//   mergeRequestLabel(url)
+//     -> "!N" / "#N" for a merge or pull request URL, "merge request" for another web URL, else ""
+//
 //   parseArtifactResult(result)
 //     -> the parsed publish_artifact success result, or null
 //
@@ -1804,13 +1807,21 @@
     [PR_URL_RE, "#"],
   ];
 
-  const mergeRequestLink = (url) => {
-    if (!WEB_LINK_RE.test(url)) return "";
+  const mergeRequestLabel = (url) => {
+    const href = String(url ?? "");
+    if (!WEB_LINK_RE.test(href)) return "";
     for (const [re, mark] of MR_NUMBER_RES) {
-      const number = url.match(re)?.[1];
-      if (number) return externalLink(url, `${mark}${number}`);
+      const number = href.match(re)?.[1];
+      if (number) return `${mark}${number}`;
     }
-    return externalLink(url, t("jobs_mr"));
+    return t("jobs_mr");
+  };
+
+  window.mergeRequestLabel = mergeRequestLabel;
+
+  const mergeRequestLink = (url) => {
+    const label = mergeRequestLabel(url);
+    return label ? externalLink(url, label) : "";
   };
 
   const legResultHTML = (leg) => {

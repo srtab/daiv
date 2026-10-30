@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from django.utils.translation import gettext, pgettext
+from django.utils.translation import gettext, ngettext, pgettext
 
 from core.templatetags.icon_tags import icon
 from sessions.models import PublishErrorKind
@@ -154,6 +154,22 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "leg_failed": gettext("Failed"),
         "leg_cancelled": gettext("Cancelled"),
         "leg_lost": gettext("Lost"),
+        "delegations_total": [
+            ngettext("{count} delegated", "{count} delegated", 1),
+            ngettext("{count} delegated", "{count} delegated", 2),
+        ],
+        "delegations_need_you": [
+            ngettext("{count} needs you", "{count} need you", 1),
+            ngettext("{count} needs you", "{count} need you", 2),
+        ],
+        "delegations_running": [
+            ngettext("{count} running", "{count} running", 1),
+            ngettext("{count} running", "{count} running", 2),
+        ],
+        "delegations_failed": [
+            ngettext("{count} failed", "{count} failed", 1),
+            ngettext("{count} failed", "{count} failed", 2),
+        ],
         "suggested_answer": gettext("Suggested answer"),
         "publish_committing": gettext("Committing changes"),
         "publish_creating": gettext("Creating merge request"),

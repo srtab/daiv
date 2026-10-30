@@ -14,18 +14,21 @@ from tests.unit_tests.test_template_comments import DAIV_DIR
 pytestmark = requires_node
 
 SESSION_PAGE_JS = DAIV_DIR / "sessions/static/sessions/js/session-page.js"
+TRANSCRIPT_LABELS_JS = DAIV_DIR / "chat/static/chat/js/transcript-labels.js"
 
 HARNESS = """
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const { src, initial, watch, wide, stored, storageBlocked, archived, steps } = JSON.parse(readFileSync(0, "utf8"));
+const {
+  src, labelsSrc, initial, watch, delegations, parent, wide, stored, storageBlocked, archived, steps,
+} = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
 const fetches = [];
 const pending = [];
 const storage = new Map(stored == null ? [] : [["key", stored]]);
 let clock = 10;
-const json = { "session-header": { latest_run: initial, watch, run_count: 1 } };
+const json = { "session-header": { latest_run: initial, watch, run_count: 1, delegations, parent } };
 const frames = [];
 const scrolled = [];
 const section = {
@@ -59,6 +62,7 @@ sandbox.document.title = "Old — DAIV Sessions";
 sandbox.window = { matchMedia: () => ({ matches: wide, addEventListener() {}, removeEventListener() {} }) };
 sandbox.Alpine = { data: (name, factory) => { components[name] = factory; } };
 vm.createContext(sandbox);
+vm.runInContext(readFileSync(labelsSrc, "utf8"), sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
 const labels = {
@@ -102,6 +106,8 @@ for (const [action, value] of steps) {
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
       ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn,
+      delegations: page.delegations, parent: page.parent, delegationsLabel: page.delegationsLabel,
+      delegationsTone: page.delegationsTone, legs: page.delegationLegs.map((leg) => leg.repo_id),
     });
   }
 }
@@ -116,11 +122,25 @@ RUNNING = {"variant": "running", "label": "Running"}
 WATCHING = {"state": "watching", "label": "Waiting for CI", "tone": "attn", "open": True}
 
 
-def _run(steps, *, initial=DONE, watch=None, wide=True, stored=None, storage_blocked=False, archived=False) -> dict:
+def _run(
+    steps,
+    *,
+    initial=DONE,
+    watch=None,
+    delegations=None,
+    parent=None,
+    wide=True,
+    stored=None,
+    storage_blocked=False,
+    archived=False,
+) -> dict:
     payload = {
         "src": str(SESSION_PAGE_JS),
+        "labelsSrc": str(TRANSCRIPT_LABELS_JS),
         "initial": initial,
         "watch": watch,
+        "delegations": delegations,
+        "parent": parent,
         "wide": wide,
         "stored": stored,
         "storageBlocked": storage_blocked,
@@ -414,3 +434,79 @@ def test_no_retry_when_the_server_offers_none():
 )
 def test_no_retry_while_a_run_is_busy_or_settling_or_the_session_is_archived(step):
     assert _run([step, ["offers-retry", [_marker("run-status-r2")]]], initial=RETRYABLE)["seen"] == [[False]]
+
+
+# ---------------------------------------------------------------------------
+# delegated jobs
+# ---------------------------------------------------------------------------
+
+
+def _leg(repo_id: str, state: str) -> dict:
+    return {"repo_id": repo_id, "ref": "", "state": state, "merge_request_url": "", "reply": "", "session_url": ""}
+
+
+def _delegations(*, total=2, active=0, need_you=0, failed=0, batches=None) -> dict:
+    counts = {"total": total, "active": active, "need_you": need_you, "failed": failed}
+    return {**counts, "batches": batches or []}
+
+
+PARENT = {"title": "Parent work", "url": "/sessions/parent/"}
+
+
+@pytest.mark.parametrize(
+    ("counts", "label", "tone"),
+    [
+        ({"active": 1, "need_you": 1}, "2 delegated · 1 needs you", "warn"),
+        ({"total": 3, "active": 1, "need_you": 2, "failed": 1}, "3 delegated · 2 need you", "warn"),
+        ({"active": 2, "failed": 1}, "2 delegated · 2 running", "running"),
+        ({"failed": 1}, "2 delegated · 1 failed", "danger"),
+        ({"total": 1}, "1 delegated", ""),
+    ],
+)
+def test_the_top_bar_sums_up_the_delegated_jobs(counts, label, tone):
+    seen = _read(delegations=_delegations(**counts))
+
+    assert (seen["delegationsLabel"], seen["delegationsTone"]) == (label, tone)
+
+
+def test_a_session_that_delegated_nothing_has_no_delegations():
+    seen = _read()
+
+    assert (seen["delegations"], seen["delegationsLabel"], seen["delegationsTone"], seen["legs"]) == (None, "", "", [])
+
+
+def test_the_popover_lists_every_leg_across_batches_with_those_needing_you_first():
+    batches = [
+        {"goal": "Newer", "created_at": "2026-10-29T10:00:00+00:00", "legs": [_leg("a/one", "running")]},
+        {
+            "goal": "Older",
+            "created_at": "2026-10-29T09:00:00+00:00",
+            "legs": [_leg("a/two", "waiting_input"), _leg("a/three", "finished")],
+        },
+    ]
+
+    seen = _read(delegations=_delegations(total=3, active=1, need_you=1, batches=batches))
+
+    assert seen["legs"] == ["a/two", "a/one", "a/three"]
+
+
+def test_each_poll_replaces_the_delegations_and_the_parent():
+    polled = _delegations(failed=2)
+    steps = [["poll", {"latest_run": DONE, "delegations": polled, "parent": None}], ["read", None]]
+
+    seen = _run(steps, delegations=_delegations(active=2), parent=PARENT)["seen"][0]
+
+    assert (seen["delegations"], seen["parent"]) == (polled, None)
+    assert (seen["delegationsLabel"], seen["delegationsTone"]) == ("2 delegated · 2 failed", "danger")
+
+
+def test_a_poll_without_delegations_or_a_parent_keeps_the_ones_the_page_has():
+    delegations = _delegations(active=1)
+
+    seen = _run([["poll", {"latest_run": FAILED}], ["read", None]], delegations=delegations, parent=PARENT)["seen"][0]
+
+    assert (seen["delegations"], seen["parent"], seen["delegationsLabel"]) == (
+        delegations,
+        PARENT,
+        "2 delegated · 1 running",
+    )
