@@ -1,5 +1,5 @@
 ---
-title: "Open-source, self-hosted SWE agents for GitLab and GitHub"
+html_title: "Self-hosted SWE agents for GitLab and GitHub"
 description: "DAIV turns issues into merge requests, answers review comments and fixes failing CI, running every agent in a sandbox you control with the LLM you choose."
 ---
 

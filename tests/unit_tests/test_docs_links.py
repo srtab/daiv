@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import markdown
 from mkdocs.config import load_config
+from mkdocs.utils.meta import get_data
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -318,3 +319,14 @@ def test_all_docs_pages_reachable():
     )
     assert not failures, "Unreadable docs pages:\n" + "\n".join(failures)
     assert not unreachable, "Docs pages not reachable from docs/index.md by following links:\n" + "\n".join(unreachable)
+
+
+def test_all_docs_pages_have_description():
+    """Every docs page sets a front-matter `description`: its meta description and its llms.txt entry."""
+    pages = [p for p in DOCS_DIR.rglob("*.md") if not is_skipped(p)]
+    missing = sorted(
+        str(page.relative_to(REPO_ROOT))
+        for page in pages
+        if not get_data(page.read_text(encoding="utf-8"))[1].get("description")
+    )
+    assert not missing, "Docs pages without a front-matter description:\n" + "\n".join(missing)

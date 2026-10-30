@@ -1,7 +1,7 @@
 site_name: DAIV
 site_url: https://srtab.github.io/daiv/
 repo_url: https://github.com/srtab/daiv
-site_description: >
+site_description: >-
   DAIV is an open-source, self-hosted SWE agent for GitLab and GitHub that turns
   issues into merge requests, answers review comments, and fixes failing CI.
 site_author: Sandro Rodrigues
@@ -14,7 +14,7 @@ validation:
 # Gitignored local scratch (.gitignore: docs/superpowers/) that lives inside docs_dir.
 exclude_docs: |
   superpowers/
-  overrides/
+  /overrides/
 
 theme:
   name: material
@@ -62,9 +62,12 @@ theme:
         icon: material/brightness-4
         name: Switch to system preference
 
+hooks:
+  - docs/overrides/hooks/seo.py
+
 plugins:
   - mike:
-      canonical_version: !ENV [DOCS_CANONICAL_VERSION, latest]
+      canonical_version: latest
   - search
   - git-revision-date-localized:
       enable_creation_date: true
@@ -78,38 +81,38 @@ plugins:
         Apache 2.0.
       sections:
         Getting Started:
-        - getting-started/deployment.md: How to deploy DAIV with Docker
-        - getting-started/platform-setup.md: Setting up GitLab or GitHub integration
-        - getting-started/accounts.md: Dashboard sign-in, admin/member roles, and user management
-        - getting-started/llm-providers.md: Configuring LLM providers
+        - getting-started/deployment.md
+        - getting-started/platform-setup.md
+        - getting-started/accounts.md
+        - getting-started/llm-providers.md
         Features:
-        - features/issue-addressing.md: Automated issue-to-merge-request workflow
-        - features/pull-request-assistant.md: AI-powered pull request reviews and fixes
-        - features/pipeline-watch.md: Bounded CI babysitting for merge requests DAIV publishes
-        - features/sessions.md: Unified sessions — chat workspace, run history, and live updates
-        - features/jobs-api.md: REST API for programmatic agent triggering
-        - features/scheduled-jobs.md: Recurring agent runs on a cron schedule
-        - features/orchestration.md: Delegating sub-jobs to other repositories or to new sessions on the same one
-        - features/mcp-endpoint.md: MCP server endpoint for AI coding assistants
-        - features/notifications.md: Job, batch, and schedule completion notifications
-        - features/merge-metrics.md: Code merge analytics and DAIV contribution tracking
-        - features/slash-commands.md: Slash commands and custom skills
-        - features/subagents.md: Specialized subagents for exploration and execution
-        - features/sandbox.md: Secure sandboxed code execution
-        - features/sandbox-environments.md: Named, scoped sandbox environment configurations
+        - features/issue-addressing.md
+        - features/pull-request-assistant.md
+        - features/pipeline-watch.md
+        - features/sessions.md
+        - features/jobs-api.md
+        - features/scheduled-jobs.md
+        - features/orchestration.md
+        - features/mcp-endpoint.md
+        - features/notifications.md
+        - features/merge-metrics.md
+        - features/slash-commands.md
+        - features/subagents.md
+        - features/sandbox.md
+        - features/sandbox-environments.md
         Integrations:
-        - integrations/rt/index.md: Request Tracker triage on ticket create via RT Scrip
+        - integrations/rt/index.md
         Customization:
-        - customization/repository-config.md: Per-repository configuration
-        - customization/agent-skills.md: Creating custom agent skills
-        - customization/mcp-tools.md: MCP tool integrations
+        - customization/repository-config.md
+        - customization/agent-skills.md
+        - customization/mcp-tools.md
         Reference:
-        - reference/env-variables.md: Environment variables reference
-        - reference/site-configuration.md: Admin web UI for runtime configuration
-        - reference/agent-architecture.md: Agent architecture overview
-        - reference/monitoring.md: Monitoring and observability
+        - reference/env-variables.md
+        - reference/site-configuration.md
+        - reference/agent-architecture.md
+        - reference/monitoring.md
         Community:
-        - community.md: Contributing, support, and project links
+        - community.md
 
 markdown_extensions:
   - attr_list
@@ -136,7 +139,6 @@ extra_css:
 
 extra:
   generator: false
-  noindex: !ENV [DOCS_NOINDEX, false]
   version:
     provider: mike
 
