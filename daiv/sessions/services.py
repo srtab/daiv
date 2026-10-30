@@ -146,6 +146,12 @@ async def _amerge_session_refs(session: Session, external_refs: list[dict]) -> N
     session.external_refs = await sync_to_async(_merge_locked)()
 
 
+async def _aset_session_mcp_overrides(session: Session, mcp_overrides: dict) -> None:
+    """Replace a continued session's MCP overrides, called like :func:`_amerge_session_refs` once its run row exists."""
+    await Session.objects.filter(pk=session.pk).aupdate(mcp_overrides=mcp_overrides)
+    session.mcp_overrides = mcp_overrides
+
+
 async def apersist_session_ref(
     *, thread_id: str, current_ref: str, merge_request: MergeRequest | dict | None, published: bool
 ) -> None:
@@ -389,6 +395,15 @@ async def asubmit_batch_runs(
                 logger.exception("submit_batch_runs: session ref merge failed for repo_id=%s", target.repo_id)
                 await amark_failed_and_advance(
                     run, prefix="refs_merge_failed", err=err, log_context="submit_batch_runs"
+                )
+                return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
+        if mcp_overrides is not None and run.session.mcp_overrides != mcp_overrides:
+            try:
+                await _aset_session_mcp_overrides(run.session, mcp_overrides)
+            except Exception as err:  # noqa: BLE001
+                logger.exception("submit_batch_runs: session MCP override update failed for repo_id=%s", target.repo_id)
+                await amark_failed_and_advance(
+                    run, prefix="mcp_overrides_update_failed", err=err, log_context="submit_batch_runs"
                 )
                 return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
         return run

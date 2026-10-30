@@ -103,9 +103,9 @@ async def aresolve_environment(user: User, name_or_id: str | None) -> SandboxEnv
 
 
 async def aresolve_mcp_overrides(user: User, switches: dict[str, bool] | None) -> dict[str, str] | None:
-    """``switches`` resolved against the caller's MCP servers; ``None`` when they switch nothing."""
+    """``switches`` resolved against the caller's MCP servers, or ``None`` when none are sent."""
     if not switches:
-        return None
+        return None if switches is None else {}
     try:
         return overrides_from_switches(switches, await sync_to_async(build_selection_pool)(user.pk))
     except ValueError as err:

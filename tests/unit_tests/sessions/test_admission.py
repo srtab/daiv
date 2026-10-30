@@ -152,6 +152,6 @@ async def test_aresolve_mcp_overrides_refuses_an_unknown_server(member_user, mcp
         await aresolve_mcp_overrides(member_user, {"grafna": True})
 
 
-@pytest.mark.parametrize("switches", [None, {}])
-async def test_aresolve_mcp_overrides_returns_none_when_nothing_is_switched(switches):
-    assert await aresolve_mcp_overrides(Mock(), switches) is None
+@pytest.mark.parametrize(("switches", "expected"), [(None, None), ({}, {})])
+async def test_aresolve_mcp_overrides_skips_the_pool_when_nothing_is_switched(switches, expected):
+    assert await aresolve_mcp_overrides(Mock(), switches) == expected

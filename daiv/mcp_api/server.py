@@ -219,8 +219,8 @@ async def submit_job(
         Field(
             description=(
                 "Optional MCP servers to switch on or off for every job in this batch, relative to the default set,"
-                ' e.g. {"grafana": true}: true adds an on-demand server, false drops an active one. Applies to'
-                " the thread each job starts; a continued thread (thread_id) keeps the servers it started with."
+                ' e.g. {"grafana": true}: true adds an on-demand server, false drops an active one. On a'
+                " continued thread (thread_id) they replace the thread's own; omit them to keep those."
             )
         ),
     ] = None,
