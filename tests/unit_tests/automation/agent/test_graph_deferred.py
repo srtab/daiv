@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from automation.agent.mcp.schemas import UserMcpServer
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings, site_snapshot
@@ -94,7 +94,7 @@ class TestCreateDaivAgentDeferredFlag:
     async def test_flag_off_passes_eager_tools(self):
         mock_create_deep_agent, mock_load_mcp_tools, mcp_tool, *_ = await self._run(flag_on=False)
 
-        mock_load_mcp_tools.assert_awaited_once_with(MCP_SERVERS)
+        mock_load_mcp_tools.assert_awaited_once_with(MCP_SERVERS, ANY)
         kwargs = mock_create_deep_agent.call_args.kwargs
         assert kwargs["tools"] == [mcp_tool]
         middleware_types = [type(m).__name__ for m in kwargs["middleware"]]
@@ -103,7 +103,7 @@ class TestCreateDaivAgentDeferredFlag:
     async def test_flag_on_passes_empty_tools_and_adds_middleware(self):
         mock_create_deep_agent, mock_load_mcp_tools, _, *_ = await self._run(flag_on=True)
 
-        mock_load_mcp_tools.assert_awaited_once_with(MCP_SERVERS)
+        mock_load_mcp_tools.assert_awaited_once_with(MCP_SERVERS, ANY)
         kwargs = mock_create_deep_agent.call_args.kwargs
         assert kwargs["tools"] == []
         middleware_types = [type(m).__name__ for m in kwargs["middleware"]]
