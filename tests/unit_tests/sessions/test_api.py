@@ -470,12 +470,12 @@ async def test_session_turns_show_delegated_jobs_current_state(client, authed):
 
     from langchain_core.messages import AIMessage, ToolMessage
 
-    from tests.unit_tests.sessions.test_delegation import _coordinator, _leg
+    from tests.unit_tests.sessions.conftest import make_coordinator, make_leg
 
     _key_obj, raw, user = authed
-    coordinator = await sync_to_async(_coordinator)(user)
+    coordinator = await sync_to_async(make_coordinator)(user)
     batch = uuid.uuid4()
-    await sync_to_async(_leg)(coordinator, batch, status=RunStatus.WAITING_INPUT)
+    await sync_to_async(make_leg)(coordinator, batch, status=RunStatus.WAITING_INPUT)
     messages = [
         AIMessage(content="", id="a1", tool_calls=[{"id": "t1", "name": "delegate_jobs", "args": {"goal": "g"}}]),
         ToolMessage(content=json.dumps({"batch_id": str(batch), "started": []}), tool_call_id="t1", id="m1"),
@@ -488,6 +488,26 @@ async def test_session_turns_show_delegated_jobs_current_state(client, authed):
 
     segment = next(s for t in resp.json()["turns"] for s in t["segments"] if s.get("name") == "delegate_jobs")
     assert [leg["state"] for leg in segment["legs"]] == ["waiting_input"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_carry_delegations_and_parent(client, authed):
+    from tests.unit_tests.sessions.conftest import make_coordinator, make_leg
+
+    _key_obj, raw, user = authed
+    coordinator = await sync_to_async(make_coordinator)(user, title="Parent work")
+    leg = await sync_to_async(make_leg)(coordinator, uuid.uuid4(), status=RunStatus.WAITING_INPUT)
+
+    with patch(
+        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+    ):
+        parent = (await client.get(f"/sessions/{coordinator.thread_id}/turns", headers=_auth_headers(raw))).json()
+        child = (await client.get(f"/sessions/{leg.session_id}/turns", headers=_auth_headers(raw))).json()
+
+    assert parent["delegations"]["need_you"] == 1
+    assert parent["parent"] is None
+    assert child["delegations"] is None
+    assert child["parent"]["title"] == "Parent work"
 
 
 # ---------------------------------------------------------------------------

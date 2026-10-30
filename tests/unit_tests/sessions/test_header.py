@@ -3,22 +3,36 @@ from __future__ import annotations
 import uuid
 from unittest.mock import patch
 
+from django.urls import reverse
 from django.utils import timezone
 
 import pytest
-from sessions.header import build_session_header, issue_link, latest_run_payload, retry_for, watch_payload
+from sessions.header import (
+    build_session_header,
+    delegations_payload,
+    issue_link,
+    latest_run_payload,
+    parent_link,
+    retry_for,
+    watch_payload,
+)
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import watch_thread_id
 from sessions.transcript import annotate_transcript
 
+from accounts.models import Role, User
 from codebase.base import GitPlatform
 from codebase.models import RepositoryCatalog
-from tests.unit_tests.sessions.conftest import make_task_result
+from tests.unit_tests.sessions.conftest import make_coordinator, make_leg, make_task_result
 
 
 def _session(**kwargs) -> Session:
     defaults = {"thread_id": str(uuid.uuid4()), "origin": SessionOrigin.CHAT, "repo_id": "group/project"}
     return Session.objects.create(**{**defaults, **kwargs})
+
+
+def _viewer(role=Role.ADMIN, username="viewer") -> User:
+    return User.objects.create_user(username=username, email=f"{username}@test.com", password="x", role=role)  # noqa: S106
 
 
 def _run(session: Session, **kwargs) -> Run:
@@ -169,7 +183,7 @@ def test_build_session_header_gathers_the_pages_context():
     session = _session(watch_state=WatchState.GREEN)
     runs = [_run(session), _run(session)]
 
-    header = build_session_header(session, runs, retry="")
+    header = build_session_header(session, runs, retry="", user=_viewer())
 
     assert header["latest_run"]["label"] == "Done"
     assert header["watch"]["tone"] == "clear"
@@ -227,7 +241,7 @@ def test_build_session_header_reads_the_watch_of_the_checkpoints_merge_request()
     session = _session()
     _session(thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.GREEN)
 
-    header = build_session_header(session, [], retry="", merge_request={"id": 7})
+    header = build_session_header(session, [], retry="", merge_request={"id": 7}, user=_viewer())
 
     assert header["watch"]["state"] == WatchState.GREEN
 
@@ -242,3 +256,59 @@ def test_latest_marker_id_names_the_red_publish_entry_of_a_failed_publish_run():
     payload = latest_run_payload([run], "again")
 
     assert annotated[-1]["publish"][0]["id"] == payload["marker_id"]
+
+
+@pytest.mark.django_db
+def test_header_counts_delegated_jobs_across_batches_and_lists_newest_batch_first():
+    admin = _viewer()
+    coordinator = make_coordinator(admin)
+    first, second = uuid.uuid4(), uuid.uuid4()
+    make_leg(coordinator, first, status=RunStatus.RUNNING, prompt="Bump auth\nsecond line", finished_at=None)
+    make_leg(coordinator, first, status=RunStatus.FAILED)
+    make_leg(coordinator, second, status=RunStatus.WAITING_INPUT, prompt="x" * 300, repo_id="acme/ops")
+    make_leg(coordinator, second, status=RunStatus.SUCCESSFUL)
+
+    payload = delegations_payload(coordinator, admin)
+
+    assert (payload["total"], payload["active"], payload["need_you"], payload["failed"]) == (4, 1, 1, 1)
+    assert [b["goal"] for b in payload["batches"]] == ["x" * 120, "Bump auth"]
+    assert [leg["state"] for leg in payload["batches"][0]["legs"]] == ["waiting_input", "finished"]
+    assert payload["batches"][1]["created_at"]
+
+
+@pytest.mark.django_db
+def test_header_lists_a_leg_the_viewer_cannot_see_without_a_link():
+    owner = _viewer(Role.MEMBER, "owner")
+    coordinator = make_coordinator(owner)
+    make_leg(coordinator, uuid.uuid4(), status=RunStatus.RUNNING, repo_id="acme/secret", finished_at=None)
+
+    [leg] = delegations_payload(coordinator, _viewer(Role.MEMBER, "stranger"))["batches"][0]["legs"]
+
+    assert (leg["repo_id"], leg["state"], leg["session_url"]) == ("acme/secret", "running", "")
+
+
+@pytest.mark.django_db
+def test_header_without_delegations_is_none():
+    assert build_session_header(_session(), [], retry="", user=_viewer())["delegations"] is None
+
+
+@pytest.mark.django_db
+def test_header_carries_delegations_and_parent():
+    admin = _viewer()
+    coordinator = make_coordinator(admin, title="Parent work")
+    leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.RUNNING, finished_at=None)
+
+    assert build_session_header(coordinator, [], retry="", user=admin)["delegations"]["total"] == 1
+    assert build_session_header(leg.session, [], retry="", user=admin)["parent"]["title"] == "Parent work"
+
+
+@pytest.mark.django_db
+def test_child_session_links_its_parent_only_when_visible():
+    owner = _viewer(Role.MEMBER, "owner")
+    coordinator = make_coordinator(owner, title="Parent work")
+    child = make_leg(coordinator, uuid.uuid4(), status=RunStatus.RUNNING, finished_at=None).session
+
+    url = reverse("session_detail", kwargs={"thread_id": coordinator.thread_id})
+    assert parent_link(child, owner) == {"title": "Parent work", "url": url}
+    assert parent_link(child, _viewer(Role.MEMBER, "stranger")) is None
+    assert parent_link(coordinator, owner) is None

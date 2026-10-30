@@ -33,8 +33,7 @@ from core.constants import (
     INTERRUPTED_MESSAGE,
     RUN_FAILED_MESSAGE,
 )
-from tests.unit_tests.sessions.conftest import make_artifact
-from tests.unit_tests.sessions.test_delegation import _coordinator, _leg
+from tests.unit_tests.sessions.conftest import make_artifact, make_coordinator, make_leg
 
 CREATED_AT = datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC)
 STARTED_AT = datetime(2026, 7, 31, 12, 0, 2, tzinfo=UTC)
@@ -1077,9 +1076,9 @@ def owner(member_user):
 
 @pytest.mark.django_db
 def test_delegate_segment_gets_the_legs_current_states_needs_you_first(owner):
-    coordinator = _coordinator(owner)
+    coordinator = make_coordinator(owner)
     batch = uuid.uuid4()
-    finished = _leg(
+    finished = make_leg(
         coordinator,
         batch,
         status=RunStatus.SUCCESSFUL,
@@ -1088,7 +1087,7 @@ def test_delegate_segment_gets_the_legs_current_states_needs_you_first(owner):
         session_ref="daiv/work-branch",
         merge_request_web_url="http://mr/1",
     )
-    asking = _leg(coordinator, batch, status=RunStatus.WAITING_INPUT, repo_id="acme/b")
+    asking = make_leg(coordinator, batch, status=RunStatus.WAITING_INPUT, repo_id="acme/b")
     turns = delegate_turns(batch)
 
     mark_delegations(turns, coordinator.thread_id, owner)
@@ -1108,9 +1107,9 @@ def test_delegate_segment_gets_the_legs_current_states_needs_you_first(owner):
 
 @pytest.mark.django_db
 def test_leg_reply_is_the_first_line_capped(owner):
-    coordinator = _coordinator(owner)
+    coordinator = make_coordinator(owner)
     batch = uuid.uuid4()
-    _leg(coordinator, batch, status=RunStatus.SUCCESSFUL, result_summary="  " + "x" * 300 + "\nsecond line")
+    make_leg(coordinator, batch, status=RunStatus.SUCCESSFUL, result_summary="  " + "x" * 300 + "\nsecond line")
     turns = delegate_turns(batch)
 
     mark_delegations(turns, coordinator.thread_id, owner)
@@ -1120,9 +1119,9 @@ def test_leg_reply_is_the_first_line_capped(owner):
 
 @pytest.mark.django_db
 def test_leg_the_viewer_cannot_see_keeps_only_its_repository_and_state(owner, other_user):
-    coordinator = _coordinator(owner)
+    coordinator = make_coordinator(owner)
     batch = uuid.uuid4()
-    _leg(
+    make_leg(
         coordinator,
         batch,
         status=RunStatus.SUCCESSFUL,
@@ -1147,11 +1146,11 @@ def test_leg_the_viewer_cannot_see_keeps_only_its_repository_and_state(owner, ot
 
 @pytest.mark.django_db
 def test_two_batches_in_one_transcript_keep_their_own_legs(owner, admin_user, django_assert_num_queries):
-    coordinator = _coordinator(owner)
+    coordinator = make_coordinator(owner)
     first, second = uuid.uuid4(), uuid.uuid4()
-    _leg(coordinator, first, status=RunStatus.RUNNING)
-    _leg(coordinator, first, status=RunStatus.RUNNING)
-    _leg(coordinator, second, status=RunStatus.RUNNING)
+    make_leg(coordinator, first, status=RunStatus.RUNNING)
+    make_leg(coordinator, first, status=RunStatus.RUNNING)
+    make_leg(coordinator, second, status=RunStatus.RUNNING)
     turns = delegate_turns(first, second)
 
     with django_assert_num_queries(2):
@@ -1162,9 +1161,9 @@ def test_two_batches_in_one_transcript_keep_their_own_legs(owner, admin_user, dj
 
 @pytest.mark.django_db
 def test_a_batch_belonging_to_another_session_is_left_untouched(owner):
-    coordinator, stranger = _coordinator(owner), _coordinator(owner)
+    coordinator, stranger = make_coordinator(owner), make_coordinator(owner)
     batch = uuid.uuid4()
-    _leg(stranger, batch, status=RunStatus.RUNNING)
+    make_leg(stranger, batch, status=RunStatus.RUNNING)
     turns = delegate_turns(batch)
 
     mark_delegations(turns, coordinator.thread_id, owner)
@@ -1174,7 +1173,7 @@ def test_a_batch_belonging_to_another_session_is_left_untouched(owner):
 
 @pytest.mark.django_db
 def test_a_batch_without_runs_is_left_to_the_tool_result(owner):
-    coordinator = _coordinator(owner)
+    coordinator = make_coordinator(owner)
     turns = delegate_turns(uuid.uuid4())
 
     mark_delegations(turns, coordinator.thread_id, owner)
@@ -1190,7 +1189,7 @@ def test_a_delegate_result_without_a_batch_id_is_skipped(owner, django_assert_nu
     segment = delegate_segment(uuid.uuid4())
     segment["result"] = result
     turns = [{"role": "assistant", "segments": [segment]}]
-    thread_id = _coordinator(owner).thread_id
+    thread_id = make_coordinator(owner).thread_id
 
     with django_assert_num_queries(0):
         mark_delegations(turns, thread_id, owner)

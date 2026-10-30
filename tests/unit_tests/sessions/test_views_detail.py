@@ -1317,11 +1317,11 @@ def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
 def test_detail_shows_delegated_jobs_current_state(member_client, member_user):
     from langchain_core.messages import AIMessage, ToolMessage
 
-    from tests.unit_tests.sessions.test_delegation import _coordinator, _leg
+    from tests.unit_tests.sessions.conftest import make_coordinator, make_leg
 
-    coordinator = _coordinator(member_user)
+    coordinator = make_coordinator(member_user)
     batch = uuid.uuid4()
-    _leg(coordinator, batch, status=RunStatus.WAITING_INPUT)
+    make_leg(coordinator, batch, status=RunStatus.WAITING_INPUT)
     messages = [
         AIMessage(content="", id="a1", tool_calls=[{"id": "t1", "name": "delegate_jobs", "args": {"goal": "g"}}]),
         ToolMessage(content=json.dumps({"batch_id": str(batch), "started": []}), tool_call_id="t1", id="m1"),

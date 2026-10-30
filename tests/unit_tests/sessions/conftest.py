@@ -328,3 +328,40 @@ def make_merge_request() -> MergeRequest:
         author=PlatformUser(id=2, name="DAIV", username="daiv"),
         draft=False,
     )
+
+
+def make_coordinator(user=None, **fields) -> Session:
+    defaults = {"origin": SessionOrigin.API_JOB, "repo_id": "acme/coord", "ref": "main", "user": user}
+    return Session.objects.create(thread_id=str(uuid.uuid4()), **(defaults | fields))
+
+
+def make_delegating_run(coordinator: Session, user) -> Run:
+    return Run.objects.create(
+        session=coordinator,
+        trigger_type=SessionOrigin.API_JOB,
+        repo_id=coordinator.repo_id,
+        status=RunStatus.RUNNING,
+        user=user,
+    )
+
+
+def make_leg(
+    coordinator: Session, batch_id: uuid.UUID, *, status: str, task_result=None, session_ref: str = "", **fields
+) -> Run:
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.DELEGATED_JOB,
+        repo_id=fields.get("repo_id", "acme/api"),
+        ref=session_ref,
+        parent=coordinator,
+    )
+    fields = {"user": coordinator.user, "finished_at": timezone.now()} | fields
+    return Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.DELEGATED_JOB,
+        batch_id=batch_id,
+        repo_id=session.repo_id,
+        status=status,
+        task_result=task_result,
+        **{k: v for k, v in fields.items() if k != "repo_id"},
+    )
