@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import timedelta
 from unittest.mock import AsyncMock, patch
@@ -11,14 +10,19 @@ from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
-from langchain_core.messages import AIMessage, ToolMessage
 from ninja.testing import TestAsyncClient
 from sessions.hydration import HydratedThread
 from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from daiv.api import api
-from tests.unit_tests.sessions.conftest import grant_read_access, make_artifact, make_coordinator, make_leg
+from tests.unit_tests.sessions.conftest import (
+    delegate_messages,
+    grant_read_access,
+    make_artifact,
+    make_coordinator,
+    make_leg,
+)
 
 
 @pytest.fixture
@@ -472,10 +476,7 @@ async def test_session_turns_show_delegated_jobs_current_state(client, authed):
     coordinator = await sync_to_async(make_coordinator)(user)
     batch = uuid.uuid4()
     await sync_to_async(make_leg)(coordinator, batch, status=RunStatus.WAITING_INPUT)
-    messages = [
-        AIMessage(content="", id="a1", tool_calls=[{"id": "t1", "name": "delegate_jobs", "args": {"goal": "g"}}]),
-        ToolMessage(content=json.dumps({"batch_id": str(batch), "started": []}), tool_call_id="t1", id="m1"),
-    ]
+    messages = delegate_messages(batch)
 
     with patch(
         "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread(messages, False, None, None, None))

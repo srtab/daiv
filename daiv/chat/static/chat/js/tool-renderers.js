@@ -1672,6 +1672,14 @@
 
   const legText = (leg, key) => valueText(leg[key]).trim();
 
+  const legKey = (leg) => `${legText(leg, "repo_id")}\n${legText(leg, "ref")}`;
+
+  const claimIndex = (list, used, same) => {
+    const index = list.findIndex((item, i) => !used.has(i) && same(item));
+    if (index >= 0) used.add(index);
+    return index;
+  };
+
   const cardLeg = (leg, state, error = "") => ({
     repo_id: legText(leg, "repo_id"),
     ref: legText(leg, "ref"),
@@ -1697,20 +1705,12 @@
   const mergedLegs = (enriched, data) => {
     const legs = enriched.filter(isRecord).map((leg) => cardLeg(leg, legText(leg, "state")));
     const claimed = new Set();
-    const claim = (target, settled) => {
-      const index = legs.findIndex(
-        (leg, i) =>
-          !claimed.has(i) && leg.repo_id === target.repo_id && leg.ref === target.ref && settled(leg.state),
-      );
-      if (index >= 0) claimed.add(index);
-      return index;
-    };
     for (const failed of recordsOf(data?.failed)) {
       const error = legText(failed, "error");
-      const mine = cardLeg(failed, "");
-      const index = claim(mine, (state) => LOST_OR_FAILED.has(state));
+      const mine = (leg) => legKey(leg) === legKey(failed);
+      const index = claimIndex(legs, claimed, (leg) => mine(leg) && LOST_OR_FAILED.has(leg.state));
       if (index >= 0) legs[index].error = error;
-      else if (failed.still_runs !== true || claim(mine, () => true) < 0) {
+      else if (failed.still_runs !== true || claimIndex(legs, claimed, mine) < 0) {
         legs.push(cardLeg(failed, failed.still_runs === true ? "lost" : "failed", error));
       }
     }
@@ -1736,17 +1736,12 @@
 
   const noteOf = (data) => noteHTML(valueText(data.note).trim());
 
-  const legKey = (leg) => `${valueText(leg.repo_id).trim()}\n${valueText(leg.ref).trim()}`;
-
   // A leg takes the first target left with its repository and branch, else with its repository (`ref` may differ).
   const claimTarget = (targets, used, leg) => {
-    const free = (same) => targets.findIndex((target, i) => !used.has(i) && same(target));
-    const repo = valueText(leg.repo_id).trim();
-    let index = free((target) => legKey(target) === legKey(leg));
-    if (index < 0) index = free((target) => valueText(target.repo_id).trim() === repo);
-    if (index < 0) return { index: targets.length, target: {} };
-    used.add(index);
-    return { index, target: targets[index] };
+    const repo = legText(leg, "repo_id");
+    let index = claimIndex(targets, used, (target) => legKey(target) === legKey(leg));
+    if (index < 0) index = claimIndex(targets, used, (target) => legText(target, "repo_id") === repo);
+    return index < 0 ? { index: targets.length, target: {} } : { index, target: targets[index] };
   };
 
   const jobsHeaders = (...keys) => keys.map((key) => t(key));

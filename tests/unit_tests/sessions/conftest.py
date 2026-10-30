@@ -11,6 +11,7 @@ from django.utils import timezone
 import pytest
 from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.models import DBTaskResult, get_date_max
+from langchain_core.messages import AIMessage, ToolMessage
 from sessions.artifacts import guess_content_type
 from sessions.models import (
     Run,
@@ -373,6 +374,13 @@ def delegate_segment(batch_id: uuid.UUID, result: str | None = None, *, goal: st
     segment = tool_call_segment({"id": "d1", "name": "delegate_jobs", "args": {"goal": goal, "targets": []}})
     segment["result"] = result if result is not None else json.dumps({"batch_id": str(batch_id), "started": []})
     return segment
+
+
+def delegate_messages(batch_id: uuid.UUID) -> list:
+    return [
+        AIMessage(content="", id="a1", tool_calls=[{"id": "t1", "name": "delegate_jobs", "args": {"goal": "g"}}]),
+        ToolMessage(content=json.dumps({"batch_id": str(batch_id), "started": []}), tool_call_id="t1", id="m1"),
+    ]
 
 
 def delegate_turns(*batch_ids: uuid.UUID, goal: str = "g") -> list[dict]:

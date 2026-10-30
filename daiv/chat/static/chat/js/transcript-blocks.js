@@ -277,7 +277,7 @@
         return { kind: "special", key: claim(`x-${e.ref}`), seg: e.seg, row: rowFor(e.seg, servers, serversId) };
       };
       const delegatedCard = (e) => {
-        const { legs, goal, error } = delegatedFor(e.seg, null, 0);
+        const { legs, goal, error } = delegatedFor(e.seg);
         return { kind: "delegated", key: claim(`d-${e.ref}`), seg: e.seg, legs, goal, error };
       };
 

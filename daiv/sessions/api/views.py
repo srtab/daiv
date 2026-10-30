@@ -10,11 +10,10 @@ from ninja.security import django_auth
 
 from accounts.api.security import AuthBearer
 from codebase.authorization import can_run
-from sessions.delegation import load_delegations
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
 from sessions.header import (
     awatch_state,
-    delegations_payload,
+    delegations_for,
     latest_run_payload,
     merge_request_iid,
     retry_for,
@@ -24,7 +23,7 @@ from sessions.hydration import ahydrate_thread
 from sessions.models import HiddenSession, Session, WatchState
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns, mark_delegations, mark_skill_links
+from sessions.transcript import annotate_transcript, expired_run_turns, mark_skill_links
 from sessions.turns import build_turns
 
 if TYPE_CHECKING:
@@ -141,11 +140,9 @@ async def session_turns(request: HttpRequest, thread_id: str):
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
         mark_skill_links(turns, session.thread_id)
-        delegations = load_delegations(session.thread_id, user)
-        goals = mark_delegations(turns, delegations)
+        delegations = delegations_for(turns, session.thread_id, user)
         retry = retry_for(session, runs, turns, user)
-        payload = delegations_payload(delegations, goals)
-        return live_run_for(activity.live, session, user), latest_run_payload(runs, retry), payload
+        return live_run_for(activity.live, session, user), latest_run_payload(runs, retry), delegations
 
     live, latest_run, delegations = await sync_to_async(finish_turns)()
     response = {

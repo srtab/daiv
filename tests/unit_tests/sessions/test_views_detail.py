@@ -11,7 +11,6 @@ from django.utils import timezone
 from django.utils.html import escapejs
 
 import pytest
-from langchain_core.messages import AIMessage, ToolMessage
 from sessions.conf import settings as sessions_settings
 from sessions.delegation import outcome_states
 from sessions.executor.lock import STALE_RUN_MINUTES
@@ -21,6 +20,7 @@ from sessions.transcript_labels import transcript_icons
 
 from tests.unit_tests.sessions.conftest import (
     create_archive,
+    delegate_messages,
     grant_read_access,
     make_artifact,
     make_coordinator,
@@ -1337,10 +1337,7 @@ def test_detail_shows_delegated_jobs_current_state(member_client, member_user):
     coordinator = make_coordinator(member_user)
     batch = uuid.uuid4()
     make_leg(coordinator, batch, status=RunStatus.WAITING_INPUT)
-    messages = [
-        AIMessage(content="", id="a1", tool_calls=[{"id": "t1", "name": "delegate_jobs", "args": {"goal": "g"}}]),
-        ToolMessage(content=json.dumps({"batch_id": str(batch), "started": []}), tool_call_id="t1", id="m1"),
-    ]
+    messages = delegate_messages(batch)
 
     with (
         patch("sessions.views.ahydrate_thread", _hydration(messages)),

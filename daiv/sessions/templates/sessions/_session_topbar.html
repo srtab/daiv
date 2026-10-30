@@ -120,7 +120,7 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
       <div class="relative" x-data="menuButton" x-id="['delegations-menu']"
            @keydown.escape="onEscape($event)" @click.outside="close()" data-testid="session-delegations">
         <button type="button" class="delegations-btn"
-                :class="delegationsTone && `delegations-btn--${delegationsTone}`"
+                :class="delegationsBadge.state && `delegations-btn--${delegationsBadge.state}`"
                 x-ref="trigger"
                 @click="toggle()"
                 @keydown.arrow-down.prevent="show(0)"
@@ -128,16 +128,16 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
                 aria-haspopup="menu"
                 :aria-expanded="open.toString()"
                 :aria-controls="$id('delegations-menu')"
-                :aria-label="delegationsLabel"
-                :title="delegationsLabel">
+                :aria-label="delegationsBadge.label"
+                :title="delegationsBadge.label">
           {% icon "share" "h-3.5 w-3.5 shrink-0" %}
           <span class="delegations-btn__short" x-text="delegations.total"></span>
-          <span class="delegations-btn__long" x-text="delegationsCount"></span>
-          <template x-if="delegationsTone">
+          <span class="delegations-btn__long" x-text="delegationsBadge.count"></span>
+          <template x-if="delegationsBadge.state">
             <span class="delegations-btn__status">
               <span class="delegations-btn__long" aria-hidden="true">·</span>
-              <span class="delegations-btn__dot" aria-hidden="true"></span>
-              <span class="delegations-btn__long" x-text="delegationsStatus"></span>
+              <span class="leg-dot" :class="`leg-dot--${delegationsBadge.state}`" aria-hidden="true"></span>
+              <span class="delegations-btn__long" x-text="delegationsBadge.text"></span>
             </span>
           </template>
         </button>
@@ -146,7 +146,7 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
              data-surface
              @keydown="onMenuKey($event)" class="session-menu delegations-menu">
           <div class="delegations-menu__legs scrollbar-thin" role="none">
-            <template x-for="(leg, li) in delegationLegs" :key="li">
+            <template x-for="(leg, li) in delegations.legs" :key="li">
               <div class="delegations-menu__row" role="none">
                 <a role="menuitem" tabindex="-1" class="session-menu__item delegated-leg delegations-menu__leg"
                    :href="leg.session_url || null" :aria-disabled="(!leg.session_url).toString()"

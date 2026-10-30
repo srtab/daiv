@@ -983,23 +983,10 @@ html {
   .delegations-btn__status {
     @apply inline-flex items-center gap-1.5 text-text-muted;
   }
-  .delegations-btn__dot {
-    @apply inline-block h-2 w-2 shrink-0 rounded-full bg-current;
-  }
-  .delegations-btn--warn .delegations-btn__status {
+  .delegations-btn--waiting_input .delegations-btn__status {
     @apply text-status-found;
   }
-  .delegations-btn--warn .delegations-btn__dot {
-    @apply rotate-45 rounded-[1.5px];
-  }
-  .delegations-btn--running .delegations-btn__dot {
-    @apply bg-status-found;
-    animation: pulse-dot 2s ease-in-out infinite;
-  }
-  .delegations-btn--queued .delegations-btn__dot {
-    @apply bg-transparent ring-[1.5px] ring-current ring-inset;
-  }
-  .delegations-btn--danger .delegations-btn__status {
+  .delegations-btn--failed .delegations-btn__status {
     @apply text-status-fail;
   }
   .delegations-menu {

@@ -42,7 +42,7 @@ from sessions.models import (
 from sessions.turns import tool_call_segment
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
 
     from sessions.delegation import Delegations
 
@@ -350,13 +350,23 @@ def retry_message(turns: list[dict[str, Any]], runs: list[Run]) -> str:
     return run.prompt
 
 
-def _skill_name(segment: dict[str, Any]) -> str | None:
+def _tool_args(segment: dict[str, Any]) -> dict[str, Any]:
     try:
         args = json.loads(segment.get("args") or "")
     except ValueError:
-        return None
-    if not isinstance(args, dict):
-        return None
+        return {}
+    return args if isinstance(args, dict) else {}
+
+
+def _tool_calls(turns: list[dict[str, Any]], name: str) -> Iterator[dict[str, Any]]:
+    for turn in turns:
+        for segment in turn.get("segments", ()):
+            if segment.get("type") == "tool_call" and segment.get("name") == name:
+                yield segment
+
+
+def _skill_name(segment: dict[str, Any]) -> str | None:
+    args = _tool_args(segment)
     name = args.get("skill") or args.get("name")
     return name if isinstance(name, str) and name else None
 
@@ -367,14 +377,7 @@ def mark_skill_links(turns: list[dict[str, Any]], thread_id: str | UUID) -> None
     One query for the whole transcript, plus one when a global skill is named, which must still exist; the latest
     invocation in the thread decides the source. Sync only.
     """
-    named = [
-        (segment, name)
-        for turn in turns
-        for segment in turn.get("segments", ())
-        if segment.get("type") == "tool_call"
-        and segment.get("name") == SKILLS_TOOL_NAME
-        and (name := _skill_name(segment))
-    ]
+    named = [(segment, name) for segment in _tool_calls(turns, SKILLS_TOOL_NAME) if (name := _skill_name(segment))]
     if not named:
         return
     try:
@@ -402,11 +405,7 @@ def _batch_id(segment: dict[str, Any]) -> UUID | None:
 
 
 def _goal(segment: dict[str, Any]) -> str:
-    try:
-        args = json.loads(segment.get("args") or "")
-    except ValueError:
-        return ""
-    goal = args.get("goal") if isinstance(args, dict) else None
+    goal = _tool_args(segment).get("goal")
     return goal.strip() if isinstance(goal, str) else ""
 
 
@@ -419,14 +418,11 @@ def mark_delegations(turns: list[dict[str, Any]], delegations: Delegations) -> d
     goals: dict[UUID, str] = {}
     if not delegations.legs:
         return goals
-    for turn in turns:
-        for segment in turn.get("segments", ()):
-            if segment.get("type") != "tool_call" or segment.get("name") != DELEGATE_JOBS_TOOL_NAME:
-                continue
-            batch_id = _batch_id(segment)
-            if batch_id is None or batch_id not in delegations.legs:
-                continue
-            segment["legs"] = delegations.legs[batch_id]
-            if goal := _goal(segment):
-                goals[batch_id] = goal
+    for segment in _tool_calls(turns, DELEGATE_JOBS_TOOL_NAME):
+        batch_id = _batch_id(segment)
+        if batch_id is None or batch_id not in delegations.legs:
+            continue
+        segment["legs"] = delegations.legs[batch_id]
+        if goal := _goal(segment):
+            goals[batch_id] = goal
     return goals

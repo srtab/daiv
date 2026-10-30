@@ -16,11 +16,13 @@ document.addEventListener("alpine:init", () => {
 
   const delegationsSummary = (delegations) => {
     const T = window.TranscriptLabels;
-    if (delegations.need_you) return { tone: "warn", text: T.tn("delegations_need_you", delegations.need_you) };
-    if (delegations.running) return { tone: "running", text: T.tn("delegations_running", delegations.running) };
-    if (delegations.waiting) return { tone: "queued", text: T.tn("delegations_queued", delegations.waiting) };
-    if (delegations.failed) return { tone: "danger", text: T.tn("delegations_failed", delegations.failed) };
-    return { tone: "", text: "" };
+    if (delegations.need_you) {
+      return { state: "waiting_input", text: T.tn("delegations_need_you", delegations.need_you) };
+    }
+    if (delegations.running) return { state: "running", text: T.tn("delegations_running", delegations.running) };
+    if (delegations.waiting) return { state: "queued", text: T.tn("delegations_queued", delegations.waiting) };
+    if (delegations.failed) return { state: "failed", text: T.tn("delegations_failed", delegations.failed) };
+    return { state: "", text: "" };
   };
 
   const unsettled = (delegations) => Boolean(delegations?.running || delegations?.waiting || delegations?.need_you);
@@ -36,11 +38,6 @@ document.addEventListener("alpine:init", () => {
     watch: null,
     runCount: 0,
     delegations: null,
-    delegationLegs: [],
-    delegationsCount: "",
-    delegationsStatus: "",
-    delegationsLabel: "",
-    delegationsTone: "",
     title: config.title || "",
     titleDraft: "",
     titleWidth: 0,
@@ -108,6 +105,12 @@ document.addEventListener("alpine:init", () => {
     get busy() {
       return this._running || this.waiting;
     },
+    get delegationsBadge() {
+      if (!this.delegations) return { count: "", state: "", text: "", label: "" };
+      const count = window.TranscriptLabels.tn("delegations_total", this.delegations.total);
+      const { state, text } = delegationsSummary(this.delegations);
+      return { count, state, text, label: [count, text].filter(Boolean).join(" · ") };
+    },
     get status() {
       if (this._running) return { variant: "running", label: config.labels.running };
       if (this.waiting) return { variant: "queued", label: config.labels.queued };
@@ -130,16 +133,7 @@ document.addEventListener("alpine:init", () => {
       // has no merge request on record, so the page keeps its own.
       const stale = data.requestedAt <= this._watchAt;
       if ("watch" in data && !stale) this.watch = data.watch ?? null;
-      if ("delegations" in data) this._setDelegations(data.delegations ?? null);
-    },
-    _setDelegations(delegations) {
-      const status = delegations ? delegationsSummary(delegations) : { tone: "", text: "" };
-      this.delegations = delegations;
-      this.delegationLegs = delegations?.legs ?? [];
-      this.delegationsCount = delegations ? window.TranscriptLabels.tn("delegations_total", delegations.total) : "";
-      this.delegationsStatus = status.text;
-      this.delegationsTone = status.tone;
-      this.delegationsLabel = [this.delegationsCount, status.text].filter(Boolean).join(" · ");
+      if ("delegations" in data) this.delegations = data.delegations ?? null;
     },
     _setWatch(watch) {
       this.watch = watch ?? null;

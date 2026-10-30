@@ -8,10 +8,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
-from sessions.delegation import load_delegations
 from sessions.header import (
     build_session_header,
-    delegations_payload,
+    delegations_for,
     issue_link,
     latest_run_payload,
     parent_link,
@@ -20,7 +19,7 @@ from sessions.header import (
 )
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import watch_thread_id
-from sessions.transcript import annotate_transcript, mark_delegations
+from sessions.transcript import annotate_transcript
 
 from accounts.models import Role, User
 from codebase.base import GitPlatform
@@ -44,13 +43,12 @@ def _viewer(role=Role.ADMIN, username="viewer") -> User:
 
 
 def _header(session: Session, runs: list[Run], *, user: User, **kwargs) -> dict:
-    delegations = load_delegations(session.thread_id, user)
-    return build_session_header(session, runs, retry="", user=user, delegations=delegations, goals={}, **kwargs)
+    delegations = delegations_for([], session.thread_id, user)
+    return build_session_header(session, runs, retry="", user=user, delegations=delegations, **kwargs)
 
 
 def _delegations(session: Session, user: User, turns=()) -> dict | None:
-    delegations = load_delegations(session.thread_id, user)
-    return delegations_payload(delegations, mark_delegations(list(turns), delegations))
+    return delegations_for(list(turns), session.thread_id, user)
 
 
 def _run(session: Session, **kwargs) -> Run:
@@ -399,8 +397,7 @@ def test_a_render_reads_the_delegated_legs_once_for_the_transcript_and_the_heade
     Session.objects.visible_to(owner).exists()
 
     with django_assert_num_queries(3):
-        delegations = load_delegations(coordinator.thread_id, owner)
-        payload = delegations_payload(delegations, mark_delegations(turns, delegations))
+        payload = delegations_for(turns, coordinator.thread_id, owner)
 
     assert [len(segment["legs"]) for segment in turns[0]["segments"]] == [2, 1]
     assert payload["total"] == 3

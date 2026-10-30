@@ -18,11 +18,11 @@ from codebase.authorization import can_run
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
-from sessions.delegation import FAILED, NEEDS_YOU, RUNNING, WAITING
+from sessions.delegation import FAILED, NEEDS_YOU, RUNNING, WAITING, load_delegations, needs_you_first
 from sessions.models import Run, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import WatchStore, watch_thread_id
 from sessions.templatetags.session_tags import session_title, status_variant
-from sessions.transcript import marker_id, retry_message
+from sessions.transcript import mark_delegations, marker_id, retry_message
 
 if TYPE_CHECKING:
     import uuid
@@ -138,24 +138,27 @@ def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
     return {"iid": iid, "url": f"{html_url.rstrip('/')}/{path}/{iid}"}
 
 
-def delegations_payload(delegations: Delegations, goals: Mapping[uuid.UUID, str]) -> dict[str, Any] | None:
-    """The jobs a session delegated, newest batch first, or ``None`` when it never delegated.
+def delegations_for(turns: list[dict[str, Any]], thread_id: str, user: User) -> dict[str, Any] | None:
+    """SYNC ONLY: set the ``legs`` of the ``delegate_jobs`` calls in ``turns`` and return the jobs ``thread_id``
+    delegated as ``user`` sees them, newest batch first, or ``None`` when it never delegated.
 
-    A batch's ``goal`` is the one in ``goals``, else the first line of the prompt of its first leg the viewer may
-    see. ``legs`` holds every batch's legs in one list, those in ``NEEDS_YOU`` first.
+    A batch's ``goal`` is the one its call in ``turns`` gave, else the first line of the prompt of its first leg the
+    viewer may see. ``legs`` holds every batch's legs in one list, those in ``NEEDS_YOU`` first.
     """
+    delegations = load_delegations(thread_id, user)
     if not delegations.batches:
         return None
-    newest_first = sorted(delegations.batches.items(), key=lambda item: item[1][0].created_at, reverse=True)
+    called = mark_delegations(turns, delegations)
+    goals = {**_prompt_goals(delegations, called), **called}
     batches = [
         {
-            "goal": goals.get(batch_id) or _prompt_goal(legs, delegations.visible),
+            "goal": goals.get(batch_id, ""),
             "created_at": legs[0].created_at.isoformat(),
             "legs": delegations.legs[batch_id],
         }
-        for batch_id, legs in newest_first
+        for batch_id, legs in reversed(delegations.batches.items())
     ]
-    legs = sorted((leg for batch in batches for leg in batch["legs"]), key=lambda leg: leg["state"] not in NEEDS_YOU)
+    legs = needs_you_first(leg for batch in batches for leg in batch["legs"])
     states = [leg["state"] for leg in legs]
     return {
         "total": len(states),
@@ -168,11 +171,21 @@ def delegations_payload(delegations: Delegations, goals: Mapping[uuid.UUID, str]
     }
 
 
-def _prompt_goal(legs: list[Run], visible: frozenset[str]) -> str:
-    first = next((leg for leg in legs if leg.session_id in visible), None)
-    if first is None:
-        return ""
-    return (first.prompt.strip().splitlines() or [""])[0][:GOAL_MAX_CHARS]
+def _prompt_goals(delegations: Delegations, goals: Mapping[uuid.UUID, str]) -> dict[uuid.UUID, str]:
+    """The goal of each batch ``goals`` lacks, from its first visible leg's prompt: one query, none when none lacks."""
+    firsts = {
+        batch_id: first.pk
+        for batch_id, legs in delegations.batches.items()
+        if batch_id not in goals
+        and (first := next((leg for leg in legs if leg.session_id in delegations.visible), None))
+    }
+    if not firsts:
+        return {}
+    prompts = dict(Run.objects.filter(pk__in=firsts.values()).values_list("pk", "prompt"))
+    return {
+        batch_id: (prompts.get(pk, "").strip().splitlines() or [""])[0][:GOAL_MAX_CHARS]
+        for batch_id, pk in firsts.items()
+    }
 
 
 def parent_link(session: Session, user: User) -> dict[str, str] | None:
@@ -191,17 +204,16 @@ def build_session_header(
     *,
     retry: str,
     user: User,
-    delegations: Delegations,
-    goals: Mapping[uuid.UUID, str],
+    delegations: dict[str, Any] | None,
     merge_request: dict | None = None,
 ) -> dict[str, Any]:
-    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first, the ``delegations`` the transcript shows
-    with their ``goals``, and the ``merge_request`` the page shows."""
+    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first, the ``delegations`` from
+    :func:`delegations_for`, and the ``merge_request`` the page shows."""
     return {
         "latest_run": latest_run_payload(runs, retry),
         "watch": watch_payload(watch_state(session, merge_request_iid(session, runs, merge_request))),
         "issue": issue_link(session, runs),
         "run_count": len(runs),
-        "delegations": delegations_payload(delegations, goals),
+        "delegations": delegations,
         "parent": parent_link(session, user),
     }

@@ -114,8 +114,8 @@ for (const [action, value] of steps) {
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
       ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn,
-      delegations: page.delegations, delegationsLabel: page.delegationsLabel, dispatched: [...dispatched],
-      delegationsTone: page.delegationsTone, legs: page.delegationLegs.map((leg) => leg.repo_id),
+      delegations: page.delegations, delegationsLabel: page.delegationsBadge.label, dispatched: [...dispatched],
+      delegationsState: page.delegationsBadge.state, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
     });
   }
 }
@@ -449,26 +449,26 @@ def _delegations(*, total=2, running=0, waiting=0, need_you=0, failed=0, legs=No
 
 
 @pytest.mark.parametrize(
-    ("counts", "label", "tone"),
+    ("counts", "label", "state"),
     [
-        ({"running": 1, "need_you": 1}, "2 delegated · 1 needs you", "warn"),
-        ({"total": 3, "running": 1, "need_you": 2, "failed": 1}, "3 delegated · 2 need you", "warn"),
+        ({"running": 1, "need_you": 1}, "2 delegated · 1 needs you", "waiting_input"),
+        ({"total": 3, "running": 1, "need_you": 2, "failed": 1}, "3 delegated · 2 need you", "waiting_input"),
         ({"running": 2, "waiting": 1, "failed": 1}, "2 delegated · 2 running", "running"),
         ({"waiting": 2, "failed": 1}, "2 delegated · 2 queued", "queued"),
-        ({"failed": 1}, "2 delegated · 1 failed", "danger"),
+        ({"failed": 1}, "2 delegated · 1 failed", "failed"),
         ({"total": 1}, "1 delegated", ""),
     ],
 )
-def test_the_top_bar_sums_up_the_delegated_jobs(counts, label, tone):
+def test_the_top_bar_sums_up_the_delegated_jobs(counts, label, state):
     seen = _read(delegations=_delegations(**counts))
 
-    assert (seen["delegationsLabel"], seen["delegationsTone"]) == (label, tone)
+    assert (seen["delegationsLabel"], seen["delegationsState"]) == (label, state)
 
 
 def test_a_session_that_delegated_nothing_has_no_delegations():
     seen = _read()
 
-    assert (seen["delegations"], seen["delegationsLabel"], seen["delegationsTone"], seen["legs"]) == (None, "", "", [])
+    assert (seen["delegations"], seen["delegationsLabel"], seen["delegationsState"], seen["legs"]) == (None, "", "", [])
 
 
 def test_the_popover_lists_the_legs_in_the_servers_order():
@@ -486,7 +486,7 @@ def test_each_poll_replaces_the_delegations():
     seen = _run(steps, delegations=_delegations(running=2))["seen"][0]
 
     assert seen["delegations"] == polled
-    assert (seen["delegationsLabel"], seen["delegationsTone"]) == ("2 delegated · 2 failed", "danger")
+    assert (seen["delegationsLabel"], seen["delegationsState"]) == ("2 delegated · 2 failed", "failed")
 
 
 def test_a_poll_without_delegations_keeps_the_ones_the_page_has():

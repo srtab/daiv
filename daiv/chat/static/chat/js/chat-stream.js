@@ -701,7 +701,7 @@
           const fresh = served.get(seg.id);
           if (!fresh) continue;
           if (fresh.skill_url && !seg.skill_url) seg.skill_url = fresh.skill_url;
-          if (Array.isArray(fresh.legs)) seg.legs = fresh.legs;
+          if (Array.isArray(fresh.legs) && JSON.stringify(fresh.legs) !== JSON.stringify(seg.legs)) seg.legs = fresh.legs;
         }
       }
     },
