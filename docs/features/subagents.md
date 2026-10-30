@@ -1,3 +1,7 @@
+---
+description: "How DAIV's main agent delegates to specialized subagents for fast codebase exploration and complex multi-step tasks, and how to list them with /agents."
+---
+
 # Subagents
 
 DAIV's main agent can delegate work to specialized subagents. Each subagent is optimized for a specific type of task — one for fast codebase exploration, another for complex multi-step work. The main agent decides when to delegate based on the nature of the task.

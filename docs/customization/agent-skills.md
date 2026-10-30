@@ -1,3 +1,7 @@
+---
+description: "Create custom agent skills for DAIV: SKILL.md directories with specialized instructions and workflows that the agent follows when they are triggered."
+---
+
 # Agent Skills
 
 Skills are modular capabilities that extend DAIV's agent with specialized knowledge and workflows. Each skill is a directory containing a `SKILL.md` file with instructions the agent follows when the skill is triggered.

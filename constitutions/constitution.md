@@ -107,7 +107,8 @@ A change MUST NOT merge until its gates pass:
   change
 - **`make test`:** the unit suite with a coverage report. Every change
 - **Docs build:** `mkdocs build --strict`, run by CI on pull requests that touch the docs. A
-  new page is in both the `mkdocs.yml` `nav` and the `llmstxt` sections
+  new page is in both the `mkdocs.yml` `nav` and the `llmstxt` sections, with a
+  `description` in its front matter
 - **Evals:** per [agent evals](patterns/agent-evals.md). Agent-behaviour changes
 - **Constitution check:** the plan and the review name the affected principles and the
   evidence of compliance. Every change

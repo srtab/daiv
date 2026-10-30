@@ -1,3 +1,7 @@
+---
+description: "Slash commands and skills DAIV responds to in issue and merge or pull request comments, including /plan and /code-review, plus your own custom skills."
+---
+
 # Slash Commands & Skills
 
 DAIV responds to slash commands in issue and merge/pull request comments. Some are built-in commands with fixed behavior, others are **skills** — modular capabilities that give DAIV specialized expertise for specific tasks.

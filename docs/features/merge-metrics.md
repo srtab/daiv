@@ -1,3 +1,7 @@
+---
+description: "Track code merged across your repositories with diff statistics and commit-level attribution of changes to DAIV or human authors."
+---
+
 # Merge Metrics
 
 DAIV automatically tracks code merge activity across your repositories. Every time a merge request (GitLab) or pull request (GitHub) is merged into a default branch, DAIV records diff statistics and attributes code changes to DAIV or human authors at the commit level.

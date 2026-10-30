@@ -1,3 +1,7 @@
+---
+description: "Extend DAIV's agent with external services over the Model Context Protocol (MCP): built-in servers such as Sentry, custom servers and personal servers."
+---
+
 # MCP Tools
 
 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools extend DAIV's agent with
