@@ -322,7 +322,9 @@ class SandboxEnvironmentForm(forms.ModelForm):
         instance: SandboxEnvironment = super().save(commit=False)
         instance.memory_bytes = self.cleaned_data.get("memory_bytes")
         instance.repo_ids = self.cleaned_data.get("repo_ids_json") or []
-        if instance.scope == Visibility.USER and self.user is not None:
+        if instance.scope == Visibility.GLOBAL:
+            instance.user = None
+        elif self.user is not None:
             instance.user = self.user
         if instance.pk is not None:
             env_vars = self._preserve_unchanged_secrets(instance, env_vars)

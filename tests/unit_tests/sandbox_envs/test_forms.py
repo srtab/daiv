@@ -68,6 +68,18 @@ def test_user_form_rejects_global_scope_for_non_admin():
     assert "scope" in form.errors
 
 
+def test_admin_sharing_personal_env_clears_owner(user, make_form_data):
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine")
+    form = SandboxEnvironmentForm(data=make_form_data(scope=Visibility.GLOBAL), instance=env, user=user, is_admin=True)
+    assert form.is_valid(), form.errors
+
+    form.save()
+
+    env.refresh_from_db()
+    assert env.scope == Visibility.GLOBAL
+    assert env.user is None
+
+
 @pytest.mark.django_db
 def test_form_validates_env_vars_shape():
     from accounts.models import User
