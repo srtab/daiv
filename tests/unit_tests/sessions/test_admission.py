@@ -143,19 +143,19 @@ def mcp_pool(db):
 
 @pytest.mark.django_db(transaction=True)
 async def test_aresolve_mcp_overrides_keeps_only_deviations_from_the_default_set(member_user, mcp_pool):
-    assert await aresolve_mcp_overrides(member_user, {"grafana": "on", "rt": "on"}) == {"grafana": "on"}
-    assert await aresolve_mcp_overrides(member_user, {"rt": "off"}) == {"rt": "off"}
+    assert await aresolve_mcp_overrides(member_user, {"grafana": True, "rt": True}) == {"grafana": "on"}
+    assert await aresolve_mcp_overrides(member_user, {"rt": False}) == {"rt": "off"}
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_aresolve_mcp_overrides_rejects_a_server_the_caller_cannot_use(member_user, mcp_pool):
     with pytest.raises(InvalidMcpOverridesError, match=r"unknown MCP server\(s\) \['grafna'\].*'grafana'"):
-        await aresolve_mcp_overrides(member_user, {"grafna": "on"})
+        await aresolve_mcp_overrides(member_user, {"grafna": True})
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_aresolve_mcp_overrides_rejects_a_value_other_than_on_or_off(member_user, mcp_pool):
-    with pytest.raises(InvalidMcpOverridesError, match="'on' or 'off'"):
+async def test_aresolve_mcp_overrides_rejects_a_value_that_is_not_a_boolean(member_user, mcp_pool):
+    with pytest.raises(InvalidMcpOverridesError, match="true or false"):
         await aresolve_mcp_overrides(member_user, {"grafana": "yes"})
 
 

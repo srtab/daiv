@@ -61,7 +61,7 @@ class UnknownEnvironmentError(AdmissionError):
 
 
 class InvalidMcpOverridesError(AdmissionError):
-    """An MCP server override names a server the caller cannot use, or has a value other than ``on``/``off``."""
+    """An MCP server override names a server the caller cannot use, or has a value other than ``true``/``false``."""
 
 
 @dataclass(frozen=True)
@@ -102,17 +102,18 @@ async def aresolve_environment(user: User, name_or_id: str | None) -> SandboxEnv
         raise UnknownEnvironmentError(str(err)) from err
 
 
-async def aresolve_mcp_overrides(user: User, overrides: dict[str, str] | None) -> dict[str, str] | None:
-    """``overrides`` (``{server: "on"|"off"}``) reduced to their deviations from the caller's default MCP servers."""
+async def aresolve_mcp_overrides(user: User, overrides: dict[str, bool] | None) -> dict[str, str] | None:
+    """``overrides`` (``{server: enabled}``) as the stored ``{server: "on"|"off"}`` deviations from the default set."""
     if overrides is None:
         return None
-    if any(value not in ("on", "off") for value in overrides.values()):
-        raise InvalidMcpOverridesError("MCP server overrides must be 'on' or 'off'.")
+    if not all(isinstance(enabled, bool) for enabled in overrides.values()):
+        raise InvalidMcpOverridesError("MCP server overrides must be true or false.")
     pool = await sync_to_async(build_selection_pool)(user.pk)
     names = sorted(entry.name for entry in pool)
     if unknown := sorted(set(overrides) - set(names)):
         raise InvalidMcpOverridesError(f"unknown MCP server(s) {unknown}; valid: {names}")
-    return diff_selection(effective_selection(overrides, pool), pool)
+    switches = {name: "on" if enabled else "off" for name, enabled in overrides.items()}
+    return diff_selection(effective_selection(switches, pool), pool)
 
 
 async def aadmit(
@@ -122,7 +123,7 @@ async def aadmit(
     agent_model: str | None,
     agent_thinking_level: str | None,
     environment: str | None,
-    mcp_overrides: dict[str, str] | None = None,
+    mcp_overrides: dict[str, bool] | None = None,
 ) -> Admission:
     """Run every admission check for a batch submitted now; ``environment`` names one env for all of ``repos``."""
     model, level = check_agent_override(agent_model, agent_thinking_level)

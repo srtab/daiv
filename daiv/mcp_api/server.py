@@ -6,7 +6,7 @@ import logging
 import uuid as uuid_mod
 from datetime import datetime
 from datetime import time as dt_time
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -16,7 +16,7 @@ from django.utils.dateparse import parse_datetime
 from asgiref.sync import sync_to_async
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
@@ -214,11 +214,11 @@ async def submit_job(
         ),
     ] = None,
     mcp_overrides: Annotated[
-        dict[str, Literal["on", "off"]] | None,
+        dict[str, StrictBool] | None,
         Field(
             description=(
                 "Optional MCP servers to switch on or off for every job in this batch, relative to the default set,"
-                ' e.g. {"grafana": "on"}: "on" adds an on-demand server, "off" drops an active one. Applies to'
+                ' e.g. {"grafana": true}: true adds an on-demand server, false drops an active one. Applies to'
                 " the thread each job starts; a continued thread (thread_id) keeps the servers it started with."
             )
         ),

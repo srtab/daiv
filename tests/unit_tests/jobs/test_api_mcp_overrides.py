@@ -35,7 +35,7 @@ def _post(api_key: str, **fields):
 
 @pytest.mark.django_db
 def test_mcp_overrides_reach_the_submitted_runs(api_key):
-    response, submit = _post(api_key, mcp_overrides={"grafana": "on"})
+    response, submit = _post(api_key, mcp_overrides={"grafana": True})
 
     assert response.status_code == 202
     assert submit.await_args.kwargs["mcp_overrides"] == {"grafana": "on"}
@@ -51,7 +51,7 @@ def test_omitted_mcp_overrides_leave_the_default_set(api_key):
 
 @pytest.mark.django_db
 def test_unknown_mcp_server_is_rejected(api_key):
-    response, submit = _post(api_key, mcp_overrides={"grafna": "on"})
+    response, submit = _post(api_key, mcp_overrides={"grafna": True})
 
     assert response.status_code == 400
     assert "grafna" in response.json()["detail"]
@@ -59,7 +59,7 @@ def test_unknown_mcp_server_is_rejected(api_key):
 
 
 @pytest.mark.django_db
-def test_mcp_override_value_must_be_on_or_off(api_key):
+def test_mcp_override_value_must_be_a_boolean(api_key):
     response, _ = _post(api_key, mcp_overrides={"grafana": "yes"})
 
     assert response.status_code == 422

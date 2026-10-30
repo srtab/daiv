@@ -4,7 +4,7 @@ from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 
 from mcp_connectors.selection import MAX_SERVER_NAME_LENGTH, MAX_SERVER_NAMES
 from ninja import Field, Schema
-from pydantic import ConfigDict, StringConstraints
+from pydantic import ConfigDict, StrictBool, StringConstraints
 from sessions.artifacts import ArtifactPayload  # noqa: TC002 - required at runtime by Ninja
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn  # noqa: TC001 - required at runtime by Ninja
@@ -41,12 +41,12 @@ class JobSubmitRequest(Schema):
         max_length=MAX_REFS_PER_SUBMISSION,
         description="External work-item references to link into the MR/PR.",
     )
-    mcp_overrides: dict[McpServerName, Literal["on", "off"]] | None = Field(
+    mcp_overrides: dict[McpServerName, StrictBool] | None = Field(
         default=None,
         max_length=MAX_SERVER_NAMES,
         description=(
-            "MCP servers to switch on or off for these jobs, relative to the default set: 'on' adds an on-demand "
-            "server, 'off' drops an active one. Applies to the thread each job starts; a continued thread keeps the "
+            "MCP servers to switch on or off for these jobs, relative to the default set: true adds an on-demand "
+            "server, false drops an active one. Applies to the thread each job starts; a continued thread keeps the "
             "servers it started with."
         ),
     )

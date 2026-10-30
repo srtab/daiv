@@ -28,14 +28,14 @@ async def _submit(**kwargs):
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_passes_mcp_overrides_to_the_runs():
-    _, submit = await _submit(mcp_overrides={"grafana": "on"})
+    _, submit = await _submit(mcp_overrides={"grafana": True})
 
     assert submit.await_args.kwargs["mcp_overrides"] == {"grafana": "on"}
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_rejects_an_unknown_mcp_server():
-    data, submit = await _submit(mcp_overrides={"grafna": "on"})
+    data, submit = await _submit(mcp_overrides={"grafna": True})
 
     assert "grafna" in data["error"]
     submit.assert_not_awaited()
