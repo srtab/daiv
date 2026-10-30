@@ -22,6 +22,8 @@ from deepagents.middleware.filesystem import (
 from langchain_core.messages import ToolMessage
 
 from automation.agent.constants import SKILLS_TOOL_NAME
+from automation.agent.mcp.client import is_mcp_tool
+from automation.agent.mcp.images import extract_inline_images
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -204,11 +206,22 @@ class DAIVFilesystemMiddleware(FilesystemMiddleware):
         # through super(): this hook is the agent-wide large-result eviction (bash, task, MCP).
         if request.tool_call["name"] == SKILLS_TOOL_NAME:
             return await handler(request)
+        if is_mcp_tool(request.tool):
+            handler = self._saving_inline_images(handler)
         # Labelling after super() keeps the label out of an evicted body, where the model would never see it.
         result = await super().awrap_tool_call(request, handler)
         if request.tool_call["name"] != "grep":
             return result
         return _label_grep_result(request, result)
+
+    def _saving_inline_images(
+        self, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
+    ) -> Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]:
+        # Runs inside super()'s eviction, so a result shrunk to file paths is no longer evicted.
+        async def call(request: ToolCallRequest) -> ToolMessage | Command:
+            return await save_inline_images(await handler(request), self.backend, request.tool_call["id"])
+
+        return call
 
 
 _PREVIEW_MAX_LINES = 25
@@ -224,6 +237,44 @@ def large_tool_results_prefix(backend: BackendProtocol) -> str:
     """
     artifacts_root = backend.artifacts_root if isinstance(backend, CompositeBackend) else "/"
     return f"{artifacts_root.rstrip('/')}/large_tool_results"
+
+
+async def save_inline_images(
+    result: ToolMessage | Command, backend: BackendProtocol, tool_call_id: str | None
+) -> ToolMessage | Command:
+    """Save the base64 images a tool result carries as JSON text beside the evicted results, leaving their paths.
+
+    Keeps ``result`` as it is when any image fails to save.
+    """
+    if not isinstance(result, ToolMessage) or result.status == "error" or not tool_call_id:
+        return result
+    stem = f"{large_tool_results_prefix(backend)}/{sanitize_tool_call_id(tool_call_id)}"
+    blocks = [result.content] if isinstance(result.content, str) else result.content
+    content: list[str | dict] = []
+    files: list[tuple[str, bytes]] = []
+    for index, block in enumerate(blocks):
+        block_stem = stem if index == 0 else f"{stem}-{index}"
+        if isinstance(block, str):
+            text, saved = extract_inline_images(block, stem=block_stem)
+            content.append(text)
+        elif block.get("type") == "text" and isinstance(block.get("text"), str):
+            text, saved = extract_inline_images(block["text"], stem=block_stem)
+            content.append({**block, "text": text})
+        else:
+            saved = []
+            content.append(block)
+        files.extend(saved)
+    if not files:
+        return result
+    try:
+        failures = [response.error for response in await backend.aupload_files(files) if response.error]
+    except Exception:
+        logger.exception("Failed to save %d inline image(s) from tool call %s", len(files), tool_call_id)
+        return result
+    if failures:
+        logger.error("Failed to save inline images from tool call %s: %s", tool_call_id, failures)
+        return result
+    return result.model_copy(update={"content": content[0] if isinstance(result.content, str) else content})
 
 
 def _file_write_confirmation(path: str, byte_count: int, line_count: int, output: str) -> str:
