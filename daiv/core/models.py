@@ -257,6 +257,19 @@ class SiteConfiguration(models.Model):
         validators=[MinValueValidator(1)],
         help_text=_("Maximum recursion depth for agent loops."),
     )
+    model_request_timeout_seconds = models.PositiveIntegerField(
+        _("model request timeout"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1)],
+        help_text=_("Per-request timeout for LLM API calls, in seconds. Applies to every provider."),
+    )
+    model_max_retries = models.PositiveIntegerField(
+        _("model max retries"),
+        blank=True,
+        null=True,
+        help_text=_("Retries for a failed LLM API call before the error propagates. Applies to every provider."),
+    )
     pipeline_watch_enabled = models.BooleanField(
         _("pipeline watch enabled"),
         blank=True,
@@ -584,7 +597,13 @@ class SiteConfiguration(models.Model):
         FieldGroup(
             key="agent",
             title=_("Agent"),
-            match=("agent_*", "suggest_context_file_enabled", "session_link_enabled"),
+            match=(
+                "agent_*",
+                "suggest_context_file_enabled",
+                "session_link_enabled",
+                "model_request_timeout_seconds",
+                "model_max_retries",
+            ),
             icon="agent",
             category="AI tasks",
         ),
