@@ -43,12 +43,12 @@ def _viewer(role=Role.ADMIN, username="viewer") -> User:
 
 
 def _header(session: Session, runs: list[Run], *, user: User, **kwargs) -> dict:
-    delegations = delegations_for([], session.thread_id, user)
+    delegations = delegations_for([], session, user)
     return build_session_header(session, runs, retry="", user=user, delegations=delegations, **kwargs)
 
 
 def _delegations(session: Session, user: User, turns=()) -> dict | None:
-    return delegations_for(list(turns), session.thread_id, user)
+    return delegations_for(list(turns), session, user)
 
 
 def _run(session: Session, **kwargs) -> Run:
@@ -287,8 +287,8 @@ def test_header_counts_delegated_jobs_across_batches_and_lists_newest_batch_firs
 
     payload = _delegations(coordinator, admin)
 
-    counts = ("total", "running", "waiting", "need_you", "failed")
-    assert tuple(payload[key] for key in counts) == (5, 1, 1, 1, 1)
+    counts = ("total", "running", "waiting", "failed")
+    assert tuple(payload[key] for key in counts) == (5, 1, 1, 1)
     assert [b["goal"] for b in payload["batches"]] == ["x" * 120, "Bump auth"]
     assert [leg["state"] for leg in payload["batches"][0]["legs"]] == ["waiting_input", "finished", "queued"]
     assert payload["batches"][1]["created_at"]
@@ -373,6 +373,15 @@ def test_header_carries_delegations_and_parent():
 
 
 @pytest.mark.django_db
+def test_a_delegated_session_reads_no_delegations(django_assert_num_queries):
+    admin = _viewer()
+    child = make_leg(make_coordinator(admin), uuid.uuid4(), status=RunStatus.RUNNING, finished_at=None).session
+
+    with django_assert_num_queries(0):
+        assert delegations_for([], child, admin) is None
+
+
+@pytest.mark.django_db
 def test_child_session_links_its_parent_only_when_visible():
     owner = _viewer(Role.MEMBER, "owner")
     coordinator = make_coordinator(owner, title="Parent work")
@@ -397,7 +406,7 @@ def test_a_render_reads_the_delegated_legs_once_for_the_transcript_and_the_heade
     Session.objects.visible_to(owner).exists()
 
     with django_assert_num_queries(3):
-        payload = delegations_for(turns, coordinator.thread_id, owner)
+        payload = delegations_for(turns, coordinator, owner)
 
     assert [len(segment["legs"]) for segment in turns[0]["segments"]] == [2, 1]
     assert payload["total"] == 3

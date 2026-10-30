@@ -370,7 +370,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
         mark_skill_links(ctx["turns"], session.thread_id)
-        delegations = delegations_for(ctx["turns"], session.thread_id, self.request.user)
+        delegations = delegations_for(ctx["turns"], session, self.request.user)
         retry = retry_for(session, runs, ctx["turns"], self.request.user, can_act=ctx["can_act"])
         ctx["header"] = build_session_header(
             session, runs, retry=retry, user=self.request.user, delegations=delegations, merge_request=merge_request

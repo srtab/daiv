@@ -80,7 +80,7 @@ from sessions.queue import ENQUEUE_FAILED_PREFIX, LINK_FAILED_PREFIX, dispatch_n
 from sessions.services import RepoTarget, asubmit_batch_runs, create_run, pinned_agent_override
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Sequence
 
     from django.db.models import QuerySet
 
@@ -488,15 +488,9 @@ def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
     return "\n".join(lines)
 
 
-NEEDS_YOU = frozenset({"waiting_input"})
 RUNNING = frozenset({"running", "stopping"})
 WAITING = frozenset({"queued", "waits"})
 FAILED = frozenset({"failed", "lost"})
-
-
-def needs_you_first(legs: Iterable[dict[str, str]]) -> list[dict[str, str]]:
-    return sorted(legs, key=lambda leg: leg["state"] not in NEEDS_YOU)
-
 
 # The word the coordinator reads for each state; "queued" is listed before "waits", which reads the same.
 _OUTCOMES = {
@@ -565,11 +559,8 @@ class Delegations:
 
     @cached_property
     def legs(self) -> dict[uuid.UUID, list[dict[str, str]]]:
-        """Each batch's legs as the transcript and the session header show them, ``NEEDS_YOU`` first."""
-        return {
-            batch_id: needs_you_first(_leg_payload(leg, self.visible) for leg in legs)
-            for batch_id, legs in self.batches.items()
-        }
+        """Each batch's legs as the transcript and the session header show them."""
+        return {batch_id: [_leg_payload(leg, self.visible) for leg in legs] for batch_id, legs in self.batches.items()}
 
 
 _LEG_FIELDS = (

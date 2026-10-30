@@ -1680,12 +1680,17 @@
     return index;
   };
 
+  const linkOf = (leg, key, local) => {
+    const href = legText(leg, key);
+    return linkable(href, local) ? href : "";
+  };
+
   const cardLeg = (leg, state, error = "") => ({
     repo_id: legText(leg, "repo_id"),
     ref: legText(leg, "ref"),
     state,
-    merge_request_url: legText(leg, "merge_request_url"),
-    session_url: legText(leg, "session_url"),
+    merge_request_url: linkOf(leg, "merge_request_url", false),
+    session_url: linkOf(leg, "session_url", true),
     error,
   });
 

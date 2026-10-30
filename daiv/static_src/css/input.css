@@ -983,9 +983,6 @@ html {
   .delegations-btn__status {
     @apply inline-flex items-center gap-1.5 text-text-muted;
   }
-  .delegations-btn--waiting_input .delegations-btn__status {
-    @apply text-status-found;
-  }
   .delegations-btn--failed .delegations-btn__status {
     @apply text-status-fail;
   }

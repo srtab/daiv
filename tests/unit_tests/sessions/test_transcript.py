@@ -1072,7 +1072,7 @@ def owner(member_user):
 
 
 @pytest.mark.django_db
-def test_delegate_segment_gets_the_legs_current_states_needs_you_first(owner):
+def test_delegate_segment_gets_the_legs_current_states_oldest_first(owner):
     coordinator = make_coordinator(owner)
     batch = uuid.uuid4()
     finished = make_leg(
@@ -1084,21 +1084,21 @@ def test_delegate_segment_gets_the_legs_current_states_needs_you_first(owner):
         session_ref="daiv/work-branch",
         merge_request_web_url="http://mr/1",
     )
-    asking = make_leg(coordinator, batch, status=RunStatus.WAITING_INPUT, repo_id="acme/b")
+    running = make_leg(coordinator, batch, status=RunStatus.RUNNING, repo_id="acme/b", finished_at=None)
     turns = delegate_turns(batch)
 
     mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
 
     legs = turns[0]["segments"][0]["legs"]
-    assert [leg["state"] for leg in legs] == ["waiting_input", "finished"]
-    assert legs[1] == {
+    assert [leg["state"] for leg in legs] == ["finished", "running"]
+    assert legs[0] == {
         "repo_id": "acme/a",
         "ref": "main",
         "state": "finished",
         "merge_request_url": "http://mr/1",
         "session_url": reverse("session_detail", kwargs={"thread_id": finished.session_id}),
     }
-    assert legs[0]["session_url"] == reverse("session_detail", kwargs={"thread_id": asking.session_id})
+    assert legs[1]["session_url"] == reverse("session_detail", kwargs={"thread_id": running.session_id})
 
 
 @pytest.mark.django_db

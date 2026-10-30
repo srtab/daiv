@@ -14,18 +14,17 @@ document.addEventListener("alpine:init", () => {
     }
   };
 
+  const CHECK_INTERVAL_MS = 5000;
+
   const delegationsSummary = (delegations) => {
     const T = window.TranscriptLabels;
-    if (delegations.need_you) {
-      return { state: "waiting_input", text: T.tn("delegations_need_you", delegations.need_you) };
-    }
     if (delegations.running) return { state: "running", text: T.tn("delegations_running", delegations.running) };
     if (delegations.waiting) return { state: "queued", text: T.tn("delegations_queued", delegations.waiting) };
     if (delegations.failed) return { state: "failed", text: T.tn("delegations_failed", delegations.failed) };
     return { state: "", text: "" };
   };
 
-  const unsettled = (delegations) => Boolean(delegations?.running || delegations?.waiting || delegations?.need_you);
+  const unsettled = (delegations) => Boolean(delegations?.running || delegations?.waiting);
 
   // x-show reveals on the next animation frame, so a scroll sent from $nextTick can land on a hidden panel.
   const whenShown = (el, then, frames = 10) => {
@@ -51,11 +50,13 @@ document.addEventListener("alpine:init", () => {
     _watchAt: -Infinity,
     _media: null,
     _onMedia: null,
+    _checkTimer: null,
     init() {
       this.applyHeader(readJSON("session-header"));
-      // A dormant page polls nothing, so a delegated job starting or ending asks sessionSync for one fetch.
-      this.$watch("$store.nav?.running", () => {
-        if (unsettled(this.delegations)) window.dispatchEvent(new CustomEvent("daiv:session-check"));
+      // A dormant page polls nothing, so runs ending while a delegated job is unsettled ask sessionSync for one
+      // fetch per interval; a run starting already gets one from sessionSync's own watch.
+      this.$watch("$store.nav?.running", (running, previous) => {
+        if (running < previous && unsettled(this.delegations)) this._askForCheck();
       });
       this._media = window.matchMedia?.(WIDE) ?? null;
       this.wide = Boolean(this._media?.matches);
@@ -68,6 +69,14 @@ document.addEventListener("alpine:init", () => {
     },
     destroy() {
       this._media?.removeEventListener?.("change", this._onMedia);
+      clearTimeout(this._checkTimer);
+    },
+    _askForCheck() {
+      if (this._checkTimer) return;
+      this._checkTimer = setTimeout(() => {
+        this._checkTimer = null;
+        if (unsettled(this.delegations)) window.dispatchEvent(new CustomEvent("daiv:session-check"));
+      }, CHECK_INTERVAL_MS);
     },
     _remembered() {
       try {

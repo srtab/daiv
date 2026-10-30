@@ -450,6 +450,23 @@ def test_streaming_card_falls_back_to_the_tool_result():
     assert all(set(leg) == set(item["legs"][0]) for leg in item["legs"])
 
 
+def test_a_leg_keeps_only_web_or_page_links():
+    lost = {"repo_id": "a/z", "ref": "", "error": "late", "still_runs": True, "session_url": "javascript:alert(1)"}
+    result = {"batch_id": "b", "started": [], "failed": [lost]}
+    mr = "https://git.example/a/y/-/merge_requests/2"
+    legs = [
+        enriched_leg(merge_request_url="javascript:alert(1)//merge_requests/1", session_url="/sessions/t-a-x/"),
+        enriched_leg("a/y", "", state="finished", merge_request_url=mr),
+    ]
+    seg = delegate(result=result, legs=legs)
+    shown = _cards(_blocks([user("u1"), asst("a1", read("c1"), seg, text("done"))])[0])[0]["legs"]
+    assert [(leg["repo_id"], leg["merge_request_url"], leg["session_url"]) for leg in shown] == [
+        ("a/x", "", "/sessions/t-a-x/"),
+        ("a/y", mr, ""),
+        ("a/z", "", ""),
+    ]
+
+
 def test_a_started_leg_links_to_the_pages_own_session_path():
     turns = [user("u1"), asst("a1", delegate(), streaming=True)]
     labels = {"session_path": "/dashboard/sessions/{thread_id}/"}

@@ -18,7 +18,7 @@ from codebase.authorization import can_run
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
-from sessions.delegation import FAILED, NEEDS_YOU, RUNNING, WAITING, load_delegations, needs_you_first
+from sessions.delegation import FAILED, RUNNING, WAITING, load_delegations
 from sessions.models import Run, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import WatchStore, watch_thread_id
 from sessions.templatetags.session_tags import session_title, status_variant
@@ -138,14 +138,17 @@ def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
     return {"iid": iid, "url": f"{html_url.rstrip('/')}/{path}/{iid}"}
 
 
-def delegations_for(turns: list[dict[str, Any]], thread_id: str, user: User) -> dict[str, Any] | None:
-    """SYNC ONLY: set the ``legs`` of the ``delegate_jobs`` calls in ``turns`` and return the jobs ``thread_id``
-    delegated as ``user`` sees them, newest batch first, or ``None`` when it never delegated.
+def delegations_for(turns: list[dict[str, Any]], session: Session, user: User) -> dict[str, Any] | None:
+    """SYNC ONLY: set the ``legs`` of the ``delegate_jobs`` calls in ``turns`` and return the jobs ``session``
+    delegated as ``user`` sees them, newest batch first, or ``None`` when it never delegated. A delegated session
+    cannot delegate, so it costs no query.
 
     A batch's ``goal`` is the one its call in ``turns`` gave, else the first line of the prompt of its first leg the
-    viewer may see. ``legs`` holds every batch's legs in one list, those in ``NEEDS_YOU`` first.
+    viewer may see. ``legs`` holds every batch's legs in one list.
     """
-    delegations = load_delegations(thread_id, user)
+    if session.parent_id:
+        return None
+    delegations = load_delegations(session.thread_id, user)
     if not delegations.batches:
         return None
     called = mark_delegations(turns, delegations)
@@ -158,13 +161,12 @@ def delegations_for(turns: list[dict[str, Any]], thread_id: str, user: User) -> 
         }
         for batch_id, legs in reversed(delegations.batches.items())
     ]
-    legs = needs_you_first(leg for batch in batches for leg in batch["legs"])
+    legs = [leg for batch in batches for leg in batch["legs"]]
     states = [leg["state"] for leg in legs]
     return {
         "total": len(states),
         "running": sum(state in RUNNING for state in states),
         "waiting": sum(state in WAITING for state in states),
-        "need_you": sum(state in NEEDS_YOU for state in states),
         "failed": sum(state in FAILED for state in states),
         "batches": batches,
         "legs": legs,

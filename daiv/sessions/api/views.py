@@ -140,7 +140,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
         mark_skill_links(turns, session.thread_id)
-        delegations = delegations_for(turns, session.thread_id, user)
+        delegations = delegations_for(turns, session, user)
         retry = retry_for(session, runs, turns, user)
         return live_run_for(activity.live, session, user), latest_run_payload(runs, retry), delegations
 

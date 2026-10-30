@@ -159,10 +159,6 @@ def transcript_labels() -> dict[str, str | list[str]]:
             ngettext("{count} delegated", "{count} delegated", 1),
             ngettext("{count} delegated", "{count} delegated", 2),
         ],
-        "delegations_need_you": [
-            ngettext("{count} needs you", "{count} need you", 1),
-            ngettext("{count} needs you", "{count} need you", 2),
-        ],
         "delegations_running": [
             ngettext("{count} running", "{count} running", 1),
             ngettext("{count} running", "{count} running", 2),

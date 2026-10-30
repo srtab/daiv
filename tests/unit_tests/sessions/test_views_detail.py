@@ -1336,7 +1336,7 @@ def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
 def test_detail_shows_delegated_jobs_current_state(member_client, member_user):
     coordinator = make_coordinator(member_user)
     batch = uuid.uuid4()
-    make_leg(coordinator, batch, status=RunStatus.WAITING_INPUT)
+    make_leg(coordinator, batch, status=RunStatus.FAILED)
     messages = delegate_messages(batch)
 
     with (
@@ -1346,7 +1346,7 @@ def test_detail_shows_delegated_jobs_current_state(member_client, member_user):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": coordinator.thread_id}))
 
     segment = next(s for t in resp.context["turns"] for s in t["segments"] if s.get("name") == "delegate_jobs")
-    assert [leg["state"] for leg in segment["legs"]] == ["waiting_input"]
+    assert [leg["state"] for leg in segment["legs"]] == ["failed"]
 
 
 def _header_payload(resp) -> dict:
@@ -1358,14 +1358,14 @@ def _header_payload(resp) -> dict:
 def test_a_coordinator_page_has_the_delegations_button_and_details_section(member_client, member_user):
     coordinator = make_coordinator(member_user)
     make_delegating_run(coordinator, member_user)
-    make_leg(coordinator, uuid.uuid4(), status=RunStatus.WAITING_INPUT)
+    make_leg(coordinator, uuid.uuid4(), status=RunStatus.FAILED)
 
     resp = _get_detail(member_client, coordinator)
 
     assert 'x-if="delegations"' in _topbar(resp) and 'data-testid="session-delegations"' in _topbar(resp)
     assert "openDetails('delegations')" in _topbar(resp)
     assert 'id="session-details-delegations"' in _details(resp)
-    assert _header_payload(resp)["delegations"]["need_you"] == 1
+    assert _header_payload(resp)["delegations"]["failed"] == 1
 
 
 @pytest.mark.django_db

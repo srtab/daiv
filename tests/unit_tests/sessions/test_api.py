@@ -475,7 +475,7 @@ async def test_session_turns_show_delegated_jobs_current_state(client, authed):
     _key_obj, raw, user = authed
     coordinator = await sync_to_async(make_coordinator)(user)
     batch = uuid.uuid4()
-    await sync_to_async(make_leg)(coordinator, batch, status=RunStatus.WAITING_INPUT)
+    await sync_to_async(make_leg)(coordinator, batch, status=RunStatus.FAILED)
     messages = delegate_messages(batch)
 
     with patch(
@@ -484,14 +484,14 @@ async def test_session_turns_show_delegated_jobs_current_state(client, authed):
         resp = await client.get(f"/sessions/{coordinator.thread_id}/turns", headers=_auth_headers(raw))
 
     segment = next(s for t in resp.json()["turns"] for s in t["segments"] if s.get("name") == "delegate_jobs")
-    assert [leg["state"] for leg in segment["legs"]] == ["waiting_input"]
+    assert [leg["state"] for leg in segment["legs"]] == ["failed"]
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_session_turns_carry_delegations_and_leave_the_parent_to_the_page(client, authed):
     _key_obj, raw, user = authed
     coordinator = await sync_to_async(make_coordinator)(user, title="Parent work")
-    leg = await sync_to_async(make_leg)(coordinator, uuid.uuid4(), status=RunStatus.WAITING_INPUT)
+    leg = await sync_to_async(make_leg)(coordinator, uuid.uuid4(), status=RunStatus.FAILED)
 
     with patch(
         "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
@@ -499,7 +499,7 @@ async def test_session_turns_carry_delegations_and_leave_the_parent_to_the_page(
         parent = (await client.get(f"/sessions/{coordinator.thread_id}/turns", headers=_auth_headers(raw))).json()
         child = (await client.get(f"/sessions/{leg.session_id}/turns", headers=_auth_headers(raw))).json()
 
-    assert parent["delegations"]["need_you"] == 1
+    assert parent["delegations"]["failed"] == 1
     assert child["delegations"] is None
     assert "parent" not in child
 

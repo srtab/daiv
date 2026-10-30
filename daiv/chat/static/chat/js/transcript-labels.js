@@ -123,7 +123,6 @@
     leg_cancelled: "Cancelled",
     leg_lost: "Lost",
     delegations_total: ["{count} delegated", "{count} delegated"],
-    delegations_need_you: ["{count} needs you", "{count} need you"],
     delegations_running: ["{count} running", "{count} running"],
     delegations_queued: ["{count} queued", "{count} queued"],
     delegations_failed: ["{count} failed", "{count} failed"],

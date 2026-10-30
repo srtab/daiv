@@ -1014,11 +1014,6 @@ msgid_plural "{count} delegated"
 msgstr[0] "{count} delegada"
 msgstr[1] "{count} delegadas"
 
-msgid "{count} needs you"
-msgid_plural "{count} need you"
-msgstr[0] "{count} precisa de si"
-msgstr[1] "{count} precisam de si"
-
 msgid "{count} running"
 msgid_plural "{count} running"
 msgstr[0] "{count} a executar"
