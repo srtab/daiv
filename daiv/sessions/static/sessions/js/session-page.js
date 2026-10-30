@@ -17,12 +17,13 @@ document.addEventListener("alpine:init", () => {
   const delegationsSummary = (delegations) => {
     const T = window.TranscriptLabels;
     if (delegations.need_you) return { tone: "warn", text: T.tn("delegations_need_you", delegations.need_you) };
-    if (delegations.active) return { tone: "running", text: T.tn("delegations_running", delegations.active) };
+    if (delegations.running) return { tone: "running", text: T.tn("delegations_running", delegations.running) };
+    if (delegations.waiting) return { tone: "queued", text: T.tn("delegations_queued", delegations.waiting) };
     if (delegations.failed) return { tone: "danger", text: T.tn("delegations_failed", delegations.failed) };
     return { tone: "", text: "" };
   };
 
-  const needsYouFirst = (legs) => legs.sort((a, b) => (b.state === "waiting_input") - (a.state === "waiting_input"));
+  const unsettled = (delegations) => Boolean(delegations?.running || delegations?.waiting || delegations?.need_you);
 
   // x-show reveals on the next animation frame, so a scroll sent from $nextTick can land on a hidden panel.
   const whenShown = (el, then, frames = 10) => {
@@ -40,7 +41,6 @@ document.addEventListener("alpine:init", () => {
     delegationsStatus: "",
     delegationsLabel: "",
     delegationsTone: "",
-    parent: null,
     title: config.title || "",
     titleDraft: "",
     titleWidth: 0,
@@ -56,6 +56,10 @@ document.addEventListener("alpine:init", () => {
     _onMedia: null,
     init() {
       this.applyHeader(readJSON("session-header"));
+      // A dormant page polls nothing, so a delegated job starting or ending asks sessionSync for one fetch.
+      this.$watch("$store.nav?.running", () => {
+        if (unsettled(this.delegations)) window.dispatchEvent(new CustomEvent("daiv:session-check"));
+      });
       this._media = window.matchMedia?.(WIDE) ?? null;
       this.wide = Boolean(this._media?.matches);
       this._onMedia = (event) => {
@@ -127,12 +131,11 @@ document.addEventListener("alpine:init", () => {
       const stale = data.requestedAt <= this._watchAt;
       if ("watch" in data && !stale) this.watch = data.watch ?? null;
       if ("delegations" in data) this._setDelegations(data.delegations ?? null);
-      if ("parent" in data) this.parent = data.parent ?? null;
     },
     _setDelegations(delegations) {
       const status = delegations ? delegationsSummary(delegations) : { tone: "", text: "" };
       this.delegations = delegations;
-      this.delegationLegs = needsYouFirst((delegations?.batches ?? []).flatMap((batch) => batch.legs ?? []));
+      this.delegationLegs = delegations?.legs ?? [];
       this.delegationsCount = delegations ? window.TranscriptLabels.tn("delegations_total", delegations.total) : "";
       this.delegationsStatus = status.text;
       this.delegationsTone = status.tone;

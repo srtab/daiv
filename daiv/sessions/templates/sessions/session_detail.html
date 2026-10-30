@@ -48,6 +48,7 @@
   {% session_title session as page_title %}
   <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}', active: {{ is_in_flight|yesno:'true,false' }} })"
        @daiv:live-run-ended.window="resume()"
+       @daiv:session-check.window="_checkForBackgroundRun()"
        style="display:none" aria-hidden="true"></div>
   {% endif %}
 

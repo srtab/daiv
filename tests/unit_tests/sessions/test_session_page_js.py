@@ -21,14 +21,16 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const {
-  src, labelsSrc, initial, watch, delegations, parent, wide, stored, storageBlocked, archived, steps,
+  src, labelsSrc, initial, watch, delegations, wide, stored, storageBlocked, archived, steps,
 } = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
 const fetches = [];
 const pending = [];
 const storage = new Map(stored == null ? [] : [["key", stored]]);
 let clock = 10;
-const json = { "session-header": { latest_run: initial, watch, run_count: 1, delegations, parent } };
+const json = { "session-header": { latest_run: initial, watch, run_count: 1, delegations } };
+const watchers = {};
+const dispatched = [];
 const frames = [];
 const scrolled = [];
 const section = {
@@ -59,7 +61,11 @@ const sandbox = {
   },
 };
 sandbox.document.title = "Old — DAIV Sessions";
-sandbox.window = { matchMedia: () => ({ matches: wide, addEventListener() {}, removeEventListener() {} }) };
+sandbox.window = {
+  matchMedia: () => ({ matches: wide, addEventListener() {}, removeEventListener() {} }),
+  dispatchEvent: (event) => dispatched.push(event.type),
+};
+sandbox.CustomEvent = class { constructor(type) { this.type = type; } };
 sandbox.Alpine = { data: (name, factory) => { components[name] = factory; } };
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(labelsSrc, "utf8"), sandbox);
@@ -76,6 +82,7 @@ const page = components.sessionPage({
 const focused = [];
 Object.assign(page, {
   streaming: false, resuming: false, waiting: false, archived, csrfToken: "tok", $nextTick: (cb) => cb(),
+  $watch: (expression, callback) => { watchers[expression] = callback; },
   $refs: {
     titleInput: { focus: () => focused.push("input"), select() {} },
     titleButton: { focus: () => focused.push("button"), getBoundingClientRect: () => ({ width: 312 }) },
@@ -89,6 +96,7 @@ for (const [action, value] of steps) {
   if (action === "set") Object.assign(page, value);
   else if (action === "poll") page.applyHeader(value);
   else if (action === "run-ended") page.settle();
+  else if (action === "nav-running") watchers["$store.nav?.running"](value);
   else if (action === "reply") { pending.shift()(value.body, value.status); await sending; await flush(); }
   else if (action === "rename") page.startRename();
   else if (action === "draft") page.titleDraft = value;
@@ -106,7 +114,7 @@ for (const [action, value] of steps) {
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
       ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn,
-      delegations: page.delegations, parent: page.parent, delegationsLabel: page.delegationsLabel,
+      delegations: page.delegations, delegationsLabel: page.delegationsLabel, dispatched: [...dispatched],
       delegationsTone: page.delegationsTone, legs: page.delegationLegs.map((leg) => leg.repo_id),
     });
   }
@@ -123,16 +131,7 @@ WATCHING = {"state": "watching", "label": "Waiting for CI", "tone": "attn", "ope
 
 
 def _run(
-    steps,
-    *,
-    initial=DONE,
-    watch=None,
-    delegations=None,
-    parent=None,
-    wide=True,
-    stored=None,
-    storage_blocked=False,
-    archived=False,
+    steps, *, initial=DONE, watch=None, delegations=None, wide=True, stored=None, storage_blocked=False, archived=False
 ) -> dict:
     payload = {
         "src": str(SESSION_PAGE_JS),
@@ -140,7 +139,6 @@ def _run(
         "initial": initial,
         "watch": watch,
         "delegations": delegations,
-        "parent": parent,
         "wide": wide,
         "stored": stored,
         "storageBlocked": storage_blocked,
@@ -445,20 +443,18 @@ def _leg(repo_id: str, state: str) -> dict:
     return {"repo_id": repo_id, "ref": "", "state": state, "merge_request_url": "", "session_url": ""}
 
 
-def _delegations(*, total=2, active=0, need_you=0, failed=0, batches=None) -> dict:
-    counts = {"total": total, "active": active, "need_you": need_you, "failed": failed}
-    return {**counts, "batches": batches or []}
-
-
-PARENT = {"title": "Parent work", "url": "/sessions/parent/"}
+def _delegations(*, total=2, running=0, waiting=0, need_you=0, failed=0, legs=None) -> dict:
+    counts = {"total": total, "running": running, "waiting": waiting, "need_you": need_you, "failed": failed}
+    return {**counts, "batches": [], "legs": legs or []}
 
 
 @pytest.mark.parametrize(
     ("counts", "label", "tone"),
     [
-        ({"active": 1, "need_you": 1}, "2 delegated · 1 needs you", "warn"),
-        ({"total": 3, "active": 1, "need_you": 2, "failed": 1}, "3 delegated · 2 need you", "warn"),
-        ({"active": 2, "failed": 1}, "2 delegated · 2 running", "running"),
+        ({"running": 1, "need_you": 1}, "2 delegated · 1 needs you", "warn"),
+        ({"total": 3, "running": 1, "need_you": 2, "failed": 1}, "3 delegated · 2 need you", "warn"),
+        ({"running": 2, "waiting": 1, "failed": 1}, "2 delegated · 2 running", "running"),
+        ({"waiting": 2, "failed": 1}, "2 delegated · 2 queued", "queued"),
         ({"failed": 1}, "2 delegated · 1 failed", "danger"),
         ({"total": 1}, "1 delegated", ""),
     ],
@@ -475,38 +471,39 @@ def test_a_session_that_delegated_nothing_has_no_delegations():
     assert (seen["delegations"], seen["delegationsLabel"], seen["delegationsTone"], seen["legs"]) == (None, "", "", [])
 
 
-def test_the_popover_lists_every_leg_across_batches_with_those_needing_you_first():
-    batches = [
-        {"goal": "Newer", "created_at": "2026-10-29T10:00:00+00:00", "legs": [_leg("a/one", "running")]},
-        {
-            "goal": "Older",
-            "created_at": "2026-10-29T09:00:00+00:00",
-            "legs": [_leg("a/two", "waiting_input"), _leg("a/three", "finished")],
-        },
-    ]
+def test_the_popover_lists_the_legs_in_the_servers_order():
+    legs = [_leg("a/two", "waiting_input"), _leg("a/one", "running"), _leg("a/three", "finished")]
 
-    seen = _read(delegations=_delegations(total=3, active=1, need_you=1, batches=batches))
+    seen = _read(delegations=_delegations(total=3, running=1, need_you=1, legs=legs))
 
     assert seen["legs"] == ["a/two", "a/one", "a/three"]
 
 
-def test_each_poll_replaces_the_delegations_and_the_parent():
+def test_each_poll_replaces_the_delegations():
     polled = _delegations(failed=2)
-    steps = [["poll", {"latest_run": DONE, "delegations": polled, "parent": None}], ["read", None]]
+    steps = [["poll", {"latest_run": DONE, "delegations": polled}], ["read", None]]
 
-    seen = _run(steps, delegations=_delegations(active=2), parent=PARENT)["seen"][0]
+    seen = _run(steps, delegations=_delegations(running=2))["seen"][0]
 
-    assert (seen["delegations"], seen["parent"]) == (polled, None)
+    assert seen["delegations"] == polled
     assert (seen["delegationsLabel"], seen["delegationsTone"]) == ("2 delegated · 2 failed", "danger")
 
 
-def test_a_poll_without_delegations_or_a_parent_keeps_the_ones_the_page_has():
-    delegations = _delegations(active=1)
+def test_a_poll_without_delegations_keeps_the_ones_the_page_has():
+    delegations = _delegations(running=1)
 
-    seen = _run([["poll", {"latest_run": FAILED}], ["read", None]], delegations=delegations, parent=PARENT)["seen"][0]
+    seen = _run([["poll", {"latest_run": FAILED}], ["read", None]], delegations=delegations)["seen"][0]
 
-    assert (seen["delegations"], seen["parent"], seen["delegationsLabel"]) == (
-        delegations,
-        PARENT,
-        "2 delegated · 1 running",
-    )
+    assert (seen["delegations"], seen["delegationsLabel"]) == (delegations, "2 delegated · 1 running")
+
+
+@pytest.mark.parametrize(
+    ("counts", "checks"),
+    [({"running": 1}, 1), ({"waiting": 1}, 1), ({"need_you": 1}, 1), ({"failed": 2}, 0), (None, 0)],
+)
+def test_a_change_in_running_runs_asks_for_a_check_while_a_delegated_job_is_unsettled(counts, checks):
+    delegations = None if counts is None else _delegations(**counts)
+
+    seen = _run([["nav-running", 3], ["read", None]], delegations=delegations)["seen"][0]
+
+    assert seen["dispatched"] == ["daiv:session-check"] * checks

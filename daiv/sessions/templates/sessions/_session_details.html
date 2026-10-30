@@ -54,11 +54,7 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
         <dt>{% translate "Started by" %}</dt>
         <dd>
           {% if header.parent %}
-            <span x-show="parent">
-              {% translate "Delegated by" %}
-              <a href="{{ header.parent.url }}" :href="parent?.url" x-text="parent?.title">{{ header.parent.title }}</a>
-            </span>
-            <span x-show="!parent" x-cloak>{{ session.get_origin_display }}</span>
+            {% translate "Delegated by" %} <a href="{{ header.parent.url }}">{{ header.parent.title }}</a>
           {% elif header.issue %}
             {% blocktranslate with iid=header.issue.iid asvar issue_label %}Issue #{{ iid }}{% endblocktranslate %}
             {% if header.issue.url %}<a href="{{ header.issue.url }}" target="_blank" rel="noopener noreferrer">{{ issue_label }}</a>{% else %}{{ issue_label }}{% endif %}

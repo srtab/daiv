@@ -66,6 +66,7 @@ const sync = components.sessionSync(args);
 sync.$watch = (expression, callback) => watchers.push({ expression, callback });
 sync.init();
 listeners["daiv:live-run-ended"] = () => sync.resume();
+listeners["daiv:session-check"] = () => sync._checkForBackgroundRun();
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 for (const [action, value] of steps) {
@@ -212,14 +213,27 @@ def test_a_background_run_with_no_holder_yet_is_polled():
     assert result["fetches"] == 2
 
 
-def test_a_run_starting_elsewhere_leaves_an_idle_page_alone():
+def test_a_run_starting_elsewhere_only_refreshes_an_idle_pages_header():
     payload = {"active": False, "background": False, "live_run": None, "turns": []}
 
     result = _idle([["respond", payload], ["running-start", STARTED], ["advance", 15000]])
 
     assert result["fetches"] == 1
-    assert result["events"] == []
+    assert result["events"] == [{"type": "daiv:session-header", "detail": {**payload, "requestedAt": 0}}]
     assert result["reloads"] == 0
+
+
+def test_a_session_check_refreshes_an_idle_pages_header_once():
+    payload = {"active": False, "background": False, "live_run": None, "turns": []}
+
+    result = _idle([["respond", payload], ["event", "daiv:session-check"], ["advance", 15000]])
+
+    assert result["fetches"] == 1
+    assert [e["type"] for e in result["events"]] == ["daiv:session-check", "daiv:session-header"]
+
+
+def test_a_session_check_leaves_an_engaged_page_to_its_poll():
+    assert _run({"liveRunId": ""}, [["event", "daiv:session-check"]])["fetches"] == 0
 
 
 def test_nothing_running_is_not_worth_a_check():

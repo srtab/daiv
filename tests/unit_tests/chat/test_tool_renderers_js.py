@@ -7,6 +7,7 @@ import re
 import time
 
 import pytest
+from sessions.delegation import outcome_states
 
 from tests.unit_tests.chat.transcript_driver import run_transcript
 from tests.unit_tests.chat.transcript_fixtures import tool_call
@@ -185,7 +186,7 @@ def _body_seg(seg: dict, *, show_raw: bool = False, servers: list[dict] | None =
     rows = servers or []
     ctx = {"mcpRows": rows, "mergeRequestUrl": mr_url}
     expr = "toolBodyHTML(vars.seg, { ...vars.ctx, latestArtifactsById: new Map() })"
-    labels = {"show_raw": show_raw, "session_path": SESSION_PATH}
+    labels = {"show_raw": show_raw, "session_path": SESSION_PATH, "leg_states": outcome_states()}
     return run_transcript(expr, {"seg": seg, "ctx": ctx}, blocks=False, labels=labels, markdown=True)
 
 
@@ -1232,6 +1233,12 @@ def test_fetch_artifact_shows_the_file_it_wrote():
     changed = html.split("Loaded into context")[0]
     assert '<span class="body-op">A</span>' in changed and "/workspace/tmp/report.md" in changed
     assert "2.0 KB" in changed and "<a " not in changed
+
+
+@pytest.mark.parametrize(("size", "shown"), [(40, "40 B"), (8 * 1024 * 1024, "8.0 MB")])
+def test_fetch_artifact_shows_a_small_or_large_files_size_in_its_unit(size, shown):
+    html = _body("fetch_artifact", {"artifact_id": "a1"}, result=FETCHED.replace("2048 bytes", f"{size} bytes"))
+    assert f'<span class="body-size">{shown}</span>' in html.split("Loaded into context")[0]
 
 
 def test_fetch_artifact_links_an_artifact_the_page_knows():

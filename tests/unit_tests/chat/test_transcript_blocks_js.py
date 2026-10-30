@@ -510,6 +510,15 @@ def test_a_refused_target_joins_the_enriched_legs_with_its_error():
     ]
 
 
+@pytest.mark.parametrize(("state", "shown"), [("running", ("running", "")), ("lost", ("lost", "late"))])
+def test_a_leg_that_still_runs_is_its_enriched_leg_whatever_state_it_moved_on_to(state, shown):
+    lost = {"repo_id": "a/z", "ref": "", "error": "late", "still_runs": True}
+    result = {"batch_id": "b", "started": [started_leg()], "failed": [lost]}
+    seg = delegate(result=result, legs=[enriched_leg(state="running"), enriched_leg("a/z", "", state=state)])
+    legs = _cards(_blocks([user("u1"), asst("a1", read("c1"), seg, text("done"))])[0])[0]["legs"]
+    assert [(leg["repo_id"], leg["state"], leg["error"]) for leg in legs] == [("a/x", "running", ""), ("a/z", *shown)]
+
+
 def test_delegate_is_not_a_step_and_is_hoisted_before_artifacts():
     b = _blocks([user("u1"), asst("a1", read("c1"), delegate(), publish("p1"), read("c2"), text("x"))])[0]
     assert b["stats"]["steps"] == 2 and _kinds(b["cards"]) == ["delegated", "artifacts"]

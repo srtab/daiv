@@ -96,14 +96,6 @@ MAX_STATUS_BATCHES = 5
 STALLED_BATCH_WINDOW = timedelta(days=1)
 ACCESS_DENIED_PREFIX = "access_denied"
 
-_OUTCOMES = {
-    RunStatus.QUEUED: "queued",
-    RunStatus.READY: "queued",
-    RunStatus.RUNNING: "running",
-    RunStatus.SUCCESSFUL: "succeeded",
-    RunStatus.FAILED: "failed",
-    RunStatus.WAITING_INPUT: "stopped to ask a question",
-}
 _UNSTARTED_LEG = "DAIV could not start this leg; the error is on DAIV's side, not in the request."
 _UNTRACKED_LEG = (
     "This leg started, but DAIV lost track of it: it may still open a merge request, and its outcome will not "
@@ -489,18 +481,26 @@ def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
 
 
 def _leg_outcome(leg: Run) -> str:
-    if _stopping(leg):
-        return "stopping"
-    if leg.is_cancelled:
-        return "cancelled"
-    if leg.status == RunStatus.FAILED and leg.error_message.startswith(LINK_FAILED_PREFIX):
-        return "started, but DAIV lost track of it"
-    return _OUTCOMES.get(leg.status, leg.status)
+    return _OUTCOMES[leg_state(leg)]
 
 
 NEEDS_YOU = frozenset({"waiting_input"})
-ACTIVE = frozenset({"queued", "waits", "running", "stopping"})
+RUNNING = frozenset({"running", "stopping"})
+WAITING = frozenset({"queued", "waits"})
 FAILED = frozenset({"failed", "lost"})
+
+# The word the coordinator reads for each state; "queued" is listed before "waits", which reads the same.
+_OUTCOMES = {
+    "queued": "queued",
+    "waits": "queued",
+    "running": "running",
+    "stopping": "stopping",
+    "waiting_input": "stopped to ask a question",
+    "finished": "succeeded",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "lost": "started, but DAIV lost track of it",
+}
 
 _LEG_STATES = {
     RunStatus.RUNNING: "running",
@@ -511,7 +511,7 @@ _LEG_STATES = {
 
 
 def leg_state(leg: Run) -> str:
-    """The status of a delegated job as the transcript shows it; precedence matches ``_leg_outcome``."""
+    """The status of a delegated job, which the transcript shows and ``_OUTCOMES`` words for the coordinator."""
     if _stopping(leg):
         return "stopping"
     if leg.is_cancelled:
@@ -523,10 +523,19 @@ def leg_state(leg: Run) -> str:
     return _LEG_STATES.get(leg.status, "queued")
 
 
+def outcome_states() -> dict[str, str]:
+    """The state each word of a jobs tool's leg ``status`` stands for, so the transcript can label the word."""
+    states: dict[str, str] = {}
+    for state, word in _OUTCOMES.items():
+        states.setdefault(word, state)
+    return states
+
+
 def leg_payloads[K](
     legs_by_group: Mapping[K, Sequence[Run]], visible: Collection[str]
 ) -> dict[K, list[dict[str, str]]]:
-    """Each group's legs as the transcript and the session header show them: ``NEEDS_YOU`` first, then oldest first.
+    """Each group's legs as the transcript and the session header show them: ``NEEDS_YOU`` first, then in the order
+    given.
 
     A leg whose session is not in ``visible`` keeps its repository, ref and state, and nothing else.
     """
@@ -543,8 +552,7 @@ def leg_payloads[K](
 
     result = {}
     for group, legs in legs_by_group.items():
-        payloads = [payload(leg) for leg in sorted(legs, key=lambda leg: (leg.created_at, leg.id))]
-        result[group] = sorted(payloads, key=lambda item: item["state"] not in NEEDS_YOU)
+        result[group] = sorted(map(payload, legs), key=lambda item: item["state"] not in NEEDS_YOU)
     return result
 
 

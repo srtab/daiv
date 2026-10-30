@@ -125,6 +125,7 @@
     delegations_total: ["{count} delegated", "{count} delegated"],
     delegations_need_you: ["{count} needs you", "{count} need you"],
     delegations_running: ["{count} running", "{count} running"],
+    delegations_queued: ["{count} queued", "{count} queued"],
     delegations_failed: ["{count} failed", "{count} failed"],
     suggested_answer: "Suggested answer",
     publish_committing: "Committing changes",
@@ -153,6 +154,7 @@
 
   const showRaw = payload.show_raw === true;
   const sessionPath = typeof payload.session_path === "string" ? payload.session_path : "";
+  const legStates = payload.leg_states && typeof payload.leg_states === "object" ? payload.leg_states : {};
 
   const fill = (template, values) =>
     template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
@@ -180,5 +182,5 @@
     return `${Math.floor(min / 60)}h ${min % 60}m`;
   };
 
-  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration, showRaw, sessionPath };
+  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration, showRaw, sessionPath, legStates };
 })();

@@ -13,6 +13,7 @@ from django.utils.html import escapejs
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from sessions.conf import settings as sessions_settings
+from sessions.delegation import outcome_states
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
 from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
@@ -1205,6 +1206,7 @@ def test_detail_and_new_chat_embed_the_transcript_labels(member_client, member_u
     assert 'id="chat-transcript-labels"' in detail.content.decode()
     assert 'id="chat-transcript-labels"' in new_chat.content.decode()
     assert detail.context["transcript_labels_payload"]["icons"] == transcript_icons()
+    assert detail.context["transcript_labels_payload"]["leg_states"] == outcome_states()
 
 
 def _detail_html(client, session: Session) -> str:

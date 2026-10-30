@@ -19,7 +19,6 @@ from sessions.models import CHAT_PROMPT_MAX_LENGTH, Run, RunArtifact, RunStatus,
 from sessions.transcript import (
     RETRY_MESSAGE,
     annotate_transcript,
-    delegate_goals,
     expired_run_turns,
     mark_delegations,
     mark_skill_links,
@@ -1179,17 +1178,27 @@ def test_a_delegate_result_without_a_batch_id_is_skipped(owner, result):
     segment["result"] = result
     turns = [{"role": "assistant", "segments": [segment]}]
 
-    mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+    goals = mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
 
     assert "legs" not in segment
-    assert delegate_goals(turns) == {}
+    assert goals == {}
 
 
-def test_delegate_goals_are_the_calls_own_trimmed_goals():
-    named, blank, unparsable = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    turns = delegate_turns(named, goal="  Bump auth  ") + delegate_turns(blank, goal=" ")
+@pytest.mark.django_db
+def test_mark_delegations_returns_the_calls_own_trimmed_goals(owner):
+    coordinator = make_coordinator(owner)
+    named, blank, unparsable, foreign = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    for batch in (named, blank, unparsable):
+        make_leg(coordinator, batch, status=RunStatus.RUNNING)
+    turns = [
+        *delegate_turns(named, goal="  Bump auth  "),
+        *delegate_turns(blank, goal=" "),
+        *delegate_turns(foreign, goal="Not ours"),
+    ]
     broken = delegate_segment(unparsable)
     broken["args"] = "{not json"
     turns.append({"role": "assistant", "segments": [broken]})
 
-    assert delegate_goals(turns) == {named: "Bump auth"}
+    goals = mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+
+    assert goals == {named: "Bump auth"}

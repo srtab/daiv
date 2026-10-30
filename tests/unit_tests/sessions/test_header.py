@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.urls import reverse
@@ -42,15 +43,14 @@ def _viewer(role=Role.ADMIN, username="viewer") -> User:
     return User.objects.create_user(username=username, email=f"{username}@test.com", password="x", role=role)  # noqa: S106
 
 
-def _header(session: Session, runs: list[Run], *, user: User, turns=(), **kwargs) -> dict:
+def _header(session: Session, runs: list[Run], *, user: User, **kwargs) -> dict:
     delegations = load_delegations(session.thread_id, user)
-    return build_session_header(
-        session, runs, retry="", user=user, delegations=delegations, turns=list(turns), **kwargs
-    )
+    return build_session_header(session, runs, retry="", user=user, delegations=delegations, goals={}, **kwargs)
 
 
 def _delegations(session: Session, user: User, turns=()) -> dict | None:
-    return delegations_payload(load_delegations(session.thread_id, user), list(turns))
+    delegations = load_delegations(session.thread_id, user)
+    return delegations_payload(delegations, mark_delegations(list(turns), delegations))
 
 
 def _run(session: Session, **kwargs) -> Run:
@@ -285,13 +285,32 @@ def test_header_counts_delegated_jobs_across_batches_and_lists_newest_batch_firs
     make_leg(coordinator, first, status=RunStatus.FAILED)
     make_leg(coordinator, second, status=RunStatus.WAITING_INPUT, prompt="x" * 300, repo_id="acme/ops")
     make_leg(coordinator, second, status=RunStatus.SUCCESSFUL)
+    make_leg(coordinator, second, status=RunStatus.QUEUED, finished_at=None)
 
     payload = _delegations(coordinator, admin)
 
-    assert (payload["total"], payload["active"], payload["need_you"], payload["failed"]) == (4, 1, 1, 1)
+    counts = ("total", "running", "waiting", "need_you", "failed")
+    assert tuple(payload[key] for key in counts) == (5, 1, 1, 1, 1)
     assert [b["goal"] for b in payload["batches"]] == ["x" * 120, "Bump auth"]
-    assert [leg["state"] for leg in payload["batches"][0]["legs"]] == ["waiting_input", "finished"]
+    assert [leg["state"] for leg in payload["batches"][0]["legs"]] == ["waiting_input", "finished", "queued"]
     assert payload["batches"][1]["created_at"]
+    assert [leg["state"] for leg in payload["legs"]] == ["waiting_input", "finished", "queued", "running", "failed"]
+
+
+@pytest.mark.django_db
+def test_header_orders_batches_by_the_time_it_shows_for_them():
+    admin = _viewer()
+    coordinator = make_coordinator(admin)
+    older, newer = uuid.uuid4(), uuid.uuid4()
+    make_leg(coordinator, older, status=RunStatus.RUNNING, finished_at=None)
+    make_leg(coordinator, newer, status=RunStatus.RUNNING, finished_at=None)
+    late = make_leg(coordinator, older, status=RunStatus.RUNNING, finished_at=None)
+    Run.objects.filter(pk=late.pk).update(created_at=timezone.now() + timedelta(minutes=1))
+
+    batches = _delegations(coordinator, admin)["batches"]
+
+    assert [len(batch["legs"]) for batch in batches] == [1, 2]
+    assert batches[0]["created_at"] > batches[1]["created_at"]
 
 
 @pytest.mark.django_db
@@ -381,8 +400,7 @@ def test_a_render_reads_the_delegated_legs_once_for_the_transcript_and_the_heade
 
     with django_assert_num_queries(3):
         delegations = load_delegations(coordinator.thread_id, owner)
-        mark_delegations(turns, delegations)
-        payload = delegations_payload(delegations, turns)
+        payload = delegations_payload(delegations, mark_delegations(turns, delegations))
 
     assert [len(segment["legs"]) for segment in turns[0]["segments"]] == [2, 1]
     assert payload["total"] == 3

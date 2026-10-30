@@ -38,7 +38,7 @@ from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
 from sessions.conf import settings as sessions_settings
-from sessions.delegation import load_delegations
+from sessions.delegation import load_delegations, outcome_states
 from sessions.executor.lock import live_run_for, session_activity
 from sessions.filters import (
     RANGE_CHOICES,
@@ -316,6 +316,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
             "icons": transcript_icons(),
             "show_raw": settings.DEBUG if show_raw is None else show_raw,
             "session_path": reverse("session_detail", args=["THREAD-ID"]).replace("THREAD-ID", "{thread_id}"),
+            "leg_states": outcome_states(),
         }
 
         if session is None:
@@ -370,7 +371,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
         mark_skill_links(ctx["turns"], session.thread_id)
         delegations = load_delegations(session.thread_id, self.request.user)
-        mark_delegations(ctx["turns"], delegations)
+        goals = mark_delegations(ctx["turns"], delegations)
         retry = retry_for(session, runs, ctx["turns"], self.request.user, can_act=ctx["can_act"])
         ctx["header"] = build_session_header(
             session,
@@ -378,7 +379,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
             retry=retry,
             user=self.request.user,
             delegations=delegations,
-            turns=ctx["turns"],
+            goals=goals,
             merge_request=merge_request,
         )
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()

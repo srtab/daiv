@@ -18,13 +18,16 @@ from codebase.authorization import can_run
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
-from sessions.delegation import ACTIVE, FAILED, NEEDS_YOU
+from sessions.delegation import FAILED, NEEDS_YOU, RUNNING, WAITING
 from sessions.models import Run, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import WatchStore, watch_thread_id
 from sessions.templatetags.session_tags import session_title, status_variant
-from sessions.transcript import delegate_goals, marker_id, retry_message
+from sessions.transcript import marker_id, retry_message
 
 if TYPE_CHECKING:
+    import uuid
+    from collections.abc import Mapping
+
     from accounts.models import User
     from sessions.delegation import Delegations
 
@@ -135,16 +138,15 @@ def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
     return {"iid": iid, "url": f"{html_url.rstrip('/')}/{path}/{iid}"}
 
 
-def delegations_payload(delegations: Delegations, turns: list[dict[str, Any]]) -> dict[str, Any] | None:
+def delegations_payload(delegations: Delegations, goals: Mapping[uuid.UUID, str]) -> dict[str, Any] | None:
     """The jobs a session delegated, newest batch first, or ``None`` when it never delegated.
 
-    A batch's ``goal`` is the one its ``delegate_jobs`` call in ``turns`` gave, else the first line of the prompt of
-    its first leg the viewer may see.
+    A batch's ``goal`` is the one in ``goals``, else the first line of the prompt of its first leg the viewer may
+    see. ``legs`` holds every batch's legs in one list, those in ``NEEDS_YOU`` first.
     """
     if not delegations.batches:
         return None
-    goals = delegate_goals(turns)
-    newest_first = sorted(delegations.batches.items(), key=lambda item: item[1][-1].created_at, reverse=True)
+    newest_first = sorted(delegations.batches.items(), key=lambda item: item[1][0].created_at, reverse=True)
     batches = [
         {
             "goal": goals.get(batch_id) or _prompt_goal(legs, delegations.visible),
@@ -153,13 +155,16 @@ def delegations_payload(delegations: Delegations, turns: list[dict[str, Any]]) -
         }
         for batch_id, legs in newest_first
     ]
-    states = [leg["state"] for batch in batches for leg in batch["legs"]]
+    legs = sorted((leg for batch in batches for leg in batch["legs"]), key=lambda leg: leg["state"] not in NEEDS_YOU)
+    states = [leg["state"] for leg in legs]
     return {
         "total": len(states),
-        "active": sum(state in ACTIVE for state in states),
+        "running": sum(state in RUNNING for state in states),
+        "waiting": sum(state in WAITING for state in states),
         "need_you": sum(state in NEEDS_YOU for state in states),
         "failed": sum(state in FAILED for state in states),
         "batches": batches,
+        "legs": legs,
     }
 
 
@@ -187,16 +192,16 @@ def build_session_header(
     retry: str,
     user: User,
     delegations: Delegations,
-    turns: list[dict[str, Any]],
+    goals: Mapping[uuid.UUID, str],
     merge_request: dict | None = None,
 ) -> dict[str, Any]:
-    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first, the ``delegations`` and ``turns`` the
-    transcript shows, and the ``merge_request`` the page shows."""
+    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first, the ``delegations`` the transcript shows
+    with their ``goals``, and the ``merge_request`` the page shows."""
     return {
         "latest_run": latest_run_payload(runs, retry),
         "watch": watch_payload(watch_state(session, merge_request_iid(session, runs, merge_request))),
         "issue": issue_link(session, runs),
         "run_count": len(runs),
-        "delegations": delegations_payload(delegations, turns),
+        "delegations": delegations_payload(delegations, goals),
         "parent": parent_link(session, user),
     }

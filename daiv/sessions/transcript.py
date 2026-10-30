@@ -401,36 +401,32 @@ def _batch_id(segment: dict[str, Any]) -> UUID | None:
         return None
 
 
-def _delegate_calls(turns: list[dict[str, Any]]) -> list[tuple[dict[str, Any], UUID]]:
-    return [
-        (segment, batch_id)
-        for turn in turns
-        for segment in turn.get("segments", ())
-        if segment.get("type") == "tool_call"
-        and segment.get("name") == DELEGATE_JOBS_TOOL_NAME
-        and (batch_id := _batch_id(segment))
-    ]
+def _goal(segment: dict[str, Any]) -> str:
+    try:
+        args = json.loads(segment.get("args") or "")
+    except ValueError:
+        return ""
+    goal = args.get("goal") if isinstance(args, dict) else None
+    return goal.strip() if isinstance(goal, str) else ""
 
 
-def mark_delegations(turns: list[dict[str, Any]], delegations: Delegations) -> None:
-    """Set ``legs`` on ``delegate_jobs`` tool calls from ``delegations``, which wins over the tool result.
+def mark_delegations(turns: list[dict[str, Any]], delegations: Delegations) -> dict[UUID, str]:
+    """Set ``legs`` on ``delegate_jobs`` tool calls from ``delegations``, which wins over the tool result, and return
+    the ``goal`` each of those calls gave, by batch, for the calls that gave one.
 
     A call whose batch has no legs in ``delegations`` (none of the session's own) is left as it was.
     """
-    for segment, batch_id in _delegate_calls(turns):
-        if batch_id in delegations.legs:
+    goals: dict[UUID, str] = {}
+    if not delegations.legs:
+        return goals
+    for turn in turns:
+        for segment in turn.get("segments", ()):
+            if segment.get("type") != "tool_call" or segment.get("name") != DELEGATE_JOBS_TOOL_NAME:
+                continue
+            batch_id = _batch_id(segment)
+            if batch_id is None or batch_id not in delegations.legs:
+                continue
             segment["legs"] = delegations.legs[batch_id]
-
-
-def delegate_goals(turns: list[dict[str, Any]]) -> dict[UUID, str]:
-    """The ``goal`` each batch's ``delegate_jobs`` call in ``turns`` gave, for the calls that gave one."""
-    goals = {}
-    for segment, batch_id in _delegate_calls(turns):
-        try:
-            args = json.loads(segment.get("args") or "")
-        except ValueError:
-            continue
-        goal = args.get("goal") if isinstance(args, dict) else None
-        if isinstance(goal, str) and goal.strip():
-            goals[batch_id] = goal.strip()
+            if goal := _goal(segment):
+                goals[batch_id] = goal
     return goals

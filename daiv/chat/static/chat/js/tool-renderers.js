@@ -1613,7 +1613,7 @@
     const [, id, filename, bytes, path] = match;
     const known = latestById?.get?.(id);
     const parts = [`<span class="body-op">A</span><span>${escapeHtml(path)}</span>`];
-    parts.push(`<span class="body-size">${escapeHtml(kbSize(Number(bytes)))}</span>`);
+    parts.push(`<span class="body-size">${escapeHtml(formatBytes(bytes))}</span>`);
     if (known) parts.push(externalLink(known.url, known.title || known.filename || filename, { local: true }));
     return `<ul class="body-files"><li>${parts.join(" · ")}</li></ul>`;
   };
@@ -1665,18 +1665,10 @@
     return href ? externalLink(href, t("jobs_open_session"), { local: true }) : "";
   };
 
-  const STATE_BY_WORD = new Map([
-    ["queued", "queued"],
-    ["running", "running"],
-    ["succeeded", "finished"],
-    ["failed", "failed"],
-    ["stopped to ask a question", "waiting_input"],
-    ["stopping", "stopping"],
-    ["cancelled", "cancelled"],
-    ["started, but DAIV lost track of it", "lost"],
-  ]);
-
-  const wordLabel = (word) => (STATE_BY_WORD.has(word) ? t(`leg_${STATE_BY_WORD.get(word)}`) : word);
+  const wordLabel = (word) => {
+    const states = window.TranscriptLabels.legStates;
+    return Object.hasOwn(states, word) ? t(`leg_${states[word]}`) : word;
+  };
 
   const legText = (leg, key) => valueText(leg[key]).trim();
 
@@ -1701,20 +1693,24 @@
     ),
   ];
 
+  // A leg that failed to start has a row only when DAIV made one; one that still runs may have moved on since.
   const mergedLegs = (enriched, data) => {
     const legs = enriched.filter(isRecord).map((leg) => cardLeg(leg, legText(leg, "state")));
     const claimed = new Set();
+    const claim = (target, settled) => {
+      const index = legs.findIndex(
+        (leg, i) =>
+          !claimed.has(i) && leg.repo_id === target.repo_id && leg.ref === target.ref && settled(leg.state),
+      );
+      if (index >= 0) claimed.add(index);
+      return index;
+    };
     for (const failed of recordsOf(data?.failed)) {
       const error = legText(failed, "error");
       const mine = cardLeg(failed, "");
-      const index = legs.findIndex(
-        (leg, i) =>
-          !claimed.has(i) && leg.repo_id === mine.repo_id && leg.ref === mine.ref && LOST_OR_FAILED.has(leg.state),
-      );
-      if (index >= 0) {
-        claimed.add(index);
-        legs[index].error = error;
-      } else {
+      const index = claim(mine, (state) => LOST_OR_FAILED.has(state));
+      if (index >= 0) legs[index].error = error;
+      else if (failed.still_runs !== true || claim(mine, () => true) < 0) {
         legs.push(cardLeg(failed, failed.still_runs === true ? "lost" : "failed", error));
       }
     }

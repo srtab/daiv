@@ -16,6 +16,7 @@ from sessions.delegation import (
     SessionJobDelegator,
     adelegator_for,
     leg_state,
+    outcome_states,
     render_batch_summary,
     resume_coordinator,
     resume_stalled_batches,
@@ -965,3 +966,16 @@ def test_leg_state(admin_user, fields, waits, expected):
         fields = fields | {"waits_for": make_delegating_run(coordinator, admin_user)}
 
     assert leg_state(make_leg(coordinator, uuid.uuid4(), **fields)) == expected
+
+
+def test_outcome_states_reads_each_status_word_back_as_its_state():
+    assert outcome_states() == {
+        "queued": "queued",
+        "running": "running",
+        "stopping": "stopping",
+        "stopped to ask a question": "waiting_input",
+        "succeeded": "finished",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "started, but DAIV lost track of it": "lost",
+    }

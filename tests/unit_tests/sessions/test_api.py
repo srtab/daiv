@@ -487,7 +487,7 @@ async def test_session_turns_show_delegated_jobs_current_state(client, authed):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_session_turns_carry_delegations_and_parent(client, authed):
+async def test_session_turns_carry_delegations_and_leave_the_parent_to_the_page(client, authed):
     _key_obj, raw, user = authed
     coordinator = await sync_to_async(make_coordinator)(user, title="Parent work")
     leg = await sync_to_async(make_leg)(coordinator, uuid.uuid4(), status=RunStatus.WAITING_INPUT)
@@ -499,9 +499,8 @@ async def test_session_turns_carry_delegations_and_parent(client, authed):
         child = (await client.get(f"/sessions/{leg.session_id}/turns", headers=_auth_headers(raw))).json()
 
     assert parent["delegations"]["need_you"] == 1
-    assert parent["parent"] is None
     assert child["delegations"] is None
-    assert child["parent"]["title"] == "Parent work"
+    assert "parent" not in child
 
 
 # ---------------------------------------------------------------------------

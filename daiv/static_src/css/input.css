@@ -996,6 +996,9 @@ html {
     @apply bg-status-found;
     animation: pulse-dot 2s ease-in-out infinite;
   }
+  .delegations-btn--queued .delegations-btn__dot {
+    @apply bg-transparent ring-[1.5px] ring-current ring-inset;
+  }
   .delegations-btn--danger .delegations-btn__status {
     @apply text-status-fail;
   }

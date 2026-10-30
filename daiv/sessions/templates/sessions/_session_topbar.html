@@ -8,10 +8,9 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
   <div class="session-topbar__lead{% if header.parent %} session-topbar__lead--child{% endif %}"
        {% if can_act %}:class="{ 'flex-1': editingTitle }"{% endif %}>
     {% if header.parent %}
-      <a class="session-topbar__back" href="{{ header.parent.url }}" :href="parent?.url" x-show="parent"
-         data-testid="session-parent">
+      <a class="session-topbar__back" href="{{ header.parent.url }}" data-testid="session-parent">
         {% icon "arrow-up" "session-topbar__back-icon" %}{% translate "Delegated by" %}
-        <span class="session-topbar__back-title" x-text="parent?.title">{{ header.parent.title }}</span>
+        <span class="session-topbar__back-title">{{ header.parent.title }}</span>
       </a>
     {% endif %}
     <div class="session-topbar__heading">
