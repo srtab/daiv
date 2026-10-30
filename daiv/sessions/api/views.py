@@ -10,6 +10,7 @@ from ninja.security import django_auth
 
 from accounts.api.security import AuthBearer
 from codebase.authorization import can_run
+from sessions.delegation import load_delegations
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
 from sessions.header import (
     awatch_state,
@@ -141,9 +142,10 @@ async def session_turns(request: HttpRequest, thread_id: str):
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
         mark_skill_links(turns, session.thread_id)
-        mark_delegations(turns, session.thread_id, user)
+        delegations = load_delegations(session.thread_id, user)
+        mark_delegations(turns, delegations)
         retry = retry_for(session, runs, turns, user)
-        header = {"delegations": delegations_payload(session, user), "parent": parent_link(session, user)}
+        header = {"delegations": delegations_payload(delegations, turns), "parent": parent_link(session, user)}
         return live_run_for(activity.live, session, user), latest_run_payload(runs, retry), header
 
     live, latest_run, header = await sync_to_async(finish_turns)()

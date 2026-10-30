@@ -1685,7 +1685,6 @@
     ref: legText(leg, "ref"),
     state,
     merge_request_url: legText(leg, "merge_request_url"),
-    reply: legText(leg, "reply"),
     session_url: legText(leg, "session_url"),
     error,
   });
@@ -1732,6 +1731,8 @@
       error = data.error != null || noBatch ? delegateWrong(data, text) : "";
     } else if (text && text !== "null") {
       error = text.replace(/^error:\s*/i, "") || text;
+    } else if (!text && seg.status === "error") {
+      error = t("delegated_unfinished");
     }
     if (error) return { legs: [], goal, error };
     return { legs: Array.isArray(seg.legs) ? mergedLegs(seg.legs, data) : resultLegs(data), goal, error };

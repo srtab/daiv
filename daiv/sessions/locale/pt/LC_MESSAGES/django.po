@@ -984,6 +984,9 @@ msgstr "Delegou {count} tarefas"
 msgid "Couldn't delegate: {error}"
 msgstr "Não foi possível delegar: {error}"
 
+msgid "The call didn't finish."
+msgstr "A chamada não terminou."
+
 msgid "Starts after this turn"
 msgstr "Começa depois deste turno"
 
@@ -995,6 +998,10 @@ msgstr "A parar"
 
 msgid "Finished"
 msgstr "Concluída"
+
+msgctxt "delegated job state"
+msgid "Failed"
+msgstr "Falhada"
 
 msgid "Cancelled"
 msgstr "Cancelada"

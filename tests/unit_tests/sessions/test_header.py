@@ -7,6 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from sessions.delegation import load_delegations
 from sessions.header import (
     build_session_header,
     delegations_payload,
@@ -18,12 +19,18 @@ from sessions.header import (
 )
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import watch_thread_id
-from sessions.transcript import annotate_transcript
+from sessions.transcript import annotate_transcript, mark_delegations
 
 from accounts.models import Role, User
 from codebase.base import GitPlatform
 from codebase.models import RepositoryCatalog
-from tests.unit_tests.sessions.conftest import make_coordinator, make_leg, make_task_result
+from tests.unit_tests.sessions.conftest import (
+    delegate_turns,
+    grant_read_access,
+    make_coordinator,
+    make_leg,
+    make_task_result,
+)
 
 
 def _session(**kwargs) -> Session:
@@ -33,6 +40,17 @@ def _session(**kwargs) -> Session:
 
 def _viewer(role=Role.ADMIN, username="viewer") -> User:
     return User.objects.create_user(username=username, email=f"{username}@test.com", password="x", role=role)  # noqa: S106
+
+
+def _header(session: Session, runs: list[Run], *, user: User, turns=(), **kwargs) -> dict:
+    delegations = load_delegations(session.thread_id, user)
+    return build_session_header(
+        session, runs, retry="", user=user, delegations=delegations, turns=list(turns), **kwargs
+    )
+
+
+def _delegations(session: Session, user: User, turns=()) -> dict | None:
+    return delegations_payload(load_delegations(session.thread_id, user), list(turns))
 
 
 def _run(session: Session, **kwargs) -> Run:
@@ -183,7 +201,7 @@ def test_build_session_header_gathers_the_pages_context():
     session = _session(watch_state=WatchState.GREEN)
     runs = [_run(session), _run(session)]
 
-    header = build_session_header(session, runs, retry="", user=_viewer())
+    header = _header(session, runs, user=_viewer())
 
     assert header["latest_run"]["label"] == "Done"
     assert header["watch"]["tone"] == "clear"
@@ -241,7 +259,7 @@ def test_build_session_header_reads_the_watch_of_the_checkpoints_merge_request()
     session = _session()
     _session(thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.GREEN)
 
-    header = build_session_header(session, [], retry="", merge_request={"id": 7}, user=_viewer())
+    header = _header(session, [], merge_request={"id": 7}, user=_viewer())
 
     assert header["watch"]["state"] == WatchState.GREEN
 
@@ -268,7 +286,7 @@ def test_header_counts_delegated_jobs_across_batches_and_lists_newest_batch_firs
     make_leg(coordinator, second, status=RunStatus.WAITING_INPUT, prompt="x" * 300, repo_id="acme/ops")
     make_leg(coordinator, second, status=RunStatus.SUCCESSFUL)
 
-    payload = delegations_payload(coordinator, admin)
+    payload = _delegations(coordinator, admin)
 
     assert (payload["total"], payload["active"], payload["need_you"], payload["failed"]) == (4, 1, 1, 1)
     assert [b["goal"] for b in payload["batches"]] == ["x" * 120, "Bump auth"]
@@ -277,19 +295,54 @@ def test_header_counts_delegated_jobs_across_batches_and_lists_newest_batch_firs
 
 
 @pytest.mark.django_db
+def test_a_batch_goal_is_the_one_its_delegate_call_gave_else_its_first_legs_prompt():
+    admin = _viewer()
+    coordinator = make_coordinator(admin)
+    called, uncalled = uuid.uuid4(), uuid.uuid4()
+    make_leg(coordinator, called, status=RunStatus.RUNNING, prompt="Bump auth in acme/api", finished_at=None)
+    make_leg(coordinator, uncalled, status=RunStatus.RUNNING, prompt="Fix lint\nin acme/web", finished_at=None)
+
+    payload = _delegations(coordinator, admin, delegate_turns(called, goal="  Bump auth everywhere  "))
+
+    assert [batch["goal"] for batch in payload["batches"]] == ["Fix lint", "Bump auth everywhere"]
+
+
+@pytest.mark.django_db
+def test_a_batch_goal_never_comes_from_a_leg_the_viewer_cannot_see():
+    owner, stranger = _viewer(Role.MEMBER, "owner"), _viewer(Role.MEMBER, "stranger")
+    coordinator = make_coordinator(owner)
+    batch = uuid.uuid4()
+    for repo_id, prompt in (("acme/secret", "Secret plan"), ("acme/open", "Open work")):
+        make_leg(coordinator, batch, status=RunStatus.RUNNING, repo_id=repo_id, prompt=prompt, finished_at=None)
+    grant_read_access(stranger, "acme/open")
+
+    assert _delegations(coordinator, owner)["batches"][0]["goal"] == "Secret plan"
+    assert _delegations(coordinator, stranger)["batches"][0]["goal"] == "Open work"
+    assert _delegations(coordinator, _viewer(Role.MEMBER, "nobody"))["batches"][0]["goal"] == ""
+
+
+@pytest.mark.django_db
 def test_header_lists_a_leg_the_viewer_cannot_see_without_a_link():
     owner = _viewer(Role.MEMBER, "owner")
     coordinator = make_coordinator(owner)
-    make_leg(coordinator, uuid.uuid4(), status=RunStatus.RUNNING, repo_id="acme/secret", finished_at=None)
+    make_leg(
+        coordinator,
+        uuid.uuid4(),
+        status=RunStatus.RUNNING,
+        repo_id="acme/secret",
+        ref="release",
+        session_ref="daiv/other",
+        finished_at=None,
+    )
 
-    [leg] = delegations_payload(coordinator, _viewer(Role.MEMBER, "stranger"))["batches"][0]["legs"]
+    [leg] = _delegations(coordinator, _viewer(Role.MEMBER, "stranger"))["batches"][0]["legs"]
 
-    assert (leg["repo_id"], leg["state"], leg["session_url"]) == ("acme/secret", "running", "")
+    assert (leg["repo_id"], leg["ref"], leg["state"], leg["session_url"]) == ("acme/secret", "release", "running", "")
 
 
 @pytest.mark.django_db
 def test_header_without_delegations_is_none():
-    assert build_session_header(_session(), [], retry="", user=_viewer())["delegations"] is None
+    assert _header(_session(), [], user=_viewer())["delegations"] is None
 
 
 @pytest.mark.django_db
@@ -298,8 +351,8 @@ def test_header_carries_delegations_and_parent():
     coordinator = make_coordinator(admin, title="Parent work")
     leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.RUNNING, finished_at=None)
 
-    assert build_session_header(coordinator, [], retry="", user=admin)["delegations"]["total"] == 1
-    assert build_session_header(leg.session, [], retry="", user=admin)["parent"]["title"] == "Parent work"
+    assert _header(coordinator, [], user=admin)["delegations"]["total"] == 1
+    assert _header(leg.session, [], user=admin)["parent"]["title"] == "Parent work"
 
 
 @pytest.mark.django_db
@@ -312,3 +365,24 @@ def test_child_session_links_its_parent_only_when_visible():
     assert parent_link(child, owner) == {"title": "Parent work", "url": url}
     assert parent_link(child, _viewer(Role.MEMBER, "stranger")) is None
     assert parent_link(coordinator, owner) is None
+
+
+@pytest.mark.django_db
+def test_a_render_reads_the_delegated_legs_once_for_the_transcript_and_the_header(django_assert_num_queries):
+    owner = _viewer(Role.MEMBER, "owner")
+    coordinator = make_coordinator(owner)
+    first, second = uuid.uuid4(), uuid.uuid4()
+    for batch in (first, first, second):
+        make_leg(coordinator, batch, status=RunStatus.RUNNING, finished_at=None)
+    turns = delegate_turns(first, second)
+    # Once per process, not per render: the URLconf's first load and the repository-access sync probe.
+    reverse("session_detail", kwargs={"thread_id": coordinator.thread_id})
+    Session.objects.visible_to(owner).exists()
+
+    with django_assert_num_queries(3):
+        delegations = load_delegations(coordinator.thread_id, owner)
+        mark_delegations(turns, delegations)
+        payload = delegations_payload(delegations, turns)
+
+    assert [len(segment["legs"]) for segment in turns[0]["segments"]] == [2, 1]
+    assert payload["total"] == 3

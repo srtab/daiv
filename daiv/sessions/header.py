@@ -10,7 +10,6 @@ is not, so ``watch_state`` reads it off that row.
 
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
 from django.urls import reverse
@@ -19,14 +18,15 @@ from codebase.authorization import can_run
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
-from sessions.delegation import ACTIVE, FAILED, NEEDS_YOU, leg_payloads
+from sessions.delegation import ACTIVE, FAILED, NEEDS_YOU
 from sessions.models import Run, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import WatchStore, watch_thread_id
 from sessions.templatetags.session_tags import session_title, status_variant
-from sessions.transcript import marker_id, retry_message
+from sessions.transcript import delegate_goals, marker_id, retry_message
 
 if TYPE_CHECKING:
     from accounts.models import User
+    from sessions.delegation import Delegations
 
 GOAL_MAX_CHARS = 120
 
@@ -135,25 +135,24 @@ def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
     return {"iid": iid, "url": f"{html_url.rstrip('/')}/{path}/{iid}"}
 
 
-def delegations_payload(session: Session, user: User) -> dict[str, Any] | None:
-    """SYNC ONLY: the jobs ``session`` delegated, newest batch first, or ``None`` when it never delegated.
+def delegations_payload(delegations: Delegations, turns: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The jobs a session delegated, newest batch first, or ``None`` when it never delegated.
 
-    A batch's ``goal`` is the first line of its first leg's prompt: the coordinator's own goal is not stored.
+    A batch's ``goal`` is the one its ``delegate_jobs`` call in ``turns`` gave, else the first line of the prompt of
+    its first leg the viewer may see.
     """
-    legs_by_batch: dict[Any, list[Run]] = defaultdict(list)
-    legs = Run.objects.filter(session__parent=session, trigger_type=SessionOrigin.DELEGATED_JOB, batch_id__isnull=False)
-    for leg in legs:
-        legs_by_batch[leg.batch_id].append(leg)
-    if not legs_by_batch:
+    if not delegations.batches:
         return None
-    payloads = leg_payloads(legs_by_batch, user)
-    newest = {batch_id: max(leg.created_at for leg in batch_legs) for batch_id, batch_legs in legs_by_batch.items()}
-    newest_first = sorted(legs_by_batch, key=newest.__getitem__, reverse=True)
-    batches = []
-    for batch_id in newest_first:
-        first = min(legs_by_batch[batch_id], key=lambda leg: (leg.created_at, leg.id))
-        goal = (first.prompt.strip().splitlines() or [""])[0][:GOAL_MAX_CHARS]
-        batches.append({"goal": goal, "created_at": first.created_at.isoformat(), "legs": payloads[batch_id]})
+    goals = delegate_goals(turns)
+    newest_first = sorted(delegations.batches.items(), key=lambda item: item[1][-1].created_at, reverse=True)
+    batches = [
+        {
+            "goal": goals.get(batch_id) or _prompt_goal(legs, delegations.visible),
+            "created_at": legs[0].created_at.isoformat(),
+            "legs": delegations.legs[batch_id],
+        }
+        for batch_id, legs in newest_first
+    ]
     states = [leg["state"] for batch in batches for leg in batch["legs"]]
     return {
         "total": len(states),
@@ -162,6 +161,13 @@ def delegations_payload(session: Session, user: User) -> dict[str, Any] | None:
         "failed": sum(state in FAILED for state in states),
         "batches": batches,
     }
+
+
+def _prompt_goal(legs: list[Run], visible: frozenset[str]) -> str:
+    first = next((leg for leg in legs if leg.session_id in visible), None)
+    if first is None:
+        return ""
+    return (first.prompt.strip().splitlines() or [""])[0][:GOAL_MAX_CHARS]
 
 
 def parent_link(session: Session, user: User) -> dict[str, str] | None:
@@ -175,14 +181,22 @@ def parent_link(session: Session, user: User) -> dict[str, str] | None:
 
 
 def build_session_header(
-    session: Session, runs: list[Run], *, retry: str, user: User, merge_request: dict | None = None
+    session: Session,
+    runs: list[Run],
+    *,
+    retry: str,
+    user: User,
+    delegations: Delegations,
+    turns: list[dict[str, Any]],
+    merge_request: dict | None = None,
 ) -> dict[str, Any]:
-    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first and the ``merge_request`` the page shows."""
+    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first, the ``delegations`` and ``turns`` the
+    transcript shows, and the ``merge_request`` the page shows."""
     return {
         "latest_run": latest_run_payload(runs, retry),
         "watch": watch_payload(watch_state(session, merge_request_iid(session, runs, merge_request))),
         "issue": issue_link(session, runs),
         "run_count": len(runs),
-        "delegations": delegations_payload(session, user),
+        "delegations": delegations_payload(delegations, turns),
         "parent": parent_link(session, user),
     }

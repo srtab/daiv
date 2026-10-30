@@ -442,7 +442,7 @@ def test_no_retry_while_a_run_is_busy_or_settling_or_the_session_is_archived(ste
 
 
 def _leg(repo_id: str, state: str) -> dict:
-    return {"repo_id": repo_id, "ref": "", "state": state, "merge_request_url": "", "reply": "", "session_url": ""}
+    return {"repo_id": repo_id, "ref": "", "state": state, "merge_request_url": "", "session_url": ""}
 
 
 def _delegations(*, total=2, active=0, need_you=0, failed=0, batches=None) -> dict:

@@ -1,4 +1,5 @@
 import inspect
+import json
 import uuid
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -22,6 +23,7 @@ from sessions.models import (
     artifact_upload_to,
 )
 from sessions.signal_defs import run_finished
+from sessions.turns import tool_call_segment
 
 from accounts.models import User
 from codebase.base import Job, MergeRequest, Pipeline
@@ -365,3 +367,13 @@ def make_leg(
         task_result=task_result,
         **{k: v for k, v in fields.items() if k != "repo_id"},
     )
+
+
+def delegate_segment(batch_id: uuid.UUID, result: str | None = None, *, goal: str = "g") -> dict:
+    segment = tool_call_segment({"id": "d1", "name": "delegate_jobs", "args": {"goal": goal, "targets": []}})
+    segment["result"] = result if result is not None else json.dumps({"batch_id": str(batch_id), "started": []})
+    return segment
+
+
+def delegate_turns(*batch_ids: uuid.UUID, goal: str = "g") -> list[dict]:
+    return [{"role": "assistant", "segments": [delegate_segment(batch_id, goal=goal) for batch_id in batch_ids]}]

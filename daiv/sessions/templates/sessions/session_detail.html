@@ -143,7 +143,7 @@
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
        @daiv:agent-changed.window="applyAgentSelection($event.detail)"
        @daiv:session-turns.window="applyPolledTurns($event.detail.turns, $event.detail.waiting_since, $event.detail.active)"
-       @daiv:session-header.window="applySkillLinks($event.detail?.turns)"
+       @daiv:session-header.window="applyServerSegments($event.detail?.turns)"
        @daiv:session-live-run.window="followLiveRun($event.detail)"
        @daiv:session-settled.window="holdReload($event)"
        x-cloak

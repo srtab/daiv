@@ -102,7 +102,7 @@ def started_leg(repo_id: str = "a/x", ref: str = "main", *, after_turn: bool = F
 
 
 def enriched_leg(repo_id: str = "a/x", ref: str = "main", *, state: str = "running", **extra: str) -> dict[str, Any]:
-    leg = {"repo_id": repo_id, "ref": ref, "state": state, "merge_request_url": "", "reply": "", "session_url": ""}
+    leg = {"repo_id": repo_id, "ref": ref, "state": state, "merge_request_url": "", "session_url": ""}
     return {**leg, **extra}
 
 

@@ -476,6 +476,15 @@ def test_a_null_batch_with_nothing_started_is_the_card_error():
 def test_a_running_call_has_no_error_and_no_legs():
     item = _items(_blocks([user("u1"), asst("a1", delegate(result="null"), streaming=True)], in_flight=True)[0])[0]
     assert item["error"] == "" and item["legs"] == []
+    running = {**delegate(), "result": None, "status": "running"}
+    item = _items(_blocks([user("u1"), asst("a1", running, streaming=True)], in_flight=True)[0])[0]
+    assert item["error"] == "" and item["legs"] == []
+
+
+def test_a_call_the_run_never_answered_is_the_card_error():
+    unanswered = {**delegate(), "result": None, "status": "error"}
+    item = _cards(_blocks([user("u1"), asst("a1", read("c1"), unanswered, text("done"))])[0])[0]
+    assert item["error"] == "The call didn't finish." and item["legs"] == [] and item["goal"] == "Fix lint"
 
 
 def test_a_non_json_result_is_the_card_error():

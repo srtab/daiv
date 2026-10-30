@@ -38,6 +38,7 @@ from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
 from sessions.conf import settings as sessions_settings
+from sessions.delegation import load_delegations
 from sessions.executor.lock import live_run_for, session_activity
 from sessions.filters import (
     RANGE_CHOICES,
@@ -368,10 +369,17 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
         mark_skill_links(ctx["turns"], session.thread_id)
-        mark_delegations(ctx["turns"], session.thread_id, self.request.user)
+        delegations = load_delegations(session.thread_id, self.request.user)
+        mark_delegations(ctx["turns"], delegations)
         retry = retry_for(session, runs, ctx["turns"], self.request.user, can_act=ctx["can_act"])
         ctx["header"] = build_session_header(
-            session, runs, retry=retry, user=self.request.user, merge_request=merge_request
+            session,
+            runs,
+            retry=retry,
+            user=self.request.user,
+            delegations=delegations,
+            turns=ctx["turns"],
+            merge_request=merge_request,
         )
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
         ctx["max_title_length"] = MAX_TITLE_LENGTH

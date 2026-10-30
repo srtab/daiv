@@ -16,6 +16,7 @@ from tests.unit_tests.chat.transcript_fixtures import (
     asst,
     bash,
     delegate,
+    enriched_leg,
     question,
     read,
     refused_question,
@@ -544,7 +545,7 @@ def test_a_failure_before_the_run_row_exists_keeps_the_pages_run_id():
 SKILL_LINKS_BODY = """
 const chat = registry.chat({ endpoint: "/api/chat" });
 chat.turns = payload.turns;
-chat.applySkillLinks(payload.server);
+chat.applyServerSegments(payload.server);
 process.stdout.write(JSON.stringify(chat.turns[1].segments.map((seg) => seg.skill_url ?? null)));
 """
 
@@ -555,6 +556,43 @@ def test_a_streamed_skill_call_takes_its_link_from_the_turns_fetched_after_the_r
     server = [user("u1"), asst("a1", {**skill, "skill_url": "/dashboard/skills/plan/"}, other)]
     payload = {"turns": [user("u1"), asst("a1", skill, other)], "server": server}
     assert run_chat_stream(SKILL_LINKS_BODY, payload, extra_globals=GLOBALS) == ["/dashboard/skills/plan/", None]
+
+
+SERVER_LEGS_BODY = """
+const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
+chat.$watch = (expr, cb) => watchOn(chat)(expr, cb);
+chat.$nextTick = () => {};
+chat.scrollToBottom = () => {};
+chat.turns = payload.turns;
+chat.init();
+const states = () =>
+  chat.runBlocks.flatMap((block) => [...block.items, ...block.cards])
+    .filter((card) => card.kind === "delegated")
+    .map((card) => card.legs.map((leg) => leg.state));
+const before = states();
+chat.applyServerSegments(payload.server);
+process.stdout.write(JSON.stringify([before, states()]));
+chat.destroy();
+"""
+
+
+def test_the_turns_fetched_after_a_run_bring_its_delegated_jobs_current_states():
+    streamed, stale, unknown = delegate("d1"), delegate("d2", legs=[enriched_leg(state="queued")]), delegate("d3")
+    server = [
+        user("u1"),
+        asst(
+            "a1",
+            {**streamed, "legs": [enriched_leg(state="waiting_input")]},
+            {**stale, "legs": [enriched_leg(state="finished")]},
+            unknown,
+        ),
+    ]
+    payload = {"turns": [user("u1"), asst("a1", streamed, stale, unknown)], "server": server}
+
+    before, after = run_chat_stream(SERVER_LEGS_BODY, payload, prelude=REACTIVITY, extra_globals=GLOBALS)
+
+    assert before == [["queued"], ["queued"], ["queued"]]
+    assert after == [["waiting_input"], ["finished"], ["queued"]]
 
 
 CTX_BODY = """

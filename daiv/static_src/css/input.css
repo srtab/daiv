@@ -784,7 +784,6 @@ html {
     @apply bg-gray-500;
   }
 
-  /* A delegated job's state, in the shapes above: hollow ring = not started yet, diamond = needs you. */
   .leg-dot {
     @apply inline-block h-2 w-2 shrink-0 rounded-full bg-text-faint;
   }
@@ -971,7 +970,6 @@ html {
     @apply block text-[12px] text-text-muted;
   }
 
-  /* Delegated jobs: the top bar's count with one status, and its popover of every leg. */
   .delegations-btn {
     @apply inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-[12px] text-text
       transition-colors hover:bg-surface-3;
@@ -1024,7 +1022,6 @@ html {
       hover:text-accent-bright focus:bg-surface-3;
   }
 
-  /* One delegated job on two lines: repository, then status; the popover and the details panel list them. */
   .delegated-leg {
     @apply flex min-w-0 items-start gap-2.5;
   }
@@ -2819,7 +2816,7 @@ html {
   }
 
   .delegated-card__failed {
-    @apply px-4 py-3 text-[13px] text-status-fail;
+    @apply px-4 py-3 text-[13px] whitespace-pre-line text-status-fail;
   }
 
   .artifact-download {

@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.utils.html import escapejs
 
 import pytest
+from langchain_core.messages import AIMessage, ToolMessage
 from sessions.conf import settings as sessions_settings
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
@@ -1331,10 +1332,6 @@ def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
 
 @pytest.mark.django_db
 def test_detail_shows_delegated_jobs_current_state(member_client, member_user):
-    from langchain_core.messages import AIMessage, ToolMessage
-
-    from tests.unit_tests.sessions.conftest import make_coordinator, make_leg
-
     coordinator = make_coordinator(member_user)
     batch = uuid.uuid4()
     make_leg(coordinator, batch, status=RunStatus.WAITING_INPUT)

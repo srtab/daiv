@@ -41,6 +41,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -78,7 +79,7 @@ from sessions.queue import ENQUEUE_FAILED_PREFIX, LINK_FAILED_PREFIX, dispatch_n
 from sessions.services import RepoTarget, asubmit_batch_runs, create_run, pinned_agent_override
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Collection, Mapping, Sequence
 
     from django.db.models import QuerySet
 
@@ -89,7 +90,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 LEG_REPLY_MAX_CHARS = 1000
-LEG_REPLY_LINE_MAX_CHARS = 200
 MAX_CONTINUATION_ATTEMPTS = 3
 MAX_RESUMES_IN_A_ROW = 3
 MAX_STATUS_BATCHES = 5
@@ -523,14 +523,13 @@ def leg_state(leg: Run) -> str:
     return _LEG_STATES.get(leg.status, "queued")
 
 
-def leg_payloads[K](legs_by_group: Mapping[K, Sequence[Run]], user: User) -> dict[K, list[dict[str, str]]]:
+def leg_payloads[K](
+    legs_by_group: Mapping[K, Sequence[Run]], visible: Collection[str]
+) -> dict[K, list[dict[str, str]]]:
     """Each group's legs as the transcript and the session header show them: ``NEEDS_YOU`` first, then oldest first.
 
-    A leg whose session ``user`` may not see keeps its repository, ref and state, and nothing else. One query
-    decides visibility for every group. SYNC ONLY.
+    A leg whose session is not in ``visible`` keeps its repository, ref and state, and nothing else.
     """
-    session_ids = {leg.session_id for legs in legs_by_group.values() for leg in legs}
-    visible = set(Session.objects.visible_to(user).filter(pk__in=session_ids).values_list("pk", flat=True))
 
     def payload(leg: Run) -> dict[str, str]:
         seen = leg.session_id in visible
@@ -539,7 +538,6 @@ def leg_payloads[K](legs_by_group: Mapping[K, Sequence[Run]], user: User) -> dic
             "ref": leg.ref,
             "state": leg_state(leg),
             "merge_request_url": leg.merge_request_web_url if seen else "",
-            "reply": _first_line(leg.result_summary, LEG_REPLY_LINE_MAX_CHARS) if seen else "",
             "session_url": reverse("session_detail", kwargs={"thread_id": leg.session_id}) if seen else "",
         }
 
@@ -550,6 +548,48 @@ def leg_payloads[K](legs_by_group: Mapping[K, Sequence[Run]], user: User) -> dic
     return result
 
 
-def _first_line(text: str, limit: int) -> str:
-    lines = text.strip().splitlines()
-    return lines[0][:limit] if lines else ""
+@dataclass(frozen=True)
+class Delegations:
+    """The legs a session delegated as one viewer sees them; :func:`load_delegations` builds it.
+
+    ``batches`` holds each batch's runs, oldest first; ``legs`` their ``leg_payloads``; ``visible`` the ids of the
+    leg sessions the viewer may see.
+    """
+
+    batches: dict[uuid.UUID, list[Run]]
+    visible: frozenset[str]
+    legs: dict[uuid.UUID, list[dict[str, str]]]
+
+
+_LEG_FIELDS = (
+    "id",
+    "session",
+    "batch_id",
+    "repo_id",
+    "ref",
+    "status",
+    "error_message",
+    "waits_for",
+    "cancel_requested_at",
+    "merge_request_web_url",
+    "prompt",
+    "created_at",
+)
+
+
+def load_delegations(thread_id: str, user: User) -> Delegations:
+    """SYNC ONLY: the legs ``thread_id`` delegated, by batch and oldest first, with their ``leg_payloads`` for
+    ``user``: one query for the legs, and one for which of their sessions ``user`` may see when there are any."""
+    batches: dict[uuid.UUID, list[Run]] = defaultdict(list)
+    legs = Run.objects.filter(
+        trigger_type=SessionOrigin.DELEGATED_JOB, session__parent_id=thread_id, batch_id__isnull=False
+    ).only(*_LEG_FIELDS)
+    for leg in legs.order_by("created_at", "id"):
+        batches[leg.batch_id].append(leg)
+    session_ids = {leg.session_id for batch in batches.values() for leg in batch}
+    visible = (
+        frozenset(Session.objects.visible_to(user).filter(pk__in=session_ids).values_list("pk", flat=True))
+        if session_ids
+        else frozenset()
+    )
+    return Delegations(dict(batches), visible, leg_payloads(batches, visible))

@@ -112,6 +112,7 @@
     show_reply: "Show the whole reply",
     delegated_jobs: "Delegated jobs",
     delegated_failed: "Couldn't delegate: {error}",
+    delegated_unfinished: "The call didn't finish.",
     leg_queued: "Queued",
     leg_waits: "Starts after this turn",
     leg_running: "Running",

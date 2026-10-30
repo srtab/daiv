@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import timedelta
 from unittest.mock import AsyncMock, patch
@@ -10,13 +11,14 @@ from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
+from langchain_core.messages import AIMessage, ToolMessage
 from ninja.testing import TestAsyncClient
 from sessions.hydration import HydratedThread
 from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from daiv.api import api
-from tests.unit_tests.sessions.conftest import grant_read_access, make_artifact
+from tests.unit_tests.sessions.conftest import grant_read_access, make_artifact, make_coordinator, make_leg
 
 
 @pytest.fixture
@@ -466,12 +468,6 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
 
 @pytest.mark.django_db(transaction=True)
 async def test_session_turns_show_delegated_jobs_current_state(client, authed):
-    import json
-
-    from langchain_core.messages import AIMessage, ToolMessage
-
-    from tests.unit_tests.sessions.conftest import make_coordinator, make_leg
-
     _key_obj, raw, user = authed
     coordinator = await sync_to_async(make_coordinator)(user)
     batch = uuid.uuid4()
@@ -492,8 +488,6 @@ async def test_session_turns_show_delegated_jobs_current_state(client, authed):
 
 @pytest.mark.django_db(transaction=True)
 async def test_session_turns_carry_delegations_and_parent(client, authed):
-    from tests.unit_tests.sessions.conftest import make_coordinator, make_leg
-
     _key_obj, raw, user = authed
     coordinator = await sync_to_async(make_coordinator)(user, title="Parent work")
     leg = await sync_to_async(make_leg)(coordinator, uuid.uuid4(), status=RunStatus.WAITING_INPUT)
