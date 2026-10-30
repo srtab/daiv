@@ -1,52 +1,52 @@
 # DAIV
 
-> Documentation for DAIV
+> DAIV is an open-source, self-hosted SWE agent for GitLab and GitHub that turns issues into merge requests, answers review comments, and fixes failing CI.
 
 DAIV is an open-source async software engineering agent that integrates natively with GitLab and GitHub through webhooks. Create an issue, get a merge request. Mention DAIV in a review, get the fix. Licensed under Apache 2.0.
 
 
 ## Getting Started
 
-- [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md): How to deploy DAIV with Docker
-- [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md): Setting up GitLab or GitHub integration
-- [Accounts & Roles](https://srtab.github.io/daiv/dev/getting-started/accounts/index.md): Dashboard sign-in, admin/member roles, and user management
-- [LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md): Configuring LLM providers
+- [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md): Deploy a self-hosted DAIV instance with Docker Swarm or Docker Compose: PostgreSQL, Redis, the DAIV app and worker, plus the optional scheduler and sandbox.
+- [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md): Connect DAIV to GitLab (GitLab.com or self-hosted) or GitHub so it can address issues, review merge and pull requests, and react to webhooks.
+- [Accounts & Roles](https://srtab.github.io/daiv/dev/getting-started/accounts/index.md): How sign-in works in the DAIV dashboard: admin and member roles, Git platform OAuth or one-time email codes, the first admin, and managing users.
+- [LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md): Configure the LLM providers DAIV runs on (OpenRouter, OpenAI, Anthropic, Google Gemini or a custom provider) and how models are specified.
 
 ## Features
 
-- [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md): Automated issue-to-merge-request workflow
-- [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md): AI-powered pull request reviews and fixes
-- [Pipeline Watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md): Bounded CI babysitting for merge requests DAIV publishes
-- [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md): Unified sessions — chat workspace, run history, and live updates
-- [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md): REST API for programmatic agent triggering
-- [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md): Recurring agent runs on a cron schedule
-- [Orchestration](https://srtab.github.io/daiv/dev/features/orchestration/index.md): Delegating sub-jobs to other repositories or to new sessions on the same one
-- [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md): MCP server endpoint for AI coding assistants
-- [Notifications](https://srtab.github.io/daiv/dev/features/notifications/index.md): Job, batch, and schedule completion notifications
-- [Merge Metrics](https://srtab.github.io/daiv/dev/features/merge-metrics/index.md): Code merge analytics and DAIV contribution tracking
-- [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md): Slash commands and custom skills
-- [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md): Specialized subagents for exploration and execution
-- [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md): Secure sandboxed code execution
-- [Sandbox Environments](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md): Named, scoped sandbox environment configurations
+- [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md): DAIV reads a labelled GitLab or GitHub issue, proposes an implementation plan, waits for your approval, then opens a merge or pull request with the code.
+- [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md): Mention DAIV in a GitLab merge request or GitHub pull request to apply review feedback, answer questions about the change, or fix failing pipelines.
+- [Pipeline Watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md): After DAIV publishes a merge request it watches CI and spends a bounded number of agent runs making it green, then reports any jobs still failing.
+- [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md): Every DAIV agent execution is recorded as a session: chat with the agent live, start background runs, and review transcripts, timelines and usage.
+- [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md): Trigger DAIV agents programmatically with the Jobs REST API from CI pipelines, scripts or other tools: submit a prompt, get a job ID, poll the result.
+- [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md): Run DAIV agents on a cron schedule across one or more repositories for recurring work such as dependency audits and nightly code-quality scans.
+- [Orchestration](https://srtab.github.io/daiv/dev/features/orchestration/index.md): Let the DAIV agent delegate work to independent jobs on other repositories or new sessions on the same one, then report the combined outcome.
+- [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md): Connect Claude Code, Cursor or Codex CLI to DAIV over the Model Context Protocol (MCP) and delegate coding tasks to the agent from your editor.
+- [Notifications](https://srtab.github.io/daiv/dev/features/notifications/index.md): Get notified when a DAIV run needs attention, via the in-app bell, email, Rocket Chat or Telegram, with per-user delivery channels.
+- [Merge Metrics](https://srtab.github.io/daiv/dev/features/merge-metrics/index.md): Track code merged across your repositories with diff statistics and commit-level attribution of changes to DAIV or human authors.
+- [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md): Slash commands and skills DAIV responds to in issue and merge or pull request comments, including /plan and /code-review, plus your own custom skills.
+- [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md): How DAIV's main agent delegates to specialized subagents for fast codebase exploration and complex multi-step tasks, and how to list them with /agents.
+- [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md): DAIV runs shell commands in an isolated Docker container powered by daiv-sandbox, to run tests, install dependencies, execute linters and inspect git history.
+- [Sandbox Environments](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md): Define named, reusable DAIV sandbox environments with a base image, CPU and memory limits, network egress policy, encrypted secrets and repository scope.
 
 ## Integrations
 
-- [Request Tracker Triage](https://srtab.github.io/daiv/dev/integrations/rt/index.md): Request Tracker triage on ticket create via RT Scrip
+- [Request Tracker Triage](https://srtab.github.io/daiv/dev/integrations/rt/index.md): Trigger DAIV on new Request Tracker tickets with a single RT Scrip: it triages each ticket, analyses root causes in code, and posts an internal comment.
 
 ## Customization
 
-- [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md): Per-repository configuration
-- [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/index.md): Creating custom agent skills
-- [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md): MCP tool integrations
+- [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md): Configure DAIV per repository with a .daiv.yml file: access control, file access, feature toggles, branch naming, commit messages and model overrides.
+- [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/index.md): Create custom agent skills for DAIV: SKILL.md directories with specialized instructions and workflows that the agent follows when they are triggered.
+- [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md): Extend DAIV's agent with external services over the Model Context Protocol (MCP): built-in servers such as Sentry, custom servers and personal servers.
 
 ## Reference
 
-- [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md): Environment variables reference
-- [Site Configuration](https://srtab.github.io/daiv/dev/reference/site-configuration/index.md): Admin web UI for runtime configuration
-- [Agent Architecture](https://srtab.github.io/daiv/dev/reference/agent-architecture/index.md): Agent architecture overview
-- [Monitoring](https://srtab.github.io/daiv/dev/reference/monitoring/index.md): Monitoring and observability
+- [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md): Reference for every environment variable that configures DAIV, including which ones are sensitive and should be provided as Docker secrets.
+- [Site Configuration](https://srtab.github.io/daiv/dev/reference/site-configuration/index.md): The admin-only DAIV Site Configuration UI: tune agent models, tools, LLM providers and OAuth login at runtime, overriding environment variables.
+- [Agent Architecture](https://srtab.github.io/daiv/dev/reference/agent-architecture/index.md): Technical architecture of the DAIV agent, built on LangChain Deep Agents and LangGraph, with subagents, middleware and a virtual filesystem.
+- [Monitoring](https://srtab.github.io/daiv/dev/reference/monitoring/index.md): Trace DAIV agent executions with LangSmith: setup, trace tags and metadata, dashboards, usage and cost tracking, and troubleshooting.
 
 ## Community
 
-- [Community](https://srtab.github.io/daiv/dev/community/index.md): Contributing, support, and project links
+- [Community](https://srtab.github.io/daiv/dev/community/index.md): Contribute to DAIV, the open-source SWE agent for GitLab and GitHub: code, docs, testing or feedback. Report issues and find project resources.
 

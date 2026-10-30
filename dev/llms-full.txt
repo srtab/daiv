@@ -1,6 +1,6 @@
 # DAIV
 
-> Documentation for DAIV
+> DAIV is an open-source, self-hosted SWE agent for GitLab and GitHub that turns issues into merge requests, answers review comments, and fixes failing CI.
 
 DAIV is an open-source async software engineering agent that integrates natively with GitLab and GitHub through webhooks. Create an issue, get a merge request. Mention DAIV in a review, get the fix. Licensed under Apache 2.0.
 
