@@ -26,13 +26,11 @@ def on_config(config: MkDocsConfig) -> None:
 
     llmstxt = config.plugins["llmstxt"].config
     llmstxt["sections"] = {
-        section: [_with_description(config.docs_dir, item) for item in items]
-        for section, items in llmstxt["sections"].items()
+        section: [_with_description(config.docs_dir, path) for path in paths]
+        for section, paths in llmstxt["sections"].items()
     }
 
 
-def _with_description(docs_dir: str, item: str | dict[str, str]) -> str | dict[str, str]:
-    if not isinstance(item, str):
-        return item
-    _, meta = get_data(Path(docs_dir, item).read_text(encoding="utf-8"))
-    return {item: meta.get("description", "")}
+def _with_description(docs_dir: str, path: str) -> dict[str, str]:
+    _, meta = get_data(Path(docs_dir, path).read_text(encoding="utf-8"))
+    return {path: meta.get("description", "")}
