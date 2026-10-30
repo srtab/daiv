@@ -20,6 +20,7 @@ from sessions.services import RepoTarget
 
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
 from core.site_settings import site_settings
+from tests.unit_tests.mcp_connectors.helpers import only_servers
 
 _DENIED = RepositoryAccessDenied(["a/b"])
 
@@ -137,27 +138,20 @@ async def test_aadmit_resolves_each_target_when_no_environment_is_named(member_u
 
 @pytest.fixture
 def mcp_pool(db):
-    for name, status in (("rt", MCPServer.Status.ACTIVE), ("grafana", MCPServer.Status.ON_DEMAND)):
-        MCPServer.objects.create(name=name, transport=MCPServer.Transport.HTTP, url=f"http://{name}", status=status)
+    only_servers(("rt", MCPServer.Status.ACTIVE), ("grafana", MCPServer.Status.ON_DEMAND))
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_aresolve_mcp_overrides_keeps_only_deviations_from_the_default_set(member_user, mcp_pool):
+async def test_aresolve_mcp_overrides_resolves_against_the_callers_pool(member_user, mcp_pool):
     assert await aresolve_mcp_overrides(member_user, {"grafana": True, "rt": True}) == {"grafana": "on"}
-    assert await aresolve_mcp_overrides(member_user, {"rt": False}) == {"rt": "off"}
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_aresolve_mcp_overrides_rejects_a_server_the_caller_cannot_use(member_user, mcp_pool):
-    with pytest.raises(InvalidMcpOverridesError, match=r"unknown MCP server\(s\) \['grafna'\].*'grafana'"):
+async def test_aresolve_mcp_overrides_refuses_an_unknown_server(member_user, mcp_pool):
+    with pytest.raises(InvalidMcpOverridesError, match="grafna"):
         await aresolve_mcp_overrides(member_user, {"grafna": True})
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_aresolve_mcp_overrides_rejects_a_value_that_is_not_a_boolean(member_user, mcp_pool):
-    with pytest.raises(InvalidMcpOverridesError, match="true or false"):
-        await aresolve_mcp_overrides(member_user, {"grafana": "yes"})
-
-
-async def test_aresolve_mcp_overrides_returns_none_when_nothing_is_sent():
-    assert await aresolve_mcp_overrides(Mock(), None) is None
+@pytest.mark.parametrize("switches", [None, {}])
+async def test_aresolve_mcp_overrides_returns_none_when_nothing_is_switched(switches):
+    assert await aresolve_mcp_overrides(Mock(), switches) is None

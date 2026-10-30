@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
-from mcp_connectors.selection import build_selection_pool, diff_selection, effective_selection
+from mcp_connectors.selection import build_selection_pool, overrides_from_switches
 from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent import validators
@@ -61,7 +61,7 @@ class UnknownEnvironmentError(AdmissionError):
 
 
 class InvalidMcpOverridesError(AdmissionError):
-    """An MCP server override names a server the caller cannot use, or has a value other than ``true``/``false``."""
+    """An MCP server override names a server the caller cannot use."""
 
 
 @dataclass(frozen=True)
@@ -102,18 +102,14 @@ async def aresolve_environment(user: User, name_or_id: str | None) -> SandboxEnv
         raise UnknownEnvironmentError(str(err)) from err
 
 
-async def aresolve_mcp_overrides(user: User, overrides: dict[str, bool] | None) -> dict[str, str] | None:
-    """``overrides`` (``{server: enabled}``) as the stored ``{server: "on"|"off"}`` deviations from the default set."""
-    if overrides is None:
+async def aresolve_mcp_overrides(user: User, switches: dict[str, bool] | None) -> dict[str, str] | None:
+    """``switches`` resolved against the caller's MCP servers; ``None`` when they switch nothing."""
+    if not switches:
         return None
-    if not all(isinstance(enabled, bool) for enabled in overrides.values()):
-        raise InvalidMcpOverridesError("MCP server overrides must be true or false.")
-    pool = await sync_to_async(build_selection_pool)(user.pk)
-    names = sorted(entry.name for entry in pool)
-    if unknown := sorted(set(overrides) - set(names)):
-        raise InvalidMcpOverridesError(f"unknown MCP server(s) {unknown}; valid: {names}")
-    switches = {name: "on" if enabled else "off" for name, enabled in overrides.items()}
-    return diff_selection(effective_selection(switches, pool), pool)
+    try:
+        return overrides_from_switches(switches, await sync_to_async(build_selection_pool)(user.pk))
+    except ValueError as err:
+        raise InvalidMcpOverridesError(str(err)) from err
 
 
 async def aadmit(

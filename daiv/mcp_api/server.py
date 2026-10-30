@@ -16,7 +16,8 @@ from django.utils.dateparse import parse_datetime
 from asgiref.sync import sync_to_async
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from mcp_connectors.selection import McpServerSwitches  # noqa: TC002 - runtime type for MCPServer
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
@@ -214,7 +215,7 @@ async def submit_job(
         ),
     ] = None,
     mcp_overrides: Annotated[
-        dict[str, StrictBool] | None,
+        McpServerSwitches | None,
         Field(
             description=(
                 "Optional MCP servers to switch on or off for every job in this batch, relative to the default set,"
