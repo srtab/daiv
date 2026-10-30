@@ -18,6 +18,10 @@
 ### Session 2026-10-30
 
 - Q: Are mentions of DAIV on a merge request DAIV published routed to the owning session, and whose identity does that turn act under? → A: Routed to the owning session, and the turn acts as the owner. The comment is content, and its author is recorded for attribution.
+- Q: When a different session publishes to a merge request that another session already owns, who should own it afterwards? → A: Ownership moves only to a later session of the same person. When a different person's session publishes, the original session keeps ownership and records that push as a remembered event.
+- Q: When the session that owns a merge request has no DAIV user as its owner, what should CI failures and mentions do? → A: Turns run as today's runs with no DAIV user do: no personal tools, no per-user access check, and the merge request comment as the only notification.
+- Q: When a delegated job's session publishes a merge request and CI later fails on it, should the session that delegated the job hear about it? → A: CI is handled in the delegated job's session, and each outcome (passing, stopped after N attempts, a CI turn that pushed nothing) also reaches the delegating session as a remembered event.
+- Q: When a waking event arrives at a session that isn't running a turn, how soon should its turn start? → A: Within 1 minute.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -40,7 +44,8 @@ A person starts work with DAIV: an issue, a chat, or a job. The agent publishes 
 3. **Given** the situation in scenario 2, **When** a person retries the pipeline and it passes, **Then** the session shows CI as passing, and no agent turn starts.
 4. **Given** the agent has already examined a failure on a commit, **When** another pipeline fails on that same commit, **Then** the failure is recorded and no new turn starts.
 5. **Given** the agent pushed a fix and the new commit's pipeline fails, **When** attempt budget remains, **Then** another turn starts. **When** the budget is spent, **Then** no turn starts, the owner is notified, and the session shows "stopped after N attempts" with the failing jobs.
-6. **Given** session A published a merge request and session B later publishes to the same merge request, **When** CI fails after B's push, **Then** the failure goes to session B.
+6. **Given** session A published a merge request and session B, owned by the same person, later publishes to it, **When** CI fails after B's push, **Then** the failure goes to session B.
+7. **Given** session A published a merge request and a session owned by a different person later publishes to it, **When** that push lands, **Then** session A keeps ownership and records the push as a remembered event naming that session and person. A CI failure after the push goes to session A.
 
 ---
 
@@ -104,6 +109,7 @@ All of them reach the session through the same inbox. Waiting, combining, de-dup
 2. **Given** a follow-up job targets a busy session, **When** it is submitted, **Then** it waits in the inbox. It is neither rejected nor run in parallel.
 3. **Given** the user a turn would act for has lost access to the repository, **When** that turn would start, **Then** it does not run, and the events it would have handled are marked failed with the reason shown in the session.
 4. **Given** a session has pending or failed events, **When** an operator inspects the session, **Then** each event's source, arrival time and state are visible.
+5. **Given** a delegated job's session owns a merge request, **When** CI on it ends passing, stopped after N attempts, or with a CI turn that pushed nothing, **Then** the delegated session handles it, and the delegating session records the outcome as a remembered event without starting a turn.
 
 ---
 
@@ -127,7 +133,8 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 
 ### Edge Cases
 
-- **The owning session no longer exists** (deleted): later events go to a new session for that merge request, owned by the user whose run last published to it, and that session's timeline says why it exists.
+- **The owning session no longer exists** (deleted): later events go to a new session for that merge request, owned by the same person, and that session's timeline says why it exists.
+- **The owning session has no DAIV user** (for example, an issue labelled by someone with no DAIV account): CI failures and mentions still start turns. Those turns have no personal tools and skip the per-user access check, as such runs do today. Every notification falls back to a comment on the merge request.
 - **A merge request DAIV did not publish**: it has no owning session and no CI watch, and mentions on it behave as they do today.
 - **A mention on an owned merge request whose owner is muted, or whose session has hit the consecutive-turn limit**: a mention comes from a person, so it still starts a turn, and it resets that limit.
 - **A failure on a commit a person pushed**: it is remembered, not acted on, so the agent does not take over a person's in-progress work.
@@ -144,10 +151,10 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 
 **Ownership and routing**
 
-- **FR-001**: When a session's run publishes to a merge request, by opening it or pushing to it, the system MUST record that session as the merge request's owning session. The most recent publisher owns it.
+- **FR-001**: When a session's run publishes to a merge request, by opening it or pushing to it, the system MUST make that session the merge request's owning session if the merge request has no owner, or if its current owning session belongs to the same person. When a session owned by a different person publishes, ownership MUST NOT change, and the push MUST be delivered to the owning session as a remembered event naming the publishing session and its owner. Exception: an owning session with no DAIV user MUST hand ownership to a publishing session that has one.
 - **FR-002**: The system MUST deliver every CI result on an owned merge request to the owning session's inbox, and MUST NOT create a separate conversation to handle it.
 - **FR-003**: A session's page MUST show the current CI status of every merge request the session owns, worked out from the events delivered to it.
-- **FR-004**: If an owning session no longer exists, the system MUST deliver to a new session for that merge request, owned by the user whose run last published to it.
+- **FR-004**: If an owning session no longer exists, the system MUST deliver to a new session for that merge request, owned by the same person.
 
 **Inbox and delivery**
 
@@ -180,12 +187,14 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 
 **Other sources**
 
-- **FR-021**: Results of delegated jobs, and follow-up jobs submitted to an existing session, MUST be delivered through the same inbox and follow FR-005 to FR-014.
-- **FR-022**: Before a turn runs for a user, the system MUST confirm that user still has access to the repository. If not, the turn MUST NOT run, and its events MUST be marked failed with the reason shown in the session.
+- **FR-021**: Results of delegated jobs, and follow-up jobs submitted to an existing session, MUST be delivered through the same inbox and follow FR-005 to FR-014. CI on a merge request a delegated job's session owns MUST be handled in that session. Each of its CI outcomes (passing, stopped after N attempts, a CI turn that pushed nothing) MUST also be delivered to the delegating session as a remembered event.
+- **FR-022**: Before a turn runs for a user, the system MUST confirm that user still has access to the repository. If not, the turn MUST NOT run, and its events MUST be marked failed with the reason shown in the session. A session with no DAIV user skips this check, and its turns run as today's runs with no DAIV user do, with no personal tools.
 - **FR-023**: These events MUST at least be remembered:
   - CI passed;
   - a CI failure that does not wake the agent, with the reason;
   - commits pushed to the merge request's branch by someone other than DAIV;
+  - pushes to an owned merge request by a DAIV session that belongs to a different person;
+  - CI outcomes of merge requests owned by sessions this session delegated;
   - the merge request merged or closed;
   - comments on an owned merge request that do not mention DAIV.
 - **FR-024**: When the branch has moved since the agent's last turn, the next turn MUST tell the agent so, and the agent MUST work from the current head.
@@ -210,7 +219,7 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 ### Key Entities
 
 - **Session**: one piece of agent work and its conversation. It has an owner (the person it acts for), the turns it has run, its inbox, and the merge requests it owns.
-- **Merge request ownership**: links a merge request on a repository to the session that most recently published to it. It holds the merge request's attempt budget and the last commit the agent examined for CI.
+- **Merge request ownership**: links a merge request on a repository to its owning session. That is the most recent session that published to it, among sessions owned by the person who first published it. Ownership never passes to another person. It holds the merge request's attempt budget and the last commit the agent examined for CI.
 - **Inbox event**: something that happened which concerns a session. It has a source identity (unique per source), a kind, the subject it is about (used for replacement), a waking or remembered classification, its author (who caused it, for attribution; turns always act as the owner), its arrival time, and a state (pending, taken by a turn, handled, replaced or failed).
 - **Turn**: one agent execution in a session. It records which events it took, whether a person or the system started it and from which source, and its outcome.
 
@@ -226,6 +235,7 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 - **SC-006**: A repeated CI failure on a commit the agent has already examined starts no additional turn.
 - **SC-007**: Every CI give-up, and every CI-started turn that pushed nothing, produces an owner notification that contains the agent's explanation.
 - **SC-008**: An owner can find the explanation for every CI-related outcome from the session they started, without opening another conversation.
+- **SC-009**: When a waking event reaches a session that is not running a turn, the turn handling it starts within 1 minute.
 
 ## Assumptions
 
