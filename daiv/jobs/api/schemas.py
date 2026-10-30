@@ -1,13 +1,16 @@
 from datetime import datetime  # noqa: TC003 - required at runtime by Pydantic
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 
+from mcp_connectors.selection import MAX_SERVER_NAME_LENGTH, MAX_SERVER_NAMES
 from ninja import Field, Schema
-from pydantic import ConfigDict
+from pydantic import ConfigDict, StringConstraints
 from sessions.artifacts import ArtifactPayload  # noqa: TC002 - required at runtime by Ninja
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn  # noqa: TC001 - required at runtime by Ninja
 from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtime by Ninja
+
+McpServerName = Annotated[str, StringConstraints(min_length=1, max_length=MAX_SERVER_NAME_LENGTH)]
 
 
 class RepoSubmitItem(Schema):
@@ -37,6 +40,15 @@ class JobSubmitRequest(Schema):
         default_factory=list,
         max_length=MAX_REFS_PER_SUBMISSION,
         description="External work-item references to link into the MR/PR.",
+    )
+    mcp_overrides: dict[McpServerName, Literal["on", "off"]] | None = Field(
+        default=None,
+        max_length=MAX_SERVER_NAMES,
+        description=(
+            "MCP servers to switch on or off for these jobs, relative to the default set: 'on' adds an on-demand "
+            "server, 'off' drops an active one. Applies to the thread each job starts; a continued thread keeps the "
+            "servers it started with."
+        ),
     )
 
 

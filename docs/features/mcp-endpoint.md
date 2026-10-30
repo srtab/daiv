@@ -105,6 +105,7 @@ The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environme
   On thread continuation (when `thread_id` is set), newly supplied references are **merged** into the session's existing set, deduped by `(provider, key)` — the first-seen entry wins. A session accumulates at most 50 references in total across all turns.
 
   **Note (v1 limitation):** DAIV writes the MR description only when the MR is first created. References declared on a later turn reach that turn's commit trailers but do not rewrite an existing MR's description body.
+- `mcp_overrides` — MCP servers to switch on or off for every job in the batch, relative to the default set: `{"grafana": "on"}` adds an on-demand server, `{"sentry": "off"}` drops an active one. Names are those of the global servers and your own personal ones; an unknown name or a value other than `"on"`/`"off"` is returned as an error. Applies to the thread each job starts: a continued thread keeps the servers it started with.
 
 For the full request/response schema, the batch `repos` contract, and the job lifecycle, see the [Jobs API](jobs-api.md).
 

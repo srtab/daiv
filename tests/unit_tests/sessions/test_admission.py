@@ -3,13 +3,16 @@ from __future__ import annotations
 from unittest.mock import Mock, patch
 
 import pytest
+from mcp_connectors.models import MCPServer
 from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.admission import (
+    InvalidMcpOverridesError,
     RejectedOverrideError,
     RepoAccessError,
     UnknownEnvironmentError,
     aadmit,
     aresolve_environment,
+    aresolve_mcp_overrides,
     assert_repo_access,
     check_agent_override,
 )
@@ -130,3 +133,31 @@ async def test_aadmit_resolves_each_target_when_no_environment_is_named(member_u
     )
 
     assert [t.sandbox_environment_id for t in admission.targets] == [str(user_env.id), str(global_default.id)]
+
+
+@pytest.fixture
+def mcp_pool(db):
+    for name, status in (("rt", MCPServer.Status.ACTIVE), ("grafana", MCPServer.Status.ON_DEMAND)):
+        MCPServer.objects.create(name=name, transport=MCPServer.Transport.HTTP, url=f"http://{name}", status=status)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aresolve_mcp_overrides_keeps_only_deviations_from_the_default_set(member_user, mcp_pool):
+    assert await aresolve_mcp_overrides(member_user, {"grafana": "on", "rt": "on"}) == {"grafana": "on"}
+    assert await aresolve_mcp_overrides(member_user, {"rt": "off"}) == {"rt": "off"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aresolve_mcp_overrides_rejects_a_server_the_caller_cannot_use(member_user, mcp_pool):
+    with pytest.raises(InvalidMcpOverridesError, match=r"unknown MCP server\(s\) \['grafna'\].*'grafana'"):
+        await aresolve_mcp_overrides(member_user, {"grafna": "on"})
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aresolve_mcp_overrides_rejects_a_value_other_than_on_or_off(member_user, mcp_pool):
+    with pytest.raises(InvalidMcpOverridesError, match="'on' or 'off'"):
+        await aresolve_mcp_overrides(member_user, {"grafana": "yes"})
+
+
+async def test_aresolve_mcp_overrides_returns_none_when_nothing_is_sent():
+    assert await aresolve_mcp_overrides(Mock(), None) is None

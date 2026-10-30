@@ -6,7 +6,7 @@ import logging
 import uuid as uuid_mod
 from datetime import datetime
 from datetime import time as dt_time
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -213,6 +213,16 @@ async def submit_job(
             ),
         ),
     ] = None,
+    mcp_overrides: Annotated[
+        dict[str, Literal["on", "off"]] | None,
+        Field(
+            description=(
+                "Optional MCP servers to switch on or off for every job in this batch, relative to the default set,"
+                ' e.g. {"grafana": "on"}: "on" adds an on-demand server, "off" drops an active one. Applies to'
+                " the thread each job starts; a continued thread (thread_id) keeps the servers it started with."
+            )
+        ),
+    ] = None,
 ) -> str:
     """Submit a batch of agent jobs. Each repository runs as an independent job.
 
@@ -280,6 +290,7 @@ async def submit_job(
             agent_model=agent_model,
             agent_thinking_level=agent_thinking_level,
             environment=environment,
+            mcp_overrides=mcp_overrides,
         )
         result = await asubmit_batch_runs(
             user=mcp_user,
@@ -291,6 +302,7 @@ async def submit_job(
             trigger_type=SessionOrigin.MCP_JOB,
             thread_id=thread_id_str,
             references=refs_in,
+            mcp_overrides=admission.mcp_overrides,
         )
     except AdmissionError as err:
         return json.dumps({"error": str(err)})
