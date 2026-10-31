@@ -1609,6 +1609,11 @@
       }
     },
 
+    // What a remembered inbox event is, for its row in the timeline.
+    inboxEventLabel(kind) {
+      return window.TranscriptLabels.t(`inbox_${kind}`);
+    },
+
     // The session was busy, so the message waits for its next run (the ``daiv.queued`` answer). It shows as pending
     // with no reply of its own; the turns poll keeps running and ``followLiveRun`` tails the run once it starts.
     _queueTurn(assistantTurn, queued) {

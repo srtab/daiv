@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 from git import GitCommandError
@@ -19,6 +19,8 @@ logger = logging.getLogger("daiv.tools")
 
 
 _FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
+
+FastForward = Literal["advanced", "unchanged", "diverged"]
 # Only the opening and closing markers: a bare ``=======`` is also a setext heading underline.
 _CONFLICT_MARKER_PATTERN = r"^(<{7}|>{7})( |$)"
 
@@ -322,6 +324,26 @@ class GitManager:
         if not _FULL_SHA_RE.fullmatch(sha):
             raise GitCommandError(["git", *args], result.exit_code, stderr=result.output)
         return sha
+
+    async def fast_forward(self, branch: str) -> FastForward:
+        """Move ``HEAD`` up to ``origin/<branch>`` when the remote moved and the checkout has nothing unpublished.
+
+        ``"advanced"`` when it moved, ``"unchanged"`` when the remote is where ``HEAD`` is (or could not be read: the
+        run then works from what it has, and the push integrates later), ``"diverged"`` when ``HEAD`` holds commits
+        the remote lacks or the tree's changes stand in the way, in which case the checkout is left as it was.
+        """
+        fetch = await self._git("fetch", "origin", branch, check=False)
+        if fetch.exit_code != 0:
+            logger.warning("Could not fetch origin/%s to fast-forward (exit %s)", branch, fetch.exit_code)
+            return "unchanged"
+        remote = self._sha_from(("rev-parse", "FETCH_HEAD"), await self._git("rev-parse", "FETCH_HEAD"))
+        if remote == await self.head_sha():
+            return "unchanged"
+        if (await self._git("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD", check=False)).exit_code != 0:
+            return "diverged"
+        if (await self._git("merge", "--ff-only", "FETCH_HEAD", check=False)).exit_code != 0:
+            return "diverged"
+        return "advanced"
 
     async def push_head_to(
         self, branch: str, *, force: bool = False, integrate_on_reject: bool = False, skip_ci: bool = False

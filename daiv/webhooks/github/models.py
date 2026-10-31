@@ -14,6 +14,14 @@ class User(BaseModel):
     username: str = Field(alias="login")
 
 
+class Pusher(BaseModel):
+    """
+    The person a GitHub push names as its pusher
+    """
+
+    name: str = ""
+
+
 class Repository(BaseModel):
     """
     GitHub Repository

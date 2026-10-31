@@ -2,6 +2,8 @@ import logging
 from functools import cached_property
 from typing import Literal
 
+from pydantic import Field
+from sessions.inbox.ownership import aclose_ownership, areopen_ownership, aschedule_push_classification
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.service import PipelineWatch
@@ -16,7 +18,7 @@ from core.constants import has_bot_label, has_max_label
 from webhooks.callbacks import BaseCallback
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
 
-from .models import Comment, Issue, Label, PullRequest, Repository, User, WorkflowRun  # noqa: TC001
+from .models import Comment, Issue, Label, PullRequest, Pusher, Repository, User, WorkflowRun  # noqa: TC001
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -195,26 +197,52 @@ class IssueCommentCallback(GitHubCallback):
 
 class PullRequestCallback(GitHubCallback):
     """
-    GitHub Pull Request Webhook for tracking merge metrics.
+    GitHub Pull Request Webhook: merge metrics for merges into the default branch, and the merge, close and reopen of
+    a pull request a session owns.
     """
 
     action: str
     pull_request: PullRequest
+    sender: User | None = None
 
     def accept_callback(self) -> bool:
         """
-        Accept the webhook only when a pull request is merged into the default branch.
+        Accept a close (merged or not) or a reopen; ``process_callback`` decides what each one concerns.
         """
+        return self.action in ("closed", "reopened")
+
+    async def process_callback(self):
+        """
+        Record merge metrics for a merge into the default branch, then tell the session owning the pull request.
+        """
+        if (
+            self.action == "closed"
+            and self.pull_request.merged
+            and self.pull_request.base.ref == self.repository.default_branch
+        ):
+            await self._record_merge_metrics()
+        repo_id, number = self.repository.full_name, self.pull_request.number
+        by_username = self.sender.username if self.sender is not None else ""
+        if self.action == "reopened":
+            await areopen_ownership(repo_id, number, by_username=by_username)
+        else:
+            await aclose_ownership(
+                repo_id,
+                number,
+                merged=self.pull_request.merged,
+                by_username=by_username,
+                target_branch=self.pull_request.base.ref,
+            )
+
+    @property
+    def _merged_into_default_branch(self) -> bool:
         return (
             self.action == "closed"
             and self.pull_request.merged
             and self.pull_request.base.ref == self.repository.default_branch
         )
 
-    async def process_callback(self):
-        """
-        Enqueue a task to record merge metrics.
-        """
+    async def _record_merge_metrics(self):
         from codebase.tasks import record_merge_metrics_task
 
         await record_merge_metrics_task.aenqueue(
@@ -230,24 +258,36 @@ class PullRequestCallback(GitHubCallback):
 
 class PushCallback(GitHubCallback):
     """
-    GitHub Push Webhook for invalidating repository configuration cache.
+    GitHub Push Webhook: a push to the default branch invalidates the repository configuration cache, and a push to
+    the branch of a pull request a session owns is weighed for that session.
     """
 
     ref: str
+    before: str = ""
+    after: str = ""
+    deleted: bool = False
+    pusher: Pusher | None = None
+    commits: list[dict] = Field(default_factory=list)
 
     def accept_callback(self) -> bool:
         """
-        Accept the webhook if the push is to the default branch.
+        Accept a push to a branch; a tag push concerns neither the configuration nor a pull request.
         """
-        return self.ref.endswith(self.repository.default_branch)
+        return self.ref.startswith("refs/heads/")
 
     async def process_callback(self):
-        """
-        Process the push webhook to invalidate the cache for the repository configurations.
-        """
-        if self.repository.default_branch and self.ref.endswith(self.repository.default_branch):
-            # Invalidate the cache for the repository configurations, they could have changed.
+        branch = self.ref.removeprefix("refs/heads/")
+        if branch == self.repository.default_branch:
             RepositoryConfig.invalidate_cache(self.repository.full_name)
+        elif not self.deleted and self.after:
+            await aschedule_push_classification(
+                self.repository.full_name,
+                branch=branch,
+                before=self.before,
+                after=self.after,
+                pusher_username=self.pusher.name if self.pusher is not None else "",
+                commit_count=len(self.commits),
+            )
 
 
 class WorkflowRunCallback(GitHubCallback):

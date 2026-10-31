@@ -1025,3 +1025,70 @@ async def test_head_sha_refuses_output_that_is_not_a_sha() -> None:
     gm, _ = _sandbox_manager({"rev-parse HEAD": (0, "HEAD\n")})
     with pytest.raises(GitCommandError):
         await gm.head_sha()
+
+
+# ---------------------------------------------------------------------------
+# fast_forward
+# ---------------------------------------------------------------------------
+
+
+def _push_from_another_clone(tmp_path: Path, origin_dir: Path, *, name: str = "pushed.txt") -> str:
+    """A commit someone else pushed to ``origin/main``; returns its sha."""
+    other = Repo.clone_from(origin_dir.as_posix(), tmp_path / f"other-{name}", branch="main")
+    _configure_repo_identity(other)
+    (Path(other.working_dir) / name).write_text("theirs\n")
+    other.git.add("-A")
+    other.index.commit(f"Add {name}")
+    other.remotes.origin.push("main")
+    return other.head.commit.hexsha
+
+
+async def test_fast_forward_advances_a_clean_checkout_to_the_remote_head(tmp_path: Path) -> None:
+    repo, origin_dir = _init_repo_with_origin(tmp_path)
+    pushed = _push_from_another_clone(tmp_path, origin_dir)
+
+    assert await GitManager(LocalGitRunner(repo)).fast_forward("main") == "advanced"
+    assert repo.head.commit.hexsha == pushed
+
+
+async def test_fast_forward_leaves_a_checkout_with_unpublished_commits_alone(tmp_path: Path) -> None:
+    repo, origin_dir = _init_repo_with_origin(tmp_path)
+    _push_from_another_clone(tmp_path, origin_dir)
+    (Path(repo.working_dir) / "mine.txt").write_text("mine\n")
+    repo.git.add("-A")
+    repo.index.commit("Unpublished")
+    local = repo.head.commit.hexsha
+
+    assert await GitManager(LocalGitRunner(repo)).fast_forward("main") == "diverged"
+    assert repo.head.commit.hexsha == local
+
+
+async def test_fast_forward_reports_a_remote_that_did_not_move(tmp_path: Path) -> None:
+    repo, _origin_dir = _init_repo_with_origin(tmp_path)
+    head = repo.head.commit.hexsha
+
+    assert await GitManager(LocalGitRunner(repo)).fast_forward("main") == "unchanged"
+    assert repo.head.commit.hexsha == head
+
+
+async def test_fast_forward_works_the_same_through_a_sandbox() -> None:
+    gm, client = _sandbox_manager({
+        "fetch origin b": (0, ""),
+        "rev-parse FETCH_HEAD": (0, "b" * 40),
+        "rev-parse HEAD": (0, "a" * 40),
+        "merge-base --is-ancestor HEAD FETCH_HEAD": (0, ""),
+        "merge --ff-only FETCH_HEAD": (0, ""),
+    })
+
+    assert await gm.fast_forward("b") == "advanced"
+    assert client.ran("merge --ff-only FETCH_HEAD")
+
+
+async def test_fast_forward_through_a_sandbox_that_cannot_reach_the_remote_changes_nothing(caplog) -> None:
+    gm, client = _sandbox_manager({"fetch origin b": (128, "fatal: unable to access")})
+
+    with caplog.at_level("WARNING", logger="daiv.tools"):
+        assert await gm.fast_forward("b") == "unchanged"
+
+    assert not client.ran("merge")
+    assert "Could not fetch origin/b" in caplog.text

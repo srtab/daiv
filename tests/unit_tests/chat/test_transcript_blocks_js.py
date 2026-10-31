@@ -404,3 +404,27 @@ def test_a_changed_mcp_server_icon_or_read_only_list_re_derives_its_rows():
         [1, "https://x.test/a.png"],
         [0, "https://x.test/a.png"],
     ]
+
+
+def _inbox_event(event_id, kind="ci_passed"):
+    return {"id": event_id, "role": "inbox_event", "kind": kind, "summary": "CI on !9: pipeline 1 passed"}
+
+
+def test_a_remembered_event_is_a_compact_block_of_its_own_between_runs():
+    turns = [user("u1"), asst("a1", text("Done.")), _inbox_event("inbox-e1"), user("u2"), asst("a2", text("Again."))]
+
+    blocks = _blocks(turns)
+
+    assert [block["key"] for block in blocks] == ["u1", "inbox-e1", "u2"]
+    event_block = blocks[1]
+    assert event_block["event"]["kind"] == "ci_passed"
+    assert (event_block["anchor"], event_block["items"]) == (None, [])
+    assert [block["event"] for block in (blocks[0], blocks[2])] == [None, None]
+
+
+def test_an_event_after_the_live_run_leaves_that_run_live():
+    turns = [user("u1"), asst("a1", read("c1", result=None, status="running")), _inbox_event("inbox-e1")]
+
+    blocks = _blocks(turns, in_flight=True)
+
+    assert [block["live"] for block in blocks] == [True, False]

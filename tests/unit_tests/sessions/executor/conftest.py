@@ -96,6 +96,7 @@ def agent_stack(
     to the clone. ``build_servers`` stubs ``build_runtime_servers``; the servers it returns are the ones handed to the
     agent. ``build_absolute_url`` stubs the session links' URL builder, resolving against ``SITE_URL``.
     ``delegator_for`` stubs ``adelegator_for``; the delegator it returns is the one a run that may delegate hands over.
+    ``fast_forward`` stubs bringing a warm checkout up to the remote branch; it reports nothing tried.
     """
     last_checkpoint = None if checkpointed is None else SimpleNamespace(checkpoint={"channel_values": checkpointed})
     stack = SimpleNamespace(
@@ -153,6 +154,7 @@ def agent_stack(
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.aclaim_ownership", _claim),
+        patch("sessions.executor.run._fast_forward", new=AsyncMock(return_value=None)) as fast_forward,
         patch("sessions.executor.run.adelegator_for", new=AsyncMock(return_value=MagicMock())) as delegator_for,
         patch(
             "sessions.executor.run.build_absolute_url", side_effect=lambda path: f"{SITE_URL}{path}"
@@ -174,6 +176,7 @@ def agent_stack(
         stack.reset = reset
         stack.build_absolute_url = build_absolute_url
         stack.delegator_for = delegator_for
+        stack.fast_forward = fast_forward
         yield stack
 
 

@@ -307,32 +307,32 @@ description: "Task list for the Session Inbox feature"
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T070 [P] [US3] Extend `tests/unit_tests/webhooks/gitlab/test_callbacks.py`. Cover:
+- [X] T070 [P] [US3] Extend `tests/unit_tests/webhooks/gitlab/test_callbacks.py`. Cover:
   - a push hook to a non-default branch with an open ownership enqueues `classify_push_task` with `run_after` 60 s;
   - a push to the default branch still only invalidates the config cache;
   - MR hook `merge` and `close` on any target post `mr_merged` / `mr_closed` and set `closed_at`, keyed `mr-state:<iid>:merged|closed`;
   - `reopen` clears `closed_at` and posts a `notice`;
   - unowned merge requests post nothing.
-- [ ] T071 [P] [US3] Extend `tests/unit_tests/webhooks/github/test_callbacks.py` with the same cases for `push` and `pull_request` `closed` (`merged` true or false) and `reopened`. The existing merge-metrics recording still runs.
-- [ ] T072 [P] [US3] Extend `tests/unit_tests/sessions/test_tasks.py` with `classify_push_task`: an `after` SHA equal to the ownership's `last_daiv_sha` posts nothing; any other SHA posts a remembered `branch_pushed`, keyed `push:<after>`, subject `branch:<ref>`.
-- [ ] T073 [P] [US3] Extend `tests/unit_tests/sessions/test_transcript.py`: `annotate_transcript` emits `inbox_event` entries for remembered events, interleaved by `created_at` like `run_status` entries, including in `expired_run_turns`.
-- [ ] T074 [P] [US3] Add Workspace tests in `tests/unit_tests/automation/agent/workspace/`:
+- [X] T071 [P] [US3] Extend `tests/unit_tests/webhooks/github/test_callbacks.py` with the same cases for `push` and `pull_request` `closed` (`merged` true or false) and `reopened`. The existing merge-metrics recording still runs.
+- [X] T072 [P] [US3] Extend `tests/unit_tests/sessions/test_tasks.py` with `classify_push_task`: an `after` SHA equal to the ownership's `last_daiv_sha` posts nothing; any other SHA posts a remembered `branch_pushed`, keyed `push:<after>`, subject `branch:<ref>`.
+- [X] T073 [P] [US3] Extend `tests/unit_tests/sessions/test_transcript.py`: `annotate_transcript` emits `inbox_event` entries for remembered events, interleaved by `created_at` like `run_status` entries, including in `expired_run_turns`.
+- [X] T074 [P] [US3] Add Workspace tests in `tests/unit_tests/automation/agent/workspace/`:
   - the fast-forward operation advances a clean checkout to the remote head;
   - it reports "diverged" and leaves the checkout alone when there are unpublished local commits;
   - it reports "unchanged" when the remote didn't move;
   - it behaves the same on the disk and sandbox workspaces.
-- [ ] T075 [P] [US3] Extend `tests/unit_tests/sessions/inbox/test_render.py`: the branch line states the fast-forward result ("was fast-forwarded" or "could not be fast-forwarded because you have unpublished commits"). Extend `tests/unit_tests/chat/api/test_streaming.py`: an idle chat run after a person's push gets the branch line in its context and starts from the new head.
-- [ ] T076 [P] [US3] Extend `tests/unit_tests/chat/test_transcript_blocks_js.py`: `inbox_event` entries render as compact timeline rows.
+- [X] T075 [P] [US3] Extend `tests/unit_tests/sessions/inbox/test_render.py`: the branch line states the fast-forward result ("was fast-forwarded" or "could not be fast-forwarded because you have unpublished commits"). Extend `tests/unit_tests/chat/api/test_streaming.py`: an idle chat run after a person's push gets the branch line in its context and starts from the new head.
+- [X] T076 [P] [US3] Extend `tests/unit_tests/chat/test_transcript_blocks_js.py`: `inbox_event` entries render as compact timeline rows.
 
 ### Implementation for User Story 3
 
-- [ ] T077 [P] [US3] Extend the GitLab push and merge request models in `daiv/webhooks/gitlab/models.py` with `before`, `after`, `user_username`, `total_commits_count` and the MR `action`. Route the cases in `daiv/webhooks/gitlab/callbacks.py`, per contracts/webhook-events.md "Pushes and merge request state", keeping default-branch push and merge-metrics handling as is.
-- [ ] T078 [P] [US3] Extend the GitHub `push` and `pull_request` models in `daiv/webhooks/github/models.py` (`before`, `after`, `pusher`, `commits`; `merged`; actions `closed` and `reopened`) and route them in `daiv/webhooks/github/callbacks.py`, per the same contract.
-- [ ] T079 [US3] Add `classify_push_task` to `daiv/sessions/tasks.py`, enqueued with a 60 s `run_after` by both callbacks. It compares `after` with the ownership's recorded DAIV SHAs and posts `branch_pushed` through `apost_event`. Add ownership helpers in `daiv/sessions/inbox/ownership.py`: `aclose_ownership` and `areopen_ownership`.
-- [ ] T080 [US3] Add a fast-forward operation to the `Workspace` protocol in `daiv/automation/agent/workspace/base.py`, returning `"advanced" | "unchanged" | "diverged"`. Implement it in `disk.py` and `sandbox.py` through `git_manager.py` (fetch with the workspace's authenticated git, then fast-forward only).
-- [ ] T081 [US3] Call the fast-forward in `daiv/sessions/executor/run.py` right after the workspace is acquired, for every session run, inline chat included: chat also goes through `execute_run`. Keep the result on the run context, so `arender_input` (inbox runs) and the chat context prepend (T062) both get the branch line.
-- [ ] T082 [US3] Emit `inbox_event` pseudo-entries in `daiv/sessions/transcript.py` (`annotate_transcript` and `expired_run_turns`), with summaries built only from payload fields. Add the labels to `daiv/sessions/transcript_labels.py` and the rendering to `daiv/chat/static/chat/js/transcript-blocks.js` and `transcript-labels.js`.
-- [ ] T083 [US3] Document remembered events and the timeline in `docs/features/sessions.md`.
+- [X] T077 [P] [US3] Extend the GitLab push and merge request models in `daiv/webhooks/gitlab/models.py` with `before`, `after`, `user_username`, `total_commits_count` and the MR `action`. Route the cases in `daiv/webhooks/gitlab/callbacks.py`, per contracts/webhook-events.md "Pushes and merge request state", keeping default-branch push and merge-metrics handling as is.
+- [X] T078 [P] [US3] Extend the GitHub `push` and `pull_request` models in `daiv/webhooks/github/models.py` (`before`, `after`, `pusher`, `commits`; `merged`; actions `closed` and `reopened`) and route them in `daiv/webhooks/github/callbacks.py`, per the same contract.
+- [X] T079 [US3] Add `classify_push_task` to `daiv/sessions/tasks.py`, enqueued with a 60 s `run_after` by both callbacks. It compares `after` with the ownership's recorded DAIV SHAs and posts `branch_pushed` through `apost_event`. Add ownership helpers in `daiv/sessions/inbox/ownership.py`: `aclose_ownership` and `areopen_ownership`.
+- [X] T080 [US3] Add a fast-forward operation to the `Workspace` protocol in `daiv/automation/agent/workspace/base.py`, returning `"advanced" | "unchanged" | "diverged"`. Implement it in `disk.py` and `sandbox.py` through `git_manager.py` (fetch with the workspace's authenticated git, then fast-forward only).
+- [X] T081 [US3] Call the fast-forward in `daiv/sessions/executor/run.py` right after the workspace is acquired, for every session run, inline chat included: chat also goes through `execute_run`. Keep the result on the run context, so `arender_input` (inbox runs) and the chat context prepend (T062) both get the branch line.
+- [X] T082 [US3] Emit `inbox_event` pseudo-entries in `daiv/sessions/transcript.py` (`annotate_transcript` and `expired_run_turns`), with summaries built only from payload fields. Add the labels to `daiv/sessions/transcript_labels.py` and the rendering to `daiv/chat/static/chat/js/transcript-blocks.js` and `transcript-labels.js`.
+- [X] T083 [US3] Document remembered events and the timeline in `docs/features/sessions.md`.
 
 **Checkpoint**: quickstart.md scenario 3 passes. A person's push and a merge appear in the timeline without starting a run, and the next run works from the new head.
 

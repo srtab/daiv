@@ -143,10 +143,18 @@
         runId: turn.run_id || null,
         turns: [],
         statuses: [],
+        event: null,
       };
       runs.push(run);
     };
     turns.forEach((turn, ti) => {
+      // Something the session remembered between runs is a block of its own, and the turn after it opens another.
+      if (turn.role === "inbox_event") {
+        open(turn, ti);
+        run.event = turn;
+        run = null;
+        return;
+      }
       // A run without a prompt starts at its first turn, which carries its run_id (a failed one's is its marker).
       if (!run || turn.role === "user" || (turn.run_id && run.runId && turn.run_id !== run.runId)) open(turn, ti);
       if (turn.role === "run_status") run.statuses.push(turn);
@@ -225,9 +233,12 @@
     };
 
     const runs = splitRuns(turns);
+    const lastRun = runs.findLastIndex((run) => !run.event);
 
     const blocks = runs.map((run, ri) => {
-      const key = claim(run.anchor?.id || run.anchor?.run_id || `head-${turnKey(run.first, run.firstIndex)}`);
+      const key = claim(
+        run.event?.id || run.anchor?.id || run.anchor?.run_id || `head-${turnKey(run.first, run.firstIndex)}`,
+      );
 
       const entries = [];
       const stepRows = [];
@@ -250,7 +261,7 @@
 
       const stats = { steps: stepRows.length, ...tally(stepRows) };
       const streaming = run.turns.some(({ turn }) => turn.streaming);
-      const live = streaming || (ri === runs.length - 1 && Boolean(opts.inFlight));
+      const live = streaming || (ri === lastRun && Boolean(opts.inFlight));
       const folded = !live && stats.steps > 0;
       const foldEnd = folded ? lastStep + 1 : entries.length;
 
@@ -318,6 +329,7 @@
       return {
         key,
         anchor: run.anchor,
+        event: run.event,
         runId: run.runId,
         live,
         folded,

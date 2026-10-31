@@ -100,6 +100,37 @@ class TestContext:
         assert "Superseded by pipeline 2" in text
 
 
+class TestFastForward:
+    def _push(self) -> InboxEvent:
+        payload = {"before": "e96f1f77aa", "after": "0a1b2c3dbb", "commit_count": 2, "pusher_username": "sfr"}
+        return _event(EventKind.BRANCH_PUSHED, payload, subject="branch:chore/x")
+
+    @pytest.mark.parametrize(
+        ("result", "sentence"),
+        [
+            ("advanced", "Your working copy was fast-forwarded."),
+            ("diverged", "Your working copy could not be fast-forwarded because you have unpublished commits."),
+        ],
+    )
+    def test_the_branch_line_says_whether_the_working_copy_followed(self, result, sentence):
+        text = render_context([self._push()], fast_forward=result, branch="chore/x")
+
+        assert text.splitlines()[-1] == (
+            f"- The branch chore/x moved: sfr pushed 2 commits (e96f1f77 → 0a1b2c3d). {sentence}"
+        )
+
+    @pytest.mark.parametrize("result", [None, "unchanged"])
+    def test_nothing_is_said_when_the_working_copy_did_not_move(self, result):
+        text = render_context([self._push()], fast_forward=result, branch="chore/x")
+
+        assert text.splitlines()[-1].endswith("(e96f1f77 → 0a1b2c3d).")
+
+    def test_a_move_with_no_push_event_gets_a_line_of_its_own(self):
+        assert render_context([], fast_forward="advanced", branch="chore/x").splitlines()[2:] == [
+            "- The branch chore/x moved on the remote. Your working copy was fast-forwarded."
+        ]
+
+
 class TestRequest:
     def test_a_ci_only_run_gets_the_fix_prompt(self):
         text = render_request([_event(EventKind.CI_FAILED, ci_payload(jobs=("lint", "tests")))])

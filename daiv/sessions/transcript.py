@@ -4,8 +4,10 @@
 already-fetched run rows) so the segmentation logic is unit-testable without the database,
 mirroring ``sessions.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
 and messages, then zip them here; for a checkpoint with no messages, ``expired_run_turns``
-restores the prompts and queries the artifacts it no longer carries. ``retry_message`` reads the
-annotated turns for what the newest run's Retry sends.
+restores the prompts and queries the artifacts it no longer carries. ``interleave_inbox_events``
+then splices the session's remembered inbox events in as ``inbox_event`` entries, each before the
+first run created after it, the way ``run_status`` markers sit beside their runs.
+``retry_message`` reads the annotated turns for what the newest run's Retry sends.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ from sessions.turns import tool_call_segment
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from sessions.models import Run
+    from sessions.models import InboxEvent, Run
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -321,6 +323,40 @@ def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[
             _stamp_run_times(run_turns, run)
             _anchor(run_turns, run)
         result.extend(run_turns)
+    return result
+
+
+def inbox_event_entry(event: InboxEvent) -> dict[str, Any]:
+    """A remembered inbox event as a timeline entry; its summary is built from the event's payload alone."""
+    from sessions.inbox.render import summarize
+
+    return {
+        "id": f"inbox-{event.pk}",
+        "role": "inbox_event",
+        "kind": event.kind,
+        "summary": summarize(event),
+        "reason": event.reason,
+        "web_url": event.payload.get("web_url", ""),
+        "created_at": event.created_at.isoformat(),
+    }
+
+
+def interleave_inbox_events(
+    turns: list[dict[str, Any]], runs: Iterable[Run], events: Iterable[InboxEvent]
+) -> list[dict[str, Any]]:
+    """``turns`` with each of ``events`` as an ``inbox_event`` entry before the first turn of the first run created
+    after it, and the ones newer than every run at the end."""
+    waiting = sorted(events, key=lambda event: (event.created_at, str(event.pk)))
+    if not waiting:
+        return turns
+    created = {str(run.id): run.created_at for run in runs}
+    result: list[dict[str, Any]] = []
+    for turn in turns:
+        if (at := created.get(turn.get("run_id") or "")) is not None:
+            while waiting and waiting[0].created_at < at:
+                result.append(inbox_event_entry(waiting.pop(0)))
+        result.append(turn)
+    result.extend(inbox_event_entry(event) for event in waiting)
     return result
 
 

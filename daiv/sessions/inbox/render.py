@@ -3,9 +3,10 @@
 Two messages, built from the events the run took:
 
 - the **context**, a ``synthetic_message(kind="inbox")`` the transcript hides: one line per remembered event, oldest
-  first, an event a newer one of the same subject replaced shown with ``Superseded by …`` lines beneath it. Capped at
-  ``CONTEXT_MAX_CHARS``: past it, the oldest remembered lines collapse into ``N more <kind> events``. Omitted when
-  there is nothing to report.
+  first, an event a newer one of the same subject replaced shown with ``Superseded by …`` lines beneath it. A line
+  about the branch moving says whether the working copy was fast-forwarded to it, and when the working copy moved with
+  no such event, a line says so on its own. Capped at ``CONTEXT_MAX_CHARS``: past it, the oldest remembered lines
+  collapse into ``N more <kind> events``. Omitted when there is nothing to report.
 - the **request**, a ``HumanMessage``: people's words when the run took any (chat messages, mentions with their
   authors, the follow-up job's prompt), then DAIV's own sections (a delegated batch's summary, the CI fix prompt), in
   precedence order and separated by a blank line.
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
 
     from langchain_core.messages import HumanMessage
 
+    from automation.agent.workspace.git_manager import FastForward
     from sessions.models import Run
 
 INBOX_CONTEXT_KIND = "inbox"
@@ -71,15 +73,22 @@ class RenderedInput:
         return (self.request,) if self.context is None else (self.context, self.request)
 
 
-def render_input(run: Run) -> RenderedInput:
-    """The input for ``run`` from the events it took. SYNC ONLY."""
+_FAST_FORWARDED = {
+    "advanced": "Your working copy was fast-forwarded.",
+    "diverged": "Your working copy could not be fast-forwarded because you have unpublished commits.",
+}
+
+
+def render_input(run: Run, *, fast_forward: FastForward | None = None) -> RenderedInput:
+    """The input for ``run`` from the events it took, and what bringing its checkout up to the remote branch did.
+    SYNC ONLY."""
     # Deferred: ``sessions.signals`` imports this module at app load, and the agent stack must not load with it.
     from langchain_core.messages import HumanMessage
 
     from automation.agent.synthetic import synthetic_message
 
     events = list(InboxEvent.objects.filter(run=run).select_related("author").order_by("created_at", "id"))
-    context = render_context(events)
+    context = render_context(events, fast_forward=fast_forward, branch=run.ref)
     return RenderedInput(
         context=synthetic_message(context, kind=INBOX_CONTEXT_KIND) if context else None,
         request=HumanMessage(content=render_request(events), id=run.message_id or None),
@@ -133,9 +142,10 @@ class _Entry:
     collapsible: bool
 
 
-def render_context(events: Sequence[InboxEvent]) -> str:
+def render_context(events: Sequence[InboxEvent], *, fast_forward: FastForward | None = None, branch: str = "") -> str:
     """The context message's text for ``events``, or ``""`` when no line is due."""
     position = {event.pk: index for index, event in enumerate(events)}
+    moved = _FAST_FORWARDED.get(fast_forward or "")
     chained = list(dict.fromkeys(e.subject for e in events if e.state == EventState.SUPERSEDED and e.subject))
     entries: list[_Entry] = []
     for subject in chained:
@@ -153,6 +163,19 @@ def render_context(events: Sequence[InboxEvent]) -> str:
         for event in events
         if not event.wake and event.state != EventState.SUPERSEDED and event.subject not in chained
     )
+    pushes = [entry for entry in entries if entry.kind == EventKind.BRANCH_PUSHED]
+    if moved and pushes:
+        pushes[-1].lines[-1] = f"{pushes[-1].lines[-1]} {moved}"
+        pushes[-1].collapsible = False
+    elif moved:
+        entries.append(
+            _Entry(
+                position=len(events),
+                lines=[f"- The branch {branch} moved on the remote. {moved}"],
+                kind="",
+                collapsible=False,
+            )
+        )
     if not entries:
         return ""
     return _fit(sorted(entries, key=attrgetter("position")))
@@ -179,6 +202,17 @@ def _fit(entries: list[_Entry]) -> str:
 SUMMARY_MAX_CHARS = 140
 
 
+def remembered_events(session_id: str) -> list[InboxEvent]:
+    """The session's remembered events for its timeline, superseded and failed ones left out. SYNC ONLY."""
+    return list(
+        InboxEvent.objects
+        .filter(session_id=session_id, wake=False)
+        .exclude(state__in=(EventState.SUPERSEDED, EventState.FAILED))
+        .select_related("author")
+        .order_by("created_at", "id")
+    )
+
+
 def summarize(event: InboxEvent) -> str:
     """A one-line summary of ``event`` for the session page, built from its payload alone."""
     payload = event.payload
@@ -191,6 +225,8 @@ def summarize(event: InboxEvent) -> str:
             text = payload["prompt"]
         case EventKind.DELEGATION_FINISHED:
             text = "Delegated jobs finished"
+        case EventKind.COMMENT:
+            text = f"{_author(event)} on !{event.merge_request_iid}: {payload['body']}"
         case EventKind.CI_FAILED | EventKind.CI_PASSED | EventKind.CI_STOPPED:
             text = f"CI on !{event.merge_request_iid}: pipeline {payload['pipeline_id']} {_ci_status(event).lower()}"
         case _:

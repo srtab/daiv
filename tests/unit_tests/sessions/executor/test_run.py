@@ -2058,3 +2058,66 @@ class TestSessionArchive:
             await execute_run(make_spec())
 
         assert "executor: failed to archive" in caplog.text
+
+
+class TestFastForward:
+    def _workspace(self, acquisition, result="advanced"):
+        from automation.agent.workspace.session import SandboxAcquisition
+
+        session = SimpleNamespace(acquisition=getattr(SandboxAcquisition, acquisition))
+        return SimpleNamespace(session=session, fast_forward=AsyncMock(return_value=result))
+
+    def _ctx(self, *, ref="chore/x", detached=False):
+        return SimpleNamespace(repo=SimpleNamespace(ref=ref, head_detached=detached))
+
+    async def test_a_warm_sandbox_is_brought_up_to_the_remote_branch(self):
+        from sessions.executor.run import _fast_forward
+
+        workspace = self._workspace("WARM")
+
+        assert await _fast_forward(make_spec(), self._ctx(), workspace) == "advanced"
+        workspace.fast_forward.assert_awaited_once_with("chore/x")
+
+    @pytest.mark.parametrize(
+        ("acquisition", "ctx", "thread_id"),
+        [("NEW", {}, "t"), ("WARM", {"detached": True}, "t"), ("WARM", {"ref": ""}, "t"), ("WARM", {}, None)],
+        ids=["fresh-sandbox", "detached-head", "no-branch", "one-shot"],
+    )
+    async def test_anything_else_is_left_as_it_is(self, acquisition, ctx, thread_id):
+        from sessions.executor.run import _fast_forward
+
+        workspace = self._workspace(acquisition)
+        spec = make_spec(thread_id=thread_id) if thread_id else make_spec(thread_id=None)
+
+        assert await _fast_forward(spec, self._ctx(**ctx), workspace) is None
+        workspace.fast_forward.assert_not_awaited()
+
+    async def test_a_disk_checkout_is_fresh_already(self):
+        from sessions.executor.run import _fast_forward
+
+        workspace = SimpleNamespace(session=None, fast_forward=AsyncMock())
+
+        assert await _fast_forward(make_spec(), self._ctx(), workspace) is None
+
+    async def test_a_failure_is_logged_and_the_run_goes_on(self, caplog):
+        from sessions.executor.run import _fast_forward
+
+        workspace = self._workspace("WARM")
+        workspace.fast_forward.side_effect = RuntimeError("container gone")
+
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
+            assert await _fast_forward(make_spec(), self._ctx(), workspace) is None
+
+        assert "could not fast-forward" in caplog.text
+
+    async def test_the_input_is_built_from_what_the_fast_forward_did(self):
+        built = HumanMessage(content="built late")
+        factory = AsyncMock(return_value=(built,))
+        agent = _agent()
+
+        with agent_stack(agent) as stack:
+            stack.fast_forward.return_value = "advanced"
+            await execute_run(make_spec(input_factory=factory))
+
+        factory.assert_awaited_once_with("advanced")
+        assert agent.ainvoke.await_args.args[0] == {"messages": [built]}

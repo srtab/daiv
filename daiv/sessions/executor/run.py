@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.git_manager import FastForward
     from automation.agent.workspace.session import SandboxSession
     from sessions.executor.spec import RunSpec
     from sessions.live.relay import RunRelay
@@ -65,7 +66,8 @@ class AgentRun:
     agent works; draft recovery publishes through it, and the executor releases its sandbox session. ``settings`` is
     what the run resolved once, and ``session_links`` what builds the links they allow; draft recovery publishes with
     both. ``run_id`` is the ``Run`` the run records on, ``None`` for a one-shot run, and ``publish`` holds the last
-    publish result the run dispatched."""
+    publish result the run dispatched. ``fast_forward`` is what bringing a warm sandbox's checkout up to the remote
+    branch did before the agent started; ``None`` when nothing was tried (a fresh checkout, or a one-shot run)."""
 
     ctx: RuntimeCtx
     agent: CompiledStateGraph[Any, RuntimeCtx]
@@ -77,6 +79,7 @@ class AgentRun:
     session_links: SessionLinksResolver | None
     run_id: str | None = None
     publish: PublishResultRecorder | None = None
+    fast_forward: FastForward | None = None
 
 
 async def execute_run(
@@ -286,7 +289,8 @@ async def _ainvoke(run: AgentRun, spec: RunSpec, run_relay: RunRelay | None) -> 
     """Invoke the agent, streaming its events to ``run_relay`` when the run has one."""
     from sessions.live.publisher import ainvoke_live
 
-    graph_input = {"messages": list(spec.input_messages)}
+    messages = await spec.input_factory(run.fast_forward) if spec.input_factory is not None else spec.input_messages
+    graph_input = {"messages": list(messages)}
     if run_relay is None:
         return await run.agent.ainvoke(graph_input, config=run.config, context=run.ctx)
     return await ainvoke_live(
@@ -405,6 +409,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
             session_links = _session_links(spec, settings)
             if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
+            fast_forward = await _fast_forward(spec, ctx, workspace)
             delegator = (
                 await adelegator_for(spec.thread_id)
                 if spec.thread_id is not None and settings.features.orchestration
@@ -447,6 +452,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                     session_links=session_links,
                     run_id=run_id,
                     publish=publish,
+                    fast_forward=fast_forward,
                 )
                 try:
                     yield run
@@ -464,6 +470,23 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                     await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
             finally:
                 await _record_measurements(run_id, ctx, workspace)
+
+
+async def _fast_forward(spec: RunSpec, ctx: RuntimeCtx, workspace: Workspace) -> FastForward | None:
+    """Bring a warm sandbox's checkout up to the remote branch, which someone may have pushed to since the session's
+    last run; a fresh checkout is already there. Best-effort: logged, and the run works from what it has."""
+    from automation.agent.workspace.session import SandboxAcquisition
+
+    session = workspace.session
+    if spec.thread_id is None or session is None or session.acquisition is not SandboxAcquisition.WARM:
+        return None
+    if ctx.repo.head_detached or not ctx.repo.ref:
+        return None
+    try:
+        return await workspace.fast_forward(ctx.repo.ref)
+    except Exception:
+        logger.exception("executor: could not fast-forward the checkout for thread_id=%s", spec.thread_id)
+        return None
 
 
 def _build_workspace(ctx: RuntimeCtx) -> Workspace:

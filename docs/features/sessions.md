@@ -170,7 +170,9 @@ As the agent works, the workspace streams updates live:
 
 While a run is streaming you can press **Stop** to cancel it server-side. Refreshing the page or losing the connection does not stop the run — reopening the session rejoins the live stream. Only one run can be in flight per session at a time.
 
-Stop is offered on chat runs only, and only to the session's owner: a run started by a job, webhook or schedule streams without it.
+A message you send while the session is busy is not refused: it shows as **Pending** and waits for the session's next run, which starts as soon as the current one ends and answers it together with anything else that arrived meanwhile. The page follows that run when it starts. See [The session inbox](#the-session-inbox).
+
+Stop is offered to the session's owner, on chat runs and on the runs a job or the session's inbox started; a run started by a webhook on an issue or a merge request no session owns streams without it.
 
 ### Model and sandbox environment
 
@@ -205,6 +207,19 @@ When the agent hits a request that's genuinely ambiguous or a decision that's yo
 The card is only interactive on the session's last turn, and only while no run is in flight — once answered it stays visible but goes inert (options disabled, free-text field and buttons hidden), keeps the options your answer picked highlighted, even after a reload, and your answer shows as the next message. This isn't chat-only: the same card renders on a webhook or job session's transcript wherever a run ended on a question.
 
 For job runs (a dashboard job submission, the [Jobs API](jobs-api.md) or [MCP](mcp-endpoint.md)) and [scheduled](scheduled-jobs.md) runs, DAIV also sends a [notification](notifications.md) listing the questions, so you know the run is waiting on you. Chat runs don't notify, and webhook runs rely on the question comment on the issue or merge/pull request, which mentions you.
+
+---
+
+## The session inbox
+
+Everything that asks an existing session to act arrives in its inbox: a CI result on a merge request the session published, a mention or a comment on that merge request, a chat message sent while the session was busy, a follow-up job, a delegated batch finishing. Each one either **wakes** the agent or is only **remembered**.
+
+- **Waking** — a person's request (a chat message, a mention, a follow-up job) always wakes the agent. A CI failure wakes it only on a commit DAIV pushed, once per commit, while attempts are left (see [Pipeline Watch](pipeline-watch.md)); a finished delegated batch wakes it to carry on.
+- **Remembered** — a CI pass, a pipeline that needs a person, a push someone else made to the branch, a merge or close, a comment that doesn't mention DAIV. These start no run. They appear in the session's timeline as compact rows between runs, and the next run on the session gets them as context, so the agent knows the branch moved before it pushes.
+
+One run handles everything waiting for the session's branch: a message you sent and a CI failure that arrived during the same run are answered together, in one run, when the current one ends. A run started by a warm sandbox whose branch someone pushed to brings its checkout up to the remote first, unless it holds commits it hasn't published, and says so to the agent.
+
+**Mute CI and delegations** in the session menu stops CI failures and finished delegated batches from waking the session; they are still remembered, and your own requests still run. DAIV also stops waking a session on its own after three runs in a row that nobody asked for, and tells the owner; sending a message or mentioning DAIV picks it up again.
 
 ---
 

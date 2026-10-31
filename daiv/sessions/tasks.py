@@ -73,6 +73,19 @@ def drain_inboxes_cron_task():
 
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE)
+async def classify_push_task(
+    repo_id: str, branch: str, before: str, after: str, pusher_username: str, commit_count: int
+) -> None:
+    """Remember a push to an owned merge request's branch unless DAIV pushed its commit; enqueued a minute after the
+    webhook so DAIV's own publish has recorded its commit by then."""
+    from sessions.inbox.ownership import aclassify_push
+
+    await aclassify_push(
+        repo_id, branch=branch, before=before, after=after, pusher_username=pusher_username, commit_count=commit_count
+    )
+
+
+@task(queue_name=TASK_QUEUE_INTERACTIVE)
 async def evaluate_pipeline_watch_task(repo_id: str, ref: str, pipeline_id: int | None = None) -> None:
     """Judge CI for an owned branch and post the result to the owning session's inbox.
 

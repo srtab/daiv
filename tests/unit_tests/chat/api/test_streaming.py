@@ -1338,7 +1338,9 @@ class TestInboxContext:
         await streamer._start_turn(turn, "main")
         agent = MagicMock(aupdate_state=AsyncMock())
 
-        await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={"configurable": {}}))
+        await streamer._add_inbox_context(
+            turn, SimpleNamespace(agent=agent, config={"configurable": {}}, fast_forward=None)
+        )
 
         [call] = agent.aupdate_state.await_args_list
         [context] = call.args[1]["messages"]
@@ -1353,9 +1355,21 @@ class TestInboxContext:
         await streamer._start_turn(turn, "main")
         agent = MagicMock(aupdate_state=AsyncMock())
 
-        await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}))
+        await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward=None))
 
         agent.aupdate_state.assert_not_awaited()
+
+    async def test_a_warm_checkout_brought_up_to_the_remote_says_so(self, real_chat_inbox):
+        await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock())
+
+        await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward="advanced"))
+
+        [context] = agent.aupdate_state.await_args.args[1]["messages"]
+        assert "The branch main moved on the remote. Your working copy was fast-forwarded." in context.content
 
     async def test_a_failed_write_is_logged_and_the_turn_goes_on(self, real_chat_inbox, caplog):
         await self._session_with_taken_events()
@@ -1365,7 +1379,7 @@ class TestInboxContext:
         agent = MagicMock(aupdate_state=AsyncMock(side_effect=RuntimeError("redis down")))
 
         with caplog.at_level("ERROR", logger="daiv.chat"):
-            await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}))
+            await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward=None))
 
         assert "could not add the inbox context" in caplog.text
 

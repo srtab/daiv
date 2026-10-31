@@ -51,12 +51,13 @@ from sessions.filters import (
 from sessions.forms import AgentRunCreateForm
 from sessions.header import build_session_header, retry_for
 from sessions.hydration import ahydrate_thread
+from sessions.inbox.render import remembered_events
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns, mark_skill_links
+from sessions.transcript import annotate_transcript, expired_run_turns, interleave_inbox_events, mark_skill_links
 from sessions.transcript_labels import transcript_icons, transcript_labels
 from sessions.turns import build_turns
 from slash_commands.composer import composer_command_rows
@@ -365,7 +366,11 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["expired"] = no_state and not turns
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
         ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
-        ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
+        ctx["turns"] = interleave_inbox_events(
+            turns if hydrated.messages else turns + expired_run_turns(runs, turns),
+            runs,
+            remembered_events(session.thread_id),
+        )
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
         mark_skill_links(ctx["turns"], session.thread_id)
         retry = retry_for(session, runs, ctx["turns"], self.request.user, can_act=ctx["can_act"])

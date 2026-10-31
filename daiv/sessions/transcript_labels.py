@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.utils.translation import gettext
 
 from core.templatetags.icon_tags import icon
-from sessions.models import PublishErrorKind
+from sessions.models import EventKind, PublishErrorKind
 
 TRANSCRIPT_ICONS = frozenset({
     "agent",
@@ -147,4 +147,5 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "publish_creating": gettext("Creating merge request"),
         "publish_files": [gettext("{count} file"), gettext("{count} files")],
         **{f"publish_error_{kind.value}": str(kind.label) for kind in PublishErrorKind},
+        **{f"inbox_{kind.value}": str(kind.label) for kind in EventKind},
     }

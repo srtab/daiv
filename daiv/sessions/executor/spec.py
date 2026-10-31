@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import RunOverrides
     from automation.agent.references import ExternalRef
+    from automation.agent.workspace.git_manager import FastForward
     from codebase.base import Issue, MergeRequest, Scope
     from sessions.executor.lock import LockPolicy
     from sessions.executor.result import AgentResult
@@ -28,7 +29,9 @@ class RunSpec:
     ``use_max`` picks the site's max model (the ``daiv-max`` label). ``recover_draft`` publishes a draft
     merge request from the checkpoint when the agent raises. ``input_messages`` is the turn's input: ``execute_run``
     sends it to the agent, while ``stream_run`` leaves sending to its stream factory and reads it only to skip the
-    sandbox for a builtin slash command that does not need one.
+    sandbox for a builtin slash command that does not need one. ``input_factory``, when set, builds the input
+    ``execute_run`` sends instead, once the workspace is ready, from what bringing the checkout up to the remote branch
+    did (``AgentRun.fast_forward``).
 
     ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches.
     ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
@@ -66,6 +69,7 @@ class RunSpec:
     context_options: dict[str, Any] = field(default_factory=dict)
     agent_options: dict[str, Any] = field(default_factory=dict)
     ask_user_enabled: bool = True
+    input_factory: Callable[[FastForward | None], Awaitable[tuple[BaseMessage, ...]]] | None = None
 
     def __post_init__(self) -> None:
         if self.thread_id == "":

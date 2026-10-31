@@ -14,15 +14,22 @@ An owning session that was deleted counts as no row for its own person; a new se
 an event needs one (:func:`aowning_session`). Every claim records the commit the run pushed as ``last_daiv_sha``,
 which is how the CI watch tells DAIV's commits from everyone else's, and a claim by a run a person started gives the
 CI watch its attempts back.
+
+What else happens to an owned merge request reaches the owning session as remembered events: a push to its branch
+whose commit DAIV did not push (``branch_pushed``, decided ``PUSH_CLASSIFY_DELAY`` after the webhook so DAIV's own
+publish has recorded its commit by then), its merge or close (``mr_merged``, ``mr_closed``; the watch stops), and a
+reopen (a ``notice``; the watch resumes).
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
+from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
@@ -36,6 +43,8 @@ if TYPE_CHECKING:
     from codebase.base import MergeRequest
 
 logger = logging.getLogger("daiv.sessions")
+
+PUSH_CLASSIFY_DELAY = timedelta(seconds=60)
 
 #: Triggers of runs a person started, whose publish gives the CI watch its attempts back (FR-016).
 PERSON_STARTED = frozenset({
@@ -193,3 +202,90 @@ async def aownership_for_branch(repo_id: str, source_branch: str) -> MergeReques
         .order_by("-updated_at")
         .afirst()
     )
+
+
+async def aschedule_push_classification(
+    repo_id: str, *, branch: str, before: str, after: str, pusher_username: str, commit_count: int
+) -> bool:
+    """Queue the decision on a push to ``branch`` for ``PUSH_CLASSIFY_DELAY`` from now, when a session owns an open
+    merge request on it; returns whether one was queued."""
+    from sessions.tasks import classify_push_task
+
+    if await aownership_for_branch(repo_id, branch) is None:
+        return False
+    await classify_push_task.using(run_after=timezone.now() + PUSH_CLASSIFY_DELAY).aenqueue(
+        repo_id=repo_id,
+        branch=branch,
+        before=before,
+        after=after,
+        pusher_username=pusher_username,
+        commit_count=commit_count,
+    )
+    return True
+
+
+async def aclassify_push(
+    repo_id: str, *, branch: str, before: str, after: str, pusher_username: str, commit_count: int
+) -> None:
+    """Remember a push to an owned branch whose commit DAIV did not push, for the owning session's next run."""
+    ownership = await aownership_for_branch(repo_id, branch)
+    if ownership is None or after in (ownership.last_daiv_sha, ""):
+        return
+    if await Run.objects.filter(repo_id=repo_id, pushed_sha=after).aexists():
+        return
+    session = await aowning_session(repo_id, ownership.merge_request_iid)
+    if session is None:
+        return
+    await apost_event(
+        session.thread_id,
+        kind=EventKind.BRANCH_PUSHED,
+        source_key=kinds.push_key(after),
+        payload={"before": before, "after": after, "commit_count": commit_count, "pusher_username": pusher_username},
+        wake=False,
+        subject=kinds.branch_subject(branch),
+        ref=branch,
+        merge_request_iid=ownership.merge_request_iid,
+    )
+
+
+async def aclose_ownership(
+    repo_id: str, merge_request_iid: int, *, merged: bool, by_username: str, target_branch: str
+) -> bool:
+    """Stop the watch on a merged or closed merge request and remember it in the owning session; returns whether a
+    session owned it."""
+    session = await aowning_session(repo_id, merge_request_iid)
+    if session is None:
+        return False
+    await MergeRequestOwnership.objects.filter(
+        repo_id=repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=True
+    ).aupdate(closed_at=timezone.now())
+    state = "merged" if merged else "closed"
+    await apost_event(
+        session.thread_id,
+        kind=EventKind.MR_MERGED if merged else EventKind.MR_CLOSED,
+        source_key=kinds.mr_state_key(merge_request_iid, state),
+        payload={"target_branch": target_branch, "by_username": by_username},
+        wake=False,
+        subject=kinds.mr_state_subject(merge_request_iid),
+        merge_request_iid=merge_request_iid,
+    )
+    return True
+
+
+async def areopen_ownership(repo_id: str, merge_request_iid: int, *, by_username: str) -> bool:
+    """Watch a reopened merge request again and tell the owning session; returns whether it was closed and owned."""
+    reopened = await MergeRequestOwnership.objects.filter(
+        repo_id=repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=False
+    ).aupdate(closed_at=None)
+    if not reopened or (session := await aowning_session(repo_id, merge_request_iid)) is None:
+        return False
+    await apost_event(
+        session.thread_id,
+        kind=EventKind.NOTICE,
+        source_key=f"mr-reopened:{merge_request_iid}:{timezone.now().timestamp():.0f}",
+        payload={"text": f"!{merge_request_iid} was reopened by {by_username}; its CI and mentions come here again."},
+        wake=False,
+        subject=kinds.mr_state_subject(merge_request_iid),
+        merge_request_iid=merge_request_iid,
+    )
+    return True

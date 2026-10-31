@@ -320,7 +320,7 @@ class ChatRunStreamer:
         if turn.chat_run is None:
             return
         try:
-            context = (await arender_input(turn.chat_run)).context
+            context = (await arender_input(turn.chat_run, fast_forward=run.fast_forward)).context
             if context is not None:
                 await run.agent.aupdate_state(run.config, {"messages": [context]}, as_node="model")
         except Exception:

@@ -14,11 +14,11 @@ from sessions.executor.lock import background_in_flight, live_run_for, session_a
 from sessions.header import aci_payload, latest_run_payload, retry_for, watch_payload
 from sessions.hydration import ahydrate_thread
 from sessions.inbox.drain import next_runs
-from sessions.inbox.render import summarize
+from sessions.inbox.render import remembered_events, summarize
 from sessions.models import EventState, HiddenSession, InboxEvent, MergeRequestOwnership, Session
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns, mark_skill_links
+from sessions.transcript import annotate_transcript, expired_run_turns, interleave_inbox_events, mark_skill_links
 from sessions.turns import build_turns
 
 if TYPE_CHECKING:
@@ -144,6 +144,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
     def finish_turns():
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
+        turns[:] = interleave_inbox_events(turns, runs, remembered_events(session.thread_id))
         mark_skill_links(turns, session.thread_id)
         retry = retry_for(session, runs, turns, user)
         return live_run_for(activity.live, session, user), latest_run_payload(runs, retry)

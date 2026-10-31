@@ -18,6 +18,7 @@ from sessions.tasks import (
 from sessions.titling import TitlerNotConfiguredError
 
 from core.constants import TASK_QUEUE_INTERACTIVE
+from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
@@ -76,6 +77,58 @@ class TestDrainInboxesCronTask:
 
         event = InboxEvent.objects.get(pk=event.pk)
         assert (event.state, event.attempts, event.run_id) == (EventState.PENDING, 1, None)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestClassifyPushTask:
+    @pytest.fixture(autouse=True)
+    def _no_drain(self):
+        with patch("sessions.inbox.post.drain_logged"):
+            yield
+
+    async def _push(self, after: str) -> None:
+        from sessions.tasks import classify_push_task
+
+        await classify_push_task.func(
+            repo_id="group/repo", branch="daiv/branch", before="e96f1f77", after=after, pusher_username="sfr",
+            commit_count=2,
+        )  # fmt: skip
+
+    async def test_a_push_daiv_did_not_make_is_remembered_by_the_owning_session(self):
+        ownership = await amake_owned_merge_request(last_daiv_sha="daiv-sha")
+
+        await self._push("their-sha")
+
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.wake, event.source_key, event.subject, event.ref) == (
+            EventKind.BRANCH_PUSHED, False, "push:their-sha", "branch:daiv/branch", "daiv/branch",
+        )  # fmt: skip
+        assert event.payload == {
+            "before": "e96f1f77", "after": "their-sha", "commit_count": 2, "pusher_username": "sfr",
+        }  # fmt: skip
+
+    async def test_the_commit_daiv_last_pushed_is_not_remembered(self):
+        await amake_owned_merge_request(last_daiv_sha="daiv-sha")
+
+        await self._push("daiv-sha")
+
+        assert not await InboxEvent.objects.aexists()
+
+    async def test_any_commit_a_daiv_run_pushed_is_not_remembered(self):
+        ownership = await amake_owned_merge_request(last_daiv_sha="newer-daiv-sha")
+        await Run.objects.acreate(
+            session_id=ownership.session_id, trigger_type=SessionOrigin.CHAT, repo_id="group/repo",
+            status=RunStatus.SUCCESSFUL, pushed_sha="older-daiv-sha",
+        )  # fmt: skip
+
+        await self._push("older-daiv-sha")
+
+        assert not await InboxEvent.objects.aexists()
+
+    async def test_a_push_to_a_branch_nobody_owns_is_ignored(self):
+        await self._push("their-sha")
+
+        assert not await InboxEvent.objects.aexists()
 
 
 def _run_for_titling(

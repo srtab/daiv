@@ -10,8 +10,10 @@ from sessions.executor.spec import RunHooks, RunSpec
 from sessions.models import Run, Session
 
 if TYPE_CHECKING:
+    from langchain_core.messages import BaseMessage
     from langgraph.types import StateSnapshot
 
+    from automation.agent.workspace.git_manager import FastForward
     from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.sessions")
@@ -74,10 +76,13 @@ async def run_job_task(
     session_row = await Session.objects.only("thread_id", "user_id", "mcp_overrides", "external_refs").aget(
         pk=thread_id
     )
+    input_factory = None
     if inbox:
         if not run_id:
             raise ValueError("an inbox run_job_task needs the run_id the drain claimed the slot for")
-        input_messages = (await arender_input(await Run.objects.aget(pk=run_id))).messages
+        inbox_run = await Run.objects.aget(pk=run_id)
+        input_messages = (await arender_input(inbox_run)).messages
+        input_factory = partial(_ainbox_input, inbox_run)
         lock, acting_user_id = Claimed(holder_id=run_id), session_row.user_id
     else:
         input_messages = (HumanMessage(content=prompt),)
@@ -97,6 +102,7 @@ async def run_job_task(
             repo_id=repo_id,
             scope=Scope.GLOBAL,
             input_messages=input_messages,
+            input_factory=input_factory,
             trigger="job",
             lock=lock,
             ref=ref,
@@ -119,6 +125,13 @@ async def run_job_task(
 
     logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
     return outcome.agent_result
+
+
+async def _ainbox_input(run: Run, fast_forward: FastForward | None) -> tuple[BaseMessage, ...]:
+    """An inbox run's input, rendered once its checkout is ready, so it can say whether the checkout moved."""
+    from sessions.inbox.render import arender_input
+
+    return (await arender_input(run, fast_forward=fast_forward)).messages
 
 
 async def _acancel_requested(run_id: str) -> bool:

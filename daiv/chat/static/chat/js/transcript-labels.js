@@ -118,6 +118,20 @@
     publish_error_push_rejected: "The push was rejected",
     publish_error_mr_failed: "The merge request couldn't be created",
     publish_error_unknown: "Couldn't publish the changes",
+    inbox_chat_message: "Chat message",
+    inbox_mention: "Mention",
+    inbox_follow_up_job: "Follow-up job",
+    inbox_delegation_finished: "Delegated jobs finished",
+    inbox_ci_failed: "CI failed",
+    inbox_ci_passed: "CI passed",
+    inbox_ci_stopped: "CI stopped",
+    inbox_branch_pushed: "Branch pushed",
+    inbox_foreign_publish: "Published by another session",
+    inbox_mr_merged: "Merge request merged",
+    inbox_mr_closed: "Merge request closed",
+    inbox_comment: "Comment",
+    inbox_delegated_ci_outcome: "Delegated session CI",
+    inbox_notice: "Notice",
   };
 
   const loadPayload = () => {

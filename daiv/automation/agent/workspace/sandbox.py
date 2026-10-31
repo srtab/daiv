@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from deepagents.backends.composite import CompositeBackend
 
 from automation.agent.constants import WORKSPACE_PATH
-from automation.agent.workspace.git_manager import GitManager
+from automation.agent.workspace.git_manager import FastForward, GitManager
 from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
@@ -64,6 +64,9 @@ class SandboxWorkspace:
                 self.session.session_id,
             )
         return self.git
+
+    async def fast_forward(self, branch: str) -> FastForward:
+        return await (await self.authenticated_git()).fast_forward(branch)
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         (response,) = await self.bash.adownload_files([path], max_bytes=max_bytes)

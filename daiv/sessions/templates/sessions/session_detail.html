@@ -201,6 +201,18 @@
 
         <template x-for="block in runBlocks" :key="block.key">
           <div class="run-block" :id="!block.anchor && block.runId ? `run-${block.runId}` : null">
+            <template x-if="block.event">
+              <div class="chat-inbox-event" :class="'chat-inbox-event--' + block.event.kind" data-testid="inbox-event">
+                <span class="chat-inbox-event__dot" aria-hidden="true"></span>
+                <span class="chat-inbox-event__kind" x-text="inboxEventLabel(block.event.kind)"></span>
+                <span class="chat-inbox-event__summary" x-text="block.event.summary"></span>
+                <template x-if="block.event.web_url">
+                  <a class="chat-inbox-event__link" :href="block.event.web_url" target="_blank" rel="noopener noreferrer">{% translate "Open ↗" %}</a>
+                </template>
+                <time class="chat-inbox-event__time" :datetime="block.event.created_at"
+                      :title="absoluteTime(block.event.created_at)" x-text="relativeTime(block.event.created_at)"></time>
+              </div>
+            </template>
             <template x-if="block.anchor">
               <article class="chat-turn chat-turn--user" :id="runAnchorId(block.anchor)"
                        :class="{ 'chat-turn--daiv': block.anchor.author === 'daiv', 'chat-turn--pending': block.anchor.pending }">
