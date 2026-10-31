@@ -159,7 +159,7 @@ Each slice can ship and be demonstrated on its own, in this order. Every slice a
 | 5 | Mentions on owned merge requests: routing, diff comments on both platforms, reply placement, App subscription docs | US5; FR-025–FR-028 | 0, 1 |
 | — | Cross-cutting: `inbox` evals, docs, glossary, CHANGELOG with Upgrade note | Constitution V, gates | each slice |
 
-Slices 0 and 1 together are the MVP. They fix the incident in the spec (merge requests 8 and 9 of `dipops/images/php-dev`).
+Slices 0 and 1 together are the MVP. They fix the incident in the spec (merge requests 8 and 9).
 
 ## Complexity Tracking
 

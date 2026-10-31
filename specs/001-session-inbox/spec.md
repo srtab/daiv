@@ -30,7 +30,7 @@
 
 A person starts work with DAIV: an issue, a chat, or a job. The agent publishes a merge request, and CI fails on it. The person sees the failure, the agent's response to it, and the resulting CI status in the session they started. The agent responds knowing why it made the change.
 
-**Why this priority**: Today the response runs in a separate conversation that has no owner and none of the original context. The originating session shows "Attempts exhausted" with nothing in it that explains why. On 2026-10-30 this happened twice in one repository (merge requests 8 and 9 of `dipops/images/php-dev`):
+**Why this priority**: Today the response runs in a separate conversation that has no owner and none of the original context. The originating session shows "Attempts exhausted" with nothing in it that explains why. On 2026-10-30 this happened twice in one repository (merge requests 8 and 9):
 - The agent correctly found that a flaky, non-code CI step was to blame, and pushed nothing.
 - The watch gave up after 1 of 3 attempts.
 - Nobody was notified.
