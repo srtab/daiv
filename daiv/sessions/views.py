@@ -51,7 +51,7 @@ from sessions.filters import (
 from sessions.forms import AgentRunCreateForm
 from sessions.header import build_session_header, retry_for
 from sessions.hydration import ahydrate_thread
-from sessions.inbox.render import remembered_events
+from sessions.inbox.render import inbox_panel_events, remembered_events
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
@@ -377,6 +377,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["header"] = build_session_header(session, runs, retry=retry, merge_request=merge_request)
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
         ctx["can_mute"] = Session.objects.by_owner(self.request.user).filter(pk=session.pk).exists()
+        ctx["inbox_events"] = inbox_panel_events(session.thread_id) if ctx["can_mute"] else None
         ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request

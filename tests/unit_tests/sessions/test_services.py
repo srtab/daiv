@@ -10,8 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult, get_date_max
-from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.queue import LINK_FAILED_PREFIX
+from sessions.models import EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.services import (
     BatchSubmitFailure,
     RepoTarget,
@@ -161,7 +160,7 @@ async def test_submit_continuation_queues_when_thread_busy():
         second = await asubmit_batch_runs(
             user=None, prompt="p2", repos=[RepoTarget(repo_id="g/r")], trigger_type=SessionOrigin.API_JOB, thread_id=tid
         )
-    assert second.runs[0].status == RunStatus.QUEUED  # constraint fallback preserved
+    assert second.runs[0].status == RunStatus.QUEUED
     assert await Run.objects.filter(session_id=tid).acount() == 2
 
 
@@ -687,21 +686,12 @@ class TestSessionContinuation:
 
         assert mock_task.aenqueue.call_args.kwargs["ask_user_enabled"] is expected
 
-    async def test_enqueue_failure_marks_failed_with_audit_and_releases_queued_sibling(self, member_user):
-        """When enqueue raises, run transitions to FAILED and queued sibling is released."""
+    @pytest.mark.parametrize("failure", ["enqueue", "link"])
+    async def test_a_follow_up_that_could_not_start_is_reported_and_never_starts_later(self, member_user, failure):
         thread = str(uuid.uuid4())
-        # A prior QUEUED sibling waiting for the active slot to open up.
-        session = await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
-        queued = await Run.objects.acreate(
-            session=session,
-            trigger_type=SessionOrigin.API_JOB,
-            repo_id="acme/api",
-            status=RunStatus.QUEUED,
-            user=member_user,
-            prompt="p",
-        )
-        good_task = await _make_db_task_result()
-        patcher, mock_task = _patch_run_job_task(side_effect=[RuntimeError("broker down"), good_task])
+        await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
+        side_effect = [RuntimeError("broker down")] if failure == "enqueue" else [MagicMock(id=uuid.uuid4())]
+        patcher, _mock_task = _patch_run_job_task(side_effect=side_effect)
         with patcher:
             result = await asubmit_batch_runs(
                 user=member_user,
@@ -711,46 +701,27 @@ class TestSessionContinuation:
                 thread_id=thread,
             )
 
-        assert result.runs == [] and len(result.failed) == 1
-        assert mock_task.aenqueue.await_count == 2
+        assert result.runs == []
+        assert [failure.error for failure in result.failed] == ["FollowUpNotStarted: enqueue_failed"]
+        event = await InboxEvent.objects.aget(session_id=thread)
+        assert (event.state, event.run_id) == (EventState.DISMISSED, None)
+        assert not await Run.objects.filter(session_id=thread).exclude(status=RunStatus.FAILED).aexists()
+        assert (await Session.objects.aget(pk=thread)).active_run_id is None
 
-        failed_row = await Run.objects.aget(session_id=thread, status=RunStatus.FAILED)
-        assert failed_row.error_message == "enqueue_failed: RuntimeError: broker down"
-        assert result.failed[0].error == failed_row.error_message
-        assert failed_row.finished_at is not None
-
-        await queued.arefresh_from_db()
-        assert queued.status == RunStatus.READY
-        assert queued.task_result_id == good_task.id
-
-    async def test_link_failure_reports_the_row_error_and_releases_queued_sibling(self, member_user):
+    async def test_a_follow_up_on_another_repository_is_refused(self, member_user):
         thread = str(uuid.uuid4())
-        session = await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
-        queued = await Run.objects.acreate(
-            session=session,
-            trigger_type=SessionOrigin.API_JOB,
-            repo_id="acme/api",
-            status=RunStatus.QUEUED,
-            user=member_user,
-            prompt="p",
-        )
-        good_task = await _make_db_task_result()
-        unlinkable_task = MagicMock(id=uuid.uuid4())  # no task result row to link to
-        patcher, _mock_task = _patch_run_job_task(side_effect=[unlinkable_task, good_task])
-        with patcher:
-            result = await asubmit_batch_runs(
-                user=member_user,
-                prompt="follow-up",
-                repos=[RepoTarget(repo_id="acme/api", ref="")],
-                trigger_type=SessionOrigin.API_JOB,
-                thread_id=thread,
-            )
+        await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
 
-        failed_row = await Run.objects.aget(session_id=thread, status=RunStatus.FAILED)
-        assert failed_row.error_message.startswith(LINK_FAILED_PREFIX)
-        assert [failure.error for failure in result.failed] == [failed_row.error_message]
-        await queued.arefresh_from_db()
-        assert (queued.status, queued.task_result_id) == (RunStatus.READY, good_task.id)
+        result = await asubmit_batch_runs(
+            user=member_user,
+            prompt="follow-up",
+            repos=[RepoTarget(repo_id="acme/web", ref="")],
+            trigger_type=SessionOrigin.API_JOB,
+            thread_id=thread,
+        )
+
+        assert [failure.error for failure in result.failed] == ["thread_id belongs to the repository acme/api"]
+        assert not await InboxEvent.objects.aexists()
 
 
 # ---------------------------------------------------------------------------
@@ -962,11 +933,10 @@ async def test_the_first_submission_stores_deduped_refs_on_the_session():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_continuation_merges_and_dedupes_refs():
-    """The second turn lands as a QUEUED fallback (the first run is still READY) — the merge
-    must land on that path too."""
+async def test_continuation_merges_and_dedupes_refs_once_a_run_takes_it():
     thread_id = str(uuid.uuid4())
-    await _submit_turn(thread_id, references=[RefIn(key="PROJ-1", provider="jira", url="https://a")])
+    [first] = (await _submit_turn(thread_id, references=[RefIn(key="PROJ-1", provider="jira", url="https://a")])).runs
+    await Run.objects.filter(pk=first.pk).aupdate(status=RunStatus.SUCCESSFUL)
     await _submit_turn(
         thread_id,
         references=[
@@ -977,6 +947,17 @@ async def test_continuation_merges_and_dedupes_refs():
     session = await Session.objects.aget(thread_id=thread_id)
     assert [ref["key"] for ref in session.external_refs] == ["PROJ-1", "DAIV-1V"]
     assert session.external_refs[0]["url"] == "https://a"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_follow_up_queued_behind_a_busy_session_adds_its_refs_only_when_taken():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, references=[RefIn(key="PROJ-1", provider="jira")])
+    [queued] = (await _submit_turn(thread_id, references=[RefIn(key="DAIV-1V", provider="sentry")])).runs
+
+    assert queued.status == RunStatus.QUEUED
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert [ref["key"] for ref in session.external_refs] == ["PROJ-1"]
 
 
 @pytest.mark.django_db(transaction=True)

@@ -15,10 +15,22 @@ import pytest
 from sessions.conf import settings as sessions_settings
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
-from sessions.models import HiddenSession, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import (
+    EventFailure,
+    EventKind,
+    EventState,
+    HiddenSession,
+    MergeRequestOwnership,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    WatchState,
+)
 from sessions.transcript_labels import transcript_icons
 
 from tests.unit_tests.sessions.conftest import create_archive, grant_read_access, make_artifact
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1297,3 +1309,41 @@ def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
     for helper, key in calls:
         assert key in labels, key
         assert isinstance(labels[key], list) == (helper == "tn"), f"{helper}('{key}') does not match its label shape"
+
+
+@pytest.mark.django_db
+class TestInboxPanel:
+    def _session(self, owner) -> Session:
+        session = _create_session(user=owner)
+        make_event(session, EventKind.CHAT_MESSAGE, author_username="sfr")
+        make_event(session, EventKind.CI_FAILED, state=EventState.FAILED, failure=EventFailure.RETRIES_EXHAUSTED)
+        make_event(session, EventKind.CI_PASSED, state=EventState.HANDLED)
+        return session
+
+    def _get(self, client, session):
+        with patch("sessions.views.ahydrate_thread", _null_hydration()):
+            return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    @pytest.mark.parametrize("viewer", ["owner", "admin"])
+    def test_the_owner_and_admins_see_pending_and_failed_events(self, member_client, member_user, admin_client, viewer):
+        session = self._session(member_user)
+
+        resp = self._get(member_client if viewer == "owner" else admin_client, session)
+
+        assert [(e.kind, e.state) for e in resp.context["inbox_events"]] == [
+            (EventKind.CI_FAILED, EventState.FAILED),
+            (EventKind.CHAT_MESSAGE, EventState.PENDING),
+        ]
+        panel = resp.content.decode().split('data-testid="session-inbox"')[1].split("</section>")[0]
+        assert "Chat message" in panel and "sfr" in panel and "Pending" in panel
+        assert "The runs that took it kept failing" in panel
+        assert "<time datetime=" in panel
+
+    def test_other_viewers_do_not_see_it(self, member_client, member_user, other_user):
+        session = self._session(other_user)
+        grant_read_access(member_user, session.repo_id)
+
+        resp = self._get(member_client, session)
+
+        assert resp.context["inbox_events"] is None
+        assert 'data-testid="session-inbox"' not in resp.content.decode()

@@ -911,6 +911,27 @@ html {
   .session-details__ci-link {
     @apply ml-auto text-[12px] text-text-muted underline underline-offset-2 hover:text-accent-bright;
   }
+  .session-inbox {
+    @apply m-0 flex list-none flex-col gap-2.5 p-0 text-[13px];
+  }
+  .session-inbox__row {
+    @apply flex items-center justify-between gap-2;
+  }
+  .session-inbox__kind {
+    @apply truncate text-text;
+  }
+  .session-inbox__state {
+    @apply shrink-0 text-[12px] text-text-muted;
+  }
+  .session-inbox__state--failed {
+    @apply text-status-fail;
+  }
+  .session-inbox__meta {
+    @apply flex min-w-0 items-center gap-2 text-[12px] text-text-faint;
+  }
+  .session-inbox__why {
+    @apply m-0 text-[12px] text-text-muted;
+  }
   .mr-split__draft--bar,
   .mr-split__ci-label {
     @apply max-sm:hidden;

@@ -7,7 +7,7 @@ matters when a run takes them.
 
 # No ``from __future__ import annotations``: TypedDict reads ``NotRequired`` only from evaluated annotations.
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
 from sessions.models import EventKind, SessionOrigin
 
@@ -59,6 +59,7 @@ class FollowUpJobPayload(TypedDict):
     agent_model: NotRequired[str]
     agent_thinking_level: NotRequired[str]
     references: NotRequired[list[dict[str, Any]]]
+    muted: NotRequired[bool]
 
 
 class ChatMessagePayload(TypedDict):
@@ -74,10 +75,13 @@ class DelegationFinishedPayload(TypedDict):
     summary: str
 
 
+DelegatedOutcome = Literal["passing", "stopped_after_attempts", "no_push"]
+
+
 class DelegatedCiOutcomePayload(TypedDict):
     child_thread_id: str
     merge_request_iid: int
-    outcome: str
+    outcome: DelegatedOutcome
     web_url: NotRequired[str]
 
 

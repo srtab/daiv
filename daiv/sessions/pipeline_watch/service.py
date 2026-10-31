@@ -18,6 +18,9 @@ failure wakes the owning session only when all of these hold, and the first that
 The drain charges the attempt and records the examined commit when it starts the run. A run that pushes nothing
 leaves the watch observing: no pipeline follows, and the run's summary is the explanation. ``budget_spent`` on a new
 DAIV commit tells the owner the watch gave up on it.
+
+When the owning session was delegated, its parent remembers a pass and a ``budget_spent`` failure as
+``delegated_ci_outcome``; :mod:`sessions.inbox.complete` adds a CI-woken run that pushed nothing.
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ from typing import TYPE_CHECKING
 from sessions.inbox import kinds
 from sessions.inbox.ownership import aowning_session
 from sessions.inbox.policy import amay_wake, areport_run_limit
-from sessions.inbox.post import apost_event
+from sessions.inbox.post import apost_delegated_ci_outcome, apost_event
 from sessions.models import EventKind, QuietReason
 from sessions.pipeline_watch.judgment import Judgment, PipelineReport
 from sessions.pipeline_watch.platform import WatchPlatform, log_read_failure
@@ -157,10 +160,20 @@ class PipelineWatch:
             merge_request_iid=ownership.merge_request_iid,
             reason=reason,
         )
-        if result.created and reason == QuietReason.BUDGET_SPENT:
+        if not result.created:
+            return
+        if reason == QuietReason.BUDGET_SPENT:
             await self._anotify_exhausted(ownership=ownership, session=session, report=report)
-        elif result.created and reason == QuietReason.RUN_LIMIT:
+        elif reason == QuietReason.RUN_LIMIT:
             await areport_run_limit(session)
+        if kind == EventKind.CI_PASSED or reason == QuietReason.BUDGET_SPENT:
+            await apost_delegated_ci_outcome(
+                session,
+                merge_request_iid=ownership.merge_request_iid,
+                pipeline_id=report.id,
+                outcome="passing" if kind == EventKind.CI_PASSED else "stopped_after_attempts",
+                web_url=report.web_url,
+            )
 
     async def _aquiet_reason(
         self, ownership: MergeRequestOwnership, session: Session, report: PipelineReport

@@ -173,3 +173,46 @@ class TestOwnerlessCiReport:
         assert "failed to comment on" in caplog.text
         assert caplog.records[-1].exc_info is not None
         assert await InboxEvent.objects.filter(run=run, state=EventState.HANDLED).acount() == 1
+
+
+class TestDelegatedNoPush:
+    async def _ci_run(self, *, pushed_sha: str = "", parent: bool = True, status=RunStatus.SUCCESSFUL) -> Run:
+        coordinator = await amake_session(repo_id="group/coordinator") if parent else None
+        session = await amake_session(parent=coordinator)
+        run = await Run.objects.acreate(
+            session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=session.repo_id, status=status,
+            pushed_sha=pushed_sha,
+        )  # fmt: skip
+        await amake_event(session, EventKind.CI_FAILED, run=run, state=EventState.TAKEN, merge_request_iid=9)
+        return run
+
+    async def test_a_ci_run_that_pushed_nothing_is_remembered_by_the_parent(self, drain):
+        run = await self._ci_run()
+        session = await Session.objects.aget(pk=run.session_id)
+
+        with patch("sessions.inbox.post.drain_logged"):
+            await aon_run_ended(run)
+
+        event = await InboxEvent.objects.aget(session_id=session.parent_id)
+        assert (event.kind, event.wake, event.source_key) == (
+            EventKind.DELEGATED_CI_OUTCOME, False, f"child-ci:{session.thread_id}:830724",
+        )  # fmt: skip
+        assert event.payload == {
+            "child_thread_id": session.thread_id,
+            "merge_request_iid": 9,
+            "outcome": "no_push",
+            "web_url": "https://gitlab.example/pipelines/830724",
+        }
+
+    @pytest.mark.parametrize(
+        ("fields"),
+        [{"pushed_sha": "f00dfeed"}, {"parent": False}, {"status": RunStatus.FAILED}],
+        ids=["pushed", "no-parent", "failed"],
+    )
+    async def test_otherwise_no_parent_hears_of_it(self, drain, fields):
+        run = await self._ci_run(**fields)
+
+        with patch("sessions.inbox.post.drain_logged"):
+            await aon_run_ended(run)
+
+        assert not await InboxEvent.objects.filter(kind=EventKind.DELEGATED_CI_OUTCOME).aexists()

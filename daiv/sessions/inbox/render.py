@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 INBOX_CONTEXT_KIND = "inbox"
 CONTEXT_MAX_CHARS = 8000
 QUOTE_MAX_CHARS = 1000
+INBOX_PANEL_LIMIT = 50
 CONTEXT_HEADER = "Since your last run on this session:"
 MENTION_REPLY_NOTE = "Reply as you would on the merge request; your final message is posted there."
 
@@ -210,6 +211,16 @@ def remembered_events(session_id: str) -> list[InboxEvent]:
         .exclude(state__in=(EventState.SUPERSEDED, EventState.FAILED))
         .select_related("author")
         .order_by("created_at", "id")
+    )
+
+
+def inbox_panel_events(session_id: str) -> list[InboxEvent]:
+    """The session's pending and failed events, newest first, for its owner's inbox panel. SYNC ONLY."""
+    return list(
+        InboxEvent.objects
+        .filter(session_id=session_id, state__in=(EventState.PENDING, EventState.FAILED))
+        .select_related("author")
+        .order_by("-created_at", "-id")[:INBOX_PANEL_LIMIT]
     )
 
 

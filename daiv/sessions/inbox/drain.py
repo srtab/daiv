@@ -1,12 +1,12 @@
 """Starting a session's next run from its pending events (``specs/001-session-inbox/contracts/inbox-service.md``).
 
-:func:`drain` locks the session row and, unless a live holder has the slot, takes its pending events in one
-transaction: it supersedes all but the newest event per subject, turns the CI and delegation wakes the policy blocks
-into remembered events, and drops a QUEUED next run left with nothing to wake it. When a waking event survives, it
-picks the branch of the oldest one, checks the owner may still run on the repository, promotes that branch's next run
-(or creates a READY one), claims the slot for it and marks every pending event for the branch ``taken``; a CI
-failure among them spends one of its merge request's attempts on the commit it reports. The run is enqueued once
-that commits; a failed enqueue frees the slot and puts the events back, for the sweep to retry.
+:func:`drain` locks the session row and, unless a live holder has the slot or a job run is active, takes its pending
+events in one transaction: it supersedes all but the newest event per subject, turns the CI and delegation wakes the
+policy blocks into remembered events, and drops a QUEUED next run left with nothing to wake it. When a waking event
+survives, it picks the branch of the oldest one, checks the owner may still run on the repository, promotes that
+branch's next run (or creates a READY one), claims the slot for it and marks every pending event for the branch
+``taken``; a CI failure among them spends one of its merge request's attempts on the commit it reports. The run is
+enqueued once that commits; a failed enqueue frees the slot and puts the events back, for the sweep to retry.
 
 A next run is a QUEUED run with an inbox trigger type, no task yet, and events linked to it. ``sessions.queue`` leaves
 such runs alone: only this module starts them, because only it claims the slot for them.
@@ -24,6 +24,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
 
+from automation.agent.references import merge_stored_refs
 from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.kinds import INBOX_TRIGGERS, PERSON_KINDS, PRECEDENCE, run_trigger_type
@@ -39,6 +40,7 @@ from sessions.models import (
     Run,
     RunStatus,
     Session,
+    SessionOrigin,
 )
 from sessions.queue import aenqueue_run
 from sessions.services import pinned_agent_override
@@ -56,6 +58,14 @@ DRAIN_SWEEP_LIMIT = 200
 def slot_busy(session: Session) -> bool:
     """Whether a live holder has ``session``'s slot."""
     return session.active_run_id is not None and session.last_active_at >= stale_cutoff()
+
+
+def job_run_active(session: Session) -> bool:
+    """Whether a job run holds ``session``'s one active job place, which no run can start from the inbox before it
+    ends, even one queued for a worker that has not claimed the slot yet. SYNC ONLY."""
+    return Run.objects.filter(
+        session=session, status__in=(RunStatus.READY, RunStatus.RUNNING), trigger_type__in=SessionOrigin.one_active()
+    ).exists()
 
 
 def next_runs(session: Session) -> QuerySet[Run]:
@@ -161,7 +171,7 @@ def sessions_to_drain(limit: int = DRAIN_SWEEP_LIMIT) -> list[str]:
 @transaction.atomic
 def _take(thread_id: str) -> Run | None:
     session = Session.objects.select_for_update().select_related("user").get(pk=thread_id)
-    if slot_busy(session):
+    if slot_busy(session) or job_run_active(session):
         return None
     pending = list(
         InboxEvent.objects
@@ -189,7 +199,7 @@ def _take(thread_id: str) -> Run | None:
         with transaction.atomic():
             run = _promote_or_create(session, branch, taken, queued.get(branch))
     except IntegrityError:
-        # A legacy job run already holds the session's one active slot (``run_one_active_per_session``).
+        # A job run took the session's one active place after job_run_active looked (``run_one_active_per_session``).
         logger.info("inbox: thread_id=%s has an active job run; its events wait for that run to end", thread_id)
         return None
     if not SessionLock.claim_for_run(thread_id, run.pk):
@@ -203,7 +213,17 @@ def _take(thread_id: str) -> Run | None:
         session=session, state=EventState.SUPERSEDED, run__isnull=True, subject__in={e.subject for e in taken} - {""}
     ).filter(Q(ref="") | Q(ref=branch)).update(run=run)
     _charge_ci_attempts(session, taken)
+    _merge_references(session, taken)
     return run
+
+
+def _merge_references(session: Session, taken: list[InboxEvent]) -> None:
+    """Add the references the follow-up jobs the run took declared to the session, which the run reads them from."""
+    declared = [
+        ref for event in taken if event.kind == EventKind.FOLLOW_UP_JOB for ref in event.payload.get("references", [])
+    ]
+    if declared and (merged := merge_stored_refs(session.external_refs, declared)) != session.external_refs:
+        Session.objects.filter(pk=session.pk).update(external_refs=merged)
 
 
 def _charge_ci_attempts(session: Session, taken: list[InboxEvent]) -> None:
@@ -287,6 +307,7 @@ def _promote_or_create(session: Session, branch: str, taken: list[InboxEvent], r
         "merge_request_iid": next((event.merge_request_iid for event in waking if event.merge_request_iid), None),
         "sandbox_environment_id": session.sandbox_environment_id,
         "prompt": render_request(taken),
+        "muted": person.payload.get("muted") if person is not None else None,
     }
     if run is None:
         return Run.objects.create(session=session, repo_id=session.repo_id, ref=branch, **fields)

@@ -293,7 +293,7 @@ description: "Task list for the Session Inbox feature"
   - a renderer in `daiv/notifications/channels/renderers/events.py`;
   - an emitter in a new `daiv/notifications/inbox_notifiers.py`;
   - a receiver in `daiv/notifications/signals.py` for a new `inbox_paused` signal in `daiv/sessions/signal_defs.py`, sent by `daiv/sessions/inbox/policy.py` when the limit first blocks a wake.
-- [ ] T069 [US2] Remove the delegation-only `MAX_RESUMES_IN_A_ROW` check and `_aresumes_in_a_row` from `daiv/sessions/delegation.py`. The general limit in `policy.py` replaces them (research.md R16). Update `tests/unit_tests/sessions/test_delegation.py`.
+- [X] T069 [US2] Remove the delegation-only `MAX_RESUMES_IN_A_ROW` check and `_aresumes_in_a_row` from `daiv/sessions/delegation.py`. The general limit in `policy.py` replaces them (research.md R16). Update `tests/unit_tests/sessions/test_delegation.py`.
 
 **Checkpoint**: quickstart.md scenario 2 passes. A chat message sent during a CI run is queued and handled in one next run.
 
@@ -346,31 +346,31 @@ description: "Task list for the Session Inbox feature"
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T084 [P] [US4] Rewrite the resume cases in `tests/unit_tests/sessions/test_delegation.py`:
+- [X] T084 [P] [US4] Rewrite the resume cases in `tests/unit_tests/sessions/test_delegation.py`:
   - a finished batch posts one waking `delegation_finished` event keyed `batch:<id>`, with the `render_batch_summary` payload;
   - no QUEUED continuation run is inserted;
   - `resume_stalled_batches` posts idempotently.
-- [ ] T085 [P] [US4] Extend `tests/unit_tests/sessions/pipeline_watch/test_service.py` and `tests/unit_tests/sessions/inbox/test_complete.py`: when the owning session has a parent, `ci_passed`, a `budget_spent` failure and a CI run that pushed nothing each post a remembered `delegated_ci_outcome` to the parent, keyed `child-ci:<thread>:<pipeline id>`.
-- [ ] T086 [P] [US4] Extend `tests/unit_tests/jobs/api/test_views.py` and `tests/unit_tests/mcp_api/test_server_jobs.py`:
+- [X] T085 [P] [US4] Extend `tests/unit_tests/sessions/pipeline_watch/test_service.py` and `tests/unit_tests/sessions/inbox/test_complete.py`: when the owning session has a parent, `ci_passed`, a `budget_spent` failure and a CI run that pushed nothing each post a remembered `delegated_ci_outcome` to the parent, keyed `child-ci:<thread>:<pipeline id>`.
+- [X] T086 [P] [US4] Extend `tests/unit_tests/jobs/api/test_views.py` and `tests/unit_tests/mcp_api/test_server_jobs.py`:
   - a job with `thread_id` on an idle session returns the new run's id;
   - on a busy session, two jobs on the same branch return the same `job_id` (the next run's), and two jobs on different branches return different ones;
   - a `ref` different from the session's branch is stored on the event;
   - the existing ownership, archive and access checks still apply.
-- [ ] T087 [P] [US4] Extend `tests/unit_tests/sessions/test_models.py`: the next-run constraint rejects a second QUEUED run with an inbox trigger type on the same session and branch, allows one per branch, and allows QUEUED `delegated_job` runs.
-- [ ] T088 [P] [US4] Extend `tests/unit_tests/sessions/test_views_detail.py`: the inbox panel lists pending and failed events with source, arrival time and state for the owner and admins, and is absent for other viewers.
+- [X] T087 [P] [US4] Extend `tests/unit_tests/sessions/test_models.py`: the next-run constraint rejects a second QUEUED run with an inbox trigger type on the same session and branch, allows one per branch, and allows QUEUED `delegated_job` runs.
+- [X] T088 [P] [US4] Extend `tests/unit_tests/sessions/test_views_detail.py`: the inbox panel lists pending and failed events with source, arrival time and state for the owner and admins, and is absent for other viewers.
 
 ### Implementation for User Story 4
 
-- [ ] T089 [US4] Change `resume_coordinator` and `_resume_batch` in `daiv/sessions/delegation.py` to post `delegation_finished` through `apost_event` instead of `create_run(... status=QUEUED, continuation_of_batch_id=...)`. Make `resume_stalled_batches` post for finished batches that have no event, and update the module docstring. Keep `continuation_of_batch_id` readable for old rows.
-- [ ] T090 [US4] Post `delegated_ci_outcome` to the parent session from `daiv/sessions/pipeline_watch/service.py`, for passing and `budget_spent`, and from `daiv/sessions/inbox/complete.py`, for a CI-woken run that pushed nothing.
-- [ ] T091 [US4] Route the `thread_id` continuation in `daiv/sessions/services.py` `asubmit_batch_runs` through `apost_event` with kind `follow_up_job`, returning `PostResult.run_id` as the run id. Keep `daiv/jobs/api/views.py` and `daiv/mcp_api/server.py` responses unchanged in shape.
-- [ ] T092 [US4] Add the next-run constraint to `Run.Meta.constraints` in `daiv/sessions/models.py`: `UniqueConstraint(session, ref)` where `status='QUEUED' AND trigger_type IN ('chat','mr_webhook','api_job','mcp_job','delegation_resume','pipeline_webhook')`. Add a literal-match test like `test_active_constraint_literals_match_enums`, and generate `daiv/sessions/migrations/0024_run_one_next_run_per_session.py`.
-- [ ] T093 [US4] Add the inbox panel to the session page, as `daiv/sessions/templates/sessions/_inbox_panel.html`:
+- [X] T089 [US4] Change `resume_coordinator` and `_resume_batch` in `daiv/sessions/delegation.py` to post `delegation_finished` through `apost_event` instead of `create_run(... status=QUEUED, continuation_of_batch_id=...)`. Make `resume_stalled_batches` post for finished batches that have no event, and update the module docstring. Keep `continuation_of_batch_id` readable for old rows.
+- [X] T090 [US4] Post `delegated_ci_outcome` to the parent session from `daiv/sessions/pipeline_watch/service.py`, for passing and `budget_spent`, and from `daiv/sessions/inbox/complete.py`, for a CI-woken run that pushed nothing.
+- [X] T091 [US4] Route the `thread_id` continuation in `daiv/sessions/services.py` `asubmit_batch_runs` through `apost_event` with kind `follow_up_job`, returning `PostResult.run_id` as the run id. Keep `daiv/jobs/api/views.py` and `daiv/mcp_api/server.py` responses unchanged in shape.
+- [X] T092 [US4] Add the next-run constraint to `Run.Meta.constraints` in `daiv/sessions/models.py`: `UniqueConstraint(session, ref)` where `status='QUEUED' AND trigger_type IN ('chat','mr_webhook','api_job','mcp_job','delegation_resume','pipeline_webhook')`. Add a literal-match test like `test_active_constraint_literals_match_enums`, and generate `daiv/sessions/migrations/0024_run_one_next_run_per_session.py`.
+- [X] T093 [US4] Add the inbox panel to the session page, as `daiv/sessions/templates/sessions/_inbox_panel.html`:
   - context in `SessionDetailView` (`daiv/sessions/views.py`), for the owner or `user.is_admin`;
   - a partial `daiv/sessions/templates/sessions/_inbox_panel.html`, included in `session_detail.html`;
   - styles as classes in `daiv/static_src/css/input.css`;
   - `djade` on the new template.
-- [ ] T094 [P] [US4] Document that a job sent to a busy session joins its next run and may share its `job_id`, in `docs/features/jobs-api.md`, `docs/features/mcp-endpoint.md` and the MCP server instructions text in `daiv/mcp_api/server.py`.
+- [X] T094 [P] [US4] Document that a job sent to a busy session joins its next run and may share its `job_id`, in `docs/features/jobs-api.md`, `docs/features/mcp-endpoint.md` and the MCP server instructions text in `daiv/mcp_api/server.py`.
 
 **Checkpoint**: quickstart.md scenario 4 passes. No code path inserts a QUEUED continuation or a READY fix run directly.
 

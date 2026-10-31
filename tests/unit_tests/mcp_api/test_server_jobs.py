@@ -22,7 +22,7 @@ async def _session(user, *, repo_id="a/b", thread_id=None):
     )
 
 
-async def _run(session, *, status=RunStatus.QUEUED, **kwargs):
+async def _run(session, *, status=RunStatus.SUCCESSFUL, **kwargs):
     return await Run.objects.acreate(
         session=session,
         user=session.user,
@@ -332,6 +332,27 @@ async def test_submit_job_gives_a_repository_its_own_prompt(_default_mcp_user):
 
     assert submit.call_args.kwargs["prompt"] == "batch"
     assert submit.call_args.kwargs["repos"] == [RepoTarget(repo_id="a/b", prompt="only for a/b")]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_two_follow_ups_to_a_busy_session_share_its_next_run(_default_mcp_user):
+    from mcp_api.server import submit_job
+
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, user=_default_mcp_user, repo_id="a/b",
+        ref="main", active_run_id="chat-run", last_active_at=timezone.now(),
+    )  # fmt: skip
+
+    with patch("mcp_api.server._allow_job_submission", return_value=True), patch("sessions.queue.run_job_task"):
+        first, second = [
+            json.loads(await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt=p, thread_id=session.thread_id))
+            for p in ("Bump it", "Also the lockfile")
+        ]
+
+    assert first["jobs"][0]["job_id"] == second["jobs"][0]["job_id"]
+    assert first["jobs"][0]["status"] == "QUEUED"
+    run = await Run.objects.aget(session=session)
+    assert (run.trigger_type, run.status) == (SessionOrigin.MCP_JOB, RunStatus.QUEUED)
 
 
 @pytest.mark.django_db(transaction=True)

@@ -5,6 +5,7 @@ from django.db import IntegrityError
 import pytest
 from gitlab.exceptions import GitlabCreateError
 from sessions.executor.result import parse_agent_result
+from sessions.inbox.kinds import INBOX_TRIGGERS
 from sessions.models import (
     PublishErrorKind,
     Run,
@@ -122,11 +123,11 @@ def test_webhook_runs_exempt_from_active_constraint():
     _mk_run(session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.ISSUE_WEBHOOK)
 
 
-def test_queued_runs_stack_freely():
+def test_queued_runs_outside_the_inbox_stack_freely():
     session = _mk_session()
     _mk_run(session, status=RunStatus.READY)
-    _mk_run(session, status=RunStatus.QUEUED)
-    _mk_run(session, status=RunStatus.QUEUED)
+    _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+    _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
 
 def test_active_run_id_nonempty_constraint():
@@ -191,12 +192,38 @@ def test_active_constraint_literals_match_enums():
     constraint = next(c for c in Run._meta.constraints if c.name == "run_one_active_per_session")
     conditions = dict(constraint.condition.children)
     assert set(conditions["status__in"]) == {RunStatus.READY, RunStatus.RUNNING}
-    assert set(conditions["trigger_type__in"]) == {
-        SessionOrigin.API_JOB,
-        SessionOrigin.MCP_JOB,
-        SessionOrigin.DELEGATED_JOB,
-        SessionOrigin.DELEGATION_RESUME,
-    }
+    assert set(conditions["trigger_type__in"]) == SessionOrigin.one_active()
+
+
+def test_next_run_constraint_literals_match_the_inbox_triggers():
+    constraint = next(c for c in Run._meta.constraints if c.name == "run_one_next_run_per_session")
+    conditions = dict(constraint.condition.children)
+    assert constraint.fields == ("session", "ref")
+    assert conditions["status"] == RunStatus.QUEUED
+    assert set(conditions["trigger_type__in"]) == INBOX_TRIGGERS
+
+
+class TestOneNextRunPerBranch:
+    def test_a_second_next_run_on_one_branch_is_rejected(self):
+        session = _mk_session()
+        _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, ref="feat/x")
+
+        with pytest.raises(IntegrityError):
+            _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT, ref="feat/x")
+
+    def test_each_branch_gets_its_own(self):
+        session = _mk_session()
+        _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT, ref="feat/x")
+        _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT, ref="feat/y")
+
+        assert Run.objects.filter(session=session).count() == 2
+
+    def test_queued_delegated_legs_are_not_next_runs(self):
+        session = _mk_session()
+        for _ in range(2):
+            _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.DELEGATED_JOB, ref="main")
+
+        assert Run.objects.filter(session=session).count() == 2
 
 
 def test_sandbox_acquisition_column_fits_every_member():

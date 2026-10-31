@@ -161,8 +161,8 @@ class TestAmarkFailedAndAdvance:
 class TestDispatchNextQueued:
     def test_releases_the_oldest_queued_sibling(self, create_db_task_result):
         session_id = str(uuid.uuid4())
-        oldest = make_run(session_id=session_id, status=RunStatus.QUEUED)
-        newer = make_run(session_id=session_id, status=RunStatus.QUEUED)
+        oldest = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+        newer = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
         fake_task = MagicMock(id=create_db_task_result().id)
         with patch("sessions.queue.run_job_task") as mock_task:
@@ -178,7 +178,7 @@ class TestDispatchNextQueued:
         session_id = str(uuid.uuid4())
         next_run = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.PIPELINE_WEBHOOK)
         make_event(next_run.session, run=next_run)
-        legacy = make_run(session_id=session_id, status=RunStatus.QUEUED)
+        legacy = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
         fake_task = MagicMock(id=create_db_task_result().id)
         with patch("sessions.queue.run_job_task") as mock_task:
@@ -200,8 +200,8 @@ class TestDispatchNextQueued:
 
     def test_a_failed_enqueue_fails_the_row_and_moves_to_the_next(self, create_db_task_result, run_finished_spy):
         session_id = str(uuid.uuid4())
-        bad = make_run(session_id=session_id, status=RunStatus.QUEUED)
-        next_q = make_run(session_id=session_id, status=RunStatus.QUEUED)
+        bad = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+        next_q = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
         fake_task = MagicMock(id=create_db_task_result().id)
         with patch("sessions.queue.run_job_task") as mock_task:
@@ -218,8 +218,8 @@ class TestDispatchNextQueued:
 
     def test_a_failed_link_fails_the_row_and_moves_to_the_next(self, create_db_task_result, run_finished_spy):
         session_id = str(uuid.uuid4())
-        unlinked = make_run(session_id=session_id, status=RunStatus.QUEUED)
-        next_q = make_run(session_id=session_id, status=RunStatus.QUEUED)
+        unlinked = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+        next_q = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
         fake_task = MagicMock(id=create_db_task_result().id)
         with patch("sessions.queue.run_job_task") as mock_task:
@@ -237,7 +237,7 @@ class TestDispatchNextQueued:
         """A persistent broker outage must not mass-fail every QUEUED row on the session."""
         session_id = str(uuid.uuid4())
         queued_rows = [
-            make_run(session_id=session_id, status=RunStatus.QUEUED)
+            make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
             for _ in range(MAX_CONSECUTIVE_DISPATCH_FAILURES + 2)
         ]
         with patch("sessions.queue.run_job_task") as mock_task:
@@ -298,7 +298,7 @@ class TestRunsThatWaitForAnother:
 
     def test_a_later_run_of_its_session_stays_behind_it(self, waiting):
         _, queued = waiting
-        later = make_run(session_id=queued.session_id, status=RunStatus.QUEUED)
+        later = make_run(session_id=queued.session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
         with patch("sessions.queue.run_job_task") as mock_task:
             dispatch_next_queued(queued.session_id)
@@ -344,8 +344,8 @@ class TestRunsThatWaitForAnother:
 class TestReleaseOrphanQueuedRuns:
     def test_releases_the_oldest_queued_run_per_idle_session(self, create_db_task_result):
         session_id = str(uuid.uuid4())
-        oldest = make_run(session_id=session_id, status=RunStatus.QUEUED)
-        make_run(session_id=session_id, status=RunStatus.QUEUED)
+        oldest = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+        make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
         fake_task = MagicMock(id=create_db_task_result().id)
         with patch("sessions.queue.run_job_task") as mock_task:

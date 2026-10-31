@@ -282,6 +282,56 @@ class TestGivingUp:
         assert watch.exhausted == []
 
 
+class TestDelegatedOutcome:
+    async def _child(self, **fields) -> tuple[Session, MergeRequestOwnership]:
+        parent = await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/coordinator"
+        )
+        return parent, await _owned(session={"parent": parent}, **fields)
+
+    @pytest.mark.parametrize(
+        ("pipeline", "fields", "outcome"),
+        [
+            (make_pipeline("success"), {}, "passing"),
+            (make_pipeline("failed"), {"attempts": 3}, "stopped_after_attempts"),
+        ],
+        ids=["passed", "budget-spent"],
+    )
+    async def test_the_parent_of_a_delegated_session_remembers_how_its_ci_ended(self, watch, pipeline, fields, outcome):
+        parent, ownership = await self._child(**fields)
+        watch.platform.pipeline = pipeline
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await InboxEvent.objects.aget(session=parent)
+        assert (event.kind, event.wake, event.source_key) == (
+            EventKind.DELEGATED_CI_OUTCOME, False, f"child-ci:{ownership.session_id}:{pipeline.id}",
+        )  # fmt: skip
+        assert event.payload == {
+            "child_thread_id": ownership.session_id,
+            "merge_request_iid": 7,
+            "outcome": outcome,
+            "web_url": pipeline.web_url,
+        }
+
+    @pytest.mark.parametrize("status", ["failed", "manual"], ids=["woken", "stopped"])
+    async def test_other_verdicts_tell_the_parent_nothing(self, watch, status):
+        await self._child()
+        watch.platform.pipeline = make_pipeline(status)
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert not await InboxEvent.objects.filter(kind=EventKind.DELEGATED_CI_OUTCOME).aexists()
+
+    async def test_a_session_without_a_parent_tells_no_one(self, watch):
+        await _owned(attempts=3)
+        watch.platform.pipeline = make_pipeline("failed")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert not await InboxEvent.objects.filter(kind=EventKind.DELEGATED_CI_OUTCOME).aexists()
+
+
 class TestRequestEvaluation:
     async def test_it_enqueues_only_for_an_owned_branch(self, watch):
         await _owned()

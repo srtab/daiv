@@ -14,7 +14,7 @@ Navigate to **Dashboard > Sessions** (`/dashboard/sessions/`) to see the unified
 A **Session** groups all runs that share the same agent thread:
 
 - **Session** — the thread. Has a repository, ref, origin (how it was first triggered), title, and an optional link to an issue or merge request, schedule, or user.
-- **Run** — one agent execution inside that session. A session can have many runs: retries, follow-up chat turns, and FIFO-queued API submissions all add new runs to the same session.
+- **Run** — one agent execution inside that session. A session can have many runs: retries, follow-up chat turns, and API submissions that continue the thread all add new runs to the same session.
 
 A chat conversation is a session where the origin is `Chat`; each turn you send creates a new Run. A webhook event (issue or MR) creates a session tied to the issue or merge request; the single agent invocation is its first Run.
 
@@ -71,7 +71,7 @@ The sessions list shows all sessions in reverse chronological order. Each row di
 - **Timing and usage** — when the session was last active, and the total tokens and cost across all its runs
 
 !!! note "Queued runs"
-    API and MCP runs that continue a thread already in flight don't start immediately. The new run is created in the **Queued** state and released in FIFO order once the prior run on that thread finishes.
+    An API or MCP job that continues a busy session doesn't start immediately: it joins the session's next run for its branch, shown as **Queued**, which starts once the current run finishes (see [The session inbox](#the-session-inbox)).
 
 ### Filtering
 

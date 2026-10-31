@@ -8,7 +8,8 @@
   ``MAX_EVENT_ATTEMPTS``, logged with ``logger.error`` |
 
 A session with no DAIV user has no one to notify, so a successful run a CI failure woke posts its summary on the
-merge request instead (FR-018). A failed post is logged; the events stay handled.
+merge request instead (FR-018). A failed post is logged; the events stay handled. When such a run pushed nothing and
+its session was delegated, the parent session remembers it as a ``no_push`` ``delegated_ci_outcome`` (FR-021).
 
 The sweep (``sessions.tasks.drain_inboxes_cron_task``) settles events the same way when their run's slot went stale
 before the run ended.
@@ -26,6 +27,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox.drain import drain_logged
+from sessions.inbox.post import post_delegated_ci_outcome
 from sessions.models import EventFailure, EventKind, EventState, InboxEvent, Run, RunStatus, Session
 
 if TYPE_CHECKING:
@@ -52,14 +54,11 @@ def settle_events(run: Run) -> None:
     """Move the events ``run`` took to the state its outcome calls for. SYNC ONLY."""
     taken = InboxEvent.objects.filter(run=run, state=EventState.TAKEN)
     if run.status in (RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT):
-        ci_iids = set(
-            taken.filter(kind=EventKind.CI_FAILED, wake=True, merge_request_iid__isnull=False).values_list(
-                "merge_request_iid", flat=True
-            )
-        )
+        woken_by_ci = list(taken.filter(kind=EventKind.CI_FAILED, wake=True, merge_request_iid__isnull=False))
         taken.update(state=EventState.HANDLED, updated_at=timezone.now())
-        if ci_iids and run.status == RunStatus.SUCCESSFUL:
-            _report_to_merge_requests(run, ci_iids)
+        if woken_by_ci and run.status == RunStatus.SUCCESSFUL:
+            _report_to_merge_requests(run, {event.merge_request_iid for event in woken_by_ci})
+            _tell_parent_if_nothing_was_pushed(run, woken_by_ci)
     elif run.status == RunStatus.FAILED and run.cancel_requested_at is not None:
         taken.update(state=EventState.DISMISSED, updated_at=timezone.now())
     elif run.status == RunStatus.FAILED:
@@ -76,6 +75,20 @@ def _report_to_merge_requests(run: Run, merge_request_iids: set[int]) -> None:
     platform = WatchPlatform(run.repo_id)
     for iid in sorted(merge_request_iids):
         async_to_sync(platform.apost_note)(merge_request_iid=iid, body=run.result_summary)
+
+
+def _tell_parent_if_nothing_was_pushed(run: Run, woken_by_ci: list[InboxEvent]) -> None:
+    if Run.objects.filter(pk=run.pk).exclude(pushed_sha="").exists():
+        return
+    session = Session.objects.only("thread_id", "parent_id").get(pk=run.session_id)
+    for event in woken_by_ci:
+        post_delegated_ci_outcome(
+            session,
+            merge_request_iid=event.merge_request_iid,
+            pipeline_id=event.payload["pipeline_id"],
+            outcome="no_push",
+            web_url=event.payload.get("web_url", ""),
+        )
 
 
 def retry(events: QuerySet[InboxEvent], *, cause: str) -> None:

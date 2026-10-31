@@ -69,6 +69,9 @@ new commit onto that same branch and updates the existing MR/PR — useful for f
 in-review branch. Otherwise DAIV creates a new branch off `ref` and opens a new MR/PR targeting \
 `ref` itself.
 
+A `thread_id` job sent to a session that is busy joins that session's next run for its branch, \
+so two such jobs may return the same `job_id`; poll that `job_id` and read its result once.
+
 Jobs are rate-limited per user. Long-running jobs may exceed the 10-minute polling window; \
 continue polling with `get_job_status` if the result is not yet available.\
 """,
@@ -193,8 +196,9 @@ async def submit_job(
                 " submit_job or get_job_status response). When set, ``repos`` must contain"
                 " exactly one entry whose session belongs to the calling user, who has not"
                 " archived it."
-                " If a prior run on this thread is still in flight, the new job is queued"
-                " and runs FIFO after it terminates."
+                " If the session is busy, the job joins its next run for the job's branch,"
+                " which starts once the current run ends; jobs that join the same next run"
+                " share its job_id."
             )
         ),
     ] = None,

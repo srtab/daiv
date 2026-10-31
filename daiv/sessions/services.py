@@ -8,13 +8,14 @@ from typing import TYPE_CHECKING
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
 
 from automation.agent import validators
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
 from sessions.admission import aassert_repo_access
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.queue import aenqueue_run, amark_failed_and_advance
 from sessions.repo_state import mr_to_payload
 from sessions.tasks import generate_batch_title_task
@@ -309,7 +310,8 @@ async def asubmit_batch_runs(
     and may carry its own ``prompt``, which replaces ``prompt`` for that repository; ``prompt`` still titles the batch.
     A target's ``references`` add to ``references`` for its run, and one with ``waits_for_run_id`` is created QUEUED
     and left for the queue to start once that run finishes.
-    ``parent`` is the coordinator session a delegated batch's new sessions hang under.
+    ``parent`` is the coordinator session a delegated batch's new sessions hang under. A ``thread_id`` naming an
+    existing session posts a ``follow_up_job`` to its inbox instead (:func:`_asubmit_follow_up`).
 
     Best-effort: a per-repo failure (run creation, refs merge, enqueue or link) lands in
     ``result.failed`` while siblings continue. Every row is created before any task is queued.
@@ -332,6 +334,20 @@ async def asubmit_batch_runs(
     if any(len(stored_refs) + len(target.references) > MAX_REFS_PER_SUBMISSION for target in repos):
         raise ValueError(f"references exceeds the maximum of {MAX_REFS_PER_SUBMISSION}")
     batch_id = uuid.uuid4()
+
+    if thread_id is not None and (session := await Session.objects.filter(pk=thread_id).afirst()) is not None:
+        follow_up = await _asubmit_follow_up(
+            session,
+            repos[0],
+            user=user,
+            prompt=prompt,
+            trigger_type=trigger_type,
+            agent_model=agent_model,
+            agent_thinking_level=agent_thinking_level,
+            muted=muted,
+            references=[*stored_refs, *(ref.to_stored() for ref in repos[0].references)],
+        )
+        return BatchSubmitResult(batch_id=batch_id, outcomes=[follow_up])
 
     schedule_run_base = 0
     if trigger_type == SessionOrigin.SCHEDULE and scheduled_job is not None:
@@ -443,6 +459,71 @@ async def asubmit_batch_runs(
             )
 
     return result
+
+
+async def _asubmit_follow_up(
+    session: Session,
+    target: RepoTarget,
+    *,
+    user: User | None,
+    prompt: str,
+    trigger_type: str,
+    agent_model: str,
+    agent_thinking_level: str,
+    muted: bool | None,
+    references: list[dict],
+) -> Run | BatchSubmitFailure:
+    """Hand a job for an existing session to its inbox: the run the drain started for it when the session was idle,
+    or the session's next run for its branch, which other jobs on that branch may share. Its references join the
+    session when a run takes it."""
+    from sessions.inbox import kinds
+    from sessions.inbox.post import apost_event
+
+    if target.repo_id != session.repo_id:
+        return BatchSubmitFailure(
+            repo_id=target.repo_id, ref=target.ref, error=f"thread_id belongs to the repository {session.repo_id}"
+        )
+    payload: dict = {"prompt": target.prompt or prompt, "trigger_type": trigger_type, "ref": target.ref}
+    if agent_model:
+        payload |= {"agent_model": agent_model, "agent_thinking_level": agent_thinking_level}
+    if references:
+        payload["references"] = references
+    if muted is not None:
+        payload["muted"] = muted
+    try:
+        result = await apost_event(
+            session.thread_id,
+            kind=EventKind.FOLLOW_UP_JOB,
+            source_key=kinds.job_key(uuid.uuid4()),
+            payload=payload,
+            wake=True,
+            ref=target.ref,
+            author=user,
+        )
+    except Exception as err:
+        logger.exception("submit_batch_runs: follow-up failed for thread_id=%s", session.thread_id)
+        return BatchSubmitFailure(
+            repo_id=target.repo_id, ref=target.ref, error=f"FollowUpFailed: {type(err).__name__}: {err}"
+        )
+    if result.run_id is not None:
+        return await Run.objects.aget(pk=result.run_id)
+    # The caller is told the job failed, so a later drain must not start it after all.
+    await InboxEvent.objects.filter(pk=result.event.pk, state=EventState.PENDING).aupdate(
+        state=EventState.DISMISSED, updated_at=timezone.now()
+    )
+    event = await InboxEvent.objects.aget(pk=result.event.pk)
+    if event.run_id is not None:
+        return await Run.objects.aget(pk=event.run_id)
+    logger.warning(
+        "submit_batch_runs: follow-up event=%s on thread_id=%s did not start (state=%s, failure=%s)",
+        event.pk,
+        session.thread_id,
+        event.state,
+        event.failure,
+    )
+    return BatchSubmitFailure(
+        repo_id=target.repo_id, ref=target.ref, error=f"FollowUpNotStarted: {event.failure or 'enqueue_failed'}"
+    )
 
 
 def submit_batch_runs(**kwargs) -> BatchSubmitResult:
