@@ -377,6 +377,15 @@ The main agent used for issue addressing, pull request assistance, and all inter
 | `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` | Fallback model if the explore model fails                                                                                                            | `gpt-6-luna`        |
 | `DAIV_AGENT_CUSTOM_SKILLS_PATH`          | Path to custom global skills directory. Set to `None` to disable.                                                                                    | `~/data/skills`     |
 
+### Model Requests
+
+These bound every LLM API call, whatever the provider: the main agent, subagents, and the model-backed tasks (titling, memory, commit/PR writer, web fetch). Without them a stalled provider can block a run indefinitely.
+
+| Variable                             | Description                                                                          | Default |
+| ------------------------------------ | ------------------------------------------------------------------------------------ | ------- |
+| `DAIV_MODEL_REQUEST_TIMEOUT_SECONDS` | Per-request timeout for LLM API calls, in seconds. Minimum `1`.                      | `120`   |
+| `DAIV_MODEL_MAX_RETRIES`             | Retries for a failed LLM API call before the error propagates (`0` disables retries) | `2`     |
+
 ### Jobs API
 
 The [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) allows programmatic agent execution.
