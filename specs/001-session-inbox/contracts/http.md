@@ -46,7 +46,7 @@ New fields in the response:
 ## Inbox mute: `POST /api/sessions/{thread_id}/inbox-mute`
 
 - New action on the existing sessions router. Body `{"muted": bool}`. Owner or admin only. Sets `Session.inbox_muted` (FR-031).
-- While muted, mentions still wake the agent, and CI and delegation events are remembered only.
+- While muted, mentions, chat messages and follow-up jobs still wake the agent; CI and delegation events are remembered only.
 
 ## Stop a background run: `POST /api/chat/cancel` (existing)
 
@@ -59,7 +59,7 @@ New fields in the response:
 | Session state | Behaviour |
 |---|---|
 | Idle | Posts a `follow_up_job` event; the drain dispatches at once. `job_id` is the new run's id. Unchanged for callers |
-| Busy | Posts the event into the next run. **`job_id` is the next run's id, which another follow-up job or event may share** (R3). `get_job_status` reports that run |
+| Busy | Posts the event into the next run for the job's branch. **`job_id` is that next run's id, which another follow-up job or event on the same branch may share** (R3). `get_job_status` reports that run |
 
 - The job's `ref` becomes the event's `ref`. A ref different from the session's branch waits for a run on that branch (R4).
 - **Documentation change**: the MCP server instructions and the jobs API docs say that a job sent to a busy session joins its next run.

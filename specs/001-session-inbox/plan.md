@@ -1,6 +1,6 @@
 # Implementation Plan: Session Inbox
 
-**Branch**: `001-session-inbox` | **Date**: 2026-10-30 | **Spec**: [spec.md](spec.md)
+**Branch**: `001-session-inbox` | **Date**: 2026-10-30 | **Spec**: [spec.md](spec.md) | **Status**: Approved by a maintainer on 2026-10-30, including the spec refinements in [research.md](research.md#spec-refinements-accepted-2026-10-30)
 
 **Input**: Feature specification from `specs/001-session-inbox/spec.md`
 
@@ -117,8 +117,7 @@ daiv/
 │   ├── tasks.py                  # per-minute drain sweep; push classification task (R8, R13)
 │   ├── header.py, transcript.py  # CI status from ownership; remembered-event timeline entries
 │   ├── api/views.py              # ci-watch on ownership; turns poll: queued events; cancel background runs
-│   ├── admin.py                  # InboxEvent admin for operators (FR-034)
-│   └── templates/, static/       # timeline entries, queued state, mute toggle
+│   └── templates/, static/       # timeline entries, queued state, mute toggle, inbox panel for owners and admins (FR-034)
 ├── automation/agent/
 │   ├── publishers.py, events.py  # pushed_sha in PublishOutcome / publish result (R7)
 │   └── workspace/                # fast-forward operation on the Workspace protocol (R17)
@@ -152,7 +151,7 @@ Each slice can ship and be demonstrated on its own, in this order. Every slice a
 
 | # | Slice | Spec | Depends on |
 |---|---|---|---|
-| 0 | Foundation: models and migration, `apost_event`, drainer with the `Claimed` slot, completion and retries, per-minute sweep, synthetic context, admin | FR-005–FR-014, FR-034 | — |
+| 0 | Foundation: models and migration, `apost_event`, drainer with the `Claimed` slot, completion and retries, per-minute sweep, synthetic context, inbox panel on the session page (DAIV has no Django admin) | FR-005–FR-014, FR-034 | — |
 | 1 | CI in the publishing session: `pushed_sha`, ownership claim at publish, CI events and wake rules, the watch moved onto ownership plus the data migration, notifications, the issue addressor's acting user, the header's CI status | US1; FR-001–FR-004, FR-015–FR-020 | 0 |
 | 2 | Busy sessions: queued chat, taking pending events on idle chat, a stop control for background runs, mute, consecutive-run limit | US2; FR-029–FR-033 | 0 |
 | 3 | Remembered events: push, merge and close callbacks on both platforms, delayed push classification, timeline entries, the working-copy fast-forward, the "branch moved" notice | US3; FR-023, FR-024 | 0, 1 |

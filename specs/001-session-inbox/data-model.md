@@ -55,6 +55,11 @@ Something that happened which concerns one session.
 | `delegated_ci_outcome` | no | `child-ci:<child thread>:<iid>` | — | — |
 | `notice` | no | — | — | — (system notes: ownership moved, run limit reached) |
 
+Waking events always carry a `ref`:
+- the merge request's source branch, for CI and mentions;
+- the job's `ref`, for follow-up jobs;
+- `Session.ref` otherwise: chat, follow-up jobs without a ref, and delegation results.
+
 ### Payloads
 
 Each kind has a `TypedDict`, validated in `inbox.kinds`. Payloads hold what the renderer and the timeline need, and never credentials.
@@ -78,8 +83,12 @@ pending ──take──▶ taken ──run SUCCESSFUL / WAITING_INPUT──▶ 
    │                │ ──run FAILED, attempts = 3──▶ failed (retries_exhausted, logger.error)
    │                └─slot stale, run never ended (sweep)──▶ pending (attempts + 1)
    ├──newer event, same subject, at take time──▶ superseded
+   ├──blocked by mute or the run limit at take time──▶ pending, wake=False, reason muted | run_limit (remembered)
    └──owner lost repository access at take time──▶ failed (access_denied)
 ```
+
+- When no waking event survives a drain, the session's QUEUED next run for that branch is deleted in the same transaction, and its remaining events are detached (`run=NULL`).
+- Only CI and delegation events can be blocked or replaced: they are the only waking kinds with a subject or a policy gate. So a next run that carries a person's `job_id` is never deleted.
 
 - `pending` events with `run` set have joined a QUEUED next run (R3). Taking them keeps the same `run`.
 - Remembered events (`wake=False`) follow the same path. They are taken by whichever run starts next for their branch.
@@ -149,7 +158,7 @@ When the drainer dispatches a run that takes a waking `ci_failed`, it sets `last
 | `trigger_type` | Unchanged values. Set from event precedence when an inbox run is dispatched (R6) |
 | `continuation_of_batch_id` | No longer written for new continuations (R19). The column and its constraint stay for history |
 
-The QUEUED "next run" (R3) is a normal `Run` with `status=QUEUED` and `task_result=None`. Add `UniqueConstraint(session)` on `status='QUEUED' AND trigger_type IN <inbox triggers>`, so a session has at most one next run.
+The QUEUED "next run" (R3) is a normal `Run` with `status=QUEUED` and `task_result=None`, whose `ref` is the branch of the events it gathers. Add `UniqueConstraint(session, ref)` on `status='QUEUED' AND trigger_type IN <inbox triggers>`, so a session has at most one next run per branch.
 
 Delegated job legs, which are QUEUED on their own new sessions with `waits_for`, use `trigger_type=delegated_job`. That is outside the inbox set, so the constraint doesn't apply to them.
 

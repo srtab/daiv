@@ -75,7 +75,7 @@ uv run evals/compare_runs.py eval-runs/inbox-before.jsonl eval-runs/inbox-after.
 - Its transcript shows your chat message; the mention reply is posted on the merge request.
 - `InboxEvent` rows for the three events point to that run, with state `handled`.
 
-3. While the first run is still going, look at the session's runs in the Django admin.
+3. While the first run is still going, open the session page's inbox panel, or query `Run` in `python manage.py shell`.
 
 **Expected**: the next run is `QUEUED` with no task result, so no worker has picked it up. It becomes `READY` only when the first run ends.
 
@@ -97,7 +97,7 @@ uv run evals/compare_runs.py eval-runs/inbox-before.jsonl eval-runs/inbox-after.
 - When the delegated batch finishes, one run handles both the batch summary and the job prompt.
 - Each delegated merge request's CI outcome appears in the delegating session's timeline as a remembered event.
 
-2. In the Django admin, open **Inbox events** filtered by that session.
+2. As an admin, open the session page's inbox panel.
 
 **Expected**: source, arrival time and state for each event (FR-034).
 

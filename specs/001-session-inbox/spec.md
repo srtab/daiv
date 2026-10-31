@@ -22,6 +22,7 @@
 - Q: When the session that owns a merge request has no DAIV user as its owner, what should CI failures and mentions do? → A: Turns run as today's runs with no DAIV user do: no personal tools, no per-user access check, and the merge request comment as the only notification.
 - Q: When a delegated job's session publishes a merge request and CI later fails on it, should the session that delegated the job hear about it? → A: CI is handled in the delegated job's session, and each outcome (passing, stopped after N attempts, a CI turn that pushed nothing) also reaches the delegating session as a remembered event.
 - Q: When a waking event arrives at a session that isn't running a turn, how soon should its turn start? → A: Within 1 minute.
+- Q: Which refinements from planning does the spec adopt? → A: All seven listed in the plan's research (accepted with the plan, 2026-10-30). They are recorded in FR-010, FR-018, FR-021, FR-028, FR-030 and the Assumptions.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -163,7 +164,7 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 - **FR-007**: A session MUST run at most one turn at a time.
 - **FR-008**: A newer event about the same subject MUST replace an older one. An example is a later pipeline on the same merge request.
 - **FR-009**: A turn MUST start only when, after replaced events have been collapsed, at least one pending event is a waking event.
-- **FR-010**: When a turn starts, it MUST take every pending event, waking and remembered, and give them to the agent as one combined input in order of arrival, with replaced events marked as replaced or left out.
+- **FR-010**: When a turn starts, it MUST take every pending event, waking and remembered, that concerns the branch the turn works on, or no branch in particular, and give them to the agent as one combined input in order of arrival, with replaced events marked as replaced or left out. A turn works on one branch; events about another branch wait for a turn on that branch.
 - **FR-011**: Events that arrive during a turn MUST wait for the next turn.
 - **FR-012**: Pending events MUST NOT hold processing capacity while they wait.
 - **FR-013**: If a turn ends without finishing, the events it took MUST return to pending. After a bounded number of retries, they MUST be marked failed, and the failure MUST be reported to the operator as an error.
@@ -181,13 +182,13 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
   Otherwise the failure MUST be remembered only.
 - **FR-016**: The attempt budget MUST be counted per merge request, charged only for turns that a CI failure woke, and reset when a run requested by a person publishes to the merge request.
 - **FR-017**: When the budget is spent and CI fails on a new commit DAIV pushed, the system MUST notify the owner and show "stopped after N attempts" with the failing jobs.
-- **FR-018**: When a turn that a CI failure woke pushes nothing, the system MUST NOT show the watch as given up. It MUST show the agent's final explanation and notify the owner with it.
+- **FR-018**: When a turn that a CI failure woke pushes nothing, the system MUST NOT show the watch as given up. It MUST show the agent's final explanation and notify the owner with it. Every turn a CI failure woke MUST notify the owner of its outcome, whether or not it pushed.
 - **FR-019**: The system MUST keep recording CI results after a give-up or a turn that pushed nothing, so that a later pass or failure is reflected in the session's status.
 - **FR-020**: The system MUST decide whether to wake from facts it can observe: the pipeline, the commit, who pushed it, and the budget. It MUST NOT require the agent to report a structured verdict.
 
 **Other sources**
 
-- **FR-021**: Results of delegated jobs, and follow-up jobs submitted to an existing session, MUST be delivered through the same inbox and follow FR-005 to FR-014. CI on a merge request a delegated job's session owns MUST be handled in that session. Each of its CI outcomes (passing, stopped after N attempts, a CI turn that pushed nothing) MUST also be delivered to the delegating session as a remembered event.
+- **FR-021**: Results of delegated jobs, and follow-up jobs submitted to an existing session, MUST be delivered through the same inbox and follow FR-005 to FR-014. CI on a merge request a delegated job's session owns MUST be handled in that session. Each of its CI outcomes (passing, stopped after N attempts, a CI turn that pushed nothing) MUST also be delivered to the delegating session as a remembered event. A follow-up job submitted while the session is busy joins the session's next turn on the job's branch, and reports that turn as its job, which other events or jobs on that branch may share.
 - **FR-022**: Before a turn runs for a user, the system MUST confirm that user still has access to the repository. If not, the turn MUST NOT run, and its events MUST be marked failed with the reason shown in the session. A session with no DAIV user skips this check, and its turns run as today's runs with no DAIV user do, with no personal tools.
 - **FR-023**: These events MUST at least be remembered:
   - CI passed;
@@ -204,12 +205,12 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 - **FR-025**: A mention of DAIV on a merge request a session owns MUST be delivered to the owning session's inbox as a waking event, whether it is in a comment or in a review comment on the diff. The system MUST NOT create a separate conversation for it.
 - **FR-026**: A mention MUST start a turn only if its author passes the same check that a mention needs today. Otherwise it is handled as it is today for that author.
 - **FR-027**: The turn that handles a mention MUST act as the session's owner, and its input MUST name the mention's author and quote the comment.
-- **FR-028**: The reply to a mention MUST be posted on the merge request, in the thread where DAIV was mentioned, including when the turn also handled other events.
+- **FR-028**: The reply to a mention MUST be posted on the merge request, in the thread where DAIV was mentioned, including when the turn also handled other events. When one turn handles several mentions on a merge request, the full reply goes to the latest mention's thread, and each other mention's thread gets a link to it.
 
 **Visibility and control**
 
 - **FR-029**: The session timeline MUST show turns started by the system separately from turns started by a person, and name their source (CI pipeline, delegated jobs, follow-up job, or a mention and its author).
-- **FR-030**: The owner MUST be able to stop a running system-started turn from the session page.
+- **FR-030**: The owner MUST be able to stop a running system-started turn from the session page. The events a stopped turn took are dismissed, not retried.
 - **FR-031**: The owner MUST be able to mute system-started turns for a session. While muted, CI and delegation events are remembered only, and mentions from people still start turns.
 - **FR-032**: A chat message the owner sends while a system-started turn is running MUST be accepted and handled in the next turn, never rejected.
 - **FR-033**: After a fixed number of consecutive system-started turns with no human input in between (default 3), the system MUST stop waking the session, remember further events only, and notify the owner. A chat message or a mention counts as human input.
@@ -248,3 +249,7 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 - Notifications use the channels and preferences that already exist.
 - Turns run with the owner's identity, as they do today for CI fix runs and resumed delegations. This includes turns started by another person's mention: the owner's access and personal tools are then used on that person's request. This was accepted in the 2026-10-30 clarification, and is limited by the check on who may mention DAIV (FR-026).
 - Today a mention on a DAIV-published merge request runs as its author in the merge request's own conversation. After this feature, that holds only for merge requests no session owns.
+- On GitHub, mentions in diff review comments are seen only once the operator subscribes the GitHub App to review-comment events. Until then, they are ignored, as they are today.
+- Out of scope, and unchanged:
+  - work started by issue webhooks on an issue's own session keeps its current delivery;
+  - GitHub CI that does not run on GitHub Actions remains unseen by the CI watch.

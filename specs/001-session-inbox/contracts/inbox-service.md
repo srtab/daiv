@@ -23,7 +23,7 @@ async def apost_event(
 
 - **Idempotent.** A second call with the same `(thread_id, source_key)` inserts nothing and returns `PostResult(event=<existing>, created=False, run_id=<its run id or None>)` (FR-005).
 - **Validates** `payload` against the kind's `TypedDict`. An invalid payload raises `ValueError`; the caller has a bug.
-- **Busy session.** When `wake` is true and the session is busy, the event joins the session's next run: the existing QUEUED run, or one created with the kind's provisional trigger type. `run_id` is that run's id (R3).
+- **Busy session.** When `wake` is true and the session is busy, the event joins the session's next run for the event's `ref`: the existing QUEUED run for that branch, or one created with the kind's provisional trigger type. `run_id` is that run's id (R3).
 - **Drains on commit** with `transaction.on_commit(adrain)`, so the caller's own transaction commits first. The drain is skipped when the call does not wake the session.
 - **Missing session.** Raises `Session.DoesNotExist` when the session doesn't exist. Callers that route through ownership use `aowning_session` first.
 
@@ -39,9 +39,9 @@ async def adrain(thread_id: str) -> Run | None
 - **Otherwise, in one transaction:**
   1. supersedes older pending events per subject;
   2. picks the branch of the oldest surviving waking event (R4);
-  3. returns `None` if no waking event survives, or the policy blocks waking (mute, consecutive-run limit);
+  3. turns waking events that the policy blocks (mute, consecutive-run limit) into remembered ones (`wake=False`, `reason` set). If no waking event survives, it deletes the QUEUED next run for that branch, detaching its events, and returns `None`;
   4. checks the owner's repository access, marking events `failed/access_denied` if it is denied;
-  5. promotes the QUEUED next run (or creates a READY one), sets `trigger_type` by precedence, and claims `Session.active_run_id = str(run.pk)`;
+  5. promotes the QUEUED next run for that branch (or creates a READY one), sets `trigger_type` by precedence, and claims `Session.active_run_id = str(run.pk)`;
   6. marks the taken events `taken` with `run=run`;
   7. for a waking `ci_failed`, sets the ownership's `last_examined_sha` and increments `attempts`.
 - **After commit**, it enqueues `run_job_task` through `sessions.queue.aenqueue_run`. An enqueue failure releases the slot and returns the events to `pending` (`patterns/errors.md` rule 1: `logger.error`).

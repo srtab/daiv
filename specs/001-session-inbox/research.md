@@ -88,12 +88,12 @@ Phase 0 of the plan for [spec.md](spec.md). Each decision records what was chose
 
 ### R3. One "next run" per busy session
 
-- **Decision**: when a waking event lands on a busy session, the drainer ensures one QUEUED run exists for that session as "the next run", and points the event at it. When the slot frees, that run is dispatched with every pending event. An idle session gets a READY run straight away.
+- **Decision**: when a waking event lands on a busy session, the drainer ensures one QUEUED run exists for that session and the event's branch, as "the next run", and points the event at it. When the slot frees, the oldest next run is dispatched with every pending event for its branch. An idle session gets a READY run straight away.
 - **Rationale**:
   - It gives every source a Run id to return or show while the session is busy. The Jobs API's `job_id` is the Run's id, per the glossary.
   - It gives the page something concrete to render as queued.
   - It keeps FR-010: one run takes every pending event.
-- **Consequence**: two follow-up jobs submitted while a session is busy return the same `job_id`, the run that handles both. This changes the jobs contract (see [contracts/http.md](contracts/http.md)).
+- **Consequence**: two follow-up jobs on the same branch submitted while a session is busy return the same `job_id`, the run that handles both. Jobs on different branches get different next runs. This changes the jobs contract (see [contracts/http.md](contracts/http.md)).
 - **Alternatives**:
   - One run per explicit request: rejected. It breaks FR-010 and US2 scenario 2.
   - Absorbed placeholder runs that mirror another run's status: rejected. They add a status relation to every reader of `Run`.
@@ -289,9 +289,9 @@ The drainer runs:
 - **Decision**: a jobs API or MCP `submit_job` with `thread_id` posts a waking `follow_up_job` event and returns the id of the run that will handle it (R3). The payload's `ref` still applies: a ref different from the session's branch is the event's `ref` (R4).
 - **Rationale**: FR-021 while keeping `job_id` a Run id.
 
-## Spec refinements raised for review
+## Spec refinements accepted 2026-10-30
 
-These are decided here, but a reviewer should confirm them against the spec:
+A maintainer accepted these with the plan, and the spec records them:
 
 1. A run takes pending events for one branch only (R4, narrows FR-010).
 2. Follow-up jobs submitted while busy share the next run's `job_id` (R3).
