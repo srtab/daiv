@@ -3,8 +3,14 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from sessions.models import InboxEvent
 from webhooks.dispatch import Author, Mention
-from webhooks.github.callbacks import IssueCallback, IssueCommentCallback, PullRequestCallback, PushCallback
-from webhooks.github.models import Comment, Issue, Label, PullRequest, Pusher, Ref, Repository, User
+from webhooks.github.callbacks import (
+    IssueCallback,
+    IssueCommentCallback,
+    PullRequestCallback,
+    PullRequestReviewCommentCallback,
+    PushCallback,
+)
+from webhooks.github.models import Comment, Issue, Label, PullRequest, Pusher, Ref, Repository, ReviewComment, User
 
 from codebase.base import GitPlatform
 from codebase.repo_config import RepositoryConfig
@@ -453,5 +459,111 @@ class TestProcessCallback:
             title="PR",
             use_max=use_max,
             author=Author(provider=GitPlatform.GITHUB, uid=10, username="alice"),
-            mention=Mention(note_id=300, comment_id="300"),
+            mention=Mention(note_id=300, comment_id="300", body="@daiv help"),
         )
+
+
+def create_review_comment_callback(
+    body: str = "@daiv why this line?", *, action: str = "created", in_reply_to_id: int | None = None
+) -> PullRequestReviewCommentCallback:
+    return PullRequestReviewCommentCallback(
+        action=action,
+        repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+        pull_request=PullRequest(
+            id=10,
+            number=42,
+            title="Some PR",
+            state="open",
+            head=Ref(ref="feat/x", sha="abc123"),
+            base=Ref(ref="main", sha="def456"),
+        ),
+        comment=ReviewComment(
+            id=901,
+            body=body,
+            user=User(**{"id": 10, "login": "alice"}),
+            html_url="https://github.com/owner/repo/pull/42#discussion_r901",
+            in_reply_to_id=in_reply_to_id,
+        ),
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestReviewCommentsOnAnOwnedPullRequest:
+    @pytest.fixture(autouse=True)
+    def inbox(self, monkeypatch_dependencies, mock_repo_client, mock_repo_config):
+        mock_repo_config.pull_request_assistant.enabled = True
+        mock_repo_client.current_user = User(**{"id": 1, "login": "daiv"})
+        mock_repo_client.git_platform = GitPlatform.GITHUB
+        with (
+            patch("sessions.inbox.post.drain_logged"),
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+        ):
+            yield
+
+    async def test_a_mention_reaches_the_owning_session_and_answers_in_its_thread(self, mock_repo_client):
+        ownership = await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=42)
+
+        await create_review_comment_callback(in_reply_to_id=900).process_callback()
+
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.wake, event.source_key) == ("mention", True, "review-comment:901")
+        assert (event.payload["discussion_id"], event.payload["is_diff"]) == ("900", True)
+        mock_repo_client.create_merge_request_note_emoji.assert_called_once()
+
+    async def test_a_comment_without_a_mention_is_remembered(self):
+        ownership = await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=42)
+
+        await create_review_comment_callback("Nit: rename this").process_callback()
+
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.wake, event.source_key) == ("comment", False, "review-comment:901")
+
+    @pytest.mark.parametrize("body", ["@daiv why this line?", "Nit: rename this"])
+    async def test_an_unowned_pull_request_gets_nothing(self, mock_repo_client, body):
+        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+            await create_review_comment_callback(body).process_callback()
+
+        task.get_or_enqueue.assert_not_called()
+        assert not await InboxEvent.objects.aexists()
+        mock_repo_client.create_merge_request_note_emoji.assert_not_called()
+
+
+class TestReviewCommentAcceptance:
+    @pytest.fixture(autouse=True)
+    def enabled(self, monkeypatch_dependencies, mock_repo_client, mock_repo_config):
+        mock_repo_config.pull_request_assistant.enabled = True
+        mock_repo_client.current_user = User(**{"id": 1, "login": "daiv"})
+
+    def test_a_new_or_edited_comment_is_accepted(self):
+        assert create_review_comment_callback().accept_callback() is True
+        assert create_review_comment_callback(action="edited").accept_callback() is True
+
+    def test_a_deleted_comment_is_rejected(self):
+        assert create_review_comment_callback(action="deleted").accept_callback() is False
+
+    def test_an_author_outside_the_allowlist_is_rejected(self, mock_repo_config):
+        mock_repo_config.allowed_usernames = ["someone-else"]
+
+        assert create_review_comment_callback().accept_callback() is False
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_pull_request_comment_without_a_mention_on_an_owned_pull_request_is_remembered(
+    monkeypatch_dependencies, mock_repo_client, mock_repo_config
+):
+    mock_repo_config.pull_request_assistant.enabled = True
+    mock_repo_client.current_user = User(**{"id": 1, "login": "daiv"})
+    mock_repo_client.git_platform = GitPlatform.GITHUB
+    ownership = await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=99)
+    callback = create_issue_comment_callback(labels=[], pull_request={"url": "https://example/pr/99"})
+    callback.comment.body = "Thanks, looks fine"
+
+    with (
+        patch("sessions.inbox.post.drain_logged"),
+        patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+    ):
+        assert callback.accept_callback() is True
+        await callback.process_callback()
+
+    event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+    assert (event.kind, event.source_key, event.payload["is_diff"]) == ("comment", "note:300", False)

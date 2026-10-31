@@ -16,9 +16,18 @@ from codebase.repo_config import RepositoryConfig
 from codebase.utils import note_mentions_daiv
 from core.constants import has_bot_label, has_max_label
 from webhooks.callbacks import BaseCallback
-from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
-
-from .models import Comment, Issue, Label, PullRequest, Pusher, Repository, User, WorkflowRun  # noqa: TC001
+from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment, dispatch_mr_comment_run
+from webhooks.github.models import (  # noqa: TC001
+    Comment,
+    Issue,
+    Label,
+    PullRequest,
+    Pusher,
+    Repository,
+    ReviewComment,
+    User,
+    WorkflowRun,
+)
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -138,11 +147,12 @@ class IssueCommentCallback(GitHubCallback):
             )
             return False
 
-        return bool(self._is_issue_comment or self._is_merge_request_review)
+        return bool(self._is_issue_comment or self._is_merge_request_comment)
 
     async def process_callback(self):
         """
-        Trigger the task to address the review feedback or issue comment like the plan approval use case.
+        Trigger the task to address the review feedback or issue comment like the plan approval use case, or remember
+        a comment on a pull request a session owns.
         """
         mention = Mention(note_id=self.comment.id, comment_id=str(self.comment.id))
         if self._is_issue_comment:
@@ -155,7 +165,23 @@ class IssueCommentCallback(GitHubCallback):
                 author=_author(self.comment.user),
                 mention=mention,
             )
-        elif self._is_merge_request_review:
+        elif self._is_merge_request_comment:
+            comment = Mention(
+                note_id=self.comment.id,
+                comment_id=str(self.comment.id),
+                body=self.comment.body,
+                web_url=self.comment.html_url,
+            )
+            if not note_mentions_daiv(self.comment.body, self._client.current_user):
+                await dispatch_mr_comment(
+                    client=self._client,
+                    repo_id=self.repository.full_name,
+                    merge_request_iid=self.issue.number,
+                    title=self.issue.title,
+                    author=_author(self.comment.user),
+                    comment=comment,
+                )
+                return
             await dispatch_mr_comment_run(
                 client=self._client,
                 repo_id=self.repository.full_name,
@@ -164,21 +190,19 @@ class IssueCommentCallback(GitHubCallback):
                 title=self.issue.title,
                 use_max=has_max_label(self.issue.label_names),
                 author=_author(self.comment.user),
-                mention=mention,
+                mention=comment,
             )
 
     @property
-    def _is_merge_request_review(self) -> bool:
+    def _is_merge_request_comment(self) -> bool:
         """
-        Accept the webhook if the note is a merge request comment that mentions DAIV.
+        Accept any comment on an open pull request; dispatch decides what one without a mention concerns.
         """
         return bool(
             self._repo_config.pull_request_assistant.enabled
             and self.issue.is_pull_request()
             and self.issue.state == "open"
-            # and not self.issue.draft
             and self.action in ["created", "edited"]
-            and note_mentions_daiv(self.comment.body, self._client.current_user)
         )
 
     @cached_property
@@ -195,6 +219,64 @@ class IssueCommentCallback(GitHubCallback):
         )
 
 
+class PullRequestReviewCommentCallback(GitHubCallback):
+    """
+    GitHub Pull Request Review Comment Webhook: a comment on a diff line, which reaches only a session owning the pull
+    request, as a mention or a remembered comment.
+    """
+
+    action: Literal["created", "edited", "deleted"]
+    pull_request: PullRequest
+    comment: ReviewComment
+
+    def accept_callback(self) -> bool:
+        if (
+            self.action not in ("created", "edited")
+            or self.pull_request.state != "open"
+            or not self._repo_config.pull_request_assistant.enabled
+            or self.comment.user.id == self._client.current_user.id
+        ):
+            return False
+        if not self._repo_config.is_user_allowed(self.comment.user.username):
+            logger.info(
+                "Rejecting review comment on %s#%s: user '%s' is not in the allowed usernames list",
+                self.repository.full_name,
+                self.pull_request.number,
+                self.comment.user.username,
+            )
+            return False
+        return True
+
+    async def process_callback(self):
+        comment = Mention(
+            note_id=self.comment.id,
+            comment_id=str(self.comment.in_reply_to_id or self.comment.id),
+            body=self.comment.body,
+            web_url=self.comment.html_url,
+            on_diff=True,
+        )
+        if not note_mentions_daiv(self.comment.body, self._client.current_user):
+            await dispatch_mr_comment(
+                client=self._client,
+                repo_id=self.repository.full_name,
+                merge_request_iid=self.pull_request.number,
+                title=self.pull_request.title,
+                author=_author(self.comment.user),
+                comment=comment,
+            )
+            return
+        await dispatch_mr_comment_run(
+            client=self._client,
+            repo_id=self.repository.full_name,
+            merge_request_iid=self.pull_request.number,
+            ref=self.pull_request.head.ref,
+            title=self.pull_request.title,
+            use_max=has_max_label([label.name for label in self.pull_request.labels]),
+            author=_author(self.comment.user),
+            mention=comment,
+        )
+
+
 class PullRequestCallback(GitHubCallback):
     """
     GitHub Pull Request Webhook: merge metrics for merges into the default branch, and the merge, close and reopen of
@@ -204,6 +286,8 @@ class PullRequestCallback(GitHubCallback):
     action: str
     pull_request: PullRequest
     sender: User | None = None
+    comment: None = None
+    """A ``pull_request_review_comment`` payload has a ``comment``; requiring none keeps it from parsing as this."""
 
     def accept_callback(self) -> bool:
         """

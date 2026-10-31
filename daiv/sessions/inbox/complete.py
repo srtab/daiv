@@ -11,6 +11,10 @@ A session with no DAIV user has no one to notify, so a successful run a CI failu
 merge request instead (FR-018). A failed post is logged; the events stay handled. When such a run pushed nothing and
 its session was delegated, the parent session remembers it as a ``no_push`` ``delegated_ci_outcome`` (FR-021).
 
+A run that took mentions and ended SUCCESSFUL or WAITING_INPUT answers them on their merge request (research.md R10):
+its final message, or its question, goes in the latest mention's thread, and each earlier mention's thread gets a line
+pointing there. A failed post is logged; the events stay handled.
+
 The sweep (``sessions.tasks.drain_inboxes_cron_task``) settles events the same way when their run's slot went stale
 before the run ended.
 """
@@ -35,6 +39,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 MAX_EVENT_ATTEMPTS = 3
+ANSWERED_IN_ANOTHER_THREAD = "I answered this together with a later mention: {url}"
 
 
 def on_run_ended(run: Run) -> None:
@@ -55,10 +60,15 @@ def settle_events(run: Run) -> None:
     taken = InboxEvent.objects.filter(run=run, state=EventState.TAKEN)
     if run.status in (RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT):
         woken_by_ci = list(taken.filter(kind=EventKind.CI_FAILED, wake=True, merge_request_iid__isnull=False))
+        mentions = list(
+            taken.filter(kind=EventKind.MENTION, merge_request_iid__isnull=False).order_by("created_at", "id")
+        )
         taken.update(state=EventState.HANDLED, updated_at=timezone.now())
         if woken_by_ci and run.status == RunStatus.SUCCESSFUL:
             _report_to_merge_requests(run, {event.merge_request_iid for event in woken_by_ci})
             _tell_parent_if_nothing_was_pushed(run, woken_by_ci)
+        if mentions:
+            _reply_to_mentions(run, mentions)
     elif run.status == RunStatus.FAILED and run.cancel_requested_at is not None:
         taken.update(state=EventState.DISMISSED, updated_at=timezone.now())
     elif run.status == RunStatus.FAILED:
@@ -75,6 +85,32 @@ def _report_to_merge_requests(run: Run, merge_request_iids: set[int]) -> None:
     platform = WatchPlatform(run.repo_id)
     for iid in sorted(merge_request_iids):
         async_to_sync(platform.apost_note)(merge_request_iid=iid, body=run.result_summary)
+
+
+def _reply_to_mentions(run: Run, mentions: list[InboxEvent]) -> None:
+    """Post ``run``'s final message, or its question, in the thread of the latest mention on each merge request, and
+    in each earlier mention's thread a line pointing there."""
+    from automation.agent.utils import repo_relative_text
+    from codebase.clients import RepoClient
+    from codebase.clients.base import CommentThread
+
+    if not (reply := run.response_text):
+        return
+    by_merge_request: dict[int, list[InboxEvent]] = {}
+    for event in mentions:
+        by_merge_request.setdefault(event.merge_request_iid, []).append(event)
+    for iid, events in by_merge_request.items():
+        *earlier, latest = events
+        try:
+            client = RepoClient.create_instance()
+            for event, body in [
+                (latest, repo_relative_text(reply)),
+                *((event, ANSWERED_IN_ANOTHER_THREAD.format(url=latest.payload["web_url"])) for event in earlier),
+            ]:
+                thread = CommentThread(event.payload["discussion_id"], on_diff=event.payload.get("is_diff", False))
+                client.create_merge_request_comment(run.repo_id, iid, body, reply_to=thread)
+        except Exception:
+            logger.exception("inbox: could not reply to the mentions on %s!%s for run=%s", run.repo_id, iid, run.pk)
 
 
 def _tell_parent_if_nothing_was_pushed(run: Run, woken_by_ci: list[InboxEvent]) -> None:

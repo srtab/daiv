@@ -15,6 +15,7 @@ from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, Scope, User
+from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
@@ -173,7 +174,7 @@ class TestReviewAfterRunMatrix:
         assert reply.args[2] == (
             f"{render_questions(SAMPLE_QUESTION_PAYLOAD)}\n\n@bob, reply mentioning @daiv-bot with your answer."
         )
-        assert reply.kwargs["reply_to_id"] == "c-1"
+        assert reply.kwargs["reply_to"] == CommentThread("c-1")
 
     async def test_a_mention_run_answers_the_note_it_was_started_for(self, captured_client):
         captured_client.get_merge_request_note.return_value = SimpleNamespace(
@@ -208,7 +209,7 @@ class TestReviewAfterRunMatrix:
             await _address(mention_comment_id="7", mention_note_id=7)
 
         [reply] = mention.create_merge_request_comment.call_args_list
-        assert reply.kwargs["reply_to_id"] is None
+        assert reply.kwargs["reply_to"] is None
 
     @pytest.mark.django_db(transaction=True)
     async def test_an_agent_error_recovers_a_draft_says_so_and_re_raises(self, mention):
@@ -229,7 +230,7 @@ class TestReviewAfterRunMatrix:
         }
         [note] = mention.create_merge_request_comment.call_args_list
         assert "committed the changes done so far" in note.args[2]
-        assert note.kwargs["reply_to_id"] == "c-1"
+        assert note.kwargs["reply_to"] == CommentThread("c-1")
         assert (await Session.objects.aget(thread_id=session.thread_id)).ref == "feature"
         assert run.claimed == []
 

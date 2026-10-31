@@ -13,6 +13,7 @@ from sessions.executor.spec import RunHooks, RunSpec
 from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, Scope
+from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
 from core.constants import BOT_NAME
 
@@ -208,5 +209,8 @@ class CommentsAddressorManager(BaseManager):
             reply_to_id: The ID of the comment to reply to.
         """
         return self.client.create_merge_request_comment(
-            self.repo_id, self.merge_request.merge_request_id, repo_relative_text(body), reply_to_id=reply_to_id
+            self.repo_id,
+            self.merge_request.merge_request_id,
+            repo_relative_text(body),
+            reply_to=CommentThread(reply_to_id) if reply_to_id else None,
         )

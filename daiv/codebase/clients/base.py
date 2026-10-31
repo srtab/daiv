@@ -70,6 +70,15 @@ class Emoji(StrEnum):
     EYES = "eyes"
 
 
+@dataclass(frozen=True)
+class CommentThread:
+    """The thread a merge request comment answers in. ``id`` is GitLab's discussion id, or the id of GitHub's first
+    comment in it. GitHub threads diff comments only, so a reply there to a conversation comment is a new comment."""
+
+    id: str
+    on_diff: bool = False
+
+
 class WebhookSetupResult(StrEnum):
     CREATED = "created"
     UPDATED = "updated"
@@ -420,7 +429,7 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def create_merge_request_comment(
-        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
+        self, repo_id: str, merge_request_id: int, body: str, reply_to: CommentThread | None = None
     ) -> str | None:
         pass
 
@@ -493,11 +502,13 @@ class RepoClient(abc.ABC):
         """`note_id` names a conversation comment, as for `create_merge_request_note_emoji`."""
 
     @abc.abstractmethod
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
+    def create_merge_request_note_emoji(
+        self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int, *, on_diff: bool = False
+    ):
         """React on a merge request note. Idempotent, as for `create_issue_emoji`.
 
-        `note_id` names a conversation comment; GitHub review (diff) comments are not addressable
-        here, since DAIV receives none.
+        `on_diff` says `note_id` names a comment on a diff line, which GitHub addresses apart from conversation
+        comments.
         """
 
     # Implemented only on GitLab for now.

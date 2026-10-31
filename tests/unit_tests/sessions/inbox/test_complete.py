@@ -1,5 +1,5 @@
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -9,7 +9,8 @@ from sessions.executor.lock import stale_cutoff
 from sessions.inbox.complete import MAX_EVENT_ATTEMPTS, aon_run_ended, recover_stale_events
 from sessions.models import EventFailure, EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
-from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session
+from codebase.clients.base import CommentThread
+from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, mention_payload
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -216,3 +217,73 @@ class TestDelegatedNoPush:
             await aon_run_ended(run)
 
         assert not await InboxEvent.objects.filter(kind=EventKind.DELEGATED_CI_OUTCOME).aexists()
+
+
+class TestMentionReplies:
+    @pytest.fixture
+    def client(self):
+        client = MagicMock()
+        with patch("codebase.clients.RepoClient.create_instance", return_value=client):
+            yield client
+
+    async def _run(self, status=RunStatus.SUCCESSFUL, summary="Renamed it in the three call sites.") -> Run:
+        session = await amake_session()
+        return await Run.objects.acreate(
+            session=session, trigger_type=SessionOrigin.MR_WEBHOOK, repo_id=session.repo_id, status=status,
+            result_summary=summary,
+        )  # fmt: skip
+
+    async def _mention(self, run, note_id, *, iid=9, discussion="d", is_diff=False):
+        payload = mention_payload(note_id=note_id) | {"discussion_id": f"{discussion}{note_id}", "is_diff": is_diff}
+        return await amake_event(
+            await Session.objects.aget(pk=run.session_id), EventKind.MENTION, run=run, state=EventState.TAKEN,
+            merge_request_iid=iid, payload=payload,
+        )  # fmt: skip
+
+    @pytest.mark.parametrize("status", [RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT])
+    async def test_one_mention_gets_the_final_message_in_its_thread(self, drain, client, status):
+        run = await self._run(status=status)
+        await self._mention(run, 5521, is_diff=True)
+
+        await aon_run_ended(run)
+
+        client.create_merge_request_comment.assert_called_once_with(
+            "group/repo", 9, "Renamed it in the three call sites.", reply_to=CommentThread("d5521", on_diff=True)
+        )
+
+    async def test_several_mentions_get_the_reply_in_the_latest_thread_and_a_pointer_in_the_others(self, drain, client):
+        run = await self._run()
+        await self._mention(run, 1)
+        await self._mention(run, 2)
+        await self._mention(run, 3, iid=10)
+
+        await aon_run_ended(run)
+
+        calls = [
+            (c.args[1], c.args[2], c.kwargs["reply_to"].id) for c in client.create_merge_request_comment.call_args_list
+        ]
+        assert calls[0] == (9, "Renamed it in the three call sites.", "d2")
+        assert calls[1][::2] == (9, "d1") and "https://gitlab.example/mr/9#2" in calls[1][1]
+        assert calls[2] == (10, "Renamed it in the three call sites.", "d3")
+        assert len(calls) == 3
+
+    async def test_a_failed_post_is_logged_and_the_events_stay_handled(self, drain, client, caplog):
+        run = await self._run()
+        event = await self._mention(run, 5521)
+        client.create_merge_request_comment.side_effect = RuntimeError("platform down")
+
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
+            await aon_run_ended(run)
+
+        assert "could not reply to the mentions" in caplog.text
+        assert caplog.records[-1].exc_info is not None
+        assert (await _state(event)).state == EventState.HANDLED
+
+    @pytest.mark.parametrize("status", [RunStatus.FAILED])
+    async def test_a_failed_run_replies_nothing(self, drain, client, status):
+        run = await self._run(status=status)
+        await self._mention(run, 5521)
+
+        await aon_run_ended(run)
+
+        client.create_merge_request_comment.assert_not_called()

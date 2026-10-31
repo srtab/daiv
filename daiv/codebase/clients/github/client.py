@@ -28,7 +28,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.clients.base import Emoji, WebhookSetupResult
+from codebase.clients.base import CommentThread, Emoji, WebhookSetupResult
 from codebase.exceptions import CloneRefNotFoundError
 from codebase.utils import is_git_ref_not_found_text
 
@@ -615,7 +615,7 @@ class GitHubClient(RepoClient):
         return self._serialize_pull_request(repo_id, pr)
 
     def create_merge_request_comment(
-        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
+        self, repo_id: str, merge_request_id: int, body: str, reply_to: CommentThread | None = None
     ) -> str | None:
         """
         Comment on a merge request.
@@ -624,14 +624,14 @@ class GitHubClient(RepoClient):
             repo_id: The repository ID.
             merge_request_id: The merge request ID.
             body: The comment body.
-            reply_to_id: The ID of the comment to reply to.
+            reply_to: The thread to reply in; only a diff thread takes replies, so any other gets a new comment.
 
         Returns:
             The ID of the comment.
         """
         pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        if reply_to_id:
-            return pr.create_review_comment_reply(int(reply_to_id), body).id
+        if reply_to and reply_to.on_diff:
+            return pr.create_review_comment_reply(int(reply_to.id), body).id
         return pr.create_issue_comment(body).id
 
     def _workflow_run_to_pipeline(self, run) -> Pipeline:
@@ -771,13 +771,22 @@ class GitHubClient(RepoClient):
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(merge_request_id)
         return self._serialize_comment(issue.get_comment(note_id), NoteableType.MERGE_REQUEST)
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
+    def create_merge_request_note_emoji(
+        self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int, *, on_diff: bool = False
+    ):
         """
-        React to a comment on the pull request conversation.
+        React to a comment on the pull request.
 
-        Those are issue comments, so they resolve on the issues API; review (diff) comment ids do not.
+        A conversation comment is an issue comment, so it resolves on the issues API; a review (diff) comment resolves
+        on the pull requests API only.
         """
-        self.create_issue_emoji(repo_id, issue_id=merge_request_id, emoji=emoji, note_id=note_id)
+        if not on_diff:
+            self.create_issue_emoji(repo_id, issue_id=merge_request_id, emoji=emoji, note_id=note_id)
+            return
+        if not (emoji_reaction := EMOJI_MAP.get(emoji)):
+            raise ValueError(f"Unsupported emoji: {emoji}")
+        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+        pr.get_review_comment(note_id).create_reaction(emoji_reaction)
 
     # User
     @cached_property

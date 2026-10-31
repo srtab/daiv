@@ -50,7 +50,7 @@ if TYPE_CHECKING:
         ProjectMergeRequestNote,
     )
 
-    from codebase.clients.base import Emoji, WebhookSetupResult
+    from codebase.clients.base import CommentThread, Emoji, WebhookSetupResult
 
     AwardEmojiTarget = ProjectIssue | ProjectIssueNote | ProjectMergeRequestNote
 
@@ -880,7 +880,7 @@ class GitLabClient(RepoClient):
         return self._serialize_merge_request(repo_id, merge_request)
 
     def create_merge_request_comment(
-        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
+        self, repo_id: str, merge_request_id: int, body: str, reply_to: CommentThread | None = None
     ) -> str | None:
         """
         Comment on a merge request.
@@ -889,11 +889,12 @@ class GitLabClient(RepoClient):
             repo_id: The repository ID.
             merge_request_id: The merge request ID.
             body: The comment body.
+            reply_to: The discussion to reply in.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        if reply_to_id:
-            discussion = merge_request.discussions.get(reply_to_id, lazy=True)
+        if reply_to:
+            discussion = merge_request.discussions.get(reply_to.id, lazy=True)
             return discussion.notes.create({"body": body}).id
         return merge_request.notes.create({"body": body}).id
 
@@ -1115,7 +1116,9 @@ class GitLabClient(RepoClient):
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         return Note.model_validate(merge_request.notes.get(note_id).attributes)
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
+    def create_merge_request_note_emoji(
+        self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int, *, on_diff: bool = False
+    ):
         """
         Create an emoji in a note of a merge request.
 

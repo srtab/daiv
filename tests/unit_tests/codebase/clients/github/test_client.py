@@ -10,7 +10,7 @@ from github.NamedUser import NamedUser
 from github.Repository import Repository as GhRepository
 
 from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
-from codebase.clients.base import Emoji, GitAuthEnv
+from codebase.clients.base import CommentThread, Emoji, GitAuthEnv
 from codebase.clients.github.client import GitHubClient
 from codebase.exceptions import CloneRefNotFoundError
 
@@ -100,6 +100,31 @@ class TestGitHubClient:
         call = lazy_requester.requestJsonAndCheck.call_args
         assert call.args[:2] == ("POST", "https://api.github.com/repos/owner/repo/issues/comments/5172158906/reactions")
         assert call.kwargs["input"] == {"content": "eyes"}
+
+    def test_a_reaction_on_a_diff_comment_targets_the_review_comment_endpoint(self, github_client, lazy_requester):
+        github_client.create_merge_request_note_emoji("owner/repo", 712, Emoji.EYES, 901, on_diff=True)
+
+        call = lazy_requester.requestJsonAndCheck.call_args
+        assert call.args[:2] == ("POST", "https://api.github.com/repos/owner/repo/pulls/comments/901/reactions")
+        assert call.kwargs["input"] == {"content": "eyes"}
+
+    def test_a_reply_in_a_diff_thread_answers_its_review_comment(self, github_client, lazy_requester):
+        comment_id = github_client.create_merge_request_comment(
+            "owner/repo", 712, "Done.", reply_to=CommentThread("901", on_diff=True)
+        )
+
+        call = lazy_requester.requestJsonAndCheck.call_args
+        assert call.args[:2] == ("POST", "https://api.github.com/repos/owner/repo/pulls/712/comments/901/replies")
+        assert call.kwargs["input"] == {"body": "Done."}
+        assert comment_id == 1
+
+    def test_a_reply_to_a_conversation_comment_is_a_new_comment(self, github_client):
+        pr = github_client.client.get_repo.return_value.get_pull.return_value
+
+        github_client.create_merge_request_comment("owner/repo", 712, "Done.", reply_to=CommentThread("5172158906"))
+
+        pr.create_issue_comment.assert_called_once_with("Done.")
+        pr.create_review_comment_reply.assert_not_called()
 
     def test_create_issue_emoji_targets_issue_endpoint(self, github_client, lazy_requester):
         """Without a note id the reaction goes on the issue itself."""

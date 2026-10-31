@@ -181,6 +181,7 @@ DAIV uses GitHub App authentication to securely interact with your repositories.
         - ✅ Issues
         - ✅ Issue comment
         - ✅ Pull request review
+        - ✅ Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)
         - ✅ Pull request
         - ✅ Workflow run
 
@@ -295,6 +296,7 @@ Webhooks are configured at the GitHub App level and automatically apply to all r
         - ✅ Issues
         - ✅ Issue comment
         - ✅ Pull request review
+        - ✅ Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)
         - ✅ Pull request
         - ✅ Workflow run (only listed once **Actions** is set to **Read-only**, see Step 1)
 

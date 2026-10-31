@@ -384,35 +384,35 @@ description: "Task list for the Session Inbox feature"
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T095 [P] [US5] Extend `tests/unit_tests/webhooks/test_dispatch.py`:
+- [X] T095 [P] [US5] Extend `tests/unit_tests/webhooks/test_dispatch.py`:
   - `dispatch_mr_comment_run` on an owned merge request posts a waking `mention` keyed `note:<id>`, adds the 👀 reaction and creates no merge request thread run;
   - an unowned merge request behaves as today;
   - an author failing `RepositoryConfig.is_user_allowed` posts nothing.
-- [ ] T096 [P] [US5] Extend `tests/unit_tests/webhooks/gitlab/test_callbacks.py`:
+- [X] T096 [P] [US5] Extend `tests/unit_tests/webhooks/gitlab/test_callbacks.py`:
   - a `DiffNote` mention on an owned merge request is accepted, with `is_diff=true` and the `discussion_id` in the payload;
   - on an unowned merge request it is still ignored;
   - a note without a mention on an owned merge request posts a remembered `comment`.
-- [ ] T097 [P] [US5] Extend `tests/unit_tests/webhooks/github/test_callbacks.py`:
+- [X] T097 [P] [US5] Extend `tests/unit_tests/webhooks/github/test_callbacks.py`:
   - `pull_request_review_comment` `created` with a mention on an owned PR posts a `mention` keyed `review-comment:<id>`;
   - without a mention it posts a `comment`;
   - on an unowned PR it posts nothing.
 
   Extend `tests/unit_tests/webhooks/github/test_views.py` so the payload parses without being mistaken for `PullRequestCallback`.
-- [ ] T098 [P] [US5] Extend `tests/unit_tests/sessions/inbox/test_complete.py`:
+- [X] T098 [P] [US5] Extend `tests/unit_tests/sessions/inbox/test_complete.py`:
   - a run that took one mention posts its final message in that mention's discussion;
   - with several mentions on one merge request, the full reply goes to the latest mention's thread and a one-line link to each other thread;
   - a WAITING_INPUT run posts its question the same way;
   - a posting failure is logged with `logger.exception`, and the events stay `handled`.
-- [ ] T099 [P] [US5] Extend `tests/unit_tests/codebase/clients/` (GitHub client tests): `create_merge_request_comment` with a review-comment reply target calls `create_review_comment_reply`. Assert the URL, per the PyGithub lazy-getter pitfall (`is_not_lazy=False`).
+- [X] T099 [P] [US5] Extend `tests/unit_tests/codebase/clients/` (GitHub client tests): `create_merge_request_comment` with a review-comment reply target calls `create_review_comment_reply`. Assert the URL, per the PyGithub lazy-getter pitfall (`is_not_lazy=False`).
 
 ### Implementation for User Story 5
 
-- [ ] T100 [US5] In `daiv/webhooks/dispatch.py` `dispatch_mr_comment_run`, look up `aowning_session(repo_id, iid)`. When owned, post `mention` through `apost_event`, with author, `author_username`, `note_id`, `discussion_id`, `body` and `web_url`. Keep the reaction. Don't enqueue the comments task. When unowned, keep the existing path.
-- [ ] T101 [US5] In `daiv/webhooks/gitlab/callbacks.py`, accept `DiffNote` mentions only for owned merge requests, and post non-mention notes on owned merge requests as remembered `comment` events. Bot-authored notes are ignored as today.
-- [ ] T102 [US5] Add a `pull_request_review_comment` payload model to `daiv/webhooks/github/models.py`, with a discriminator so it doesn't parse as `PullRequestCallback`, and its callback in `daiv/webhooks/github/callbacks.py`, applying the same mention and comment rules.
-- [ ] T103 [US5] Make the review-comment reply branch in `daiv/codebase/clients/github/client.py` reachable from `create_merge_request_comment` (a typed reply target for review comments), keeping `RepoClient` in `daiv/codebase/clients/base.py` platform-neutral.
-- [ ] T104 [US5] Implement the mention reply rule in `daiv/sessions/inbox/complete.py`, per research.md R10, using the run's final message and the taken mentions' payloads.
-- [ ] T105 [P] [US5] Document the routing and diff-comment mentions in `docs/features/pull-request-assistant.md`. Add `pull_request_review_comment` to the GitHub App's **Subscribe to events** list in `docs/getting-started/platform-setup.md`.
+- [X] T100 [US5] In `daiv/webhooks/dispatch.py` `dispatch_mr_comment_run`, look up `aowning_session(repo_id, iid)`. When owned, post `mention` through `apost_event`, with author, `author_username`, `note_id`, `discussion_id`, `body` and `web_url`. Keep the reaction. Don't enqueue the comments task. When unowned, keep the existing path.
+- [X] T101 [US5] In `daiv/webhooks/gitlab/callbacks.py`, accept `DiffNote` mentions only for owned merge requests, and post non-mention notes on owned merge requests as remembered `comment` events. Bot-authored notes are ignored as today.
+- [X] T102 [US5] Add a `pull_request_review_comment` payload model to `daiv/webhooks/github/models.py`, with a discriminator so it doesn't parse as `PullRequestCallback`, and its callback in `daiv/webhooks/github/callbacks.py`, applying the same mention and comment rules.
+- [X] T103 [US5] Make the review-comment reply branch in `daiv/codebase/clients/github/client.py` reachable from `create_merge_request_comment` (a typed reply target for review comments), keeping `RepoClient` in `daiv/codebase/clients/base.py` platform-neutral.
+- [X] T104 [US5] Implement the mention reply rule in `daiv/sessions/inbox/complete.py`, per research.md R10, using the run's final message and the taken mentions' payloads.
+- [X] T105 [P] [US5] Document the routing and diff-comment mentions in `docs/features/pull-request-assistant.md`. Add `pull_request_review_comment` to the GitHub App's **Subscribe to events** list in `docs/getting-started/platform-setup.md`.
 
 **Checkpoint**: quickstart.md scenario 5 passes on GitLab and GitHub.
 

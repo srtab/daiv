@@ -14,7 +14,7 @@ from codebase.repo_config import RepositoryConfig
 from codebase.utils import note_mentions_daiv
 from core.constants import has_bot_label, has_max_label
 from webhooks.callbacks import BaseCallback
-from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
+from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment, dispatch_mr_comment_run
 
 from .models import (  # noqa: TC001
     Issue,
@@ -159,11 +159,12 @@ class NoteCallback(GitLabCallback):
             )
             return False
 
-        return bool(self._is_issue_comment or self._is_merge_request_comment)
+        return bool(self._is_issue_comment or self._is_merge_request_note)
 
     async def process_callback(self):
         """
-        Trigger the task to address the review feedback, issue comment or slash command.
+        Trigger the task to address the review feedback, issue comment or slash command, or remember a comment on a
+        merge request a session owns.
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
@@ -178,7 +179,24 @@ class NoteCallback(GitLabCallback):
                 author=_author(self.user),
                 mention=mention,
             )
-        elif self.merge_request and self._is_merge_request_comment:
+        elif self.merge_request and self._is_merge_request_note:
+            note = Mention(
+                note_id=self.object_attributes.id,
+                comment_id=self.object_attributes.discussion_id,
+                body=self.object_attributes.note,
+                web_url=self.object_attributes.url,
+                on_diff=self.object_attributes.type == NoteType.DIFF_NOTE,
+            )
+            if not note_mentions_daiv(self.object_attributes.note, self._client.current_user):
+                await dispatch_mr_comment(
+                    client=self._client,
+                    repo_id=self.project.path_with_namespace,
+                    merge_request_iid=self.merge_request.iid,
+                    title=self.merge_request.title,
+                    author=_author(self.user),
+                    comment=note,
+                )
+                return
             await dispatch_mr_comment_run(
                 client=self._client,
                 repo_id=self.project.path_with_namespace,
@@ -187,22 +205,21 @@ class NoteCallback(GitLabCallback):
                 title=self.merge_request.title,
                 use_max=has_max_label(self.merge_request.label_names),
                 author=_author(self.user),
-                mention=mention,
+                mention=note,
             )
 
     @cached_property
-    def _is_merge_request_comment(self) -> bool:
+    def _is_merge_request_note(self) -> bool:
         """
-        Accept the webhook if the note is a merge request comment that mentions DAIV.
+        Accept any note on an open merge request: dispatch decides what a mention, a diff comment or a comment that
+        mentions no one concerns, since that depends on whether a session owns the merge request.
         """
         return bool(
             self._repo_config.pull_request_assistant.enabled
-            and self.object_attributes.type in (None, NoteType.DISCUSSION_NOTE)
             and self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
             and self.object_attributes.action in [NoteAction.CREATE, NoteAction.UPDATE]
             and self.merge_request
             and self.merge_request.state == "opened"
-            and note_mentions_daiv(self.object_attributes.note, self._client.current_user)
         )
 
     @cached_property

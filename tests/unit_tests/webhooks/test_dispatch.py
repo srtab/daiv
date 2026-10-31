@@ -9,12 +9,13 @@ from django_tasks_db.models import DBTaskResult
 from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
 from sessions.ids import compute_thread_id
-from sessions.models import Run, Session
-from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
+from sessions.models import EventKind, InboxEvent, Run, Session
+from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment, dispatch_mr_comment_run
 
 from codebase.base import GitPlatform, Scope
 from codebase.clients.base import Emoji
 from core.site_settings import site_settings
+from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 from tests.unit_tests.webhooks.conftest import make_db_task_result
 
 pytestmark = pytest.mark.django_db
@@ -41,8 +42,7 @@ def _mr_comment_run(steps, **kwargs):
         ref="feat",
         title="MR",
         author=AUTHOR,
-        mention=Mention(note_id=300, comment_id="300"),
-        **{"use_max": False, **kwargs},
+        **{"use_max": False, "mention": Mention(note_id=300, comment_id="300"), **kwargs},
     )
 
 
@@ -345,3 +345,85 @@ async def test_two_triggers_on_one_issue_share_its_session():
 
     assert await Session.objects.filter(thread_id=thread_id).acount() == 1
     assert await Run.objects.filter(session_id=thread_id).acount() == 2
+
+
+@pytest.mark.django_db(transaction=True)
+class TestOwnedMergeRequest:
+    @pytest.fixture(autouse=True)
+    def drain(self):
+        with patch("sessions.inbox.post.drain_logged") as drain:
+            yield drain
+
+    @pytest.fixture
+    async def owned(self):
+        return await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=7)
+
+    def _mention(self, **fields):
+        return Mention(note_id=300, comment_id="d-1", body="@daiv why?", web_url="https://g/mr/7#note_300", **fields)
+
+    async def test_a_mention_wakes_the_owning_session_and_starts_no_thread_run(self, steps, owned):
+        steps.client.git_platform = GitPlatform.GITLAB
+
+        await _mr_comment_run(steps, mention=self._mention())
+
+        event = await InboxEvent.objects.aget(session_id=owned.session_id)
+        assert (event.kind, event.wake, event.source_key, event.merge_request_iid, event.author_username) == (
+            EventKind.MENTION, True, "note:300", 7, "alice",
+        )  # fmt: skip
+        assert event.payload == {
+            "note_id": 300, "discussion_id": "d-1", "body": "@daiv why?", "web_url": "https://g/mr/7#note_300",
+            "is_diff": False,
+        }  # fmt: skip
+        steps.address_mr_comments_task.get_or_enqueue.assert_not_called()
+        steps.create_run.assert_not_called()
+        steps.client.create_merge_request_note_emoji.assert_called_once_with(
+            "group/repo", 7, Emoji.EYES, 300, on_diff=False
+        )
+
+    async def test_a_github_review_comment_is_keyed_apart_from_conversation_comments(self, steps, owned):
+        steps.client.git_platform = GitPlatform.GITHUB
+
+        await _mr_comment_run(steps, mention=self._mention(on_diff=True))
+
+        event = await InboxEvent.objects.aget(session_id=owned.session_id)
+        assert (event.source_key, event.payload["review_comment_id"], event.payload["is_diff"]) == (
+            "review-comment:300", 300, True,
+        )  # fmt: skip
+        steps.client.create_merge_request_note_emoji.assert_called_once_with(
+            "group/repo", 7, Emoji.EYES, 300, on_diff=True
+        )
+
+    async def test_an_edited_mention_posts_and_reacts_once(self, steps, owned):
+        steps.client.git_platform = GitPlatform.GITLAB
+
+        await _mr_comment_run(steps, mention=self._mention())
+        await _mr_comment_run(steps, mention=self._mention())
+
+        assert await InboxEvent.objects.filter(session_id=owned.session_id).acount() == 1
+        steps.client.create_merge_request_note_emoji.assert_called_once()
+
+    async def test_a_diff_mention_on_an_unowned_merge_request_starts_nothing(self, steps):
+        await _mr_comment_run(steps, mention=self._mention(on_diff=True))
+
+        steps.address_mr_comments_task.get_or_enqueue.assert_not_called()
+        assert not await InboxEvent.objects.aexists()
+
+    async def test_a_comment_on_an_owned_merge_request_is_remembered(self, steps, owned):
+        steps.client.git_platform = GitPlatform.GITLAB
+
+        await dispatch_mr_comment(
+            client=steps.client, repo_id="group/repo", merge_request_iid=7, title="MR", author=AUTHOR,
+            comment=self._mention(),
+        )  # fmt: skip
+
+        event = await InboxEvent.objects.aget(session_id=owned.session_id)
+        assert (event.kind, event.wake, event.source_key) == (EventKind.COMMENT, False, "note:300")
+        steps.client.create_merge_request_note_emoji.assert_not_called()
+
+    async def test_a_comment_on_an_unowned_merge_request_concerns_no_one(self, steps):
+        await dispatch_mr_comment(
+            client=steps.client, repo_id="group/repo", merge_request_iid=7, title="MR", author=AUTHOR,
+            comment=self._mention(),
+        )  # fmt: skip
+
+        assert not await InboxEvent.objects.aexists()

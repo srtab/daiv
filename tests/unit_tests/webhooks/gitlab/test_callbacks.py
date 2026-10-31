@@ -108,26 +108,13 @@ def test_accept_when_mention(monkeypatch_dependencies, stub_client):
     assert callback.accept_callback() is True
 
 
-@pytest.mark.parametrize(("note_type", "accepted"), [("DiscussionNote", True), ("DiffNote", False)])
-def test_a_mention_in_a_thread_reply_is_accepted_but_not_on_a_diff_line(
-    monkeypatch_dependencies, stub_client, note_type, accepted
+@pytest.mark.parametrize("note_type", ["DiscussionNote", "DiffNote", None])
+@pytest.mark.parametrize("body", ["@daiv please review this code", "This looks good to me", "DAIV please fix this"])
+def test_any_note_on_an_open_merge_request_is_left_for_dispatch_to_route(
+    monkeypatch_dependencies, stub_client, note_type, body
 ):
-    callback = create_note_callback("@daiv please review this code", note_type=note_type)
-
-    assert callback.accept_callback() is accepted
-
-
-def test_reject_when_not_mentioned(monkeypatch_dependencies, stub_client):
-    callback = create_note_callback("This looks good to me")
-
-    assert callback.accept_callback() is False
-
-
-def test_reject_when_bare_daiv_mention(monkeypatch_dependencies, stub_client):
-    """Test that callback is rejected when note body contains bare DAIV reference."""
-    callback = create_note_callback("DAIV please fix this issue")
-
-    assert callback.accept_callback() is False
+    """Whether a session owns the merge request decides what a diff mention or a plain comment concerns."""
+    assert create_note_callback(body, note_type=note_type).accept_callback() is True
 
 
 def test_reject_when_note_by_daiv_itself(monkeypatch_dependencies, stub_client):
@@ -651,8 +638,65 @@ class TestProcessCallback:
             title="Some MR",
             use_max=use_max,
             author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer", email="reviewer@example.com"),
-            mention=Mention(note_id=100, comment_id="discussion_1"),
+            mention=Mention(note_id=100, comment_id="discussion_1", body="@daiv please review"),
         )
+
+    async def test_a_merge_request_note_without_a_mention_dispatches_as_a_comment(
+        self, monkeypatch_dependencies, stub_client, label, use_max
+    ):
+        callback = create_note_callback("Looks good", labels=[label], note_type="DiffNote")
+
+        with (
+            patch("webhooks.gitlab.callbacks.dispatch_mr_comment", new=AsyncMock()) as comment,
+            patch("webhooks.gitlab.callbacks.dispatch_mr_comment_run", new=AsyncMock()) as run,
+        ):
+            await callback.process_callback()
+
+        run.assert_not_awaited()
+        comment.assert_awaited_once_with(
+            client=stub_client,
+            repo_id="group/repo",
+            merge_request_iid=1,
+            title="Some MR",
+            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer", email="reviewer@example.com"),
+            comment=Mention(note_id=100, comment_id="discussion_1", body="Looks good", on_diff=True),
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestNotesOnAnOwnedMergeRequest:
+    @pytest.fixture(autouse=True)
+    def inbox(self, monkeypatch_dependencies, stub_client):
+        stub_client.git_platform = GitPlatform.GITLAB
+        with (
+            patch("sessions.inbox.post.drain_logged"),
+            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+        ):
+            yield
+
+    async def test_a_diff_mention_reaches_the_owning_session(self):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
+
+        await create_note_callback("@daiv why this line?", note_type="DiffNote").process_callback()
+
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.wake, event.source_key) == ("mention", True, "note:100")
+        assert (event.payload["is_diff"], event.payload["discussion_id"]) == (True, "discussion_1")
+
+    async def test_a_diff_mention_on_an_unowned_merge_request_is_still_ignored(self):
+        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+            await create_note_callback("@daiv why this line?", note_type="DiffNote").process_callback()
+
+        task.get_or_enqueue.assert_not_called()
+        assert not await InboxEvent.objects.aexists()
+
+    async def test_a_note_without_a_mention_is_remembered(self):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
+
+        await create_note_callback("Looks good to me").process_callback()
+
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.wake, event.payload["body"]) == ("comment", False, "Looks good to me")
 
 
 @pytest.mark.django_db(transaction=True)
