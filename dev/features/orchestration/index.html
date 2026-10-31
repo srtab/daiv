@@ -1948,7 +1948,14 @@
 <h3 id="a-side-fix-during-a-task">A side fix during a task</h3>
 <p>While the agent works on a task in chat, it may come across an unrelated problem. It proposes the fix; once you agree, it delegates it, either on the default branch for a merge request of its own, or on the task's branch to merge it into the task. Either way the task's session carries on, and the agent tells you where the fix landed when the leg finishes.</p>
 <h2 id="seeing-the-batch">Seeing the batch</h2>
-<p>Every leg is its own session in the <a href="../sessions/">Sessions</a> list, and the legs of one call share a batch. The coordinator's session shows the delegation and, later, the resumed run with the legs' summary. <a href="../notifications/">Notifications</a> treat the legs as a batch, so you get one rollup when they need a look.</p>
+<p>Every leg is its own session in the <a href="../sessions/">Sessions</a> list, and the legs of one call share a batch. The coordinator's session page shows where each leg stands now, not where it stood when it was delegated:</p>
+<ul>
+<li><strong>Transcript</strong> — each <code>delegate_jobs</code> call is a <strong>Delegated jobs</strong> card: its goal, and one row per leg with its state, merge request and session.</li>
+<li><strong>Top bar</strong> — a button counts the legs and says how many are running, queued or failed; it opens a list of every leg.</li>
+<li><strong>Details panel</strong> — a <strong>Delegated jobs</strong> section lists the legs batch by batch, newest first.</li>
+</ul>
+<p>A leg is <em>Queued</em>, <em>Starts after this turn</em>, <em>Running</em>, <em>Stopping</em>, <em>Finished</em>, <em>Failed</em>, <em>Cancelled</em> or <em>Lost</em> (it started, but DAIV lost track of it). An open page updates within a few seconds of a leg starting or finishing. In these three places, a leg whose session you cannot see shows only its repository, branch and state. A leg's own session page links back to the coordinator's (<strong>Delegated by</strong>) when you can see it.</p>
+<p>The coordinator's session then shows the resumed run with the legs' summary. <a href="../notifications/">Notifications</a> treat the legs as a batch, so you get one rollup when they need a look.</p>
 <div class="admonition note">
 <p class="admonition-title">Why not call DAIV's own MCP endpoint?</p>
 <p><a href="../mcp-endpoint/"><code>submit_job</code></a> starts the same kind of jobs, but a caller can only poll or block for the result. That suits an editor or a script; inside an agent run it would hold a worker while the legs wait for one, with no way to resume afterwards. <code>delegate_jobs</code> ends the coordinator's turn and resumes it when the work is done.</p>
@@ -1981,7 +1988,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 30, 2026 18:33:53 UTC">October 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 30, 2026 23:59:05 UTC">October 30, 2026</span>
   </span>
 
     

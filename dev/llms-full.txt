@@ -1969,7 +1969,8 @@ ______________________________________________________________________
 Click any session to see its full detail page, which includes:
 
 - **Origin and status badges**
-- **Context** — repository, branch/ref, linked schedule or issue/MR (as a clickable link), the agent model and thinking level, and the sandbox environment. Admins viewing another user's session also see the owning user.
+- **Context** — repository, branch/ref, linked schedule or issue/MR (as a clickable link) or, for a delegated run, the session that delegated it, the agent model and thinking level, and the sandbox environment. Admins viewing another user's session also see the owning user.
+- **Delegated jobs** — on a session that delegated work, each job's current state, in the transcript, the top bar and the details panel (see [Orchestration](https://srtab.github.io/daiv/dev/features/orchestration/#seeing-the-batch)).
 - **Transcript** — the full conversation transcript streams live during active runs, whatever started them (chat, job, webhook or schedule), and is replayed on return visits and mid-run refreshes — reopening the session rejoins the live stream and replays any events it missed (a fresh page load from the start of the run; an automatic reconnect only the events since it dropped).
 
 For in-flight sessions the detail page updates in real time until the run completes.
@@ -2807,7 +2808,15 @@ While the agent works on a task in chat, it may come across an unrelated problem
 
 ## Seeing the batch
 
-Every leg is its own session in the [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) list, and the legs of one call share a batch. The coordinator's session shows the delegation and, later, the resumed run with the legs' summary. [Notifications](https://srtab.github.io/daiv/dev/features/notifications/index.md) treat the legs as a batch, so you get one rollup when they need a look.
+Every leg is its own session in the [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) list, and the legs of one call share a batch. The coordinator's session page shows where each leg stands now, not where it stood when it was delegated:
+
+- **Transcript** — each `delegate_jobs` call is a **Delegated jobs** card: its goal, and one row per leg with its state, merge request and session.
+- **Top bar** — a button counts the legs and says how many are running, queued or failed; it opens a list of every leg.
+- **Details panel** — a **Delegated jobs** section lists the legs batch by batch, newest first.
+
+A leg is *Queued*, *Starts after this turn*, *Running*, *Stopping*, *Finished*, *Failed*, *Cancelled* or *Lost* (it started, but DAIV lost track of it). An open page updates within a few seconds of a leg starting or finishing. In these three places, a leg whose session you cannot see shows only its repository, branch and state. A leg's own session page links back to the coordinator's (**Delegated by**) when you can see it.
+
+The coordinator's session then shows the resumed run with the legs' summary. [Notifications](https://srtab.github.io/daiv/dev/features/notifications/index.md) treat the legs as a batch, so you get one rollup when they need a look.
 
 Why not call DAIV's own MCP endpoint?
 
