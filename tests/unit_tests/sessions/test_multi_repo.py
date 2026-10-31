@@ -153,6 +153,17 @@ async def test_continuation_rejects_other_lists_and_refs(member_user, enqueue, r
     assert await SessionRepository.objects.filter(session_id=thread_id).acount() == 2
 
 
+async def test_mcp_overrides_land_on_a_new_session_and_change_on_its_continuation(member_user, enqueue):
+    result = await _submit(member_user, [RepoTarget("g/app"), RepoTarget("g/mod")], mcp_overrides={"grafana": "on"})
+    thread_id = result.runs[0].session_id
+    assert (await Session.objects.aget(pk=thread_id)).mcp_overrides == {"grafana": "on"}
+    await Run.objects.filter(session_id=thread_id).aupdate(status=RunStatus.SUCCESSFUL)
+
+    await _submit(member_user, [RepoTarget("g/app")], thread_id=thread_id, mcp_overrides={"grafana": "off"})
+
+    assert (await Session.objects.aget(pk=thread_id)).mcp_overrides == {"grafana": "off"}
+
+
 async def test_continuation_queues_behind_an_active_run(member_user, enqueue):
     thread_id = await _new_session(member_user)
     enqueue.reset_mock()

@@ -5,6 +5,7 @@ most: the turn-end publish has already failed, and this is the last attempt. It 
 ``GitMiddleware`` does — see ``automation.agent.git_state.effective_merge_request``.
 """
 
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, Mock, patch
 
 from sessions.executor.recovery import recover_draft
@@ -15,6 +16,9 @@ from automation.agent.workspace.session import SandboxSession
 from codebase.base import MergeRequest, User
 from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, agent_settings, sandbox_spec
 from tests.unit_tests.sessions.executor.conftest import publisher_through_workspace
+
+if TYPE_CHECKING:
+    from automation.agent.publishers import PublishOutcome
 
 SETTINGS = agent_settings()
 
@@ -132,7 +136,7 @@ class TestPublishTarget:
 
 class TestSandboxMode:
     @staticmethod
-    async def _recover(session: SandboxSession, *, publisher) -> tuple[bool, Mock]:
+    async def _recover(session: SandboxSession, *, publisher) -> tuple[PublishOutcome | None, Mock]:
         agent = _agent({"merge_request": None, "session_id": session.session_id})
         with patch("automation.agent.publishers.GitChangePublisher", publisher):
             published = await recover_draft(
@@ -156,7 +160,7 @@ class TestSandboxMode:
             acquired_session(client, session_id), publisher=publisher_through_workspace(created, publishes=_DRAFT_MR)
         )
 
-        assert published is True
+        assert published is not None and published.merge_request == _DRAFT_MR
         assert created[0].target == (None, True)
         assert client.calls_to("run_commands") == [(session_id, ("git push origin HEAD",))]
         assert client.method_names() == ["run_commands"]
@@ -172,7 +176,7 @@ class TestSandboxMode:
         with caplog.at_level("ERROR", logger="daiv.sessions"):
             published, agent = await self._recover(acquired_session(client, session_id), publisher=publisher)
 
-        assert published is False
+        assert published is None
         agent.aupdate_state.assert_not_awaited()
         assert "draft recovery failed after an agent error for thread_id=t-1" in caplog.text
 
@@ -193,7 +197,7 @@ class TestSandboxMode:
                 session_links=None,
             )
 
-        assert published is False
+        assert published is None
         agent.aget_state.assert_not_awaited()
         publisher.assert_not_called()
         assert client.calls == []
@@ -218,7 +222,7 @@ _SIBLING_DRAFT = RepoPublish(
 
 class TestExtraRepos:
     @staticmethod
-    async def _recover(*, main_publish, sibling_publishes, workspace=None, session_links=None) -> tuple[bool, Mock]:
+    async def _recover(*, main_publish, sibling_publishes, workspace=None, session_links=None) -> tuple[Any, Mock]:
         """Recover a two-repository run whose main publish has ``main_publish`` as its ``side_effect``."""
         ctx = _ctx()
         ctx.extra_repos = (Mock(),)
@@ -228,7 +232,7 @@ class TestExtraRepos:
             patch("automation.agent.publishers.apublish_extra_repos", sibling_publishes),
         ):
             pub_cls.return_value.publish = AsyncMock(side_effect=main_publish)
-            landed = await recover_draft(
+            draft = await recover_draft(
                 ctx,
                 agent,
                 {},
@@ -237,20 +241,20 @@ class TestExtraRepos:
                 settings=SETTINGS,
                 session_links=session_links,
             )
-        return landed, agent
+        return draft, agent
 
     async def test_recover_draft_publishes_sibling_drafts(self):
         workspace, links = FakeWorkspace(), AsyncMock()
         sibling_publishes = AsyncMock(return_value=[_SIBLING_DRAFT])
 
-        landed, agent = await self._recover(
+        draft, agent = await self._recover(
             main_publish=[Mock(merge_request=None)],
             sibling_publishes=sibling_publishes,
             workspace=workspace,
             session_links=links,
         )
 
-        assert landed is True
+        assert draft is None
         sibling_publishes.assert_awaited_once()
         assert sibling_publishes.await_args.args[1] is workspace
         assert sibling_publishes.await_args.kwargs == {"settings": SETTINGS, "session_links": links, "recovering": True}
@@ -258,31 +262,31 @@ class TestExtraRepos:
 
     async def test_a_failed_main_recovery_still_recovers_the_siblings(self, caplog):
         with caplog.at_level("ERROR", logger="daiv.sessions"):
-            landed, agent = await self._recover(
+            draft, agent = await self._recover(
                 main_publish=RuntimeError("push rejected"), sibling_publishes=AsyncMock(return_value=[_SIBLING_DRAFT])
             )
 
-        assert landed is True
+        assert draft is None
         assert "draft recovery failed after an agent error for thread_id=t-1" in caplog.text
         agent.aupdate_state.assert_awaited_once_with(config={}, values={"repo_publishes": [_SIBLING_DRAFT.to_state()]})
 
     async def test_a_failed_sibling_recovery_keeps_the_main_draft(self, caplog):
+        main = Mock(merge_request=_DRAFT_MR, protected_branch_fallback_source=None)
         with caplog.at_level("ERROR", logger="daiv.sessions"):
-            landed, agent = await self._recover(
-                main_publish=[Mock(merge_request=_DRAFT_MR, protected_branch_fallback_source=None)],
-                sibling_publishes=AsyncMock(side_effect=RuntimeError("sandbox gone")),
+            draft, agent = await self._recover(
+                main_publish=[main], sibling_publishes=AsyncMock(side_effect=RuntimeError("sandbox gone"))
             )
 
-        assert landed is True
+        assert draft is main
         agent.aupdate_state.assert_awaited_once_with(config={}, values={"merge_request": _DRAFT_MR})
         assert "sandbox gone" in caplog.text
 
     async def test_nothing_landed_anywhere_reports_no_draft(self):
         failed = RepoPublish(repo_id="g/mod", merge_request=None, published=False, current_ref="main", error="boom")
 
-        landed, agent = await self._recover(
+        draft, agent = await self._recover(
             main_publish=[Mock(merge_request=None)], sibling_publishes=AsyncMock(return_value=[failed])
         )
 
-        assert landed is False
+        assert draft is None
         agent.aupdate_state.assert_awaited_once_with(config={}, values={"repo_publishes": [failed.to_state()]})

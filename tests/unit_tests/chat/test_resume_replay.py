@@ -93,7 +93,8 @@ await settled;
 
 REJOIN_SEGMENTS = """
 const turn = chat.turns.filter((t) => t.role === "assistant").pop();
-process.stdout.write(JSON.stringify(turn.segments.map((s) => ({ ...s, label: chat.thinkingLabel(s) }))));
+const label = (s) => (s.type === "thinking" ? sandbox.window.toolRow(s).phrase : null);
+process.stdout.write(JSON.stringify(turn.segments.map((s) => ({ ...s, label: label(s) }))));
 """
 
 

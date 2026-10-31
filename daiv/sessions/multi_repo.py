@@ -138,6 +138,7 @@ async def asubmit_jobs(
     muted: bool | None,
     trigger_type: str,
     references: Sequence[RefIn] | None,
+    mcp_overrides: dict[str, bool] | None = None,
 ) -> BatchSubmitResult:
     """Admit and submit a jobs request: one run on a shared session when ``shared`` is set or ``thread_id`` continues
     a multi-repository session, else an independent run per repository.
@@ -166,6 +167,8 @@ async def asubmit_jobs(
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
         environment=environment,
+        mcp_overrides=mcp_overrides,
+        thread_id=thread_id,
     )
     submit = asubmit_shared_session_run if shared else asubmit_batch_runs
     return await submit(
@@ -178,6 +181,7 @@ async def asubmit_jobs(
         trigger_type=trigger_type,
         thread_id=thread_id,
         references=references,
+        mcp_overrides=admission.mcp_overrides,
     )
 
 
@@ -192,6 +196,7 @@ async def asubmit_shared_session_run(
     trigger_type: str,
     thread_id: str | None = None,
     references: Sequence[RefIn] | None = None,
+    mcp_overrides: dict | None = None,
 ) -> BatchSubmitResult:
     """Submit one run over several repositories: a new shared session, or a continuation of one."""
     validate_shared_repos(repos, continuation=thread_id is not None)
@@ -208,6 +213,7 @@ async def asubmit_shared_session_run(
         "agent_thinking_level": agent_thinking_level,
         "muted": muted,
         "batch_id": batch_id,
+        "mcp_overrides": mcp_overrides,
     }
 
     if thread_id is None:
@@ -239,6 +245,7 @@ async def asubmit_shared_session_run(
         initial_status=RunStatus.READY,
         stored_refs=stored_refs,
         log_context=log_context,
+        mcp_overrides=mcp_overrides,
     )
     result = BatchSubmitResult(batch_id=batch_id, outcomes=[await _astart_run(claimed, log_context=log_context)])
     await _aenqueue_batch_title(

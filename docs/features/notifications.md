@@ -1,3 +1,7 @@
+---
+description: "Get notified when a DAIV run needs attention, via the in-app bell, email, Rocket Chat or Telegram, with per-user delivery channels."
+---
+
 # Notifications
 
 DAIV tells you when your work needs attention. When a run finishes with something to look at — an issue found, a situation that needs review, or an outright failure — DAIV writes an in-app notification and delivers it to external channels like email, Rocket Chat, and Telegram. Clean runs stay silent and appear only in the Feed.

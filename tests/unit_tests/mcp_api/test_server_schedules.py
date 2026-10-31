@@ -4,10 +4,13 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
+from asgiref.sync import sync_to_async
+from mcp_connectors.models import MCPServer
 from pydantic import ValidationError as PydanticValidationError
 
 from accounts.models import User
 from schedules.models import Frequency, Intent, ScheduledJob
+from tests.unit_tests.mcp_connectors.helpers import only_servers
 
 
 async def _user(username):
@@ -31,6 +34,25 @@ async def test_schedule_job_creates_daily_schedule():
     assert data["name"] == "Nightly"
     assert data["next_run_at"] is not None
     assert await ScheduledJob.objects.filter(user=user, name="Nightly").aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_schedule_job_stores_resolved_mcp_overrides():
+    from mcp_api.server import schedule_job
+
+    await sync_to_async(only_servers)(("grafana", MCPServer.Status.ON_DEMAND))
+    user = await _user("sj_mcp")
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await schedule_job(
+            name="Logs",
+            prompt="p",
+            repos=[{"repo_id": "a/b", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="09:00",
+            mcp_overrides={"grafana": True},
+        )
+    assert "error" not in data
+    assert (await ScheduledJob.objects.aget(user=user, name="Logs")).mcp_overrides == {"grafana": "on"}
 
 
 async def test_schedule_job_offers_no_per_repository_prompt():

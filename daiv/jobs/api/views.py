@@ -52,6 +52,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             agent_model=payload.agent_model,
             agent_thinking_level=payload.agent_thinking_level,
             environment=payload.environment,
+            mcp_overrides=payload.mcp_overrides,
             muted=payload.muted,
             trigger_type=SessionOrigin.API_JOB,
             references=payload.references,

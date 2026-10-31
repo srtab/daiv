@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import uuid
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,11 +11,22 @@ from django.utils import timezone
 from django.utils.html import escapejs
 
 import pytest
+from sessions.conf import settings as sessions_settings
+from sessions.delegation import outcome_states
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
 from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, SessionRepository, WatchState
+from sessions.transcript_labels import transcript_icons
 
-from tests.unit_tests.sessions.conftest import create_archive, grant_read_access, make_artifact
+from tests.unit_tests.sessions.conftest import (
+    create_archive,
+    delegate_messages,
+    grant_read_access,
+    make_artifact,
+    make_coordinator,
+    make_delegating_run,
+    make_leg,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1246,3 +1259,201 @@ def test_detail_reads_the_watch_of_a_merge_request_found_by_its_branch(member_cl
     resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
 
     assert resp.context["header"]["watch"]["state"] == WatchState.FIXING
+
+
+@pytest.mark.django_db
+def test_detail_and_new_chat_embed_the_transcript_labels(member_client, member_user):
+    session = _create_session(user=member_user)
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        detail = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+        new_chat = member_client.get(reverse("session_new_chat"))
+    assert 'id="chat-transcript-labels"' in detail.content.decode()
+    assert 'id="chat-transcript-labels"' in new_chat.content.decode()
+    assert detail.context["transcript_labels_payload"]["icons"] == transcript_icons()
+    assert detail.context["transcript_labels_payload"]["leg_states"] == outcome_states()
+
+
+def _detail_html(client, session: Session) -> str:
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id})).content.decode()
+
+
+@pytest.mark.django_db
+def test_session_page_loads_the_transcript_scripts_in_order(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+    names = ("transcript-labels", "tool-renderers", "transcript-blocks", "chat-stream")
+    order = [html.index(f"chat/js/{name}.js") for name in names]
+    assert order == sorted(order)
+
+
+@pytest.mark.django_db
+def test_session_page_renders_blocks_not_turns(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+    assert 'x-for="block in runBlocks"' in html
+
+
+@pytest.mark.django_db
+def test_session_page_marks_each_runs_ending_and_step_rows(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+    assert "data-run-ending" in html and 'class="step-row"' in html
+
+
+@pytest.mark.django_db
+def test_session_page_puts_a_folded_runs_closing_question_below_its_cards(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+    assert "block.endingText, block.cards, block.endingTail]" in html
+
+
+@pytest.mark.django_db
+def test_session_page_renders_a_delegated_jobs_card_in_a_runs_items(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+
+    card = html.index("x-if=\"item.kind === 'delegated'\"", html.index('x-for="item in list"'))
+    assert card < html.index('x-for="(p, pi) in block.publish"')
+    assert 'data-testid="delegated-card"' in html[card:]
+
+
+def _labels_payload(html: str) -> dict:
+    match = re.search(r'<script id="chat-transcript-labels" type="application/json">(.*?)</script>', html, re.S)
+    return json.loads(match.group(1))
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("setting", "debug", "expected"),
+    [(None, True, True), (None, False, False), (True, False, True), (False, True, False)],
+)
+def test_show_raw_follows_the_setting_then_debug(
+    member_client, member_user, settings, monkeypatch, setting, debug, expected
+):
+    monkeypatch.setattr(sessions_settings, "SHOW_RAW_TOOL_DATA", setting)
+    settings.DEBUG = debug
+    session = _create_session(user=member_user)
+    assert _labels_payload(_detail_html(member_client, session))["show_raw"] is expected
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        new_chat = member_client.get(reverse("session_new_chat")).content.decode()
+    assert _labels_payload(new_chat)["show_raw"] is expected
+
+
+@pytest.mark.django_db
+def test_the_labels_payload_names_the_session_page_path(member_client, member_user):
+    payload = _labels_payload(_detail_html(member_client, _create_session(user=member_user)))
+    assert payload["session_path"] == reverse("session_detail", args=["x"]).replace("/x/", "/{thread_id}/")
+
+
+@pytest.mark.django_db
+def test_step_rows_show_an_mcp_servers_own_icon_as_an_image(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+    assert '<img :src="step.row.iconSrc" alt="" width="14" height="14" referrerpolicy="no-referrer">' in html
+
+
+@pytest.mark.django_db
+def test_detail_has_no_publish_chip_template(member_client, member_user):
+    assert "chat-phase" not in _detail_html(member_client, _create_session(user=member_user))
+
+
+@pytest.mark.django_db
+def test_detail_renders_publish_lines_from_blocks(member_client, member_user):
+    content = _detail_html(member_client, _create_session(user=member_user))
+
+    assert 'x-for="(p, pi) in block.publish"' in content
+    assert content.index("block.endingTail") < content.index("block.publish") < content.index("block.statuses")
+
+
+@pytest.mark.django_db
+def test_detail_renders_retry_on_the_publish_line(member_client, member_user):
+    content = _detail_html(member_client, _create_session(user=member_user))
+
+    publish_row = content[content.index('x-for="(p, pi) in block.publish"') : content.index("block.statuses")]
+    assert 'x-show="canRetry(p)"' in publish_row
+    assert 'data-testid="run-retry"' in publish_row
+
+
+@pytest.mark.django_db
+def test_detail_gives_an_unpublished_line_the_run_status_semantics(member_client, member_user):
+    content = _detail_html(member_client, _create_session(user=member_user))
+
+    publish_row = content[content.index('x-for="(p, pi) in block.publish"') : content.index("block.statuses")]
+    assert ":role=\"publishFailed(p) ? 'status' : null\"" in publish_row
+    assert ":aria-live=\"publishFailed(p) ? 'polite' : null\"" in publish_row
+    assert ":data-run-ending=\"publishFailed(p) && !block.items.length ? '' : false\"" in publish_row
+
+
+@pytest.mark.parametrize("name", ["session_detail.html", "_run_item.html"])
+def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
+    import re
+    from pathlib import Path
+
+    from sessions.transcript_labels import transcript_labels
+
+    labels = transcript_labels()
+    source = (Path(__file__).resolve().parents[3] / "daiv/sessions/templates/sessions" / name).read_text()
+    calls = re.findall(r"TranscriptLabels\.(tn?)\(\s*'(\w+)'", source)
+
+    assert calls or name == "_run_item.html"
+    for helper, key in calls:
+        assert key in labels, key
+        assert isinstance(labels[key], list) == (helper == "tn"), f"{helper}('{key}') does not match its label shape"
+
+
+@pytest.mark.django_db
+def test_detail_shows_delegated_jobs_current_state(member_client, member_user):
+    coordinator = make_coordinator(member_user)
+    batch = uuid.uuid4()
+    make_leg(coordinator, batch, status=RunStatus.FAILED)
+    messages = delegate_messages(batch)
+
+    with (
+        patch("sessions.views.ahydrate_thread", _hydration(messages)),
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": coordinator.thread_id}))
+
+    segment = next(s for t in resp.context["turns"] for s in t["segments"] if s.get("name") == "delegate_jobs")
+    assert [leg["state"] for leg in segment["legs"]] == ["failed"]
+
+
+def _header_payload(resp) -> dict:
+    html = resp.content.decode()
+    return json.loads(re.search(r'<script id="session-header" type="application/json">(.*?)</script>', html, re.S)[1])
+
+
+@pytest.mark.django_db
+def test_a_coordinator_page_has_the_delegations_button_and_details_section(member_client, member_user):
+    coordinator = make_coordinator(member_user)
+    make_delegating_run(coordinator, member_user)
+    make_leg(coordinator, uuid.uuid4(), status=RunStatus.FAILED)
+
+    resp = _get_detail(member_client, coordinator)
+
+    assert 'x-if="delegations"' in _topbar(resp) and 'data-testid="session-delegations"' in _topbar(resp)
+    assert "openDetails('delegations')" in _topbar(resp)
+    assert 'id="session-details-delegations"' in _details(resp)
+    assert _header_payload(resp)["delegations"]["failed"] == 1
+
+
+@pytest.mark.django_db
+def test_a_delegated_jobs_page_links_the_session_that_delegated_it(member_client, member_user):
+    coordinator = make_coordinator(member_user, title="Parent work")
+    child = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL).session
+    parent_url = reverse("session_detail", kwargs={"thread_id": coordinator.thread_id})
+
+    resp = _get_detail(member_client, child)
+
+    topbar, details = _topbar(resp), _details(resp)
+    assert "Delegated by" in topbar and f'href="{parent_url}"' in topbar and "Parent work" in topbar
+    assert "Delegated by" in details and f'href="{parent_url}"' in details
+    assert topbar.index("Delegated by") < topbar.index("session-topbar__title")
+
+
+@pytest.mark.django_db
+def test_a_delegated_jobs_page_hides_a_parent_the_viewer_cannot_see(member_client, member_user, other_user):
+    coordinator = make_coordinator(other_user, title="Someone else's work")
+    child = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL).session
+    grant_read_access(member_user, child.repo_id)
+
+    resp = _get_detail(member_client, child)
+
+    html = resp.content.decode()
+    assert "Delegated by" not in html and "Someone else" not in html
+    assert "Delegated Run" in _details(resp)

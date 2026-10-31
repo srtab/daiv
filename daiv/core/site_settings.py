@@ -75,6 +75,10 @@ def _build_field_defaults() -> dict[str, Any]:
         "agent_explore_model_name": ModelName.CLAUDE_HAIKU_5_5,
         "agent_explore_fallback_model_name": ModelName.GPT_6_LUNA,
         "agent_recursion_limit": 500,
+        "model_request_timeout_seconds": 120,
+        # Not 1: langchain-anthropic shares its httpx client process-wide, so a worker task's first call
+        # can spend a retry on a pooled connection left behind by the previous task's event loop.
+        "model_max_retries": 2,
         "suggest_context_file_enabled": True,
         "session_link_enabled": True,
         # Diff to Metadata — successors of gemini-3.7-flash and deepseek-v4-flash, which scored best on the
@@ -159,6 +163,8 @@ class SiteSnapshot:
     agent_explore_model_name: str
     agent_explore_fallback_model_name: str
     agent_recursion_limit: int
+    model_request_timeout_seconds: int
+    model_max_retries: int
     suggest_context_file_enabled: bool
     session_link_enabled: bool
     diff_to_metadata_model_name: str

@@ -9,13 +9,14 @@ error string, a form field).
 a denial is a :class:`RepoAccessError` wherever it is caught.
 
 :func:`aadmit` runs the whole sequence for a batch submitted now, in this order: override, repository access,
-environment, then the per-repository environment of each target. Triggers that need a different sequence call
-the individual checks: MCP ``schedule_job`` stores the request instead of submitting it, ``delegate_jobs``
-(``sessions.delegation``) fails only the targets it is denied and names no environment, and the run and schedule
-forms report each failure on its own field and take the environment from a model choice field, not a name.
-Chat calls only the access and environment checks; it validates the override with
-:mod:`automation.agent.validators` itself, because the override that runs is the one pinned to its session and a
-stored override that no longer validates gets its own message.
+environment, the per-repository environment of each target, then the MCP server overrides that the jobs API and MCP
+``submit_job`` take. Triggers that need a different sequence call the individual checks: MCP ``schedule_job`` stores
+the request instead of submitting it, ``delegate_jobs`` (``sessions.delegation``) fails only the targets it is denied
+and names no environment, and the run and schedule forms report each failure on its own field and take the
+environment from a model choice field, not a name. Chat calls only the access and environment checks and diffs its
+own MCP server selection. It validates the agent override with :mod:`automation.agent.validators` itself, because
+the override that runs is the one pinned to its session and a stored override that no longer validates gets its own
+message.
 """
 
 from __future__ import annotations
@@ -24,10 +25,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
+from mcp_connectors.selection import build_selection_pool, overrides_from_switches
 from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent import validators
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, assert_can_run
+from sessions.models import Session
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -58,13 +61,18 @@ class UnknownEnvironmentError(AdmissionError):
     """The named sandbox environment is not one the caller can see."""
 
 
+class InvalidMcpOverridesError(AdmissionError):
+    """An MCP server override names a server the caller cannot use."""
+
+
 @dataclass(frozen=True)
 class Admission:
-    """A request :func:`aadmit` accepted: the normalised override, and each target with its environment resolved."""
+    """A request :func:`aadmit` accepted: the normalised overrides, and each target with its environment resolved."""
 
     agent_model: str
     agent_thinking_level: str
     targets: list[RepoTarget]
+    mcp_overrides: dict[str, str] | None
 
 
 def check_agent_override(agent_model: str | None, agent_thinking_level: str | None) -> tuple[str, str]:
@@ -95,6 +103,22 @@ async def aresolve_environment(user: User, name_or_id: str | None) -> SandboxEnv
         raise UnknownEnvironmentError(str(err)) from err
 
 
+async def aresolve_mcp_overrides(
+    user: User, switches: dict[str, bool] | None, thread_id: str | None = None
+) -> dict[str, str] | None:
+    """``switches`` applied to ``thread_id``'s MCP overrides against the caller's servers, or ``None`` when none are
+    sent: a server they don't name keeps its setting."""
+    if not switches:
+        return None
+    current = None
+    if thread_id is not None:
+        current = await Session.objects.filter(thread_id=thread_id).values_list("mcp_overrides", flat=True).afirst()
+    try:
+        return overrides_from_switches(switches, await sync_to_async(build_selection_pool)(user.pk), current)
+    except ValueError as err:
+        raise InvalidMcpOverridesError(str(err)) from err
+
+
 async def aadmit(
     *,
     user: User,
@@ -102,10 +126,17 @@ async def aadmit(
     agent_model: str | None,
     agent_thinking_level: str | None,
     environment: str | None,
+    mcp_overrides: dict[str, bool] | None = None,
+    thread_id: str | None = None,
 ) -> Admission:
     """Run every admission check for a batch submitted now; ``environment`` names one env for all of ``repos``."""
     model, level = check_agent_override(agent_model, agent_thinking_level)
     await aassert_repo_access(user, [target.repo_id for target in repos])
     env = await aresolve_environment(user, environment)
     targets = await aresolve_repo_envs(user=user, repos=repos, explicit_env_id=str(env.id) if env else None)
-    return Admission(agent_model=model, agent_thinking_level=level, targets=targets)
+    return Admission(
+        agent_model=model,
+        agent_thinking_level=level,
+        targets=targets,
+        mcp_overrides=await aresolve_mcp_overrides(user, mcp_overrides, thread_id),
+    )

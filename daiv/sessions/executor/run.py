@@ -24,7 +24,7 @@ from sessions.delegation import adelegator_for
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
-from sessions.models import Run, SessionRepository
+from sessions.models import PublishStatus, Run, SessionRepository, publish_field_updates
 from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
     from automation.agent.git_state import RepoPublish
+    from automation.agent.publishers import PublishOutcome
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
@@ -117,7 +118,7 @@ async def stream_run(
             entered = True
             recovery = _Recovery()
             try:
-                async with _agent_run(spec, hooks) as run:
+                async with _agent_run(spec, hooks, recovery) as run:
                     try:
                         async with contextlib.aclosing(
                             _supervised(stream(run), run.thread_id, holder_id, should_stop)
@@ -259,14 +260,18 @@ async def _live_relay(spec: RunSpec, holder_id: str | None) -> AsyncGenerator[Ru
 class _Recovery:
     """What draft recovery leaves for ``on_failure``: filled inside the run's context, read after it closes."""
 
-    draft_published: bool = False
+    draft: PublishOutcome | None = None
     snapshot: StateSnapshot | None = None
+
+    @property
+    def draft_published(self) -> bool:
+        return self.draft is not None
 
 
 async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery, run_relay: RunRelay | None) -> RunOutcome:
     from automation.agent.utils import closing_reply_text
 
-    async with _agent_run(spec, hooks) as run:
+    async with _agent_run(spec, hooks, recovery) as run:
         try:
             result = await _ainvoke(run, spec, run_relay)
         except Exception:
@@ -300,7 +305,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     the checkpoint for ``on_failure``. Runs while the clone and the sandbox are still open."""
     if not spec.recover_draft:
         return
-    recovery.draft_published = await recover_draft(
+    recovery.draft = await recover_draft(
         run.ctx,
         run.agent,
         run.config,
@@ -314,8 +319,35 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
         await _record_sibling_publishes(spec, run, checkpointed_repo_publishes(recovery.snapshot.values))
 
 
+async def _record_publish_result(
+    run_id: str | None, publish: dict[str, Any] | None, draft: PublishOutcome | None
+) -> None:
+    """Write the run's publish result onto its ``Run`` once, however the run ended: the last one it dispatched, never
+    the checkpoint's, which can still hold the previous run's. A draft merge request recovery opened replaces it,
+    unless the publish failed: the failure then stays, with the draft's merge request beside it. Best-effort: logged,
+    never raised."""
+    opened_draft = draft is not None and draft.created_merge_request
+    if opened_draft:
+        from automation.agent.events import published_outcome_payload
+
+        opened = published_outcome_payload(draft)
+        if publish is not None and publish.get("status") == PublishStatus.FAILED:
+            publish = {**opened, "status": publish["status"], "error_kind": publish["error_kind"]}
+        else:
+            publish = opened
+    fields = publish_field_updates(publish)
+    if opened_draft:
+        fields["code_changes"] = True
+    if not run_id or not fields:
+        return
+    try:
+        await Run.objects.filter(pk=run_id).aupdate(**fields)
+    except Exception:
+        logger.exception("executor: failed to record the publish result on run_id=%s", run_id)
+
+
 @asynccontextmanager
-async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]:
+async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> AsyncGenerator[AgentRun]:
     # Deferred so importing this module never loads the agent stack.
     from langgraph.checkpoint.memory import InMemorySaver
     from mcp_connectors.services import build_runtime_servers
@@ -323,6 +355,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
 
     from automation.agent.agent_settings import resolve_agent_settings
     from automation.agent.context import ExtraRepo, set_runtime_ctx
+    from automation.agent.events import record_publish_result
     from automation.agent.graph import create_daiv_agent
     from automation.agent.middlewares.slash_commands import resets_thread, skips_sandbox
     from automation.agent.usage_tracking import track_usage_metadata
@@ -409,7 +442,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
             reset = resets_thread(spec.input_messages, ctx, settings)
             if archiving and not reset:
                 await arestore_thread(agent, checkpointer, config)
-            with track_usage_metadata() as usage, bind_active_run(run_id):
+            with track_usage_metadata() as usage, record_publish_result() as publish, bind_active_run(run_id):
                 run = AgentRun(
                     ctx=ctx,
                     agent=agent,
@@ -428,6 +461,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     handed_over = await _handed_over(run)
                     raise
                 finally:
+                    await _record_publish_result(run_id, publish.payload, recovery.draft)
                     if archiving:
                         await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:

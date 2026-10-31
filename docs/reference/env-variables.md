@@ -1,3 +1,7 @@
+---
+description: "Reference for every environment variable that configures DAIV, including which ones are sensitive and should be provided as Docker secrets."
+---
+
 # Environment Variables
 
 DAIV provides a large number of environment variables to configure its behavior. This page lists all supported variables.
@@ -23,6 +27,7 @@ Variables marked with:
 | `DJANGO_DEBUG`          | Toggle Django debug mode                            | `False`                | `True`                         |
 | :material-asterisk: `DJANGO_SECRET_KEY`  :material-lock:     | Secret key for Django                              | *(none)*               | `super-secret-key`             |
 | `DJANGO_ALLOWED_HOSTS`  | Comma-separated list of allowed hosts               | `*`                    | `example.com,localhost`        |
+| `DJANGO_SESSION_COOKIE_NAME` | Name of the session cookie; give each instance on one host its own | `__Secure-sessionid` | `__Secure-sessionid-1` |
 
 !!! danger
     Do not turn on `DJANGO_DEBUG` in production. It will **expose sensitive information** and **break the security of the application**.
@@ -322,6 +327,12 @@ The `publish_artifact` tool stores files the agent generates (reports, datasets,
 | `DAIV_ARTIFACT_MAX_BYTES`       | Maximum size of one published file, in bytes (at most 64 MiB, the sandbox download limit) | `10485760` (10 MiB) | `52428800` |
 | `DAIV_ARTIFACTS_PER_RUN_MAX`    | Maximum number of files one run may publish                    | `20`           | `50` |
 
+### Session Transcript
+
+| Variable                        | Description                                                    | Default        | Example |
+|---------------------------------|----------------------------------------------------------------|:--------------:|---------|
+| `DAIV_SHOW_RAW_TOOL_DATA`       | Show each tool call's raw arguments and result in a closed **Raw** section of the call's details in the session transcript (env-only) | *(follows `DJANGO_DEBUG`)* | `true` |
+
 ### MCP Tools
 
 MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality. MCP servers are configured as database rows at `/dashboard/mcp-servers/` and connected to directly by the DAIV app — no sidecar containers are required.
@@ -368,6 +379,15 @@ The main agent used for issue addressing, pull request assistance, and all inter
 | `DAIV_AGENT_EXPLORE_MODEL_NAME` | Model for the explore subagent (fast, read-only) | `claude-haiku-5.5` |
 | `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` | Fallback model if the explore model fails | `gpt-6-luna` |
 | `DAIV_AGENT_CUSTOM_SKILLS_PATH` | Path to custom global skills directory. Set to `None` to disable. | `~/data/skills` |
+
+### Model Requests
+
+These bound every LLM API call, whatever the provider: the main agent, subagents, and the model-backed tasks (titling, memory, commit/PR writer, web fetch). Without them a stalled provider can block a run indefinitely.
+
+| Variable | Description | Default |
+|--------------------------------------|---------------------------------------------------------------------------------------|---------|
+| `DAIV_MODEL_REQUEST_TIMEOUT_SECONDS` | Per-request timeout for LLM API calls, in seconds. Minimum `1`. | `120` |
+| `DAIV_MODEL_MAX_RETRIES` | Retries for a failed LLM API call before the error propagates (`0` disables retries) | `2` |
 
 ### Jobs API
 

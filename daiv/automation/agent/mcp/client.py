@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
@@ -19,10 +20,11 @@ with suppress_langchain_beta_warning():
     from langchain.mcp import as_langchain_tool
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Sequence
 
     from fastmcp.client.logging import LogMessage
     from langchain_core.tools.base import BaseTool
+    from mcp_types import Icon
 
 logger = logging.getLogger("daiv.tools")
 
@@ -114,8 +116,29 @@ def build_client(
     return StatusTrackingClient(mcp_transport)
 
 
+_ICON_DATA_URI = re.compile(r"data:image/(png|jpeg|webp|gif|svg\+xml)[;,]")
+_MAX_ICON_SRC_LENGTH = 32768
+
+
+def pick_icon_src(icons: Sequence[Icon] | None) -> str | None:
+    """The first icon a page can safely show as an ``<img>``: an ``https:`` URL or a small image ``data:`` URI."""
+    for icon in icons or []:
+        src = icon.src
+        if len(src) > _MAX_ICON_SRC_LENGTH:
+            continue
+        if src.startswith("https:") or _ICON_DATA_URI.match(src):
+            return src
+    return None
+
+
 async def list_tools(client: StatusTrackingClient) -> list[BaseTool]:
-    """List the server's tools as LangChain tools; HTTP failures raise ``httpx2.HTTPStatusError``.
+    """List the server's tools as LangChain tools; HTTP failures raise ``httpx2.HTTPStatusError``."""
+    tools, _ = await list_tools_and_icon(client)
+    return tools
+
+
+async def list_tools_and_icon(client: StatusTrackingClient) -> tuple[list[BaseTool], str | None]:
+    """:func:`list_tools` plus the server's own icon (``None`` when it advertises none).
 
     mcp 2.x hides a failed POST's status behind a generic ``MCPError``, so it is restored from the recorder.
     """
@@ -127,13 +150,15 @@ async def list_tools(client: StatusTrackingClient) -> list[BaseTool]:
                     # A handshake-era server: skip the rejected ``server/discover`` probe on every tool-call reconnect.
                     client.mode = "legacy"
                 tools = [await as_langchain_tool(tool, client) for tool in await client.list_tools()]
+                server_info = client.server_info
+                icon = pick_icon_src(server_info.icons if server_info is not None else None)
     except Exception as exc:
         if (restored := _restore_status(recorder, exc)) is not None:
             raise restored from exc
         raise
     for tool in tools:
         _report_call_failures(tool, client)
-    return tools
+    return tools, icon
 
 
 def read_only_hint(tool: BaseTool) -> bool | None:

@@ -24,7 +24,18 @@ KEEP:   "The asset build is not reproducible across Node major versions; pin the
 REJECT: "Check the documentation before changing this module."
 KEEP:   "Generated client code is overwritten by the codegen step, so a change has to go into the
          template rather than the generated file."
-  — the first is a gesture at where to look, the second is what would have been rediscovered the hard way."""
+  — the first is a gesture at where to look, the second is what would have been rediscovered the hard way.
+
+REJECT: "The workspace has no Go toolchain, so the linter could not be run here."
+KEEP:   "The linter needs Go 1.23 or newer; older toolchains fail to parse the generics in
+         internal/queue."
+  — the first describes the agent's workspace, the second what the repository itself requires.
+
+REJECT: "The importer crashed on rows with an empty date column; a guard was added and 18 tests
+         pass now."
+KEEP:   "The importer tests load fixtures through a path relative to the repository root, so they
+         fail when pytest is started from a subdirectory."
+  — the first is this task's bug, gone once the fix merges; the second trips whoever runs those tests next."""
 
 CONSOLIDATION_FEW_SHOTS = """Worked examples.
 
@@ -49,12 +60,16 @@ extraction_system = SystemMessagePromptTemplate.from_template(
 for FUTURE runs on the same repository.
 
 An observation is worth keeping ONLY if it is ALL of:
+- about the repository: true of its code, build, CI, or reviewers, not of the coding agent's own
+  tools, subagents, skills, or workspace;
 - specific and verifiable: names a real command, file, flag, convention, or behavior;
-- durable: likely to still be true in a future session on this repository;
+- durable: likely to still be true in a future session on this repository, including one working
+  on a different task;
 - hard-won: the agent could NOT trivially rediscover it by reading the repository's docs or file tree.
 
 Categories:
-- build_test: exact commands that worked or failed, and why (e.g. required env vars, flags, working directory)
+- build_test: exact commands that worked or failed in this repository, and why (e.g. required env vars,
+  flags, working directory)
 - codebase_fact: non-obvious facts about structure or behavior discovered through investigation
 - pitfall: dead ends, wrong assumptions, approaches that wasted effort or broke things
 - reviewer_preference: corrections, preferences, or rejections expressed by users or reviewers
@@ -63,7 +78,13 @@ Categories:
 Hard rules:
 - Most runs teach nothing new: returning ZERO observations is the normal, expected outcome.
 - NEVER invent generic advice ("write tests", "follow code style", "check the docs").
-- NEVER restate the task itself, its diff, or its outcome summary.
+- NEVER record what stops being true or useful once this task is done: the task itself, its diff,
+  the bug it fixed (gone once the fix merges), test counts, commit hashes, or issue and ticket
+  numbers. What the run learned about code that keeps behaving the same way afterwards still counts.
+- NEVER record how the agent's own environment behaves: a tool that must be loaded before use, a
+  subagent that could not read its input, a command the agent's workspace lacks, where the
+  repository is checked out, or the steps of a skill or command the run was given. These change
+  without the repository changing, and the agent is told about them elsewhere.
 - NEVER include secrets, tokens, or credentials.
 - Each observation must stand alone: a future agent reads it without this transcript.
 - Maximum {MAX_OBSERVATIONS}; prefer 0-3 high-value observations over many weak ones.

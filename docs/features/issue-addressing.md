@@ -1,3 +1,7 @@
+---
+description: "DAIV reads a labelled GitLab or GitHub issue, proposes an implementation plan, waits for your approval, then opens a merge or pull request with the code."
+---
+
 # Issue Addressing
 
 Issue Addressing converts issue descriptions into working code. DAIV reads the issue, generates an implementation plan, waits for your approval, and opens a merge request (GitLab) or pull request (GitHub) with the changes.

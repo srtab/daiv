@@ -1,3 +1,7 @@
+---
+description: "After DAIV publishes a merge request it watches CI and spends a bounded number of agent runs making it green, then reports any jobs still failing."
+---
+
 # Pipeline Watch
 
 After DAIV publishes a merge request, it watches CI and spends up to a configurable number of agent runs trying to make it green. When the attempt budget is exhausted, DAIV comments on the merge request with the still-failing jobs and the pipeline link, and optionally sends an in-app notification.

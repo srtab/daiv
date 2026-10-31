@@ -27,6 +27,10 @@ logger = logging.getLogger("daiv.tools")
 
 WEB_FETCH_NAME = "web_fetch"
 
+# Tighter than the site-wide model timeout: the page is already size-bounded and a failed
+# summary degrades to the raw content.
+WEB_FETCH_MODEL_TIMEOUT_SECONDS = 60
+
 WEB_FETCH_TOOL_DESCRIPTION = """\
 Fetch content from a specified URL and process it using an AI model.
 
@@ -232,17 +236,27 @@ async def web_fetch_tool(
     if not prompt.strip() or site_settings.web_fetch_model_name is None:
         return f"Contents of {url}:\n{content}"
 
+    # A build failure is a permanent misconfiguration (disabled provider, missing key, bad spec), so it
+    # logs at ERROR; the agent still gets the raw page, flagged as unsummarised.
     try:
-        model = get_model(model=site_settings.web_fetch_model_name)
-        messages = [
-            SystemMessage(
-                content=(
-                    "You process web pages for users. Use the page content to answer the user's prompt.\n"
-                    "Be concise. If the content doesn't contain the answer, say so."
-                )
-            ),
-            HumanMessage(content=f"URL: {url}\n\n<PageContent>\n{content}\n</PageContent>\n\nPrompt:\n{prompt}"),
-        ]
+        model = get_model(model=site_settings.web_fetch_model_name, timeout=WEB_FETCH_MODEL_TIMEOUT_SECONDS)
+    except Exception as e:
+        logger.exception(
+            "web_fetch summariser model %r could not be built; check the provider configuration.",
+            site_settings.web_fetch_model_name,
+        )
+        return f"web_fetch summariser unavailable ({e}); returning raw content instead.\nContents of {url}:\n{content}"
+
+    messages = [
+        SystemMessage(
+            content=(
+                "You process web pages for users. Use the page content to answer the user's prompt.\n"
+                "Be concise. If the content doesn't contain the answer, say so."
+            )
+        ),
+        HumanMessage(content=f"URL: {url}\n\n<PageContent>\n{content}\n</PageContent>\n\nPrompt:\n{prompt}"),
+    ]
+    try:
         response = await model.ainvoke(messages)
         response_text = str(getattr(response, "content", response))
         _set_cached_response(url=url, prompt=prompt, response=response_text)

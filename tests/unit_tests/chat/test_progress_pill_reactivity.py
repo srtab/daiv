@@ -21,7 +21,7 @@ against a stand-in for the reactivity, and run the real ``init()`` to arm it.
 
 from __future__ import annotations
 
-from tests.unit_tests.chat.chat_stream_driver import run_chat_stream
+from tests.unit_tests.chat.chat_stream_driver import REACTIVITY, run_chat_stream
 from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
@@ -31,80 +31,21 @@ TODOS = [
     {"content": "Launch parallel audit subagents per sub-area", "status": "in_progress"},
 ]
 
-PRELUDE = """
-/* A stand-in for Alpine's reactivity, small enough to read: per-effect dependency tracking
-   over proxies, effects run synchronously. Synchronous is the point — Alpine's initial tree
-   walk runs every binding in one task, and its scheduler flushes the whole queued batch
-   inside one microtask, so a value cached "for the rest of the microtask" is shared by
-   every reader of the flush and only the first of them is ever asked what it read. */
-let active = null;
-const deps = new WeakMap();
-const proxies = new WeakMap();
-
-/* Counts walks of the whole transcript: `probe` is one segment of an *earlier* turn, whose
-   `type` only the walk that collects files touched ever reads. */
+PRELUDE = (
+    REACTIVITY
+    + """
+/* Counts passes over the whole transcript: `probe` is one segment of an *earlier* turn, whose
+   `type` only a derivation walking every turn reads. Reads within one effect run are one pass. */
 let probe = null;
 let walks = 0;
-
-const track = (target, key) => {
-  if (target === probe && key === "type") walks++;
-  if (!active) return;
-  let keys = deps.get(target);
-  if (!keys) deps.set(target, (keys = new Map()));
-  let subscribers = keys.get(key);
-  if (!subscribers) keys.set(key, (subscribers = new Set()));
-  subscribers.add(active);
-};
-
-const trigger = (target, key) => {
-  for (const run of [...(deps.get(target)?.get(key) ?? [])]) run();
-};
-
-const reactive = (value) => {
-  if (!value || typeof value !== "object") return value;
-  if (proxies.has(value)) return proxies.get(value);
-  const proxy = new Proxy(value, {
-    get(target, key, receiver) {
-      track(target, key);
-      return reactive(Reflect.get(target, key, receiver));
-    },
-    set(target, key, next, receiver) {
-      const accepted = Reflect.set(target, key, next, receiver);
-      trigger(target, key);
-      trigger(target, "length");
-      return accepted;
-    },
-  });
-  proxies.set(value, proxy);
-  return proxy;
-};
-
-const effect = (fn) => {
-  const run = () => {
-    const previous = active;
-    active = run;
-    try { fn(); } finally { active = previous; }
-  };
-  run();
-  return run;
-};
-
-alpineEffect = effect;
-
-/* `$watch(expr, cb)` takes the expression as a string, as Alpine does, and fires on a
-   change of its value — which is why the transcript effect can't be a `$watch`: a mutation
-   inside `turns` leaves the expression's value identical. */
-const watchOn = (state) => (expr, cb) => {
-  const read = new Function("s", `with (s) { return (${expr}); }`);
-  let previous;
-  let first = true;
-  effect(() => {
-    const value = read(state);
-    if (first) { first = false; previous = value; return; }
-    if (value !== previous) { const stale = previous; previous = value; cb(value, stale); }
-  });
+let walkedIn = -1;
+onTrack = (target, key) => {
+  if (target !== probe || key !== "type" || walkedIn === activeRun) return;
+  walkedIn = activeRun;
+  walks++;
 };
 """
+)
 
 BODY = """
 const state = reactive(registry.chat({ endpoint: "/api/chat" }));

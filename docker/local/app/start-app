@@ -2,14 +2,18 @@
 
 set -eu
 
-# Auto-generate self-signed SSL certificates if missing
-CERT_DIR="/home/app/src/data/certs"
-if [ ! -f "$CERT_DIR/cert.key" ] || [ ! -f "$CERT_DIR/cert.crt" ]; then
-    mkdir -p "$CERT_DIR"
-    openssl req -x509 -newkey rsa:2048 -keyout "$CERT_DIR/cert.key" \
-        -out "$CERT_DIR/cert.crt" -days 365 -nodes \
-        -subj "/CN=localhost"
-    echo "Generated self-signed SSL certificates in $CERT_DIR"
+# Worktree stacks set APP_TLS=false: Claude Code's browser pane refuses a self-signed certificate.
+if [ "${APP_TLS:-true}" = true ]; then
+    # Auto-generate self-signed SSL certificates if missing
+    CERT_DIR="/home/app/src/data/certs"
+    if [ ! -f "$CERT_DIR/cert.key" ] || [ ! -f "$CERT_DIR/cert.crt" ]; then
+        mkdir -p "$CERT_DIR"
+        openssl req -x509 -newkey rsa:2048 -keyout "$CERT_DIR/cert.key" \
+            -out "$CERT_DIR/cert.crt" -days 365 -nodes \
+            -subj "/CN=localhost"
+        echo "Generated self-signed SSL certificates in $CERT_DIR"
+    fi
+    set -- --ssl-keyfile "$CERT_DIR/cert.key" --ssl-certfile "$CERT_DIR/cert.crt"
 fi
 
 django-admin compilemessages --ignore='.*'
@@ -21,4 +25,4 @@ django-admin setup_checkpoint_saver --skip-checks
 tailwindcss -i daiv/static_src/css/input.css -o daiv/static/css/styles.css --minify
 django-admin collectstatic --noinput
 
-exec uvicorn --host 0.0.0.0 --port 8000 --ssl-keyfile "$CERT_DIR/cert.key" --ssl-certfile "$CERT_DIR/cert.crt" --reload --reload-dir 'daiv/' --reload-include '*.html' --reload-include '*.css' "daiv.asgi:application"
+exec uvicorn --host 0.0.0.0 --port 8000 "$@" --reload --reload-dir 'daiv/' --reload-include '*.html' --reload-include '*.css' "daiv.asgi:application"

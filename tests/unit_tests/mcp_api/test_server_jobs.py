@@ -7,9 +7,12 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
+from asgiref.sync import sync_to_async
+from mcp_connectors.models import MCPServer
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
+from tests.unit_tests.mcp_connectors.helpers import only_servers
 
 
 async def _user(username):
@@ -529,3 +532,23 @@ async def test_job_status_legacy_run_lists_its_single_mr(_default_mcp_user):
 
     assert data["merge_requests"] == [{"repo_id": "a/b", "url": "https://git/a/b/-/merge_requests/3"}]
     assert data["publish_errors"] == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_resolved_mcp_overrides(_default_mcp_user):
+    from mcp_api.server import submit_job
+    from sessions.services import BatchSubmitResult
+
+    await sync_to_async(only_servers)(("grafana", MCPServer.Status.ON_DEMAND))
+    run = await _run(await _session(user=_default_mcp_user, repo_id="a/b"))
+
+    with (
+        patch("mcp_api.server._allow_job_submission", return_value=True),
+        patch(
+            "sessions.multi_repo.asubmit_batch_runs",
+            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])),
+        ) as submit,
+    ):
+        await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", mcp_overrides={"grafana": True})
+
+    assert submit.call_args.kwargs["mcp_overrides"] == {"grafana": "on"}

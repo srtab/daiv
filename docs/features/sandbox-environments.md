@@ -1,3 +1,7 @@
+---
+description: "Define named, reusable DAIV sandbox environments with a base image, CPU and memory limits, network egress policy, encrypted secrets and repository scope."
+---
+
 # Sandbox Environments
 
 A sandbox environment is a named, reusable [sandbox](sandbox.md) configuration — base image, CPU and memory limits, network access, encrypted environment variables, and the repositories it applies to. Define it once in the dashboard and DAIV reuses that runtime across every run, chat, scheduled job, and API/MCP call that lands in a matching repository, instead of reconfiguring the container each time.

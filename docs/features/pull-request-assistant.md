@@ -1,3 +1,7 @@
+---
+description: "Mention DAIV in a GitLab merge request or GitHub pull request to apply review feedback, answer questions about the change, or fix failing pipelines."
+---
+
 # Pull Request Assistant
 
 The Pull Request Assistant helps you address code review feedback directly within merge requests (GitLab) or pull requests (GitHub). Mention DAIV in a comment and it will apply changes, answer questions, or fix failing pipelines.

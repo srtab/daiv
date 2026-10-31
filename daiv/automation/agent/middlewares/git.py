@@ -8,11 +8,14 @@ from git import GitCommandError
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import PrivateStateAttr
+from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
 from automation.agent.context import RuntimeCtx, extra_repo_path
+from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload, published_outcome_payload
 from automation.agent.git_state import RepoPublish, checkpointed_merge_request, effective_merge_request
+from automation.agent.publish_errors import publish_error_kind
 from automation.agent.publishers import (
     GitChangePublisher,
     PublishOutcome,
@@ -431,6 +434,13 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         ]
         await aensure_related_links(entries)
 
+    @staticmethod
+    async def _emit_publish_result(payload: dict[str, Any]) -> None:
+        try:
+            await adispatch_custom_event(PUBLISH_RESULT_EVENT, payload)
+        except Exception:
+            logger.warning("Could not dispatch the publish result; the run will not show it", exc_info=True)
+
     async def aafter_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
         After the agent finishes, optionally capture the run's patch, then publish any new changes.
@@ -519,7 +529,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 f"{'has' if len(exc.paths) == 1 else 'have'} conflict markers, so nothing was committed or "
                 f"pushed{there}. Ask me to finish resolving them."
             )
+            await self._emit_publish_result(publish_result_payload(status="not_published", error_kind="conflicts"))
         except Exception as exc:
+            await self._emit_publish_result(publish_result_payload(status="failed", error_kind=publish_error_kind(exc)))
             if not multi_repo:
                 raise
             logger.exception("Publishing to %s failed", ctx.repository.slug)
@@ -546,6 +558,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # Only ever set true here; ``abefore_agent`` clears it, so a no-op turn cannot
             # inherit the previous turn's push.
             update["published"] = True
+            await self._emit_publish_result(published_outcome_payload(outcome))
 
         if outcome.merge_request is None:
             # published + no MR is the branch-visibility degrade (branch pushed, MR pending): record

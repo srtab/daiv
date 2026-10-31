@@ -1,3 +1,7 @@
+---
+description: "Every DAIV agent execution is recorded as a session: chat with the agent live, start background runs, and review transcripts, timelines and usage."
+---
+
 # Sessions
 
 DAIV records every agent execution in a **Session**. A session is one agent thread — a persistent conversation context tied to a repository and ref. Every way you can trigger DAIV (webhooks, the Jobs API, the MCP endpoint, scheduled jobs, or a chat conversation you type yourself) produces a session, and every time the agent runs against that thread produces a **Run** inside it.
@@ -102,7 +106,8 @@ Sessions with in-flight runs (Queued, Pending, or Running) update automatically 
 Click any session to see its full detail page, which includes:
 
 - **Origin and status badges**
-- **Context** — repository, branch/ref, linked schedule or issue/MR (as a clickable link), the agent model and thinking level, and the sandbox environment. Admins viewing another user's session also see the owning user.
+- **Context** — repository, branch/ref, linked schedule or issue/MR (as a clickable link) or, for a delegated run, the session that delegated it, the agent model and thinking level, and the sandbox environment. Admins viewing another user's session also see the owning user.
+- **Delegated jobs** — on a session that delegated work, each job's current state, in the transcript, the top bar and the details panel (see [Orchestration](orchestration.md#seeing-the-batch)).
 - **Transcript** — the full conversation transcript streams live during active runs, whatever started them (chat, job, webhook or schedule), and is replayed on return visits and mid-run refreshes — reopening the session rejoins the live stream and replays any events it missed (a fresh page load from the start of the run; an automatic reconnect only the events since it dropped).
 
 For in-flight sessions the detail page updates in real time until the run completes.
@@ -164,8 +169,9 @@ Once a repository is selected, the prompt box appears and you can type your firs
 
 As the agent works, the workspace streams updates live:
 
-- **Assistant text and reasoning** — replies render as Markdown; thinking/reasoning is shown in collapsible segments.
-- **Tool calls** — each tool call appears as an expandable card with its status (running, done, error), arguments, and result.
+- **Assistant text** — replies render as Markdown.
+- **Steps** — consecutive steps (thinking and tool calls) collapse into one line summarising what they did, such as "Read 3 files, ran 2 commands", with any failures and the lines added and removed. Open it to list the steps; each step opens to its details.
+- **Finished runs** — when a run ends, its steps fold behind one **Worked for 3m 12s · 14 steps** line; the answer, its artifacts and any question the agent asked stay visible below it. An answered question collapses to one quiet line.
 - **Todos** — when the agent plans with a todo list, the side rail shows the list with a `done/total` count.
 - **Files changed** — files the agent reads or edits are collected in the rail; click one to jump to the tool call that touched it.
 
