@@ -43,6 +43,7 @@ def _event_fields(session: Session, kind: str, fields: dict) -> dict:
     payloads = {
         EventKind.CI_FAILED: ci_payload,
         EventKind.CI_PASSED: lambda: ci_payload(status="success", jobs=()),
+        EventKind.CI_STOPPED: lambda: ci_payload(status="manual", jobs=()),
         EventKind.CHAT_MESSAGE: chat_payload,
         EventKind.MENTION: mention_payload,
         EventKind.COMMENT: mention_payload,

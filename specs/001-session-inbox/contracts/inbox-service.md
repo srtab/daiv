@@ -80,7 +80,7 @@ Mention replies are posted with `RepoClient.create_merge_request_comment(..., re
 ## Ownership
 
 ```python
-async def aclaim_ownership(*, run: Run, merge_request: MergeRequest | dict, pushed_sha: str) -> MergeRequestOwnership
+async def aclaim_ownership(*, run_id: UUID | str, merge_request: MergeRequest | dict, pushed_sha: str) -> MergeRequestOwnership | None
 async def aowning_session(repo_id: str, merge_request_iid: int) -> Session | None
 async def aownership_for_branch(repo_id: str, source_branch: str) -> MergeRequestOwnership | None
 ```

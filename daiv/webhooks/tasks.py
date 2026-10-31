@@ -7,7 +7,7 @@ from django.core.management import call_command
 from django.tasks import task
 
 from crontask import cron
-from sessions.services import aget_session_ref, aget_task_run_id
+from sessions.services import aget_run_user_id, aget_session_ref, aget_task_run_id
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
@@ -81,6 +81,7 @@ async def address_issue_task(
     # Unguarded on purpose: degrading a failed read to "" re-clones the default branch, which is the exact loss
     # ``Session.ref`` exists to prevent.
     session_ref = await aget_session_ref(thread_id=thread_id)
+    run_id = await aget_task_run_id(context.task_result.id)
     return await IssueAddressorManager.address_issue(
         repo_id=repo_id,
         issue=issue,
@@ -89,8 +90,9 @@ async def address_issue_task(
         ref=session_ref or None,
         thread_id=thread_id,
         sandbox_env_id=sandbox_environment_id,
-        run_id=await aget_task_run_id(context.task_result.id),
+        run_id=run_id,
         use_max=use_max,
+        acting_user_id=await aget_run_user_id(run_id),
     )
 
 

@@ -100,8 +100,9 @@ class SessionOrigin(models.TextChoices):
 
     @classmethod
     def classified(cls) -> frozenset[str]:
-        """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven + DELEGATION_RESUME)."""
-        return frozenset({cls.SCHEDULE, cls.DELEGATION_RESUME}) | cls.webhooks() | cls.prompt_driven()
+        """Non-chat origins that receive a RunEnvelope: SCHEDULE, the webhooks, the prompt-driven triggers and the runs
+        DAIV writes the prompt of (a CI fix, a delegation resume)."""
+        return frozenset({cls.SCHEDULE}) | cls.webhooks() | cls.prompt_driven() | cls.daiv_authored()
 
     @classmethod
     def unattended(cls) -> frozenset[str]:
@@ -307,6 +308,7 @@ def publish_field_updates(publish: dict[str, Any] | None) -> dict[str, Any]:
         "files_changed": publish.get("files_changed"),
         "lines_added": publish.get("lines_added"),
         "lines_removed": publish.get("lines_removed"),
+        "pushed_sha": publish.get("pushed_sha"),
     }
     return {field: value for field, value in updates.items() if value}
 
@@ -670,6 +672,59 @@ class SessionArchive(models.Model):
 
     def __str__(self) -> str:
         return f"Context {self.epoch} of session {self.session_id}"
+
+
+class MergeRequestOwnership(models.Model):
+    """Which session owns a merge request DAIV published, and that merge request's CI watch.
+
+    ``sessions.inbox.ownership`` applies the claim rules when a run publishes; the CI watch
+    (``sessions.pipeline_watch``) reads and writes the watch columns.
+    """
+
+    repo_id = models.CharField(_("repository"), max_length=255)
+    merge_request_iid = models.PositiveIntegerField(_("merge request IID"))
+    session = models.ForeignKey(
+        Session,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owned_merge_requests",
+        verbose_name=_("session"),
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("owner"),
+    )
+    source_branch = models.CharField(_("source branch"), max_length=255)
+    watch_enabled = models.BooleanField(_("CI watch on"), default=True)
+    attempts = models.PositiveSmallIntegerField(_("CI attempts"), default=0)
+    last_daiv_sha = models.CharField(_("last commit DAIV pushed"), max_length=64, blank=True, default="")
+    last_examined_sha = models.CharField(_("last commit examined"), max_length=64, blank=True, default="")
+    last_pipeline_id = models.BigIntegerField(_("last pipeline judged"), null=True, blank=True)
+    closed_at = models.DateTimeField(_("closed at"), null=True, blank=True)
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+
+    class Meta:
+        verbose_name = _("Merge request ownership")
+        verbose_name_plural = _("Merge request ownerships")
+        indexes = [
+            models.Index(
+                fields=["repo_id", "source_branch"],
+                name="mr_ownership_open_branch_idx",
+                condition=models.Q(closed_at__isnull=True),
+            )
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["repo_id", "merge_request_iid"], name="mr_ownership_unique_merge_request")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.repo_id}!{self.merge_request_iid} owned by session {self.session_id}"
 
 
 class EventKind(models.TextChoices):

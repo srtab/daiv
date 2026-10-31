@@ -3,7 +3,7 @@ from webhooks.gitlab.callbacks import PipelineCallback
 from webhooks.gitlab.models import PipelineEvent, Project, User
 
 from codebase.repo_config import RepositoryConfig
-from tests.unit_tests.sessions.conftest import amake_watched_session
+from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 
 
 class StubClient:
@@ -84,7 +84,7 @@ def stub_enqueue(monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 async def test_processing_enqueues_an_evaluation(monkeypatch_dependencies, stub_enqueue):
-    await amake_watched_session()
+    await amake_owned_merge_request()
 
     await make_callback("failed").process_callback()
 

@@ -10,6 +10,7 @@ from sessions.models import (
     EventKind,
     EventState,
     InboxEvent,
+    MergeRequestOwnership,
     QuietReason,
     Run,
     RunStatus,
@@ -229,3 +230,30 @@ class TestEnqueueFailure:
         stored = await _state(event)
         assert (stored.state, stored.run_id) == (EventState.PENDING, None)
         assert "could not enqueue" in caplog.text
+
+
+class TestCiAttempts:
+    async def test_taking_a_waking_ci_failure_spends_an_attempt_on_its_commit(self, enqueue):
+        session = await amake_session()
+        ownership = await MergeRequestOwnership.objects.acreate(
+            repo_id=session.repo_id, merge_request_iid=9, session=session, source_branch=session.ref, attempts=1
+        )
+        await amake_event(session, merge_request_iid=9, payload=ci_payload(sha="e96f1f77"))
+
+        await adrain(session.thread_id)
+
+        await ownership.arefresh_from_db()
+        assert (ownership.attempts, ownership.last_examined_sha) == (2, "e96f1f77")
+
+    async def test_a_quiet_ci_failure_spends_nothing(self, enqueue):
+        session = await amake_session()
+        ownership = await MergeRequestOwnership.objects.acreate(
+            repo_id=session.repo_id, merge_request_iid=9, session=session, source_branch=session.ref
+        )
+        await amake_event(session, EventKind.CHAT_MESSAGE)
+        await amake_event(session, merge_request_iid=9, wake=False, reason=QuietReason.ALREADY_EXAMINED)
+
+        await adrain(session.thread_id)
+
+        await ownership.arefresh_from_db()
+        assert (ownership.attempts, ownership.last_examined_sha) == (0, "")

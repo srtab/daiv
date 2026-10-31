@@ -95,13 +95,10 @@ def notification_source_for_run(run, total: int) -> tuple[str, str, EventType]:
     return SOURCE_RUN, str(run.pk), event_type
 
 
-def notification_source_for_watch(session, pipeline_id: int) -> tuple[str, str, EventType]:
-    """The key a pipeline-watch give-up is deduped on.
-
-    Scoped to the pipeline, not the thread: a ``thread_id`` outlives the merge request and a watch
-    can be re-armed with a fresh budget, so a thread-only key would mute every later give-up.
-    """
-    return SOURCE_SESSION, f"{session.thread_id}:{pipeline_id}", EventType.PIPELINE_WATCH_EXHAUSTED
+def notification_source_for_watch(session, sha: str) -> tuple[str, str, EventType]:
+    """The key a pipeline-watch give-up is deduped on: one per commit DAIV pushed, so retrying the same failing
+    pipeline does not notify again, while a later commit that also runs out of attempts does."""
+    return SOURCE_SESSION, f"{session.thread_id}:{sha}", EventType.PIPELINE_WATCH_EXHAUSTED
 
 
 def notification_source_for_schedule_failure(schedule) -> tuple[str, str, EventType]:

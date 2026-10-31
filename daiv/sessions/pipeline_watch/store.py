@@ -1,156 +1,89 @@
-"""The only module that queries ``Session.watch_*``. No platform I/O, no policy."""
+"""The only module that queries the watch columns of ``MergeRequestOwnership``. No platform I/O, no policy.
+
+``Session.watch_*`` are no longer read or written; they are dropped one release after this one.
+"""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from django.db.models import F
-from django.utils import timezone
+from django.db.models import Exists, OuterRef, Q
+from django.db.models.fields.json import KT
 
-from sandbox_envs.models import SandboxEnvironment
-
-from codebase.base import Scope
-from sessions.ids import compute_thread_id
-from sessions.models import Run, Session, SessionOrigin, WatchState
+from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, QuietReason
 
 if TYPE_CHECKING:
     from datetime import datetime
 
     from django.db.models import QuerySet
 
+CI_KINDS = (EventKind.CI_FAILED, EventKind.CI_PASSED, EventKind.CI_STOPPED)
 
-def watch_thread_id(repo_id: str, merge_request_iid: int) -> str:
-    """The merge request's own thread: the row its watch lives on, whichever session published the merge request."""
-    return compute_thread_id(repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request_iid)
+
+def gave_up(session: OuterRef, *, since: datetime) -> Exists:
+    """Whether CI on a merge request of ``session`` ran out of attempts since ``since`` and has not passed after."""
+    passed_after = InboxEvent.objects.filter(
+        session=OuterRef("session"),
+        merge_request_iid=OuterRef("merge_request_iid"),
+        kind=EventKind.CI_PASSED,
+        created_at__gt=OuterRef("created_at"),
+    )
+    return Exists(
+        InboxEvent.objects.filter(
+            session=session, kind=EventKind.CI_FAILED, reason=QuietReason.BUDGET_SPENT, created_at__gte=since
+        ).exclude(Exists(passed_after))
+    )
 
 
 class WatchStore:
-    """Persistence for a watch. Carries no state — an instance exists so a caller can replace it."""
+    """Persistence for the watch. Carries no state — an instance exists so a caller can replace it."""
 
-    async def atransition(self, thread_id: str, *, expect, where: dict | None = None, **updates) -> bool:
-        """Move a watch out of the states it is allowed to leave, reporting whether this caller won.
-
-        Every *contended* move of ``watch_state`` goes through here; ``aarm``, ``arefund_attempt``
-        and ``arecover_stale_fixing`` write the column too, each from a position only one caller can
-        hold. Two events finishing together both pass their checks off their own stale read, and only
-        the row count says which one owns the transition — without it each posts its own MR comment,
-        which no constraint dedupes.
-        ``where`` adds the conditions a caller needs re-asserted inside the same statement.
-        """
-        expected = [expect] if isinstance(expect, str) else list(expect)
-        updated = await Session.objects.filter(thread_id=thread_id, watch_state__in=expected, **(where or {})).aupdate(
-            **updates
-        )
-        return updated == 1
-
-    def state(self, thread_id: str) -> str | None:
-        """SYNC ONLY: the watch's state, or ``None`` when the thread has no row yet."""
-        return Session.objects.filter(thread_id=thread_id).values_list("watch_state", flat=True).first()
-
-    async def astate(self, thread_id: str) -> str | None:
-        """:meth:`state` for async callers."""
-        return await Session.objects.filter(thread_id=thread_id).values_list("watch_state", flat=True).afirst()
-
-    async def aopen_watch(self, repo_id: str, ref: str) -> Session | None:
+    async def aopen(self, repo_id: str, ref: str) -> MergeRequestOwnership | None:
+        """The open ownership whose merge request's source branch is ``ref``."""
         return await (
-            Session.objects
-            .filter(repo_id=repo_id, ref=ref, watch_state=WatchState.WATCHING)
-            .select_related("user")
-            .order_by("-watch_armed_at")
+            MergeRequestOwnership.objects
+            .filter(repo_id=repo_id, source_branch=ref, closed_at__isnull=True)
+            .order_by("-updated_at")
             .afirst()
         )
 
-    async def ahas_open_watch(self, repo_id: str, ref: str) -> bool:
-        return await Session.objects.filter(repo_id=repo_id, ref=ref, watch_state=WatchState.WATCHING).aexists()
+    async def ahas_open(self, repo_id: str, ref: str) -> bool:
+        return await MergeRequestOwnership.objects.filter(
+            repo_id=repo_id, source_branch=ref, closed_at__isnull=True
+        ).aexists()
 
-    async def aarm(
-        self,
-        *,
-        thread_id: str,
-        repo_id: str,
-        ref: str,
-        merge_request_iid: int,
-        user_id: int | None,
-        sandbox_environment_id: str | None,
-        reset_attempts: bool,
-    ) -> None:
-        session, _created = await Session.objects.aget_or_create(
-            thread_id=thread_id,
-            defaults={
-                "origin": SessionOrigin.PIPELINE_WEBHOOK,
-                "repo_id": repo_id,
-                "ref": ref,
-                "merge_request_iid": merge_request_iid,
-                "user_id": user_id,
-            },
+    async def aget(self, repo_id: str, merge_request_iid: int) -> MergeRequestOwnership | None:
+        return await MergeRequestOwnership.objects.filter(repo_id=repo_id, merge_request_iid=merge_request_iid).afirst()
+
+    async def arecord_pipeline(self, ownership_id: int, pipeline_id: int) -> bool:
+        """Record ``pipeline_id`` as judged, reporting whether this caller won: two deliveries of one pipeline must not
+        both post its event."""
+        updated = await (
+            MergeRequestOwnership.objects
+            .filter(pk=ownership_id)
+            .filter(Q(last_pipeline_id__isnull=True) | ~Q(last_pipeline_id=pipeline_id))
+            .aupdate(last_pipeline_id=pipeline_id)
         )
-        updates = {
-            "watch_state": WatchState.WATCHING,
-            "watch_armed_at": timezone.now(),
-            "ref": ref,
-            "merge_request_iid": merge_request_iid,
-        }
-        if user_id and session.user_id is None:
-            updates["user_id"] = user_id
-        if sandbox_environment_id and session.sandbox_environment_id is None:
-            # The run's env may be another user's USER env, or deleted since the run started.
-            owner_id = session.user_id or user_id
-            if await SandboxEnvironment.objects.visible_to(owner_id).filter(pk=sandbox_environment_id).aexists():
-                updates["sandbox_environment_id"] = sandbox_environment_id
-        if reset_attempts:
-            updates["watch_attempts"] = 0
-            updates["watch_pipeline_id"] = None
-        await Session.objects.filter(thread_id=thread_id).aupdate(**updates)
+        return updated == 1
 
-    async def aclaim_attempt(self, thread_id: str, *, max_attempts: int, pipeline_id: int) -> bool:
-        """Charge one attempt and hand the watch to a fix run, reporting whether this caller won.
+    async def aset_enabled(self, ownership_id: int, *, enabled: bool) -> None:
+        """Turn the watch on or off; turning it on gives it its attempts back, as a person asking again is a new
+        budget."""
+        updates = {"watch_enabled": enabled} | ({"attempts": 0} if enabled else {})
+        await MergeRequestOwnership.objects.filter(pk=ownership_id).aupdate(**updates)
 
-        The cap is re-asserted inside the statement rather than trusted from the caller's read: a
-        stale read can outlive a whole fix-run cycle. Restamping ``watch_armed_at`` is what stops
-        the reconciler seeing the new ``fixing`` row as already stale.
-        """
-        return await self.atransition(
-            thread_id,
-            expect=WatchState.WATCHING,
-            where={"watch_attempts__lt": max_attempts},
-            watch_state=WatchState.FIXING,
-            watch_attempts=F("watch_attempts") + 1,
-            watch_pipeline_id=pipeline_id,
-            watch_armed_at=timezone.now(),
+    def unjudged(self, *, quiet_since: datetime, horizon: datetime, limit: int) -> QuerySet[MergeRequestOwnership]:
+        """Open, watched merge requests whose latest DAIV commit has no CI result yet, quiet since ``quiet_since`` and
+        claimed after ``horizon``: the ones a missed webhook may have left waiting."""
+        judged = InboxEvent.objects.annotate(sha=KT("payload__sha")).filter(
+            session=OuterRef("session"),
+            kind__in=CI_KINDS,
+            merge_request_iid=OuterRef("merge_request_iid"),
+            sha=OuterRef("last_daiv_sha"),
         )
-
-    async def arefund_attempt(self, thread_id: str) -> None:
-        """Undo a claim whose fix run never started, so the attempt is not spent on nothing."""
-        await Session.objects.filter(thread_id=thread_id, watch_state=WatchState.FIXING).aupdate(
-            watch_state=WatchState.WATCHING, watch_attempts=F("watch_attempts") - 1, watch_pipeline_id=None
+        return (
+            MergeRequestOwnership.objects
+            .filter(closed_at__isnull=True, watch_enabled=True, updated_at__lt=quiet_since, updated_at__gte=horizon)
+            .exclude(Exists(judged))
+            .only("id", "repo_id", "merge_request_iid", "source_branch")[:limit]
         )
-
-    async def ais_fix_run(self, run_id: str | None) -> bool:
-        """Whether this run was dispatched by the watch, which is what stops the arm resetting
-        ``watch_attempts``. A run with no row reads as False, so every fix-run dispatcher must pass
-        its ``run_id`` through to here or the loop bound is lost.
-        """
-        if not run_id:
-            return False
-        trigger_type = await Run.objects.filter(pk=run_id).values_list("trigger_type", flat=True).afirst()
-        return trigger_type == SessionOrigin.PIPELINE_WEBHOOK
-
-    def expiring_watches(self, cutoff: datetime, limit: int) -> QuerySet[Session]:
-        return Session.objects.filter(watch_state__in=WatchState.open(), watch_armed_at__lt=cutoff).only(
-            "thread_id", "repo_id", "merge_request_iid", "watch_state"
-        )[:limit]
-
-    async def arecover_stale_fixing(self, *, cutoff: datetime, now: datetime) -> int:
-        """Hand a dead fix run's watch back to watching.
-
-        Dead means both the claim and the session's heartbeat (``last_active_at``) predate ``cutoff``. The claim's
-        age alone is not enough: a live fix run can wait for the session slot, then run, past the window.
-        """
-        return await Session.objects.filter(
-            watch_state=WatchState.FIXING, watch_armed_at__lt=cutoff, last_active_at__lt=cutoff
-        ).aupdate(watch_state=WatchState.WATCHING, watch_armed_at=now)
-
-    def stale_watching(self, cutoff: datetime, limit: int) -> QuerySet:
-        return Session.objects.filter(watch_state=WatchState.WATCHING, watch_armed_at__lt=cutoff).values_list(
-            "repo_id", "ref", "thread_id"
-        )[:limit]

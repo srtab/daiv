@@ -164,13 +164,13 @@ description: "Task list for the Session Inbox feature"
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T025 [P] [US1] Write `tests/unit_tests/sessions/inbox/test_ownership.py`. Cover:
+- [X] T025 [P] [US1] Write `tests/unit_tests/sessions/inbox/test_ownership.py`. Cover:
   - every row of data-model.md "Claim rules";
   - every claim sets `last_daiv_sha` from `Run.pushed_sha`;
   - person-started triggers reset `attempts` and the CI and delegation triggers don't;
   - `aowning_session` returns `None` for closed or unowned merge requests, and creates a session for the same person when the owning session was deleted.
-- [ ] T026 [P] [US1] Extend `tests/unit_tests/automation/agent/test_publishers.py`: `PublishOutcome.pushed_sha` equals `GitManager.head_sha()` after a successful push, and is empty when nothing was published. Extend `tests/unit_tests/automation/agent/test_events.py` for `pushed_sha` in the `daiv_publish_result` payload.
-- [ ] T027 [P] [US1] Rewrite `tests/unit_tests/sessions/pipeline_watch/test_service.py`. Cover:
+- [X] T026 [P] [US1] Extend `tests/unit_tests/automation/agent/test_publishers.py`: `PublishOutcome.pushed_sha` equals `GitManager.head_sha()` after a successful push, and is empty when nothing was published. Extend `tests/unit_tests/automation/agent/test_events.py` for `pushed_sha` in the `daiv_publish_result` payload.
+- [X] T027 [P] [US1] Rewrite `tests/unit_tests/sessions/pipeline_watch/test_service.py`. Cover:
   - a green pipeline posts `ci_passed`;
   - a needs-a-person status posts `ci_stopped`;
   - a failure posts `ci_failed` with `wake` and `reason` per each condition of data-model.md "CI wake rule": `watch_off`, `muted`, `not_daiv_commit`, `already_examined`, `budget_spent`, `run_limit`, and a blank `last_daiv_sha` counting as a match;
@@ -179,24 +179,24 @@ description: "Task list for the Session Inbox feature"
   - `budget_spent` on a new DAIV commit sends `watch_exhausted`.
 
   Delete `tests/unit_tests/sessions/pipeline_watch/test_dispatch.py` and `test_arm.py`, and move their still-relevant cases to `test_ownership.py`.
-- [ ] T028 [P] [US1] Rewrite `tests/unit_tests/sessions/pipeline_watch/test_store.py` and `test_reconciler.py` around `MergeRequestOwnership`: no 6-hour expiry, and a re-read of the latest pipeline for open ownerships with no CI event for 30 minutes.
-- [ ] T029 [P] [US1] Extend `tests/unit_tests/sessions/inbox/test_drain.py`: taking a waking `ci_failed` sets the ownership's `last_examined_sha` to the pipeline SHA and increments `attempts` in the same transaction.
-- [ ] T030 [P] [US1] Extend `tests/unit_tests/sessions/executor/test_run.py`: after a published run, `aclaim_ownership` is called with the run and its `pushed_sha`, `PipelineWatch.aarm_after_run` is no longer called, and `Run.pushed_sha` is stored.
-- [ ] T031 [P] [US1] Extend `tests/unit_tests/sessions/test_migrations.py`: the data migration turns a session with `watch_state` `watching` or `fixing` into a `MergeRequestOwnership` row.
+- [X] T028 [P] [US1] Rewrite `tests/unit_tests/sessions/pipeline_watch/test_store.py` and `test_reconciler.py` around `MergeRequestOwnership`: no 6-hour expiry, and a re-read of the latest pipeline for open ownerships with no CI event for 30 minutes.
+- [X] T029 [P] [US1] Extend `tests/unit_tests/sessions/inbox/test_drain.py`: taking a waking `ci_failed` sets the ownership's `last_examined_sha` to the pipeline SHA and increments `attempts` in the same transaction.
+- [X] T030 [P] [US1] Extend `tests/unit_tests/sessions/executor/test_run.py`: after a published run, `aclaim_ownership` is called with the run and its `pushed_sha`, `PipelineWatch.aarm_after_run` is no longer called, and `Run.pushed_sha` is stored.
+- [X] T031 [P] [US1] Extend `tests/unit_tests/sessions/test_migrations.py`: the data migration turns a session with `watch_state` `watching` or `fixing` into a `MergeRequestOwnership` row.
   - That session is the owner, with `owner=user`, `attempts=watch_attempts`, `source_branch=ref`, `last_pipeline_id=watch_pipeline_id` and a blank `last_daiv_sha`.
   - Sessions in other states get no row.
-- [ ] T032 [P] [US1] Extend the notification tests in `tests/unit_tests/notifications/test_signals.py` and `tests/unit_tests/notifications/test_watch_notifier.py`. Cover:
+- [X] T032 [P] [US1] Extend the notification tests in `tests/unit_tests/notifications/test_signals.py` and `tests/unit_tests/notifications/test_watch_notifier.py`. Cover:
   - in `tests/unit_tests/notifications/test_signals.py`: `pipeline_webhook` runs are classified;
   - in `tests/unit_tests/notifications/test_watch_notifier.py`: the exhausted recipient is the ownership's owner, and an ownerless session falls back to a merge request comment.
-- [ ] T033 [P] [US1] Extend `tests/unit_tests/sessions/test_header.py` and `tests/unit_tests/sessions/test_api.py`. Cover:
+- [X] T033 [P] [US1] Extend `tests/unit_tests/sessions/test_header.py` and `tests/unit_tests/sessions/test_api.py`. Cover:
   - the turns poll returns `ci`, a list per owned open merge request with `status`, `attempts`, `max_attempts`, `watch_enabled` and `explanation_run_id`, plus the legacy `watch` derived from the first item;
   - `POST /api/sessions/{id}/ci-watch` toggles `MergeRequestOwnership.watch_enabled`, takes an optional `merge_request_iid`, and answers 409 `not_owned` for a merge request the session doesn't own.
-- [ ] T034 [P] [US1] Extend `tests/unit_tests/webhooks/managers/test_issue_addressor.py`: the issue addressor's `RunSpec` carries `acting_user_id` resolved from the triggering author.
-- [ ] T035 [P] [US1] Extend `tests/unit_tests/sessions/inbox/test_complete.py`: when the session has no DAIV user, a SUCCESSFUL run that took a waking `ci_failed` posts its `result_summary` as a merge request comment. A posting failure is logged with `logger.exception` and changes no event state.
+- [X] T034 [P] [US1] Extend `tests/unit_tests/webhooks/managers/test_issue_addressor.py`: the issue addressor's `RunSpec` carries `acting_user_id` resolved from the triggering author.
+- [X] T035 [P] [US1] Extend `tests/unit_tests/sessions/inbox/test_complete.py`: when the session has no DAIV user, a SUCCESSFUL run that took a waking `ci_failed` posts its `result_summary` as a merge request comment. A posting failure is logged with `logger.exception` and changes no event state.
 
 ### Implementation for User Story 1
 
-- [ ] T036 [US1] Add `MergeRequestOwnership` to `daiv/sessions/models.py`, exactly per data-model.md.
+- [X] T036 [US1] Add `MergeRequestOwnership` to `daiv/sessions/models.py`, exactly per data-model.md.
   - **Fields**:
     - `repo_id` Char(255);
     - `merge_request_iid` PositiveInteger;
@@ -214,35 +214,35 @@ description: "Task list for the Session Inbox feature"
   - **Index**: a partial index on `(repo_id, source_branch)` where `closed_at IS NULL`.
 
   Generate `daiv/sessions/migrations/0022_merge_request_ownership.py`.
-- [ ] T037 [US1] Write the data migration `daiv/sessions/migrations/0023_migrate_open_watches.py`, per data-model.md "Migrations" step 2, with a no-op reverse.
-- [ ] T038 [P] [US1] Add `pushed_sha: str = ""` to `PublishOutcome` in `daiv/automation/agent/publishers.py`, set from `GitManager.head_sha()` after every successful push, not only on the `will_heal` path. Carry it in the `daiv_publish_result` event (`daiv/automation/agent/events.py`) and its recorder.
-- [ ] T039 [US1] Write `Run.pushed_sha` in `_record_publish_result` / `publish_field_updates` (`daiv/sessions/executor/run.py`, `daiv/sessions/models.py`).
-- [ ] T040 [US1] Implement `daiv/sessions/inbox/ownership.py` with `aclaim_ownership`, `aowning_session` and `aownership_for_branch`, exactly per contracts/inbox-service.md and data-model.md "Claim rules":
+- [X] T037 [US1] Write the data migration `daiv/sessions/migrations/0023_migrate_open_watches.py`, per data-model.md "Migrations" step 2, with a no-op reverse.
+- [X] T038 [P] [US1] Add `pushed_sha: str = ""` to `PublishOutcome` in `daiv/automation/agent/publishers.py`, set from `GitManager.head_sha()` after every successful push, not only on the `will_heal` path. Carry it in the `daiv_publish_result` event (`daiv/automation/agent/events.py`) and its recorder.
+- [X] T039 [US1] Write `Run.pushed_sha` in `_record_publish_result` / `publish_field_updates` (`daiv/sessions/executor/run.py`, `daiv/sessions/models.py`).
+- [X] T040 [US1] Implement `daiv/sessions/inbox/ownership.py` with `aclaim_ownership`, `aowning_session` and `aownership_for_branch`, exactly per contracts/inbox-service.md and data-model.md "Claim rules":
   - post `foreign_publish` or `notice` events through `apost_event`;
   - reset `attempts` on claims by person-started triggers.
-- [ ] T041 [US1] Replace the `arm_watch` step in `daiv/sessions/executor/run.py` (today calling `PipelineWatch.aarm_after_run`) with `aclaim_ownership(run=..., merge_request=..., pushed_sha=...)` when the run published. Then enqueue `evaluate_pipeline_watch_task` for the merge request's source branch. Keep the `RunSpec.arm_watch` flag name as the opt-in.
-- [ ] T042 [US1] Rewrite `daiv/sessions/pipeline_watch/store.py` to read and write `MergeRequestOwnership`, not `Session.watch_*`, which nothing writes after this task. Update the module docstrings in `daiv/sessions/pipeline_watch/__init__.py` and `store.py`.
-- [ ] T043 [US1] Rewrite `PipelineWatch` in `daiv/sessions/pipeline_watch/service.py`:
+- [X] T041 [US1] Replace the `arm_watch` step in `daiv/sessions/executor/run.py` (today calling `PipelineWatch.aarm_after_run`) with `aclaim_ownership(run=..., merge_request=..., pushed_sha=...)` when the run published. Then enqueue `evaluate_pipeline_watch_task` for the merge request's source branch. Keep the `RunSpec.arm_watch` flag name as the opt-in.
+- [X] T042 [US1] Rewrite `daiv/sessions/pipeline_watch/store.py` to read and write `MergeRequestOwnership`, not `Session.watch_*`, which nothing writes after this task. Update the module docstrings in `daiv/sessions/pipeline_watch/__init__.py` and `store.py`.
+- [X] T043 [US1] Rewrite `PipelineWatch` in `daiv/sessions/pipeline_watch/service.py`:
   - `aevaluate` looks up the open ownership by branch, judges with the unchanged `judgment.py`, and posts `ci_passed`, `ci_failed` or `ci_stopped` with `wake` and `reason` from the wake rule. The thread is the ownership's session, through `aowning_session`.
   - It records `last_pipeline_id`, and sends `watch_exhausted` on `budget_spent` for a new DAIV commit.
   - `arequest_evaluation` checks for an open ownership on the branch.
   - `aturn_on` and `aturn_off` toggle `watch_enabled`.
   - Remove `aexhaust`, the no-push path in `aarm_after_run`, and `aarm_after_run` itself, along with `_aact`'s claim-and-dispatch.
-- [ ] T044 [US1] Delete `daiv/sessions/pipeline_watch/dispatch.py`. Make `daiv/sessions/inbox/drain.py` set `last_examined_sha` and increment `attempts` on the ownership when it takes a waking `ci_failed`, per T029.
-- [ ] T045 [US1] Update `daiv/sessions/pipeline_watch/reconciler.py`: remove the 6-hour expiry, recover nothing from `FIXING` (that state no longer exists), and re-read the latest pipeline for open ownerships with no CI event for 30 minutes, at most 200 per tick.
-- [ ] T046 [P] [US1] Add `SessionOrigin.PIPELINE_WEBHOOK` to `SessionOrigin.classified()` in `daiv/sessions/models.py`.
-- [ ] T047 [P] [US1] Update `daiv/notifications/watch_notifiers.py`: resolve the recipient from the ownership's `owner`, link to the owning session's page, and when there is no owner post the outcome as a merge request comment through `daiv/sessions/pipeline_watch/platform.py` `apost_note`.
-- [ ] T048 [US1] In `daiv/sessions/inbox/complete.py`, when a run that took a waking `ci_failed` ends SUCCESSFUL on a session with no DAIV user, post its `result_summary` on the merge request through `daiv/sessions/pipeline_watch/platform.py` `apost_note` (FR-018; spec edge case "The owning session has no DAIV user"). Log a posting failure with `logger.exception`.
-- [ ] T049 [US1] Update `daiv/sessions/header.py`, the turns poll in `daiv/sessions/api/views.py` and `POST /{thread_id}/ci-watch`, exactly per contracts/http.md:
+- [X] T044 [US1] Delete `daiv/sessions/pipeline_watch/dispatch.py`. Make `daiv/sessions/inbox/drain.py` set `last_examined_sha` and increment `attempts` on the ownership when it takes a waking `ci_failed`, per T029.
+- [X] T045 [US1] Update `daiv/sessions/pipeline_watch/reconciler.py`: remove the 6-hour expiry, recover nothing from `FIXING` (that state no longer exists), and re-read the latest pipeline for open ownerships with no CI event for 30 minutes, at most 200 per tick.
+- [X] T046 [P] [US1] Add `SessionOrigin.PIPELINE_WEBHOOK` to `SessionOrigin.classified()` in `daiv/sessions/models.py`.
+- [X] T047 [P] [US1] Update `daiv/notifications/watch_notifiers.py`: resolve the recipient from the ownership's `owner`, link to the owning session's page, and when there is no owner post the outcome as a merge request comment through `daiv/sessions/pipeline_watch/platform.py` `apost_note`.
+- [X] T048 [US1] In `daiv/sessions/inbox/complete.py`, when a run that took a waking `ci_failed` ends SUCCESSFUL on a session with no DAIV user, post its `result_summary` on the merge request through `daiv/sessions/pipeline_watch/platform.py` `apost_note` (FR-018; spec edge case "The owning session has no DAIV user"). Log a posting failure with `logger.exception`.
+- [X] T049 [US1] Update `daiv/sessions/header.py`, the turns poll in `daiv/sessions/api/views.py` and `POST /{thread_id}/ci-watch`, exactly per contracts/http.md:
   - `ci` is a list built from the session's owned open merge requests and their latest `ci_*` event;
   - `explanation_run_id` is the last run that took a waking `ci_failed`;
   - the legacy `watch` comes from the first item;
   - the toggle takes an optional `merge_request_iid` and answers 409 `not_owned`.
 
   Rewrite `header.py`'s docstring.
-- [ ] T050 [US1] Render the CI status per owned merge request in `daiv/sessions/templates/sessions/_session_topbar.html`, and handle the `ci` list in `daiv/sessions/static/sessions/js/session-page.js`. Show "failing" with a link to the explanation run instead of "Attempts exhausted". Run `uv run --only-group=dev djade --target-version 6.0` on any new template.
-- [ ] T051 [P] [US1] Pass `acting_user_id` (the resolved DAIV user of the triggering author) in the `RunSpec` built by `daiv/webhooks/managers/issue_addressor.py`, threading it from `daiv/webhooks/tasks.py`.
-- [ ] T052 [US1] Rewrite `docs/features/pipeline-watch.md` for the new behaviour:
+- [X] T050 [US1] Render the CI status per owned merge request in `daiv/sessions/templates/sessions/_session_topbar.html`, and handle the `ci` list in `daiv/sessions/static/sessions/js/session-page.js`. Show "failing" with a link to the explanation run instead of "Attempts exhausted". Run `uv run --only-group=dev djade --target-version 6.0` on any new template.
+- [X] T051 [P] [US1] Pass `acting_user_id` (the resolved DAIV user of the triggering author) in the `RunSpec` built by `daiv/webhooks/managers/issue_addressor.py`, threading it from `daiv/webhooks/tasks.py`.
+- [X] T052 [US1] Rewrite `docs/features/pipeline-watch.md` for the new behaviour:
   - the publishing session handles CI;
   - the wake conditions;
   - a run that pushes nothing explains, without giving up;

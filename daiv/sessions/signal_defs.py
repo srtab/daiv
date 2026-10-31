@@ -13,6 +13,7 @@ run_finished = Signal()
 # ``run_finished``. Arguments: run (Run).
 run_ended = Signal()
 
-# Emitted when the CI watch runs out of fix attempts with CI still failing; at most once per armed watch.
-# Arguments: session (Session), failing_jobs (list[str]), pipeline_url (str), pipeline_id (int).
+# Emitted when CI fails on a commit DAIV pushed and the merge request's CI attempts are spent; once per commit.
+# Arguments: ownership (MergeRequestOwnership), session (Session, the owning one), failing_jobs (list[str]),
+# pipeline_url (str), sha (str).
 watch_exhausted = Signal()

@@ -4,8 +4,9 @@
 transaction: it supersedes all but the newest event per subject, turns the CI and delegation wakes the policy blocks
 into remembered events, and drops a QUEUED next run left with nothing to wake it. When a waking event survives, it
 picks the branch of the oldest one, checks the owner may still run on the repository, promotes that branch's next run
-(or creates a READY one), claims the slot for it and marks every pending event for the branch ``taken``. The run is
-enqueued once that commits; a failed enqueue frees the slot and puts the events back, for the sweep to retry.
+(or creates a READY one), claims the slot for it and marks every pending event for the branch ``taken``; a CI
+failure among them spends one of its merge request's attempts on the commit it reports. The run is enqueued once
+that commits; a failed enqueue frees the slot and puts the events back, for the sweep to retry.
 
 A next run is a QUEUED run with an inbox trigger type, no task yet, and events linked to it. ``sessions.queue`` leaves
 such runs alone: only this module starts them, because only it claims the slot for them.
@@ -17,7 +18,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
@@ -27,7 +28,16 @@ from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.kinds import INBOX_TRIGGERS, PERSON_KINDS, PRECEDENCE, run_trigger_type
 from sessions.inbox.policy import may_wake
 from sessions.inbox.render import render_request
-from sessions.models import EventFailure, EventKind, EventState, InboxEvent, Run, RunStatus, Session
+from sessions.models import (
+    EventFailure,
+    EventKind,
+    EventState,
+    InboxEvent,
+    MergeRequestOwnership,
+    Run,
+    RunStatus,
+    Session,
+)
 from sessions.queue import aenqueue_run
 from sessions.services import pinned_agent_override
 
@@ -146,7 +156,17 @@ def _take(thread_id: str) -> Run | None:
     InboxEvent.objects.filter(
         session=session, state=EventState.SUPERSEDED, run__isnull=True, subject__in={e.subject for e in taken} - {""}
     ).filter(Q(ref="") | Q(ref=branch)).update(run=run)
+    _charge_ci_attempts(session, taken)
     return run
+
+
+def _charge_ci_attempts(session: Session, taken: list[InboxEvent]) -> None:
+    """Spend an attempt of each merge request whose CI failure woke the run, and record the commit it examines."""
+    for event in taken:
+        if event.kind == EventKind.CI_FAILED and event.wake and event.merge_request_iid:
+            MergeRequestOwnership.objects.filter(
+                repo_id=session.repo_id, merge_request_iid=event.merge_request_iid
+            ).update(last_examined_sha=event.payload["sha"], attempts=F("attempts") + 1)
 
 
 def _supersede(pending: list[InboxEvent]) -> list[InboxEvent]:

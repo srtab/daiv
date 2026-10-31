@@ -22,6 +22,8 @@ document.addEventListener("alpine:init", () => {
 
   Alpine.data("sessionPage", (config) => ({
     latest: null,
+    // CI on each merge request the session owns; `watch` is the first one's, which the top bar's toggle acts on.
+    ci: [],
     watch: null,
     runCount: 0,
     title: config.title || "",
@@ -105,14 +107,21 @@ document.addEventListener("alpine:init", () => {
       if (!data || data.latest_run === undefined) return;
       this.latest = data.latest_run;
       this.runCount = data.run_count ?? this.runCount;
-      // A response asked for before the last toggle answered read the watch from before it; one without `watch`
-      // has no merge request on record, so the page keeps its own.
+      // A response asked for before the last toggle answered read CI from before it.
       const stale = data.requestedAt <= this._watchAt;
-      if ("watch" in data && !stale) this.watch = data.watch ?? null;
+      if ("watch" in data && !stale) this._showCi(data);
     },
-    _setWatch(watch) {
-      this.watch = watch ?? null;
+    _showCi(data) {
+      this.ci = data?.ci ?? [];
+      this.watch = data?.watch ?? null;
+    },
+    _setCi(data) {
+      this._showCi(data);
       this._watchAt = performance.now();
+    },
+    // The run that last looked at a failure, whose summary says what it found.
+    ciExplanation(item) {
+      return item?.status === "failing" && item.explanation_run_id ? `#run-status-${item.explanation_run_id}` : "";
     },
     async _send(url, method, body) {
       return fetch(url, {
@@ -155,16 +164,15 @@ document.addEventListener("alpine:init", () => {
       this.title = title;
       document.title = `${title} — ${config.titleSuffix}`;
     },
-    // A green, exhausted or unreadable watch is over: ticking the item again starts a new one.
+    // On while failures on the merge request wake the session; off, its CI results are only remembered.
     get ciWatchOn() {
       return Boolean(this.watch?.open);
     },
     get ciWatchHint() {
       if (this.ciWatchDisabled) return this.ciWatchDisabled;
       if (this.ciWatchError) return this.ciWatchError;
-      if (!this.watch) return config.labels.watchOff;
-      if (this.ciWatchOn) return config.labels.watching.replace("{state}", this.watch.label);
-      return this.watch.label;
+      if (!this.ciWatchOn) return config.labels.watchOff;
+      return config.labels.watching.replace("{state}", this.watch.label);
     },
     async toggleCiWatch(mergeRequestIid) {
       if (this.ciWatchBusy || this.ciWatchDisabled) return;
@@ -174,16 +182,16 @@ document.addEventListener("alpine:init", () => {
         const res = await this._send(config.ciWatchUrl, "POST", {
           on: !this.ciWatchOn,
           merge_request_iid: mergeRequestIid,
-          seen_state: this.watch?.state || "off",
         });
         const data = await res.json();
         if (res.status === 409 && data.reason) {
-          this._setWatch(data.watch);
+          this._setCi(data);
           if (data.reason === "disabled") this.ciWatchDisabled = data.detail;
+          else this.ciWatchError = data.detail;
           return;
         }
         if (!res.ok) throw new Error(`CI watch toggle failed: ${res.status}`);
-        this._setWatch(data);
+        this._setCi(data);
       } catch {
         this.ciWatchError = config.labels.watchFailed;
       } finally {

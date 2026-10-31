@@ -81,6 +81,11 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
              :href="'{% url 'session_list' %}?repo={{ session.repo_id|urlencode }}&mr=' + thread.merge_request.id">
             {% icon "list-bullet" "session-menu__icon" %}<span x-text="'{{ _("Other sessions on")|escapejs }} !' + thread.merge_request.id"></span>
           </a>
+          <a role="menuitem" tabindex="-1" class="session-menu__item"
+             x-show="ciExplanation(ci[0])" :href="ciExplanation(ci[0]) || null" @click="close(true)"
+             data-testid="session-ci-explanation">
+            {% icon "magnifying-glass" "session-menu__icon" %}{% translate "What DAIV found on the failure" %}
+          </a>
           {% if can_act %}
             <div class="session-menu__divider" role="separator" x-show="thread.merge_request.id"></div>
             <button type="button" role="menuitemcheckbox" tabindex="-1"

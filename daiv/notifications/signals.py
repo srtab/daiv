@@ -41,11 +41,11 @@ def classify_on_run_finished(sender, run, **kwargs) -> None:
 
 
 @receiver(watch_exhausted, dispatch_uid="notifications.on_watch_exhausted")
-def on_watch_exhausted(sender, session, failing_jobs, pipeline_url, pipeline_id, **kwargs) -> None:
-    """Tell the session owner the CI watch gave up; swallow errors so the signal never propagates."""
+def on_watch_exhausted(sender, ownership, session, failing_jobs, pipeline_url, sha, **kwargs) -> None:
+    """Tell the merge request's owner the CI watch gave up; swallow errors so the signal never propagates."""
     try:
         emit_watch_exhausted(
-            session=session, failing_jobs=failing_jobs, pipeline_url=pipeline_url, pipeline_id=pipeline_id
+            ownership=ownership, session=session, failing_jobs=failing_jobs, pipeline_url=pipeline_url, sha=sha
         )
     except Exception:
         logger.exception("on_watch_exhausted: unexpected error for thread_id=%s", session.thread_id)

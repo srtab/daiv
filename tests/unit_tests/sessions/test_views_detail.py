@@ -4,6 +4,7 @@ import json
 import re
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.urls import reverse
@@ -14,7 +15,7 @@ import pytest
 from sessions.conf import settings as sessions_settings
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import HiddenSession, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.transcript_labels import transcript_icons
 
 from tests.unit_tests.sessions.conftest import create_archive, grant_read_access, make_artifact
@@ -1027,13 +1028,26 @@ def test_detail_has_no_issue_item_for_other_origins(member_client, member_user):
 
 
 @pytest.mark.django_db
-def test_detail_hands_the_ci_watch_to_the_page(member_client, member_user):
-    session = _create_session(user=member_user, origin=SessionOrigin.CHAT, watch_state=WatchState.FIXING)
+def test_detail_hands_ci_on_the_owned_merge_requests_to_the_page(member_client, member_user):
+    session = _create_session(user=member_user, origin=SessionOrigin.CHAT)
     _create_run(session)
+    MergeRequestOwnership.objects.create(
+        repo_id=session.repo_id, merge_request_iid=5, session=session, source_branch="feature"
+    )
 
-    resp = _get_detail(member_client, session)
+    with (
+        patch("sessions.header.WatchPolicy", return_value=SimpleNamespace(enabled=True, max_attempts=3)),
+        patch("sessions.header.RepositoryConfig.get_config"),
+    ):
+        resp = _get_detail(member_client, session)
 
-    assert resp.context["header"]["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn", "open": True}
+    assert [(item["merge_request_iid"], item["status"]) for item in resp.context["header"]["ci"]] == [(5, "running")]
+    assert resp.context["header"]["watch"] == {
+        "state": "running",
+        "label": "Waiting for CI",
+        "tone": "attn",
+        "open": True,
+    }
     assert b'id="session-header"' in resp.content
 
 
@@ -1158,34 +1172,6 @@ def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, 
     assert 'x-show="!archived"' in html
     item = topbar[topbar.index('data-testid="session-archive"') :]
     assert (">Unarchive</span>" in item) is archived
-
-
-@pytest.mark.django_db
-def test_detail_reads_the_watch_off_the_merge_requests_thread(member_client, member_user):
-    from sessions.pipeline_watch.store import watch_thread_id
-
-    session = _create_session(user=member_user)
-    _create_session(thread_id=watch_thread_id(session.repo_id, 5), merge_request_iid=5, watch_state=WatchState.WATCHING)
-
-    with patch(
-        "sessions.views.ahydrate_thread",
-        AsyncMock(return_value=HydratedThread([], False, {"id": 5, "source_branch": "b"}, None, None)),
-    ):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-
-    assert resp.context["header"]["watch"]["state"] == WatchState.WATCHING
-
-
-@pytest.mark.django_db
-def test_detail_reads_the_watch_of_a_merge_request_found_by_its_branch(member_client, member_user):
-    from sessions.pipeline_watch.store import watch_thread_id
-
-    session = _create_session(user=member_user, ref="feature")
-    _create_session(thread_id=watch_thread_id(session.repo_id, 5), merge_request_iid=5, watch_state=WatchState.FIXING)
-
-    resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
-
-    assert resp.context["header"]["watch"]["state"] == WatchState.FIXING
 
 
 @pytest.mark.django_db

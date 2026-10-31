@@ -12,13 +12,13 @@ from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.models import DBTaskResult, get_date_max
 from sessions.artifacts import guess_content_type
 from sessions.models import (
+    MergeRequestOwnership,
     Run,
     RunArtifact,
     RunStatus,
     Session,
     SessionArchive,
     SessionOrigin,
-    WatchState,
     artifact_upload_to,
 )
 from sessions.signal_defs import run_finished
@@ -208,34 +208,21 @@ def make_pipeline(status: str = "failed", jobs: list[Job] | None = None, *, pipe
     )
 
 
-async def amake_watched_session(
+async def amake_owned_merge_request(
     *,
     thread_id: str = "mr-thread",
     repo_id: str = "group/repo",
     ref: str = "daiv/branch",
-    merge_request_iid: int | None = 7,
-    watch_state: str = WatchState.WATCHING,
-    watch_attempts: int = 0,
-    watch_armed_at=None,
-    watch_pipeline_id: int | None = None,
+    merge_request_iid: int = 7,
     user: User | None = None,
-    sandbox_environment=None,
-    last_active_at=None,
-) -> Session:
-    """A session with the watch armed — the starting row for every watch test."""
-    return await Session.objects.acreate(
-        thread_id=thread_id,
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id=repo_id,
-        ref=ref,
-        merge_request_iid=merge_request_iid,
-        watch_state=watch_state,
-        watch_attempts=watch_attempts,
-        watch_armed_at=watch_armed_at or timezone.now(),
-        watch_pipeline_id=watch_pipeline_id,
-        user=user,
-        sandbox_environment=sandbox_environment,
-        last_active_at=last_active_at or timezone.now(),
+    **fields,
+) -> MergeRequestOwnership:
+    """A session that owns an open merge request on ``ref`` — the starting row for every CI watch test."""
+    session = await Session.objects.acreate(
+        thread_id=thread_id, origin=SessionOrigin.CHAT, repo_id=repo_id, ref=ref, user=user
+    )
+    return await MergeRequestOwnership.objects.acreate(
+        repo_id=repo_id, merge_request_iid=merge_request_iid, session=session, owner=user, source_branch=ref, **fields
     )
 
 
@@ -250,28 +237,23 @@ async def active_holder(thread_id: str) -> str | None:
     return (await Session.objects.aget(thread_id=thread_id)).active_run_id
 
 
-def watch_recorder(armed: list[dict], *, error: Exception | None = None):
-    """A stand-in for ``PipelineWatch`` that records the ``aarm_after_run`` calls a seam makes.
+def claim_recorder(claimed: list[dict], *, error: Exception | None = None):
+    """A stand-in for ``aclaim_ownership`` that records the claims a seam makes.
 
-    Patched over the name each seam imported, so it pins that seam's wiring — which arguments reach
-    the watch — rather than the watch itself. Every publishing seam has such a test; keeping one
-    stub means a new keyword argument is one edit, not three, and a copy that drifts records
-    nothing while still passing. ``error`` is raised after each call is recorded. Calls are bound to the real
-    signature, so a renamed argument fails here rather than in production's logged-and-swallowed arm.
+    Patched over the name each seam imported, so it pins that seam's wiring — which arguments reach the claim —
+    rather than the claim itself. Calls are bound to the real signature, so a renamed argument fails here rather than
+    in production's logged-and-swallowed claim. ``error`` is raised after each call is recorded. It claims nothing, so
+    the seam enqueues no CI evaluation.
     """
-    from sessions.pipeline_watch.service import PipelineWatch
+    from sessions.inbox.ownership import aclaim_ownership
 
-    class RecordingWatch:
-        def __init__(self, repo_id):
-            self.repo_id = repo_id
+    async def _claim(**kwargs):
+        inspect.signature(aclaim_ownership).bind(**kwargs)
+        claimed.append(kwargs)
+        if error is not None:
+            raise error
 
-        async def aarm_after_run(self, **kwargs):
-            inspect.signature(PipelineWatch.aarm_after_run).bind(self, **kwargs)
-            armed.append({"repo_id": self.repo_id, **kwargs})
-            if error is not None:
-                raise error
-
-    return RecordingWatch
+    return _claim
 
 
 @pytest.fixture

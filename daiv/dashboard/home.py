@@ -5,7 +5,7 @@ from functools import reduce
 from operator import or_
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.db.models import Case, Count, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, Count, IntegerField, OuterRef, Q, QuerySet, Value, When
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -13,7 +13,8 @@ from django.utils.translation import gettext_lazy as _
 from notifications.choices import EnvelopeStatus
 from notifications.outcomes import CANT_RUN, CI_STILL_FAILING, ENVELOPE_OUTCOMES, Outcome
 from sessions.filters import SCOPE_MINE
-from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.pipeline_watch.store import gave_up
 
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
@@ -95,7 +96,7 @@ def _inbox_rules(now: datetime) -> list[tuple[Q, Outcome]]:
             & (Q(finished_at__gte=failed_since) | Q(finished_at__isnull=True, created_at__gte=failed_since)),
             ENVELOPE_OUTCOMES[EnvelopeStatus.FAILED],
         ),
-        (Q(session__watch_state=WatchState.EXHAUSTED, session__last_active_at__gte=since), CI_STILL_FAILING),
+        (Q(gave_up(OuterRef("session"), since=since)), CI_STILL_FAILING),
         *(
             (Q(envelope__status=status, finished_at__gte=since), ENVELOPE_OUTCOMES[status])
             for status in (EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.NEEDS_ATTENTION)

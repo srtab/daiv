@@ -18,7 +18,7 @@ from automation.agent.workspace.session import SessionSeed
 from codebase.base import Scope
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import agent_settings, site_snapshot, stub_sandbox_spec
-from tests.unit_tests.sessions.conftest import watch_recorder
+from tests.unit_tests.sessions.conftest import claim_recorder
 
 if TYPE_CHECKING:
     from automation.agent.agent_settings import AgentSettings
@@ -105,7 +105,7 @@ def agent_stack(
         if ctx is not None
         else disk_ctx(repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5)),
         checkpointer=SimpleNamespace(aget_tuple=AsyncMock(return_value=last_checkpoint)),
-        armed=[],
+        claimed=[],
         live_calls=[],
         resolve=resolve or MagicMock(return_value=resolved_to("claude-4-7-opus", "fallback", thinking_level="medium")),
         site=site or site_snapshot(),
@@ -131,10 +131,11 @@ def agent_stack(
         stack.events.append("result built")
         return parse_agent_result(kwargs)
 
-    class _Watch(watch_recorder(stack.armed)):
-        async def aarm_after_run(self, **kwargs):
-            stack.events.append("watch armed")
-            await super().aarm_after_run(**kwargs)
+    record_claim = claim_recorder(stack.claimed)
+
+    async def _claim(**kwargs):
+        stack.events.append("merge request claimed")
+        await record_claim(**kwargs)
 
     with (
         stub_sandbox_spec() as build_spec,
@@ -151,7 +152,7 @@ def agent_stack(
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
-        patch("sessions.executor.run.PipelineWatch", _Watch),
+        patch("sessions.executor.run.aclaim_ownership", _claim),
         patch("sessions.executor.run.adelegator_for", new=AsyncMock(return_value=MagicMock())) as delegator_for,
         patch(
             "sessions.executor.run.build_absolute_url", side_effect=lambda path: f"{SITE_URL}{path}"

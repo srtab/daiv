@@ -1,23 +1,33 @@
 """What the session page's top bar and details panel show beyond the session's own columns: the latest run's status
-and what its Retry sends, the CI watch on its merge request, and the issue an issue-webhook session addresses.
+and what its Retry sends, CI on the merge requests the session owns, and the issue an issue-webhook session
+addresses.
 
-``latest_run_payload`` and ``watch_payload`` are also what the turns poll returns, so what the page rendered and what
+``latest_run_payload`` and ``ci_payload`` are also what the turns poll returns, so what the page rendered and what
 keeps it current are built by the same code.
 
-The CI watch lives on the merge request's own thread, which a chat or job session that published the merge request
-is not, so ``watch_state`` reads it off that row.
+CI is reported per merge request the session owns (``MergeRequestOwnership``), from the latest CI event in its inbox:
+``failing``, ``passing``, ``stopped`` (a status that needs a person), or ``running`` while no result has arrived since
+DAIV last published or a run is looking at a failure. A failure links the last run that looked at one
+(``explanation_run_id``), whose summary says what it found. ``watch_payload`` keeps the single-watch shape older pages
+read, from the first merge request, for one release.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from django.utils.translation import gettext as _
+
+from asgiref.sync import sync_to_async
+
 from codebase.authorization import can_run
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
-from sessions.models import Session, SessionOrigin, WatchState
-from sessions.pipeline_watch.store import WatchStore, watch_thread_id
+from codebase.repo_config import RepositoryConfig
+from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, RunStatus, Session, SessionOrigin
+from sessions.pipeline_watch.policy import WatchPolicy
+from sessions.pipeline_watch.store import CI_KINDS
 from sessions.templatetags.session_tags import status_variant
 from sessions.transcript import marker_id, retry_message
 
@@ -25,13 +35,17 @@ if TYPE_CHECKING:
     from accounts.models import User
     from sessions.models import Run
 
-_WATCH_TONES = {
-    WatchState.WATCHING: "attn",
-    WatchState.FIXING: "attn",
-    WatchState.GREEN: "clear",
-    WatchState.EXHAUSTED: "fail",
-    WatchState.UNCLEAR: "found",
-}
+_CI_STATUS_BY_KIND = {EventKind.CI_FAILED: "failing", EventKind.CI_PASSED: "passing", EventKind.CI_STOPPED: "stopped"}
+_CI_TONES = {"failing": "fail", "passing": "clear", "running": "attn", "stopped": "found"}
+
+
+def _ci_label(status: str) -> str:
+    return {
+        "failing": _("Failing"),
+        "passing": _("Passing"),
+        "running": _("Waiting for CI"),
+        "stopped": _("Needs a person"),
+    }[status]
 
 
 def retry_for(
@@ -67,41 +81,48 @@ def latest_run_payload(runs: list[Run], retry: str) -> dict[str, str] | None:
     }
 
 
-def merge_request_iid(session: Session, runs: list[Run], merge_request: dict | None) -> int | None:
-    """The merge request the page shows: the checkpoint's, else the session's own, else the newest run's."""
-    if iid := (merge_request or {}).get("id"):
-        return iid
-    if session.merge_request_iid:
-        return session.merge_request_iid
-    return next((r.merge_request_iid for r in reversed(runs) if r.merge_request_iid), None)
+def ci_payload(session: Session) -> list[dict[str, Any]]:
+    """SYNC ONLY: CI on each open merge request ``session`` owns, the most recently claimed first."""
+    ownerships = list(
+        MergeRequestOwnership.objects.filter(session=session, closed_at__isnull=True).order_by("-updated_at", "-pk")
+    )
+    if not ownerships:
+        return []
+    policy = WatchPolicy(RepositoryConfig.get_config(session.repo_id))
+    return [_ci_item(session, ownership, policy) for ownership in ownerships]
 
 
-def _other_watch_thread(session: Session, iid: int | None) -> str | None:
-    """The thread holding the CI watch on merge request ``iid``, or ``None`` when ``session`` holds it itself."""
-    if not iid or not session.repo_id:
+aci_payload = sync_to_async(ci_payload)
+
+
+def _ci_item(session: Session, ownership: MergeRequestOwnership, policy: WatchPolicy) -> dict[str, Any]:
+    events = InboxEvent.objects.filter(session=session, merge_request_iid=ownership.merge_request_iid)
+    latest = events.filter(kind__in=CI_KINDS).order_by("-created_at").first()
+    woke = events.filter(kind=EventKind.CI_FAILED, wake=True, run__isnull=False).order_by("-created_at")
+    looking = woke.exclude(run__status__in=RunStatus.terminal()).exists()
+    if latest is None or latest.created_at < ownership.updated_at or looking:
+        status = "running"
+    else:
+        status = _CI_STATUS_BY_KIND[latest.kind]
+    explanation = woke.values_list("run_id", flat=True).first()
+    return {
+        "merge_request_iid": ownership.merge_request_iid,
+        "status": status,
+        "label": str(_ci_label(status)),
+        "tone": _CI_TONES[status],
+        "attempts": ownership.attempts,
+        "max_attempts": policy.max_attempts,
+        "watch_enabled": ownership.watch_enabled and policy.enabled,
+        "explanation_run_id": str(explanation) if explanation else None,
+    }
+
+
+def watch_payload(ci: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The first merge request's CI in the single-watch shape older pages read; ``open`` while its watch is on."""
+    if not ci:
         return None
-    thread_id = watch_thread_id(session.repo_id, iid)
-    return None if thread_id == session.thread_id else thread_id
-
-
-def watch_state(session: Session, iid: int | None) -> str | None:
-    """SYNC ONLY: the state of the CI watch on merge request ``iid``; ``None`` while nothing ever armed one."""
-    thread_id = _other_watch_thread(session, iid)
-    return session.watch_state if thread_id is None else WatchStore().state(thread_id)
-
-
-async def awatch_state(session: Session, iid: int | None) -> str | None:
-    """:func:`watch_state` for async callers."""
-    thread_id = _other_watch_thread(session, iid)
-    return session.watch_state if thread_id is None else await WatchStore().astate(thread_id)
-
-
-def watch_payload(state: str | None) -> dict[str, Any] | None:
-    """The CI watch in ``state``, or ``None`` when nothing is watched; ``open`` while it still waits on or fixes CI."""
-    tone = _WATCH_TONES.get(state)
-    if tone is None:
-        return None
-    return {"state": state, "label": str(WatchState(state).label), "tone": tone, "open": state in WatchState.open()}
+    first = ci[0]
+    return {"state": first["status"], "label": first["label"], "tone": first["tone"], "open": first["watch_enabled"]}
 
 
 def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
@@ -134,9 +155,11 @@ def build_session_header(
     session: Session, runs: list[Run], *, retry: str, merge_request: dict | None = None
 ) -> dict[str, Any]:
     """SYNC ONLY: the header's context, for ``runs`` ordered oldest first and the ``merge_request`` the page shows."""
+    ci = ci_payload(session)
     return {
         "latest_run": latest_run_payload(runs, retry),
-        "watch": watch_payload(watch_state(session, merge_request_iid(session, runs, merge_request))),
+        "ci": ci,
+        "watch": watch_payload(ci),
         "issue": issue_link(session, runs),
         "run_count": len(runs),
     }

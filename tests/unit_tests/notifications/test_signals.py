@@ -6,7 +6,7 @@ import pytest
 from notifications.choices import ChannelType, EventType
 from notifications.models import Notification, UserChannelBinding
 from notifications.signals import classify_on_run_finished
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunStatus, SessionOrigin
 from sessions.signal_defs import run_finished, watch_exhausted
 
 from accounts.models import User
@@ -63,27 +63,28 @@ class TestUserBindingSeeder:
 
 @pytest.mark.django_db
 class TestOnWatchExhausted:
-    def _send(self, session):
+    def _send(self, ownership):
         watch_exhausted.send(
-            sender=Session,
-            session=session,
+            sender=type(ownership),
+            ownership=ownership,
+            session=ownership.session,
             failing_jobs=["tests"],
             pipeline_url="https://example.com/p/100",
-            pipeline_id=100,
+            sha="abc123",
         )
 
-    def test_the_owner_is_told_the_watch_gave_up(self, watch_session, member_user):
-        self._send(watch_session)
+    def test_the_owner_is_told_the_watch_gave_up(self, watch_ownership, member_user):
+        self._send(watch_ownership)
 
         notification = Notification.objects.get()
         assert notification.event_type == EventType.PIPELINE_WATCH_EXHAUSTED
         assert notification.recipient == member_user
 
-    def test_a_failing_emitter_is_logged_not_raised(self, watch_session, caplog):
+    def test_a_failing_emitter_is_logged_not_raised(self, watch_ownership, caplog):
         with patch("notifications.signals.emit_watch_exhausted", side_effect=RuntimeError("channel down")):
-            self._send(watch_session)
+            self._send(watch_ownership)
 
-        assert f"on_watch_exhausted: unexpected error for thread_id={watch_session.thread_id}" in caplog.text
+        assert f"on_watch_exhausted: unexpected error for thread_id={watch_ownership.session_id}" in caplog.text
 
 
 @pytest.mark.django_db
@@ -142,6 +143,7 @@ class TestClassifyOnRunFinished:
             SessionOrigin.API_JOB,
             SessionOrigin.MCP_JOB,
             SessionOrigin.UI_JOB,
+            SessionOrigin.PIPELINE_WEBHOOK,
         ):
             run = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=origin)
             with patch("notifications.signals.classify_run_task") as task_mock:

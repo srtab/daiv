@@ -13,8 +13,12 @@ _CONTEXT = SimpleNamespace(task_result=SimpleNamespace(id="tr-1"))
 
 @pytest.fixture(autouse=True)
 def run_lookup():
-    """The Run a webhook linked to ``_CONTEXT``'s task result, stubbed so these tests need no database."""
-    with patch("webhooks.tasks.aget_task_run_id", AsyncMock(return_value="run-1")) as lookup:
+    """The Run a webhook linked to ``_CONTEXT``'s task result, and the user it resolved its author to, stubbed so
+    these tests need no database."""
+    with (
+        patch("webhooks.tasks.aget_task_run_id", AsyncMock(return_value="run-1")) as lookup,
+        patch("webhooks.tasks.aget_run_user_id", AsyncMock(return_value=5)),
+    ):
         yield lookup
 
 
@@ -169,5 +173,6 @@ class TestAddressIssueTaskRef:
             "sandbox_env_id": "e",
             "run_id": "run-1",
             "use_max": False,
+            "acting_user_id": 5,
         }
         run_lookup.assert_awaited_once_with("tr-1")

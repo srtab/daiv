@@ -91,13 +91,10 @@ def test_session_origin_includes_chat():
     }
 
 
-def test_classified_origins_exclude_chat_and_pipeline_webhook():
-    """Classification is "universal for non-chat" except pipeline-watch runs, which have a
-    separate result path. Pinning the set forces a newly-added SessionOrigin to decide."""
-    assert SessionOrigin.classified() == frozenset(SessionOrigin.values) - {
-        SessionOrigin.CHAT,
-        SessionOrigin.PIPELINE_WEBHOOK,
-    }
+def test_classified_origins_exclude_only_chat():
+    """Classification is universal for non-chat runs, CI fix runs included: their envelope is how the owner hears what
+    the run found. Pinning the set forces a newly-added SessionOrigin to decide."""
+    assert SessionOrigin.classified() == frozenset(SessionOrigin.values) - {SessionOrigin.CHAT}
 
 
 def test_retryable_origins_exclude_webhooks_and_the_runs_reporting_to_a_coordinator():

@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.utils import timezone
 
 import pytest
-from sessions.header import build_session_header, issue_link, latest_run_payload, retry_for, watch_payload
-from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
-from sessions.pipeline_watch.store import watch_thread_id
+from sessions.header import build_session_header, ci_payload, issue_link, latest_run_payload, retry_for, watch_payload
+from sessions.models import EventKind, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 from sessions.transcript import annotate_transcript
 
 from codebase.base import GitPlatform
 from codebase.models import RepositoryCatalog
 from tests.unit_tests.sessions.conftest import make_task_result
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
 def _session(**kwargs) -> Session:
@@ -145,91 +147,130 @@ def test_issue_link_is_only_for_issue_webhook_sessions():
     assert issue_link(session, [_issue_run(session, 7)]) is None
 
 
-@pytest.mark.parametrize(
-    ("state", "label", "tone", "is_open"),
-    [
-        (WatchState.WATCHING, "Waiting for CI", "attn", True),
-        (WatchState.FIXING, "Fixing", "attn", True),
-        (WatchState.GREEN, "Green", "clear", False),
-        (WatchState.EXHAUSTED, "Attempts exhausted", "fail", False),
-        (WatchState.UNCLEAR, "CI unreadable", "found", False),
-    ],
-)
-def test_watch_payload_tones_the_ci_watch(state, label, tone, is_open):
-    assert watch_payload(state) == {"state": state, "label": label, "tone": tone, "open": is_open}
+def _owned(session: Session, iid: int = 7, **fields) -> MergeRequestOwnership:
+    defaults = {"repo_id": session.repo_id, "merge_request_iid": iid, "session": session, "source_branch": f"b{iid}"}
+    ownership = MergeRequestOwnership.objects.create(**(defaults | fields))
+    MergeRequestOwnership.objects.filter(pk=ownership.pk).update(updated_at=timezone.now() - timedelta(hours=1))
+    ownership.refresh_from_db()
+    return ownership
 
 
-@pytest.mark.parametrize("state", [WatchState.OFF, None])
-def test_watch_payload_is_none_when_nothing_is_watched(state):
-    assert watch_payload(state) is None
+def _ci_event(session: Session, kind: str, *, iid: int = 7, run: Run | None = None, **fields):
+    return make_event(session, kind, merge_request_iid=iid, run=run, created_at=timezone.now(), **fields)
+
+
+@pytest.fixture
+def policy():
+    with patch("sessions.header.WatchPolicy") as policy:
+        policy.return_value = SimpleNamespace(enabled=True, max_attempts=3)
+        yield policy.return_value
 
 
 @pytest.mark.django_db
-def test_build_session_header_gathers_the_pages_context():
-    session = _session(watch_state=WatchState.GREEN)
+class TestCiPayload:
+    def test_a_session_that_owns_nothing_has_no_ci(self, policy):
+        assert ci_payload(_session()) == []
+
+    @pytest.mark.parametrize(
+        ("kind", "status", "label", "tone"),
+        [
+            (EventKind.CI_FAILED, "failing", "Failing", "fail"),
+            (EventKind.CI_PASSED, "passing", "Passing", "clear"),
+            (EventKind.CI_STOPPED, "stopped", "Needs a person", "found"),
+        ],
+    )
+    def test_the_latest_ci_result_is_the_status(self, policy, kind, status, label, tone):
+        session = _session()
+        _owned(session, attempts=1)
+        _ci_event(session, kind, wake=False)
+
+        assert ci_payload(session) == [
+            {
+                "merge_request_iid": 7,
+                "status": status,
+                "label": label,
+                "tone": tone,
+                "attempts": 1,
+                "max_attempts": 3,
+                "watch_enabled": True,
+                "explanation_run_id": None,
+            }
+        ]
+
+    def test_no_result_yet_is_running(self, policy):
+        session = _session()
+        _owned(session)
+
+        assert ci_payload(session)[0]["status"] == "running"
+
+    def test_a_publish_since_the_last_result_is_running(self, policy):
+        session = _session()
+        ownership = _owned(session)
+        _ci_event(session, EventKind.CI_FAILED, wake=False)
+        ownership.save()
+
+        assert ci_payload(session)[0]["status"] == "running"
+
+    def test_a_run_looking_at_a_failure_is_running(self, policy):
+        session = _session()
+        _owned(session)
+        _ci_event(session, EventKind.CI_FAILED, run=_run(session, status=RunStatus.RUNNING))
+
+        assert ci_payload(session)[0]["status"] == "running"
+
+    def test_a_failure_links_the_last_run_that_looked_at_one(self, policy):
+        session = _session()
+        _owned(session, attempts=3)
+        _ci_event(session, EventKind.CI_FAILED, run=_run(session))
+        latest = _run(session)
+        _ci_event(session, EventKind.CI_FAILED, run=latest)
+        _ci_event(session, EventKind.CI_FAILED, wake=False)
+
+        [item] = ci_payload(session)
+        assert (item["status"], item["explanation_run_id"]) == ("failing", str(latest.pk))
+
+    def test_the_watch_is_on_only_when_the_merge_request_and_the_repository_allow_it(self, policy):
+        session = _session()
+        _owned(session, watch_enabled=False)
+        assert ci_payload(session)[0]["watch_enabled"] is False
+
+        MergeRequestOwnership.objects.update(watch_enabled=True)
+        policy.enabled = False
+        assert ci_payload(session)[0]["watch_enabled"] is False
+
+    def test_every_open_merge_request_is_listed_newest_claim_first(self, policy):
+        session = _session()
+        _owned(session, 7)
+        _owned(session, 8).save()
+        _owned(session, 9, closed_at=timezone.now())
+
+        assert [item["merge_request_iid"] for item in ci_payload(session)] == [8, 7]
+
+
+def test_watch_payload_is_the_first_merge_requests_ci_in_the_old_shape():
+    ci = [
+        {"merge_request_iid": 8, "status": "failing", "label": "Failing", "tone": "fail", "watch_enabled": True},
+        {"merge_request_iid": 7, "status": "passing", "label": "Passing", "tone": "clear", "watch_enabled": False},
+    ]
+
+    assert watch_payload(ci) == {"state": "failing", "label": "Failing", "tone": "fail", "open": True}
+    assert watch_payload([]) is None
+
+
+@pytest.mark.django_db
+def test_build_session_header_gathers_the_pages_context(policy):
+    session = _session()
+    _owned(session)
+    _ci_event(session, EventKind.CI_PASSED, wake=False)
     runs = [_run(session), _run(session)]
 
     header = build_session_header(session, runs, retry="")
 
     assert header["latest_run"]["label"] == "Done"
+    assert [item["status"] for item in header["ci"]] == ["passing"]
     assert header["watch"]["tone"] == "clear"
     assert header["issue"] is None
     assert header["run_count"] == 2
-
-
-@pytest.mark.django_db
-def test_merge_request_iid_prefers_the_checkpoints_then_the_sessions_then_the_newest_runs():
-    from sessions.header import merge_request_iid
-
-    session = _session()
-    runs = [_run(session, merge_request_iid=3), _run(session, merge_request_iid=4), _run(session)]
-
-    assert merge_request_iid(session, runs, {"id": 9}) == 9
-    assert merge_request_iid(session, runs, None) == 4
-    session.merge_request_iid = 5
-    assert merge_request_iid(session, runs, None) == 5
-    assert merge_request_iid(_session(), [], None) is None
-
-
-@pytest.mark.django_db
-def test_the_watch_is_read_off_the_merge_requests_thread():
-    """A chat session that published the merge request shows the watch the MR's own thread holds."""
-    from sessions.header import watch_state
-
-    session = _session(watch_state=WatchState.OFF)
-    mr_thread = _session(
-        thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.FIXING
-    )
-
-    assert watch_state(session, 7) == WatchState.FIXING
-    assert watch_state(session, 8) is None
-    assert watch_state(session, None) == WatchState.OFF
-    assert watch_state(mr_thread, 7) == WatchState.FIXING
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_awatch_state_reads_the_merge_requests_thread_but_not_the_session_itself():
-    from asgiref.sync import sync_to_async
-    from sessions.header import awatch_state
-
-    session = await sync_to_async(_session)(watch_state=WatchState.OFF)
-    mr_thread = await sync_to_async(_session)(
-        thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.WATCHING
-    )
-    await Session.objects.filter(pk=mr_thread.pk).aupdate(watch_state=WatchState.FIXING)
-
-    assert await awatch_state(session, 7) == WatchState.FIXING
-    assert await awatch_state(mr_thread, 7) == WatchState.WATCHING
-
-
-@pytest.mark.django_db
-def test_build_session_header_reads_the_watch_of_the_checkpoints_merge_request():
-    session = _session()
-    _session(thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.GREEN)
-
-    header = build_session_header(session, [], retry="", merge_request={"id": 7})
-
-    assert header["watch"]["state"] == WatchState.GREEN
 
 
 @pytest.mark.django_db

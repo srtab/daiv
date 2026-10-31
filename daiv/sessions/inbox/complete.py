@@ -7,6 +7,9 @@
 | FAILED otherwise | back to ``pending`` with ``attempts + 1``, or ``failed`` (``retries_exhausted``) at
   ``MAX_EVENT_ATTEMPTS``, logged with ``logger.error`` |
 
+A session with no DAIV user has no one to notify, so a successful run a CI failure woke posts its summary on the
+merge request instead (FR-018). A failed post is logged; the events stay handled.
+
 The sweep (``sessions.tasks.drain_inboxes_cron_task``) settles events the same way when their run's slot went stale
 before the run ended.
 """
@@ -19,11 +22,11 @@ from typing import TYPE_CHECKING
 from django.db.models import Q
 from django.utils import timezone
 
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox.drain import drain_logged
-from sessions.models import EventFailure, EventState, InboxEvent, Run, RunStatus
+from sessions.models import EventFailure, EventKind, EventState, InboxEvent, Run, RunStatus, Session
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -49,11 +52,30 @@ def settle_events(run: Run) -> None:
     """Move the events ``run`` took to the state its outcome calls for. SYNC ONLY."""
     taken = InboxEvent.objects.filter(run=run, state=EventState.TAKEN)
     if run.status in (RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT):
+        ci_iids = set(
+            taken.filter(kind=EventKind.CI_FAILED, wake=True, merge_request_iid__isnull=False).values_list(
+                "merge_request_iid", flat=True
+            )
+        )
         taken.update(state=EventState.HANDLED, updated_at=timezone.now())
+        if ci_iids and run.status == RunStatus.SUCCESSFUL:
+            _report_to_merge_requests(run, ci_iids)
     elif run.status == RunStatus.FAILED and run.cancel_requested_at is not None:
         taken.update(state=EventState.DISMISSED, updated_at=timezone.now())
     elif run.status == RunStatus.FAILED:
         retry(taken, cause=f"run={run.pk} failed")
+
+
+def _report_to_merge_requests(run: Run, merge_request_iids: set[int]) -> None:
+    """Post ``run``'s summary on the merge requests whose CI failure woke it, when its session has no DAIV user."""
+    from sessions.pipeline_watch.platform import WatchPlatform
+
+    ownerless = Session.objects.filter(pk=run.session_id, user__isnull=True).exists()
+    if not ownerless or not run.result_summary:
+        return
+    platform = WatchPlatform(run.repo_id)
+    for iid in sorted(merge_request_iids):
+        async_to_sync(platform.apost_note)(merge_request_iid=iid, body=run.result_summary)
 
 
 def retry(events: QuerySet[InboxEvent], *, cause: str) -> None:

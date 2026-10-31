@@ -16,6 +16,7 @@ from sessions.services import (
     BatchSubmitFailure,
     RepoTarget,
     acreate_run,
+    aget_run_user_id,
     aget_session_ref,
     aget_task_run_id,
     apersist_session_ref,
@@ -915,6 +916,18 @@ async def test_task_run_id_is_none_when_no_run_is_linked(caplog):
 
     assert await aget_task_run_id(task_result.id) is None
     assert f"No run is linked to task result {task_result.id}" in caplog.text
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_run_user_id_is_the_user_the_run_resolved_its_author_to(member_user):
+    run = await acreate_run(
+        trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result_id=None, repo_id="a/b", user=member_user
+    )
+    ownerless = await acreate_run(trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result_id=None, repo_id="a/b")
+
+    assert await aget_run_user_id(str(run.pk)) == member_user.pk
+    assert await aget_run_user_id(str(ownerless.pk)) is None
+    assert await aget_run_user_id(None) is None
 
 
 # ---------------------------------------------------------------------------

@@ -34,9 +34,12 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
           <span x-show="filesTouched.length" x-text="_filesLabel(filesTouched.length)"></span>
         </div>
       </template>
-      <template x-if="watch">
-        <p class="session-details__ci" :class="'mr-split__ci--' + watch.tone">
-          <span class="mr-split__ci-dot" aria-hidden="true"></span><span x-text="'{{ _("CI")|escapejs }}: ' + watch.label"></span>
+      <template x-for="item in ci" :key="item.merge_request_iid">
+        <p class="session-details__ci" :class="'mr-split__ci--' + item.tone" data-testid="session-details-ci">
+          <span class="mr-split__ci-dot" aria-hidden="true"></span><span x-text="(ci.length > 1 ? '!' + item.merge_request_iid + ' ' : '') + '{{ _("CI")|escapejs }}: ' + item.label"></span>
+          <template x-if="ciExplanation(item)">
+            <a class="session-details__ci-link" :href="ciExplanation(item)">{% translate "What DAIV found" %}</a>
+          </template>
         </p>
       </template>
     </section>

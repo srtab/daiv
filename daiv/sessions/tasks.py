@@ -74,7 +74,7 @@ def drain_inboxes_cron_task():
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE)
 async def evaluate_pipeline_watch_task(repo_id: str, ref: str, pipeline_id: int | None = None) -> None:
-    """Judge CI for a watched branch and take the one action it implies.
+    """Judge CI for an owned branch and post the result to the owning session's inbox.
 
     Short and user-visible, so it runs on the interactive queue rather than behind agent runs.
     """
@@ -87,14 +87,14 @@ async def evaluate_pipeline_watch_task(repo_id: str, ref: str, pipeline_id: int 
 @task
 @locked_task(key="reconcile-pipeline-watches")
 async def reconcile_pipeline_watches_cron_task():
-    """Repair CI watches that webhook events did not resolve.
+    """Re-read the CI a webhook did not report for an owned merge request.
 
     Non-blocking lock, so a sweep that overruns the interval is never double-dispatched.
     """
     from sessions.pipeline_watch.reconciler import WatchReconciler
 
     touched = await WatchReconciler().areconcile()
-    logger.info("reconcile_pipeline_watches: touched %d watches", touched)
+    logger.info("reconcile_pipeline_watches: re-judged %d branch(es)", touched)
 
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_TITLING)

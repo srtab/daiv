@@ -124,3 +124,52 @@ class TestRecoverStaleEvents:
 
 async def _recover() -> int:
     return await sync_to_async(recover_stale_events)()
+
+
+class TestOwnerlessCiReport:
+    async def _ci_run(self, *, user=None, status=RunStatus.SUCCESSFUL, wake=True) -> Run:
+        session = await amake_session(user=user)
+        run = await Run.objects.acreate(
+            session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=session.repo_id, status=status,
+            result_summary="The failure is a GitHub auth error, not the change; I pushed nothing.",
+        )  # fmt: skip
+        await amake_event(session, EventKind.CI_FAILED, run=run, state=EventState.TAKEN, merge_request_iid=9, wake=wake)
+        return run
+
+    async def test_a_session_without_a_user_gets_the_summary_on_the_merge_request(self, drain):
+        run = await self._ci_run()
+
+        with patch("sessions.pipeline_watch.platform.WatchPlatform.apost_note") as note:
+            await aon_run_ended(run)
+
+        note.assert_awaited_once_with(merge_request_iid=9, body=run.result_summary)
+
+    @pytest.mark.parametrize(
+        ("owned", "status", "wake"),
+        [
+            (True, RunStatus.SUCCESSFUL, True),
+            (False, RunStatus.WAITING_INPUT, True),
+            (False, RunStatus.SUCCESSFUL, False),
+        ],
+        ids=["owned", "asked-a-question", "not-woken-by-ci"],
+    )
+    async def test_otherwise_nothing_is_posted(self, drain, member_user, owned, status, wake):
+        run = await self._ci_run(user=member_user if owned else None, status=status, wake=wake)
+
+        with patch("sessions.pipeline_watch.platform.WatchPlatform.apost_note") as note:
+            await aon_run_ended(run)
+
+        note.assert_not_called()
+
+    async def test_a_failed_post_is_logged_and_changes_no_event(self, drain, caplog):
+        run = await self._ci_run()
+
+        with (
+            patch("codebase.clients.RepoClient.create_instance", side_effect=RuntimeError("no client")),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
+        ):
+            await aon_run_ended(run)
+
+        assert "failed to comment on" in caplog.text
+        assert caplog.records[-1].exc_info is not None
+        assert await InboxEvent.objects.filter(run=run, state=EventState.HANDLED).acount() == 1

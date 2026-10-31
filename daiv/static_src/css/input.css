@@ -879,6 +879,9 @@ html {
     @apply flex items-center gap-2 text-[13px];
     color: var(--ci-color);
   }
+  .session-details__ci-link {
+    @apply ml-auto text-[12px] text-text-muted underline underline-offset-2 hover:text-accent-bright;
+  }
   .mr-split__draft--bar,
   .mr-split__ci-label {
     @apply max-sm:hidden;

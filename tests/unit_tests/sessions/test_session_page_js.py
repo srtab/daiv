@@ -101,7 +101,8 @@ for (const [action, value] of steps) {
       status: page.status, watch: page.watch, open: page.detailsOpen, runs: page.runCount,
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
-      ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn,
+      ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn, ci: page.ci,
+      explanations: page.ci.map((item) => page.ciExplanation(item)),
     });
   }
 }
@@ -113,7 +114,12 @@ process.stdout.write(JSON.stringify({
 DONE = {"label": "Done", "variant": "success"}
 FAILED = {"label": "Failed", "variant": "failed"}
 RUNNING = {"variant": "running", "label": "Running"}
-WATCHING = {"state": "watching", "label": "Waiting for CI", "tone": "attn", "open": True}
+WATCHING = {"state": "running", "label": "Waiting for CI", "tone": "attn", "open": True}
+WATCH_OFF = {"state": "failing", "label": "Failing", "tone": "fail", "open": False}
+
+
+def _ci(status="running", *, explanation=None, iid=7) -> dict:
+    return {"merge_request_iid": iid, "status": status, "watch_enabled": True, "explanation_run_id": explanation}
 
 
 def _run(steps, *, initial=DONE, watch=None, wide=True, stored=None, storage_blocked=False, archived=False) -> dict:
@@ -282,52 +288,39 @@ def test_a_refused_rename_puts_the_old_title_back():
 
 def test_the_ci_item_describes_the_watch():
     assert _read(watch=WATCHING)["hint"] == "Watching: Waiting for CI"
-    assert _read(watch={"state": "green", "label": "Green", "tone": "clear", "open": False})["hint"] == "Green"
+    assert _read(watch=WATCH_OFF)["hint"] == "Off for this merge request"
     assert _read(watch=None)["hint"] == "Off for this merge request"
 
 
-def test_unticking_turns_off_the_watch_the_page_showed_and_takes_the_response():
-    result = _run([["ci-toggle", 7], ["reply", {"body": None}], ["read", None]], watch=WATCHING)
+def test_unticking_turns_off_the_watch_on_the_merge_request_and_takes_the_response():
+    reply = {"ci": [_ci("failing")], "watch": WATCH_OFF}
+    result = _run([["ci-toggle", 7], ["reply", {"body": reply}], ["read", None]], watch=WATCHING)
 
-    body = {"on": False, "merge_request_iid": 7, "seen_state": "watching"}
+    body = {"on": False, "merge_request_iid": 7}
     assert result["requests"][0] == {"url": "/ci-watch", "method": "POST", "body": body, "csrf": "tok"}
-    assert (result["seen"][0]["watch"], result["seen"][0]["checked"]) == (None, False)
+    seen = result["seen"][0]
+    assert (seen["watch"], seen["checked"], seen["ci"]) == (WATCH_OFF, False, reply["ci"])
 
 
-def test_ticking_turns_the_watch_on():
-    result = _run([["read", None], ["ci-toggle", 5], ["reply", {"body": WATCHING}], ["read", None]], watch=None)
+def test_ticking_turns_the_watch_back_on():
+    reply = {"ci": [_ci()], "watch": WATCHING}
+    result = _run([["read", None], ["ci-toggle", 5], ["reply", {"body": reply}], ["read", None]], watch=WATCH_OFF)
 
-    assert result["requests"][0]["body"] == {"on": True, "merge_request_iid": 5, "seen_state": "off"}
+    assert result["requests"][0]["body"] == {"on": True, "merge_request_iid": 5}
     before, after = result["seen"]
     assert (before["checked"], after["checked"], after["hint"]) == (False, True, "Watching: Waiting for CI")
 
 
-@pytest.mark.parametrize("state", ["green", "exhausted", "unclear"])
-def test_a_watch_that_is_over_shows_unticked_and_ticking_starts_a_new_one(state):
-    ended = {"state": state, "label": state.title(), "tone": "fail", "open": False}
-    result = _run([["read", None], ["ci-toggle", 7], ["reply", {"body": WATCHING}], ["read", None]], watch=ended)
+def test_a_merge_request_the_session_does_not_own_says_so():
+    refused = {"detail": "This session doesn't own that merge request", "reason": "not_owned", "ci": [], "watch": None}
+    result = _run([["ci-toggle", None], ["reply", {"status": 409, "body": refused}], ["read", None]], watch=WATCHING)
 
-    assert result["seen"][0]["checked"] is False
-    assert result["requests"][0]["body"] == {"on": True, "merge_request_iid": 7, "seen_state": state}
-    assert result["seen"][1]["watch"] == WATCHING
-
-
-def test_a_lost_race_shows_the_watch_as_it_now_is():
-    fixing = {"state": "fixing", "label": "Fixing", "tone": "attn", "open": True}
-    result = _run(
-        [
-            ["ci-toggle", None],
-            ["reply", {"status": 409, "body": {"reason": "changed", "watch": fixing}}],
-            ["read", None],
-        ],
-        watch=WATCHING,
-    )
-
-    assert (result["seen"][0]["watch"], result["seen"][0]["ciDisabled"]) == (fixing, False)
+    seen = result["seen"][0]
+    assert (seen["watch"], seen["ciDisabled"], seen["hint"]) == (None, False, refused["detail"])
 
 
 def test_a_repository_with_the_watch_off_disables_the_item_with_the_reason():
-    refused = {"detail": "CI fixes are turned off for this repository", "reason": "disabled", "watch": None}
+    refused = {"detail": "CI fixes are turned off for this repository", "reason": "disabled", "ci": [], "watch": None}
     result = _run([
         ["ci-toggle", None],
         ["reply", {"status": 409, "body": refused}],
@@ -338,6 +331,13 @@ def test_a_repository_with_the_watch_off_disables_the_item_with_the_reason():
     seen = result["seen"][0]
     assert (seen["watch"], seen["ciDisabled"], seen["hint"]) == (None, True, refused["detail"])
     assert result["fetches"] == 1
+
+
+def test_a_failure_links_the_run_that_looked_at_it():
+    ci = [_ci("failing", explanation="r-1"), _ci("failing", iid=8), _ci("passing", explanation="r-2", iid=9)]
+    result = _run([["poll", {"latest_run": DONE, "ci": ci, "watch": WATCH_OFF}], ["read", None]])
+
+    assert result["seen"][0]["explanations"] == ["#run-status-r-1", "", ""]
 
 
 @pytest.mark.parametrize(("status", "body"), [(502, {}), (409, {"detail": "Something else"}), (422, {"detail": []})])
@@ -358,7 +358,7 @@ def test_a_poll_asked_for_before_the_toggle_answered_does_not_undo_it():
     result = _run(
         [
             ["ci-toggle", None],
-            ["reply", {"body": WATCHING}],
+            ["reply", {"body": {"ci": [_ci()], "watch": WATCHING}}],
             ["poll", {"latest_run": FAILED, "watch": None, "requestedAt": 9}],
             ["read", None],
             ["poll", {"latest_run": FAILED, "watch": None, "requestedAt": 11}],

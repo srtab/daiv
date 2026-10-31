@@ -189,6 +189,13 @@ async def aget_task_run_id(task_result_id: uuid.UUID | str) -> str | None:
     return str(run_id)
 
 
+async def aget_run_user_id(run_id: str | None) -> int | None:
+    """The DAIV user a run was started by, resolved from its author when the run was created; ``None`` for none."""
+    if not run_id:
+        return None
+    return await Run.objects.filter(pk=run_id).values_list("user_id", flat=True).afirst()
+
+
 async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
     """Re-pin ``Session.ref`` after a run fell back off a vanished branch.
 

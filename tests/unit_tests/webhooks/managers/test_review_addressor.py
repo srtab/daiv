@@ -113,7 +113,7 @@ class TestReviewAfterRunMatrix:
         assert await active_holder(thread_id) is None
 
     @pytest.mark.django_db(transaction=True)
-    async def test_a_successful_run_neither_moves_the_ref_nor_arms_the_watch(self, mention):
+    async def test_a_successful_run_neither_moves_the_ref_nor_claims_the_merge_request(self, mention):
         """The checkpoint names another published branch, so any ref sync would show on the session row."""
         session = await _review_session(str(uuid.uuid4()))
         agent = addressor_agent(
@@ -131,7 +131,7 @@ class TestReviewAfterRunMatrix:
         assert run.context_kwargs["fallback_ref_on_missing"] is False
         assert (await Session.objects.aget(thread_id=session.thread_id)).ref == "feature"
         run.persist.assert_not_awaited()
-        assert run.armed == []
+        assert run.claimed == []
         run.recover.assert_not_awaited()
         [reply] = mention.create_merge_request_comment.call_args_list
         assert reply.args[2] == "done"
@@ -231,7 +231,7 @@ class TestReviewAfterRunMatrix:
         assert "committed the changes done so far" in note.args[2]
         assert note.kwargs["reply_to_id"] == "c-1"
         assert (await Session.objects.aget(thread_id=session.thread_id)).ref == "feature"
-        assert run.armed == []
+        assert run.claimed == []
 
     async def test_an_agent_error_note_carries_the_footer_from_the_recovered_checkpoint(self, mention):
         """The footer comes from the checkpoint re-read after recovery, which may have swapped to a fresh MR."""

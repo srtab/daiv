@@ -11,9 +11,9 @@ from ninja.security import django_auth
 from accounts.api.security import AuthBearer
 from codebase.authorization import can_run
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
-from sessions.header import awatch_state, latest_run_payload, merge_request_iid, retry_for, watch_payload
+from sessions.header import aci_payload, latest_run_payload, retry_for, watch_payload
 from sessions.hydration import ahydrate_thread
-from sessions.models import HiddenSession, Session, WatchState
+from sessions.models import HiddenSession, MergeRequestOwnership, Session
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
 from sessions.transcript import annotate_transcript, expired_run_turns, mark_skill_links
@@ -49,8 +49,7 @@ class TitleIn(Schema):
 
 class CIWatchIn(Schema):
     on: bool
-    merge_request_iid: int = Field(gt=0)
-    seen_state: WatchState
+    merge_request_iid: int | None = Field(default=None, gt=0)
 
 
 class ArchiveIn(Schema):
@@ -69,37 +68,34 @@ async def session_update(request: HttpRequest, thread_id: str, payload: TitleIn)
     return {"title": title}
 
 
-@sessions_router.post("/{thread_id}/ci-watch", response={200: dict | None, 409: dict}, url_name="session_ci_watch")
+@sessions_router.post("/{thread_id}/ci-watch", response={200: dict, 409: dict}, url_name="session_ci_watch")
 async def session_ci_watch(request: HttpRequest, thread_id: str, payload: CIWatchIn):
-    """Turn the CI watch on the merge request the page shows on or off, returning the watch as the page shows it.
+    """Turn the CI watch on one merge request the session owns on or off, returning the session's CI as the page shows
+    it (``ci``, and ``watch`` in the single-watch shape).
 
-    The merge request is one of the session's repository, which is what run access is checked on. ``seen_state`` is
-    the state the page showed, and turning off only moves a watch still in it. A 409 carries the watch as it now is
-    and a ``reason``: ``changed`` when a fix run or a verdict moved the watch first, ``disabled`` when the repository
-    has the watch switched off.
+    ``merge_request_iid`` defaults to the session's only open merge request. Turning the watch on gives it its attempts
+    back. A 409 carries the session's CI and a ``reason``: ``not_owned`` when the session does not own that merge
+    request, ``disabled`` when the repository has the watch switched off.
     """
-    user = request.auth  # ty: ignore[unresolved-attribute]
-    session = await _get_runnable_session(user, thread_id)
-    iid = payload.merge_request_iid
+    session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
+    owned = MergeRequestOwnership.objects.filter(session=session, closed_at__isnull=True)
+    if payload.merge_request_iid is not None:
+        owned = owned.filter(merge_request_iid=payload.merge_request_iid)
+    ownerships = [ownership async for ownership in owned[:2]]
+    if len(ownerships) != 1:
+        refusal = {"detail": "This session doesn't own that merge request", "reason": "not_owned"}
+        return 409, refusal | await _ci(session)
     watch = PipelineWatch(session.repo_id)
     if not payload.on:
-        if not await watch.aturn_off(merge_request_iid=iid, seen_state=payload.seen_state):
-            return 409, {
-                "detail": "The watch changed before it could be turned off",
-                "reason": "changed",
-                "watch": watch_payload(await watch.astate(iid)),
-            }
-    else:
-        try:
-            armed = await watch.aturn_on(
-                merge_request_iid=iid, user_id=user.pk, sandbox_environment_id=session.sandbox_environment_id
-            )
-        except Exception as exc:
-            logger.exception("Could not turn the CI watch on for %s!%s", session.repo_id, iid)
-            raise HttpError(502, "Couldn't read the merge request; try again") from exc
-        if armed is None:
-            return 409, {"detail": "CI fixes are turned off for this repository", "reason": "disabled", "watch": None}
-    return watch_payload(await watch.astate(iid))
+        await watch.aturn_off(ownerships[0])
+    elif not await watch.aturn_on(ownerships[0]):
+        return 409, {"detail": "CI fixes are turned off for this repository", "reason": "disabled"} | await _ci(session)
+    return await _ci(session)
+
+
+async def _ci(session: Session) -> dict:
+    ci = await aci_payload(session)
+    return {"ci": ci, "watch": watch_payload(ci)}
 
 
 @sessions_router.post("/{thread_id}/archive", response=dict, url_name="session_archive")
@@ -118,9 +114,9 @@ async def session_archive(request: HttpRequest, thread_id: str, payload: Archive
 async def session_turns(request: HttpRequest, thread_id: str):
     """Re-hydrated transcript of an in-flight session, which the detail page polls while no run streams to it.
     ``live_run`` names the slot holder, so the page can stream that run from the relay instead; ``background``
-    tells a page that rendered idle whether a run that started since is one it should follow; ``latest_run``,
-    ``watch`` and ``run_count`` keep the page's top bar and details panel current. ``watch`` is left out while no
-    merge request is on record, so a page showing one found by its branch keeps the watch it has."""
+    tells a page that rendered idle whether a run that started since is one it should follow; ``latest_run``, ``ci``
+    (with ``watch``, its single-watch shape for older pages) and ``run_count`` keep the page's top bar and details
+    panel current."""
     session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
@@ -148,6 +144,5 @@ async def session_turns(request: HttpRequest, thread_id: str):
         if live
         else None,
     }
-    if (iid := merge_request_iid(session, runs, hydrated.merge_request_payload)) is not None:
-        response["watch"] = watch_payload(await awatch_state(session, iid))
+    response |= await _ci(session)
     return response
