@@ -168,6 +168,9 @@ async def test_caches_full_response_by_url_and_prompt(httpx_mock):
     assert result1 == "ANSWER"
     assert result2 == "ANSWER"
     assert httpx_mock.get_requests()
+    mock_get_model.assert_called_once_with(
+        model="openrouter:openai/gpt-4.1-mini", timeout=web_fetch_module.WEB_FETCH_MODEL_TIMEOUT_SECONDS
+    )
 
 
 async def test_cache_key_changes_with_prompt(httpx_mock):
@@ -339,3 +342,29 @@ async def test_model_failure_returns_contents(httpx_mock):
 
         result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com", "prompt": "x"})
     assert result == "Model processing failed (Boom). Contents of https://example.com:\nCONTENT"
+
+
+async def test_model_build_failure_logs_error_and_still_returns_content(httpx_mock, caplog):
+    httpx_mock.add_response(
+        url="https://example.com",
+        status_code=200,
+        headers={"content-type": "text/html"},
+        text="<html><body>CONTENT</body></html>",
+    )
+    with (
+        patch.object(web_fetch_module, "get_model") as mock_get_model,
+        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
+        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
+    ):
+        mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_env_settings.WEB_FETCH_PROXY_URL = None
+        mock_site_settings.web_fetch_max_content_chars = 999_999
+        mock_site_settings.web_fetch_model_name = "openrouter:openai/gpt-4.1-mini"
+        mock_get_model.side_effect = RuntimeError("Provider 'openrouter' has no API key configured.")
+
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com", "prompt": "x"})
+
+    assert "summariser unavailable" in result
+    assert "CONTENT" in result
+    assert any(record.levelname == "ERROR" for record in caplog.records)
