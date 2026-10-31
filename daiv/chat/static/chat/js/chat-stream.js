@@ -685,16 +685,24 @@
       });
     },
 
-    // A streamed skill call has no Skills link; the turns fetch after its run names it.
-    applySkillLinks(turns) {
+    // A streamed call lacks what the server adds to it: a skill's Skills link, a delegate call's legs from the
+    // database, which win over its tool result. The turns fetched after its run carry both.
+    applyServerSegments(turns) {
       if (this.streaming || this.resuming || !Array.isArray(turns)) return;
-      const urls = new Map();
+      const served = new Map();
       for (const turn of turns) {
-        for (const seg of turn?.segments ?? []) if (seg?.skill_url) urls.set(seg.id, seg.skill_url);
+        for (const seg of turn?.segments ?? []) {
+          if (seg?.skill_url || Array.isArray(seg?.legs)) served.set(seg.id, seg);
+        }
       }
-      if (!urls.size) return;
+      if (!served.size) return;
       for (const turn of this.turns) {
-        for (const seg of turn.segments ?? []) if (!seg.skill_url && urls.has(seg.id)) seg.skill_url = urls.get(seg.id);
+        for (const seg of turn.segments ?? []) {
+          const fresh = served.get(seg.id);
+          if (!fresh) continue;
+          if (fresh.skill_url && !seg.skill_url) seg.skill_url = fresh.skill_url;
+          if (Array.isArray(fresh.legs) && JSON.stringify(fresh.legs) !== JSON.stringify(seg.legs)) seg.legs = fresh.legs;
+        }
       }
     },
 
@@ -749,7 +757,6 @@
       // turn, a streamed `args` delta and a landed result all re-derive with no bookkeeping at the
       // mutation sites. `Alpine.effect`, not `$watch`: `$watch` compares the expression's
       // value, and a mutation inside `turns` leaves its identity alone.
-      const mcpServers = this.mcpCatalog.map((s) => s.name);
       const mcpRows = this.mcpCatalog;
       this._deriveTranscript = window.Alpine.effect(() => {
         const todos = findLatestTodos(this.turns);
@@ -765,7 +772,6 @@
           publishedBlocks = window.buildRunBlocks(this.turns, {
             inFlight: this.streaming || this.resuming || this.sessionLive,
             latestArtifactsById: publishedArtifactsById,
-            mcpServers,
             mcpRows,
             previous: publishedBlocks,
           });
@@ -1436,7 +1442,6 @@
     toolBodyHTML(seg) {
       if (!window.toolBodyHTML) return "";
       return window.toolBodyHTML(seg, {
-        mcpServers: this.mcpCatalog.map((s) => s.name),
         mcpRows: this.mcpCatalog,
         latestArtifactsById: this.latestArtifactsById,
         mergeRequestUrl: this.thread?.merge_request?.url ?? null,

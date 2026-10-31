@@ -20,6 +20,8 @@ from django.urls import reverse
 from skills.models import GlobalSkill, SkillInvocation
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
+from automation.agent.constants import SKILLS_TOOL_NAME
+from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
     CANCELLED_BY_USER_MESSAGE,
@@ -32,6 +34,7 @@ from sessions.models import (
     CHAT_PROMPT_MAX_LENGTH,
     PublishErrorKind,
     PublishStatus,
+    Run,
     RunArtifact,
     RunStatus,
     SessionOrigin,
@@ -39,9 +42,9 @@ from sessions.models import (
 from sessions.turns import tool_call_segment
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
 
-    from sessions.models import Run
+    from sessions.delegation import Delegations
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -347,13 +350,23 @@ def retry_message(turns: list[dict[str, Any]], runs: list[Run]) -> str:
     return run.prompt
 
 
-def _skill_name(segment: dict[str, Any]) -> str | None:
+def _tool_args(segment: dict[str, Any]) -> dict[str, Any]:
     try:
         args = json.loads(segment.get("args") or "")
     except ValueError:
-        return None
-    if not isinstance(args, dict):
-        return None
+        return {}
+    return args if isinstance(args, dict) else {}
+
+
+def _tool_calls(turns: list[dict[str, Any]], name: str) -> Iterator[dict[str, Any]]:
+    for turn in turns:
+        for segment in turn.get("segments", ()):
+            if segment.get("type") == "tool_call" and segment.get("name") == name:
+                yield segment
+
+
+def _skill_name(segment: dict[str, Any]) -> str | None:
+    args = _tool_args(segment)
     name = args.get("skill") or args.get("name")
     return name if isinstance(name, str) and name else None
 
@@ -364,12 +377,7 @@ def mark_skill_links(turns: list[dict[str, Any]], thread_id: str | UUID) -> None
     One query for the whole transcript, plus one when a global skill is named, which must still exist; the latest
     invocation in the thread decides the source. Sync only.
     """
-    named = [
-        (segment, name)
-        for turn in turns
-        for segment in turn.get("segments", ())
-        if segment.get("type") == "tool_call" and segment.get("name") == "skill" and (name := _skill_name(segment))
-    ]
+    named = [(segment, name) for segment in _tool_calls(turns, SKILLS_TOOL_NAME) if (name := _skill_name(segment))]
     if not named:
         return
     try:
@@ -386,3 +394,35 @@ def mark_skill_links(turns: list[dict[str, Any]], thread_id: str | UUID) -> None
     for segment, name in named:
         if name in linkable:
             segment["skill_url"] = reverse("skills:detail", args=[name])
+
+
+def _batch_id(segment: dict[str, Any]) -> UUID | None:
+    try:
+        result = json.loads(segment.get("result") or "")
+        return UUID(result["batch_id"])
+    except ValueError, TypeError, KeyError, AttributeError:
+        return None
+
+
+def _goal(segment: dict[str, Any]) -> str:
+    goal = _tool_args(segment).get("goal")
+    return goal.strip() if isinstance(goal, str) else ""
+
+
+def mark_delegations(turns: list[dict[str, Any]], delegations: Delegations) -> dict[UUID, str]:
+    """Set ``legs`` on ``delegate_jobs`` tool calls from ``delegations``, which wins over the tool result, and return
+    the ``goal`` each of those calls gave, by batch, for the calls that gave one.
+
+    A call whose batch has no legs in ``delegations`` (none of the session's own) is left as it was.
+    """
+    goals: dict[UUID, str] = {}
+    if not delegations.legs:
+        return goals
+    for segment in _tool_calls(turns, DELEGATE_JOBS_TOOL_NAME):
+        batch_id = _batch_id(segment)
+        if batch_id is None or batch_id not in delegations.legs:
+            continue
+        segment["legs"] = delegations.legs[batch_id]
+        if goal := _goal(segment):
+            goals[batch_id] = goal
+    return goals

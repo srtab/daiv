@@ -12,12 +12,21 @@ from django.utils.html import escapejs
 
 import pytest
 from sessions.conf import settings as sessions_settings
+from sessions.delegation import outcome_states
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
 from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.transcript_labels import transcript_icons
 
-from tests.unit_tests.sessions.conftest import create_archive, grant_read_access, make_artifact
+from tests.unit_tests.sessions.conftest import (
+    create_archive,
+    delegate_messages,
+    grant_read_access,
+    make_artifact,
+    make_coordinator,
+    make_delegating_run,
+    make_leg,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1197,6 +1206,7 @@ def test_detail_and_new_chat_embed_the_transcript_labels(member_client, member_u
     assert 'id="chat-transcript-labels"' in detail.content.decode()
     assert 'id="chat-transcript-labels"' in new_chat.content.decode()
     assert detail.context["transcript_labels_payload"]["icons"] == transcript_icons()
+    assert detail.context["transcript_labels_payload"]["leg_states"] == outcome_states()
 
 
 def _detail_html(client, session: Session) -> str:
@@ -1228,6 +1238,15 @@ def test_session_page_marks_each_runs_ending_and_step_rows(member_client, member
 def test_session_page_puts_a_folded_runs_closing_question_below_its_cards(member_client, member_user):
     html = _detail_html(member_client, _create_session(user=member_user))
     assert "block.endingText, block.cards, block.endingTail]" in html
+
+
+@pytest.mark.django_db
+def test_session_page_renders_a_delegated_jobs_card_in_a_runs_items(member_client, member_user):
+    html = _detail_html(member_client, _create_session(user=member_user))
+
+    card = html.index("x-if=\"item.kind === 'delegated'\"", html.index('x-for="item in list"'))
+    assert card < html.index('x-for="(p, pi) in block.publish"')
+    assert 'data-testid="delegated-card"' in html[card:]
 
 
 def _labels_payload(html: str) -> dict:
@@ -1311,3 +1330,66 @@ def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
     for helper, key in calls:
         assert key in labels, key
         assert isinstance(labels[key], list) == (helper == "tn"), f"{helper}('{key}') does not match its label shape"
+
+
+@pytest.mark.django_db
+def test_detail_shows_delegated_jobs_current_state(member_client, member_user):
+    coordinator = make_coordinator(member_user)
+    batch = uuid.uuid4()
+    make_leg(coordinator, batch, status=RunStatus.FAILED)
+    messages = delegate_messages(batch)
+
+    with (
+        patch("sessions.views.ahydrate_thread", _hydration(messages)),
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": coordinator.thread_id}))
+
+    segment = next(s for t in resp.context["turns"] for s in t["segments"] if s.get("name") == "delegate_jobs")
+    assert [leg["state"] for leg in segment["legs"]] == ["failed"]
+
+
+def _header_payload(resp) -> dict:
+    html = resp.content.decode()
+    return json.loads(re.search(r'<script id="session-header" type="application/json">(.*?)</script>', html, re.S)[1])
+
+
+@pytest.mark.django_db
+def test_a_coordinator_page_has_the_delegations_button_and_details_section(member_client, member_user):
+    coordinator = make_coordinator(member_user)
+    make_delegating_run(coordinator, member_user)
+    make_leg(coordinator, uuid.uuid4(), status=RunStatus.FAILED)
+
+    resp = _get_detail(member_client, coordinator)
+
+    assert 'x-if="delegations"' in _topbar(resp) and 'data-testid="session-delegations"' in _topbar(resp)
+    assert "openDetails('delegations')" in _topbar(resp)
+    assert 'id="session-details-delegations"' in _details(resp)
+    assert _header_payload(resp)["delegations"]["failed"] == 1
+
+
+@pytest.mark.django_db
+def test_a_delegated_jobs_page_links_the_session_that_delegated_it(member_client, member_user):
+    coordinator = make_coordinator(member_user, title="Parent work")
+    child = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL).session
+    parent_url = reverse("session_detail", kwargs={"thread_id": coordinator.thread_id})
+
+    resp = _get_detail(member_client, child)
+
+    topbar, details = _topbar(resp), _details(resp)
+    assert "Delegated by" in topbar and f'href="{parent_url}"' in topbar and "Parent work" in topbar
+    assert "Delegated by" in details and f'href="{parent_url}"' in details
+    assert topbar.index("Delegated by") < topbar.index("session-topbar__title")
+
+
+@pytest.mark.django_db
+def test_a_delegated_jobs_page_hides_a_parent_the_viewer_cannot_see(member_client, member_user, other_user):
+    coordinator = make_coordinator(other_user, title="Someone else's work")
+    child = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL).session
+    grant_read_access(member_user, child.repo_id)
+
+    resp = _get_detail(member_client, child)
+
+    html = resp.content.decode()
+    assert "Delegated by" not in html and "Someone else" not in html
+    assert "Delegated Run" in _details(resp)

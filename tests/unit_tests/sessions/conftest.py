@@ -1,4 +1,5 @@
 import inspect
+import json
 import uuid
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -10,6 +11,7 @@ from django.utils import timezone
 import pytest
 from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.models import DBTaskResult, get_date_max
+from langchain_core.messages import AIMessage, ToolMessage
 from sessions.artifacts import guess_content_type
 from sessions.models import (
     Run,
@@ -22,6 +24,7 @@ from sessions.models import (
     artifact_upload_to,
 )
 from sessions.signal_defs import run_finished
+from sessions.turns import tool_call_segment
 
 from accounts.models import User
 from codebase.base import Job, MergeRequest, Pipeline
@@ -328,3 +331,57 @@ def make_merge_request() -> MergeRequest:
         author=PlatformUser(id=2, name="DAIV", username="daiv"),
         draft=False,
     )
+
+
+def make_coordinator(user=None, **fields) -> Session:
+    defaults = {"origin": SessionOrigin.API_JOB, "repo_id": "acme/coord", "ref": "main", "user": user}
+    return Session.objects.create(thread_id=str(uuid.uuid4()), **(defaults | fields))
+
+
+def make_delegating_run(coordinator: Session, user) -> Run:
+    return Run.objects.create(
+        session=coordinator,
+        trigger_type=SessionOrigin.API_JOB,
+        repo_id=coordinator.repo_id,
+        status=RunStatus.RUNNING,
+        user=user,
+    )
+
+
+def make_leg(
+    coordinator: Session, batch_id: uuid.UUID, *, status: str, task_result=None, session_ref: str = "", **fields
+) -> Run:
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.DELEGATED_JOB,
+        repo_id=fields.get("repo_id", "acme/api"),
+        ref=session_ref,
+        parent=coordinator,
+    )
+    fields = {"user": coordinator.user, "finished_at": timezone.now()} | fields
+    return Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.DELEGATED_JOB,
+        batch_id=batch_id,
+        repo_id=session.repo_id,
+        status=status,
+        task_result=task_result,
+        **{k: v for k, v in fields.items() if k != "repo_id"},
+    )
+
+
+def delegate_segment(batch_id: uuid.UUID, result: str | None = None, *, goal: str = "g") -> dict:
+    segment = tool_call_segment({"id": "d1", "name": "delegate_jobs", "args": {"goal": goal, "targets": []}})
+    segment["result"] = result if result is not None else json.dumps({"batch_id": str(batch_id), "started": []})
+    return segment
+
+
+def delegate_messages(batch_id: uuid.UUID) -> list:
+    return [
+        AIMessage(content="", id="a1", tool_calls=[{"id": "t1", "name": "delegate_jobs", "args": {"goal": "g"}}]),
+        ToolMessage(content=json.dumps({"batch_id": str(batch_id), "started": []}), tool_call_id="t1", id="m1"),
+    ]
+
+
+def delegate_turns(*batch_ids: uuid.UUID, goal: str = "g") -> list[dict]:
+    return [{"role": "assistant", "segments": [delegate_segment(batch_id, goal=goal) for batch_id in batch_ids]}]
