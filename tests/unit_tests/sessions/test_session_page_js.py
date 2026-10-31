@@ -66,8 +66,8 @@ const labels = {
   watchFailed: "Couldn't change it",
 };
 const page = components.sessionPage({
-  sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", storageKey: "key",
-  title: "Old", titleSuffix: "DAIV Sessions", labels,
+  sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", muteUrl: "/mute", muted: false,
+  storageKey: "key", title: "Old", titleSuffix: "DAIV Sessions", labels,
 });
 const focused = [];
 Object.assign(page, {
@@ -92,6 +92,7 @@ for (const [action, value] of steps) {
   else if (action === "cancel") page.cancelRename();
   else if (action === "ci-toggle") sending = page.toggleCiWatch(value ?? 7);
   else if (action === "archive") sending = page.setArchived(value);
+  else if (action === "mute") sending = page.toggleMute();
   else if (action === "toggle") page.toggleDetails();
   else if (action === "open-details") page.openDetails("context");
   else if (action === "frame") { section.shown = value; frames.splice(0).forEach((cb) => cb()); }
@@ -102,7 +103,7 @@ for (const [action, value] of steps) {
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
       ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn, ci: page.ci,
-      explanations: page.ci.map((item) => page.ciExplanation(item)),
+      explanations: page.ci.map((item) => page.ciExplanation(item)), muted: page.muted, queued: page.queued,
     });
   }
 }
@@ -368,6 +369,36 @@ def test_a_poll_asked_for_before_the_toggle_answered_does_not_undo_it():
     )
 
     assert [(s["status"], s["watch"]) for s in result["seen"]] == [(FAILED, WATCHING), (FAILED, None)]
+
+
+# ---------------------------------------------------------------------------
+# inbox: mute and the queued next run
+# ---------------------------------------------------------------------------
+
+
+def test_muting_posts_the_choice_and_keeps_it():
+    result = _run([["mute", None], ["reply", {"body": {"muted": True}}], ["read", None]])
+
+    assert result["requests"][0] == {"url": "/mute", "method": "POST", "body": {"muted": True}, "csrf": "tok"}
+    assert result["seen"][0]["muted"] is True
+
+
+def test_a_refused_mute_puts_the_old_choice_back():
+    result = _run([["mute", None], ["reply", {"status": 404, "body": {}}], ["read", None]])
+
+    assert result["seen"][0]["muted"] is False
+
+
+def test_each_poll_brings_what_waits_for_the_next_run():
+    queued = {"run_id": "r-2", "events": [{"id": "e-1", "kind": "chat_message", "summary": "Also add a test"}]}
+    result = _run([
+        ["poll", {"latest_run": DONE, "queued": queued}],
+        ["read", None],
+        ["poll", {"latest_run": DONE, "queued": None}],
+        ["read", None],
+    ])
+
+    assert [seen["queued"] for seen in result["seen"]] == [queued, None]
 
 
 # ---------------------------------------------------------------------------

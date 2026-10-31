@@ -9,9 +9,10 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from sessions.models import RunStatus, SessionOrigin
-from sessions.signal_defs import run_finished, watch_exhausted
+from sessions.signal_defs import inbox_paused, run_finished, watch_exhausted
 
 from notifications.choices import ChannelType
+from notifications.inbox_notifiers import emit_inbox_paused
 from notifications.models import UserChannelBinding
 from notifications.schedule_notifiers import emit_schedule_dispatch_failed
 from notifications.tasks import classify_run_task
@@ -49,6 +50,16 @@ def on_watch_exhausted(sender, ownership, session, failing_jobs, pipeline_url, s
         )
     except Exception:
         logger.exception("on_watch_exhausted: unexpected error for thread_id=%s", session.thread_id)
+
+
+@receiver(inbox_paused, dispatch_uid="notifications.on_inbox_paused")
+def on_inbox_paused(sender, session, first_blocked_event_id, runs_in_a_row, **kwargs) -> None:
+    """Tell the session owner DAIV stopped waking the session on its own; swallow errors so the signal never
+    propagates."""
+    try:
+        emit_inbox_paused(session=session, first_blocked_event_id=first_blocked_event_id, runs_in_a_row=runs_in_a_row)
+    except Exception:
+        logger.exception("on_inbox_paused: unexpected error for thread_id=%s", session.thread_id)
 
 
 @receiver(schedule_dispatch_failed, dispatch_uid="notifications.on_schedule_dispatch_failed")

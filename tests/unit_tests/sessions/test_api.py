@@ -769,3 +769,85 @@ async def test_session_turns_report_ci_on_the_merge_requests_the_session_owns(cl
         }
     ]
     assert resp.json()["watch"] == {"state": "running", "label": "Waiting for CI", "tone": "attn", "open": True}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("muted", [True, False])
+async def test_session_inbox_mute_sets_the_flag_for_the_owner(client, authed, muted):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, inbox_muted=not muted)
+
+    resp = await client.post(
+        f"/sessions/{session.thread_id}/inbox-mute", json={"muted": muted}, headers=_auth_headers(raw)
+    )
+
+    assert resp.json() == {"muted": muted}
+    await session.arefresh_from_db()
+    assert session.inbox_muted is muted
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_inbox_mute_is_not_found_for_anyone_else(client, authed):
+    _key_obj, raw, _user = authed
+    other = await User.objects.acreate_user(username="other-mute", email="om@example.com", password="x")  # noqa: S106
+    session = await sync_to_async(_create_session)(user=other)
+
+    resp = await client.post(
+        f"/sessions/{session.thread_id}/inbox-mute", json={"muted": True}, headers=_auth_headers(raw)
+    )
+
+    assert resp.status_code == 404
+    await session.arefresh_from_db()
+    assert session.inbox_muted is False
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_inbox_mute_is_allowed_for_an_admin(client, admin_user):
+    raw = (await APIKey.objects.create_key(user=admin_user, name="admin"))[1]
+    session = await sync_to_async(_create_session)(user=None)
+
+    resp = await client.post(
+        f"/sessions/{session.thread_id}/inbox-mute", json={"muted": True}, headers=_auth_headers(raw)
+    )
+
+    assert resp.status_code == 200
+    await session.arefresh_from_db()
+    assert session.inbox_muted is True
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_report_the_queued_next_run_and_what_waits_for_it(client, authed):
+    from sessions.models import EventKind
+
+    from tests.unit_tests.sessions.inbox.conftest import amake_event, chat_payload
+
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, active_run_id="chat-run")
+    next_run = await _create_run_async(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT)
+    chat = await amake_event(session, EventKind.CHAT_MESSAGE, run=next_run, payload=chat_payload("Also add a test"))
+
+    hydrated = HydratedThread([], False, None, None, None)
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    queued = resp.json()["queued"]
+    assert queued["run_id"] == str(next_run.pk)
+    assert [(e["id"], e["kind"], e["summary"]) for e in queued["events"]] == [
+        (str(chat.pk), "chat_message", "Also add a test")
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_report_nothing_queued(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+
+    hydrated = HydratedThread([], False, None, None, None)
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.json()["queued"] is None
+
+
+async def _create_run_async(session, **kwargs):
+    return await Run.objects.acreate(session=session, repo_id=session.repo_id, **kwargs)

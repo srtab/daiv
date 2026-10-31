@@ -4,11 +4,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ninja.testing import TestAsyncClient
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, HiddenSession, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from daiv.api import api
 from tests.unit_tests.sessions.conftest import active_holder
+from tests.unit_tests.sessions.inbox.conftest import amake_event
 
 
 @pytest.fixture
@@ -425,7 +426,7 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_concurrent_run_returns_409(client: TestAsyncClient, authed):
+async def test_a_message_sent_while_a_run_holds_the_slot_joins_the_next_run(client: TestAsyncClient, authed):
     _, raw, user = authed
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT, thread_id="t-busy", user=user, repo_id="a/b", ref="main", active_run_id="r-existing"
@@ -435,7 +436,86 @@ async def test_concurrent_run_returns_409(client: TestAsyncClient, authed):
         json=_run_agent_input(threadId="t-busy"),
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
-    assert response.status_code == 409
+
+    assert response.status_code == 200
+    event = await InboxEvent.objects.aget(session_id="t-busy")
+    assert (event.kind, event.source_key, event.wake, event.author_id) == ("chat_message", "chat:m-1", True, user.pk)
+    assert event.payload == {"text": "hello", "agui_message_id": "m-1"}
+    next_run = await Run.objects.aget(pk=event.run_id)
+    assert (next_run.status, next_run.trigger_type) == (RunStatus.QUEUED, SessionOrigin.CHAT)
+    assert response.json() == {
+        "run_id": "r-1",
+        "thread_id": "t-busy",
+        "queued": {"event_id": str(event.pk), "run_id": str(next_run.pk), "position": "next"},
+    }
+    assert await active_holder("t-busy") == "r-existing"
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_queued_message_answers_a_stream_caller_with_a_well_formed_ag_ui_stream(client, authed):
+    import json
+
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-busy", user=user, repo_id="a/b", ref="main", active_run_id="r-existing"
+    )
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-busy"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main", "Accept": "text/event-stream"}),
+    )
+
+    body = response.content.decode()
+    frames = [json.loads(line.removeprefix("data:").strip()) for line in body.splitlines() if line.startswith("data:")]
+    event = await InboxEvent.objects.aget(session_id="t-busy")
+    assert [frame.get("type") for frame in frames] == ["RUN_STARTED", "CUSTOM", "RUN_FINISHED", None]
+    assert frames[1] == {
+        "type": "CUSTOM",
+        "name": "daiv.queued",
+        "value": {"event_id": str(event.pk), "run_id": str(event.run_id), "position": "next"},
+    }
+    assert frames[3] == {"reason": "finished"}
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_resent_message_is_queued_once(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-busy", user=user, repo_id="a/b", ref="main", active_run_id="r-existing"
+    )
+    for run_id in ("r-1", "r-2"):
+        await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-busy", runId=run_id),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert await InboxEvent.objects.filter(session_id="t-busy").acount() == 1
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_an_idle_turn_takes_the_pending_remembered_events(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    _, raw, user = authed
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-idle", user=user, repo_id="a/b", ref="main"
+    )
+    remembered = await amake_event(session, EventKind.MR_MERGED, merge_request_iid=3)
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-idle"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    await asyncio.gather(*captured_runs)
+
+    assert response.json() == {"run_id": "r-1", "thread_id": "t-idle"}
+    remembered = await InboxEvent.objects.aget(pk=remembered.pk)
+    assert (remembered.state, remembered.claim_token) == ("taken", "r-1")
     await user.adelete()
 
 
@@ -458,19 +538,47 @@ async def test_a_turn_on_a_session_you_archived_returns_400(client: TestAsyncCli
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_turn_sent_while_a_run_waits_to_start_returns_409(client: TestAsyncClient, authed):
+async def test_a_turn_sent_while_a_run_waits_to_start_is_queued_behind_it(client: TestAsyncClient, authed):
     _, raw, user = authed
     session = await Session.objects.acreate(
         origin=SessionOrigin.UI_JOB, thread_id="t-waiting", user=user, repo_id="a/b", ref="main"
     )
     await Run.objects.acreate(session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="a/b", status=RunStatus.READY)
-    response = await client.post(
-        "/chat/completions",
-        json=_run_agent_input(threadId="t-waiting"),
-        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
-    )
-    assert response.status_code == 409
+
+    with patch("sessions.inbox.post.drain_logged") as drain:
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-waiting"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["queued"]["event_id"]
+    drain.assert_called_once_with("t-waiting")
     assert await active_holder("t-waiting") is None
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_sent_while_a_next_run_is_queued_joins_it(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-next", user=user, repo_id="a/b", ref="main"
+    )
+    next_run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="a/b", ref="main", status=RunStatus.QUEUED
+    )
+    await amake_event(session, run=next_run)
+
+    with patch("sessions.inbox.post.drain_logged"):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-next"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.json()["queued"]["run_id"] == str(next_run.pk)
+    assert await active_holder("t-next") is None
     await user.adelete()
 
 
@@ -874,8 +982,8 @@ async def test_chat_rejects_out_of_bounds_mcp_servers_payload(client: TestAsyncC
 async def test_a_rejected_duplicate_run_does_not_rewrite_the_selection(
     client: TestAsyncClient, authed, fake_redis, patched_streamer, ondemand_global_mcp
 ):
-    """The stored selection is a memory of what the last turn ran with, so a turn that never
-    ran must not leave one behind — hence the write lands after ``SessionLock.try_claim``."""
+    """The stored selection is a memory of what the last turn ran with, so a queued turn that has not run must not
+    leave one behind — hence the write lands after ``SessionLock.try_claim``."""
     from django.core.cache import cache
 
     _, raw, user = authed
@@ -895,7 +1003,7 @@ async def test_a_rejected_duplicate_run_does_not_rewrite_the_selection(
         json=_run_agent_input(threadId="t-mcp-locked", forwardedProps={"mcp_servers": []}),
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
-    assert response.status_code == 409
+    assert response.json()["queued"]
 
     session = await Session.objects.aget(thread_id="t-mcp-locked")
     assert session.mcp_overrides == {"b": "on"}
@@ -1267,6 +1375,35 @@ async def test_cancel_sets_flag_and_reports_local_miss(client: TestAsyncClient, 
     assert response.status_code == 200
     assert response.json() == {"cancelled": True, "local": False}
     assert await RunRelay("t-c1", "r-9").cancel_requested() is True
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_cancel_stops_a_background_run_of_a_session_the_caller_owns(client: TestAsyncClient, authed, fake_redis):
+    from asgiref.sync import sync_to_async
+    from sessions.live.relay import RunRelay
+
+    from tests.unit_tests.sessions.conftest import make_task_result
+
+    _, raw, user = authed
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-bg", user=user, repo_id="a/b", ref="main"
+    )
+    task = await sync_to_async(make_task_result)(status="RUNNING")
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="a/b", status=RunStatus.RUNNING,
+        task_result=task,
+    )  # fmt: skip
+    await Session.objects.filter(pk="t-bg").aupdate(active_run_id=str(run.pk))
+
+    response = await client.post(
+        "/chat/cancel", json={"thread_id": "t-bg", "run_id": str(run.pk)}, headers=_auth_headers(raw)
+    )
+
+    assert response.json() == {"cancelled": True, "local": False}
+    await run.arefresh_from_db()
+    assert run.cancel_requested_at is not None
+    assert await RunRelay("t-bg", str(run.pk)).cancel_requested() is False
     await user.adelete()
 
 

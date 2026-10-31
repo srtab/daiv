@@ -25,6 +25,9 @@ document.addEventListener("alpine:init", () => {
     // CI on each merge request the session owns; `watch` is the first one's, which the top bar's toggle acts on.
     ci: [],
     watch: null,
+    // The session's next run and what waits for it; muted keeps CI and delegations from waking the session.
+    queued: null,
+    muted: Boolean(config.muted),
     runCount: 0,
     title: config.title || "",
     titleDraft: "",
@@ -110,6 +113,7 @@ document.addEventListener("alpine:init", () => {
       // A response asked for before the last toggle answered read CI from before it.
       const stale = data.requestedAt <= this._watchAt;
       if ("watch" in data && !stale) this._showCi(data);
+      if ("queued" in data) this.queued = data.queued ?? null;
     },
     _showCi(data) {
       this.ci = data?.ci ?? [];
@@ -196,6 +200,16 @@ document.addEventListener("alpine:init", () => {
         this.ciWatchError = config.labels.watchFailed;
       } finally {
         this.ciWatchBusy = false;
+      }
+    },
+    async toggleMute() {
+      const previous = this.muted;
+      this.muted = !previous;
+      try {
+        const res = await this._send(config.muteUrl, "POST", { muted: this.muted });
+        if (!res.ok) throw new Error(`mute failed: ${res.status}`);
+      } catch {
+        this.muted = previous;
       }
     },
     askArchive() {

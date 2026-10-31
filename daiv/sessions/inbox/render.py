@@ -176,6 +176,29 @@ def _fit(entries: list[_Entry]) -> str:
     return _text()
 
 
+SUMMARY_MAX_CHARS = 140
+
+
+def summarize(event: InboxEvent) -> str:
+    """A one-line summary of ``event`` for the session page, built from its payload alone."""
+    payload = event.payload
+    match event.kind:
+        case EventKind.CHAT_MESSAGE:
+            text = payload["text"]
+        case EventKind.MENTION:
+            text = f"{_author(event)} on !{event.merge_request_iid}: {payload['body']}"
+        case EventKind.FOLLOW_UP_JOB:
+            text = payload["prompt"]
+        case EventKind.DELEGATION_FINISHED:
+            text = "Delegated jobs finished"
+        case EventKind.CI_FAILED | EventKind.CI_PASSED | EventKind.CI_STOPPED:
+            text = f"CI on !{event.merge_request_iid}: pipeline {payload['pipeline_id']} {_ci_status(event).lower()}"
+        case _:
+            text = _describe(event)
+    text = " ".join(text.split())
+    return text if len(text) <= SUMMARY_MAX_CHARS else f"{text[: SUMMARY_MAX_CHARS - 1]}…"
+
+
 def _line(event: InboxEvent) -> str:
     return f"- {_describe(event)}"
 

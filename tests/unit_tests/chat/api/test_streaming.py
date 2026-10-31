@@ -1299,3 +1299,92 @@ class TestTurnMeasurements:
 
         run = await Run.objects.aget(session_id="t-stream")
         assert run.clone_seconds == 1.5
+
+
+@pytest.mark.django_db(transaction=True)
+class TestInboxContext:
+    @pytest.fixture(autouse=True)
+    def _patch_run_lifecycle(self):
+        """Override the module-level autouse: the turn's ``Run`` row is real, so events can point at it."""
+
+    async def _session_with_taken_events(self) -> Session:
+        from sessions.models import EventKind, EventState
+
+        from tests.unit_tests.sessions.inbox.conftest import amake_event
+
+        session = await Session.objects.acreate(
+            thread_id="t-stream", origin="chat", repo_id="a/b", ref="main", active_run_id="r-1"
+        )
+        await amake_event(session, EventKind.MR_MERGED, merge_request_iid=3, state=EventState.TAKEN, claim_token="r-1")  # noqa: S106
+        return session
+
+    async def test_the_turns_run_takes_over_the_events_the_view_took(self, real_chat_inbox):
+        from sessions.models import InboxEvent
+
+        await self._session_with_taken_events()
+        turn = SimpleNamespace(chat_run=None)
+
+        run_id = await _streamer()._start_turn(turn, "main")
+
+        event = await InboxEvent.objects.aget()
+        assert (str(event.run_id), event.claim_token) == (run_id, "")
+
+    async def test_their_context_is_written_ahead_of_the_persons_message(self, real_chat_inbox):
+        from automation.agent.synthetic import synthetic_kind
+
+        await self._session_with_taken_events()
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock())
+
+        await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={"configurable": {}}))
+
+        [call] = agent.aupdate_state.await_args_list
+        [context] = call.args[1]["messages"]
+        assert synthetic_kind(context) == "inbox"
+        assert "!3 was merged into main" in context.content
+        assert call.kwargs == {"as_node": "model"}
+
+    async def test_a_turn_with_nothing_taken_writes_nothing(self, real_chat_inbox):
+        await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock())
+
+        await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}))
+
+        agent.aupdate_state.assert_not_awaited()
+
+    async def test_a_failed_write_is_logged_and_the_turn_goes_on(self, real_chat_inbox, caplog):
+        await self._session_with_taken_events()
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock(side_effect=RuntimeError("redis down")))
+
+        with caplog.at_level("ERROR", logger="daiv.chat"):
+            await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}))
+
+        assert "could not add the inbox context" in caplog.text
+
+
+async def test_the_inbox_is_drained_once_the_turn_releases_the_slot(chat_inbox):
+    order: list[str] = []
+    chat_inbox.drain.side_effect = lambda thread_id: order.append(f"drain {thread_id}")
+
+    async def _release(thread_id, run_id):
+        order.append("release")
+
+    with patch("chat.api.streaming.SessionLock.release", _release):
+        await _streamer()._end_turn(SimpleNamespace(chat_run=None), succeeded=True)
+
+    assert order == ["release", "drain t-stream"]
+
+
+async def test_a_failed_release_skips_the_drain(chat_inbox, caplog):
+    with patch("chat.api.streaming.SessionLock.release", AsyncMock(side_effect=RuntimeError("db down"))):
+        await _streamer()._end_turn(SimpleNamespace(chat_run=None), succeeded=True)
+
+    chat_inbox.drain.assert_not_called()

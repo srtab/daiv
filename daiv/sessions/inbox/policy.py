@@ -2,7 +2,8 @@
 
 A person's request (a chat message, a mention, a follow-up job) always wakes it. A CI failure or a finished delegated
 batch does not while the session is muted, or once ``MAX_SYSTEM_RUNS_IN_A_ROW`` runs DAIV started itself followed each
-other with no run a person started in between: the event is then only remembered, with the reason recorded.
+other with no run a person started in between: the event is then only remembered, with the reason recorded, and the
+session's owner is told once per streak (:func:`report_run_limit`).
 """
 
 from __future__ import annotations
@@ -12,10 +13,11 @@ from typing import TYPE_CHECKING
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.kinds import GATED_KINDS
-from sessions.models import QuietReason, Run, RunStatus, SessionOrigin
+from sessions.models import InboxEvent, QuietReason, Run, RunStatus, Session, SessionOrigin
+from sessions.signal_defs import inbox_paused
 
 if TYPE_CHECKING:
-    from sessions.models import Session
+    from datetime import datetime
 
 MAX_SYSTEM_RUNS_IN_A_ROW = 3
 
@@ -52,3 +54,32 @@ def system_runs_in_a_row(session: Session) -> int:
             break
         count += 1
     return count
+
+
+def report_run_limit(session: Session) -> None:
+    """Tell the receivers of ``inbox_paused`` that the limit blocked a wake on ``session``, naming the first event the
+    current streak blocked, which is what keeps one streak to one notice. SYNC ONLY."""
+    blocked = InboxEvent.objects.filter(session=session, reason=QuietReason.RUN_LIMIT)
+    if (since := _last_person_run_at(session)) is not None:
+        blocked = blocked.filter(created_at__gt=since)
+    first = blocked.order_by("created_at", "id").first()
+    if first is None:
+        return
+    inbox_paused.send_robust(
+        sender=Session, session=session, first_blocked_event_id=str(first.pk), runs_in_a_row=MAX_SYSTEM_RUNS_IN_A_ROW
+    )
+
+
+areport_run_limit = sync_to_async(report_run_limit)
+
+
+def _last_person_run_at(session: Session) -> datetime | None:
+    return (
+        Run.objects
+        .filter(session=session)
+        .exclude(status=RunStatus.QUEUED)
+        .exclude(trigger_type__in=SessionOrigin.daiv_authored())
+        .order_by("-created_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )

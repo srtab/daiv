@@ -15,6 +15,7 @@ such runs alone: only this module starts them, because only it claims the slot f
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import TYPE_CHECKING
 
 from django.db import IntegrityError, transaction
@@ -26,7 +27,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.kinds import INBOX_TRIGGERS, PERSON_KINDS, PRECEDENCE, run_trigger_type
-from sessions.inbox.policy import may_wake
+from sessions.inbox.policy import may_wake, report_run_limit
 from sessions.inbox.render import render_request
 from sessions.models import (
     EventFailure,
@@ -34,6 +35,7 @@ from sessions.models import (
     EventState,
     InboxEvent,
     MergeRequestOwnership,
+    QuietReason,
     Run,
     RunStatus,
     Session,
@@ -70,6 +72,50 @@ def next_runs(session: Session) -> QuerySet[Run]:
 def next_run_for(session: Session, ref: str) -> Run | None:
     """``session``'s QUEUED next run for the branch ``ref``. SYNC ONLY."""
     return next_runs(session).filter(ref=ref).first()
+
+
+def is_busy(session: Session) -> bool:
+    """Whether a message sent to ``session`` now has to wait: a live holder has the slot, or a next run is queued
+    ahead of it. SYNC ONLY."""
+    return slot_busy(session) or next_runs(session).exists()
+
+
+ais_busy = sync_to_async(is_busy)
+
+
+def take_for_chat(thread_id: str, *, holder_id: str) -> list[InboxEvent]:
+    """Take the session's pending remembered events for its branch for the chat turn that just claimed the slot
+    under ``holder_id``, before its ``Run`` exists. SYNC ONLY.
+
+    A waking event is left for the drain, which starts its run once the turn ends: only the drain renders a waking
+    event's request and charges a CI attempt.
+    """
+    with transaction.atomic():
+        session = Session.objects.select_for_update().get(pk=thread_id)
+        pending = InboxEvent.objects.filter(session=session, state=EventState.PENDING, wake=False).filter(
+            Q(ref="") | Q(ref=session.ref)
+        )
+        taken = _supersede(list(pending.order_by("created_at", "id")))
+        InboxEvent.objects.filter(pk__in=[event.pk for event in taken]).update(
+            state=EventState.TAKEN, claim_token=holder_id, updated_at=timezone.now()
+        )
+    return taken
+
+
+atake_for_chat = sync_to_async(take_for_chat)
+
+
+async def alink_chat_run(holder_id: str, run: Run) -> None:
+    """Point the events a chat turn took under ``holder_id`` at its ``Run``, now that the row exists."""
+    await InboxEvent.objects.filter(session_id=run.session_id, claim_token=holder_id, state=EventState.TAKEN).aupdate(
+        run=run, claim_token=""
+    )
+    await (
+        InboxEvent.objects
+        .filter(session_id=run.session_id, state=EventState.SUPERSEDED, run__isnull=True, claim_token="")
+        .filter(subject__in=InboxEvent.objects.filter(run=run).exclude(subject="").values("subject"))
+        .aupdate(run=run)
+    )
 
 
 def drain(thread_id: str) -> Run | None:
@@ -185,10 +231,14 @@ def _supersede(pending: list[InboxEvent]) -> list[InboxEvent]:
 
 def _apply_policy(session: Session, survivors: Iterable[InboxEvent]) -> None:
     """Turn the waking events the policy blocks into remembered ones, recording why."""
+    limited = False
     for event in survivors:
         if event.wake and (reason := may_wake(session, event.kind)) is not None:
             event.wake, event.reason = False, reason
             event.save(update_fields=["wake", "reason", "updated_at"])
+            limited = limited or reason == QuietReason.RUN_LIMIT
+    if limited:
+        transaction.on_commit(partial(report_run_limit, session), robust=True)
 
 
 def _drop_next_runs(runs: Iterable[Run | None]) -> None:

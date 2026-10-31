@@ -113,6 +113,22 @@ class TestBusySession:
         assert chat.run_id == first.run_id
         assert await Run.objects.filter(session=session).acount() == 1
 
+    async def test_the_next_run_shows_what_waits_for_it(self, drain):
+        session = await amake_session(active_run_id="chat-run")
+
+        first = await _post_ci(session.thread_id, pipeline_id=1)
+        await apost_event(
+            session.thread_id,
+            kind=EventKind.CHAT_MESSAGE,
+            source_key="chat:m1",
+            payload=chat_payload("Also add a test"),
+            wake=True,
+        )
+
+        run = await Run.objects.aget(pk=first.run_id)
+        assert run.trigger_type == SessionOrigin.CHAT
+        assert run.prompt.startswith("Also add a test\n\nCI failed on this merge request.")
+
     async def test_events_on_different_branches_get_different_next_runs(self, drain):
         session = await amake_session(active_run_id="chat-run")
 

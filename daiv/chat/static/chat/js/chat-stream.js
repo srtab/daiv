@@ -381,6 +381,8 @@
     resuming: !!config.activeRunId,
     // Whether the session has a run in flight, streamed here or not; the poll and this page's own runs keep it current.
     sessionLive: !!config.sessionLive,
+    // The next run a message sent while the session was busy waits for.
+    queuedRunId: "",
     waitingSince: config.waitingSince || "",
     runStoppable: config.liveRunStoppable ?? true,
     publishPhase: "",
@@ -849,6 +851,7 @@
     followLiveRun({ id, stoppable, started_at }) {
       if (this.streaming) return;
       this.waitingSince = "";
+      this.queuedRunId = "";
       this.runStoppable = stoppable;
       this.sessionLive = true;
       this.resuming = true;
@@ -1588,6 +1591,12 @@
           this._pushRunStatus("failed", await formatHttpError(resp));
           return;
         }
+        const handle = await resp.json().catch(() => ({}));
+        if (handle?.queued) {
+          reason = "queued";
+          this._queueTurn(assistantTurn, handle.queued);
+          return;
+        }
 
         // The run now executes server-side detached from any connection; all
         // event consumption goes through the resumable relay stream.
@@ -1596,8 +1605,22 @@
         console.error("chat: failed to start run", err);
         this._pushRunStatus("failed", "Connection lost — please retry.");
       } finally {
-        this._finishTurn(assistantTurn, reason);
+        if (reason !== "queued") this._finishTurn(assistantTurn, reason);
       }
+    },
+
+    // The session was busy, so the message waits for its next run (the ``daiv.queued`` answer). It shows as pending
+    // with no reply of its own; the turns poll keeps running and ``followLiveRun`` tails the run once it starts.
+    _queueTurn(assistantTurn, queued) {
+      const at = this.turns.indexOf(assistantTurn);
+      if (at > 0 && this.turns[at - 1].role === "user") this.turns[at - 1].pending = true;
+      if (at >= 0) this.turns.splice(at, 1);
+      this.streaming = false;
+      this.runStartedAt = null;
+      this._activeRun = null;
+      this.sessionLive = true;
+      this.queuedRunId = queued.run_id || "";
+      this.scrollToBottom();
     },
 
     async stop() {

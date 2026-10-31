@@ -17,3 +17,7 @@ run_ended = Signal()
 # Arguments: ownership (MergeRequestOwnership), session (Session, the owning one), failing_jobs (list[str]),
 # pipeline_url (str), sha (str).
 watch_exhausted = Signal()
+
+# Emitted when the consecutive-run limit turns a CI or delegation wake into a remembered event. Arguments: session
+# (Session), first_blocked_event_id (str, the first event the current streak blocked), runs_in_a_row (int).
+inbox_paused = Signal()

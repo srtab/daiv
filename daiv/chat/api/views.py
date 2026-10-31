@@ -1,9 +1,11 @@
 import logging
 import time
+import uuid
 
 from django.http import Http404, HttpRequest
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
+from ag_ui.core.events import CustomEvent, EventType, RunFinishedEvent, RunStartedEvent
 from asgiref.sync import sync_to_async
 from mcp_connectors.selection import build_selection_pool, diff_selection, parse_server_names
 from ninja import Router, Schema
@@ -12,8 +14,11 @@ from ninja.security import django_auth
 from sandbox_envs.selection import resolve_env_for_run
 from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_access, aresolve_environment
 from sessions.executor.lock import SessionLock, session_activity, stale_cutoff
+from sessions.inbox import kinds
+from sessions.inbox.drain import ais_busy, atake_for_chat
+from sessions.inbox.post import apost_event
 from sessions.live import relay
-from sessions.models import RunStatus, Session
+from sessions.models import EventKind, Run, RunStatus, Session
 from sessions.spend import build_session_spend
 
 from accounts.api.security import AuthBearer
@@ -112,21 +117,32 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     return sse_response(_run_event_frames(thread_id, run_id, last_id))
 
 
+class QueuedMessage(Schema):
+    """A message sent while the session was busy: the inbox event holding it, and the run that will answer it."""
+
+    event_id: str
+    run_id: str | None
+    position: str = "next"
+
+
 class RunHandle(Schema):
     """The default ``POST /completions`` response: a pointer to the detached run.
 
     Every subsequent ``GET /stream`` / ``POST /cancel`` call is built from this
     pair, so it's a durable client contract (unlike the trivial probe dicts other
-    endpoints return) and gets a schema of its own — mirroring ``CancelIn``.
+    endpoints return) and gets a schema of its own — mirroring ``CancelIn``. ``queued`` is set instead of a run
+    starting when the session was busy: the message waits for the session's next run.
     """
 
     run_id: str
     thread_id: str
+    queued: QueuedMessage | None = None
 
 
 @chat_router.post(
     "/completions",
     response=RunHandle,
+    exclude_none=True,
     throttle=[JobsRateThrottle()],
     url_name="completions",
     openapi_extra={
@@ -141,9 +157,10 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     """AG-UI streaming endpoint. First sight of a ``thread_id`` creates its ``Session``
     under the authenticated caller; subsequent requests must be able to see it (a
     webhook-origin session with ``user=None`` is continuable by anyone with visibility).
-    ``SessionLock.try_claim`` atomically claims the per-session run slot — parallel tabs
-    resolve to a single winner, the loser gets 409. A run waiting to start holds no slot yet,
-    so a turn sent meanwhile gets 409 too instead of jumping ahead of it.
+    ``SessionLock.try_claim`` atomically claims the per-session run slot. When the session is busy — the slot is
+    held, a next run is queued, or another run is waiting to start — the message is not refused: it becomes a
+    ``chat_message`` inbox event that joins the session's next run, and the response says so (``queued``, or a
+    ``daiv.queued`` event on the stream). An idle turn takes the session's pending remembered events as its context.
 
     Runs execute detached (see ``chat.api.runner``); the response is a run handle (JSON) or an
     inline relay tail (``Accept: text/event-stream``).
@@ -257,11 +274,19 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
             " from forwarded_props or start a new thread to change it.",
         )
 
+    prompt = _extract_last_user_message(input_data)
+    message_id = _extract_last_user_message_id(input_data) or run_id
     unfinished = [run async for run in session.runs.exclude(status__in=RunStatus.terminal())]
-    if session_activity(session, unfinished).waiting:
-        raise HttpError(409, "A run is waiting to start on this thread")
-    if not await SessionLock.try_claim(thread_id, run_id):
-        raise HttpError(409, "A run is already in progress for this thread")
+    if (
+        session_activity(session, unfinished).waiting
+        or await ais_busy(session)
+        or not await SessionLock.try_claim(thread_id, run_id)
+    ):
+        queued = await _queue_message(thread_id, user=user, prompt=prompt, message_id=message_id)
+        if "text/event-stream" in (request.headers.get("accept") or ""):
+            return sse_response(_queued_frames(thread_id, run_id, queued))
+        return {"run_id": run_id, "thread_id": thread_id, "queued": queued}
+    await atake_for_chat(thread_id, holder_id=run_id)
 
     # The Tools selection is not pinned — ``build_runtime_servers`` re-resolves it every run — so
     # any turn may retune it. Gated on the claim so a rejected duplicate remembers nothing.
@@ -286,7 +311,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         run_id=run_id,
         input_data=input_data,
         user_id=user.pk,
-        prompt=_extract_last_user_message(input_data),
+        prompt=prompt,
         message_id=_extract_last_user_message_id(input_data),
         sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
         agent_model=session.agent_model or None,
@@ -318,6 +343,33 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     return {"run_id": run_id, "thread_id": thread_id}
 
 
+async def _queue_message(thread_id: str, *, user, prompt: str, message_id: str) -> dict:
+    """Hold a message sent while the session is busy as a ``chat_message`` event for its next run."""
+    result = await apost_event(
+        thread_id,
+        kind=EventKind.CHAT_MESSAGE,
+        source_key=kinds.chat_key(message_id),
+        payload={"text": prompt, "agui_message_id": message_id},
+        wake=True,
+        author=user,
+    )
+    next_run_id = str(result.run_id) if result.run_id else None
+    return {"event_id": str(result.event.pk), "run_id": next_run_id, "position": "next"}
+
+
+def _queued_frames(thread_id: str, run_id: str, queued: dict):
+    """The well-formed AG-UI stream a queued message answers with: the run starts, says it is queued, and finishes
+    with no assistant content."""
+    events = (
+        RunStartedEvent(type=EventType.RUN_STARTED, thread_id=thread_id, run_id=run_id),
+        CustomEvent(type=EventType.CUSTOM, name="daiv.queued", value=queued),
+        RunFinishedEvent(type=EventType.RUN_FINISHED, thread_id=thread_id, run_id=run_id),
+    )
+    for event in events:
+        yield data_frame(event.model_dump_json(by_alias=True, exclude_none=True))
+    yield end_frame("finished")
+
+
 class CancelIn(Schema):
     thread_id: str
     run_id: str
@@ -325,11 +377,12 @@ class CancelIn(Schema):
 
 @chat_router.post("/cancel", response=dict, url_name="chat_run_cancel")
 async def cancel_chat_run(request: HttpRequest, payload: CancelIn):
-    """Explicitly stop an in-flight chat run.
+    """Explicitly stop the run holding a session's slot: a chat turn, or a background run of a session the caller
+    owns (a job, or a run the session's inbox started).
 
-    Required because disconnects no longer cancel runs: the Redis flag stops
-    the run at its next event boundary wherever it executes; the local task
-    cancel is immediate when the run lives in this process.
+    Required because disconnects no longer cancel runs: for a chat turn the Redis flag stops the run at its next
+    event boundary wherever it executes, and the local task cancel is immediate when the run lives in this process;
+    a background run is asked to stop through ``RunManager.cancel``, which its task checks.
     """
     user = request.auth  # ty: ignore[unresolved-attribute]
     session = await Session.objects.by_owner(user).filter(thread_id=payload.thread_id).afirst()
@@ -338,9 +391,22 @@ async def cancel_chat_run(request: HttpRequest, payload: CancelIn):
     if session.active_run_id != payload.run_id:
         raise HttpError(409, "Run is not in flight for this thread")
 
+    if (background := await _background_run(session, payload.run_id)) is not None:
+        return {"cancelled": await sync_to_async(Run.objects.cancel)(background), "local": False}
+
     await relay.RunRelay(payload.thread_id, payload.run_id).request_cancel()
     cancelled_locally = runner.supervisor.cancel_local(payload.run_id)
     return {"cancelled": True, "local": cancelled_locally}
+
+
+async def _background_run(session: Session, holder_id: str) -> Run | None:
+    """The task-backed run holding ``session``'s slot under its own pk, which ``holder_id`` names; ``None`` for a chat
+    turn, which holds it under its AG-UI run id."""
+    try:
+        run_pk = uuid.UUID(holder_id)
+    except ValueError:
+        return None
+    return await Run.objects.filter(pk=run_pk, session=session, task_result__isnull=False).afirst()
 
 
 @chat_router.get("/spend", url_name="chat_session_spend")

@@ -11,8 +11,9 @@ from django.db import transaction
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.drain import drain_logged, next_run_for, slot_busy
-from sessions.inbox.kinds import KEY_MAX_LENGTH, WAKING_KINDS, run_trigger_type, validate_payload
-from sessions.models import InboxEvent, Run, RunStatus, Session
+from sessions.inbox.kinds import KEY_MAX_LENGTH, PRECEDENCE, WAKING_KINDS, run_trigger_type, validate_payload
+from sessions.inbox.render import render_request
+from sessions.models import EventState, InboxEvent, Run, RunStatus, Session
 
 if TYPE_CHECKING:
     import uuid
@@ -86,10 +87,21 @@ def post_event(thread_id: str, *, wake: bool, ref: str, **fields: Any) -> PostRe
             if (run := _next_run(session, stored)) is not None:
                 InboxEvent.objects.filter(pk=stored.pk).update(run=run)
                 stored.run = run
+                _describe_next_run(run)
             transaction.on_commit(partial(drain_logged, thread_id), robust=True)
     if wake and stored.run_id is None:
         stored.run_id = InboxEvent.objects.filter(pk=stored.pk).values_list("run_id", flat=True).first()
     return PostResult(event=stored, created=True, run_id=stored.run_id)
+
+
+def _describe_next_run(run: Run) -> None:
+    """Keep the next run's prompt and provisional trigger type in step with the events waiting for it, so the session
+    page shows what it will do while it waits."""
+    waiting = list(InboxEvent.objects.filter(run=run, state=EventState.PENDING, wake=True).select_related("author"))
+    top = min(waiting, key=lambda event: (PRECEDENCE[event.kind], event.created_at))
+    Run.objects.filter(pk=run.pk).update(
+        prompt=render_request(waiting), trigger_type=run_trigger_type(top.kind, top.payload)
+    )
 
 
 def _next_run(session: Session, event: InboxEvent) -> Run | None:

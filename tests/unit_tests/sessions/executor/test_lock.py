@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
+from asgiref.sync import sync_to_async
 from sessions.executor.lock import (
     Claimed,
     Held,
@@ -18,12 +19,14 @@ from sessions.executor.lock import (
     Wait,
     background_in_flight,
     hold_session_lock,
+    live_run_for,
     session_activity,
     stale_cutoff,
     still_held,
 )
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
+from accounts.models import User
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -409,6 +412,37 @@ async def test_live_run_is_the_slot_holder_while_in_flight():
     session, run = await _holder_session(active_run_id="42")
 
     assert await _live_run(session) == LiveRun(id="42", stoppable=False, started_at=run.started_at)
+
+
+async def test_a_task_backed_run_holding_the_slot_under_its_pk_is_stoppable(create_db_task_result):
+    session, run = await _holder_session()
+    run.task_result = await sync_to_async(create_db_task_result)(status="RUNNING")
+    await run.asave(update_fields=["task_result"])
+    await Session.objects.filter(pk=session.pk).aupdate(active_run_id=str(run.pk))
+    await session.arefresh_from_db()
+
+    assert await _live_run(session) == LiveRun(id=str(run.pk), stoppable=True, started_at=run.started_at)
+
+
+async def test_a_webhook_run_holding_the_slot_under_its_own_id_is_not_stoppable(create_db_task_result):
+    session, run = await _holder_session(trigger_type=SessionOrigin.ISSUE_WEBHOOK, active_run_id="webhook-1")
+    run.task_result = await sync_to_async(create_db_task_result)(status="RUNNING")
+    await run.asave(update_fields=["task_result"])
+
+    assert (await _live_run(session)).stoppable is False
+
+
+async def test_a_background_run_is_stoppable_only_for_the_sessions_owner(create_db_task_result, member_user):
+    session, run = await _holder_session(user=member_user)
+    run.task_result = await sync_to_async(create_db_task_result)(status="RUNNING")
+    await run.asave(update_fields=["task_result"])
+    await Session.objects.filter(pk=session.pk).aupdate(active_run_id=str(run.pk))
+    await session.arefresh_from_db()
+    other = await User.objects.acreate(username="viewer", email="viewer@example.com")
+    live = await _live_run(session)
+
+    assert (await sync_to_async(live_run_for)(live, session, member_user)).stoppable is True
+    assert (await sync_to_async(live_run_for)(live, session, other)).stoppable is False
 
 
 async def test_a_chat_only_session_is_stoppable():

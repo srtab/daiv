@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 
 from sessions.inbox import kinds
 from sessions.inbox.ownership import aowning_session
-from sessions.inbox.policy import amay_wake
+from sessions.inbox.policy import amay_wake, areport_run_limit
 from sessions.inbox.post import apost_event
 from sessions.models import EventKind, QuietReason
 from sessions.pipeline_watch.judgment import Judgment, PipelineReport
@@ -159,6 +159,8 @@ class PipelineWatch:
         )
         if result.created and reason == QuietReason.BUDGET_SPENT:
             await self._anotify_exhausted(ownership=ownership, session=session, report=report)
+        elif result.created and reason == QuietReason.RUN_LIMIT:
+            await areport_run_limit(session)
 
     async def _aquiet_reason(
         self, ownership: MergeRequestOwnership, session: Session, report: PipelineReport

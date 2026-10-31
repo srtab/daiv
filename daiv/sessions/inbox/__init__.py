@@ -23,4 +23,10 @@ a delegated batch finishing: each becomes an ``InboxEvent`` on that session, pos
   ``HumanMessage`` with people's words, or a DAIV-written prompt when only CI or a delegation woke the run.
 - **The run's end settles its events** (:mod:`sessions.inbox.complete`): handled when it succeeds or asks a question,
   dismissed when its owner stopped it, retried up to three times when it fails, then failed. Then the next drain runs.
+
+A chat message sent while the session is busy runs as a task-backed ``chat`` run the drain starts. The chat-specific
+paths tell such a run from an inline turn by whether it has a ``task_result``, not by its trigger type:
+``sync_stuck_runs`` re-syncs it from its task instead of reaping it as an orphaned turn, ``finalize_chat_run`` is never
+called for it, and the chat cancel endpoint stops it through ``RunManager.cancel``. An inline turn takes the session's
+pending remembered events when it claims the slot, as context; waking events wait for the drain.
 """

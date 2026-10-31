@@ -38,8 +38,8 @@ def stale_cutoff(now: datetime | None = None) -> datetime:
 @dataclass(frozen=True)
 class LiveRun:
     """The run a session page can stream: ``id`` is the slot holder's relay id, ``stoppable`` is whether the
-    cancel endpoint can stop it (chat runs only, and with ``live_run_for`` only for the session's owner),
-    ``started_at`` seeds the page's working timer."""
+    cancel endpoint can stop it (an inline chat turn, or a task-backed run holding the slot under its own pk; with
+    ``live_run_for`` only for the session's owner), ``started_at`` seeds the page's working timer."""
 
     id: str
     stoppable: bool
@@ -92,10 +92,19 @@ def session_activity(session: Session, runs: Iterable[Run]) -> SessionActivity:
         holder=holder,
         live=LiveRun(
             id=session.active_run_id,
-            stoppable=shown.trigger_type == SessionOrigin.CHAT,
+            stoppable=_stoppable(shown, session.active_run_id),
             started_at=shown.started_at or shown.created_at,
         ),
     )
+
+
+def _stoppable(run: Run, holder_id: str) -> bool:
+    """Whether the cancel endpoint can stop ``run``: an inline chat turn through its relay's cancel flag, or a
+    task-backed run that holds the slot under its own pk (a job, or a run the inbox started) through
+    ``RunManager.cancel``. A webhook run holds the slot under an id of its own and checks for neither."""
+    if run.task_result_id is None:
+        return run.trigger_type == SessionOrigin.CHAT
+    return str(run.pk) == holder_id
 
 
 def _slot_holder(holder_id: str, running: list[Run]) -> Run | None:

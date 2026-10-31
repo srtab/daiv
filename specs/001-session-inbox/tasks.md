@@ -261,33 +261,33 @@ description: "Task list for the Session Inbox feature"
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T053 [P] [US2] Extend `tests/unit_tests/chat/api/test_views.py`. Cover:
+- [X] T053 [P] [US2] Extend `tests/unit_tests/chat/api/test_views.py`. Cover:
   - **Busy session**, meaning the slot is held or a QUEUED next run exists: the POST posts a `chat_message` event keyed `chat:<agui message id>` and returns an AG-UI stream of `RUN_STARTED`, `CUSTOM` `daiv.queued` with `{event_id, run_id, position: "next"}`, and `RUN_FINISHED`. It never returns the old 409s.
   - **Idle session**: `atake_for_chat` runs right after `try_claim`.
   - **Cancel**: `POST /api/chat/cancel` accepts a background run of a session the caller owns and calls `RunManager.cancel`.
-- [ ] T054 [P] [US2] Extend `tests/unit_tests/chat/api/test_streaming.py`: taken events are linked to the chat `Run` by `alink_chat_run(holder_id, run)` once the row exists, and the synthetic inbox context is the first input message.
-- [ ] T055 [P] [US2] Extend `tests/unit_tests/sessions/test_tasks.py` with `sync_stuck_runs`: a task-backed `chat` run (one with a `task_result`) is re-synced from its task, and is not failed as an orphaned inline chat run.
-- [ ] T056 [P] [US2] Extend `tests/unit_tests/sessions/executor/test_lock.py` for `LiveRun.stoppable`: it is true for a background run shown to the session's owner, and false for others.
-- [ ] T057 [P] [US2] Extend `tests/unit_tests/sessions/test_api.py`: `POST /api/sessions/{id}/inbox-mute` sets `Session.inbox_muted` for the owner or an admin, and answers not found for anyone else. The turns poll returns `queued` with the next run's id and its events' summaries.
-- [ ] T058 [P] [US2] Extend `tests/unit_tests/notifications/test_choices.py` and add `tests/unit_tests/notifications/test_inbox_notifiers.py`: reaching the consecutive-run limit emits one notification to the session owner per limit reached. Its dedupe key is `"<thread_id>:<first blocked event id>"`.
-- [ ] T059 [P] [US2] Extend `tests/unit_tests/chat/test_chat_stream_js.py`: on `daiv.queued`, the message renders as queued, and the page switches to following the next run when the turns poll reports it live.
+- [X] T054 [P] [US2] Extend `tests/unit_tests/chat/api/test_streaming.py`: taken events are linked to the chat `Run` by `alink_chat_run(holder_id, run)` once the row exists, and the synthetic inbox context is the first input message.
+- [X] T055 [P] [US2] Extend `tests/unit_tests/sessions/test_tasks.py` with `sync_stuck_runs`: a task-backed `chat` run (one with a `task_result`) is re-synced from its task, and is not failed as an orphaned inline chat run.
+- [X] T056 [P] [US2] Extend `tests/unit_tests/sessions/executor/test_lock.py` for `LiveRun.stoppable`: it is true for a background run shown to the session's owner, and false for others.
+- [X] T057 [P] [US2] Extend `tests/unit_tests/sessions/test_api.py`: `POST /api/sessions/{id}/inbox-mute` sets `Session.inbox_muted` for the owner or an admin, and answers not found for anyone else. The turns poll returns `queued` with the next run's id and its events' summaries.
+- [X] T058 [P] [US2] Extend `tests/unit_tests/notifications/test_choices.py` and add `tests/unit_tests/notifications/test_inbox_notifiers.py`: reaching the consecutive-run limit emits one notification to the session owner per limit reached. Its dedupe key is `"<thread_id>:<first blocked event id>"`.
+- [X] T059 [P] [US2] Extend `tests/unit_tests/chat/test_chat_stream_js.py`: on `daiv.queued`, the message renders as queued, and the page switches to following the next run when the turns poll reports it live.
 
 ### Implementation for User Story 2
 
-- [ ] T060 [US2] Add `atake_for_chat(thread_id, *, holder_id)` and `alink_chat_run(holder_id, run)` to `daiv/sessions/inbox/drain.py`, per contracts/inbox-service.md, using `InboxEvent.claim_token`.
-- [ ] T061 [US2] Replace the two 409 branches in the chat POST view in `daiv/chat/api/views.py` (the "already in progress" and "waiting to start" checks) with posting a `chat_message` event, carrying the AG-UI message id, text, model and thinking overrides, and attachment references only. Return the queued AG-UI stream. When idle, call `atake_for_chat` right after `try_claim`.
-- [ ] T062 [US2] In `daiv/chat/api/streaming.py`, call `alink_chat_run` in `on_context_ready` once the chat `Run` exists, and prepend `arender_input`'s context message to the AG-UI input. Once US3 lands (T081), that context includes the fast-forward result.
-- [ ] T063 [US2] Make a task-backed `chat` run (created by the drainer from a `chat_message` event) safe in the chat-specific paths of `daiv/sessions/tasks.py` and `daiv/chat/api/streaming.py`:
+- [X] T060 [US2] Add `atake_for_chat(thread_id, *, holder_id)` and `alink_chat_run(holder_id, run)` to `daiv/sessions/inbox/drain.py`, per contracts/inbox-service.md, using `InboxEvent.claim_token`.
+- [X] T061 [US2] Replace the two 409 branches in the chat POST view in `daiv/chat/api/views.py` (the "already in progress" and "waiting to start" checks) with posting a `chat_message` event, carrying the AG-UI message id, text, model and thinking overrides, and attachment references only. Return the queued AG-UI stream. When idle, call `atake_for_chat` right after `try_claim`.
+- [X] T062 [US2] In `daiv/chat/api/streaming.py`, call `alink_chat_run` in `on_context_ready` once the chat `Run` exists, and prepend `arender_input`'s context message to the AG-UI input. Once US3 lands (T081), that context includes the fast-forward result.
+- [X] T063 [US2] Make a task-backed `chat` run (created by the drainer from a `chat_message` event) safe in the chat-specific paths of `daiv/sessions/tasks.py` and `daiv/chat/api/streaming.py`:
   - `sync_stuck_runs` in `daiv/sessions/tasks.py`: decide by `task_result` presence, not trigger type;
   - `finalize_chat_run` in `daiv/chat/api/streaming.py`: not called for task-backed runs;
   - `SessionOrigin.retryable()`: unchanged.
 
   Document the rule in the `daiv/sessions/inbox/__init__.py` docstring.
-- [ ] T064 [US2] Extend `POST /api/chat/cancel` in `daiv/chat/api/views.py` to background runs of a session the caller owns, through `RunManager.cancel`. Set `LiveRun.stoppable` in `daiv/sessions/executor/lock.py` true for background runs shown to the session's owner.
-- [ ] T065 [US2] Add `POST /{thread_id}/inbox-mute` to `sessions_router` in `daiv/sessions/api/views.py` (owner or `user.is_admin`; others get not found). Add the `queued` field to the turns poll, per contracts/http.md.
-- [ ] T066 [US2] Add the mute toggle to the topbar menu in `daiv/sessions/templates/sessions/_session_topbar.html` and its handler in `daiv/sessions/static/sessions/js/session-page.js`. Render the queued block (next run plus event summaries) in the session page.
-- [ ] T067 [US2] Handle the `daiv.queued` custom event in `daiv/chat/static/chat/js/chat-stream.js`: render the user's message as queued, then hand off to the existing live-run following in `daiv/sessions/static/sessions/js/session-stream.js`.
-- [ ] T068 [US2] Add the consecutive-run limit notification, in a new `daiv/notifications/inbox_notifiers.py` and the files below:
+- [X] T064 [US2] Extend `POST /api/chat/cancel` in `daiv/chat/api/views.py` to background runs of a session the caller owns, through `RunManager.cancel`. Set `LiveRun.stoppable` in `daiv/sessions/executor/lock.py` true for background runs shown to the session's owner.
+- [X] T065 [US2] Add `POST /{thread_id}/inbox-mute` to `sessions_router` in `daiv/sessions/api/views.py` (owner or `user.is_admin`; others get not found). Add the `queued` field to the turns poll, per contracts/http.md.
+- [X] T066 [US2] Add the mute toggle to the topbar menu in `daiv/sessions/templates/sessions/_session_topbar.html` and its handler in `daiv/sessions/static/sessions/js/session-page.js`. Render the queued block (next run plus event summaries) in the session page.
+- [X] T067 [US2] Handle the `daiv.queued` custom event in `daiv/chat/static/chat/js/chat-stream.js`: render the user's message as queued, then hand off to the existing live-run following in `daiv/sessions/static/sessions/js/session-stream.js`.
+- [X] T068 [US2] Add the consecutive-run limit notification, in a new `daiv/notifications/inbox_notifiers.py` and the files below:
   - a new `EventType` member in `daiv/notifications/choices.py`;
   - a migration if `EventType` is constrained in the database;
   - a renderer in `daiv/notifications/channels/renderers/events.py`;

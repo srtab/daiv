@@ -371,6 +371,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         retry = retry_for(session, runs, ctx["turns"], self.request.user, can_act=ctx["can_act"])
         ctx["header"] = build_session_header(session, runs, retry=retry, merge_request=merge_request)
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
+        ctx["can_mute"] = Session.objects.by_owner(self.request.user).filter(pk=session.pk).exists()
         ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request

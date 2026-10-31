@@ -182,6 +182,20 @@ class TestNothingToWake:
         stored = await _state(finished)
         assert (stored.wake, stored.reason, stored.state) == (False, reason, EventState.PENDING)
 
+    async def test_the_run_limit_is_reported_once_the_block_commits(self, enqueue):
+        session = await amake_session()
+        for _ in range(3):
+            await Run.objects.acreate(
+                session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=session.repo_id,
+                status=RunStatus.SUCCESSFUL,
+            )  # fmt: skip
+        await amake_event(session, EventKind.DELEGATION_FINISHED)
+
+        with patch("sessions.inbox.drain.report_run_limit") as report:
+            await adrain(session.thread_id)
+
+        assert report.call_args.args[0].pk == session.pk
+
 
 class TestAccess:
     async def test_an_owner_without_access_fails_the_events_and_starts_nothing(self, enqueue, member_user):

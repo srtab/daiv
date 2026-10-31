@@ -13,7 +13,9 @@ from codebase.authorization import can_run
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
 from sessions.header import aci_payload, latest_run_payload, retry_for, watch_payload
 from sessions.hydration import ahydrate_thread
-from sessions.models import HiddenSession, MergeRequestOwnership, Session
+from sessions.inbox.drain import next_runs
+from sessions.inbox.render import summarize
+from sessions.models import EventState, HiddenSession, InboxEvent, MergeRequestOwnership, Session
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
 from sessions.transcript import annotate_transcript, expired_run_turns, mark_skill_links
@@ -54,6 +56,10 @@ class CIWatchIn(Schema):
 
 class ArchiveIn(Schema):
     archived: bool
+
+
+class InboxMuteIn(Schema):
+    muted: bool
 
 
 @sessions_router.patch("/{thread_id}", response=dict, url_name="session_update")
@@ -98,6 +104,17 @@ async def _ci(session: Session) -> dict:
     return {"ci": ci, "watch": watch_payload(ci)}
 
 
+@sessions_router.post("/{thread_id}/inbox-mute", response=dict, url_name="session_inbox_mute")
+async def session_inbox_mute(request: HttpRequest, thread_id: str, payload: InboxMuteIn):
+    """Mute or unmute the session's inbox: while muted, CI results and finished delegated batches are only
+    remembered, and people's requests still start runs. Only the session's owner or an admin may; anyone else gets
+    not found."""
+    user = request.auth  # ty: ignore[unresolved-attribute]
+    if not await Session.objects.by_owner(user).filter(thread_id=thread_id).aupdate(inbox_muted=payload.muted):
+        raise HttpError(404, "Session not found")
+    return {"muted": payload.muted}
+
+
 @sessions_router.post("/{thread_id}/archive", response=dict, url_name="session_archive")
 async def session_archive(request: HttpRequest, thread_id: str, payload: ArchiveIn):
     """Archive the session out of the caller's own list, or bring it back; nobody else's list changes."""
@@ -116,7 +133,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
     ``live_run`` names the slot holder, so the page can stream that run from the relay instead; ``background``
     tells a page that rendered idle whether a run that started since is one it should follow; ``latest_run``, ``ci``
     (with ``watch``, its single-watch shape for older pages) and ``run_count`` keep the page's top bar and details
-    panel current."""
+    panel current. ``queued`` is the session's next run and what is waiting for it, ``None`` when nothing is."""
     session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
@@ -145,4 +162,20 @@ async def session_turns(request: HttpRequest, thread_id: str):
         else None,
     }
     response |= await _ci(session)
+    response["queued"] = await sync_to_async(queued_payload)(session)
     return response
+
+
+def queued_payload(session: Session) -> dict | None:
+    """SYNC ONLY: the session's next run and the events waiting for it, oldest first."""
+    next_run = next_runs(session).first()
+    if next_run is None:
+        return None
+    events = InboxEvent.objects.filter(run=next_run, state=EventState.PENDING).select_related("author")
+    return {
+        "run_id": str(next_run.pk),
+        "events": [
+            {"id": str(event.pk), "kind": event.kind, "summary": summarize(event), "created_at": event.created_at}
+            for event in events.order_by("created_at", "id")
+        ],
+    }

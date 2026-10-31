@@ -101,6 +101,12 @@ def notification_source_for_watch(session, sha: str) -> tuple[str, str, EventTyp
     return SOURCE_SESSION, f"{session.thread_id}:{sha}", EventType.PIPELINE_WATCH_EXHAUSTED
 
 
+def notification_source_for_inbox_pause(session, first_blocked_event_id: str) -> tuple[str, str, EventType]:
+    """The key a session pausing after runs in a row is deduped on: the first event the limit blocked, so one streak
+    notifies once however many events it blocks."""
+    return SOURCE_SESSION, f"{session.thread_id}:{first_blocked_event_id}", EventType.INBOX_PAUSED
+
+
 def notification_source_for_schedule_failure(schedule) -> tuple[str, str, EventType]:
     """The key a schedule's dispatch failure is deduped on: one notice per failing streak."""
     return SOURCE_SCHEDULE, f"{schedule.pk}:{schedule.failing_since.isoformat()}", EventType.SCHEDULE_DISPATCH_FAILED
