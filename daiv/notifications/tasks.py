@@ -239,7 +239,7 @@ async def classify_run_task(run_id: str) -> None:
         await _persist(status=EnvelopeStatus.ALL_CLEAR, summary="", actionable=[])
         return
 
-    draft = await classify_response_text(text, intent=intent, model_names=model_names)
+    draft = await classify_response_text(text, intent=intent, model_names=model_names, task=run.prompt)
 
     # Apply the load-bearing invariants in code (never delegated to the method), speaking the
     # ``EnvelopeStatus`` enum rather than raw strings so the vocabulary has a single source of truth:
