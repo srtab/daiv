@@ -86,6 +86,42 @@
     </div>
   </template>
 
+  <template x-if="item.kind === 'delegated'">
+    <div class="artifact-card" data-testid="delegated-card">
+      <div class="artifact-card__header">
+        {% icon "share" "h-4 w-4 shrink-0 text-gray-400" %}
+        <span x-text="TranscriptLabels.t('delegated_jobs')"></span>
+        <span class="artifact-card__meta font-normal tracking-normal normal-case" x-show="item.legs.length"
+              x-text="item.legs.length"></span>
+      </div>
+      <p class="delegated-card__goal" x-show="item.goal" x-text="item.goal"></p>
+      <template x-if="item.error">
+        <p class="delegated-card__failed" x-text="TranscriptLabels.t('delegated_failed', { error: item.error })"></p>
+      </template>
+      <template x-if="!item.error && item.legs.length">
+        <ul class="artifact-card__list">
+          <template x-for="(leg, li) in item.legs" :key="li">
+            <li class="artifact-card__row">
+              <span class="leg-dot" :class="`leg-dot--${leg.state}`" aria-hidden="true"></span>
+              <span class="delegated-card__repo" x-text="leg.repo_id"></span>
+              <span class="delegated-card__ref" x-text="leg.ref || TranscriptLabels.t('jobs_default_branch')"></span>
+              <span class="delegated-card__state" x-text="TranscriptLabels.t(`leg_${leg.state}`)"></span>
+              <template x-if="mergeRequestLabel(leg.merge_request_url)">
+                <a class="delegated-card__link" :href="leg.merge_request_url" target="_blank" rel="noopener noreferrer"
+                   x-text="mergeRequestLabel(leg.merge_request_url)"></a>
+              </template>
+              <template x-if="leg.session_url">
+                <a class="delegated-card__link" :href="leg.session_url" target="_blank" rel="noopener"
+                   x-text="TranscriptLabels.t('jobs_open_session')"></a>
+              </template>
+              <p class="delegated-card__error" x-show="leg.error" x-text="leg.error"></p>
+            </li>
+          </template>
+        </ul>
+      </template>
+    </div>
+  </template>
+
   <template x-if="item.kind === 'artifacts'">
     <div class="artifact-card">
       <div class="artifact-card__header">

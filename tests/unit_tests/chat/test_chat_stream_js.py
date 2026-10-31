@@ -16,6 +16,7 @@ from tests.unit_tests.chat.transcript_fixtures import (
     asst,
     bash,
     delegate,
+    enriched_leg,
     question,
     read,
     refused_question,
@@ -496,7 +497,7 @@ def test_a_page_loaded_live_folds_each_run_as_its_stream_finishes():
     assert out["later"]["workedFor"].startswith("Worked for ")
 
 
-def test_a_lone_step_a_special_call_with_a_row_and_a_refused_question_render_as_step_rows():
+def test_a_lone_step_and_a_refused_question_render_as_step_rows_and_a_delegated_card_does_not():
     segs = [read("c1"), text("x"), read("c2"), read("c3"), delegate("d1"), refused_question("q1")]
     segs.append(question("q2"))
     rows = _drive([user("u1"), asst("a1", *segs, streaming=True)], script=["stepRows"])[0]
@@ -504,7 +505,7 @@ def test_a_lone_step_a_special_call_with_a_row_and_a_refused_question_render_as_
         ["step", ["s-c1"]],
         ["text", []],
         ["group", []],
-        ["special", ["x-d1"]],
+        ["delegated", []],
         ["question", ["q-q1"]],
         ["question", []],
     ]
@@ -544,7 +545,7 @@ def test_a_failure_before_the_run_row_exists_keeps_the_pages_run_id():
 SKILL_LINKS_BODY = """
 const chat = registry.chat({ endpoint: "/api/chat" });
 chat.turns = payload.turns;
-chat.applySkillLinks(payload.server);
+chat.applyServerSegments(payload.server);
 process.stdout.write(JSON.stringify(chat.turns[1].segments.map((seg) => seg.skill_url ?? null)));
 """
 
@@ -555,6 +556,43 @@ def test_a_streamed_skill_call_takes_its_link_from_the_turns_fetched_after_the_r
     server = [user("u1"), asst("a1", {**skill, "skill_url": "/dashboard/skills/plan/"}, other)]
     payload = {"turns": [user("u1"), asst("a1", skill, other)], "server": server}
     assert run_chat_stream(SKILL_LINKS_BODY, payload, extra_globals=GLOBALS) == ["/dashboard/skills/plan/", None]
+
+
+SERVER_LEGS_BODY = """
+const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
+chat.$watch = (expr, cb) => watchOn(chat)(expr, cb);
+chat.$nextTick = () => {};
+chat.scrollToBottom = () => {};
+chat.turns = payload.turns;
+chat.init();
+const states = () =>
+  chat.runBlocks.flatMap((block) => [...block.items, ...block.cards])
+    .filter((card) => card.kind === "delegated")
+    .map((card) => card.legs.map((leg) => leg.state));
+const before = states();
+chat.applyServerSegments(payload.server);
+process.stdout.write(JSON.stringify([before, states()]));
+chat.destroy();
+"""
+
+
+def test_the_turns_fetched_after_a_run_bring_its_delegated_jobs_current_states():
+    streamed, stale, unknown = delegate("d1"), delegate("d2", legs=[enriched_leg(state="queued")]), delegate("d3")
+    server = [
+        user("u1"),
+        asst(
+            "a1",
+            {**streamed, "legs": [enriched_leg(state="waiting_input")]},
+            {**stale, "legs": [enriched_leg(state="finished")]},
+            unknown,
+        ),
+    ]
+    payload = {"turns": [user("u1"), asst("a1", streamed, stale, unknown)], "server": server}
+
+    before, after = run_chat_stream(SERVER_LEGS_BODY, payload, prelude=REACTIVITY, extra_globals=GLOBALS)
+
+    assert before == [["queued"], ["queued"], ["queued"]]
+    assert after == [["waiting_input"], ["finished"], ["queued"]]
 
 
 CTX_BODY = """
@@ -578,20 +616,14 @@ MR_URL = "https://g/x/-/merge_requests/1"
 def test_a_tool_body_gets_the_servers_the_artifacts_and_the_merge_request(mr, url):
     catalog = [{"name": "sentry", "read_only_tools": ["search_issues"], "icon": ""}]
     seen = run_chat_stream(CTX_BODY, {"catalog": catalog, "mr": mr}, extra_globals=GLOBALS)
-    assert seen == {
-        "seg": "c1",
-        "mcpServers": ["sentry"],
-        "mcpRows": catalog,
-        "latestArtifactsById": True,
-        "mergeRequestUrl": url,
-    }
+    assert seen == {"seg": "c1", "mcpRows": catalog, "latestArtifactsById": True, "mergeRequestUrl": url}
 
 
 ROWS_BODY = """
 const seen = [];
 const build = sandbox.window.buildRunBlocks;
 sandbox.window.buildRunBlocks = (turns, opts) => {
-  seen.push({ servers: opts.mcpServers, rows: opts.mcpRows });
+  seen.push(opts.mcpRows);
   return build(turns, opts);
 };
 const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
@@ -610,7 +642,7 @@ def test_the_run_blocks_get_the_mcp_server_rows():
     catalog = [{"name": "sentry", "read_only_tools": ["search_issues"], "icon": "https://x.test/a.png"}]
     payload = {"catalog": catalog, "turns": [user("u1"), asst("a1", read("c1"))]}
     seen = run_chat_stream(ROWS_BODY, payload, prelude=REACTIVITY, extra_globals=GLOBALS)
-    assert seen == {"servers": ["sentry"], "rows": catalog}
+    assert seen == catalog
 
 
 MR = SimpleNamespace(merge_request_id=7, web_url="https://git.example/mr/7")

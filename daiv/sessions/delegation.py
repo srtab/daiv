@@ -41,7 +41,9 @@ from __future__ import annotations
 import logging
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import timedelta
+from functools import cached_property
 from typing import TYPE_CHECKING
 
 from django.db import IntegrityError, transaction
@@ -95,14 +97,6 @@ MAX_STATUS_BATCHES = 5
 STALLED_BATCH_WINDOW = timedelta(days=1)
 ACCESS_DENIED_PREFIX = "access_denied"
 
-_OUTCOMES = {
-    RunStatus.QUEUED: "queued",
-    RunStatus.READY: "queued",
-    RunStatus.RUNNING: "running",
-    RunStatus.SUCCESSFUL: "succeeded",
-    RunStatus.FAILED: "failed",
-    RunStatus.WAITING_INPUT: "stopped to ask a question",
-}
 _UNSTARTED_LEG = "DAIV could not start this leg; the error is on DAIV's side, not in the request."
 _UNTRACKED_LEG = (
     "This leg started, but DAIV lost track of it: it may still open a merge request, and its outcome will not "
@@ -113,6 +107,17 @@ _LOCK_TIMED_OUT = f"{SessionLockTimeoutError.__module__}.{SessionLockTimeoutErro
 _NEVER_RAN = Q(status=RunStatus.FAILED) & (
     Q(error_message__startswith=ENQUEUE_FAILED_PREFIX) | Q(error_message__startswith=_LOCK_TIMED_OUT)
 )
+
+
+def _delegated_legs(thread_id: str) -> QuerySet[Run]:
+    return Run.objects.filter(trigger_type=SessionOrigin.DELEGATED_JOB, session__parent_id=thread_id)
+
+
+def _by_batch(legs: QuerySet[Run]) -> defaultdict[uuid.UUID, list[Run]]:
+    by_batch: defaultdict[uuid.UUID, list[Run]] = defaultdict(list)
+    for leg in legs.order_by("created_at", "id"):
+        by_batch[leg.batch_id].append(leg)
+    return by_batch
 
 
 async def adelegator_for(thread_id: str) -> SessionJobDelegator | None:
@@ -223,9 +228,7 @@ class SessionJobDelegator:
             .order_by("-latest")
             .values_list("batch_id", flat=True)[:MAX_STATUS_BATCHES]
         )
-        by_batch: dict[uuid.UUID, list[Run]] = defaultdict(list)
-        for leg in self._legs().filter(batch_id__in=latest).order_by("created_at", "id"):
-            by_batch[leg.batch_id].append(leg)
+        by_batch = _by_batch(self._legs().filter(batch_id__in=latest))
         return [_batch_status(by_batch[batch]) for batch in latest]
 
     def _cancel(self, batch_id: str, thread_ids: set[str]) -> CancelResult:
@@ -242,9 +245,7 @@ class SessionJobDelegator:
         return CancelResult(batch=_batch_status(legs), cancelled=cancelled, resumes=_resumes(legs))
 
     def _legs(self) -> QuerySet[Run]:
-        return Run.objects.filter(
-            trigger_type=SessionOrigin.DELEGATED_JOB, session__parent_id=self._thread_id
-        ).select_related("session")
+        return _delegated_legs(self._thread_id).select_related("session")
 
     def _batch_legs(self, batch_id: str) -> list[Run]:
         try:
@@ -310,7 +311,7 @@ def _leg_status(leg: Run) -> LegStatus:
         ref=leg.ref,
         thread_id=leg.session_id,
         session_url=_session_url(leg.session_id),
-        status=_leg_outcome(leg),
+        status=_OUTCOMES[leg_state(leg)],
         branch=leg.session.ref if leg.session.ref != leg.ref else "",
         merge_request_url=leg.merge_request_web_url,
         reply=leg.result_summary.strip()[:LEG_REPLY_MAX_CHARS],
@@ -487,11 +488,104 @@ def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
     return "\n".join(lines)
 
 
-def _leg_outcome(leg: Run) -> str:
+RUNNING = frozenset({"running", "stopping"})
+WAITING = frozenset({"queued", "waits"})
+FAILED = frozenset({"failed", "lost"})
+
+# The word the coordinator reads for each state; "queued" is listed before "waits", which reads the same.
+_OUTCOMES = {
+    "queued": "queued",
+    "waits": "queued",
+    "running": "running",
+    "stopping": "stopping",
+    "waiting_input": "stopped to ask a question",
+    "finished": "succeeded",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "lost": "started, but DAIV lost track of it",
+}
+
+_LEG_STATES = {
+    RunStatus.RUNNING: "running",
+    RunStatus.WAITING_INPUT: "waiting_input",
+    RunStatus.SUCCESSFUL: "finished",
+    RunStatus.FAILED: "failed",
+}
+
+
+def leg_state(leg: Run) -> str:
+    """The status of a delegated job, which the transcript shows and ``_OUTCOMES`` words for the coordinator."""
     if _stopping(leg):
         return "stopping"
     if leg.is_cancelled:
         return "cancelled"
     if leg.status == RunStatus.FAILED and leg.error_message.startswith(LINK_FAILED_PREFIX):
-        return "started, but DAIV lost track of it"
-    return _OUTCOMES.get(leg.status, leg.status)
+        return "lost"
+    if leg.status == RunStatus.QUEUED and leg.waits_for_id:
+        return "waits"
+    return _LEG_STATES.get(leg.status, "queued")
+
+
+def outcome_states() -> dict[str, str]:
+    """The state each word of a jobs tool's leg ``status`` stands for, so the transcript can label the word."""
+    states: dict[str, str] = {}
+    for state, word in _OUTCOMES.items():
+        states.setdefault(word, state)
+    return states
+
+
+def _leg_payload(leg: Run, visible: frozenset[str]) -> dict[str, str]:
+    """A leg as the transcript and the session header show it; one whose session is not in ``visible`` keeps its
+    repository, ref and state, and nothing else."""
+    seen = leg.session_id in visible
+    return {
+        "repo_id": leg.repo_id,
+        "ref": leg.ref,
+        "state": leg_state(leg),
+        "merge_request_url": leg.merge_request_web_url if seen else "",
+        "session_url": reverse("session_detail", kwargs={"thread_id": leg.session_id}) if seen else "",
+    }
+
+
+@dataclass(frozen=True)
+class Delegations:
+    """The legs a session delegated as one viewer sees them; :func:`load_delegations` builds it.
+
+    ``batches`` holds each batch's runs, oldest first; ``visible`` the ids of the leg sessions the viewer may see.
+    """
+
+    batches: dict[uuid.UUID, list[Run]]
+    visible: frozenset[str]
+
+    @cached_property
+    def legs(self) -> dict[uuid.UUID, list[dict[str, str]]]:
+        """Each batch's legs as the transcript and the session header show them."""
+        return {batch_id: [_leg_payload(leg, self.visible) for leg in legs] for batch_id, legs in self.batches.items()}
+
+
+_LEG_FIELDS = (
+    "id",
+    "session",
+    "batch_id",
+    "repo_id",
+    "ref",
+    "status",
+    "error_message",
+    "waits_for",
+    "cancel_requested_at",
+    "merge_request_web_url",
+    "created_at",
+)
+
+
+def load_delegations(thread_id: str, user: User) -> Delegations:
+    """SYNC ONLY: the legs ``thread_id`` delegated, by batch and oldest first, as ``user`` sees them: one query for
+    the legs, and one for which of their sessions ``user`` may see when there are any."""
+    batches = _by_batch(_delegated_legs(thread_id).filter(batch_id__isnull=False).only(*_LEG_FIELDS))
+    session_ids = {leg.session_id for batch in batches.values() for leg in batch}
+    visible = (
+        frozenset(Session.objects.visible_to(user).filter(pk__in=session_ids).values_list("pk", flat=True))
+        if session_ids
+        else frozenset()
+    )
+    return Delegations(dict(batches), visible)

@@ -7,6 +7,7 @@ import re
 import time
 
 import pytest
+from sessions.delegation import outcome_states
 
 from tests.unit_tests.chat.transcript_driver import run_transcript
 from tests.unit_tests.chat.transcript_fixtures import tool_call
@@ -16,7 +17,7 @@ pytestmark = requires_node
 
 
 def _row_seg(seg: dict, servers: list[str] | None = None) -> dict:
-    values = {"seg": seg, "ctx": {"mcpServers": servers or []}}
+    values = {"seg": seg, "ctx": {"mcpRows": [{"name": name} for name in servers or []]}}
     return run_transcript("toolRow(vars.seg, vars.ctx)", values, blocks=False)
 
 
@@ -82,8 +83,9 @@ def test_error_result_or_unanswered_call_is_failed(result, status):
     assert _row("grep", {"pattern": "x"}, result=result, status=status)["failed"] is True
 
 
-def test_delegate_jobs_result_is_not_judged_by_row():
-    assert _row("delegate_jobs", {}, result="error: nope")["failed"] is False
+def test_delegate_jobs_row_fails_on_an_error_text_as_its_body_says():
+    assert _row("delegate_jobs", {}, result="error: nope")["failed"] is True
+    assert "What went wrong" in _body("delegate_jobs", {}, result="error: nope")
 
 
 @pytest.mark.parametrize(
@@ -132,7 +134,13 @@ def test_platform_rows_use_brand_names():
         ("publish_artifact", "Published", "Publishing", "paper-clip", {"key": "artifact"}),
         ("delegate_jobs", "Delegated jobs", "Delegating jobs", "share", {"key": "jobs"}),
         ("check_delegated_jobs", "Checked delegated jobs", "Checking delegated jobs", "share", {"key": "jobs"}),
-        ("cancel_delegated_jobs", "Cancelled delegated jobs", "Cancelling delegated jobs", "share", {"key": "jobs"}),
+        (
+            "cancel_delegated_jobs",
+            "Cancelled delegated jobs",
+            "Cancelling delegated jobs",
+            "share",
+            {"key": "cancel_jobs"},
+        ),
     ],
 )
 def test_special_calls_have_rows(name, phrase, live, icon, category):
@@ -176,9 +184,9 @@ SESSION_PATH = "/dashboard/sessions/{thread_id}/"
 
 def _body_seg(seg: dict, *, show_raw: bool = False, servers: list[dict] | None = None, mr_url: str | None = None):
     rows = servers or []
-    ctx = {"mcpServers": [row["name"] for row in rows], "mcpRows": rows, "mergeRequestUrl": mr_url}
+    ctx = {"mcpRows": rows, "mergeRequestUrl": mr_url}
     expr = "toolBodyHTML(vars.seg, { ...vars.ctx, latestArtifactsById: new Map() })"
-    labels = {"show_raw": show_raw, "session_path": SESSION_PATH}
+    labels = {"show_raw": show_raw, "session_path": SESSION_PATH, "leg_states": outcome_states()}
     return run_transcript(expr, {"seg": seg, "ctx": ctx}, blocks=False, labels=labels, markdown=True)
 
 
@@ -805,7 +813,10 @@ def test_job_trace_opens_at_its_end_and_jumps_to_the_first_error():
     result = "setup\nerror: first\nERROR second\nTypeError: not marked\nend"
     html = _body("gitlab", {"subcommand": "project-job trace --id 3"}, result=result, id="call:1/x")
     assert '<div class="body-log"><div class="body-log-lines">' in html and html.count('class="lgl err"') == 2
-    assert html.count('id="log-err-call1x"') == 1 and '<a class="body-jump" href="#log-err-call1x">' in html
+    assert (
+        html.count('id="log-err-call1x"') == 1
+        and '<a class="body-jump chat-tool__link" href="#log-err-call1x">' in html
+    )
     assert re.search(r'class="lgl err" id="log-err-call1x">error: first<', html)
     assert '<div class="lgl">TypeError: not marked</div>' in html
 
@@ -1060,7 +1071,7 @@ def test_mcp_long_argument_is_cut_in_the_field_list_and_whole_under_show_all():
 
 def _mcp_row(name: str, rows: list[dict]) -> dict:
     seg = tool_call("c1", name, {"query": "x"}, result="ok")
-    ctx = {"mcpServers": [row["name"] for row in rows], "mcpRows": rows}
+    ctx = {"mcpRows": rows}
     return run_transcript("toolRow(vars.seg, vars.ctx)", {"seg": seg, "ctx": ctx}, blocks=False)
 
 
@@ -1224,6 +1235,12 @@ def test_fetch_artifact_shows_the_file_it_wrote():
     assert "2.0 KB" in changed and "<a " not in changed
 
 
+@pytest.mark.parametrize(("size", "shown"), [(40, "40 B"), (8 * 1024 * 1024, "8.0 MB")])
+def test_fetch_artifact_shows_a_small_or_large_files_size_in_its_unit(size, shown):
+    html = _body("fetch_artifact", {"artifact_id": "a1"}, result=FETCHED.replace("2048 bytes", f"{size} bytes"))
+    assert f'<span class="body-size">{shown}</span>' in html.split("Loaded into context")[0]
+
+
 def test_fetch_artifact_links_an_artifact_the_page_knows():
     seg = tool_call("c1", "fetch_artifact", {"artifact_id": "a1"}, result=FETCHED)
     changed = _body_artifacts(seg, {"a1": PUBLISHED}).split("Loaded into context")[0]
@@ -1309,6 +1326,21 @@ def test_delegate_jobs_session_link_falls_back_to_a_safe_session_url(session_url
     assert href in html if href else "Session →" not in html
 
 
+@pytest.mark.parametrize(
+    ("url", "label"),
+    [
+        ("https://g/a/y/-/merge_requests/7", "!7"),
+        ("https://github.com/a/y/pull/12", "#12"),
+        ("https://g/a/y/-/tree/main", "merge request"),
+        ("javascript:alert(1)", ""),
+        ("", ""),
+        (None, ""),
+    ],
+)
+def test_a_merge_request_label_is_its_number_for_a_web_link_only(url, label):
+    assert run_transcript("mergeRequestLabel(vars.url)", {"url": url}, blocks=False) == label
+
+
 def test_delegate_jobs_session_link_uses_session_url_without_the_page_path():
     leg = {"repo_id": "a/x", "ref": "", "thread_id": "t-x", "session_url": "https://d/s/t-x/"}
     args = {"goal": "g", "targets": [{"repo_id": "a/x", "prompt": "p"}]}
@@ -1358,7 +1390,7 @@ def test_check_delegated_jobs_shows_a_table_per_batch():
     html = _body("check_delegated_jobs", {"batch_id": "b-1"}, result=json.dumps(CHECKED))
     context = html.split("Loaded into context")[1]
     assert "<th>Repository</th><th>Branch</th><th>Status</th><th>Result</th><th>Session</th>" in context
-    assert "<td>a/x</td><td>main</td><td>running</td><td></td>" in context
+    assert "<td>a/x</td><td>main</td><td>Running</td><td></td>" in context
     assert 'href="https://g/a/y/-/merge_requests/7"' in context and ">!7</a>" in context
     assert "Fixed the lint." in context and "Show the whole reply" in context and "Details here." in context
     assert 'href="/dashboard/sessions/t-y/"' in context and "batch b-1" not in context
@@ -1371,7 +1403,28 @@ def test_check_delegated_jobs_names_each_batch_when_it_reports_several():
     assert html.index("batch b-1") < html.index("batch b-2") and html.count("<table") == 2
 
 
-def test_check_delegated_jobs_shows_the_raw_status_escaped_and_the_note():
+@pytest.mark.parametrize(
+    "word,label",
+    [
+        ("queued", "Queued"),
+        ("running", "Running"),
+        ("succeeded", "Finished"),
+        ("failed", "Failed"),
+        ("stopped to ask a question", "Waiting for an answer"),
+        ("stopping", "Stopping"),
+        ("cancelled", "Cancelled"),
+        ("started, but DAIV lost track of it", "Lost"),
+    ],
+)
+def test_check_and_cancel_bodies_show_the_status_vocabulary_of_the_card(word, label):
+    leg = _leg("a/x", "main", "t-x", status=word)
+    checked = _body("check_delegated_jobs", {}, result=json.dumps({"batches": [{"batch_id": "b", "legs": [leg]}]}))
+    assert f"<td>{label}</td>" in checked and f">{word}<" not in checked.split("Loaded into context")[1]
+    cancelled = _body("cancel_delegated_jobs", {}, result=json.dumps({"cancelled": ["t-x"], "legs": [leg]}))
+    assert f"a/x \u00b7 main \u00b7 {label}" in cancelled
+
+
+def test_check_delegated_jobs_shows_an_unknown_status_as_it_is_escaped_and_the_note():
     batch = {"batch_id": "b", "finished": True, "legs": [_leg("a/x", "", "t", status="<b>odd</b>")]}
     html = _body("check_delegated_jobs", {"batch_id": "b"}, result=json.dumps({"batches": [batch]}))
     assert "&lt;b&gt;odd&lt;/b&gt;" in html
@@ -1396,7 +1449,7 @@ CANCELLED = {
 def test_cancel_delegated_jobs_lists_each_cancelled_leg_then_the_note():
     html = _body("cancel_delegated_jobs", {"batch_id": "b-1"}, result=json.dumps(CANCELLED))
     changed, context = html.split("Loaded into context")
-    assert "Changed" in changed and "a/x" in changed and "stopping" in changed and "a/y" not in changed
+    assert "Changed" in changed and "a/x" in changed and "Stopping" in changed and "a/y" not in changed
     assert 'href="/dashboard/sessions/t-x/"' in changed
     assert "You are resumed once" in context and "a/y" not in context
 

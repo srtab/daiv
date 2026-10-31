@@ -79,8 +79,31 @@ def publish(call_id: str) -> dict[str, Any]:
     return tool_call(call_id, "publish_artifact", {"path": "/workspace/tmp/report.md"}, result=json.dumps(result))
 
 
-def delegate(call_id: str) -> dict[str, Any]:
-    return tool_call(call_id, "delegate_jobs", {"jobs": []}, result='{"batch_id": "b1", "jobs": []}')
+def delegate(
+    call_id: str = "d1", *, args: dict | None = None, result: dict | str | None = None, legs: list | None = None
+) -> dict[str, Any]:
+    args = args or {"goal": "Fix lint", "targets": [{"repo_id": "a/x", "ref": "main", "prompt": "Fix lint in x"}]}
+    if result is None:
+        result = {"batch_id": "b1", "started": [started_leg()], "failed": []}
+    seg = tool_call(call_id, "delegate_jobs", args, result=result if isinstance(result, str) else json.dumps(result))
+    if legs is not None:
+        seg["legs"] = legs
+    return seg
+
+
+def started_leg(repo_id: str = "a/x", ref: str = "main", *, after_turn: bool = False) -> dict[str, Any]:
+    return {
+        "repo_id": repo_id,
+        "ref": ref,
+        "thread_id": f"t-{repo_id.replace('/', '-')}",
+        "session_url": f"https://daiv.example/dashboard/sessions/t-{repo_id.replace('/', '-')}/",
+        "starts_after_this_turn": after_turn,
+    }
+
+
+def enriched_leg(repo_id: str = "a/x", ref: str = "main", *, state: str = "running", **extra: str) -> dict[str, Any]:
+    leg = {"repo_id": repo_id, "ref": ref, "state": state, "merge_request_url": "", "session_url": ""}
+    return {**leg, **extra}
 
 
 def refused_question(call_id: str) -> dict[str, Any]:

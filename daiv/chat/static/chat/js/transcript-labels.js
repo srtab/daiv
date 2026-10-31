@@ -15,6 +15,7 @@
     sum_mcp: "used {name}",
     sum_artifact: ["opened {count} artifact", "opened {count} artifacts"],
     sum_jobs: ["checked delegated jobs", "checked delegated jobs {count} times"],
+    sum_cancel_jobs: ["cancelled delegated jobs", "cancelled delegated jobs {count} times"],
     sum_other: ["used {count} tool", "used {count} tools"],
     failed: "({count} failed)",
     worked_for: "Worked for {duration}",
@@ -50,6 +51,7 @@
     live_delegate: "Delegating jobs",
     row_check_jobs: "Checked delegated jobs",
     live_check_jobs: "Checking delegated jobs",
+    delegated_count: ["Delegated {count} job", "Delegated {count} jobs"],
     row_cancel_jobs: "Cancelled delegated jobs",
     live_cancel_jobs: "Cancelling delegated jobs",
     row_question: "Asked a question",
@@ -108,7 +110,22 @@
     jobs_batch: "batch {id}",
     jobs_mr: "merge request",
     show_reply: "Show the whole reply",
-    stopping: "stopping",
+    delegated_jobs: "Delegated jobs",
+    delegated_failed: "Couldn't delegate: {error}",
+    delegated_unfinished: "The call didn't finish.",
+    leg_queued: "Queued",
+    leg_waits: "Starts after this turn",
+    leg_running: "Running",
+    leg_waiting_input: "Waiting for an answer",
+    leg_stopping: "Stopping",
+    leg_finished: "Finished",
+    leg_failed: "Failed",
+    leg_cancelled: "Cancelled",
+    leg_lost: "Lost",
+    delegations_total: ["{count} delegated", "{count} delegated"],
+    delegations_running: ["{count} running", "{count} running"],
+    delegations_queued: ["{count} queued", "{count} queued"],
+    delegations_failed: ["{count} failed", "{count} failed"],
     suggested_answer: "Suggested answer",
     publish_committing: "Committing changes",
     publish_creating: "Creating merge request",
@@ -136,6 +153,7 @@
 
   const showRaw = payload.show_raw === true;
   const sessionPath = typeof payload.session_path === "string" ? payload.session_path : "";
+  const legStates = payload.leg_states && typeof payload.leg_states === "object" ? payload.leg_states : {};
 
   const fill = (template, values) =>
     template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
@@ -163,5 +181,5 @@
     return `${Math.floor(min / 60)}h ${min % 60}m`;
   };
 
-  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration, showRaw, sessionPath };
+  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration, showRaw, sessionPath, legStates };
 })();

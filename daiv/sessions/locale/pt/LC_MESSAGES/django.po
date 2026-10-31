@@ -617,6 +617,12 @@ msgstr "consultou as tarefas delegadas"
 msgid "checked delegated jobs {count} times"
 msgstr "consultou as tarefas delegadas {count} vezes"
 
+msgid "cancelled delegated jobs"
+msgstr "cancelou as tarefas delegadas"
+
+msgid "cancelled delegated jobs {count} times"
+msgstr "cancelou as tarefas delegadas {count} vezes"
+
 msgid "used {count} tool"
 msgstr "usou {count} ferramenta"
 
@@ -965,8 +971,72 @@ msgstr "merge request"
 msgid "Show the whole reply"
 msgstr "Mostrar a resposta completa"
 
-msgid "stopping"
-msgstr "a parar"
+msgctxt "delegated jobs card"
+msgid "Delegated jobs"
+msgstr "Tarefas delegadas"
+
+msgid "Delegated {count} job"
+msgstr "Delegou {count} tarefa"
+
+msgid "Delegated {count} jobs"
+msgstr "Delegou {count} tarefas"
+
+msgid "Couldn't delegate: {error}"
+msgstr "Não foi possível delegar: {error}"
+
+msgid "The call didn't finish."
+msgstr "A chamada não terminou."
+
+msgid "Starts after this turn"
+msgstr "Começa depois deste turno"
+
+msgid "Waiting for an answer"
+msgstr "À espera de uma resposta"
+
+msgid "Stopping"
+msgstr "A parar"
+
+msgid "Finished"
+msgstr "Concluída"
+
+msgctxt "delegated job state"
+msgid "Failed"
+msgstr "Falhada"
+
+msgid "Cancelled"
+msgstr "Cancelada"
+
+msgid "Lost"
+msgstr "Perdida"
+
+msgid "{count} delegated"
+msgid_plural "{count} delegated"
+msgstr[0] "{count} delegada"
+msgstr[1] "{count} delegadas"
+
+msgid "{count} running"
+msgid_plural "{count} running"
+msgstr[0] "{count} a executar"
+msgstr[1] "{count} a executar"
+
+msgid "{count} queued"
+msgid_plural "{count} queued"
+msgstr[0] "{count} em fila"
+msgstr[1] "{count} em fila"
+
+msgid "{count} failed"
+msgid_plural "{count} failed"
+msgstr[0] "{count} falhou"
+msgstr[1] "{count} falharam"
+
+msgid "Delegated by"
+msgstr "Delegada por"
+
+msgid "Open session →"
+msgstr "Abrir sessão →"
+
+msgid "Show in details"
+msgstr "Mostrar nos detalhes"
 
 msgid "Suggested answer"
 msgstr "Resposta sugerida"
