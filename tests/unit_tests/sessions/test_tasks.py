@@ -1,20 +1,26 @@
 import uuid
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.tasks.base import DEFAULT_TASK_PRIORITY
 
 import pytest
 from django_tasks_db.models import DBTaskResult
-from sessions.models import Run, Session, SessionOrigin
+from sessions.executor.lock import stale_cutoff
+from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.tasks import (
+    drain_inboxes_cron_task,
     generate_batch_title_task,
     generate_title_task,
+    keep_inbox_claims_alive_cron_task,
     resume_stalled_batches_cron_task,
     sync_stuck_runs_cron_task,
 )
 from sessions.titling import TitlerNotConfiguredError
 
 from core.constants import TASK_QUEUE_INTERACTIVE
+from tests.unit_tests.sessions.conftest import amake_owned_merge_request
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
 def test_sync_stuck_runs_cron_task_dispatches_command():
@@ -34,6 +40,104 @@ def test_resume_stalled_batches_cron_task_runs_the_sweep():
         resume_stalled_batches_cron_task.func()
 
     sweep.assert_called_once_with()
+
+
+def test_the_inbox_claims_are_kept_alive_from_the_interactive_queue():
+    with patch("sessions.inbox.drain.keep_queued_claims_alive", return_value=0) as heartbeat:
+        keep_inbox_claims_alive_cron_task.func()
+
+    heartbeat.assert_called_once_with()
+    assert keep_inbox_claims_alive_cron_task.queue_name == TASK_QUEUE_INTERACTIVE
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDrainInboxesCronTask:
+    def _session(self, **fields) -> Session:
+        return Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo", ref="main", **fields
+        )
+
+    def test_it_drains_only_free_or_stale_sessions_with_a_waking_event(self):
+        free = self._session()
+        stale = self._session(active_run_id="gone", last_active_at=stale_cutoff() - timedelta(minutes=1))
+        busy = self._session(active_run_id="chat-run")
+        quiet = self._session()
+        for session in (free, stale, busy):
+            make_event(session, EventKind.CI_FAILED)
+        make_event(quiet, EventKind.NOTICE)
+
+        with patch("sessions.inbox.drain.drain_logged") as drain:
+            drain_inboxes_cron_task.func()
+
+        assert sorted(call.args[0] for call in drain.call_args_list) == sorted([free.pk, stale.pk])
+
+    def test_it_returns_events_of_a_run_whose_slot_went_stale(self):
+        session = self._session()
+        run = Run.objects.create(
+            session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="group/repo", status=RunStatus.RUNNING
+        )
+        Session.objects.filter(pk=session.pk).update(
+            active_run_id=str(run.pk), last_active_at=stale_cutoff() - timedelta(minutes=1)
+        )
+        event = make_event(session, EventKind.CI_FAILED, run=run, state=EventState.TAKEN)
+
+        with patch("sessions.inbox.drain.drain_logged"):
+            drain_inboxes_cron_task.func()
+
+        event = InboxEvent.objects.get(pk=event.pk)
+        assert (event.state, event.attempts, event.run_id) == (EventState.PENDING, 1, None)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestClassifyPushTask:
+    @pytest.fixture(autouse=True)
+    def _no_drain(self):
+        with patch("sessions.inbox.post.drain_logged"):
+            yield
+
+    async def _push(self, after: str) -> None:
+        from sessions.tasks import classify_push_task
+
+        await classify_push_task.func(
+            repo_id="group/repo", branch="daiv/branch", before="e96f1f77", after=after, pusher_username="sfr",
+            commit_count=2,
+        )  # fmt: skip
+
+    async def test_a_push_daiv_did_not_make_is_remembered_by_the_owning_session(self):
+        ownership = await amake_owned_merge_request(last_daiv_sha="daiv-sha")
+
+        await self._push("their-sha")
+
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.wake, event.source_key, event.subject, event.ref) == (
+            EventKind.BRANCH_PUSHED, False, "push:their-sha", "branch:daiv/branch", "daiv/branch",
+        )  # fmt: skip
+        assert event.payload == {
+            "before": "e96f1f77", "after": "their-sha", "commit_count": 2, "pusher_username": "sfr",
+        }  # fmt: skip
+
+    async def test_the_commit_daiv_last_pushed_is_not_remembered(self):
+        await amake_owned_merge_request(last_daiv_sha="daiv-sha")
+
+        await self._push("daiv-sha")
+
+        assert not await InboxEvent.objects.aexists()
+
+    async def test_any_commit_a_daiv_run_pushed_is_not_remembered(self):
+        ownership = await amake_owned_merge_request(last_daiv_sha="newer-daiv-sha")
+        await Run.objects.acreate(
+            session_id=ownership.session_id, trigger_type=SessionOrigin.CHAT, repo_id="group/repo",
+            status=RunStatus.SUCCESSFUL, pushed_sha="older-daiv-sha",
+        )  # fmt: skip
+
+        await self._push("older-daiv-sha")
+
+        assert not await InboxEvent.objects.aexists()
+
+    async def test_a_push_to_a_branch_nobody_owns_is_ignored(self):
+        await self._push("their-sha")
+
+        assert not await InboxEvent.objects.aexists()
 
 
 def _run_for_titling(

@@ -10,10 +10,13 @@ from typing import TYPE_CHECKING, Any
 from django.utils import timezone
 
 from ag_ui.core.events import BaseEvent, CustomEvent, EventType, RunErrorEvent
+from asgiref.sync import sync_to_async
 from langchain_core.messages import HumanMessage
 from sessions.executor.lock import Held, SessionLock, SessionLockLostError
 from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
+from sessions.inbox.drain import alink_chat_run, drain_logged
+from sessions.inbox.render import arender_input
 from sessions.live import relay
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import SubagentEventFilter
@@ -134,7 +137,10 @@ class ChatRunStreamer:
 
     Chat owns: the ``resolved_env`` and ``ref_fallback`` events, the ``Run`` row (started once the
     clone is ready, finalized with token/cost usage), RUN_ERROR events with sanitized messages, and releasing the run
-    slot the view claimed — after the ``Run`` row is final, so a new turn never finds this one still running.
+    slot the view claimed — after the ``Run`` row is final, so a new turn never finds this one still running. The
+    inbox events the view took for the turn are linked to its ``Run`` once it exists and reach the model as a hidden
+    context message ahead of the person's words; once the slot is released, the session's inbox is drained, so a
+    message sent meanwhile starts its run at once.
     """
 
     repo_id: str
@@ -260,6 +266,7 @@ class ChatRunStreamer:
             message_id=self.message_id,
         )
         turn.chat_run = run
+        await alink_chat_run(self.run_id, run)
         return str(run.pk)
 
     async def _record_outcome(self, turn: _Turn, outcome: RunOutcome) -> None:
@@ -291,6 +298,7 @@ class ChatRunStreamer:
         # the checkpoint lacks to the graph input.
         turn_message = _last_user_message(self.input_data)
         agui_input = self.input_data.model_copy(update={"messages": [turn_message] if turn_message else []})
+        await self._add_inbox_context(turn, run)
         try:
             async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(agui_input))) as events:
                 async for event in events:
@@ -304,6 +312,19 @@ class ChatRunStreamer:
                 await close_graph_stream(agui.graph_stream, thread_id=self.thread_id, run_id=self.run_id)
         if turn.error is not None:
             raise _ReportedRunError
+
+    async def _add_inbox_context(self, turn: _Turn, run: AgentRun) -> None:
+        """Write what the session's inbox holds for this turn into the thread, ahead of the person's message. The
+        turn runs without it when that fails: the person's request is what matters, and the events stay linked to
+        the run."""
+        if turn.chat_run is None:
+            return
+        try:
+            context = (await arender_input(turn.chat_run, fast_forward=run.fast_forward)).context
+            if context is not None:
+                await run.agent.aupdate_state(run.config, {"messages": [context]}, as_node="model")
+        except Exception:
+            logger.exception("chat: could not add the inbox context for thread_id=%s", self.thread_id)
 
     async def _end_turn(self, turn: _Turn, *, succeeded: bool) -> None:
         """Finalize the ``Run`` row, then release the slot; each failure is logged, never raised over how the turn
@@ -325,3 +346,5 @@ class ChatRunStreamer:
             await SessionLock.release(self.thread_id, self.run_id)
         except Exception:
             logger.exception("chat: failed to release run slot for thread_id=%s", self.thread_id)
+            return
+        await sync_to_async(drain_logged)(self.thread_id)

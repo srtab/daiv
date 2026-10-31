@@ -90,6 +90,11 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
              :href="'{% url 'session_list' %}?repo={{ session.repo_id|urlencode }}&mr=' + thread.merge_request.id">
             {% icon "list-bullet" "session-menu__icon" %}<span x-text="'{{ _("Other sessions on")|escapejs }} !' + thread.merge_request.id"></span>
           </a>
+          <a role="menuitem" tabindex="-1" class="session-menu__item"
+             x-show="ciExplanation(ci[0])" :href="ciExplanation(ci[0]) || null" @click="close(true)"
+             data-testid="session-ci-explanation">
+            {% icon "magnifying-glass" "session-menu__icon" %}{% translate "What DAIV found on the failure" %}
+          </a>
           {% if can_act %}
             <div class="session-menu__divider" role="separator" x-show="thread.merge_request.id"></div>
             <button type="button" role="menuitemcheckbox" tabindex="-1"
@@ -215,6 +220,19 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
             {% icon "exclamation-circle" "session-menu__icon" %}<span class="flex-1">{% blocktranslate with iid=header.issue.iid %}Open issue #{{ iid }}{% endblocktranslate %}</span>
             {% icon "arrow-top-right-on-square" "h-3.5 w-3.5 text-text-faint" %}
           </a>
+        {% endif %}
+        {% if can_mute %}
+          <div class="session-menu__divider" role="separator"></div>
+          <button type="button" role="menuitemcheckbox" tabindex="-1"
+                  class="session-menu__item session-menu__item--check"
+                  :aria-checked="muted.toString()"
+                  @click="toggleMute()" data-testid="session-mute">
+            <span class="session-menu__check" aria-hidden="true">{% icon "check" "h-3 w-3" %}</span>
+            <span class="min-w-0">
+              {% translate "Mute CI and delegations" %}
+              <span class="session-menu__hint">{% translate "They're remembered, and your requests still run" %}</span>
+            </span>
+          </button>
         {% endif %}
         <div class="session-menu__divider" role="separator"></div>
         <button type="button" role="menuitem" tabindex="-1" class="session-menu__item"

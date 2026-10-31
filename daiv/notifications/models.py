@@ -66,6 +66,7 @@ class Notification(TimeStampedModel):
                         EventType.SCHEDULE_FINISHED,
                         EventType.PIPELINE_WATCH_EXHAUSTED,
                         EventType.SCHEDULE_DISPATCH_FAILED,
+                        EventType.INBOX_PAUSED,
                     ]
                 ),
                 name="notif_unique_per_source_recipient",

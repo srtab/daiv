@@ -70,12 +70,21 @@ def _schedule_dispatch_failed(ctx: dict) -> list[Row]:
     ]
 
 
+def _inbox_paused(ctx: dict) -> list[Row]:
+    return [
+        Row("Repository", ctx.get("repo_id") or "—"),
+        Row("Session", ctx.get("session_title") or "—"),
+        Row("Runs in a row", str(ctx.get("runs_in_a_row") or "—")),
+    ]
+
+
 EVENT_ROWS: dict[str, Callable[[dict], list[Row]]] = {
     EventType.JOB_FINISHED: _job_finished,
     EventType.SCHEDULE_FINISHED: _schedule_finished,
     EventType.JOB_BATCH_FINISHED: _job_batch_finished,
     EventType.PIPELINE_WATCH_EXHAUSTED: _pipeline_watch_exhausted,
     EventType.SCHEDULE_DISPATCH_FAILED: _schedule_dispatch_failed,
+    EventType.INBOX_PAUSED: _inbox_paused,
 }
 
 

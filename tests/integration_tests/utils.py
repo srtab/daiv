@@ -164,6 +164,7 @@ TODOS_MODELS = _models_from_env("DAIV_EVAL_TODOS_MODELS", [EVAL_MODEL])
 WEB_SEARCH_MODELS = _models_from_env("DAIV_EVAL_WEB_SEARCH_MODELS", [EVAL_MODEL])
 SUBAGENTS_MODELS = _models_from_env("DAIV_EVAL_SUBAGENTS_MODELS", [EVAL_MODEL])
 CODE_REVIEW_MODELS = _models_from_env("DAIV_EVAL_CODE_REVIEW_MODELS", [EVAL_MODEL])
+INBOX_MODELS = _models_from_env("DAIV_EVAL_INBOX_MODELS", [EVAL_MODEL])
 
 
 def _is_frozen_tools_model(model_spec: str) -> bool:
@@ -224,9 +225,14 @@ def final_text(messages: Sequence[BaseMessage]) -> str:
 
 
 async def run_agent_once(
-    model_name: str, prompt: str, *, interrupt_on: dict[str, bool] | None = None, ask_user_enabled: bool = True
+    model_name: str,
+    prompt: str | Sequence[BaseMessage],
+    *,
+    interrupt_on: dict[str, bool] | None = None,
+    ask_user_enabled: bool = True,
 ) -> dict:
-    """One fresh agent run on a disk clone of srtab/daiv ``main``; returns the run's final state."""
+    """One fresh agent run on a disk clone of srtab/daiv ``main``; returns the run's final state. ``prompt`` is the
+    user's message, or the run's whole input."""
     from langgraph.checkpoint.memory import InMemorySaver
     from sandbox_envs.services import build_sandbox_spec
 
@@ -248,11 +254,8 @@ async def run_agent_once(
             mcp_servers=await default_mcp_servers(),
             ask_user_enabled=ask_user_enabled,
         )
-        return await agent.ainvoke(
-            {"messages": [{"role": "user", "content": prompt}]},
-            context=ctx,
-            config={"configurable": {"thread_id": "1"}},
-        )
+        messages = [{"role": "user", "content": prompt}] if isinstance(prompt, str) else list(prompt)
+        return await agent.ainvoke({"messages": messages}, context=ctx, config={"configurable": {"thread_id": "1"}})
 
 
 @dataclass

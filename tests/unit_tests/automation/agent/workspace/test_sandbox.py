@@ -94,3 +94,17 @@ async def test_a_sandbox_download_is_capped_inside_the_container():
     (command,) = client.run_commands.call_args.args[1].commands
     assert "-gt 1234 ]" in command
     assert response.error == DOWNLOAD_TOO_LARGE
+
+
+async def test_fast_forward_runs_in_the_container_with_a_refreshed_credential():
+    client = FakeSandboxClient.opened({
+        "fetch origin chore/x": (0, ""),
+        "rev-parse FETCH_HEAD": (0, "a" * 40),
+        "rev-parse HEAD": (0, "a" * 40),
+    })
+    session = acquired_session(client, client.add_running_session("sess-1"))
+    session.refresh_credential = AsyncMock(return_value=True)
+
+    assert await SandboxWorkspace(session).fast_forward("chore/x") == "unchanged"
+    session.refresh_credential.assert_awaited_once_with()
+    assert client.ran("fetch origin chore/x")

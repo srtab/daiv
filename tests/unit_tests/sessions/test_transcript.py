@@ -1066,6 +1066,93 @@ def test_expired_run_turns_do_not_stamp_a_result_an_already_rebuilt_run_carries(
     assert len({turn["id"] for turn in turns}) == len(turns)
 
 
+class TestInterleaveInboxEvents:
+    """Remembered events sit in the timeline before the first run created after them."""
+
+    @staticmethod
+    def _run(minute: int):
+        from datetime import UTC, datetime, timedelta
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            id=uuid.uuid4(), created_at=datetime(2026, 10, 30, 12, tzinfo=UTC) + timedelta(minutes=minute)
+        )
+
+    @staticmethod
+    def _event(minute: int, kind="mr_merged", **payload):
+        from datetime import UTC, datetime, timedelta
+
+        from sessions.models import InboxEvent
+
+        defaults = {"mr_merged": {"target_branch": "main", "by_username": "sfr"}}
+        return InboxEvent(
+            kind=kind,
+            payload=payload or defaults[kind],
+            wake=False,
+            merge_request_iid=9,
+            created_at=datetime(2026, 10, 30, 12, tzinfo=UTC) + timedelta(minutes=minute),
+        )
+
+    def test_events_land_between_the_runs_they_came_between(self):
+        from sessions.transcript import interleave_inbox_events
+
+        first, second = self._run(0), self._run(10)
+        turns = [
+            {"id": "u1", "role": "user", "run_id": str(first.id)},
+            {"id": "a1", "role": "assistant"},
+            {"id": "u2", "role": "user", "run_id": str(second.id)},
+        ]
+        between, after = self._event(5), self._event(20)
+
+        result = interleave_inbox_events(turns, [first, second], [after, between])
+
+        assert [turn["id"] for turn in result] == ["u1", "a1", f"inbox-{between.pk}", "u2", f"inbox-{after.pk}"]
+        entry = result[2]
+        assert entry == {
+            "id": f"inbox-{between.pk}",
+            "role": "inbox_event",
+            "kind": "mr_merged",
+            "summary": "!9 was merged into main by sfr.",
+            "reason": "",
+            "web_url": "",
+            "created_at": between.created_at.isoformat(),
+        }
+
+    def test_an_event_before_every_run_comes_first(self):
+        from sessions.transcript import interleave_inbox_events
+
+        run = self._run(10)
+        early = self._event(0)
+
+        result = interleave_inbox_events([{"id": "u1", "role": "user", "run_id": str(run.id)}], [run], [early])
+
+        assert [turn["role"] for turn in result] == ["inbox_event", "user"]
+
+    @pytest.mark.django_db
+    def test_events_interleave_with_the_turns_an_expired_checkpoint_restores(self):
+        from sessions.transcript import expired_run_turns, interleave_inbox_events
+
+        from tests.unit_tests.sessions.conftest import make_run
+
+        session_id = str(uuid.uuid4())
+        first = make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
+        second = make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
+        between = self._event(0)
+        between.created_at = first.created_at + (second.created_at - first.created_at) / 2
+
+        turns = expired_run_turns([first, second], [])
+        result = interleave_inbox_events(turns, [first, second], [between])
+
+        assert [turn.get("run_id") or turn["role"] for turn in result] == [str(first.id), "inbox_event", str(second.id)]
+
+    def test_no_events_leaves_the_turns_as_they_are(self):
+        from sessions.transcript import interleave_inbox_events
+
+        turns = [{"id": "u1", "role": "user"}]
+
+        assert interleave_inbox_events(turns, [], []) is turns
+
+
 @pytest.fixture
 def owner(member_user):
     return member_user

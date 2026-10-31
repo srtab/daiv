@@ -1,147 +1,82 @@
+import uuid
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.utils import timezone
 
 import pytest
-from sessions.executor.lock import stale_cutoff
-from sessions.models import Session, WatchState
-from sessions.pipeline_watch.reconciler import WATCH_MAX_AGE, WATCH_STALE_AFTER, WatchReconciler
+from sessions.models import MergeRequestOwnership, Session, SessionOrigin
+from sessions.pipeline_watch.reconciler import WatchReconciler
 
-from ..conftest import amake_watched_session
-
-
-def _reconciler(*, evaluate=None, notes=None):
-    """A reconciler whose per-repo collaborators are recorded rather than real."""
-
-    class _Watch:
-        def __init__(self, repo_id):
-            self.repo_id = repo_id
-
-        async def aevaluate(self, **kwargs):
-            if evaluate is not None:
-                await evaluate(repo_id=self.repo_id, **kwargs)
-
-    class _Platform:
-        def __init__(self, repo_id):
-            self.repo_id = repo_id
-
-        async def apost_note(self, **kwargs):
-            if notes is not None:
-                notes.append({"repo_id": self.repo_id, **kwargs})
-
-    return WatchReconciler(watch_factory=_Watch, platform_factory=_Platform)
+pytestmark = pytest.mark.django_db(transaction=True)
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_a_stale_watching_session_is_re_evaluated():
-    await amake_watched_session(thread_id="stale", watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2)
-    evaluated = []
+async def _owned(iid: int, *, repo_id: str = "group/repo", branch: str = "daiv/branch", age=timedelta(hours=1)):
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id=repo_id, ref=branch
+    )
+    ownership = await MergeRequestOwnership.objects.acreate(
+        repo_id=repo_id, merge_request_iid=iid, session=session, source_branch=branch, last_daiv_sha="abc"
+    )
+    await MergeRequestOwnership.objects.filter(pk=ownership.pk).aupdate(updated_at=timezone.now() - age)
+    return ownership
 
-    async def fake_evaluate(**kwargs):
-        evaluated.append(kwargs)
 
-    touched = await _reconciler(evaluate=fake_evaluate).areconcile()
+class RecordingWatch:
+    evaluated: list[tuple] = []
+    failing: set[str] = set()
+
+    def __init__(self, repo_id):
+        self.repo_id = repo_id
+
+    async def aevaluate(self, *, ref, pipeline_id):
+        RecordingWatch.evaluated.append((self.repo_id, ref, pipeline_id))
+        if self.repo_id in RecordingWatch.failing:
+            raise RuntimeError("platform down")
+
+
+@pytest.fixture(autouse=True)
+def _reset_watch():
+    RecordingWatch.evaluated, RecordingWatch.failing = [], set()
+
+
+async def test_it_re_reads_the_latest_pipeline_of_branches_with_no_ci_result():
+    await _owned(7)
+    await _owned(8, branch="fresh", age=timedelta(minutes=5))
+
+    touched = await WatchReconciler(watch_factory=RecordingWatch).areconcile()
 
     assert touched == 1
-    # pipeline_id is None so the reconciler polls for the latest, rather than re-reading
-    # a pipeline it was never told about.
-    assert evaluated[0]["pipeline_id"] is None
+    assert RecordingWatch.evaluated == [("group/repo", "daiv/branch", None)]
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_a_fresh_watch_is_left_alone():
-    await amake_watched_session(thread_id="fresh")
-    evaluated = []
+async def test_nothing_expires_and_no_note_is_posted():
+    ownership = await _owned(7, age=timedelta(days=3))
 
-    async def fake_evaluate(**kwargs):
-        evaluated.append(kwargs)
+    with patch("sessions.pipeline_watch.platform.WatchPlatform.apost_note") as note:
+        assert await WatchReconciler(watch_factory=RecordingWatch).areconcile() == 0
 
-    assert await _reconciler(evaluate=fake_evaluate).areconcile() == 0
-    assert evaluated == []
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_watch_past_its_lifetime_is_abandoned():
-    await amake_watched_session(thread_id="ancient", watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2)
-
-    async def fake_evaluate(**kwargs):
-        raise AssertionError("an expired watch must not be evaluated")
-
-    await _reconciler(evaluate=fake_evaluate).areconcile()
-
-    session = await Session.objects.aget(thread_id="ancient")
-    assert session.watch_state == WatchState.UNCLEAR
+    note.assert_not_called()
+    await ownership.arefresh_from_db()
+    assert (ownership.closed_at, ownership.watch_enabled) == (None, True)
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_an_expired_watch_says_so_on_the_merge_request():
-    """The expiry is where every unresolved failure lands, so closing it silently is what made an
-    outage, a misconfigured cap and a pipeline that never started all look identical."""
-    comments = []
+async def test_one_failing_branch_does_not_stop_the_sweep(caplog):
+    await _owned(7, repo_id="group/broken")
+    await _owned(8, repo_id="group/fine")
+    RecordingWatch.failing = {"group/broken"}
 
-    await amake_watched_session(
-        thread_id="ancient2", merge_request_iid=11, watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2
-    )
+    with caplog.at_level("ERROR", logger="daiv.sessions"):
+        touched = await WatchReconciler(watch_factory=RecordingWatch).areconcile()
 
-    await _reconciler(notes=comments).areconcile()
-
-    assert len(comments) == 1
-    assert comments[0]["merge_request_iid"] == 11
+    assert touched == 2
+    assert {repo for repo, _, _ in RecordingWatch.evaluated} == {"group/broken", "group/fine"}
+    assert "reconcile failed for group/broken@daiv/branch" in caplog.text
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_an_expired_watch_is_logged_per_session(caplog):
-    """The only signal was an aggregate count with no repo and no thread, so nobody could
-    reconstruct which watch gave up or why."""
-    await amake_watched_session(
-        thread_id="ancient3", merge_request_iid=12, watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2
-    )
+async def test_a_sweep_is_bounded():
+    for iid in range(3):
+        await _owned(iid + 1, branch=f"b{iid}")
 
-    with caplog.at_level("WARNING"):
-        await _reconciler().areconcile()
-
-    assert "ancient3" in caplog.text or "group/repo" in caplog.text
-    assert any(r.levelname == "WARNING" for r in caplog.records)
-
-
-@pytest.mark.parametrize(
-    ("claimed_at", "heartbeat_at", "expected"),
-    [
-        pytest.param(timedelta(minutes=1), timedelta(minutes=1), WatchState.WATCHING, id="dead-fix-run"),
-        pytest.param(timedelta(minutes=1), -timedelta(minutes=1), WatchState.FIXING, id="still-heartbeating"),
-        pytest.param(-timedelta(minutes=1), timedelta(minutes=1), WatchState.FIXING, id="claimed-not-yet-started"),
-    ],
-)
-@pytest.mark.django_db(transaction=True)
-async def test_a_fixing_watch_is_recovered_only_once_its_claim_and_heartbeat_are_both_stale(
-    claimed_at, heartbeat_at, expected
-):
-    cutoff = stale_cutoff()
-    await amake_watched_session(
-        thread_id="stuck",
-        watch_state=WatchState.FIXING,
-        watch_armed_at=cutoff - claimed_at,
-        last_active_at=cutoff - heartbeat_at,
-    )
-
-    await _reconciler().areconcile()
-
-    session = await Session.objects.aget(thread_id="stuck")
-    assert session.watch_state == expected
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_each_repository_gets_its_own_collaborators():
-    """The sweep spans repositories, so a single shared client would address the wrong one."""
-    for n, repo in enumerate(["group/a", "group/b"]):
-        await amake_watched_session(
-            thread_id=f"stale-{n}", repo_id=repo, watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2
-        )
-    seen = []
-
-    async def fake_evaluate(**kwargs):
-        seen.append(kwargs["repo_id"])
-
-    await _reconciler(evaluate=fake_evaluate).areconcile()
-
-    assert sorted(seen) == ["group/a", "group/b"]
+    with patch("sessions.pipeline_watch.reconciler.WATCH_SWEEP_LIMIT", 2):
+        assert await WatchReconciler(watch_factory=RecordingWatch).areconcile() == 2

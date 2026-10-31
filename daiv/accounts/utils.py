@@ -13,43 +13,19 @@ logger = logging.getLogger("daiv.accounts")
 _PLATFORM_USERNAME_KEYS = {GitPlatform.GITLAB: "username", GitPlatform.GITHUB: "login"}
 
 
-async def resolve_user(provider: str, uid: int, *, username: str = "", email: str = "") -> User | None:
-    """Resolve a DAIV user from an external git platform identity.
-
-    Resolution order:
-    1. Username match against DAIV user (most common match for orgs where platform and DAIV usernames align)
-    2. Email match against DAIV user (when provided)
-    3. Social account lookup by provider + uid (allauth fallback)
-
-    Returns None if no matching DAIV user is found.
-    """
+async def resolve_linked_user(provider: str, uid: int) -> User | None:
+    """The DAIV user who signed in with this git platform account (``provider`` + ``uid``), else ``None``. Never a
+    match by username or email: those may name someone else, who would then own, act in and be notified about runs the
+    platform user started. A failed read raises: ``None`` would record a linked user's request as no one's, for good."""
     from allauth.socialaccount.models import SocialAccount
 
-    from accounts.models import User as UserModel
-
-    try:
-        if username:
-            try:
-                return await UserModel.objects.aget(username=username)
-            except UserModel.DoesNotExist:
-                pass
-
-        if email:
-            try:
-                return await UserModel.objects.aget(email=email)
-            except UserModel.DoesNotExist:
-                pass
-
-        try:
-            social = await SocialAccount.objects.select_related("user").aget(provider=provider, uid=str(uid))
-        except SocialAccount.DoesNotExist:
-            return None
-        return social.user
-    except Exception:
-        logger.exception(
-            "Failed to resolve user provider=%s uid=%s username=%s email=%s", provider, uid, username, email
-        )
-        return None
+    social = await (
+        SocialAccount.objects
+        .select_related("user")
+        .filter(provider=provider, uid=str(uid), user__is_active=True)
+        .afirst()
+    )
+    return social.user if social is not None else None
 
 
 class PlatformIdentity(NamedTuple):
@@ -62,7 +38,7 @@ class PlatformIdentity(NamedTuple):
 async def aget_platform_identity(*, user_id: int, provider: GitPlatform) -> PlatformIdentity | None:
     """The platform identity a DAIV user is linked to on ``provider``, or ``None`` when unlinked.
 
-    The reverse of :func:`resolve_user`, for run-triggered work that only knows the DAIV user. The
+    The reverse of :func:`resolve_linked_user`, for run-triggered work that only knows the DAIV user. The
     handle lives under a provider-specific key in the OAuth payload allauth stored at login.
 
     allauth is unique on ``(provider, uid)``, not ``(user, provider)``, so a re-linked user holds

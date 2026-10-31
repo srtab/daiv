@@ -1,0 +1,33 @@
+{% load humanize i18n %}
+{% comment %}
+The session's pending and failed inbox events, for its owner and admins; the view passes ``inbox_events`` as None to
+everyone else. Rendered with the page, so it does not follow live changes.
+{% endcomment %}
+{% if inbox_events %}
+  <section class="session-details__section" data-testid="session-inbox">
+    <h3 class="session-details__label">{% translate "Inbox" %}</h3>
+    <ul class="session-inbox">
+      {% for event in inbox_events %}
+        <li class="session-inbox__item">
+          <div class="session-inbox__row">
+            <span class="session-inbox__kind">{{ event.get_kind_display }}</span>
+            <span class="session-inbox__state session-inbox__state--{{ event.state }}">{{ event.get_state_display }}</span>
+          </div>
+          <div class="session-inbox__meta">
+            {% if event.author %}
+              <span class="truncate">{{ event.author.name|default:event.author.email }}</span>
+            {% elif event.author_username %}
+              <span class="truncate">{{ event.author_username }}</span>
+            {% endif %}
+            <time datetime="{{ event.created_at|date:'c' }}" title="{{ event.created_at|date:'DATETIME_FORMAT' }}">{{ event.created_at|naturaltime }}</time>
+          </div>
+          {% if event.failure %}
+            <p class="session-inbox__why">{{ event.get_failure_display }}</p>
+          {% elif event.reason %}
+            <p class="session-inbox__why">{{ event.get_reason_display }}</p>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endif %}

@@ -8,13 +8,13 @@ from django.db import DatabaseError
 
 import pytest
 from asgiref.sync import sync_to_async
-from sessions.executor.lock import SessionLock
+from sessions.executor.lock import Claimed, SessionLock, Wait
 from sessions.executor.run import RunStoppedError
 from sessions.executor.tasks import run_job_task
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.conftest import stub_sandbox_spec
-from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, watch_recorder
+from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, claim_recorder
 from tests.unit_tests.sessions.executor.conftest import disk_ctx, resolved_to
 
 
@@ -226,6 +226,83 @@ async def test_run_job_task_reads_session_mcp_overrides():
 
 
 @pytest.mark.django_db(transaction=True)
+class TestInboxRun:
+    async def _inbox_run(self, *, user=None) -> Run:
+        session = await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="g/r", ref="main", user=user
+        )
+        run = await Run.objects.acreate(
+            session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="g/r", status=RunStatus.READY
+        )
+        await InboxEvent.objects.acreate(
+            session=session,
+            kind=EventKind.CI_FAILED,
+            source_key="pipeline:1",
+            payload={"pipeline_id": 1, "sha": "abc", "status": "failed", "web_url": "u", "failed_jobs": ["lint"]},
+            wake=True,
+            ref="main",
+            merge_request_iid=9,
+            state=EventState.TAKEN,
+            run=run,
+        )
+        await InboxEvent.objects.acreate(
+            session=session,
+            kind=EventKind.MR_MERGED,
+            source_key="mr-state:3:merged",
+            payload={"target_branch": "main", "by_username": "sfr"},
+            wake=False,
+            merge_request_iid=3,
+            state=EventState.TAKEN,
+            run=run,
+        )
+        return run
+
+    async def test_it_runs_on_the_claimed_slot_with_the_rendered_input(self, member_user):
+        run = await self._inbox_run(user=member_user)
+
+        spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True))["spec"]
+
+        assert spec.lock == Claimed(holder_id=str(run.pk))
+        context, request = spec.input_messages
+        assert "!3 was merged into main" in context.content
+        assert request.content.startswith("CI failed on this merge request. Failed jobs: lint.")
+
+    async def test_it_acts_as_the_runs_user_not_the_owner(self, member_user, admin_user):
+        run = await self._inbox_run(user=member_user)
+        await Run.objects.filter(pk=run.pk).aupdate(user=admin_user)
+
+        spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True))["spec"]
+
+        assert spec.acting_user_id == admin_user.pk
+
+    async def test_the_input_factory_reuses_the_events_read_at_start(self, member_user):
+        run = await self._inbox_run(user=member_user)
+        spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True))["spec"]
+        await InboxEvent.objects.filter(run=run).adelete()
+
+        context, _request = await spec.input_factory("advanced")
+
+        assert "Your working copy was fast-forwarded." in context.content
+
+    async def test_a_run_whose_events_were_settled_before_it_started_does_not_run(self, member_user):
+        run = await self._inbox_run(user=member_user)
+        await InboxEvent.objects.filter(run=run).aupdate(state=EventState.PENDING, run=None)
+
+        with pytest.raises(ValueError, match="holds no event to act on"):
+            await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True)
+
+    async def test_a_run_without_events_keeps_its_prompt_and_waits_for_the_slot(self):
+        thread_id = await amake_job_session()
+        run = await Run.objects.acreate(session_id=thread_id, trigger_type=SessionOrigin.API_JOB, repo_id="g/r")
+
+        spec = (await _execute_run_call(thread_id, run_id=str(run.pk), user_id=42))["spec"]
+
+        assert isinstance(spec.lock, Wait)
+        assert [message.content for message in spec.input_messages] == ["hi"]
+        assert spec.acting_user_id == 42
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolution():
     """A run that dies before the model is resolved (e.g. the git clone inside
     ``set_runtime_ctx``) leaves ``agent_model`` empty — the UI falls back to the
@@ -261,27 +338,29 @@ async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolutio
     assert run.agent_model == ""
 
 
-def _agent_with_mr(merge_request):
+def _agent_with_mr(merge_request, *, published: bool = False):
     """An agent stub whose run left ``merge_request`` in its persisted checkpoint."""
     last_message = MagicMock()
     last_message.content = "ok"
     agent = AsyncMock()
     agent.ainvoke = AsyncMock(return_value={"messages": [last_message]})
-    agent.aget_state = AsyncMock(return_value=MagicMock(values={"merge_request": merge_request}))
+    agent.aget_state = AsyncMock(
+        return_value=MagicMock(values={"merge_request": merge_request, "published": published})
+    )
     return agent
 
 
 @contextmanager
-def _job_scaffolding(agent, *, real_lock: bool = False, armed: list[dict] | None = None):
+def _job_scaffolding(agent, *, real_lock: bool = False, claimed: list[dict] | None = None):
     """Stub everything around ``agent`` and yield the ``set_runtime_ctx`` mock.
 
-    ``real_lock`` keeps the real session lock; ``armed`` records the watch arms instead of arming a real watch.
+    ``real_lock`` keeps the real session lock; ``claimed`` records the merge request claims instead of making them.
     """
     with (
         nullcontext()
         if real_lock
         else patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
-        nullcontext() if armed is None else patch("sessions.executor.run.PipelineWatch", watch_recorder(armed)),
+        nullcontext() if claimed is None else patch("sessions.executor.run.aclaim_ownership", claim_recorder(claimed)),
         patch("core.checkpointer.open_checkpointer"),
         patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
@@ -437,7 +516,7 @@ class TestRunJobTaskAfterRunMatrix:
             return {"messages": [MagicMock(content="ok")]}
 
         agent.ainvoke = AsyncMock(side_effect=_invoke)
-        with _job_scaffolding(agent, real_lock=True, armed=[]):
+        with _job_scaffolding(agent, real_lock=True, claimed=[]):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id=run_id)
 
         assert seen == [holder]
@@ -480,7 +559,7 @@ class TestRunJobTaskAfterRunMatrix:
 
         agent.ainvoke = AsyncMock(side_effect=_invoke)
         with (
-            _job_scaffolding(agent, real_lock=True, armed=[]),
+            _job_scaffolding(agent, real_lock=True, claimed=[]),
             patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
             patch("sessions.executor.lock.SessionLock.try_claim", _try_claim),
         ):
@@ -521,21 +600,24 @@ class TestRunJobTaskAfterRunMatrix:
 
         agent = _agent_with_mr(None)
         agent.ainvoke = AsyncMock(side_effect=_invoke)
-        with _job_scaffolding(agent, real_lock=True, armed=[]), patch("sessions.executor.lock._heartbeat_loop", _loop):
+        with (
+            _job_scaffolding(agent, real_lock=True, claimed=[]),
+            patch("sessions.executor.lock._heartbeat_loop", _loop),
+        ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
 
         assert heartbeats == [(thread_id, "run-1")]
         assert cancelled == [True]
 
     async def test_an_agent_error_releases_the_lock_and_skips_every_after_run_step(self):
-        """No ref sync, no watch arm and no draft recovery: the job trigger re-raises as-is."""
+        """No ref sync, no claim and no draft recovery: the job trigger re-raises as-is."""
         thread_id = await amake_job_session()
         agent = _raising_agent()
-        armed: list[dict] = []
+        claimed: list[dict] = []
         persist = AsyncMock()
 
         with (
-            _job_scaffolding(agent, real_lock=True, armed=armed),
+            _job_scaffolding(agent, real_lock=True, claimed=claimed),
             patch("sessions.executor.run.apersist_session_ref", persist),
             pytest.raises(RuntimeError, match="agent blew up"),
         ):
@@ -545,13 +627,13 @@ class TestRunJobTaskAfterRunMatrix:
         agent.aget_state.assert_not_awaited()
         agent.aupdate_state.assert_not_awaited()
         persist.assert_not_awaited()
-        assert armed == []
+        assert claimed == []
 
     async def test_a_failed_run_is_logged_as_job_failed_with_its_error(self, caplog):
         agent = _raising_agent()
 
         with (
-            _job_scaffolding(agent, armed=[]),
+            _job_scaffolding(agent, claimed=[]),
             caplog.at_level("ERROR", logger="daiv.sessions"),
             pytest.raises(RuntimeError, match="agent blew up"),
         ):
@@ -573,7 +655,7 @@ class TestRunJobTaskAfterRunMatrix:
 
         agent.ainvoke = AsyncMock(side_effect=_invoke)
         with (
-            _job_scaffolding(agent, armed=[]),
+            _job_scaffolding(agent, claimed=[]),
             patch("sessions.executor.run.STOP_POLL_INTERVAL_S", 0.01),
             caplog.at_level("INFO", logger="daiv.sessions"),
             pytest.raises(RunStoppedError),
@@ -587,7 +669,7 @@ class TestRunJobTaskAfterRunMatrix:
 
     async def test_a_cancel_check_that_fails_is_logged_and_the_job_runs_on(self, caplog):
         with (
-            _job_scaffolding(_agent_with_mr(None), armed=[]),
+            _job_scaffolding(_agent_with_mr(None), claimed=[]),
             patch.object(type(Run.objects), "acancel_requested", AsyncMock(side_effect=DatabaseError("db down"))),
             caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
@@ -598,26 +680,28 @@ class TestRunJobTaskAfterRunMatrix:
         assert result is not None
         assert "Could not read whether" in caplog.text
 
-    async def test_it_survives_a_failed_watch_arm(self, caplog):
-        arms: list[dict] = []
+    async def test_it_survives_a_failed_claim(self, caplog):
+        claims: list[dict] = []
 
         with (
-            _job_scaffolding(_agent_with_mr(None)),
-            patch("sessions.executor.run.PipelineWatch", watch_recorder(arms, error=RuntimeError("redis down"))),
+            _job_scaffolding(_agent_with_mr(MR, published=True)),
+            patch("sessions.executor.run.aclaim_ownership", claim_recorder(claims, error=RuntimeError("db down"))),
             caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
-            result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=await amake_job_session())
+            result = await run_job_task.func(
+                repo_id="owner/repo", prompt="hi", thread_id=await amake_job_session(), run_id=str(uuid.uuid4())
+            )
 
         assert result == {"response": "ok"}
-        assert len(arms) == 1
-        assert "failed to arm pipeline watch" in caplog.text
+        assert len(claims) == 1
+        assert "failed to claim the merge request" in caplog.text
 
     async def test_it_survives_a_failed_lock_release(self, caplog):
         thread_id = await amake_job_session()
         release = AsyncMock(side_effect=RuntimeError("db down"))
 
         with (
-            _job_scaffolding(_agent_with_mr(None), real_lock=True, armed=[]),
+            _job_scaffolding(_agent_with_mr(None), real_lock=True, claimed=[]),
             patch("sessions.executor.lock.SessionLock.release", release),
             caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
@@ -646,7 +730,7 @@ class TestRunJobTaskAfterRunMatrix:
         agent = _agent_with_mr(None)
         agent.ainvoke = AsyncMock(side_effect=_invoke)
         with (
-            _job_scaffolding(agent, real_lock=True, armed=[]),
+            _job_scaffolding(agent, real_lock=True, claimed=[]),
             patch("sessions.executor.lock.LOCK_HEARTBEAT_INTERVAL_S", 0.01),
             patch("sessions.executor.lock.SessionLock.heartbeat", _heartbeat),
             caplog.at_level("ERROR", logger="daiv.sessions"),
@@ -675,11 +759,11 @@ class TestRunJobTaskAfterRunMatrix:
             await asyncio.wait_for(lost.wait(), timeout=5)
             return {"messages": [MagicMock(content="ok")]}
 
-        agent = _agent_with_mr({"source_branch": "feat/published"})
+        agent = _agent_with_mr({"source_branch": "feat/published"}, published=True)
         agent.ainvoke = AsyncMock(side_effect=_invoke)
-        armed: list[dict] = []
+        claimed: list[dict] = []
         with (
-            _job_scaffolding(agent, real_lock=True, armed=armed),
+            _job_scaffolding(agent, real_lock=True, claimed=claimed),
             patch("sessions.executor.lock.LOCK_HEARTBEAT_INTERVAL_S", 0.01),
             patch("sessions.executor.lock.SessionLock.heartbeat", _heartbeat),
             caplog.at_level("WARNING", logger="daiv.sessions"),
@@ -689,10 +773,10 @@ class TestRunJobTaskAfterRunMatrix:
         assert result == {"response": "ok"}
         assert "lost session lock" in caplog.text
         assert (await Session.objects.aget(thread_id=thread_id)).ref == "feat/published"
-        assert len(armed) == 1
+        assert len(claimed) == 1
         assert await active_holder(thread_id) == "chat-run"
 
-    async def test_it_persists_the_ref_and_arms_the_watch_before_releasing_the_slot(self):
+    async def test_it_persists_the_ref_and_claims_the_merge_request_before_releasing_the_slot(self):
         thread_id = await amake_job_session()
         mr = {"source_branch": "feat/published"}
         agent = _agent_with_mr(mr)
@@ -705,28 +789,29 @@ class TestRunJobTaskAfterRunMatrix:
         async def _persist(*, thread_id, current_ref, merge_request, published):
             calls.append(("persist", current_ref, merge_request))
 
-        class _Watch(watch_recorder([])):
-            async def aarm_after_run(self, **kwargs):
-                calls.append(("arm", kwargs["published"]))
-                await super().aarm_after_run(**kwargs)
+        record = claim_recorder([])
+
+        async def _claim(**kwargs):
+            calls.append(("claim", kwargs["merge_request"]))
+            await record(**kwargs)
 
         with (
             _job_scaffolding(agent, real_lock=True),
             patch("sessions.executor.lock.SessionLock.release", _release),
             patch("sessions.executor.run.apersist_session_ref", _persist),
-            patch("sessions.executor.run.PipelineWatch", _Watch),
+            patch("sessions.executor.run.aclaim_ownership", _claim),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id=thread_id, run_id="run-1")
 
-        assert calls == [("persist", "main", mr), ("arm", True), ("release", thread_id, "run-1")]
+        assert calls == [("persist", "main", mr), ("claim", mr), ("release", thread_id, "run-1")]
 
 
 MR = {"merge_request_id": 7, "source_branch": "daiv/branch"}
 
 
 async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int | None = None) -> list[dict]:
-    """Run the task over a canned final checkpoint and return the watch-arm calls."""
-    armed: list[dict] = []
+    """Run the task over a canned final checkpoint and return the merge request claims."""
+    claimed: list[dict] = []
 
     last_message = MagicMock()
     last_message.content = "ok"
@@ -753,7 +838,7 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
-        patch("sessions.executor.run.PipelineWatch", watch_recorder(armed)),
+        patch("sessions.executor.run.aclaim_ownership", claim_recorder(claimed)),
         patch("sessions.executor.run._record_measurements", new=AsyncMock()),
     ):
         cp_ctx.return_value.__aenter__.return_value = object()
@@ -763,28 +848,22 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
             repo_id="group/repo", prompt="p", ref="main", thread_id=thread_id, run_id=run_id, user_id=user_id
         )
 
-    return armed
+    return claimed
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_it_arms_off_the_published_flag():
-    """The watch is armed off the publisher's own verdict: ``published``, read from the checkpoint the task
-    already fetches for ``apersist_session_ref``."""
-    armed = await _drive({"merge_request": MR, "published": True}, run_id="run-1", user_id=9)
+async def test_it_claims_off_the_published_flag():
+    """The claim follows the publisher's own verdict, ``published``, read from the checkpoint the task already fetches
+    for ``apersist_session_ref``."""
+    claimed = await _drive({"merge_request": MR, "published": True}, run_id="run-1", user_id=9)
 
-    assert len(armed) == 1
-    assert armed[0]["repo_id"] == "group/repo"
-    assert armed[0]["merge_request"] == MR
-    assert armed[0]["published"] is True
-    assert armed[0]["run_id"] == "run-1"
-    assert armed[0]["user_id"] == 9
+    assert claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": ""}]
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_clean_tree_on_its_mr_is_not_reported_as_published():
-    """The regression that matters: ``code_changes`` is true here, ``published`` is not. Passing
-    the former let a fix run that changed nothing re-arm instead of giving up, stranding the
-    watch in ``watching`` until the six-hour expiry."""
-    armed = await _drive({"merge_request": MR, "code_changes": True, "published": False}, run_id="run-1")
+async def test_a_clean_tree_on_its_mr_claims_nothing():
+    """``code_changes`` is true here, ``published`` is not: a run that pushed nothing moves no ownership and records
+    no DAIV commit."""
+    claimed = await _drive({"merge_request": MR, "code_changes": True, "published": False}, run_id="run-1")
 
-    assert armed[0]["published"] is False
+    assert claimed == []

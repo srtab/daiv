@@ -93,7 +93,7 @@ integration-tests:
 	uv run pytest --envfile +docker/local/app/config.secrets.env --reuse-db tests/integration_tests --no-cov --log-level=INFO -m "diff_to_metadata or memory"
 
 EVAL_MODEL ?= openrouter:z-ai/glm-5.2
-EVAL_SUITE_MODEL_VARS := ASK_USER SKILLS TODOS WEB_SEARCH SUBAGENTS CODE_REVIEW
+EVAL_SUITE_MODEL_VARS := ASK_USER SKILLS TODOS WEB_SEARCH SUBAGENTS CODE_REVIEW INBOX
 empty :=
 space := $(empty) $(empty)
 

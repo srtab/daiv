@@ -107,6 +107,7 @@ class IssueAddressorManager(BaseManager):
         ref: str | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
+        acting_user_id: int | None = None,
     ) -> AgentResult:
         """
         Address the issue.
@@ -121,6 +122,7 @@ class IssueAddressorManager(BaseManager):
             ref: The branch to clone; ``None`` for the repository default.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
+            acting_user_id: The DAIV user the triggering author resolved to, whom the run acts as; ``None`` for none.
 
         Returns:
             An :class:`AgentResult`. A missing model raises ``AgentConfigurationError`` after saying so on the issue.
@@ -134,13 +136,21 @@ class IssueAddressorManager(BaseManager):
         )
 
         try:
-            return await manager._address_issue(ref=ref, sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max)
+            return await manager._address_issue(
+                ref=ref, sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max, acting_user_id=acting_user_id
+            )
         except Exception:
             manager._add_unable_to_address_issue_note()
             raise
 
     async def _address_issue(
-        self, *, ref: str | None, sandbox_env_id: str | None, run_id: str | None, use_max: bool
+        self,
+        *,
+        ref: str | None,
+        sandbox_env_id: str | None,
+        run_id: str | None,
+        use_max: bool,
+        acting_user_id: int | None = None,
     ) -> AgentResult:
         issue_message = issue_context_message(self.issue)
         prompt_message, triggered_by = self._input_message(issue_message_id=issue_message.id)
@@ -157,6 +167,7 @@ class IssueAddressorManager(BaseManager):
                 fallback_ref_on_missing=True,
                 use_max=use_max,
                 sandbox_env_id=sandbox_env_id,
+                acting_user_id=acting_user_id,
                 run_id=run_id,
                 persist_ref=True,
                 arm_watch=True,

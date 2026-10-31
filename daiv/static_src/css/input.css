@@ -919,6 +919,59 @@ html {
     @apply flex items-center gap-2 text-[13px];
     color: var(--ci-color);
   }
+  .chat-inbox-event {
+    @apply my-2 flex items-center gap-2 text-[12px] text-text-muted;
+  }
+  .chat-inbox-event__dot {
+    @apply h-1.5 w-1.5 shrink-0 rounded-full bg-text-faint;
+  }
+  .chat-inbox-event--ci_failed .chat-inbox-event__dot {
+    @apply bg-status-fail;
+  }
+  .chat-inbox-event--ci_passed .chat-inbox-event__dot,
+  .chat-inbox-event--mr_merged .chat-inbox-event__dot {
+    @apply bg-status-clear;
+  }
+  .chat-inbox-event__kind {
+    @apply shrink-0 font-medium text-text;
+  }
+  .chat-inbox-event__summary {
+    @apply min-w-0 truncate;
+  }
+  .chat-inbox-event__link,
+  .chat-inbox-event__time {
+    @apply shrink-0 text-text-faint hover:text-accent-bright;
+  }
+  .session-details__queued {
+    @apply flex flex-col gap-1.5 text-[13px] text-text-muted;
+  }
+  .session-details__queued-item {
+    @apply truncate;
+  }
+  .session-details__ci-link {
+    @apply ml-auto text-[12px] text-text-muted underline underline-offset-2 hover:text-accent-bright;
+  }
+  .session-inbox {
+    @apply m-0 flex list-none flex-col gap-2.5 p-0 text-[13px];
+  }
+  .session-inbox__row {
+    @apply flex items-center justify-between gap-2;
+  }
+  .session-inbox__kind {
+    @apply truncate text-text;
+  }
+  .session-inbox__state {
+    @apply shrink-0 text-[12px] text-text-muted;
+  }
+  .session-inbox__state--failed {
+    @apply text-status-fail;
+  }
+  .session-inbox__meta {
+    @apply flex min-w-0 items-center gap-2 text-[12px] text-text-faint;
+  }
+  .session-inbox__why {
+    @apply m-0 text-[12px] text-text-muted;
+  }
   .mr-split__draft--bar,
   .mr-split__ci-label {
     @apply max-sm:hidden;

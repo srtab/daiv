@@ -2,6 +2,7 @@ import logging
 from functools import cached_property
 from typing import Literal
 
+from sessions.inbox.ownership import aclose_ownership, areopen_ownership, aschedule_push_classification
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.service import PipelineWatch
@@ -13,7 +14,7 @@ from codebase.repo_config import RepositoryConfig
 from codebase.utils import note_mentions_daiv
 from core.constants import has_bot_label, has_max_label
 from webhooks.callbacks import BaseCallback
-from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
+from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment, dispatch_mr_comment_run
 
 from .models import (  # noqa: TC001
     Issue,
@@ -34,7 +35,7 @@ logger = logging.getLogger("daiv.webhooks")
 
 
 def _author(user: User) -> Author:
-    return Author(provider=GitPlatform.GITLAB, uid=user.id, username=user.username, email=user.email)
+    return Author(provider=GitPlatform.GITLAB, uid=user.id, username=user.username)
 
 
 class GitLabCallback(BaseCallback):
@@ -158,11 +159,12 @@ class NoteCallback(GitLabCallback):
             )
             return False
 
-        return bool(self._is_issue_comment or self._is_merge_request_comment)
+        return bool(self._is_issue_comment or self._is_merge_request_note)
 
     async def process_callback(self):
         """
-        Trigger the task to address the review feedback, issue comment or slash command.
+        Trigger the task to address the review feedback, issue comment or slash command, or remember a comment on a
+        merge request a session owns.
 
         GitLab Note Webhook is called multiple times, one per note/discussion.
         """
@@ -177,7 +179,24 @@ class NoteCallback(GitLabCallback):
                 author=_author(self.user),
                 mention=mention,
             )
-        elif self.merge_request and self._is_merge_request_comment:
+        elif self.merge_request and self._is_merge_request_note:
+            note = Mention(
+                note_id=self.object_attributes.id,
+                comment_id=self.object_attributes.discussion_id,
+                body=self.object_attributes.note,
+                web_url=self.object_attributes.url,
+                on_diff=self.object_attributes.type == NoteType.DIFF_NOTE,
+            )
+            if not note_mentions_daiv(self.object_attributes.note, self._client.current_user):
+                await dispatch_mr_comment(
+                    client=self._client,
+                    repo_id=self.project.path_with_namespace,
+                    merge_request_iid=self.merge_request.iid,
+                    title=self.merge_request.title,
+                    author=_author(self.user),
+                    comment=note,
+                )
+                return
             await dispatch_mr_comment_run(
                 client=self._client,
                 repo_id=self.project.path_with_namespace,
@@ -186,22 +205,21 @@ class NoteCallback(GitLabCallback):
                 title=self.merge_request.title,
                 use_max=has_max_label(self.merge_request.label_names),
                 author=_author(self.user),
-                mention=mention,
+                mention=note,
             )
 
     @cached_property
-    def _is_merge_request_comment(self) -> bool:
+    def _is_merge_request_note(self) -> bool:
         """
-        Accept the webhook if the note is a merge request comment that mentions DAIV.
+        Accept any note on an open merge request: dispatch decides what a mention, a diff comment or a comment that
+        mentions no one concerns, since that depends on whether a session owns the merge request.
         """
         return bool(
             self._repo_config.pull_request_assistant.enabled
-            and self.object_attributes.type in (None, NoteType.DISCUSSION_NOTE)
             and self.object_attributes.noteable_type == NoteableType.MERGE_REQUEST
             and self.object_attributes.action in [NoteAction.CREATE, NoteAction.UPDATE]
             and self.merge_request
             and self.merge_request.state == "opened"
-            and note_mentions_daiv(self.object_attributes.note, self._client.current_user)
         )
 
     @cached_property
@@ -221,7 +239,8 @@ class NoteCallback(GitLabCallback):
 
 class MergeRequestCallback(GitLabCallback):
     """
-    Gitlab Merge Request Webhook for tracking merge metrics.
+    Gitlab Merge Request Webhook: merge metrics for merges into the default branch, and the merge, close and reopen of
+    a merge request a session owns.
     """
 
     object_kind: Literal["merge_request"]
@@ -230,8 +249,16 @@ class MergeRequestCallback(GitLabCallback):
 
     def accept_callback(self) -> bool:
         """
-        Accept the webhook only when a merge request is merged into the default branch.
+        Accept a merge, a close or a reopen; ``process_callback`` decides what each one concerns.
         """
+        return self.object_attributes.action in (
+            MergeRequestAction.MERGE,
+            MergeRequestAction.CLOSE,
+            MergeRequestAction.REOPEN,
+        )
+
+    @property
+    def _merged_into_default_branch(self) -> bool:
         return (
             self.object_attributes.action == MergeRequestAction.MERGE
             and self.object_attributes.state == "merged"
@@ -241,8 +268,23 @@ class MergeRequestCallback(GitLabCallback):
 
     async def process_callback(self):
         """
-        Enqueue a task to record merge metrics.
+        Record merge metrics for a merge into the default branch, then tell the session owning the merge request.
         """
+        if self._merged_into_default_branch:
+            await self._record_merge_metrics()
+        repo_id, iid = self.project.path_with_namespace, self.object_attributes.iid
+        if self.object_attributes.action == MergeRequestAction.REOPEN:
+            await areopen_ownership(repo_id, iid, by_username=self.user.username)
+        else:
+            await aclose_ownership(
+                repo_id,
+                iid,
+                merged=self.object_attributes.action == MergeRequestAction.MERGE,
+                by_username=self.user.username,
+                target_branch=self.object_attributes.target_branch,
+            )
+
+    async def _record_merge_metrics(self):
         from codebase.tasks import record_merge_metrics_task
 
         await record_merge_metrics_task.aenqueue(
@@ -258,24 +300,37 @@ class MergeRequestCallback(GitLabCallback):
 
 class PushCallback(GitLabCallback):
     """
-    Gitlab Push Webhook for invalidating repository configuration cache.
+    Gitlab Push Webhook: a push to the default branch invalidates the repository configuration cache, and a push to
+    the branch of a merge request a session owns is weighed for that session.
     """
 
     object_kind: Literal["push"]
-    checkout_sha: str
+    checkout_sha: str | None = None
     ref: str
+    before: str = ""
+    after: str = ""
+    user_username: str = ""
+    total_commits_count: int = 0
 
     def accept_callback(self) -> bool:
         """
-        Accept the webhook if the push is to the default branch.
+        Accept a push to a branch; a tag push concerns neither the configuration nor a merge request.
         """
-        return bool(self.project.default_branch and self.ref.endswith(self.project.default_branch))
+        return self.ref.startswith("refs/heads/")
 
     async def process_callback(self):
-        """
-        Process the push webhook to invalidate the cache for the repository configurations.
-        """
-        RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
+        branch = self.ref.removeprefix("refs/heads/")
+        if branch == self.project.default_branch:
+            RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
+        elif self.after and set(self.after) != {"0"}:
+            await aschedule_push_classification(
+                self.project.path_with_namespace,
+                branch=branch,
+                before=self.before,
+                after=self.after,
+                pusher_username=self.user_username,
+                commit_count=self.total_commits_count,
+            )
 
 
 class PipelineCallback(GitLabCallback):

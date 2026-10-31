@@ -150,7 +150,7 @@
        x-cloak
        class="session-page">
   <div class="contents"
-       {% if session %}x-data="sessionPage({ sessionUrl: '{% url 'api:session_update' session.thread_id %}', ciWatchUrl: '{% url 'api:session_ci_watch' session.thread_id %}', archiveUrl: '{% url 'api:session_archive' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', title: '{{ page_title|escapejs }}', titleSuffix: 'DAIV Sessions', labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}', watching: '{{ watching_label|escapejs }}', watchOff: '{{ watch_off_label|escapejs }}', watchFailed: '{{ watch_failed_label|escapejs }}' } })"
+       {% if session %}x-data="sessionPage({ sessionUrl: '{% url 'api:session_update' session.thread_id %}', ciWatchUrl: '{% url 'api:session_ci_watch' session.thread_id %}', archiveUrl: '{% url 'api:session_archive' session.thread_id %}', muteUrl: '{% url 'api:session_inbox_mute' session.thread_id %}', muted: {{ session.inbox_muted|yesno:"true,false" }}, storageKey: 'daiv.session-details.{{ request.user.pk }}', title: '{{ page_title|escapejs }}', titleSuffix: 'DAIV Sessions', labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}', watching: '{{ watching_label|escapejs }}', watchOff: '{{ watch_off_label|escapejs }}', watchFailed: '{{ watch_failed_label|escapejs }}' } })"
        @daiv:session-turns.window="applyHeader($event.detail)"
        @daiv:session-header.window="applyHeader($event.detail)"
        @daiv:live-run-ended.window="settle()"{% endif %}>
@@ -167,7 +167,7 @@
          :class="{ 'chat-column--empty': !thread && turns.length === 0 }">
       {% if watch_only %}
         <div class="mb-4 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-gray-300">
-          {% blocktranslate with iid=session.merge_request_iid state=session.get_watch_state_display %}This session tracks CI on !{{ iid }} ({{ state }}). It gets a transcript once DAIV runs a fix or someone comments on the merge request.{% endblocktranslate %}
+          {% blocktranslate with iid=session.merge_request_iid %}This session tracks CI on !{{ iid }}. It gets a transcript once DAIV looks at a failure or someone mentions it on the merge request.{% endblocktranslate %}
         </div>
       {% elif expired %}
         <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-200">
@@ -202,6 +202,18 @@
 
         <template x-for="block in runBlocks" :key="block.key">
           <div class="run-block" :id="!block.anchor && block.runId ? `run-${block.runId}` : null">
+            <template x-if="block.event">
+              <div class="chat-inbox-event" :class="'chat-inbox-event--' + block.event.kind" data-testid="inbox-event">
+                <span class="chat-inbox-event__dot" aria-hidden="true"></span>
+                <span class="chat-inbox-event__kind" x-text="inboxEventLabel(block.event.kind)"></span>
+                <span class="chat-inbox-event__summary" x-text="block.event.summary"></span>
+                <template x-if="block.event.web_url">
+                  <a class="chat-inbox-event__link" :href="block.event.web_url" target="_blank" rel="noopener noreferrer">{% translate "Open ↗" %}</a>
+                </template>
+                <time class="chat-inbox-event__time" :datetime="block.event.created_at"
+                      :title="absoluteTime(block.event.created_at)" x-text="relativeTime(block.event.created_at)"></time>
+              </div>
+            </template>
             <template x-if="block.anchor">
               <article class="chat-turn chat-turn--user" :id="runAnchorId(block.anchor)"
                        :class="{ 'chat-turn--daiv': block.anchor.author === 'daiv', 'chat-turn--pending': block.anchor.pending }">

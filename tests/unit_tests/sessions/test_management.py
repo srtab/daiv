@@ -117,6 +117,29 @@ class TestSyncStuckRunsCommand:
         assert run.error_message
         assert any("chat runs reaped: 1" in rec.message for rec in caplog.records)
 
+    def test_a_task_backed_chat_run_is_synced_from_its_task_not_reaped(self, caplog, create_db_task_result):
+        """A chat message queued while the session was busy runs as a task-backed ``chat`` run: its task, not the
+        session heartbeat, says how it ended."""
+        stale = timezone.now() - timedelta(hours=1)
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", last_active_at=stale
+        )
+        task = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Done.", "code_changes": False})
+        run = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.CHAT,
+            repo_id="group/project",
+            status=RunStatus.RUNNING,
+            task_result=task,
+        )
+
+        with caplog.at_level("INFO", logger="daiv.sessions"):
+            call_command("sync_stuck_runs")
+
+        run.refresh_from_db()
+        assert (run.status, run.result_summary) == (RunStatus.SUCCESSFUL, "Done.")
+        assert any("Synced: 1" in rec.message and "chat runs reaped: 0" in rec.message for rec in caplog.records)
+
     def test_does_not_reap_live_chat_run(self, caplog):
         """A chat run whose session is still heartbeating (fresh last_active_at) is left alone."""
         session = Session.objects.create(

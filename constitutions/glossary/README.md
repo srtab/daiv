@@ -24,3 +24,6 @@ as far as the next reader is concerned.
 | Repository memory | What DAIV remembers about a repository (`MemoryEntry`, `RepositoryMemory`) | notes |
 | Bot label | An issue or merge/pull request label that hands work to DAIV: `daiv`, `daiv-max`, `daiv-auto` | tag |
 | Schedule | A saved job that submits runs on a cron schedule, or once | cron job |
+| Inbox event | Something that happened which concerns a Session: a CI result, a mention, a queued chat message, a follow-up job, a delegated batch finishing (`InboxEvent`). It wakes the agent or is only remembered | message, notification |
+| Owning session | The Session that most recently published a merge request, among the sessions of the person who first published it (`MergeRequestOwnership`) | MR thread |
+| Next run | The one QUEUED Run that waking events join while their Session is busy | queued job |

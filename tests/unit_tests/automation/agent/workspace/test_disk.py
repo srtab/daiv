@@ -1,5 +1,5 @@
 import threading
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -128,3 +128,14 @@ async def test_a_directory_downloads_as_an_error(tmp_path):
 
     assert response.content is None
     assert response.error is not None
+
+
+async def test_fast_forward_fetches_with_a_credential_minted_now(tmp_path):
+    ctx = _ctx(tmp_path)
+    workspace = DiskWorkspace(ctx)
+    git = MagicMock(fast_forward=AsyncMock(return_value="advanced"))
+
+    with patch.object(DiskWorkspace, "authenticated_git", AsyncMock(return_value=git)):
+        assert await workspace.fast_forward("chore/x") == "advanced"
+
+    git.fast_forward.assert_awaited_once_with("chore/x")

@@ -123,6 +123,7 @@ class Note(BaseModel):
     note: str
     system: bool
     type: Literal["DiffNote", "DiscussionNote", "Note"] | None = None
+    url: str = ""
 
 
 class Project(BaseModel):

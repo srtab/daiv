@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 from django.urls import reverse
 from django.utils.translation import gettext as _
 
+from asgiref.sync import async_to_sync
+
 from notifications.channels.registry import enabled_channel_types
 from notifications.policy import notification_source_for_watch
 from notifications.run_notifiers import deliver_to_recipients
@@ -13,28 +15,25 @@ from notifications.run_notifiers import deliver_to_recipients
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from sessions.models import Session
+    from sessions.models import MergeRequestOwnership, Session
 
 logger = logging.getLogger("daiv.notifications")
 
 
-def _render_payload(session: Session, failing_jobs: Sequence[str], pipeline_url: str) -> tuple[str, str, dict]:
+def _render_payload(
+    ownership: MergeRequestOwnership, failing_jobs: Sequence[str], pipeline_url: str
+) -> tuple[str, str, dict]:
     names = ", ".join(failing_jobs) or _("the pipeline")
-
-    if session.merge_request_iid:
-        subject = _("CI still failing on {repo}!{iid}").format(repo=session.repo_id, iid=session.merge_request_iid)
-    else:
-        subject = _("CI still failing on {repo}").format(repo=session.repo_id)
-
+    subject = _("CI still failing on {repo}!{iid}").format(repo=ownership.repo_id, iid=ownership.merge_request_iid)
     body = _("I stopped after {attempts} attempts and CI is still failing: {names}.").format(
-        attempts=session.watch_attempts, names=names
+        attempts=ownership.attempts, names=names
     )
     context = {
         "status_tone": "failure",
         "status_label": _("CI still failing"),
-        "repo_id": session.repo_id,
-        "merge_request_iid": session.merge_request_iid,
-        "attempts": session.watch_attempts,
+        "repo_id": ownership.repo_id,
+        "merge_request_iid": ownership.merge_request_iid,
+        "attempts": ownership.attempts,
         "failing_jobs": list(failing_jobs),
         # Not link_url: the email channel and the chat renderers all run that through
         # build_absolute_url, which would prefix the site domain onto an already-absolute CI URL.
@@ -43,24 +42,27 @@ def _render_payload(session: Session, failing_jobs: Sequence[str], pipeline_url:
     return subject, body, context
 
 
-def emit_watch_exhausted(*, session: Session, failing_jobs: Sequence[str], pipeline_url: str, pipeline_id: int) -> None:
-    """Notify the session owner that the pipeline watch gave up on a merge request.
+def emit_watch_exhausted(
+    *, ownership: MergeRequestOwnership, session: Session, failing_jobs: Sequence[str], pipeline_url: str, sha: str
+) -> None:
+    """Tell the merge request's owner that the CI watch gave up on DAIV's latest commit, linking the owning session.
 
-    The caller only reports that the watch is done; the source key, channels, dedup and payload are
-    decided here so this event behaves like every other one. Best-effort by design — the merge
-    request comment is the reliable channel.
+    The caller only reports that the watch gave up; the source key, channels, dedup and payload are decided here so
+    this event behaves like every other one. An ownerless merge request, which webhook-origin sessions often leave,
+    gets the outcome as a merge request comment instead.
     """
-    recipient = session.user
+    from sessions.pipeline_watch.platform import WatchPlatform
+
+    subject, body, context = _render_payload(ownership, failing_jobs, pipeline_url)
+    recipient = ownership.owner
     if recipient is None:
-        # Webhook-origin sessions frequently have no DAIV user behind them.
-        logger.warning(
-            "pipeline watch: no recipient for exhausted watch on %s (thread_id=%s)", session.repo_id, session.thread_id
+        note = f"{body} {_('Pipeline: {url}').format(url=pipeline_url)}"
+        async_to_sync(WatchPlatform(ownership.repo_id).apost_note)(
+            merge_request_iid=ownership.merge_request_iid, body=note
         )
         return
 
-    subject, body, context = _render_payload(session, failing_jobs, pipeline_url)
-
-    source_type, source_id, event_type = notification_source_for_watch(session, pipeline_id)
+    source_type, source_id, event_type = notification_source_for_watch(session, sha)
 
     deliver_to_recipients(
         [recipient],

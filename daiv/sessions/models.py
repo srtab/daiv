@@ -25,6 +25,8 @@ logger = logging.getLogger("daiv.sessions")
 
 CHAT_PROMPT_MAX_LENGTH = 2000
 
+_INBOX_TRIGGER_LITERALS = ["chat", "mr_webhook", "api_job", "mcp_job", "delegation_resume", "pipeline_webhook"]
+
 
 class RunStatus(models.TextChoices):
     QUEUED = "QUEUED", _("Queued")
@@ -100,13 +102,19 @@ class SessionOrigin(models.TextChoices):
 
     @classmethod
     def classified(cls) -> frozenset[str]:
-        """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven + DELEGATION_RESUME)."""
-        return frozenset({cls.SCHEDULE, cls.DELEGATION_RESUME}) | cls.webhooks() | cls.prompt_driven()
+        """Non-chat origins that receive a RunEnvelope: SCHEDULE, the webhooks, the prompt-driven triggers and the runs
+        DAIV writes the prompt of (a CI fix, a delegation resume)."""
+        return frozenset({cls.SCHEDULE}) | cls.webhooks() | cls.prompt_driven() | cls.daiv_authored()
 
     @classmethod
     def unattended(cls) -> frozenset[str]:
         """Job triggers nobody is around to answer a question for."""
         return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK, cls.DELEGATED_JOB})
+
+    @classmethod
+    def one_active(cls) -> frozenset[str]:
+        """Triggers of which a session has at most one READY or RUNNING run (``run_one_active_per_session``)."""
+        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.DELEGATED_JOB, cls.DELEGATION_RESUME})
 
 
 class WatchState(models.TextChoices):
@@ -139,6 +147,8 @@ class Session(models.Model):
         verbose_name=_("user"),
     )
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
+    external_provider = models.CharField(_("external provider"), max_length=32, blank=True, default="")
+    external_uid = models.CharField(_("external account ID"), max_length=191, blank=True, default="")
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     title = models.CharField(_("title"), max_length=120, blank=True, default="")
@@ -165,6 +175,11 @@ class Session(models.Model):
     )
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     external_refs = models.JSONField(_("external references"), default=list, blank=True)
+    inbox_muted = models.BooleanField(
+        _("inbox muted"),
+        default=False,
+        help_text=_("CI results and delegated batches are only remembered; people's requests still start runs."),
+    )
     watch_state = models.CharField(_("watch state"), max_length=10, choices=WatchState.choices, default=WatchState.OFF)
     watch_attempts = models.PositiveSmallIntegerField(_("watch attempts"), default=0)
     watch_pipeline_id = models.BigIntegerField(_("last watched pipeline"), null=True, blank=True)
@@ -302,6 +317,7 @@ def publish_field_updates(publish: dict[str, Any] | None) -> dict[str, Any]:
         "files_changed": publish.get("files_changed"),
         "lines_added": publish.get("lines_added"),
         "lines_removed": publish.get("lines_removed"),
+        "pushed_sha": publish.get("pushed_sha"),
     }
     return {field: value for field, value in updates.items() if value}
 
@@ -330,6 +346,8 @@ class Run(models.Model):
         verbose_name=_("user"),
     )
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
+    external_provider = models.CharField(_("external provider"), max_length=32, blank=True, default="")
+    external_uid = models.CharField(_("external account ID"), max_length=191, blank=True, default="")
     title = models.CharField(_("title"), max_length=120, blank=True, default="")
     batch_id = models.UUIDField(_("batch ID"), null=True, blank=True, db_index=True)
     continuation_of_batch_id = models.UUIDField(
@@ -384,6 +402,7 @@ class Run(models.Model):
     lines_added = models.PositiveIntegerField(_("lines added"), null=True, blank=True)
     lines_removed = models.PositiveIntegerField(_("lines removed"), null=True, blank=True)
     files_changed = models.PositiveIntegerField(_("files changed"), null=True, blank=True)
+    pushed_sha = models.CharField(_("pushed commit"), max_length=64, blank=True, default="")
     question = models.JSONField(_("question"), null=True, blank=True)
     input_tokens = models.PositiveIntegerField(_("input tokens"), null=True, blank=True)
     output_tokens = models.PositiveIntegerField(_("output tokens"), null=True, blank=True)
@@ -441,6 +460,18 @@ class Run(models.Model):
                     trigger_type__in=["api_job", "mcp_job", "delegated_job", "delegation_resume"],
                 ),
                 name="run_one_active_per_session",
+            ),
+            # One next run per branch and requester (``sessions.inbox``): a DAIV user, else a platform account no one
+            # linked. The literals must equal ``inbox.kinds.INBOX_TRIGGERS``.
+            models.UniqueConstraint(
+                fields=["session", "ref", "user"],
+                condition=models.Q(status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=False),
+                name="run_one_next_run_per_user",
+            ),
+            models.UniqueConstraint(
+                fields=["session", "ref", "external_provider", "external_uid"],
+                condition=models.Q(status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=True),
+                name="run_one_next_run_per_account",
             ),
             # The insert of a batch's continuation is the election when several legs finish at once; a FAILED one
             # leaves room for ``sessions.delegation.resume_stalled_batches`` to retry one that never reached the queue.
@@ -664,3 +695,173 @@ class SessionArchive(models.Model):
 
     def __str__(self) -> str:
         return f"Context {self.epoch} of session {self.session_id}"
+
+
+class MergeRequestOwnership(models.Model):
+    """Which session owns a merge request DAIV published, and that merge request's CI watch.
+
+    ``sessions.inbox.ownership`` applies the claim rules when a run publishes; the CI watch
+    (``sessions.pipeline_watch``) reads and writes the watch columns.
+    """
+
+    repo_id = models.CharField(_("repository"), max_length=255)
+    merge_request_iid = models.PositiveIntegerField(_("merge request IID"))
+    session = models.ForeignKey(
+        Session,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owned_merge_requests",
+        verbose_name=_("session"),
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("owner"),
+    )
+    source_branch = models.CharField(_("source branch"), max_length=255)
+    watch_enabled = models.BooleanField(_("CI watch on"), default=True)
+    attempts = models.PositiveSmallIntegerField(_("CI attempts"), default=0)
+    last_daiv_sha = models.CharField(_("last commit DAIV pushed"), max_length=64, blank=True, default="")
+    last_examined_sha = models.CharField(_("last commit examined"), max_length=64, blank=True, default="")
+    last_pipeline_id = models.BigIntegerField(_("last pipeline judged"), null=True, blank=True)
+    closed_at = models.DateTimeField(_("closed at"), null=True, blank=True)
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+
+    class Meta:
+        verbose_name = _("Merge request ownership")
+        verbose_name_plural = _("Merge request ownerships")
+        indexes = [
+            models.Index(
+                fields=["repo_id", "source_branch"],
+                name="mr_ownership_open_branch_idx",
+                condition=models.Q(closed_at__isnull=True),
+            )
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["repo_id", "merge_request_iid"], name="mr_ownership_unique_merge_request")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.repo_id}!{self.merge_request_iid} owned by session {self.session_id}"
+
+
+class EventKind(models.TextChoices):
+    """What an ``InboxEvent`` reports; ``sessions.inbox.kinds`` holds each kind's payload and precedence."""
+
+    CHAT_MESSAGE = "chat_message", _("Chat message")
+    MENTION = "mention", _("Mention")
+    FOLLOW_UP_JOB = "follow_up_job", _("Follow-up job")
+    DELEGATION_FINISHED = "delegation_finished", _("Delegated jobs finished")
+    CI_FAILED = "ci_failed", _("CI failed")
+    CI_PASSED = "ci_passed", _("CI passed")
+    CI_STOPPED = "ci_stopped", _("CI stopped")
+    BRANCH_PUSHED = "branch_pushed", _("Branch pushed")
+    FOREIGN_PUBLISH = "foreign_publish", _("Published by another session")
+    MR_MERGED = "mr_merged", _("Merge request merged")
+    MR_CLOSED = "mr_closed", _("Merge request closed")
+    COMMENT = "comment", _("Comment")
+    DELEGATED_CI_OUTCOME = "delegated_ci_outcome", _("Delegated session CI")
+    NOTICE = "notice", _("Notice")
+
+
+class EventState(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    TAKEN = "taken", _("Taken")
+    HANDLED = "handled", _("Handled")
+    DISMISSED = "dismissed", _("Dismissed")
+    SUPERSEDED = "superseded", _("Superseded")
+    FAILED = "failed", _("Failed")
+
+
+class QuietReason(models.TextChoices):
+    """Why an event that could have woken the agent was only remembered."""
+
+    NOT_DAIV_COMMIT = "not_daiv_commit", _("The commit is not one DAIV pushed")
+    ALREADY_EXAMINED = "already_examined", _("DAIV already examined this commit")
+    BUDGET_SPENT = "budget_spent", _("The CI attempts are spent")
+    WATCH_OFF = "watch_off", _("The CI watch is off")
+    MUTED = "muted", _("The session is muted")
+    RUN_LIMIT = "run_limit", _("Too many runs in a row without a person")
+
+
+class EventFailure(models.TextChoices):
+    """Why an event was never handled; the labels are the only text shown, never exception text."""
+
+    ACCESS_DENIED = "access_denied", _("The session owner can no longer run on this repository")
+    RETRIES_EXHAUSTED = "retries_exhausted", _("The runs that took it kept failing")
+    SESSION_GONE = "session_gone", _("The session no longer exists")
+
+
+class InboxEvent(models.Model):
+    """Something that happened which concerns one session; :mod:`sessions.inbox` holds the rules."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(
+        Session, on_delete=models.CASCADE, related_name="inbox_events", verbose_name=_("session"), db_index=False
+    )
+    kind = models.CharField(_("kind"), max_length=32, choices=EventKind.choices)
+    source_key = models.CharField(_("source key"), max_length=255)
+    subject = models.CharField(_("subject"), max_length=255, blank=True, default="")
+    ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
+    merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
+    wake = models.BooleanField(_("wakes the agent"))
+    reason = models.CharField(_("reason"), max_length=32, choices=QuietReason.choices, blank=True, default="")
+    payload = models.JSONField(_("payload"), default=dict)
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("author"),
+    )
+    author_username = models.CharField(_("author username"), max_length=255, blank=True, default="")
+    author_provider = models.CharField(_("author's git platform"), max_length=32, blank=True, default="")
+    author_uid = models.CharField(_("author's account ID"), max_length=191, blank=True, default="")
+    state = models.CharField(_("state"), max_length=16, choices=EventState.choices, default=EventState.PENDING)
+    run = models.ForeignKey(
+        Run,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="inbox_events",
+        db_index=False,
+        verbose_name=_("run"),
+    )
+    claim_token = models.CharField(_("claim token"), max_length=64, blank=True, default="")
+    attempts = models.PositiveSmallIntegerField(_("attempts"), default=0)
+    failure = models.CharField(_("failure"), max_length=32, choices=EventFailure.choices, blank=True, default="")
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+
+    class Meta:
+        verbose_name = _("Inbox event")
+        verbose_name_plural = _("Inbox events")
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["session", "state", "created_at"], name="inbox_session_state_idx"),
+            models.Index(
+                fields=["session"], name="inbox_pending_wake_idx", condition=models.Q(state="pending", wake=True)
+            ),
+            models.Index(fields=["run"], name="inbox_run_idx", condition=models.Q(run__isnull=False)),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["session", "source_key"], name="inbox_event_unique_source"),
+            models.CheckConstraint(condition=models.Q(kind__in=EventKind.values), name="inbox_event_kind_valid"),
+            models.CheckConstraint(condition=models.Q(state__in=EventState.values), name="inbox_event_state_valid"),
+            models.CheckConstraint(
+                condition=models.Q(reason="") | models.Q(reason__in=QuietReason.values), name="inbox_event_reason_valid"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(failure="") | models.Q(failure__in=EventFailure.values),
+                name="inbox_event_failure_valid",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_kind_display()} on session {self.session_id} ({self.state})"

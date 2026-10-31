@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from deepagents.backends.protocol import BackendProtocol, FileDownloadResponse
     from deepagents.middleware.filesystem import FilesystemPermission
 
-    from automation.agent.workspace.git_manager import GitManager
+    from automation.agent.workspace.git_manager import FastForward, GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from automation.agent.workspace.session import SandboxSession
 
@@ -68,6 +68,12 @@ class Workspace(Protocol):
     async def authenticated_git(self) -> GitManager:
         """``git``, with a git-platform credential minted now for a publish's network commands (ls-remote, fetch,
         push), so a turn that outlived its turn-start token still pushes."""
+        ...
+
+    async def fast_forward(self, branch: str) -> FastForward:
+        """Bring the checkout up to the remote ``branch`` before the agent starts, when someone pushed to it since
+        the checkout was made and it holds nothing unpublished (``GitManager.fast_forward``). A disk clone is fresh,
+        so it is mostly ``"unchanged"``; a warm sandbox keeps its checkout between runs."""
         ...
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:

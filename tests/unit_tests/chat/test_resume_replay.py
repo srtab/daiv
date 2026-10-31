@@ -248,7 +248,8 @@ process.stdout.write(JSON.stringify({ streamingBeforeEnd, ended: ended.length, h
         body,
         {},
         prelude=PRELUDE,
-        extra_globals="EventSource: FakeEventSource, setTimeout, fetch: async () => ({ ok: true }),",
+        extra_globals="EventSource: FakeEventSource, setTimeout, "
+        "fetch: async () => ({ ok: true, json: async () => ({}) }),",
     )
 
     assert result == {"streamingBeforeEnd": True, "ended": 1, "hasRun": True}

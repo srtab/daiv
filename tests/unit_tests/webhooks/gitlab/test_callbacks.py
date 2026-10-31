@@ -1,9 +1,13 @@
+from datetime import timedelta
 from typing import Literal
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 import pytest
+from sessions.models import InboxEvent
 from webhooks.dispatch import Author, Mention
-from webhooks.gitlab.callbacks import IssueCallback, MergeRequestCallback, NoteCallback
+from webhooks.gitlab.callbacks import IssueCallback, MergeRequestCallback, NoteCallback, PushCallback
 from webhooks.gitlab.models import (
     Issue,
     IssueAction,
@@ -23,6 +27,7 @@ from webhooks.gitlab.models import (
 from codebase.base import GitPlatform
 from codebase.base import User as BaseUser
 from codebase.repo_config import RepositoryConfig
+from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 
 
 class StubClient:
@@ -103,26 +108,13 @@ def test_accept_when_mention(monkeypatch_dependencies, stub_client):
     assert callback.accept_callback() is True
 
 
-@pytest.mark.parametrize(("note_type", "accepted"), [("DiscussionNote", True), ("DiffNote", False)])
-def test_a_mention_in_a_thread_reply_is_accepted_but_not_on_a_diff_line(
-    monkeypatch_dependencies, stub_client, note_type, accepted
+@pytest.mark.parametrize("note_type", ["DiscussionNote", "DiffNote", None])
+@pytest.mark.parametrize("body", ["@daiv please review this code", "This looks good to me", "DAIV please fix this"])
+def test_any_note_on_an_open_merge_request_is_left_for_dispatch_to_route(
+    monkeypatch_dependencies, stub_client, note_type, body
 ):
-    callback = create_note_callback("@daiv please review this code", note_type=note_type)
-
-    assert callback.accept_callback() is accepted
-
-
-def test_reject_when_not_mentioned(monkeypatch_dependencies, stub_client):
-    callback = create_note_callback("This looks good to me")
-
-    assert callback.accept_callback() is False
-
-
-def test_reject_when_bare_daiv_mention(monkeypatch_dependencies, stub_client):
-    """Test that callback is rejected when note body contains bare DAIV reference."""
-    callback = create_note_callback("DAIV please fix this issue")
-
-    assert callback.accept_callback() is False
+    """Whether a session owns the merge request decides what a diff mention or a plain comment concerns."""
+    assert create_note_callback(body, note_type=note_type).accept_callback() is True
 
 
 def test_reject_when_note_by_daiv_itself(monkeypatch_dependencies, stub_client):
@@ -376,40 +368,27 @@ def create_merge_request_callback(
 class TestMergeRequestCallback:
     """Tests for GitLab MergeRequestCallback."""
 
-    def test_accept_callback_on_merge(self):
-        """Test that callback is accepted when MR is merged."""
+    @pytest.mark.parametrize(
+        ("action", "state"),
+        [
+            (MergeRequestAction.MERGE, "merged"),
+            (MergeRequestAction.CLOSE, "closed"),
+            (MergeRequestAction.REOPEN, "opened"),
+        ],
+    )
+    def test_accept_a_merge_a_close_or_a_reopen(self, action, state):
+        assert create_merge_request_callback(action=action, state=state).accept_callback() is True
+
+    @pytest.mark.parametrize("action", [MergeRequestAction.OPEN, MergeRequestAction.UPDATE])
+    def test_reject_the_rest(self, action):
+        assert create_merge_request_callback(action=action, state="opened").accept_callback() is False
+
+    async def test_a_merge_into_the_default_branch_records_metrics_and_tells_the_owner(self):
         callback = create_merge_request_callback()
-        assert callback.accept_callback() is True
-
-    def test_reject_callback_on_open(self):
-        """Test that callback is rejected when MR is opened."""
-        callback = create_merge_request_callback(action=MergeRequestAction.OPEN, state="opened")
-        assert callback.accept_callback() is False
-
-    def test_reject_callback_on_close(self):
-        """Test that callback is rejected when MR is closed."""
-        callback = create_merge_request_callback(action=MergeRequestAction.CLOSE, state="closed")
-        assert callback.accept_callback() is False
-
-    def test_reject_callback_on_update(self):
-        """Test that callback is rejected when MR is updated."""
-        callback = create_merge_request_callback(action=MergeRequestAction.UPDATE, state="opened")
-        assert callback.accept_callback() is False
-
-    def test_reject_callback_when_state_not_merged(self):
-        """Test that callback is rejected when action is merge but state is not merged."""
-        callback = create_merge_request_callback(action=MergeRequestAction.MERGE, state="opened")
-        assert callback.accept_callback() is False
-
-    def test_reject_callback_when_target_not_default_branch(self):
-        """Test that callback is rejected when MR targets a non-default branch."""
-        callback = create_merge_request_callback(target_branch="develop")
-        assert callback.accept_callback() is False
-
-    async def test_process_callback_enqueues_task(self):
-        """Test that process_callback enqueues the merge metrics task with correct args."""
-        callback = create_merge_request_callback()
-        with patch("codebase.tasks.record_merge_metrics_task") as mock_task:
+        with (
+            patch("codebase.tasks.record_merge_metrics_task") as mock_task,
+            patch("webhooks.gitlab.callbacks.aclose_ownership", new=AsyncMock()) as close,
+        ):
             mock_task.aenqueue = AsyncMock()
             await callback.process_callback()
 
@@ -422,49 +401,160 @@ class TestMergeRequestCallback:
             merged_at="2026-04-01T10:00:00Z",
             platform="gitlab",
         )
+        close.assert_awaited_once_with("group/repo", 1, merged=True, by_username="developer", target_branch="main")
 
-    def test_reject_callback_when_default_branch_is_none(self):
-        """Test that callback is rejected when project has no default branch."""
-        callback = MergeRequestCallback(
-            object_kind="merge_request",
-            project=Project(id=1, path_with_namespace="group/repo", default_branch=None),
-            user=User(id=2, username="developer", name="Developer", email="developer@example.com"),
-            object_attributes=MergeRequestEvent(
-                id=10,
-                iid=1,
-                title="Some MR",
-                state="merged",
-                action=MergeRequestAction.MERGE,
-                source_branch="feat/something",
-                target_branch="main",
-                author_id=2,
-            ),
-        )
-        assert callback.accept_callback() is False
+    @pytest.mark.parametrize(
+        ("action", "state", "target"),
+        [
+            (MergeRequestAction.MERGE, "merged", "develop"),
+            (MergeRequestAction.MERGE, "opened", "main"),
+            (MergeRequestAction.CLOSE, "closed", "main"),
+        ],
+        ids=["merged-elsewhere", "not-merged-yet", "closed"],
+    )
+    async def test_anything_but_a_merge_into_the_default_branch_records_no_metrics(self, action, state, target):
+        callback = create_merge_request_callback(action=action, state=state, target_branch=target)
+        with (
+            patch("codebase.tasks.record_merge_metrics_task") as mock_task,
+            patch("webhooks.gitlab.callbacks.aclose_ownership", new=AsyncMock()) as close,
+        ):
+            mock_task.aenqueue = AsyncMock()
+            await callback.process_callback()
+
+        mock_task.aenqueue.assert_not_called()
+        assert close.await_args.kwargs["merged"] is (action == MergeRequestAction.MERGE)
+
+    async def test_a_project_without_a_default_branch_records_no_metrics(self):
+        callback = create_merge_request_callback()
+        callback.project.default_branch = None
+        with (
+            patch("codebase.tasks.record_merge_metrics_task") as mock_task,
+            patch("webhooks.gitlab.callbacks.aclose_ownership", new=AsyncMock()),
+        ):
+            mock_task.aenqueue = AsyncMock()
+            await callback.process_callback()
+
+        mock_task.aenqueue.assert_not_called()
+
+    async def test_a_reopen_tells_the_owner(self):
+        callback = create_merge_request_callback(action=MergeRequestAction.REOPEN, state="opened")
+        with patch("webhooks.gitlab.callbacks.areopen_ownership", new=AsyncMock()) as reopen:
+            await callback.process_callback()
+
+        reopen.assert_awaited_once_with("group/repo", 1, by_username="developer")
 
     async def test_process_callback_coalesces_none_merged_at(self):
-        """Test that process_callback passes empty string when merged_at is None."""
-        callback = MergeRequestCallback(
-            object_kind="merge_request",
-            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-            user=User(id=2, username="developer", name="Developer", email="developer@example.com"),
-            object_attributes=MergeRequestEvent(
-                id=10,
-                iid=1,
-                title="Some MR",
-                state="merged",
-                action=MergeRequestAction.MERGE,
-                source_branch="feat/something",
-                target_branch="main",
-                author_id=2,
-                merged_at=None,
-            ),
-        )
-        with patch("codebase.tasks.record_merge_metrics_task") as mock_task:
+        callback = create_merge_request_callback()
+        callback.object_attributes.merged_at = None
+        with (
+            patch("codebase.tasks.record_merge_metrics_task") as mock_task,
+            patch("webhooks.gitlab.callbacks.aclose_ownership", new=AsyncMock()),
+        ):
             mock_task.aenqueue = AsyncMock()
             await callback.process_callback()
 
         assert mock_task.aenqueue.call_args.kwargs["merged_at"] == ""
+
+
+@pytest.mark.django_db(transaction=True)
+class TestMergeRequestStateOnAnOwnedMergeRequest:
+    @pytest.fixture(autouse=True)
+    def _no_drain(self):
+        with patch("sessions.inbox.post.drain_logged"):
+            yield
+
+    @pytest.mark.parametrize(
+        ("action", "state", "kind"),
+        [(MergeRequestAction.MERGE, "merged", "mr_merged"), (MergeRequestAction.CLOSE, "closed", "mr_closed")],
+    )
+    async def test_a_merge_or_close_is_remembered_and_stops_the_watch(self, action, state, kind):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
+        callback = create_merge_request_callback(action=action, state=state, target_branch="develop")
+
+        await callback.process_callback()
+
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.wake, event.source_key) == (kind, False, f"mr-state:1:{state}")
+        assert event.payload == {"target_branch": "develop", "by_username": "developer"}
+        await ownership.arefresh_from_db()
+        assert ownership.closed_at is not None
+
+    async def test_a_reopen_watches_it_again_and_says_so(self):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1, closed_at=timezone.now())
+
+        await create_merge_request_callback(action=MergeRequestAction.REOPEN, state="opened").process_callback()
+
+        await ownership.arefresh_from_db()
+        assert ownership.closed_at is None
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.wake) == ("notice", False)
+
+    async def test_an_unowned_merge_request_posts_nothing(self):
+        await create_merge_request_callback(action=MergeRequestAction.CLOSE, state="closed").process_callback()
+
+        assert not await InboxEvent.objects.aexists()
+
+
+def create_push_callback(*, ref: str = "refs/heads/feat/x", after: str = "0a1b2c3d" * 5) -> PushCallback:
+    return PushCallback(
+        object_kind="push",
+        project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+        ref=ref,
+        before="e96f1f77" * 5,
+        after=after,
+        checkout_sha=after,
+        user_username="sfr",
+        total_commits_count=2,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestPushCallback:
+    async def test_a_push_to_an_owned_branch_is_weighed_a_minute_later(self):
+        await amake_owned_merge_request(repo_id="group/repo", ref="feat/x")
+        task = MagicMock(aenqueue=AsyncMock())
+
+        with patch("sessions.tasks.classify_push_task") as classify:
+            classify.using.return_value = task
+            await create_push_callback().process_callback()
+
+        delay = classify.using.call_args.kwargs["run_after"] - timezone.now()
+        assert timedelta(seconds=50) < delay <= timedelta(seconds=60)
+        task.aenqueue.assert_awaited_once_with(
+            repo_id="group/repo",
+            branch="feat/x",
+            before="e96f1f77" * 5,
+            after="0a1b2c3d" * 5,
+            pusher_username="sfr",
+            commit_count=2,
+        )
+
+    async def test_a_push_to_an_unowned_branch_is_ignored(self):
+        with patch("sessions.tasks.classify_push_task") as classify:
+            await create_push_callback().process_callback()
+
+        classify.using.assert_not_called()
+
+    async def test_a_deleted_branch_is_ignored(self):
+        await amake_owned_merge_request(repo_id="group/repo", ref="feat/x")
+
+        with patch("sessions.tasks.classify_push_task") as classify:
+            await create_push_callback(after="0" * 40).process_callback()
+
+        classify.using.assert_not_called()
+
+    async def test_a_push_to_the_default_branch_only_invalidates_the_config_cache(self):
+        with (
+            patch("webhooks.gitlab.callbacks.RepositoryConfig.invalidate_cache") as invalidate,
+            patch("sessions.tasks.classify_push_task") as classify,
+        ):
+            await create_push_callback(ref="refs/heads/main").process_callback()
+
+        invalidate.assert_called_once_with("group/repo")
+        classify.using.assert_not_called()
+
+    def test_a_tag_push_is_rejected(self):
+        assert create_push_callback(ref="refs/tags/v1").accept_callback() is False
 
 
 def create_issue_note_callback(*, note_id: int, discussion_id: str, labels: list[str] | None = None) -> NoteCallback:
@@ -511,7 +601,7 @@ class TestProcessCallback:
             issue_iid=42,
             title="Test Issue",
             use_max=use_max,
-            author=Author(provider=GitPlatform.GITLAB, uid=10, username="testuser", email="testuser@example.com"),
+            author=Author(provider=GitPlatform.GITLAB, uid=10, username="testuser"),
         )
 
     async def test_an_issue_mention_dispatches_an_issue_run_for_its_note(
@@ -528,7 +618,7 @@ class TestProcessCallback:
             issue_iid=7,
             title="Bug",
             use_max=use_max,
-            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer", email="reviewer@example.com"),
+            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer"),
             mention=Mention(note_id=200, comment_id="d1"),
         )
 
@@ -547,9 +637,66 @@ class TestProcessCallback:
             ref="feat",
             title="Some MR",
             use_max=use_max,
-            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer", email="reviewer@example.com"),
-            mention=Mention(note_id=100, comment_id="discussion_1"),
+            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer"),
+            mention=Mention(note_id=100, comment_id="discussion_1", body="@daiv please review"),
         )
+
+    async def test_a_merge_request_note_without_a_mention_dispatches_as_a_comment(
+        self, monkeypatch_dependencies, stub_client, label, use_max
+    ):
+        callback = create_note_callback("Looks good", labels=[label], note_type="DiffNote")
+
+        with (
+            patch("webhooks.gitlab.callbacks.dispatch_mr_comment", new=AsyncMock()) as comment,
+            patch("webhooks.gitlab.callbacks.dispatch_mr_comment_run", new=AsyncMock()) as run,
+        ):
+            await callback.process_callback()
+
+        run.assert_not_awaited()
+        comment.assert_awaited_once_with(
+            client=stub_client,
+            repo_id="group/repo",
+            merge_request_iid=1,
+            title="Some MR",
+            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer"),
+            comment=Mention(note_id=100, comment_id="discussion_1", body="Looks good", on_diff=True),
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestNotesOnAnOwnedMergeRequest:
+    @pytest.fixture(autouse=True)
+    def inbox(self, monkeypatch_dependencies, stub_client):
+        stub_client.git_platform = GitPlatform.GITLAB
+        with (
+            patch("sessions.inbox.post.drain_logged"),
+            patch("webhooks.dispatch.resolve_linked_user", new=AsyncMock(return_value=None)),
+        ):
+            yield
+
+    async def test_a_diff_mention_reaches_the_owning_session(self):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
+
+        await create_note_callback("@daiv why this line?", note_type="DiffNote").process_callback()
+
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.wake, event.source_key) == ("mention", True, "note:100")
+        assert (event.payload["is_diff"], event.payload["discussion_id"]) == (True, "discussion_1")
+
+    async def test_a_diff_mention_on_an_unowned_merge_request_is_still_ignored(self):
+        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+            await create_note_callback("@daiv why this line?", note_type="DiffNote").process_callback()
+
+        task.get_or_enqueue.assert_not_called()
+        assert not await InboxEvent.objects.aexists()
+
+    async def test_a_note_without_a_mention_is_remembered(self):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
+
+        await create_note_callback("Looks good to me").process_callback()
+
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.wake, event.payload["body"]) == ("comment", False, "Looks good to me")
 
 
 @pytest.mark.django_db(transaction=True)

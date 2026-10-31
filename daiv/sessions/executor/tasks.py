@@ -5,13 +5,17 @@ from typing import TYPE_CHECKING
 from django.tasks import task
 
 from codebase.base import Scope
-from sessions.executor.lock import wait_for_slot
+from sessions.executor.lock import Claimed, wait_for_slot
 from sessions.executor.spec import RunHooks, RunSpec
-from sessions.models import Run, Session
+from sessions.models import EventState, InboxEvent, Run, Session
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from langchain_core.messages import BaseMessage
     from langgraph.types import StateSnapshot
 
+    from automation.agent.workspace.git_manager import FastForward
     from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.sessions")
@@ -30,6 +34,7 @@ async def run_job_task(
     user_id: int | None = None,
     ask_user_enabled: bool = True,
     fork_branch: bool = False,
+    inbox: bool = False,
 ) -> AgentResult:
     """Run the DAIV agent for a submitted job and return a standardized result.
 
@@ -43,6 +48,11 @@ async def run_job_task(
     to select the user's personal MCP servers.
     ``ask_user_enabled``: whether someone can answer a question the agent asks mid-run.
     ``fork_branch``: publish to a new branch and merge request even when ``ref`` has an open one (a delegated leg).
+
+    ``inbox``: the run was started by ``sessions.inbox.drain``. It runs on the slot the drain claimed for it
+    (``Claimed``), and takes its input from the events it took (``sessions.inbox.render``) rather than ``prompt``; one
+    whose events were settled before its task started fails instead of running without a request. It acts as the
+    run's user, whom ``sessions.inbox.drain`` chose, not the session's.
     Webhook callers (issue/review addressors) bypass this task; ``use_max`` is therefore
     not accepted here.
     """
@@ -51,6 +61,7 @@ async def run_job_task(
     from langchain_core.messages import HumanMessage
 
     from sessions.executor.run import RunStoppedError, execute_run
+    from sessions.inbox.render import arun_events, render_input
 
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
@@ -66,6 +77,20 @@ async def run_job_task(
 
     # Every enqueue goes through ``sessions.queue.aenqueue_run``, whose ``Run`` holds this row.
     session_row = await Session.objects.only("thread_id", "mcp_overrides", "external_refs").aget(pk=thread_id)
+    input_factory = None
+    if inbox:
+        if not run_id:
+            raise ValueError("an inbox run_job_task needs the run_id the drain claimed the slot for")
+        inbox_run = await Run.objects.aget(pk=run_id)
+        events = await arun_events(inbox_run)
+        if not any(event.wake and event.state == EventState.TAKEN for event in events):
+            raise ValueError(f"inbox run {run_id} holds no event to act on; they were settled before its task started")
+        input_messages = render_input(inbox_run, events=events).messages
+        input_factory = partial(_ainbox_input, inbox_run, events)
+        lock, acting_user_id = Claimed(holder_id=run_id), inbox_run.user_id
+    else:
+        input_messages = (HumanMessage(content=prompt),)
+        lock, acting_user_id = wait_for_slot(run_id or f"job-{thread_id[:8]}"), user_id
 
     async def _log_failure(exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
         if isinstance(exc, RunStoppedError):
@@ -80,14 +105,15 @@ async def run_job_task(
             thread_id=thread_id,
             repo_id=repo_id,
             scope=Scope.GLOBAL,
-            input_messages=(HumanMessage(content=prompt),),
+            input_messages=input_messages,
+            input_factory=input_factory,
             trigger="job",
-            lock=wait_for_slot(run_id or f"job-{thread_id[:8]}"),
+            lock=lock,
             ref=ref,
             agent_model=agent_model,
             agent_thinking_level=agent_thinking_level,
             sandbox_env_id=sandbox_environment_id,
-            acting_user_id=user_id,
+            acting_user_id=acting_user_id,
             mcp_overrides=session_row.mcp_overrides,
             references=session_row.external_references(),
             run_id=run_id,
@@ -103,6 +129,15 @@ async def run_job_task(
 
     logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
     return outcome.agent_result
+
+
+async def _ainbox_input(
+    run: Run, events: Sequence[InboxEvent], fast_forward: FastForward | None
+) -> tuple[BaseMessage, ...]:
+    """An inbox run's input, rendered once its checkout is ready, so it can say whether the checkout moved."""
+    from sessions.inbox.render import render_input
+
+    return render_input(run, fast_forward=fast_forward, events=events).messages
 
 
 async def _acancel_requested(run_id: str) -> bool:

@@ -9,8 +9,6 @@ from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
 from sessions.artifacts import bind_active_run
 from sessions.delegation import (
-    MAX_CONTINUATION_ATTEMPTS,
-    MAX_RESUMES_IN_A_ROW,
     MAX_STATUS_BATCHES,
     STALLED_BATCH_WINDOW,
     SessionJobDelegator,
@@ -21,8 +19,7 @@ from sessions.delegation import (
     resume_coordinator,
     resume_stalled_batches,
 )
-from sessions.executor.lock import SessionLockTimeoutError
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.queue import LINK_FAILED_PREFIX
 
 from automation.agent.delegation import MAX_DELEGATED_TARGETS, Checkout, DelegatedTarget, DelegationError
@@ -298,33 +295,6 @@ class TestSessionJobDelegator:
         assert [(leg.ref, leg.starts_after_this_turn) for leg in result.started] == [("main", True), ("", False)]
         assert mock_task.aenqueue.call_args.kwargs["ref"] == "daiv/coordinator-work"
 
-    @pytest.mark.parametrize(("resumes", "refused"), [(MAX_RESUMES_IN_A_ROW - 1, False), (MAX_RESUMES_IN_A_ROW, True)])
-    async def test_a_coordinator_resumed_too_many_times_in_a_row_cannot_delegate_again(
-        self, admin_user, create_db_task_result, resumes, refused
-    ):
-        coordinator = await sync_to_async(make_coordinator)(admin_user)
-        await sync_to_async(make_delegating_run)(coordinator, admin_user)
-        await Run.objects.filter(session=coordinator).aupdate(status=RunStatus.SUCCESSFUL)
-        for attempt in range(resumes):
-            run = await Run.objects.acreate(
-                session=coordinator,
-                trigger_type=SessionOrigin.DELEGATION_RESUME,
-                repo_id="acme/coord",
-                status=RunStatus.RUNNING if attempt == resumes - 1 else RunStatus.SUCCESSFUL,
-                user=admin_user,
-                continuation_of_batch_id=uuid.uuid4(),
-            )
-        run = await Run.objects.select_related("session", "user").aget(pk=run.pk)
-        task = await sync_to_async(create_db_task_result)(status="READY")
-
-        with patch("sessions.queue.run_job_task") as mock_task:
-            _mock_enqueue(mock_task, [task])
-            if refused:
-                with pytest.raises(DelegationError, match="times in a row"):
-                    await _delegate(run, [_target()])
-            else:
-                assert (await _delegate(run, [_target()])).started
-
 
 @pytest.mark.django_db(transaction=True)
 async def test_only_a_session_that_was_not_delegated_gets_a_delegator(admin_user):
@@ -335,13 +305,22 @@ async def test_only_a_session_that_was_not_delegated_gets_a_delegator(admin_user
     assert await adelegator_for(leg.pk) is None
 
 
+def _resume_event(coordinator: Session) -> InboxEvent | None:
+    return InboxEvent.objects.filter(session=coordinator, kind=EventKind.DELEGATION_FINISHED).first()
+
+
+@pytest.fixture
+def drain():
+    with patch("sessions.inbox.post.drain_logged") as drain:
+        yield drain
+
+
 @pytest.mark.django_db(transaction=True)
 class TestResumeCoordinator:
-    def test_once_every_leg_finished_it_queues_one_summarised_run_on_the_coordinator_and_releases_it(
-        self, admin_user, member_user, create_db_task_result, monkeypatch
+    def test_once_every_leg_finished_it_posts_one_waking_event_with_the_batch_summary(
+        self, admin_user, member_user, create_db_task_result, drain
     ):
-        monkeypatch.setattr("automation.agent.validators.validate_agent_override", lambda model, level: (model, level))
-        coordinator = make_coordinator(admin_user, agent_model="m", agent_thinking_level="high")
+        coordinator = make_coordinator(admin_user)
         batch_id = uuid.uuid4()
         done = make_leg(
             coordinator,
@@ -353,39 +332,22 @@ class TestResumeCoordinator:
             user=member_user,
         )
         failed = make_leg(
-            coordinator,
-            batch_id,
-            status=RunStatus.FAILED,
-            task_result=create_db_task_result(),
-            repo_id="b",
+            coordinator, batch_id, status=RunStatus.FAILED, task_result=create_db_task_result(), repo_id="b",
             user=member_user,
-        )
-        task = create_db_task_result(status="READY")
+        )  # fmt: skip
 
-        with patch("sessions.admission.assert_can_run"), patch("sessions.queue.run_job_task") as mock_task:
-            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
-            resume_coordinator(failed)
+        resume_coordinator(failed)
 
-        continuation = Run.objects.get(continuation_of_batch_id=batch_id)
-        assert continuation.session_id == coordinator.pk
-        assert (continuation.trigger_type, continuation.status, continuation.task_result_id) == (
-            SessionOrigin.DELEGATION_RESUME,
-            RunStatus.READY,
-            task.id,
-        )
-        assert (continuation.repo_id, continuation.ref, continuation.user_id) == ("acme/coord", "main", member_user.pk)
-        assert (continuation.agent_model, continuation.agent_thinking_level) == ("m", "high")
-        assert continuation.prompt == render_batch_summary(batch_id, [done, failed])
-        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == coordinator.pk
-        assert mock_task.aenqueue.call_args.kwargs["ask_user_enabled"] is True
+        event = _resume_event(coordinator)
+        assert (event.source_key, event.wake, event.ref, event.author_id) == (
+            f"batch:{batch_id}", True, "main", member_user.pk,
+        )  # fmt: skip
+        assert event.payload == {"batch_id": str(batch_id), "summary": render_batch_summary(batch_id, [done, failed])}
+        assert not Run.objects.filter(session=coordinator).exists()
+        drain.assert_called_once_with(coordinator.pk)
 
-    @pytest.mark.parametrize(
-        ("origin", "can_ask"), [(SessionOrigin.SCHEDULE, False), (SessionOrigin.PIPELINE_WEBHOOK, False)]
-    )
-    def test_the_continuation_of_an_unattended_coordinator_cannot_ask(
-        self, admin_user, create_db_task_result, origin, can_ask
-    ):
-        coordinator = make_coordinator(admin_user, origin=origin)
+    def test_the_inbox_starts_the_coordinators_resume_run(self, admin_user, create_db_task_result):
+        coordinator = make_coordinator(admin_user)
         batch_id = uuid.uuid4()
         leg = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
         task = create_db_task_result(status="READY")
@@ -394,21 +356,25 @@ class TestResumeCoordinator:
             mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
             resume_coordinator(leg)
 
-        assert mock_task.aenqueue.call_args.kwargs["ask_user_enabled"] is can_ask
+        resume = Run.objects.get(session=coordinator)
+        assert (resume.trigger_type, resume.status, resume.task_result_id) == (
+            SessionOrigin.DELEGATION_RESUME, RunStatus.READY, task.id,
+        )  # fmt: skip
+        assert resume.prompt == render_batch_summary(batch_id, [leg])
+        assert resume.continuation_of_batch_id is None
+        assert mock_task.aenqueue.call_args.kwargs["inbox"] is True
 
-    def test_the_continuation_keeps_the_legs_mute(self, admin_user, create_db_task_result):
-        coordinator = make_coordinator(admin_user)
+    def test_a_busy_coordinator_gets_it_in_its_next_run(self, admin_user, create_db_task_result, drain):
+        coordinator = make_coordinator(admin_user, active_run_id="chat-run")
         batch_id = uuid.uuid4()
-        leg = make_leg(
-            coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result(), muted=True
-        )
+        leg = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
 
-        with patch("sessions.queue.run_job_task"):
-            resume_coordinator(leg)
+        resume_coordinator(leg)
 
-        assert Run.objects.get(continuation_of_batch_id=batch_id).muted is True
+        next_run = Run.objects.get(pk=_resume_event(coordinator).run_id)
+        assert (next_run.status, next_run.trigger_type) == (RunStatus.QUEUED, SessionOrigin.DELEGATION_RESUME)
 
-    def test_it_waits_while_a_leg_is_still_running(self, admin_user, create_db_task_result):
+    def test_it_waits_while_a_leg_is_still_running(self, admin_user, create_db_task_result, drain):
         coordinator = make_coordinator(admin_user)
         batch_id = uuid.uuid4()
         finished = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
@@ -416,145 +382,40 @@ class TestResumeCoordinator:
 
         resume_coordinator(finished)
 
-        assert not Run.objects.filter(continuation_of_batch_id=batch_id).exists()
+        assert _resume_event(coordinator) is None
 
-    def test_a_batch_resumes_its_coordinator_once(self, admin_user, create_db_task_result):
+    def test_a_batch_resumes_its_coordinator_once(self, admin_user, create_db_task_result, drain):
         coordinator = make_coordinator(admin_user)
         batch_id = uuid.uuid4()
         leg = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
-        task = create_db_task_result(status="READY")
 
-        with patch("sessions.queue.run_job_task") as mock_task:
-            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
-            resume_coordinator(leg)
-            resume_coordinator(leg)
+        resume_coordinator(leg)
+        resume_coordinator(leg)
 
-        assert Run.objects.filter(continuation_of_batch_id=batch_id).count() == 1
+        assert InboxEvent.objects.filter(session=coordinator).count() == 1
 
-    def test_a_continuation_that_ran_and_failed_is_not_retried(self, admin_user, create_db_task_result):
+    def test_a_batch_whose_legs_never_reached_the_queue_resumes_nothing(self, admin_user, drain):
         coordinator = make_coordinator(admin_user)
-        batch_id = uuid.uuid4()
-        leg = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
-        Run.objects.create(
-            session=coordinator,
-            trigger_type=SessionOrigin.DELEGATION_RESUME,
-            repo_id="acme/coord",
-            status=RunStatus.FAILED,
-            error_message="the agent raised",
-            continuation_of_batch_id=batch_id,
-        )
+        leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.FAILED)
 
         resume_coordinator(leg)
 
-        assert Run.objects.filter(continuation_of_batch_id=batch_id).count() == 1
+        assert _resume_event(coordinator) is None
 
-    def test_a_batch_whose_legs_never_reached_the_queue_resumes_nothing(self, admin_user):
-        coordinator = make_coordinator(admin_user)
-        batch_id = uuid.uuid4()
-        leg = make_leg(coordinator, batch_id, status=RunStatus.FAILED)
-
-        resume_coordinator(leg)
-
-        assert not Run.objects.filter(continuation_of_batch_id=batch_id).exists()
-
-    def test_a_batch_whose_waiting_legs_never_reached_the_queue_still_resumes(self, admin_user):
+    def test_a_batch_whose_waiting_legs_never_reached_the_queue_still_resumes(self, admin_user, drain):
         coordinator = make_coordinator(admin_user, ref="feat/x")
         delegating = make_delegating_run(coordinator, admin_user)
         Run.objects.filter(pk=delegating.pk).update(status=RunStatus.SUCCESSFUL)
-        batch_id = uuid.uuid4()
-        leg = make_leg(coordinator, batch_id, status=RunStatus.FAILED, waits_for=delegating)
+        leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.FAILED, waits_for=delegating)
 
-        with patch("sessions.queue.run_job_task"):
-            resume_coordinator(leg)
+        resume_coordinator(leg)
 
-        assert Run.objects.filter(continuation_of_batch_id=batch_id).exists()
-
-    def test_a_busy_coordinator_keeps_its_continuation_queued(self, admin_user, create_db_task_result):
-        coordinator = make_coordinator(admin_user)
-        make_delegating_run(coordinator, admin_user)
-        batch_id = uuid.uuid4()
-        leg = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
-
-        with patch("sessions.queue.run_job_task") as mock_task:
-            resume_coordinator(leg)
-
-        mock_task.aenqueue.assert_not_called()
-        assert Run.objects.get(continuation_of_batch_id=batch_id).status == RunStatus.QUEUED
-
-    def test_the_continuation_waits_for_a_chat_turn_in_flight_and_starts_once_it_ends_on_its_branch(
-        self, admin_user, create_db_task_result
-    ):
-        coordinator = make_coordinator(admin_user)
-        chat = Run.objects.create(
-            session=coordinator, trigger_type=SessionOrigin.CHAT, repo_id="acme/coord", status=RunStatus.RUNNING
-        )
-        batch_id = uuid.uuid4()
-        leg = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
-        task = create_db_task_result(status="READY")
-
-        with patch("sessions.queue.run_job_task") as mock_task:
-            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
-            resume_coordinator(leg)
-            continuation = Run.objects.get(continuation_of_batch_id=batch_id)
-            assert (continuation.status, continuation.waits_for_id) == (RunStatus.QUEUED, chat.pk)
-            mock_task.aenqueue.assert_not_called()
-
-            Session.objects.filter(pk=coordinator.pk).update(ref="daiv/chat-work")
-            Run.objects.finish(chat, RunStatus.SUCCESSFUL, finished_at=timezone.now())
-
-        continuation.refresh_from_db()
-        assert (continuation.status, continuation.task_result_id) == (RunStatus.READY, task.id)
-        assert mock_task.aenqueue.call_args.kwargs["ref"] == "daiv/chat-work"
-
-    @pytest.mark.parametrize("legs_user", ["lost-access", "deleted"])
-    def test_a_user_who_can_no_longer_write_to_the_coordinator_gets_it_failed_not_run(
-        self, member_user, create_db_task_result, legs_user
-    ):
-        coordinator = make_coordinator(member_user)
-        batch_id = uuid.uuid4()
-        leg = make_leg(
-            coordinator,
-            batch_id,
-            status=RunStatus.SUCCESSFUL,
-            task_result=create_db_task_result(),
-            user=member_user if legs_user == "lost-access" else None,
-        )
-
-        with (
-            patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["acme/coord"])),
-            patch("sessions.queue.run_job_task") as mock_task,
-        ):
-            resume_coordinator(leg)
-            resume_stalled_batches()
-
-        mock_task.aenqueue.assert_not_called()
-        continuation = Run.objects.get(continuation_of_batch_id=batch_id)
-        assert continuation.status == RunStatus.FAILED
-        assert continuation.error_message.startswith("access_denied: ")
-
-    def test_a_denied_continuation_is_recorded_while_the_coordinator_is_busy_with_runs_queued(
-        self, member_user, create_db_task_result
-    ):
-        coordinator = make_coordinator(member_user)
-        make_delegating_run(coordinator, member_user)
-        Run.objects.create(
-            session=coordinator, trigger_type=SessionOrigin.API_JOB, repo_id="acme/coord", status=RunStatus.QUEUED
-        )
-        batch_id = uuid.uuid4()
-        leg = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
-
-        with (
-            patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["acme/coord"])),
-            patch("sessions.queue.run_job_task"),
-        ):
-            resume_coordinator(leg)
-
-        assert Run.objects.get(continuation_of_batch_id=batch_id).status == RunStatus.FAILED
+        assert _resume_event(coordinator).ref == "feat/x"
 
     @pytest.mark.parametrize(
         "fields", [{"trigger_type": SessionOrigin.API_JOB}, {"batch_id": None}], ids=["not-delegated", "no-batch"]
     )
-    def test_only_a_delegated_batch_resumes_anything(self, admin_user, create_db_task_result, fields):
+    def test_only_a_delegated_batch_resumes_anything(self, admin_user, create_db_task_result, drain, fields):
         coordinator = make_coordinator(admin_user)
         leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
         for name, value in fields.items():
@@ -562,71 +423,40 @@ class TestResumeCoordinator:
 
         resume_coordinator(leg)
 
-        assert not Run.objects.filter(continuation_of_batch_id__isnull=False).exists()
+        assert not InboxEvent.objects.exists()
 
-    def test_a_batch_whose_coordinator_is_gone_resumes_nothing(self, admin_user, create_db_task_result):
+    def test_a_batch_whose_coordinator_is_gone_resumes_nothing(self, admin_user, create_db_task_result, drain):
         coordinator = make_coordinator(admin_user)
-        batch_id = uuid.uuid4()
-        leg = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
+        leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
         coordinator.delete()
 
         resume_coordinator(leg)
 
-        assert not Run.objects.filter(continuation_of_batch_id=batch_id).exists()
+        assert not InboxEvent.objects.exists()
 
 
 @pytest.mark.django_db(transaction=True)
 class TestResumeStalledBatches:
-    def test_a_finished_batch_left_without_a_continuation_gets_one(self, admin_user, create_db_task_result):
+    def test_a_finished_batch_left_without_an_event_gets_one(self, admin_user, create_db_task_result, drain):
         coordinator = make_coordinator(admin_user)
         batch_id = uuid.uuid4()
         make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
-        task = create_db_task_result(status="READY")
 
-        with patch("sessions.queue.run_job_task") as mock_task:
-            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
-            assert resume_stalled_batches() == 1
+        assert resume_stalled_batches() == 1
+        assert _resume_event(coordinator).source_key == f"batch:{batch_id}"
+        assert resume_stalled_batches() == 0
 
-        assert Run.objects.get(continuation_of_batch_id=batch_id).task_result_id == task.id
-
-    def test_a_continuation_that_never_reached_the_queue_is_retried_a_bounded_number_of_times(
-        self, admin_user, create_db_task_result
-    ):
-        coordinator = make_coordinator(admin_user)
-        batch_id = uuid.uuid4()
-        leg = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
-
-        with patch("sessions.queue.run_job_task") as mock_task:
-            mock_task.aenqueue = AsyncMock(side_effect=RuntimeError("broker down"))
-            resume_coordinator(leg)
-            for _ in range(MAX_CONTINUATION_ATTEMPTS + 1):
-                resume_stalled_batches()
-
-        continuations = Run.objects.filter(continuation_of_batch_id=batch_id)
-        assert continuations.count() == MAX_CONTINUATION_ATTEMPTS
-        assert set(continuations.values_list("status", flat=True)) == {RunStatus.FAILED}
-
-    def test_a_continuation_that_gave_up_waiting_for_the_coordinators_slot_is_retried(
-        self, admin_user, create_db_task_result
-    ):
+    def test_a_batch_an_older_continuation_resumed_is_left_alone(self, admin_user, create_db_task_result, drain):
         coordinator = make_coordinator(admin_user)
         batch_id = uuid.uuid4()
         make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
         Run.objects.create(
-            session=coordinator,
-            trigger_type=SessionOrigin.DELEGATION_RESUME,
-            repo_id="acme/coord",
-            status=RunStatus.FAILED,
-            error_message=f"{SessionLockTimeoutError.__module__}.{SessionLockTimeoutError.__qualname__}\nTraceback",
-            continuation_of_batch_id=batch_id,
-        )
-        task = create_db_task_result(status="READY")
+            session=coordinator, trigger_type=SessionOrigin.DELEGATION_RESUME, repo_id="acme/coord",
+            status=RunStatus.SUCCESSFUL, continuation_of_batch_id=batch_id,
+        )  # fmt: skip
 
-        with patch("sessions.queue.run_job_task") as mock_task:
-            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
-            assert resume_stalled_batches() == 1
-
-        assert Run.objects.filter(continuation_of_batch_id=batch_id, task_result_id=task.id).exists()
+        assert resume_stalled_batches() == 0
+        assert _resume_event(coordinator) is None
 
     def test_a_leg_left_queued_behind_a_finished_run_is_restacked_and_started(self, admin_user, create_db_task_result):
         coordinator = make_coordinator(admin_user, ref="daiv/published")
@@ -644,31 +474,24 @@ class TestResumeStalledBatches:
         leg.refresh_from_db()
         assert (leg.status, leg.ref, leg.task_result_id) == (RunStatus.READY, "daiv/published", task.id)
 
-    def test_a_batch_that_finished_before_the_window_is_left_alone(self, admin_user, create_db_task_result):
+    def test_a_batch_that_finished_before_the_window_is_left_alone(self, admin_user, create_db_task_result, drain):
         coordinator = make_coordinator(admin_user)
-        batch_id = uuid.uuid4()
         long_ago = timezone.now() - STALLED_BATCH_WINDOW - timedelta(minutes=1)
         make_leg(
-            coordinator,
-            batch_id,
-            status=RunStatus.SUCCESSFUL,
-            task_result=create_db_task_result(),
+            coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, task_result=create_db_task_result(),
             finished_at=long_ago,
-        )
+        )  # fmt: skip
 
-        with patch("sessions.queue.run_job_task") as mock_task:
-            assert resume_stalled_batches() == 0
+        assert resume_stalled_batches() == 0
 
-        mock_task.aenqueue.assert_not_called()
-
-    def test_an_unfinished_batch_is_left_alone(self, admin_user, create_db_task_result):
+    def test_an_unfinished_batch_is_left_alone(self, admin_user, create_db_task_result, drain):
         coordinator = make_coordinator(admin_user)
         batch_id = uuid.uuid4()
         make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
         make_leg(coordinator, batch_id, status=RunStatus.RUNNING, task_result=create_db_task_result(status="RUNNING"))
 
         assert resume_stalled_batches() == 0
-        assert not Run.objects.filter(continuation_of_batch_id=batch_id).exists()
+        assert _resume_event(coordinator) is None
 
     def test_a_continuation_left_queued_on_a_free_coordinator_is_released(self, admin_user, create_db_task_result):
         coordinator = make_coordinator(admin_user)
@@ -799,11 +622,11 @@ class TestCancel:
         assert (running.status, running.cancel_requested_at is not None) == (RunStatus.RUNNING, True)
         await done.arefresh_from_db()
         assert done.status == RunStatus.SUCCESSFUL
-        assert not await Run.objects.filter(continuation_of_batch_id=batch_id).aexists()
+        assert not await InboxEvent.objects.filter(session=coordinator).aexists()
 
-    async def test_once_a_stopping_leg_stops_the_coordinator_resumes_after_its_turn(self, admin_user):
+    async def test_once_a_stopping_leg_stops_the_coordinator_is_told_it_was_cancelled(self, admin_user, drain):
         coordinator = await sync_to_async(make_coordinator)(admin_user)
-        turn = await sync_to_async(make_delegating_run)(coordinator, admin_user)
+        await sync_to_async(make_delegating_run)(coordinator, admin_user)
         batch_id = uuid.uuid4()
         await sync_to_async(make_leg)(coordinator, batch_id, status=RunStatus.SUCCESSFUL)
         running = await sync_to_async(_running_leg)(coordinator, batch_id)
@@ -816,11 +639,11 @@ class TestCancel:
 
         await running.arefresh_from_db()
         assert running.is_cancelled
-        continuation = await Run.objects.aget(continuation_of_batch_id=batch_id)
-        assert (continuation.status, continuation.waits_for_id) == (RunStatus.QUEUED, turn.pk)
-        assert "## acme/api: cancelled" in continuation.prompt
+        event = await InboxEvent.objects.aget(session=coordinator)
+        assert (event.kind, event.source_key) == (EventKind.DELEGATION_FINISHED, f"batch:{batch_id}")
+        assert "## acme/api: cancelled" in event.payload["summary"]
 
-    async def test_a_stopping_leg_that_finishes_first_keeps_its_merge_request(self, admin_user):
+    async def test_a_stopping_leg_that_finishes_first_keeps_its_merge_request(self, admin_user, drain):
         coordinator = await sync_to_async(make_coordinator)(admin_user)
         await sync_to_async(make_delegating_run)(coordinator, admin_user)
         batch_id = uuid.uuid4()
@@ -837,8 +660,8 @@ class TestCancel:
         assert result.resumes is False
         [leg] = (await SessionJobDelegator(coordinator.pk).astatus(batch_id=str(batch_id)))[0].legs
         assert (leg.status, leg.merge_request_url) == ("succeeded", "https://git.example/mr/3")
-        continuation = await Run.objects.aget(continuation_of_batch_id=batch_id)
-        assert "- Merge request: https://git.example/mr/3" in continuation.prompt
+        event = await InboxEvent.objects.aget(session=coordinator)
+        assert "- Merge request: https://git.example/mr/3" in event.payload["summary"]
 
     async def test_a_batch_whose_every_leg_was_cancelled_resumes_nothing(self, admin_user):
         coordinator = await sync_to_async(make_coordinator)(admin_user)
@@ -856,7 +679,7 @@ class TestCancel:
         assert len(result.cancelled) == 2
         assert (result.batch.finished, result.resumes) == (False, False)
         assert stalled == 0
-        assert not await Run.objects.filter(continuation_of_batch_id=batch_id).aexists()
+        assert not await InboxEvent.objects.filter(session=coordinator).aexists()
 
     async def test_it_cancels_only_the_named_legs(self, admin_user):
         coordinator = await sync_to_async(make_coordinator)(admin_user)

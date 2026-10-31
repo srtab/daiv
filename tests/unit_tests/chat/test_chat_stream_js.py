@@ -490,7 +490,8 @@ def test_a_page_loaded_live_folds_each_run_as_its_stream_finishes():
         LIVE_PAGE_BODY,
         {"turns": [user("u1", started_at=None)], "frames": RUN_FRAMES},
         prelude=REACTIVITY + EVENT_SOURCE,
-        extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, fetch: async () => ({ ok: true }),",
+        extra_globals=GLOBALS
+        + " EventSource: FakeEventSource, setTimeout, fetch: async () => ({ ok: true, json: async () => ({}) }),",
     )
     assert out["rejoined"] == {"folded": True, "workedFor": "Worked for 5s · 1 step"}
     assert out["later"]["folded"] is True
@@ -759,3 +760,53 @@ def test_a_fallback_ending_does_not_stack_a_marker_on_the_red_line():
     ]
     out = _drive(turns, script=script)
     assert out[-2] == [] and out[-1] == ["error"]
+
+
+QUEUED_MESSAGE_BODY = """
+const chat = reactive(registry.chat({
+  endpoint: "/api/chat",
+  streamEndpoint: "/api/chat/stream",
+  thread: { thread_id: "t1", repo_id: "r", ref: "main" },
+}));
+chat.$watch = watchOn(chat);
+chat.$nextTick = (cb) => cb && cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+chat.init();
+chat.draftMessage = "Also add a test";
+await chat.submit();
+const queued = {
+  turns: chat.turns.map((t) => ({ role: t.role, pending: Boolean(t.pending) })),
+  streaming: chat.streaming,
+  live: chat.sessionLive,
+  queuedRunId: chat.queuedRunId,
+  ended: dispatched.filter((e) => e.type === "daiv:live-run-ended").length,
+  opened: opened !== null,
+};
+chat.followLiveRun({ id: "next-run", stoppable: true, started_at: new Date().toISOString() });
+const following = { streaming: chat.streaming, run: chat._activeRun?.runId, queuedRunId: chat.queuedRunId };
+process.stdout.write(JSON.stringify({ queued, following }));
+chat.destroy();
+"""
+
+
+def test_a_message_sent_while_the_session_is_busy_shows_as_queued_until_its_run_starts():
+    reply = {"run_id": "r1", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
+    fetch = f"fetch: async () => ({{ ok: true, json: async () => ({json.dumps(reply)}) }}),"
+
+    out = run_chat_stream(
+        QUEUED_MESSAGE_BODY,
+        {},
+        prelude=REACTIVITY + EVENT_SOURCE,
+        extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, " + fetch,
+    )
+
+    assert out["queued"] == {
+        "turns": [{"role": "user", "pending": True}],
+        "streaming": False,
+        "live": True,
+        "queuedRunId": "next-run",
+        "ended": 0,
+        "opened": False,
+    }
+    assert out["following"] == {"streaming": True, "run": "next-run", "queuedRunId": ""}

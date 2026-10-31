@@ -7,7 +7,8 @@ from django.tasks import task
 from django.tasks.signals import task_finished, task_started
 
 import pytest
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from allauth.socialaccount.models import SocialAccount
+from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 from sessions.signal_defs import run_ended, run_finished
 
 from accounts.models import User
@@ -32,116 +33,103 @@ def _create_run(*, session: Session, status: str = RunStatus.READY, **kwargs) ->
 
 
 @pytest.mark.django_db
-class TestBackfillSessionUser:
-    def test_backfills_orphaned_runs_on_user_create(self):
-        session = _make_session()
-        orphan = _create_run(
-            session=session,
-            trigger_type=SessionOrigin.ISSUE_WEBHOOK,
-            repo_id="group/repo",
-            external_username="newdev",
-            status=RunStatus.READY,
-        )
-        assert orphan.user is None
-
-        user = User.objects.create_user(
-            username="newdev",
-            email="newdev@test.com",
-            password="testpass",  # noqa: S106
-        )
-
-        orphan.refresh_from_db()
-        assert orphan.user == user
-
-    def test_backfills_orphaned_sessions_on_user_create(self):
+class TestClaimRunsForLinkedAccount:
+    def _started_by_account(self, **fields) -> tuple[Session, Run]:
+        account = {"external_username": "alice", "external_provider": "gitlab", "external_uid": "77", **fields}
         session = Session.objects.create(
-            thread_id=str(uuid.uuid4()),
-            origin=SessionOrigin.ISSUE_WEBHOOK,
-            repo_id="group/repo",
-            external_username="newdev2",
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="acme/api", **account
         )
-        assert session.user is None
+        return session, _create_run(session=session, trigger_type=SessionOrigin.ISSUE_WEBHOOK, **account)
 
-        user = User.objects.create_user(
-            username="newdev2",
-            email="newdev2@test.com",
-            password="testpass",  # noqa: S106
-        )
+    def _user(self, username: str) -> User:
+        return User.objects.create_user(username=username, email=f"{username}@example.com", password="x")  # noqa: S106
 
+    def _owners(self, session: Session, run: Run) -> tuple[User | None, User | None]:
         session.refresh_from_db()
-        assert session.user == user
+        run.refresh_from_db()
+        return session.user, run.user
 
-    def test_does_not_backfill_already_linked_runs(self):
-        existing_user = User.objects.create_user(
-            username="existing",
-            email="existing@test.com",
-            password="testpass",  # noqa: S106
+    def test_linking_an_account_gives_its_user_what_that_account_started(self):
+        session, run = self._started_by_account()
+        user = self._user("someone-else")
+
+        SocialAccount.objects.create(user=user, provider="gitlab", uid="77")
+
+        assert self._owners(session, run) == (user, user)
+
+    def test_linking_hands_over_the_accounts_waiting_requests_and_merge_requests(self):
+        session, _run = self._started_by_account()
+        ownership = MergeRequestOwnership.objects.create(
+            repo_id="acme/api", merge_request_iid=9, session=session, source_branch="daiv/fix"
         )
-        session = _make_session()
-        linked = _create_run(
-            session=session,
-            trigger_type=SessionOrigin.ISSUE_WEBHOOK,
-            repo_id="group/repo",
-            user=existing_user,
-            external_username="newdev",
-            status=RunStatus.READY,
-        )
+        mention = InboxEvent.objects.create(
+            session=session, kind=EventKind.MENTION, source_key="note:1", wake=True, author_provider="gitlab",
+            author_uid="77", payload={"note_id": 1, "discussion_id": "d", "body": "@daiv", "web_url": "u"},
+        )  # fmt: skip
+        user = self._user("someone-else")
 
-        new_user = User.objects.create_user(
-            username="newdev",
-            email="newdev@test.com",
-            password="testpass",  # noqa: S106
-        )
+        SocialAccount.objects.create(user=user, provider="gitlab", uid="77")
 
-        linked.refresh_from_db()
-        assert linked.user == existing_user, "Should not overwrite existing user FK"
-        assert linked.user != new_user
+        ownership.refresh_from_db()
+        mention.refresh_from_db()
+        assert (ownership.owner_id, mention.author_id) == (user.pk, user.pk)
 
-    def test_does_not_backfill_on_user_update(self):
-        session = _make_session()
-        orphan = _create_run(
-            session=session,
-            trigger_type=SessionOrigin.ISSUE_WEBHOOK,
-            repo_id="group/repo",
-            external_username="devuser",
-            status=RunStatus.READY,
-        )
+    def test_linking_makes_the_accounts_queued_run_the_users_request_keeping_its_id(self):
+        session, _run = self._started_by_account()
+        account = {"external_username": "alice", "external_provider": "gitlab", "external_uid": "77"}
+        queued = _create_run(session=session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.MR_WEBHOOK, **account)
+        user = self._user("someone-else")
 
-        user = User.objects.create_user(
-            username="devuser",
-            email="dev@test.com",
-            password="testpass",  # noqa: S106
-        )
+        SocialAccount.objects.create(user=user, provider="gitlab", uid="77")
 
-        orphan.refresh_from_db()
-        assert orphan.user == user
+        queued.refresh_from_db()
+        assert (queued.user_id, queued.external_provider, queued.external_uid) == (user.pk, "", "")
 
-        # Now unlink manually and update user — should NOT re-backfill
-        Run.objects.filter(pk=orphan.pk).update(user=None)
-        user.name = "Updated Name"
-        user.save()
+    def test_a_queued_run_whose_place_the_user_holds_is_left_to_the_drain(self):
+        session, run = self._started_by_account()
+        account = {"external_username": "alice", "external_provider": "gitlab", "external_uid": "77"}
+        queued = _create_run(session=session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.MR_WEBHOOK, **account)
+        user = self._user("someone-else")
+        _create_run(session=session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.MR_WEBHOOK, user=user)
 
-        orphan.refresh_from_db()
-        assert orphan.user is None, "Should not backfill on user update, only on create"
+        SocialAccount.objects.create(user=user, provider="gitlab", uid="77")
 
-    def test_no_match_when_external_username_differs(self):
-        session = _make_session()
-        orphan = _create_run(
-            session=session,
-            trigger_type=SessionOrigin.ISSUE_WEBHOOK,
-            repo_id="group/repo",
-            external_username="other_user",
-            status=RunStatus.READY,
-        )
+        queued.refresh_from_db()
+        assert (queued.user_id, queued.external_uid) == (None, "77")
+        assert self._owners(session, run) == (user, user)
 
-        User.objects.create_user(
-            username="newdev",
-            email="newdev@test.com",
-            password="testpass",  # noqa: S106
-        )
+    @pytest.mark.parametrize(("provider", "uid"), [("gitlab", "78"), ("github", "77")])
+    def test_another_account_claims_nothing(self, provider, uid):
+        session, run = self._started_by_account()
 
-        orphan.refresh_from_db()
-        assert orphan.user is None
+        SocialAccount.objects.create(user=self._user("bob"), provider=provider, uid=uid)
+
+        assert self._owners(session, run) == (None, None)
+
+    def test_a_user_sharing_the_username_claims_nothing(self):
+        session, run = self._started_by_account()
+
+        self._user("alice")
+
+        assert self._owners(session, run) == (None, None)
+
+    def test_what_has_an_owner_keeps_them(self):
+        owner = self._user("owner")
+        session, run = self._started_by_account(user=owner)
+
+        SocialAccount.objects.create(user=self._user("bob"), provider="gitlab", uid="77")
+
+        assert self._owners(session, run) == (owner, owner)
+
+    def test_a_failed_claim_is_logged_and_the_link_still_saves(self, caplog):
+        user = self._user("bob")
+
+        with patch("sessions.signals.Run") as run_model, caplog.at_level(logging.ERROR, logger="daiv.sessions"):
+            run_model.objects.filter.side_effect = RuntimeError("db down")
+            SocialAccount.objects.create(user=user, provider="gitlab", uid="77")
+
+        assert SocialAccount.objects.filter(user=user, uid="77").exists()
+        assert "Failed to give the runs of gitlab account 77" in caplog.text
 
 
 @pytest.mark.django_db
@@ -276,6 +264,26 @@ class TestReleaseWaitingRuns:
             run_ended.send(sender=Run, run=finished)
 
         release.assert_called_once_with(finished)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestSettleInboxEvents:
+    @pytest.mark.parametrize("trigger", [SessionOrigin.CHAT, SessionOrigin.API_JOB, SessionOrigin.PIPELINE_WEBHOOK])
+    def test_every_ended_run_settles_its_inbox_events(self, trigger):
+        ended = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=trigger)
+
+        with patch("sessions.signals.on_run_ended") as settle:
+            run_ended.send(sender=Run, run=ended)
+
+        settle.assert_called_once_with(ended, drain=True)
+
+    def test_skip_dispatch_settles_without_draining(self):
+        ended = make_run(session_id=str(uuid.uuid4()), status=RunStatus.FAILED)
+
+        with patch("sessions.signals.on_run_ended") as settle:
+            run_ended.send(sender=Run, run=ended, skip_dispatch=True)
+
+        settle.assert_called_once_with(ended, drain=False)
 
 
 @pytest.mark.django_db(transaction=True)

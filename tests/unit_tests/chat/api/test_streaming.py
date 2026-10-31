@@ -1,7 +1,7 @@
 """Direct unit tests for ``ChatRunStreamer.events()``.
 
 Covers what the HTTP-level tests in test_views.py don't reach: the turn's lifecycle on top of the
-executor's ``stream_run`` (the ref sync and the CI watch read the finished turn's checkpoint), the
+executor's ``stream_run`` (the ref sync and the merge request claim read the finished turn's checkpoint), the
 run-slot invariants, and the AG-UI adapter's event shaping.
 
 The Run-row lifecycle (``start_chat_run`` / ``finalize_chat_run``) is patched out
@@ -37,7 +37,7 @@ from chat.api.streaming import ChatRunStreamer
 from core.constants import RUN_FAILED_MESSAGE
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
-from tests.unit_tests.sessions.conftest import amake_job_session, watch_recorder
+from tests.unit_tests.sessions.conftest import amake_job_session, claim_recorder
 from tests.unit_tests.sessions.executor.conftest import agent_stack
 
 
@@ -903,7 +903,7 @@ def _recorded_turn(
     errors: dict[str, Exception] | None = None,
 ):
     """Patch the chat turn's collaborators around ``agui_agent``; yield ``calls``, which logs start and each
-    after-run step in order. ``checkpoint`` is the finished turn's state, which the ref sync and the watch read.
+    after-run step in order. ``checkpoint`` is the finished turn's state, which the ref sync and the claim read.
     ``errors`` maps a step name to the exception it raises after it is logged."""
     calls: list[tuple] = []
     errors = errors or {}
@@ -923,10 +923,11 @@ def _recorded_turn(
     async def _persist(*, thread_id, current_ref, merge_request, published):
         _log("persist", current_ref, merge_request)
 
-    class _Watch(watch_recorder([])):
-        async def aarm_after_run(self, **kwargs):
-            _log("arm", kwargs["published"])
-            await super().aarm_after_run(**kwargs)
+    record_claim = claim_recorder([])
+
+    async def _claim(**kwargs):
+        _log("claim", kwargs["run_id"], kwargs["merge_request"])
+        await record_claim(**kwargs)
 
     async def _release(thread_id, run_id):
         _log("release", thread_id, run_id)
@@ -940,7 +941,7 @@ def _recorded_turn(
         patch("chat.api.streaming.start_chat_run", side_effect=_start),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_finalize),
         patch("sessions.executor.run.apersist_session_ref", side_effect=_persist),
-        patch("sessions.executor.run.PipelineWatch", _Watch),
+        patch("sessions.executor.run.aclaim_ownership", _claim),
         patch("chat.api.streaming.SessionLock.release", side_effect=_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=heartbeat_mock),
         patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
@@ -973,7 +974,7 @@ class TestChatAfterRunMatrix:
         ) as calls:
             [event async for event in _streamer().events()]
 
-        assert calls == [("start",), ("persist", "main", mr), ("arm", True), ("finalize", True, ""), _RELEASE]
+        assert calls == [("start",), ("persist", "main", mr), ("claim", "run-pk", mr), ("finalize", True, ""), _RELEASE]
 
     async def test_a_raised_agent_error_becomes_a_run_error_event(self):
         from core.constants import RUN_FAILED_MESSAGE
@@ -1097,7 +1098,9 @@ class TestChatAfterRunMatrix:
         assert ("finalize", True, "") in calls
         assert "heartbeat failed" in caplog.text
 
-    @pytest.mark.parametrize(("step", "message"), [("persist", "persist session ref"), ("arm", "arm pipeline watch")])
+    @pytest.mark.parametrize(
+        ("step", "message"), [("persist", "persist session ref"), ("claim", "claim the merge request")]
+    )
     async def test_a_failed_ref_or_watch_step_is_logged_and_the_turn_still_succeeds(self, caplog, step, message):
         mr = {"source_branch": "feature-y", "merge_request_id": 42}
 
@@ -1111,7 +1114,7 @@ class TestChatAfterRunMatrix:
         ):
             [event async for event in _streamer().events()]
 
-        assert calls == [("start",), ("persist", "main", mr), ("arm", True), ("finalize", True, ""), _RELEASE]
+        assert calls == [("start",), ("persist", "main", mr), ("claim", "run-pk", mr), ("finalize", True, ""), _RELEASE]
         assert f"failed to {message}" in caplog.text
 
     async def test_a_finalize_failure_is_logged_and_still_releases_the_slot(self, caplog):
@@ -1296,3 +1299,106 @@ class TestTurnMeasurements:
 
         run = await Run.objects.aget(session_id="t-stream")
         assert run.clone_seconds == 1.5
+
+
+@pytest.mark.django_db(transaction=True)
+class TestInboxContext:
+    @pytest.fixture(autouse=True)
+    def _patch_run_lifecycle(self):
+        """Override the module-level autouse: the turn's ``Run`` row is real, so events can point at it."""
+
+    async def _session_with_taken_events(self) -> Session:
+        from sessions.models import EventKind, EventState
+
+        from tests.unit_tests.sessions.inbox.conftest import amake_event
+
+        session = await Session.objects.acreate(
+            thread_id="t-stream", origin="chat", repo_id="a/b", ref="main", active_run_id="r-1"
+        )
+        await amake_event(session, EventKind.MR_MERGED, merge_request_iid=3, state=EventState.TAKEN, claim_token="r-1")  # noqa: S106
+        return session
+
+    async def test_the_turns_run_takes_over_the_events_the_view_took(self, real_chat_inbox):
+        from sessions.models import InboxEvent
+
+        await self._session_with_taken_events()
+        turn = SimpleNamespace(chat_run=None)
+
+        run_id = await _streamer()._start_turn(turn, "main")
+
+        event = await InboxEvent.objects.aget()
+        assert (str(event.run_id), event.claim_token) == (run_id, "")
+
+    async def test_their_context_is_written_ahead_of_the_persons_message(self, real_chat_inbox):
+        from automation.agent.synthetic import synthetic_kind
+
+        await self._session_with_taken_events()
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock())
+
+        await streamer._add_inbox_context(
+            turn, SimpleNamespace(agent=agent, config={"configurable": {}}, fast_forward=None)
+        )
+
+        [call] = agent.aupdate_state.await_args_list
+        [context] = call.args[1]["messages"]
+        assert synthetic_kind(context) == "inbox"
+        assert "!3 was merged into main" in context.content
+        assert call.kwargs == {"as_node": "model"}
+
+    async def test_a_turn_with_nothing_taken_writes_nothing(self, real_chat_inbox):
+        await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock())
+
+        await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward=None))
+
+        agent.aupdate_state.assert_not_awaited()
+
+    async def test_a_warm_checkout_brought_up_to_the_remote_says_so(self, real_chat_inbox):
+        await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock())
+
+        await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward="advanced"))
+
+        [context] = agent.aupdate_state.await_args.args[1]["messages"]
+        assert "The branch main moved on the remote. Your working copy was fast-forwarded." in context.content
+
+    async def test_a_failed_write_is_logged_and_the_turn_goes_on(self, real_chat_inbox, caplog):
+        await self._session_with_taken_events()
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock(side_effect=RuntimeError("redis down")))
+
+        with caplog.at_level("ERROR", logger="daiv.chat"):
+            await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward=None))
+
+        assert "could not add the inbox context" in caplog.text
+
+
+async def test_the_inbox_is_drained_once_the_turn_releases_the_slot(chat_inbox):
+    order: list[str] = []
+    chat_inbox.drain.side_effect = lambda thread_id: order.append(f"drain {thread_id}")
+
+    async def _release(thread_id, run_id):
+        order.append("release")
+
+    with patch("chat.api.streaming.SessionLock.release", _release):
+        await _streamer()._end_turn(SimpleNamespace(chat_run=None), succeeded=True)
+
+    assert order == ["release", "drain t-stream"]
+
+
+async def test_a_failed_release_skips_the_drain(chat_inbox, caplog):
+    with patch("chat.api.streaming.SessionLock.release", AsyncMock(side_effect=RuntimeError("db down"))):
+        await _streamer()._end_turn(SimpleNamespace(chat_run=None), succeeded=True)
+
+    chat_inbox.drain.assert_not_called()

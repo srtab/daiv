@@ -3,8 +3,10 @@ import uuid
 from django.db import IntegrityError
 
 import pytest
+from allauth.socialaccount.models import SocialAccount
 from gitlab.exceptions import GitlabCreateError
 from sessions.executor.result import parse_agent_result
+from sessions.inbox.kinds import INBOX_TRIGGERS
 from sessions.models import (
     PublishErrorKind,
     Run,
@@ -91,13 +93,10 @@ def test_session_origin_includes_chat():
     }
 
 
-def test_classified_origins_exclude_chat_and_pipeline_webhook():
-    """Classification is "universal for non-chat" except pipeline-watch runs, which have a
-    separate result path. Pinning the set forces a newly-added SessionOrigin to decide."""
-    assert SessionOrigin.classified() == frozenset(SessionOrigin.values) - {
-        SessionOrigin.CHAT,
-        SessionOrigin.PIPELINE_WEBHOOK,
-    }
+def test_classified_origins_exclude_only_chat():
+    """Classification is universal for non-chat runs, CI fix runs included: their envelope is how the owner hears what
+    the run found. Pinning the set forces a newly-added SessionOrigin to decide."""
+    assert SessionOrigin.classified() == frozenset(SessionOrigin.values) - {SessionOrigin.CHAT}
 
 
 def test_retryable_origins_exclude_webhooks_and_the_runs_reporting_to_a_coordinator():
@@ -125,11 +124,11 @@ def test_webhook_runs_exempt_from_active_constraint():
     _mk_run(session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.ISSUE_WEBHOOK)
 
 
-def test_queued_runs_stack_freely():
+def test_queued_runs_outside_the_inbox_stack_freely():
     session = _mk_session()
     _mk_run(session, status=RunStatus.READY)
-    _mk_run(session, status=RunStatus.QUEUED)
-    _mk_run(session, status=RunStatus.QUEUED)
+    _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+    _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
 
 def test_active_run_id_nonempty_constraint():
@@ -158,11 +157,21 @@ def test_by_owner_matches_session_user(django_user_model):
 
 
 def test_by_owner_matches_run_actor(django_user_model):
-    """A session owned by nobody is visible to a user who acted in one of its runs."""
-    user = django_user_model.objects.create_user(username="gituser", email="g@x.io", password="x")  # noqa: S106
+    """A session owned by nobody is visible to the user linked to the account that started one of its runs, not to a
+    user who only shares that account's username."""
+    user = django_user_model.objects.create_user(username="linked", email="l@x.io", password="x")  # noqa: S106
+    namesake = django_user_model.objects.create_user(username="gituser", email="g@x.io", password="x")  # noqa: S106
+    SocialAccount.objects.create(user=user, provider="gitlab", uid="77")
     session = _mk_session(user=None, origin=SessionOrigin.ISSUE_WEBHOOK)
-    _mk_run(session, trigger_type=SessionOrigin.ISSUE_WEBHOOK, external_username="gituser")
+    _mk_run(
+        session,
+        trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+        external_username="gituser",
+        external_provider="gitlab",
+        external_uid="77",
+    )
     assert list(Session.objects.by_owner(user)) == [session]
+    assert list(Session.objects.by_owner(namesake)) == []
 
 
 def test_with_latest_status_annotation():
@@ -194,12 +203,51 @@ def test_active_constraint_literals_match_enums():
     constraint = next(c for c in Run._meta.constraints if c.name == "run_one_active_per_session")
     conditions = dict(constraint.condition.children)
     assert set(conditions["status__in"]) == {RunStatus.READY, RunStatus.RUNNING}
-    assert set(conditions["trigger_type__in"]) == {
-        SessionOrigin.API_JOB,
-        SessionOrigin.MCP_JOB,
-        SessionOrigin.DELEGATED_JOB,
-        SessionOrigin.DELEGATION_RESUME,
-    }
+    assert set(conditions["trigger_type__in"]) == SessionOrigin.one_active()
+
+
+@pytest.mark.parametrize("name", ["run_one_next_run_per_user", "run_one_next_run_per_account"])
+def test_next_run_constraint_literals_match_the_inbox_triggers(name):
+    constraint = next(c for c in Run._meta.constraints if c.name == name)
+    conditions = dict(constraint.condition.children)
+    assert conditions["status"] == RunStatus.QUEUED
+    assert set(conditions["trigger_type__in"]) == INBOX_TRIGGERS
+
+
+class TestOneNextRunPerBranch:
+    def test_a_second_next_run_on_one_branch_is_rejected(self):
+        session = _mk_session()
+        _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, ref="feat/x")
+
+        with pytest.raises(IntegrityError):
+            _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT, ref="feat/x")
+
+    def test_each_requester_gets_their_own(self, django_user_model):
+        session = _mk_session()
+        user = django_user_model.objects.create_user(username="nr", email="nr@x.io", password="x")  # noqa: S106
+        _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT, ref="feat/x")
+        _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT, ref="feat/x", user=user)
+        _mk_run(
+            session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.MR_WEBHOOK, ref="feat/x",
+            external_provider="gitlab", external_uid="77",
+        )  # fmt: skip
+
+        with pytest.raises(IntegrityError):
+            _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT, ref="feat/x", user=user)
+
+    def test_each_branch_gets_its_own(self):
+        session = _mk_session()
+        _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT, ref="feat/x")
+        _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT, ref="feat/y")
+
+        assert Run.objects.filter(session=session).count() == 2
+
+    def test_queued_delegated_legs_are_not_next_runs(self):
+        session = _mk_session()
+        for _ in range(2):
+            _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.DELEGATED_JOB, ref="main")
+
+        assert Run.objects.filter(session=session).count() == 2
 
 
 def test_sandbox_acquisition_column_fits_every_member():
@@ -264,18 +312,23 @@ def test_run_visible_to_admin_sees_all(admin_user, django_user_model):
     assert {mine.pk, theirs.pk} <= visible
 
 
-def test_run_visible_to_matches_user_and_external_username_but_not_stranger(django_user_model):
+def test_run_visible_to_matches_user_and_linked_account_but_not_namesake_or_stranger(django_user_model):
     user = django_user_model.objects.create_user(username="ru1", email="ru1@x.io", password="x")  # noqa: S106
     other = django_user_model.objects.create_user(username="ru2", email="ru2@x.io", password="x")  # noqa: S106
     # Webhook session: runs are exempt from the one-active-per-session constraint, so
     # several active runs can coexist for this authorization test.
     session = _mk_session(user=None, origin=SessionOrigin.ISSUE_WEBHOOK)
     own = _mk_run(session, user=user, trigger_type=SessionOrigin.ISSUE_WEBHOOK)
-    ext = _mk_run(session, user=None, external_username="ru1", trigger_type=SessionOrigin.ISSUE_WEBHOOK)
+    SocialAccount.objects.create(user=user, provider="gitlab", uid="77")
+    ext = _mk_run(
+        session, user=None, external_provider="gitlab", external_uid="77", trigger_type=SessionOrigin.ISSUE_WEBHOOK
+    )
+    namesake = _mk_run(session, user=None, external_username="ru1", trigger_type=SessionOrigin.ISSUE_WEBHOOK)
     stranger = _mk_run(session, user=other, trigger_type=SessionOrigin.ISSUE_WEBHOOK)
     visible = set(Run.objects.visible_to(user).values_list("pk", flat=True))
     assert own.pk in visible
     assert ext.pk in visible
+    assert namesake.pk not in visible
     assert stranger.pk not in visible
 
 

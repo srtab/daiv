@@ -4,52 +4,66 @@ import logging
 from functools import partial
 from typing import Any
 
-from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.tasks.signals import task_finished, task_started
 
+from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.backend import TaskResult as DatabaseTaskResult
 
 from core import ui_events
 from sessions.delegation import resume_coordinator
-from sessions.models import Run, RunStatus, Session
+from sessions.inbox.complete import on_run_ended
+from sessions.inbox.drain import Requester
+from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session
 from sessions.queue import dispatch_next_queued, release_runs_waiting_for
 from sessions.signal_defs import run_ended, run_finished
 
 logger = logging.getLogger("daiv.sessions")
 
 
-@receiver(post_save, sender=settings.AUTH_USER_MODEL)
-def backfill_session_user(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
-    """Link orphaned runs and sessions to a newly created user by matching external_username.
-
-    Only runs on user creation, not updates — renaming a user will not re-trigger backfill.
-    Errors are caught so that a problem in session backfill never breaks user creation.
-    """
+@receiver(post_save, sender=SocialAccount, dispatch_uid="sessions.claim_runs_for_linked_account")
+def claim_runs_for_linked_account(sender: type, instance: SocialAccount, created: bool, **kwargs: Any) -> None:
+    """Give the DAIV user who just linked a git platform account what that account started while unlinked, matched by
+    the account's id, never by username: its ownerless runs and sessions, those sessions' unowned merge requests, and
+    its requests still waiting in an inbox. A run still queued for the account becomes the user's request, keeping its
+    id, unless they already have one queued on its branch, which the drain then merges it into. A failure is logged and
+    rolled back alone, never breaking the sign-in."""
     if not created:
         return
-
+    match = {"user__isnull": True, "external_provider": instance.provider, "external_uid": instance.uid}
+    account = (instance.provider, instance.uid, instance.user_id)
     try:
-        updated_runs = Run.objects.filter(user__isnull=True, external_username=instance.username).update(user=instance)
+        with transaction.atomic():
+            runs = Run.objects.filter(**match).exclude(status=RunStatus.QUEUED).update(user_id=instance.user_id)
+            for queued_id in Run.objects.filter(**match, status=RunStatus.QUEUED).values_list("pk", flat=True):
+                runs += _hand_over_queued(queued_id, instance.user_id)
+            MergeRequestOwnership.objects.filter(
+                session__in=Session.objects.filter(**match), owner__isnull=True
+            ).update(owner_id=instance.user_id)
+            sessions = Session.objects.filter(**match).update(user_id=instance.user_id)
+            InboxEvent.objects.filter(
+                author__isnull=True,
+                author_provider=instance.provider,
+                author_uid=instance.uid,
+                state=EventState.PENDING,
+            ).update(author_id=instance.user_id)
     except Exception:
-        logger.exception("Failed to backfill runs for new user %s (pk=%s)", instance.username, instance.pk)
-        updated_runs = 0
-
-    if updated_runs:
-        logger.info("Backfilled %d runs for new user %s (pk=%s)", updated_runs, instance.username, instance.pk)
-
-    try:
-        updated_sessions = Session.objects.filter(user__isnull=True, external_username=instance.username).update(
-            user=instance
-        )
-    except Exception:
-        logger.exception("Failed to backfill sessions for new user %s (pk=%s)", instance.username, instance.pk)
+        logger.exception("Failed to give the runs of %s account %s to user pk=%s", *account)
         return
+    if runs or sessions:
+        logger.info("Gave %d run(s) and %d session(s) of %s account %s to user pk=%s", runs, sessions, *account)
 
-    if updated_sessions:
-        logger.info("Backfilled %d sessions for new user %s (pk=%s)", updated_sessions, instance.username, instance.pk)
+
+def _hand_over_queued(run_id: object, user_id: int) -> int:
+    """Make the QUEUED run ``run_id`` a request of ``user_id``, as the inbox records one; 0 when a QUEUED run of theirs
+    already holds its place (``run_one_next_run_per_user``)."""
+    try:
+        with transaction.atomic():
+            return Run.objects.filter(pk=run_id).update(**Requester(user_id).run_fields())
+    except IntegrityError:
+        return 0
 
 
 @receiver(post_save, sender=Run, dispatch_uid="sessions.publish_nav_runs_changed")
@@ -134,6 +148,15 @@ def release_waiting_runs(sender: type, run: Any, **kwargs: Any) -> None:
     On ``run_ended`` rather than ``run_finished`` so a chat turn that delegated releases its waiting legs too.
     """
     release_runs_waiting_for(run)
+
+
+@receiver(run_ended, dispatch_uid="sessions.settle_inbox_events")
+def settle_inbox_events(sender: type, run: Any, **kwargs: Any) -> None:
+    """Settle the inbox events ``run`` took and start the session's next run (:mod:`sessions.inbox.complete`).
+
+    On ``run_ended`` so a chat turn's end settles and drains too. ``skip_dispatch`` leaves the drain to the sweep.
+    """
+    on_run_ended(run, drain=not kwargs.get("skip_dispatch"))
 
 
 @receiver(run_finished, dispatch_uid="sessions.resume_delegating_session")

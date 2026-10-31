@@ -1,13 +1,15 @@
 import uuid
 from unittest.mock import AsyncMock, patch
 
+from django.utils import timezone
+
 import pytest
 from asgiref.sync import async_to_sync, sync_to_async
 from django_tasks_db.models import DBTaskResult
 from mcp_connectors.models import MCPServer
 from ninja.testing import TestAsyncClient
 from sessions.executor.tasks import run_job_task
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, HiddenSession, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from core.models import Provider, ProviderType
@@ -567,28 +569,80 @@ class TestThreadContinuationAPI:
         response = await authenticated_client.post("/jobs", json=body)
         assert response.status_code == 422
 
-    async def test_continuation_creates_queued_when_sibling_running(self, authenticated_client):
-        """When an active sibling exists on the session, the second submission lands in QUEUED."""
+
+@pytest.mark.django_db(transaction=True)
+class TestFollowUpThroughTheInbox:
+    async def _session(self, **fields) -> Session:
         user = await User.objects.aget(username="testuser")
-        thread = str(uuid.uuid4())
-        session = await Session.objects.acreate(
-            thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="group/project", user=user
-        )
-        await Run.objects.acreate(
-            session=session,
-            trigger_type=SessionOrigin.API_JOB,
-            repo_id="group/project",
-            status=RunStatus.RUNNING,
-            user=user,
-        )
+        return await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="group/project", ref="main", user=user,
+            **fields,
+        )  # fmt: skip
+
+    async def _busy(self) -> Session:
+        return await self._session(active_run_id="chat-run", last_active_at=timezone.now())
+
+    async def _submit(self, client, session: Session, **repo) -> dict:
+        body = {"repos": [{"repo_id": "group/project", "ref": None, **repo}], "prompt": "Bump it"}
+        response = await client.post("/jobs", json=body | {"thread_id": session.thread_id})
+        assert response.status_code == 202
+        return response.json()
+
+    async def test_on_an_idle_session_it_returns_the_run_the_inbox_started(self, authenticated_client):
+        session = await self._session()
+
         with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
-            mock_task.module_path = run_job_task.module_path
-            response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x", thread_id=thread))
-        assert response.status_code == 202
-        body = response.json()
-        assert body["jobs"][0]["status"] == "QUEUED"
+            body = await self._submit(authenticated_client, session)
+
+        [job] = body["jobs"]
+        run = await Run.objects.aget(session=session)
+        assert (job["job_id"], job["status"], job["thread_id"]) == (str(run.pk), "READY", session.thread_id)
+        assert (run.trigger_type, run.prompt) == (SessionOrigin.API_JOB, "Bump it")
+        event = await InboxEvent.objects.aget(session=session)
+        assert (event.kind, event.run_id) == (EventKind.FOLLOW_UP_JOB, run.pk)
+        assert mock_task.aenqueue.call_args.kwargs["inbox"] is True
+
+    async def test_jobs_on_one_branch_of_a_busy_session_share_its_next_run(self, authenticated_client):
+        session = await self._busy()
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            first = await self._submit(authenticated_client, session)
+            second = await self._submit(authenticated_client, session)
+
+        assert first["jobs"][0]["job_id"] == second["jobs"][0]["job_id"]
+        assert first["jobs"][0]["status"] == "QUEUED"
+        assert await Run.objects.filter(session=session).acount() == 1
         mock_task.aenqueue.assert_not_called()
+
+    async def test_jobs_on_different_branches_get_different_next_runs(self, authenticated_client):
+        session = await self._busy()
+
+        with patch("sessions.queue.run_job_task"):
+            here = await self._submit(authenticated_client, session)
+            there = await self._submit(authenticated_client, session, ref="feat/other")
+
+        assert here["jobs"][0]["job_id"] != there["jobs"][0]["job_id"]
+        event = await InboxEvent.objects.aget(session=session, ref="feat/other")
+        assert event.payload["ref"] == "feat/other"
+        assert await Run.objects.filter(pk=there["jobs"][0]["job_id"], ref="feat/other").aexists()
+
+    async def test_its_references_join_the_session_once_a_run_takes_it(self, authenticated_client):
+        session = await self._session()
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
+            response = await authenticated_client.post(
+                "/jobs",
+                json=_single_repo_body(
+                    thread_id=session.thread_id,
+                    references=[{"key": "PROJ-9", "provider": "jira", "url": "https://jira.example.com/browse/PROJ-9"}],
+                ),
+            )
+
+        assert response.status_code == 202
+        await session.arefresh_from_db()
+        assert [ref["key"] for ref in session.external_refs] == ["PROJ-9"]
 
 
 @pytest.mark.django_db(transaction=True)

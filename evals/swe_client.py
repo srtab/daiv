@@ -27,7 +27,7 @@ from codebase.clients.utils import safe_slug
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from codebase.clients.base import Emoji, WebhookSetupResult
+    from codebase.clients.base import CommentThread, Emoji, WebhookSetupResult
 
 logger = logging.getLogger("daiv.clients")
 
@@ -268,7 +268,7 @@ class SWERepoClient(RepoClient):
         raise NotImplementedError("SWERepoClient does not support merge requests")
 
     def create_merge_request_comment(
-        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
+        self, repo_id: str, merge_request_id: int, body: str, reply_to: CommentThread | None = None
     ) -> str | None:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request comments")
@@ -299,7 +299,9 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request comments")
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
+    def create_merge_request_note_emoji(
+        self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int, *, on_diff: bool = False
+    ):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request emojis")
 

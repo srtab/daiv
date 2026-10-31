@@ -23,6 +23,7 @@ class EventType(models.TextChoices):
     JOB_BATCH_FINISHED = "job_batch.finished", _("Job batch finished")
     PIPELINE_WATCH_EXHAUSTED = "pipeline_watch.exhausted", _("Pipeline watch gave up")
     SCHEDULE_DISPATCH_FAILED = "schedule_dispatch.failed", _("Schedule can't run")
+    INBOX_PAUSED = "inbox.paused", _("Session paused after runs in a row")
 
 
 class EnvelopeStatus(models.TextChoices):

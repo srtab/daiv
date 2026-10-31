@@ -23,8 +23,8 @@ from sessions.delegation import adelegator_for
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
+from sessions.inbox.ownership import aclaim_ownership
 from sessions.models import PublishStatus, Run, publish_field_updates
-from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import apersist_session_ref, areset_session_ref
 
 if TYPE_CHECKING:
@@ -38,10 +38,12 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
+    from automation.agent.events import PublishResultRecorder
     from automation.agent.publishers import PublishOutcome
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.git_manager import FastForward
     from automation.agent.workspace.session import SandboxSession
     from sessions.executor.spec import RunSpec
     from sessions.live.relay import RunRelay
@@ -63,7 +65,9 @@ class AgentRun:
     ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``workspace`` is where the
     agent works; draft recovery publishes through it, and the executor releases its sandbox session. ``settings`` is
     what the run resolved once, and ``session_links`` what builds the links they allow; draft recovery publishes with
-    both."""
+    both. ``run_id`` is the ``Run`` the run records on, ``None`` for a one-shot run, and ``publish`` holds the last
+    publish result the run dispatched. ``fast_forward`` is what bringing a warm sandbox's checkout up to the remote
+    branch did before the agent started; ``None`` when nothing was tried (a fresh checkout, or a one-shot run)."""
 
     ctx: RuntimeCtx
     agent: CompiledStateGraph[Any, RuntimeCtx]
@@ -73,6 +77,9 @@ class AgentRun:
     workspace: Workspace
     settings: AgentSettings
     session_links: SessionLinksResolver | None
+    run_id: str | None = None
+    publish: PublishResultRecorder | None = None
+    fast_forward: FastForward | None = None
 
 
 async def execute_run(
@@ -282,7 +289,8 @@ async def _ainvoke(run: AgentRun, spec: RunSpec, run_relay: RunRelay | None) -> 
     """Invoke the agent, streaming its events to ``run_relay`` when the run has one."""
     from sessions.live.publisher import ainvoke_live
 
-    graph_input = {"messages": list(spec.input_messages)}
+    messages = await spec.input_factory(run.fast_forward) if spec.input_factory is not None else spec.input_messages
+    graph_input = {"messages": list(messages)}
     if run_relay is None:
         return await run.agent.ainvoke(graph_input, config=run.config, context=run.ctx)
     return await ainvoke_live(
@@ -401,6 +409,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
             session_links = _session_links(spec, settings)
             if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
+            fast_forward = await _fast_forward(spec, ctx, workspace)
             delegator = (
                 await adelegator_for(spec.thread_id)
                 if spec.thread_id is not None and settings.features.orchestration
@@ -441,6 +450,9 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                     workspace=workspace,
                     settings=settings,
                     session_links=session_links,
+                    run_id=run_id,
+                    publish=publish,
+                    fast_forward=fast_forward,
                 )
                 try:
                     yield run
@@ -458,6 +470,23 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                     await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
             finally:
                 await _record_measurements(run_id, ctx, workspace)
+
+
+async def _fast_forward(spec: RunSpec, ctx: RuntimeCtx, workspace: Workspace) -> FastForward | None:
+    """Bring a warm sandbox's checkout up to the remote branch, which someone may have pushed to since the session's
+    last run; a fresh checkout is already there. Best-effort: logged, and the run works from what it has."""
+    from automation.agent.workspace.session import SandboxAcquisition
+
+    session = workspace.session
+    if spec.thread_id is None or session is None or session.acquisition is not SandboxAcquisition.WARM:
+        return None
+    if ctx.repo.head_detached or not ctx.repo.ref:
+        return None
+    try:
+        return await workspace.fast_forward(ctx.repo.ref)
+    except Exception:
+        logger.exception("executor: could not fast-forward the checkout for thread_id=%s", spec.thread_id)
+        return None
 
 
 def _build_workspace(ctx: RuntimeCtx) -> Workspace:
@@ -590,17 +619,8 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
             )
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
-    if spec.arm_watch:
-        try:
-            await PipelineWatch(spec.repo_id).aarm_after_run(
-                run_id=spec.run_id,
-                merge_request=merge_request,
-                published=published,
-                user_id=spec.acting_user_id,
-                sandbox_environment_id=spec.sandbox_env_id,
-            )
-        except Exception:
-            logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)
+    if spec.arm_watch and published and run.run_id is not None:
+        await _claim_merge_request(run, run.run_id, merge_request)
 
     agent_result = build_agent_result(
         response=response_text,
@@ -609,6 +629,21 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         question=pending_question(messages),
     )
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
+
+
+async def _claim_merge_request(run: AgentRun, run_id: str, merge_request: Any) -> None:
+    """Claim the merge request the run published for its session, then judge the branch's CI at once: the push
+    happened during publish, so its pipeline event can arrive before the claim exists. Best-effort: logged, never
+    raised over a run that already published."""
+    from sessions.tasks import evaluate_pipeline_watch_task
+
+    pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
+    try:
+        ownership = await aclaim_ownership(run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha or "")
+        if ownership is not None:
+            await evaluate_pipeline_watch_task.aenqueue(repo_id=ownership.repo_id, ref=ownership.source_branch)
+    except Exception:
+        logger.exception("executor: failed to claim the merge request for thread_id=%s", run.thread_id)
 
 
 async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:
@@ -620,7 +655,7 @@ async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:
     except RedisError, RedisSearchError, OSError, json.JSONDecodeError:
         logger.exception(
             "executor: failed to read the finished run's checkpoint for thread_id=%s; its merge request is lost to "
-            "the result, the ref sync and the CI watch",
+            "the result, the ref sync and the merge request claim",
             run.thread_id,
         )
         return None

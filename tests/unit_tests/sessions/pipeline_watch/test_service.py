@@ -1,46 +1,29 @@
 import asyncio
-from datetime import timedelta
+import uuid
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
 import pytest
-from notifications.choices import EventType
-from notifications.models import Notification
-from sandbox_envs.models import SandboxEnvironment, Visibility
-from sessions.ids import compute_thread_id
-from sessions.models import Session, SessionOrigin, WatchState
-from sessions.pipeline_watch.dispatch import FixRunDispatcher
-from sessions.pipeline_watch.policy import WatchPolicy
-from sessions.pipeline_watch.reconciler import WATCH_STALE_AFTER
+from sessions.models import (
+    EventKind,
+    InboxEvent,
+    MergeRequestOwnership,
+    QuietReason,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+)
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.signal_defs import watch_exhausted
 
-from codebase.base import Scope
-from codebase.repo_config import RepositoryConfig
-from core.models import SiteConfiguration
+from ..conftest import make_job, make_pipeline
 
-from ..conftest import amake_watched_session, make_job, make_pipeline
+pytestmark = pytest.mark.django_db(transaction=True)
 
-
-def mr_thread_id(merge_request_iid: int, repo_id: str = "group/repo") -> str:
-    """Where ``aarm`` puts the row. A test that creates a session anywhere else gets a fresh one
-    from ``aarm`` and passes without exercising anything."""
-    return compute_thread_id(repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request_iid)
-
-
-@pytest.fixture
-def watched_session(transactional_db):
-    return Session.objects.create(
-        thread_id="mr-thread",
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id="group/repo",
-        ref="daiv/branch",
-        merge_request_iid=7,
-        watch_state=WatchState.WATCHING,
-        watch_armed_at=timezone.now(),
-    )
+REPO, BRANCH, SHA = "group/repo", "daiv/branch", "abc123"
 
 
 class FakePlatform:
@@ -48,899 +31,421 @@ class FakePlatform:
 
     def __init__(self):
         self.pipeline = None
-        self.head_sha = "abc123"
-        self.notes = []
+        self.head_sha = SHA
         self.read_error = None
-        self.on_read = None
-        self.client_error = None
-        self.correlated = []
-        self.source_branch = "daiv/branch"
+        self.reads = 0
 
     async def aensure_client(self):
-        if self.client_error is not None:
-            raise self.client_error
+        return None
 
     async def aread_pipeline(self, *, ref, pipeline_id):
-        # A real yield point, so concurrent evaluations both get past the read before
-        # either reaches the compare-and-swap.
+        # A real yield point, so concurrent evaluations both get past the read before either records the pipeline.
         await asyncio.sleep(0)
-        if self.on_read is not None:
-            await self.on_read()
+        self.reads += 1
         if self.read_error is not None:
             raise self.read_error
         return self.pipeline
 
-    async def aread_merge_request(self, merge_request_iid):
-        if self.read_error is not None:
-            raise self.read_error
-        return SimpleNamespace(merge_request_id=merge_request_iid, source_branch=self.source_branch)
-
     async def ais_head_pipeline(self, *, merge_request_iid, report):
-        self.correlated.append(merge_request_iid)
-        if not merge_request_iid:
-            return False
-        return bool(self.head_sha) and report.sha == self.head_sha
-
-    async def apost_note(self, *, merge_request_iid, body):
-        self.notes.append({"merge_request_iid": merge_request_iid, "body": body})
-
-
-class RecordingDispatcher:
-    def __init__(self):
-        self.dispatched = []
-
-    async def adispatch(self, **kwargs):
-        self.dispatched.append(kwargs)
+        return bool(merge_request_iid) and report.sha == self.head_sha
 
 
 @pytest.fixture
 def exhausted():
-    """What ``watch_exhausted`` receivers were sent. The notifications receiver stays connected."""
     received = []
 
     def receiver(sender, signal, **kwargs):
-        received.append({"sender": sender, **kwargs})
+        received.append(kwargs)
 
     watch_exhausted.connect(receiver, weak=False, dispatch_uid="test-watch-exhausted")
     yield received
     watch_exhausted.disconnect(dispatch_uid="test-watch-exhausted")
 
 
+@pytest.fixture(autouse=True)
+def drain():
+    with patch("sessions.inbox.post.drain_logged") as drain:
+        yield drain
+
+
 @pytest.fixture
 def watch(exhausted):
-    """A ``PipelineWatch`` with the outside world faked and the store running for real."""
-    platform, dispatcher = FakePlatform(), RecordingDispatcher()
+    platform = FakePlatform()
+    policy = SimpleNamespace(enabled=True, max_attempts=3)
 
-    def make(repo_id: str = "group/repo", *, config: RepositoryConfig | None = None) -> PipelineWatch:
-        """A fresh instance per call: two concurrent events are two tasks and two instances,
-        over one shared platform and one shared database.
+    def make() -> PipelineWatch:
+        return PipelineWatch(REPO, platform=platform, policy=policy)
 
-        The policy is injected rather than monkeypatched onto ``RepositoryConfig.get_config``;
-        ``test_arming_costs_one_site_settings_read`` is what covers the un-injected path production
-        takes.
-        """
-        return PipelineWatch(
-            repo_id, platform=platform, dispatcher=dispatcher, policy=WatchPolicy(config or RepositoryConfig())
-        )
-
-    return SimpleNamespace(make=make, platform=platform, dispatcher=dispatcher, exhausted=exhausted)
+    return SimpleNamespace(make=make, platform=platform, policy=policy, exhausted=exhausted)
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_a_real_failure_dispatches_a_fix_run(watched_session, watch):
-    watch.platform.pipeline = make_pipeline("failed")
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
-
-    assert len(watch.dispatcher.dispatched) == 1
-    assert watch.exhausted == []
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.FIXING
-    assert watched_session.watch_attempts == 1
-    assert watched_session.watch_pipeline_id == 100
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_an_uninjected_dispatcher_is_a_real_fix_run_dispatcher(watched_session, watch, monkeypatch):
-    """Production injects no dispatcher, so the ``FixRunDispatcher(self._store)`` default in
-    ``PipelineWatch.__init__`` is the only path it takes — and every other test here injects one.
-    This pins that ``__init__`` builds the real ``FixRunDispatcher`` type (the ``isinstance``
-    assertion below) and passes it the right keyword arguments; ``adispatch`` itself is
-    monkeypatched away, so its body is not exercised here.
-    """
-    dispatched = []
-
-    async def fake_dispatch(self, **kwargs):
-        dispatched.append(kwargs)
-
-    monkeypatch.setattr(FixRunDispatcher, "adispatch", fake_dispatch)
-    pipeline = make_pipeline("failed", pipeline_id=900)
-    watch.platform.pipeline = pipeline
-
-    pw = PipelineWatch("group/repo", platform=watch.platform)
-    assert isinstance(pw._dispatcher, FixRunDispatcher)
-    # The store is shared deliberately: an injected store must also govern the refund.
-    assert pw._dispatcher._store is pw._store
-
-    await pw.aevaluate(ref="daiv/branch", pipeline_id=900)
-
-    assert len(dispatched) == 1
-    assert dispatched[0]["report"].pipeline is pipeline
-    assert dispatched[0]["repo_id"] == "group/repo"
-    assert dispatched[0]["merge_request_iid"] == 7
-    assert dispatched[0]["session"].thread_id == watched_session.thread_id
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_giving_up_sends_the_pipeline_facts(watched_session, watch):
-    """Reading the pipeline is this package's job — the allow_failure job is not a real failure — and
-    everything else belongs to the receivers. The pipeline id travels too: it is what scopes the
-    notification's dedup key to one give-up rather than to the whole thread."""
-    watch.platform.pipeline = make_pipeline(
-        "failed", jobs=[make_job(name="tests"), make_job(name="flaky", allow_failure=True)], pipeline_id=901
+async def _owned(**fields) -> MergeRequestOwnership:
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id=REPO, ref=BRANCH, **fields.pop("session", {})
     )
-    await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3)
+    defaults = {
+        "repo_id": REPO,
+        "merge_request_iid": 7,
+        "session": session,
+        "source_branch": BRANCH,
+        "last_daiv_sha": SHA,
+    }
+    return await MergeRequestOwnership.objects.acreate(**(defaults | fields))
 
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=901)
 
-    assert watch.exhausted == [
-        {
-            "sender": Session,
-            "session": watched_session,
-            "failing_jobs": ["tests"],
-            "pipeline_url": "https://example.com/p/901",
-            "pipeline_id": 901,
+async def _event() -> InboxEvent | None:
+    return await InboxEvent.objects.afirst()
+
+
+class TestVerdicts:
+    async def test_a_green_pipeline_is_remembered_as_passing(self, watch):
+        ownership = await _owned()
+        watch.platform.pipeline = make_pipeline("success")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await _event()
+        assert (event.session_id, event.kind, event.wake) == (ownership.session_id, EventKind.CI_PASSED, False)
+        assert (event.source_key, event.subject, event.ref, event.merge_request_iid) == (
+            "pipeline:100",
+            "ci:7",
+            BRANCH,
+            7,
+        )
+        assert event.payload == {
+            "pipeline_id": 100, "sha": SHA, "status": "success", "web_url": "https://example.com/p/100",
+            "failed_jobs": [],
+        }  # fmt: skip
+
+    @pytest.mark.parametrize("status", ["manual", "canceled"])
+    async def test_a_status_that_needs_a_person_is_remembered_as_stopped(self, watch, status):
+        await _owned()
+        watch.platform.pipeline = make_pipeline(status)
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await _event()
+        assert (event.kind, event.wake) == (EventKind.CI_STOPPED, False)
+
+    async def test_a_failure_on_daivs_commit_wakes_the_owning_session(self, watch, drain):
+        ownership = await _owned()
+        watch.platform.pipeline = make_pipeline("failed", [make_job("failed", name="image:build")])
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await _event()
+        assert (event.kind, event.wake, event.reason) == (EventKind.CI_FAILED, True, "")
+        assert event.payload["failed_jobs"] == ["image:build"]
+        drain.assert_called_once_with(ownership.session_id)
+        assert watch.exhausted == []
+
+    async def test_a_blank_daiv_commit_counts_as_daivs(self, watch):
+        await _owned(last_daiv_sha="")
+        watch.platform.pipeline = make_pipeline("failed")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert (await _event()).wake is True
+
+
+class TestWakeRule:
+    async def test_the_watch_turned_off_for_the_merge_request(self, watch):
+        await _owned(watch_enabled=False)
+
+        assert await _quiet_reason(watch) == QuietReason.WATCH_OFF
+
+    async def test_the_watch_turned_off_for_the_repository(self, watch):
+        await _owned()
+        watch.policy.enabled = False
+
+        assert await _quiet_reason(watch) == QuietReason.WATCH_OFF
+
+    async def test_a_muted_session(self, watch):
+        await _owned(session={"inbox_muted": True})
+
+        assert await _quiet_reason(watch) == QuietReason.MUTED
+
+    async def test_a_commit_daiv_did_not_push(self, watch):
+        await _owned(last_daiv_sha="0a1b2c3d")
+
+        assert await _quiet_reason(watch) == QuietReason.NOT_DAIV_COMMIT
+
+    async def test_a_commit_already_examined(self, watch):
+        await _owned(last_examined_sha=SHA)
+
+        assert await _quiet_reason(watch) == QuietReason.ALREADY_EXAMINED
+
+    async def test_the_attempts_spent(self, watch):
+        await _owned(attempts=3)
+
+        assert await _quiet_reason(watch) == QuietReason.BUDGET_SPENT
+
+    async def test_the_consecutive_run_limit(self, watch):
+        ownership = await _owned()
+        for _ in range(3):
+            await Run.objects.acreate(
+                session_id=ownership.session_id, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=REPO,
+                status=RunStatus.SUCCESSFUL,
+            )  # fmt: skip
+
+        assert await _quiet_reason(watch) == QuietReason.RUN_LIMIT
+
+
+async def _quiet_reason(watch) -> str:
+    watch.platform.pipeline = make_pipeline("failed")
+    await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+    event = await _event()
+    assert (event.kind, event.wake) == (EventKind.CI_FAILED, False)
+    return event.reason
+
+
+class TestNothingPosted:
+    async def test_a_pipeline_that_is_not_the_head_posts_nothing(self, watch):
+        await _owned()
+        watch.platform.pipeline = make_pipeline("failed")
+        watch.platform.head_sha = "newer"
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert await _event() is None
+
+    async def test_a_pipeline_judged_before_posts_nothing(self, watch):
+        await _owned(last_pipeline_id=100)
+        watch.platform.pipeline = make_pipeline("failed")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=None)
+
+        assert await _event() is None
+        assert watch.platform.reads == 1
+
+    async def test_two_deliveries_of_one_pipeline_post_once(self, watch):
+        await _owned()
+        watch.platform.pipeline = make_pipeline("failed")
+
+        await asyncio.gather(*(watch.make().aevaluate(ref=BRANCH, pipeline_id=100) for _ in range(2)))
+
+        assert await InboxEvent.objects.acount() == 1
+
+    async def test_an_unowned_or_closed_branch_posts_nothing(self, watch):
+        await _owned(closed_at=timezone.now())
+        watch.platform.pipeline = make_pipeline("failed")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+        await watch.make().aevaluate(ref="other", pipeline_id=101)
+
+        assert await _event() is None
+        assert watch.platform.reads == 0
+
+    @pytest.mark.parametrize("status", ["running", "pending"])
+    async def test_a_pipeline_still_running_posts_nothing(self, watch, status):
+        await _owned()
+        watch.platform.pipeline = make_pipeline(status)
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert await _event() is None
+        assert (await MergeRequestOwnership.objects.aget()).last_pipeline_id is None
+
+    async def test_a_failed_post_forgets_the_pipeline_so_it_is_judged_again(self, watch):
+        await _owned(last_pipeline_id=99)
+        watch.platform.pipeline = make_pipeline("failed")
+
+        with (
+            patch("sessions.pipeline_watch.service.apost_event", new=AsyncMock(side_effect=RuntimeError("db"))),
+            pytest.raises(RuntimeError),
+        ):
+            await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert (await MergeRequestOwnership.objects.aget()).last_pipeline_id == 99
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+        assert (await _event()).payload["pipeline_id"] == 100
+
+    async def test_an_unreadable_pipeline_posts_nothing_and_is_retried_later(self, watch, caplog):
+        await _owned()
+        watch.platform.read_error = RuntimeError("boom")
+
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
+            await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert await _event() is None
+        assert (await MergeRequestOwnership.objects.aget()).last_pipeline_id is None
+
+
+class TestGivingUp:
+    async def test_spent_attempts_on_a_new_daiv_commit_tell_the_owner(self, watch):
+        ownership = await _owned(attempts=3)
+        watch.platform.pipeline = make_pipeline("failed", [make_job("failed", name="tests")])
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        [sent] = watch.exhausted
+        assert sent["ownership"].pk == ownership.pk
+        assert sent["session"].pk == ownership.session_id
+        assert (sent["failing_jobs"], sent["sha"]) == (["tests"], SHA)
+
+    async def test_a_retried_pipeline_on_the_same_commit_tells_the_owner_once(self, watch):
+        await _owned(attempts=3)
+
+        for pipeline_id in (100, 101):
+            watch.platform.pipeline = make_pipeline("failed", pipeline_id=pipeline_id)
+            await watch.make().aevaluate(ref=BRANCH, pipeline_id=pipeline_id)
+
+        assert len(watch.exhausted) == 1
+        assert await InboxEvent.objects.filter(reason=QuietReason.BUDGET_SPENT).acount() == 2
+
+    @pytest.mark.parametrize(
+        "fields", [{"last_daiv_sha": "0a1b2c3d"}, {"last_examined_sha": SHA}], ids=["not-daivs", "examined"]
+    )
+    async def test_a_quiet_failure_for_another_reason_tells_no_one(self, watch, fields):
+        await _owned(attempts=3, **fields)
+        watch.platform.pipeline = make_pipeline("failed")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert watch.exhausted == []
+
+
+class TestDelegatedOutcome:
+    async def _child(self, **fields) -> tuple[Session, MergeRequestOwnership]:
+        parent = await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/coordinator"
+        )
+        return parent, await _owned(session={"parent": parent}, **fields)
+
+    @pytest.mark.parametrize(
+        ("pipeline", "fields", "outcome"),
+        [
+            (make_pipeline("success"), {}, "passing"),
+            (make_pipeline("failed"), {"attempts": 3}, "stopped_after_attempts"),
+        ],
+        ids=["passed", "budget-spent"],
+    )
+    async def test_the_parent_of_a_delegated_session_remembers_how_its_ci_ended(self, watch, pipeline, fields, outcome):
+        parent, ownership = await self._child(**fields)
+        watch.platform.pipeline = pipeline
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await InboxEvent.objects.aget(session=parent)
+        assert (event.kind, event.wake, event.source_key) == (
+            EventKind.DELEGATED_CI_OUTCOME, False, f"child-ci:{ownership.session_id}:{pipeline.id}",
+        )  # fmt: skip
+        assert event.payload == {
+            "child_thread_id": ownership.session_id,
+            "merge_request_iid": 7,
+            "outcome": outcome,
+            "web_url": pipeline.web_url,
         }
-    ]
+
+    @pytest.mark.parametrize("status", ["failed", "manual"], ids=["woken", "stopped"])
+    async def test_other_verdicts_tell_the_parent_nothing(self, watch, status):
+        await self._child()
+        watch.platform.pipeline = make_pipeline(status)
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert not await InboxEvent.objects.filter(kind=EventKind.DELEGATED_CI_OUTCOME).aexists()
+
+    async def test_a_session_without_a_parent_tells_no_one(self, watch):
+        await _owned(attempts=3)
+        watch.platform.pipeline = make_pipeline("failed")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert not await InboxEvent.objects.filter(kind=EventKind.DELEGATED_CI_OUTCOME).aexists()
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_giving_up_notifies_the_session_owner(watched_session, watch, django_user_model):
-    owner = await django_user_model.objects.acreate(username="owner", email="owner@example.com")
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=903)
-    await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3, user=owner)
+class TestRequestEvaluation:
+    async def test_it_enqueues_only_for_an_owned_branch(self, watch):
+        await _owned()
 
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=903)
+        with patch("sessions.tasks.evaluate_pipeline_watch_task") as task:
+            task.aenqueue = AsyncMock()
+            assert await watch.make().arequest_evaluation(ref=BRANCH, pipeline_id=100) is True
+            assert await watch.make().arequest_evaluation(ref="other", pipeline_id=101) is False
 
-    notification = await Notification.objects.aget()
-    assert notification.event_type == EventType.PIPELINE_WATCH_EXHAUSTED
-    assert notification.recipient_id == owner.pk
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_failing_receiver_never_breaks_the_watch(watched_session, watch):
-    """The MR comment is the reliable channel, so a receiver failure must not propagate into the
-    state machine that has already recorded the watch as exhausted."""
-
-    def boom(sender, **kwargs):
-        raise RuntimeError("channel down")
-
-    watch_exhausted.connect(boom, weak=False, dispatch_uid="test-watch-exhausted-boom")
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=902)
-    await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3)
-
-    try:
-        await watch.make().aevaluate(ref="daiv/branch", pipeline_id=902)
-    finally:
-        watch_exhausted.disconnect(dispatch_uid="test-watch-exhausted-boom")
-
-    assert len(watch.platform.notes) == 1
-    assert len(watch.exhausted) == 1
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.EXHAUSTED
+        task.aenqueue.assert_awaited_once_with(repo_id=REPO, ref=BRANCH, pipeline_id=100)
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_a_green_pipeline_ends_the_watch(watched_session, watch):
+class TestToggle:
+    async def test_turning_it_on_gives_the_attempts_back_and_judges_the_last_pipeline_again(self, watch):
+        ownership = await _owned(watch_enabled=False, attempts=3, last_examined_sha="abc", last_pipeline_id=7)
+
+        with patch("sessions.tasks.evaluate_pipeline_watch_task") as task:
+            task.aenqueue = AsyncMock()
+            assert await watch.make().aturn_on(ownership) is True
+
+        await ownership.arefresh_from_db()
+        assert (ownership.watch_enabled, ownership.attempts, ownership.last_pipeline_id) == (True, 0, None)
+        assert ownership.last_examined_sha == "abc"
+        task.aenqueue.assert_awaited_once_with(repo_id=REPO, ref=BRANCH, pipeline_id=7)
+
+    async def test_turning_it_on_when_it_is_on_changes_nothing(self, watch):
+        ownership = await _owned(attempts=1, last_examined_sha=SHA, last_pipeline_id=100)
+
+        with patch("sessions.tasks.evaluate_pipeline_watch_task") as task:
+            task.aenqueue = AsyncMock()
+            assert await watch.make().aturn_on(ownership) is True
+
+        await ownership.arefresh_from_db()
+        assert (ownership.attempts, ownership.last_pipeline_id) == (1, 100)
+        task.aenqueue.assert_not_awaited()
+
+    @pytest.mark.parametrize("pipeline_id", [100, None], ids=["by-id", "latest"])
+    async def test_a_failure_reported_while_the_watch_was_off_wakes_any_later_evaluation(
+        self, watch, drain, pipeline_id
+    ):
+        ownership = await _owned(watch_enabled=False)
+        watch.platform.pipeline = make_pipeline("failed")
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        with patch("sessions.tasks.evaluate_pipeline_watch_task") as task:
+            task.aenqueue = AsyncMock()
+            await watch.make().aturn_on(ownership)
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=pipeline_id)
+
+        quiet, woken = [event async for event in InboxEvent.objects.order_by("created_at")]
+        assert (quiet.wake, quiet.reason) == (False, QuietReason.WATCH_OFF)
+        assert (woken.wake, woken.source_key) == (True, "pipeline:100")
+        drain.assert_called_once_with(ownership.session_id)
+
+    async def test_turning_it_back_on_during_a_fix_leaves_the_examined_commit_alone(self, watch):
+        ownership = await _owned(watch_enabled=False, attempts=1, last_examined_sha=SHA)
+        watch.platform.pipeline = make_pipeline("failed")
+
+        with patch("sessions.tasks.evaluate_pipeline_watch_task") as task:
+            task.aenqueue = AsyncMock()
+            await watch.make().aturn_on(ownership)
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await _event()
+        assert (event.wake, event.reason) == (False, QuietReason.ALREADY_EXAMINED)
+
+    async def test_it_cannot_be_turned_on_when_the_repository_has_it_off(self, watch):
+        ownership = await _owned(watch_enabled=False)
+        watch.policy.enabled = False
+
+        assert await watch.make().aturn_on(ownership) is False
+        await ownership.arefresh_from_db()
+        assert ownership.watch_enabled is False
+
+    async def test_turning_it_off_keeps_the_attempts(self, watch):
+        ownership = await _owned(attempts=2)
+
+        await watch.make().aturn_off(ownership)
+
+        await ownership.arefresh_from_db()
+        assert (ownership.watch_enabled, ownership.attempts) == (False, 2)
+
+
+async def test_a_deleted_owning_session_is_replaced_before_posting(watch):
+    ownership = await _owned()
+    await Session.objects.filter(pk=ownership.session_id).adelete()
     watch.platform.pipeline = make_pipeline("success")
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
 
-    assert watch.dispatcher.dispatched == []
-    assert watch.exhausted == []
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.GREEN
+    await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
 
-
-@pytest.mark.django_db(transaction=True)
-async def test_an_unreadable_pipeline_stops_the_watch_with_a_note(watched_session, watch):
-    watch.platform.pipeline = make_pipeline("success", jobs=[])
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
-
-    assert watch.dispatcher.dispatched == []
-    assert len(watch.platform.notes) == 1
-    assert watch.exhausted == []
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.UNCLEAR
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_the_same_pipeline_is_only_acted_on_once(watched_session, watch):
-    watch.platform.pipeline = make_pipeline("failed")
-    watched_session.watch_pipeline_id = 100
-    await watched_session.asave()
-
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
-    assert watch.dispatcher.dispatched == []
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_session_being_fixed_ignores_new_events(watched_session, watch):
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=200)
-    watched_session.watch_state = WatchState.FIXING
-    await watched_session.asave()
-
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=200)
-    assert watch.dispatcher.dispatched == []
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_at_the_cap_it_gives_up_instead_of_dispatching(watched_session, watch):
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=200)
-    watched_session.watch_attempts = 3
-    await watched_session.asave()
-
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=200)
-
-    assert watch.dispatcher.dispatched == []
-    assert len(watch.platform.notes) == 1
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.EXHAUSTED
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_pipeline_that_has_not_finished_leaves_the_watch_armed(watched_session, watch):
-    """The arm-time evaluation runs seconds after the publish push, so the pipeline is still
-    running. ``PipelineReport`` calls that UNCLEAR, and acting on it closed every watch DAIV armed.
-    """
-    watch.platform.pipeline = make_pipeline("running")
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=None)
-
-    assert watch.dispatcher.dispatched == []
-    assert watch.platform.notes == []
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.WATCHING
-    assert watched_session.watch_pipeline_id is None
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("status", ["blocked", "manual"])
-async def test_a_pipeline_waiting_on_a_human_still_stops_the_watch_with_a_note(watched_session, watch, status):
-    """These are settled states, not slow ones: nothing resolves them without a person, so the
-    "not judgeable yet" gate must not swallow them into the six-hour expiry."""
-    jobs = [make_job("manual", name="deploy")]
-    watch.platform.pipeline = make_pipeline(status, pipeline_id=250, jobs=jobs)
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=250)
-
-    assert watch.dispatcher.dispatched == []
-    assert len(watch.platform.notes) == 1
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.UNCLEAR
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_pipeline_that_does_not_exist_yet_leaves_the_watch_armed(watched_session, watch):
-    """WATCH_MAX_AGE is the backstop for a pipeline that never starts, not an MR comment."""
-    watch.platform.pipeline = None
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=None)
-
-    assert watch.platform.notes == []
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.WATCHING
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_polled_pipeline_from_an_earlier_push_is_ignored(watched_session, watch):
-    """The poll reads *the latest* pipeline for the ref, which correlates with no particular push:
-    a stale ``success`` would close the watch green, a stale ``failed`` spend an attempt twice."""
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=400)
-    watch.platform.head_sha = "deadbee"
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=None)
-
-    assert watch.dispatcher.dispatched == []
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.WATCHING
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_polled_pipeline_at_the_branch_head_is_judged(watched_session, watch):
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=401)
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=None)
-
-    assert len(watch.dispatcher.dispatched) == 1
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_superseded_webhook_pipeline_is_ignored(watched_session, watch):
-    """A webhook names *which* pipeline it reports, not *whether* that pipeline is still the head.
-    GitLab auto-cancels redundant pipelines by default, so the push after ours makes the older one
-    emit a terminal ``canceled`` — which judges UNCLEAR and would close the watch."""
-    watch.platform.pipeline = make_pipeline("canceled", pipeline_id=402)
-    watch.platform.head_sha = "deadbee"
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=402)
-
-    assert watch.dispatcher.dispatched == []
-    assert watch.platform.notes == []
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.WATCHING
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_webhook_pipeline_at_the_branch_head_is_judged(watched_session, watch):
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=403)
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=403)
-
-    assert len(watch.dispatcher.dispatched) == 1
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_an_unreadable_head_sha_does_not_close_the_watch(watched_session, watch):
-    """Correlation is a precondition, not a verdict: a merge request with no head sha to compare
-    against leaves the watch armed for the next event rather than judging an uncorrelated pipeline.
-    The read that *raises* is covered in ``test_platform.py``."""
-    watch.platform.head_sha = None
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=404)
-
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=404)
-
-    assert watch.dispatcher.dispatched == []
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.WATCHING
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_two_concurrent_green_verdicts_close_the_watch_once(watched_session, watch):
-    """Only the ACTIONABLE branch used to compare-and-swap, so the terminal branches acted on a
-    stale read and each posted its own MR comment."""
-    watch.platform.pipeline = make_pipeline("success", jobs=[])
-
-    await asyncio.gather(
-        watch.make().aevaluate(ref="daiv/branch", pipeline_id=700),
-        watch.make().aevaluate(ref="daiv/branch", pipeline_id=700),
-    )
-
-    assert len(watch.platform.notes) == 1
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.UNCLEAR
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_two_concurrent_give_ups_comment_and_notify_once(watched_session, watch):
-    """Duplicate MR comments are a failure mode this project has already shipped once."""
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=701)
-    watched_session.watch_attempts = 3
-    await watched_session.asave()
-
-    await asyncio.gather(
-        watch.make().aevaluate(ref="daiv/branch", pipeline_id=701),
-        watch.make().aevaluate(ref="daiv/branch", pipeline_id=701),
-    )
-
-    assert len(watch.platform.notes) == 1
-    assert len(watch.exhausted) == 1
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.EXHAUSTED
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_polled_pipeline_already_acted_on_is_not_re_dispatched(watched_session, watch):
-    """Invariant 4 on the poll path: the reconciler passes no pipeline id, so the dedupe has to
-    compare the pipeline it actually read."""
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=300)
-    watched_session.watch_pipeline_id = 300
-    await watched_session.asave()
-
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=None)
-    assert watch.dispatcher.dispatched == []
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_second_concurrent_evaluation_does_not_dispatch(watched_session, watch):
-    """Invariant 3. Two workflows finishing together (or a webhook retry) both read ``watching``
-    with the same count and both clear the cap check, so only the CAS can pick a winner."""
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=500)
-
-    await asyncio.gather(
-        watch.make().aevaluate(ref="daiv/branch", pipeline_id=500),
-        watch.make().aevaluate(ref="daiv/branch", pipeline_id=500),
-    )
-
-    assert len(watch.dispatcher.dispatched) == 1
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_attempts == 1
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_two_concurrent_exhaustions_comment_and_notify_once(watched_session, watch):
-    """Same race as the dispatch claim, but on the terminal branches: both readers clear the cap
-    check off their own snapshot, and the comment and the notification are both non-idempotent."""
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=800)
-    await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3)
-
-    await asyncio.gather(
-        watch.make().aevaluate(ref="daiv/branch", pipeline_id=800),
-        watch.make().aevaluate(ref="daiv/branch", pipeline_id=800),
-    )
-
-    assert len(watch.platform.notes) == 1
-    assert len(watch.exhausted) == 1
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.EXHAUSTED
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_the_cap_is_re_asserted_when_the_claim_lands(watched_session, watch):
-    """A reader's cap check runs off a snapshot that can outlive a whole fix-run cycle — the row
-    reaches the cap and is re-armed while it waits — so the CAS has to bound the count itself
-    rather than trust the value that cleared the check."""
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=850)
-
-    async def spend_the_whole_budget():
-        await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(
-            watch_attempts=3, watch_state=WatchState.WATCHING
-        )
-
-    watch.platform.on_read = spend_the_whole_budget
-
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=850)
-
-    await watched_session.arefresh_from_db()
-    assert watch.dispatcher.dispatched == []
-    assert watched_session.watch_attempts == 3
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_arming_a_new_watch_records_the_publishing_user(watch, monkeypatch, django_user_model):
-    """The MR thread has no session until the publish, so this call creates it — and a row created
-    without a user gets every fix run unattributed: no notification, no user-tier env, no MCP."""
-    user = await django_user_model.objects.acreate(username="publisher", email="publisher@example.com")
-
-    armed = await watch.make().aarm(merge_request_iid=74, ref="daiv/branch", was_fix_run=False, user_id=user.pk)
-
-    assert armed == mr_thread_id(74)
-    session = await Session.objects.aget(thread_id=armed)
-    assert session.user_id == user.pk
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_dispatching_a_fix_run_restamps_the_staleness_clock(watched_session, watch):
-    """WATCH_STALE_AFTER is measured off ``watch_armed_at``; a watch armed before a slow CI run
-    would otherwise hand the reconciler a ``fixing`` row that is already stale."""
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=600)
-    armed_at = timezone.now() - timedelta(minutes=45)
-    await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_armed_at=armed_at)
-
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=600)
-
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.FIXING
-    assert watched_session.watch_armed_at > armed_at + WATCH_STALE_AFTER
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_repo_cannot_raise_the_cap_above_the_site_value(watched_session, watch, monkeypatch, site_setting):
-    """The docs promise a repo can only tighten, so an explicit ``.daiv.yml`` value is clamped to the
-    site cap rather than replacing it."""
-    site_setting("pipeline_watch_max_attempts", 2)
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=700)
-    watched_session.watch_attempts = 2
-    await watched_session.asave()
-
-    config = RepositoryConfig(**{"pipeline_watch": {"max_attempts": 10}})
-    await watch.make(config=config).aevaluate(ref="daiv/branch", pipeline_id=700)
-
-    assert watch.dispatcher.dispatched == []
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.EXHAUSTED
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_disabled_site_switch_stops_the_watch_from_arming(watch, monkeypatch, site_setting):
-    site_setting("pipeline_watch_enabled", False)
-    config = RepositoryConfig(**{"pipeline_watch": {"enabled": True}})
-    assert await watch.make(config=config).aarm(merge_request_iid=81, ref="daiv/branch", was_fix_run=False) is None
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_arming_from_a_normal_run_resets_the_counter(watch, monkeypatch):
-
-    # The row must live at the MR thread id, or aarm creates a fresh session and the
-    # assertion passes without ever exercising the reset.
-    mr_thread = mr_thread_id(71)
-    await amake_watched_session(
-        thread_id=mr_thread, merge_request_iid=71, watch_state=WatchState.EXHAUSTED, watch_attempts=3
-    )
-    armed = await watch.make().aarm(merge_request_iid=71, ref="daiv/branch", was_fix_run=False)
-    assert armed == mr_thread
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert session.watch_state == WatchState.WATCHING
-    assert session.watch_attempts == 0
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_arming_from_a_fix_run_keeps_the_counter(watch, monkeypatch):
-
-    mr_thread = mr_thread_id(72)
-    await amake_watched_session(
-        thread_id=mr_thread, merge_request_iid=72, watch_state=WatchState.FIXING, watch_attempts=2
-    )
-    await watch.make().aarm(merge_request_iid=72, ref="daiv/branch", was_fix_run=True)
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert session.watch_state == WatchState.WATCHING
-    assert session.watch_attempts == 2
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_fix_run_that_changed_nothing_gives_up(watch):
-    """Invariant 7. No change means no push, which means no pipeline and no event — so this
-    watch would sit in `fixing` until it aged out six hours later."""
-    mr_thread = mr_thread_id(73)
-    await amake_watched_session(
-        thread_id=mr_thread, merge_request_iid=73, watch_state=WatchState.FIXING, watch_attempts=1
-    )
-    await watch.make().aexhaust(merge_request_iid=73, reason="the agent made no changes")
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert session.watch_state == WatchState.EXHAUSTED
-    assert watch.exhausted == []
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_arming_gives_the_mr_thread_the_run_owner_and_environment(watch, django_user_model):
-    """The MR thread is almost always created *here*, not by a human — so without an owner
-    carried in, the give-up notification has no recipient and the fix run loses the user's
-    personal MCP servers; without the environment, every fix run falls to the GLOBAL default."""
-
-    owner = await django_user_model.objects.acreate(username="runner", email="runner@example.com")
-    env = await SandboxEnvironment.objects.acreate(
-        scope=Visibility.USER, user=owner, name="mine", base_image="python:3.14"
-    )
-    mr_thread = mr_thread_id(91)
-
-    armed = await watch.make().aarm(
-        merge_request_iid=91, ref="daiv/branch", was_fix_run=False, user_id=owner.pk, sandbox_environment_id=str(env.id)
-    )
-
-    assert armed == mr_thread
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert (session.user_id, session.sandbox_environment_id) == (owner.pk, env.id)
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_arming_adopts_an_ownerless_thread(watch, django_user_model):
-    """An MR thread created by an earlier webhook has no user; the first owned run must adopt it
-    or that thread can never notify anyone. Its env is checked against the owner adopted in the same arm."""
-
-    owner = await django_user_model.objects.acreate(username="runner2", email="runner2@example.com")
-    env = await SandboxEnvironment.objects.acreate(
-        scope=Visibility.USER, user=owner, name="mine", base_image="python:3.14"
-    )
-    mr_thread = mr_thread_id(92)
-    await amake_watched_session(thread_id=mr_thread, merge_request_iid=92, user=None)
-
-    await watch.make().aarm(
-        merge_request_iid=92, ref="daiv/branch", was_fix_run=False, user_id=owner.pk, sandbox_environment_id=str(env.id)
-    )
-
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert (session.user_id, session.sandbox_environment_id) == (owner.pk, env.id)
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_arming_never_reassigns_an_owned_thread(watch, django_user_model):
-    """A human's MR conversation keeps its owner: a scheduled run publishing to the same MR must
-    not silently move that thread (and its notifications) to the scheduler's user, nor open the
-    scheduler's USER env and its secrets to the owner's fix runs."""
-
-    human = await django_user_model.objects.acreate(username="human2", email="human2@example.com")
-    robot = await django_user_model.objects.acreate(username="robot", email="robot@example.com")
-    private = await SandboxEnvironment.objects.acreate(
-        scope=Visibility.USER, user=robot, name="mine", base_image="python:3.14"
-    )
-    mr_thread = mr_thread_id(93)
-    await amake_watched_session(thread_id=mr_thread, merge_request_iid=93, user=human)
-
-    await watch.make().aarm(
-        merge_request_iid=93,
-        ref="daiv/branch",
-        was_fix_run=False,
-        user_id=robot.pk,
-        sandbox_environment_id=str(private.id),
-    )
-
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert (session.user_id, session.sandbox_environment_id) == (human.pk, None)
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_an_environment_deleted_during_the_run_still_arms_the_watch(watch):
-    """The run holds the id from its start; writing a deleted one would fail the arm and leave the MR unwatched."""
-    env = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="ci", base_image="python:3.14")
-    env_id = str(env.id)
-    await env.adelete()
-
-    armed = await watch.make().aarm(
-        merge_request_iid=98, ref="daiv/branch", was_fix_run=False, sandbox_environment_id=env_id
-    )
-
-    session = await Session.objects.aget(thread_id=armed)
-    assert session.watch_state == WatchState.WATCHING
-    assert session.sandbox_environment_id is None
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_arming_never_replaces_a_threads_environment(watch):
-    """A session keeps the environment of its first run, like its owner."""
-    first = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="ci", base_image="python:3.14")
-    other = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="ci-2", base_image="python:3.13")
-    mr_thread = mr_thread_id(96)
-    await amake_watched_session(thread_id=mr_thread, merge_request_iid=96, sandbox_environment=first)
-
-    await watch.make().aarm(
-        merge_request_iid=96, ref="daiv/branch", was_fix_run=False, sandbox_environment_id=str(other.id)
-    )
-
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert session.sandbox_environment_id == first.id
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_transient_read_failure_leaves_the_watch_armed_and_warns(watched_session, watch, caplog):
-    """An unreadable pipeline must never become a verdict, and must never be silent either: the
-    read used to answer ``None`` for an outage, which the watch logged at DEBUG and waited out."""
-    from github import GithubException
-
-    watch.platform.read_error = GithubException(403, None, None)
-
-    with caplog.at_level("WARNING", logger="daiv.sessions"):
-        await watch.make().aevaluate(ref="daiv/branch", pipeline_id=800)
-
-    assert watch.dispatcher.dispatched == []
-    assert watch.platform.notes == []
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.WATCHING
-    # WARNING without a traceback: the watch polls for hours, so an outage must not mint one
-    # Sentry error per sweep.
-    records = [r for r in caplog.records if r.name == "daiv.sessions"]
-    assert [r.levelname for r in records] == ["WARNING"]
-    assert records[0].exc_info is None
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_an_unexpected_read_failure_is_reported_with_a_traceback(watched_session, watch, caplog):
-    watch.platform.read_error = AttributeError("'NoneType' object has no attribute 'sha'")
-
-    with caplog.at_level("WARNING", logger="daiv.sessions"):
-        await watch.make().aevaluate(ref="daiv/branch", pipeline_id=801)
-
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.WATCHING
-    records = [r for r in caplog.records if r.name == "daiv.sessions"]
-    assert [r.levelname for r in records] == ["ERROR"]
-    assert records[0].exc_info is not None
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_an_unwatched_branch_never_buys_a_queue_round_trip(watch, monkeypatch):
-    """CI fires on every branch of every repo and only a DAIV-published MR branch has a watch, so
-    without the existence check each unrelated pipeline pays for a task to learn there is nothing
-    to do."""
-    enqueued = []
-
-    class FakeTask:
-        async def aenqueue(self, **kwargs):
-            enqueued.append(kwargs)
-
-    monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeTask())
-
-    assert await watch.make().arequest_evaluation(ref="someone-elses-branch", pipeline_id=1) is False
-    assert enqueued == []
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_watched_branch_enqueues_the_evaluation(watched_session, watch, monkeypatch):
-    enqueued = []
-
-    class FakeTask:
-        async def aenqueue(self, **kwargs):
-            enqueued.append(kwargs)
-
-    monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeTask())
-
-    assert await watch.make().arequest_evaluation(ref="daiv/branch", pipeline_id=42) is True
-    assert enqueued == [{"repo_id": "group/repo", "ref": "daiv/branch", "pipeline_id": 42}]
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_arming_costs_one_site_settings_read(watch, monkeypatch):
-    """``aarm`` runs at the end of every publishing chat turn, job and issue-addressor run. Each site
-    read is a blocking thread hop, so the policy must take one snapshot rather than read per field.
-    """
-    config = RepositoryConfig()
-    monkeypatch.setattr("sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: config)
-    # No injected policy: this is the only test on the ``WatchPolicy.afor_repo`` fallback that
-    # production takes, and the cost it measures is the fallback's.
-    pw = PipelineWatch("group/repo", platform=watch.platform, dispatcher=watch.dispatcher)
-
-    with patch.object(SiteConfiguration, "get_cached", wraps=SiteConfiguration.get_cached) as get_cached:
-        await pw.aarm(merge_request_iid=81, ref="daiv/branch", was_fix_run=False)
-
-    assert get_cached.call_count == 1
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_client_that_cannot_be_built_is_not_a_ci_outage(watched_session, watch, caplog):
-    """A client we cannot build is a deployment fault and must reach someone.
-
-    ``is_transient_platform_error`` counts the 401/403 a dead GitHub App installation returns as
-    transient, so resolving the client lazily inside the read guard would log a permanent
-    misconfiguration at WARNING — which mints no Sentry event — on every webhook and every sweep,
-    forever, while the user is told CI produced no result.
-    """
-    watch.platform.client_error = RuntimeError("no installation")
-    watch.platform.pipeline = make_pipeline("failed")
-
-    with pytest.raises(RuntimeError, match="no installation"):
-        await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
-
-    assert "could not read the pipeline" not in caplog.text
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_correlation_is_asked_about_the_watched_merge_request(watched_session, watch):
-    """The head-correlation call is what decides whether a pipeline is acted on at all. Nothing else
-    checks the iid reaching it, so a wrong one would correlate against another merge request and a
-    ``None`` would silently skip every evaluation until the watch aged out.
-    """
-    watch.platform.pipeline = make_pipeline("failed")
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
-
-    assert watch.platform.correlated == [watched_session.merge_request_iid]
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_the_ci_skip_placeholder_leaves_the_watch_armed(watched_session, watch):
-    """DAIV's own ``-o ci.skip`` push materialises a jobless ``skipped`` pipeline seconds before the
-    real merge-request pipeline exists. Acting on it closed the watch one second after arming."""
-    watch.platform.pipeline = make_pipeline("skipped", pipeline_id=812577, jobs=[])
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=812577)
-
-    assert watch.dispatcher.dispatched == []
-    assert watch.platform.notes == []
-    await watched_session.arefresh_from_db()
-    assert watched_session.watch_state == WatchState.WATCHING
-    assert watched_session.watch_pipeline_id is None
-
-
-@pytest.fixture
-def evaluations(monkeypatch):
-    enqueued = []
-
-    class FakeTask:
-        async def aenqueue(self, **kwargs):
-            enqueued.append(kwargs)
-
-    monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeTask())
-    return enqueued
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize(
-    "state", [WatchState.WATCHING, WatchState.FIXING, WatchState.GREEN, WatchState.EXHAUSTED, WatchState.UNCLEAR]
-)
-async def test_turning_the_watch_off_ends_it_from_any_state(watch, state):
-    mr_thread = mr_thread_id(90)
-    await amake_watched_session(thread_id=mr_thread, merge_request_iid=90, watch_state=state)
-
-    assert await watch.make().aturn_off(merge_request_iid=90, seen_state=state) is True
-
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert session.watch_state == WatchState.OFF
-    assert watch.platform.notes == []
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_turning_off_a_watch_that_is_already_off_changes_nothing(watch):
-    assert await watch.make().aturn_off(merge_request_iid=91, seen_state=WatchState.OFF) is True
-    assert not await Session.objects.filter(thread_id=mr_thread_id(91)).aexists()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_turning_off_loses_to_a_fix_run_that_claimed_the_watch_first(watch):
-    """The person saw "Waiting for CI"; a failed pipeline handed the watch to a fix run before their click landed.
-    Their off must not land on a state they never saw, so the page re-reads and shows "Fixing"."""
-    mr_thread = mr_thread_id(92)
-    await amake_watched_session(thread_id=mr_thread, merge_request_iid=92, ref="daiv/branch")
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=920)
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=920)
-
-    turned_off = await watch.make().aturn_off(merge_request_iid=92, seen_state=WatchState.WATCHING)
-
-    assert turned_off is False
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert session.watch_state == WatchState.FIXING
-    assert len(watch.dispatcher.dispatched) == 1
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_watch_turned_off_first_wins_over_the_fix_run_claim(watch):
-    mr_thread = mr_thread_id(93)
-    await amake_watched_session(thread_id=mr_thread, merge_request_iid=93, ref="daiv/branch")
-    watch.platform.pipeline = make_pipeline("failed", pipeline_id=930)
-
-    async def turn_off_first():
-        await watch.make().aturn_off(merge_request_iid=93, seen_state=WatchState.WATCHING)
-
-    watch.platform.on_read = turn_off_first
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=930)
-
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert session.watch_state == WatchState.OFF
-    assert watch.dispatcher.dispatched == []
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_turning_the_watch_on_arms_the_merge_requests_current_branch(watch, evaluations, django_user_model):
-    user = await django_user_model.objects.acreate(username="toggler", email="toggler@example.com")
-    mr_thread = mr_thread_id(94)
-    await amake_watched_session(
-        thread_id=mr_thread,
-        merge_request_iid=94,
-        ref="daiv/old-name",
-        watch_state=WatchState.OFF,
-        watch_attempts=3,
-        watch_pipeline_id=940,
-    )
-    watch.platform.source_branch = "daiv/new-name"
-
-    armed = await watch.make().aturn_on(merge_request_iid=94, user_id=user.pk)
-
-    assert armed == mr_thread
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert (session.watch_state, session.ref, session.watch_attempts, session.watch_pipeline_id) == (
-        WatchState.WATCHING,
-        "daiv/new-name",
-        0,
-        None,
-    )
-    assert evaluations == [{"repo_id": "group/repo", "ref": "daiv/new-name"}]
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_turning_the_watch_on_creates_the_merge_request_thread(watch, evaluations, django_user_model):
-    user = await django_user_model.objects.acreate(username="toggler2", email="toggler2@example.com")
-
-    armed = await watch.make().aturn_on(merge_request_iid=95, user_id=user.pk)
-
-    session = await Session.objects.aget(thread_id=armed)
-    assert (session.watch_state, session.user_id) == (WatchState.WATCHING, user.pk)
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_turning_on_a_watch_that_is_still_open_leaves_it_alone(watch, evaluations):
-    mr_thread = mr_thread_id(98)
-    await amake_watched_session(
-        thread_id=mr_thread, merge_request_iid=98, watch_state=WatchState.FIXING, watch_attempts=2
-    )
-
-    assert await watch.make().aturn_on(merge_request_iid=98) == mr_thread
-
-    session = await Session.objects.aget(thread_id=mr_thread)
-    assert (session.watch_state, session.watch_attempts) == (WatchState.FIXING, 2)
-    assert evaluations == []
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_turning_the_watch_on_does_nothing_when_the_repository_has_it_off(watch, evaluations):
-    config = RepositoryConfig(**{"pipeline_watch": {"enabled": False}})
-
-    assert await watch.make(config=config).aturn_on(merge_request_iid=96) is None
-    assert not await Session.objects.filter(thread_id=mr_thread_id(96)).aexists()
-    assert evaluations == []
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_turning_the_watch_on_raises_when_the_merge_request_cannot_be_read(watch, evaluations):
-    watch.platform.read_error = RuntimeError("platform down")
-
-    with pytest.raises(RuntimeError):
-        await watch.make().aturn_on(merge_request_iid=97)
-
-    assert not await Session.objects.filter(thread_id=mr_thread_id(97)).aexists()
+    event = await _event()
+    await ownership.arefresh_from_db()
+    assert event.session_id == ownership.session_id is not None

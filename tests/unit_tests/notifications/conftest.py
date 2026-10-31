@@ -5,7 +5,7 @@ from notifications.choices import ChannelType
 from notifications.classification.envelopes import build_actionable_item
 from notifications.models import Notification, NotificationDelivery, UserChannelBinding
 from pydantic import SecretStr
-from sessions.models import Session, SessionOrigin
+from sessions.models import MergeRequestOwnership, Session, SessionOrigin
 
 from schedules.models import Frequency, ScheduledJob
 
@@ -35,14 +35,22 @@ def run_schedule(member_user, email_binding):
 
 @pytest.fixture
 def watch_session(member_user):
-    """A session whose CI watch used up its fix attempts. Shared by the watch-exhausted suites."""
+    """A session that owns a merge request whose CI watch used up its attempts. Shared by the watch-exhausted
+    suites."""
     return Session.objects.create(
-        thread_id="repo-mr-7",
-        origin=SessionOrigin.PIPELINE_WEBHOOK,
+        thread_id="repo-mr-7", origin=SessionOrigin.CHAT, repo_id="group/repo", merge_request_iid=7, user=member_user
+    )
+
+
+@pytest.fixture
+def watch_ownership(watch_session, member_user):
+    return MergeRequestOwnership.objects.create(
         repo_id="group/repo",
         merge_request_iid=7,
-        watch_attempts=3,
-        user=member_user,
+        session=watch_session,
+        owner=member_user,
+        source_branch="daiv/fix",
+        attempts=3,
     )
 
 

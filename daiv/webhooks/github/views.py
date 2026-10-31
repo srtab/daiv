@@ -8,7 +8,14 @@ from codebase.base import GitPlatform
 from codebase.conf import settings
 from webhooks.callbacks import CALLBACK_RESPONSES
 
-from .callbacks import IssueCallback, IssueCommentCallback, PullRequestCallback, PushCallback, WorkflowRunCallback  # noqa: TC001
+from .callbacks import (  # noqa: TC001
+    IssueCallback,
+    IssueCommentCallback,
+    PullRequestCallback,
+    PullRequestReviewCommentCallback,
+    PushCallback,
+    WorkflowRunCallback,
+)
 from .security import validate_github_webhook
 
 if TYPE_CHECKING:
@@ -33,7 +40,13 @@ router = Router(auth=_authenticate)
 @router.post("/github", response=CALLBACK_RESPONSES)
 @router.post("/github/", response=CALLBACK_RESPONSES)
 async def callback(
-    request, payload: IssueCallback | IssueCommentCallback | PullRequestCallback | PushCallback | WorkflowRunCallback
+    request,
+    payload: IssueCallback
+    | IssueCommentCallback
+    | PullRequestReviewCommentCallback
+    | PullRequestCallback
+    | PushCallback
+    | WorkflowRunCallback,
 ):
     """
     GitHub callback endpoint for processing callbacks; the router's ``_authenticate`` has already passed.

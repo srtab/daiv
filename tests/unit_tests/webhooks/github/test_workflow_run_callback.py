@@ -3,7 +3,7 @@ from webhooks.github.callbacks import WorkflowRunCallback
 from webhooks.github.models import Repository, WorkflowRun
 
 from codebase.repo_config import RepositoryConfig
-from tests.unit_tests.sessions.conftest import amake_watched_session
+from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def stub_enqueue(monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 async def test_processing_enqueues_an_evaluation(monkeypatch_dependencies, stub_enqueue):
-    await amake_watched_session(thread_id="pr-thread", repo_id="owner/repo")
+    await amake_owned_merge_request(thread_id="pr-thread", repo_id="owner/repo")
 
     await make_callback().process_callback()
 

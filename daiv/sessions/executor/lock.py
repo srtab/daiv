@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
+from asgiref.sync import sync_to_async
+
 from sessions.models import RunStatus, Session, SessionOrigin
 
 if TYPE_CHECKING:
@@ -36,8 +38,8 @@ def stale_cutoff(now: datetime | None = None) -> datetime:
 @dataclass(frozen=True)
 class LiveRun:
     """The run a session page can stream: ``id`` is the slot holder's relay id, ``stoppable`` is whether the
-    cancel endpoint can stop it (chat runs only, and with ``live_run_for`` only for the session's owner),
-    ``started_at`` seeds the page's working timer."""
+    cancel endpoint can stop it (an inline chat turn, or a task-backed run holding the slot under its own pk; with
+    ``live_run_for`` only for the session's owner), ``started_at`` seeds the page's working timer."""
 
     id: str
     stoppable: bool
@@ -90,10 +92,19 @@ def session_activity(session: Session, runs: Iterable[Run]) -> SessionActivity:
         holder=holder,
         live=LiveRun(
             id=session.active_run_id,
-            stoppable=shown.trigger_type == SessionOrigin.CHAT,
+            stoppable=_stoppable(shown, session.active_run_id),
             started_at=shown.started_at or shown.created_at,
         ),
     )
+
+
+def _stoppable(run: Run, holder_id: str) -> bool:
+    """Whether the cancel endpoint can stop ``run``: an inline chat turn through its relay's cancel flag, or a
+    task-backed run that holds the slot under its own pk (a job, or a run the inbox started) through
+    ``RunManager.cancel``. A webhook run holds the slot under an id of its own and checks for neither."""
+    if run.task_result_id is None:
+        return run.trigger_type == SessionOrigin.CHAT
+    return str(run.pk) == holder_id
 
 
 def _slot_holder(holder_id: str, running: list[Run]) -> Run | None:
@@ -148,38 +159,21 @@ class SessionLock:
         at WARNING so it surfaces in monitoring — the prior holder may still be
         executing against the checkpoint.
         """
-        now = timezone.now()
-        # Fast path: claim a free slot (the common, uncontended case) in one query.
-        if await Session.objects.filter(thread_id=thread_id, active_run_id__isnull=True).aupdate(
-            active_run_id=holder_id, last_active_at=now
-        ):
-            return True
+        return await sync_to_async(_claim)(thread_id, holder_id)
 
-        # Slow path: the slot is held. Take it over only if the holder's heartbeat
-        # is stale. Read the prior holder first so the takeover is observable; the
-        # CAS on ``active_run_id`` keeps the claim itself race-safe.
-        cutoff = stale_cutoff(now)
-        prior_holder = await (
-            Session.objects
-            .filter(thread_id=thread_id, active_run_id__isnull=False, last_active_at__lt=cutoff)
-            .values_list("active_run_id", flat=True)
-            .afirst()
+    @staticmethod
+    def claim_for_run(thread_id: str, run_id: object) -> bool:
+        """:meth:`try_claim` for the inbox drainer, which claims the slot for the run it is creating, under the run's
+        pk, inside the transaction that creates it. SYNC ONLY."""
+        return _claim(thread_id, str(run_id))
+
+    @staticmethod
+    def release_for_run(thread_id: str, run_id: object) -> None:
+        """:meth:`release` for the slot the inbox drainer claimed for a run, once that run ended or never queued.
+        SYNC ONLY."""
+        Session.objects.filter(thread_id=thread_id, active_run_id=str(run_id)).update(
+            active_run_id=None, last_active_at=timezone.now()
         )
-        if prior_holder is None:
-            return False  # held by a live holder — nothing to take over
-
-        taken = await Session.objects.filter(
-            thread_id=thread_id, active_run_id=prior_holder, last_active_at__lt=cutoff
-        ).aupdate(active_run_id=holder_id, last_active_at=now)
-        if taken:
-            logger.warning(
-                "SessionLock: stale takeover of thread_id=%s from prior holder=%s by holder=%s; "
-                "prior holder may still be executing against the same checkpoint",
-                thread_id,
-                prior_holder,
-                holder_id,
-            )
-        return bool(taken)
 
     @staticmethod
     async def heartbeat(thread_id: str, holder_id: str) -> bool:
@@ -202,6 +196,41 @@ class SessionLock:
         )
 
 
+def _claim(thread_id: str, holder_id: str) -> bool:
+    now = timezone.now()
+    # Fast path: claim a free slot (the common, uncontended case) in one query.
+    if Session.objects.filter(thread_id=thread_id, active_run_id__isnull=True).update(
+        active_run_id=holder_id, last_active_at=now
+    ):
+        return True
+
+    # Slow path: the slot is held. Take it over only if the holder's heartbeat
+    # is stale. Read the prior holder first so the takeover is observable; the
+    # CAS on ``active_run_id`` keeps the claim itself race-safe.
+    cutoff = stale_cutoff(now)
+    prior_holder = (
+        Session.objects
+        .filter(thread_id=thread_id, active_run_id__isnull=False, last_active_at__lt=cutoff)
+        .values_list("active_run_id", flat=True)
+        .first()
+    )
+    if prior_holder is None:
+        return False  # held by a live holder — nothing to take over
+
+    taken = Session.objects.filter(thread_id=thread_id, active_run_id=prior_holder, last_active_at__lt=cutoff).update(
+        active_run_id=holder_id, last_active_at=now
+    )
+    if taken:
+        logger.warning(
+            "SessionLock: stale takeover of thread_id=%s from prior holder=%s by holder=%s; "
+            "prior holder may still be executing against the same checkpoint",
+            thread_id,
+            prior_holder,
+            holder_id,
+        )
+    return bool(taken)
+
+
 @dataclass(frozen=True)
 class Wait:
     """Claim the slot, polling until the current holder frees it; the executor releases it after the run."""
@@ -219,11 +248,19 @@ class Held:
 
 
 @dataclass(frozen=True)
+class Claimed:
+    """The inbox drainer claimed the slot for this run when it created it (``SessionLock.claim_for_run``): the executor
+    checks the claim is still the run's, heartbeats it and releases it after the run. It never polls."""
+
+    holder_id: str
+
+
+@dataclass(frozen=True)
 class NoLock:
     """Run without the slot, for a one-shot run (``thread_id=None``), which has no ``Session`` row."""
 
 
-LockPolicy = Wait | Held | NoLock
+LockPolicy = Wait | Held | Claimed | NoLock
 
 
 def wait_for_slot(holder_id: str) -> Wait:
@@ -236,7 +273,7 @@ class SessionLockTimeoutError(TimeoutError):
 
 
 class SessionLockLostError(Exception):
-    """A stale takeover reassigned the slot while a stream held it."""
+    """A stale takeover reassigned the slot while a stream held it, or before a ``Claimed`` run started."""
 
 
 @asynccontextmanager
@@ -247,9 +284,9 @@ async def hold_session_lock(
     ``NoLock``.
 
     With ``background_heartbeat`` a task heartbeats the slot until the body ends; ``stream_run`` turns it off and
-    beats between its events. The heartbeat is cancelled and awaited before a ``Wait`` claim is released, so no
-    heartbeat outlives the hold; a ``Held`` slot is left for its caller to release. A failed release is logged,
-    never raised over the body's own outcome.
+    beats between its events. The heartbeat is cancelled and awaited before a ``Wait`` or ``Claimed`` claim is
+    released, so no heartbeat outlives the hold; a ``Held`` slot is left for its caller to release. A failed release
+    is logged, never raised over the body's own outcome.
     """
     holder_id = await _acquire_session_lock(policy, thread_id)
     if holder_id is None:
@@ -262,7 +299,7 @@ async def hold_session_lock(
         if heartbeat is not None:
             heartbeat.cancel()
             await asyncio.gather(heartbeat, return_exceptions=True)
-        if isinstance(policy, Wait):
+        if isinstance(policy, Wait | Claimed):
             try:
                 await SessionLock.release(thread_id, holder_id)
             except Exception:
@@ -294,6 +331,12 @@ async def _acquire_session_lock(policy: LockPolicy, thread_id: str) -> str | Non
     if isinstance(policy, NoLock):
         return None
     if isinstance(policy, Held):
+        return policy.holder_id
+    if isinstance(policy, Claimed):
+        if not await SessionLock.heartbeat(thread_id, policy.holder_id):
+            raise SessionLockLostError(
+                f"the slot claimed for run {policy.holder_id} on thread_id={thread_id} was taken"
+            )
         return policy.holder_id
     start = time.monotonic()
     deadline = start + policy.timeout_s

@@ -960,7 +960,11 @@ class TestPublishSuggestsContextFile:
             gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
             mock_suggest.assert_called_once_with(mr)
             assert result == PublishOutcome(
-                merge_request=mr, published=True, created_merge_request=True, diff_stats=_LOCAL_STATS
+                merge_request=mr,
+                published=True,
+                created_merge_request=True,
+                pushed_sha="post-push-sha",
+                diff_stats=_LOCAL_STATS,
             )
 
     async def test_degrades_to_pending_when_branch_not_visible(self, publisher, monkeypatch, caplog):
@@ -990,7 +994,9 @@ class TestPublishSuggestsContextFile:
         gm.commit_all.assert_awaited_once()
         gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
         mock_suggest.assert_not_called()
-        assert result == PublishOutcome(merge_request=None, published=True, diff_stats=_LOCAL_STATS)
+        assert result == PublishOutcome(
+            merge_request=None, published=True, pushed_sha="post-push-sha", diff_stats=_LOCAL_STATS
+        )
         assert "MR pending" in caplog.text
 
     async def test_degrade_preserves_protected_branch_fallback_source(self, publisher, monkeypatch):
@@ -1017,7 +1023,11 @@ class TestPublishSuggestsContextFile:
             result = await publisher.publish(merge_request=existing_mr)
 
         assert result == PublishOutcome(
-            merge_request=None, published=True, protected_branch_fallback_source="dev", diff_stats=_LOCAL_STATS
+            merge_request=None,
+            published=True,
+            protected_branch_fallback_source="dev",
+            pushed_sha="post-push-sha",
+            diff_stats=_LOCAL_STATS,
         )
 
     async def test_falls_back_to_new_mr_when_source_branch_protected(self, publisher, monkeypatch):
@@ -1063,6 +1073,7 @@ class TestPublishSuggestsContextFile:
                 published=True,
                 created_merge_request=True,
                 protected_branch_fallback_source="dev",
+                pushed_sha="post-push-sha",
                 diff_stats=_LOCAL_STATS,
             )
 
@@ -1257,7 +1268,9 @@ class TestPublishDecision:
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
         meta.assert_called_once()  # proceeded past the clean short-circuit
         gm.push_head_to.assert_awaited_once_with("feat/x", integrate_on_reject=True, skip_ci=False)
-        assert outcome == PublishOutcome(merge_request=mr, published=True, diff_stats=_LOCAL_STATS)
+        assert outcome == PublishOutcome(
+            merge_request=mr, published=True, pushed_sha="post-push-sha", diff_stats=_LOCAL_STATS
+        )
 
     async def test_commit_message_describes_only_the_uncommitted_work(self):
         """A later turn's commit must not be named after the earlier commits already on the branch."""
@@ -1375,6 +1388,22 @@ class TestPublishPipelineHeal:
 
         trigger.assert_awaited_once_with(mr, "post-rebase-sha")
 
+    @pytest.mark.parametrize("ephemeral", [True, False])
+    async def test_every_push_records_the_sha_that_landed(self, ephemeral):
+        """The CI watch tells DAIV's commits from everyone else's by this sha, heal or no heal."""
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = ephemeral
+        gm = _fake_git_manager()
+        _use_git_manager(publisher, gm)
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()),
+        ):
+            outcome = await publisher.publish(merge_request=make_merge_request())
+
+        assert outcome.pushed_sha == "post-push-sha"
+
     async def test_an_unreadable_head_degrades_instead_of_orphaning_the_push(self, monkeypatch, caplog):
         """The branch is already pushed and skip-ci'd: raising here would lose the MR, the pipeline
         and the agent's reply over a sha the heal can run (unverified) without."""
@@ -1394,6 +1423,7 @@ class TestPublishPipelineHeal:
 
         assert outcome.published is True
         assert outcome.merge_request is mr
+        assert outcome.pushed_sha == ""
         trigger.assert_awaited_once_with(mr, None)
         assert any(r.levelname == "ERROR" for r in caplog.records)
 
@@ -1453,7 +1483,6 @@ class TestPublishPipelineHeal:
 
         gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=True)
         trigger.assert_not_awaited()
-        gm.head_sha.assert_not_awaited()
 
     async def test_a_push_to_an_existing_mr_still_heals(self, monkeypatch):
         """No MR-open event here, so the skip-ci push suppresses the merge-request pipeline too and
