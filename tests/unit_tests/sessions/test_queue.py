@@ -19,6 +19,7 @@ from sessions.queue import (
 )
 
 from tests.unit_tests.sessions.conftest import make_run
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
 def _emits(spy: MagicMock) -> list[tuple[str, bool, bool]]:
@@ -72,9 +73,20 @@ class TestAenqueueRun:
             "user_id": member_user.pk,
             "ask_user_enabled": ask_user_enabled,
             "fork_branch": fork_branch,
+            "inbox": False,
         }
         await run.arefresh_from_db()
         assert run.task_result_id == task.id
+
+    async def test_an_inbox_run_says_so_to_the_task(self, create_db_task_result):
+        run = await sync_to_async(make_run)(session_id=str(uuid.uuid4()), status=RunStatus.READY)
+        task = await sync_to_async(create_db_task_result)(status="READY")
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
+            assert await aenqueue_run(run, log_context="test", inbox=True) is None
+
+        assert mock_task.aenqueue.call_args.kwargs["inbox"] is True
 
     async def test_blank_row_fields_reach_the_task_as_none(self, create_db_task_result):
         run = await sync_to_async(make_run)(session_id=str(uuid.uuid4()), status=RunStatus.READY)
@@ -161,6 +173,22 @@ class TestDispatchNextQueued:
         newer.refresh_from_db()
         assert (oldest.status, oldest.task_result_id) == (RunStatus.READY, fake_task.id)
         assert newer.status == RunStatus.QUEUED
+
+    def test_an_inbox_next_run_is_left_for_the_drain(self, create_db_task_result):
+        session_id = str(uuid.uuid4())
+        next_run = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.PIPELINE_WEBHOOK)
+        make_event(next_run.session, run=next_run)
+        legacy = make_run(session_id=session_id, status=RunStatus.QUEUED)
+
+        fake_task = MagicMock(id=create_db_task_result().id)
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=fake_task)
+            dispatch_next_queued(session_id)
+
+        next_run.refresh_from_db()
+        legacy.refresh_from_db()
+        assert next_run.status == RunStatus.QUEUED
+        assert legacy.status == RunStatus.READY
 
     def test_no_op_when_no_queued_sibling(self):
         session_id = str(uuid.uuid4())
@@ -327,6 +355,17 @@ class TestReleaseOrphanQueuedRuns:
         assert (result.released, result.skipped, result.errored) == (1, 1, 0)
         oldest.refresh_from_db()
         assert (oldest.status, oldest.task_result_id) == (RunStatus.READY, fake_task.id)
+
+    def test_an_inbox_next_run_is_left_for_the_drain(self):
+        next_run = make_run(session_id=str(uuid.uuid4()), status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT)
+        make_event(next_run.session, run=next_run)
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            result = release_orphan_queued_runs()
+
+        assert result.released == 0
+        mock_task.aenqueue.assert_not_called()
 
     def test_session_ids_narrow_the_sweep_to_those_sessions(self, create_db_task_result):
         wanted = make_run(session_id=str(uuid.uuid4()), status=RunStatus.QUEUED)

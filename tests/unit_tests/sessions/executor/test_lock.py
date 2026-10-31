@@ -7,11 +7,13 @@ from django.utils import timezone
 
 import pytest
 from sessions.executor.lock import (
+    Claimed,
     Held,
     LiveRun,
     NoLock,
     SessionActivity,
     SessionLock,
+    SessionLockLostError,
     SessionLockTimeoutError,
     Wait,
     background_in_flight,
@@ -205,6 +207,80 @@ class TestHeld:
                 await asyncio.wait_for(beat.wait(), timeout=5)
 
         assert beats[0] == "chat-run"
+
+
+class TestClaimed:
+    async def test_it_runs_on_the_drainers_claim_and_frees_it_after(self):
+        thread_id = await amake_job_session(active_run_id="run-1")
+        try_claim = AsyncMock()
+
+        with patch("sessions.executor.lock.SessionLock.try_claim", try_claim):
+            async with hold_session_lock(Claimed(holder_id="run-1"), thread_id) as holder_id:
+                assert holder_id == "run-1"
+                assert await active_holder(thread_id) == "run-1"
+
+        try_claim.assert_not_awaited()
+        assert await active_holder(thread_id) is None
+
+    async def test_it_heartbeats_the_claim(self):
+        thread_id = await amake_job_session(active_run_id="run-1")
+        beats: list[str] = []
+        beat = asyncio.Event()
+
+        async def _heartbeat(thread_id, holder_id):
+            beats.append(holder_id)
+            beat.set()
+            return True
+
+        with (
+            patch("sessions.executor.lock.LOCK_HEARTBEAT_INTERVAL_S", 0.01),
+            patch("sessions.executor.lock.SessionLock.heartbeat", _heartbeat),
+        ):
+            async with hold_session_lock(Claimed(holder_id="run-1"), thread_id):
+                await asyncio.wait_for(beat.wait(), timeout=5)
+
+        assert set(beats) == {"run-1"}
+
+    async def test_a_claim_lost_before_the_run_starts_fails_without_touching_the_new_holder(self):
+        thread_id = await amake_job_session(active_run_id="run-2")
+
+        with pytest.raises(SessionLockLostError):
+            async with hold_session_lock(Claimed(holder_id="run-1"), thread_id):
+                pytest.fail("the body must not run without the slot")
+
+        assert await active_holder(thread_id) == "run-2"
+
+    async def test_a_claim_taken_over_mid_run_is_left_to_its_new_holder(self):
+        thread_id = await amake_job_session(active_run_id="run-1")
+
+        async with hold_session_lock(Claimed(holder_id="run-1"), thread_id):
+            await Session.objects.filter(thread_id=thread_id).aupdate(active_run_id="run-2")
+
+        assert await active_holder(thread_id) == "run-2"
+
+
+class TestClaimForRun:
+    async def test_it_claims_a_free_slot_for_the_run(self):
+        thread_id = await amake_job_session()
+
+        assert await SessionLock.aclaim_for_run(thread_id, "run-1") is True
+        assert await active_holder(thread_id) == "run-1"
+
+    async def test_it_refuses_a_live_holders_slot(self):
+        thread_id = await amake_job_session(active_run_id="chat-run")
+
+        assert await SessionLock.aclaim_for_run(thread_id, "run-1") is False
+        assert await active_holder(thread_id) == "chat-run"
+
+    async def test_it_takes_over_a_stale_slot_and_says_so(self, caplog):
+        stale = stale_cutoff() - timedelta(minutes=1)
+        thread_id = await amake_job_session(active_run_id="chat-run", last_active_at=stale)
+
+        with caplog.at_level("WARNING", logger="daiv.sessions"):
+            assert await SessionLock.aclaim_for_run(thread_id, "run-1") is True
+
+        assert await active_holder(thread_id) == "run-1"
+        assert "stale takeover" in caplog.text
 
 
 class TestNoLock:

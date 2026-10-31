@@ -30,14 +30,14 @@ description: "Task list for the Session Inbox feature"
 
 **Purpose**: Place the new package and vocabulary before any code depends on them.
 
-- [ ] T001 Create the package `daiv/sessions/inbox/__init__.py` with a module docstring stating the inbox rules from research.md R1–R5. The docstring is where those rules live:
+- [X] T001 Create the package `daiv/sessions/inbox/__init__.py` with a module docstring stating the inbox rules from research.md R1–R5. The docstring is where those rules live:
   - an event wakes the agent or is only remembered;
   - one run per session, claimed when the run is created;
   - one QUEUED next run per busy session;
   - a run takes the pending events for its branch;
   - remembered events reach the model as a hidden synthetic message.
-- [ ] T002 [P] Add the terms "Inbox event", "Owning session" and "Next run" to the table in `constitutions/glossary/README.md`, exactly as in data-model.md "Glossary additions".
-- [ ] T003 [P] Register the pytest marker `inbox` in `pyproject.toml` (`ini_options.markers`): `"inbox: integration eval of runs built from session inbox events (paid model calls)"`. If the suite needs a per-suite model override, add `INBOX` to `EVAL_SUITE_MODEL_VARS` in `Makefile`.
+- [X] T002 [P] Add the terms "Inbox event", "Owning session" and "Next run" to the table in `constitutions/glossary/README.md`, exactly as in data-model.md "Glossary additions".
+- [X] T003 [P] Register the pytest marker `inbox` in `pyproject.toml` (`ini_options.markers`): `"inbox: integration eval of runs built from session inbox events (paid model calls)"`. If the suite needs a per-suite model override, add `INBOX` to `EVAL_SUITE_MODEL_VARS` in `Makefile`.
 
 ---
 
@@ -49,17 +49,17 @@ description: "Task list for the Session Inbox feature"
 
 ### Tests for the foundation ⚠️ (write first, confirm they fail)
 
-- [ ] T004 [P] Write `tests/unit_tests/sessions/inbox/test_kinds.py`. Cover:
+- [X] T004 [P] Write `tests/unit_tests/sessions/inbox/test_kinds.py`. Cover:
   - payload validation per kind: a missing required key raises `ValueError`;
   - the precedence order and run trigger type for each waking kind, per data-model.md "Kinds";
   - source-key and subject helpers.
-- [ ] T005 [P] Write `tests/unit_tests/sessions/inbox/test_post.py`. Cover:
+- [X] T005 [P] Write `tests/unit_tests/sessions/inbox/test_post.py`. Cover:
   - posting the same `(thread_id, source_key)` twice inserts one row and returns `created=False`;
   - a waking event on an idle session schedules `adrain` with `transaction.on_commit`;
   - a waking event on a busy session joins the existing QUEUED next run for its branch, or creates one, and returns its `run_id`; events on different branches get different next runs;
   - a remembered event never drains;
   - an unknown session raises `Session.DoesNotExist`.
-- [ ] T006 [P] Write `tests/unit_tests/sessions/inbox/test_drain.py`. Cover:
+- [X] T006 [P] Write `tests/unit_tests/sessions/inbox/test_drain.py`. Cover:
   - a fresh held slot returns `None`;
   - a stale slot (older than `stale_cutoff()`) is treated as free;
   - older pending events with the same `subject` become `superseded`;
@@ -70,33 +70,33 @@ description: "Task list for the Session Inbox feature"
   - an owner without repository access marks events `failed` with failure `access_denied` and starts no run;
   - the QUEUED next run is promoted to READY, its `trigger_type` set by precedence, and `Session.active_run_id = str(run.pk)` in the same transaction;
   - an `aenqueue_run` failure releases the slot and returns events to `pending`, with `logger.error`.
-- [ ] T007 [P] Write `tests/unit_tests/sessions/inbox/test_render.py`, per contracts/agent-input.md. Cover:
+- [X] T007 [P] Write `tests/unit_tests/sessions/inbox/test_render.py`, per contracts/agent-input.md. Cover:
   - the context message is `synthetic_message(kind="inbox")` and is omitted when empty;
   - oldest-first lines, with "Superseded by …" indented under the replacement;
   - mention and comment quotes are cut at 1,000 characters;
   - over 8,000 characters, the oldest remembered lines collapse into "N more <kind> events", and waking events never do;
   - request sections appear in precedence order;
   - a CI-only run uses the fix prompt.
-- [ ] T008 [P] Write `tests/unit_tests/sessions/inbox/test_policy.py`. Cover:
+- [X] T008 [P] Write `tests/unit_tests/sessions/inbox/test_policy.py`. Cover:
   - `Session.inbox_muted` blocks CI and delegation wakes but not `mention`, `chat_message` or `follow_up_job`;
   - the consecutive system-started run limit (default 3) blocks waking after three system-started runs with no person-started run in between;
   - a chat message or mention resets the count.
-- [ ] T009 [P] Write `tests/unit_tests/sessions/inbox/test_complete.py`, per research.md R12. Cover:
+- [X] T009 [P] Write `tests/unit_tests/sessions/inbox/test_complete.py`, per research.md R12. Cover:
   - a SUCCESSFUL or WAITING_INPUT run marks its events `handled`;
   - a run with `cancel_requested_at` set marks them `dismissed`;
   - a FAILED run returns them to `pending` with `attempts + 1`;
   - the third failure marks them `failed` with `retries_exhausted` and logs with `logger.error`;
   - every outcome then calls `adrain`.
-- [ ] T010 [P] Extend `tests/unit_tests/sessions/executor/test_lock.py`: the new `Claimed` policy heartbeats, releases the slot only while `active_run_id == holder_id`, and never polls `try_claim`.
-- [ ] T011 [P] Extend `tests/unit_tests/sessions/executor/test_tasks.py`: `run_job_task` for an inbox run uses `Claimed`, builds `input_messages` from `arender_input`, and passes `acting_user_id = session.user_id`. For a session with no user it passes `None`.
-- [ ] T012 [P] Extend `tests/unit_tests/sessions/test_tasks.py`:
+- [X] T010 [P] Extend `tests/unit_tests/sessions/executor/test_lock.py`: the new `Claimed` policy heartbeats, releases the slot only while `active_run_id == holder_id`, and never polls `try_claim`.
+- [X] T011 [P] Extend `tests/unit_tests/sessions/executor/test_tasks.py`: `run_job_task` for an inbox run uses `Claimed`, builds `input_messages` from `arender_input`, and passes `acting_user_id = session.user_id`. For a session with no user it passes `None`.
+- [X] T012 [P] Extend `tests/unit_tests/sessions/test_tasks.py`:
   - `drain_inboxes_cron_task` drains only sessions with pending waking events and a free or stale slot;
   - it returns `taken` events whose run's slot is stale to `pending` with `attempts + 1`.
-- [ ] T013 [P] Extend `tests/unit_tests/sessions/test_signals.py`: the `run_ended` receiver calls inbox completion for every run, chat included.
+- [X] T013 [P] Extend `tests/unit_tests/sessions/test_signals.py`: the `run_ended` receiver calls inbox completion for every run, chat included.
 
 ### Implementation for the foundation
 
-- [ ] T014 Add `EventKind`, `EventState`, `QuietReason` and `EventFailure` (`TextChoices`), and the `InboxEvent` model, to `daiv/sessions/models.py`, exactly per data-model.md.
+- [X] T014 Add `EventKind`, `EventState`, `QuietReason` and `EventFailure` (`TextChoices`), and the `InboxEvent` model, to `daiv/sessions/models.py`, exactly per data-model.md.
   - **Fields**:
     - `id` UUID primary key;
     - `session` FK → `Session` CASCADE, `related_name="inbox_events"`;
@@ -122,20 +122,20 @@ description: "Task list for the Session Inbox feature"
     - `(session, state, created_at)`;
     - a partial index on `session` where `state='pending' AND wake`;
     - a partial index on `run` where `run IS NOT NULL`.
-- [ ] T015 Add `Session.inbox_muted` (Bool, default False) and `Run.pushed_sha` (Char(64), blank) to `daiv/sessions/models.py`. Generate `daiv/sessions/migrations/0021_inbox_event.py` with `uv run python daiv/manage.py makemigrations sessions`, and extend `tests/unit_tests/sessions/test_migrations.py` if it pins the migration list.
-- [ ] T016 [P] Implement `daiv/sessions/inbox/kinds.py`:
+- [X] T015 Add `Session.inbox_muted` (Bool, default False) and `Run.pushed_sha` (Char(64), blank) to `daiv/sessions/models.py`. Generate `daiv/sessions/migrations/0021_inbox_event.py` with `uv run python daiv/manage.py makemigrations sessions`, and extend `tests/unit_tests/sessions/test_migrations.py` if it pins the migration list.
+- [X] T016 [P] Implement `daiv/sessions/inbox/kinds.py`:
   - one payload `TypedDict` per kind, as listed in data-model.md "Payloads";
   - `validate_payload(kind, payload)`, raising `ValueError`;
   - the precedence table and the waking-kind → `SessionOrigin` mapping;
   - source-key and subject builders (`pipeline:<id>`, `note:<id>`, `review-comment:<id>`, `batch:<uuid>`, `chat:<id>`, `job:<uuid>`, `push:<sha>`, `ci:<iid>`, `mr-state:<iid>`, `branch:<ref>`).
-- [ ] T017 Add a `Claimed` lock policy to `daiv/sessions/executor/lock.py` (heartbeat, release at end, never poll). Add `SessionLock.aclaim_for_run(thread_id, run_id)`, a compare-and-set that the drainer calls inside its transaction and that also takes a stale slot, logging a warning as `try_claim` does.
-- [ ] T018 Implement `daiv/sessions/inbox/policy.py` with `amay_wake(session, kind) -> QuietReason | None`. It applies mute and the consecutive system-started run limit (`MAX_SYSTEM_RUNS_IN_A_ROW = 3`) only to `ci_failed` and `delegation_finished`; `mention`, `chat_message` and `follow_up_job` are never blocked. The limit counts counting the session's most recent runs back to the last run whose trigger is not in `SessionOrigin.daiv_authored()`.
-- [ ] T019 Implement `daiv/sessions/inbox/post.py` with `apost_event(...) -> PostResult`, exactly per contracts/inbox-service.md:
+- [X] T017 Add a `Claimed` lock policy to `daiv/sessions/executor/lock.py` (heartbeat, release at end, never poll). Add `SessionLock.aclaim_for_run(thread_id, run_id)`, a compare-and-set that the drainer calls inside its transaction and that also takes a stale slot, logging a warning as `try_claim` does.
+- [X] T018 Implement `daiv/sessions/inbox/policy.py` with `amay_wake(session, kind) -> QuietReason | None`. It applies mute and the consecutive system-started run limit (`MAX_SYSTEM_RUNS_IN_A_ROW = 3`) only to `ci_failed` and `delegation_finished`; `mention`, `chat_message` and `follow_up_job` are never blocked. The limit counts counting the session's most recent runs back to the last run whose trigger is not in `SessionOrigin.daiv_authored()`.
+- [X] T019 Implement `daiv/sessions/inbox/post.py` with `apost_event(...) -> PostResult`, exactly per contracts/inbox-service.md:
   - insert with `bulk_create(ignore_conflicts=True)` and re-read on conflict;
   - for a waking event on a busy session, attach it to the session's QUEUED next run for the event's `ref` (defaulting to `Session.ref`), creating one with the kind's provisional trigger type;
   - schedule `adrain` with `transaction.on_commit` only for waking events.
-- [ ] T020 Implement `daiv/sessions/inbox/render.py` with `arender_input(run) -> RenderedInput(context, request)`, exactly per contracts/agent-input.md. Move `FIX_RUN_PROMPT` here from `daiv/sessions/pipeline_watch/dispatch.py`, unchanged and untranslated.
-- [ ] T021 Implement `daiv/sessions/inbox/drain.py` with `adrain(thread_id) -> Run | None`, exactly per contracts/inbox-service.md:
+- [X] T020 Implement `daiv/sessions/inbox/render.py` with `arender_input(run) -> RenderedInput(context, request)`, exactly per contracts/agent-input.md. Move `FIX_RUN_PROMPT` here from `daiv/sessions/pipeline_watch/dispatch.py`, unchanged and untranslated.
+- [X] T021 Implement `daiv/sessions/inbox/drain.py` with `adrain(thread_id) -> Run | None`, exactly per contracts/inbox-service.md:
   - lock the session row with `select_for_update`;
   - supersede older events per subject;
   - choose the branch;
@@ -148,9 +148,9 @@ description: "Task list for the Session Inbox feature"
   - enqueue with `sessions.queue.aenqueue_run` on commit, and on failure release the slot and return events to `pending`.
 
   Depends on T016–T020.
-- [ ] T022 Make `run_job_task` in `daiv/sessions/executor/tasks.py` run inbox runs, those with linked `inbox_events`: use the `Claimed` policy, set `input_messages` from `arender_input(run)` (context first, then request), and set `acting_user_id=session.user_id`. Keep the existing `HumanMessage(prompt)` path for runs with no events.
-- [ ] T023 Implement `daiv/sessions/inbox/complete.py` with `aon_run_ended(run)`, per research.md R12 (mention replies are added in US5). Register a `run_ended` receiver in `daiv/sessions/signals.py` that calls it and then `adrain(run.session_id)`.
-- [ ] T024 Add `drain_inboxes_cron_task` with `@cron("* * * * *")` to `daiv/sessions/tasks.py`. It recovers stale `taken` events, then drains sessions that have pending waking events and a free or stale slot, at most 200 per tick, as the existing sweeps cap themselves.
+- [X] T022 Make `run_job_task` in `daiv/sessions/executor/tasks.py` run inbox runs, those with linked `inbox_events`: use the `Claimed` policy, set `input_messages` from `arender_input(run)` (context first, then request), and set `acting_user_id=session.user_id`. Keep the existing `HumanMessage(prompt)` path for runs with no events.
+- [X] T023 Implement `daiv/sessions/inbox/complete.py` with `aon_run_ended(run)`, per research.md R12 (mention replies are added in US5). Register a `run_ended` receiver in `daiv/sessions/signals.py` that calls it and then `adrain(run.session_id)`.
+- [X] T024 Add `drain_inboxes_cron_task` with `@cron("* * * * *")` to `daiv/sessions/tasks.py`. It recovers stale `taken` events, then drains sessions that have pending waking events and a free or stale slot, at most 200 per tick, as the existing sweeps cap themselves.
 
 **Checkpoint**: an event posted with `apost_event` starts exactly one run, which receives the rendered input. The foundation tests (T004–T013) pass.
 

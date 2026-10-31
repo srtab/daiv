@@ -8,10 +8,10 @@ from django.db import DatabaseError
 
 import pytest
 from asgiref.sync import sync_to_async
-from sessions.executor.lock import SessionLock
+from sessions.executor.lock import Claimed, SessionLock, Wait
 from sessions.executor.run import RunStoppedError
 from sessions.executor.tasks import run_job_task
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.conftest import stub_sandbox_spec
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, watch_recorder
@@ -223,6 +223,67 @@ async def test_run_job_task_reads_session_mcp_overrides():
     spec = (await _execute_run_call(thread_id))["spec"]
 
     assert spec.mcp_overrides == {"a": "off"}
+
+
+@pytest.mark.django_db(transaction=True)
+class TestInboxRun:
+    async def _inbox_run(self, *, user=None) -> Run:
+        session = await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="g/r", ref="main", user=user
+        )
+        run = await Run.objects.acreate(
+            session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="g/r", status=RunStatus.READY
+        )
+        await InboxEvent.objects.acreate(
+            session=session,
+            kind=EventKind.CI_FAILED,
+            source_key="pipeline:1",
+            payload={"pipeline_id": 1, "sha": "abc", "status": "failed", "web_url": "u", "failed_jobs": ["lint"]},
+            wake=True,
+            ref="main",
+            merge_request_iid=9,
+            state=EventState.TAKEN,
+            run=run,
+        )
+        await InboxEvent.objects.acreate(
+            session=session,
+            kind=EventKind.MR_MERGED,
+            source_key="mr-state:3:merged",
+            payload={"target_branch": "main", "by_username": "sfr"},
+            wake=False,
+            merge_request_iid=3,
+            state=EventState.TAKEN,
+            run=run,
+        )
+        return run
+
+    async def test_it_runs_on_the_claimed_slot_with_the_rendered_input_as_the_owner(self, member_user):
+        run = await self._inbox_run(user=member_user)
+
+        spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True))["spec"]
+
+        assert spec.lock == Claimed(holder_id=str(run.pk))
+        context, request = spec.input_messages
+        assert "!3 was merged into main" in context.content
+        assert request.content.startswith("CI failed on this merge request. Failed jobs: lint.")
+        assert spec.acting_user_id == member_user.pk
+
+    async def test_a_session_without_an_owner_acts_as_no_one(self):
+        run = await self._inbox_run(user=None)
+
+        spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), user_id=42, inbox=True))["spec"]
+
+        assert spec.acting_user_id is None
+
+    async def test_a_run_without_events_keeps_its_prompt_and_waits_for_the_slot(self):
+        thread_id = await amake_job_session()
+        run = await Run.objects.acreate(session_id=thread_id, trigger_type=SessionOrigin.API_JOB, repo_id="g/r")
+
+        spec = (await _execute_run_call(thread_id, run_id=str(run.pk), user_id=42))["spec"]
+
+        assert isinstance(spec.lock, Wait)
+        assert [message.content for message in spec.input_messages] == ["hi"]
+        assert spec.acting_user_id == 42
 
 
 @pytest.mark.django_db(transaction=True)

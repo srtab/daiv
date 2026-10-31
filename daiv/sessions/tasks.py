@@ -53,6 +53,25 @@ def resume_stalled_batches_cron_task():
         logger.info("resume_stalled_batches: queued %d continuation(s)", queued)
 
 
+@cron("* * * * *")
+@task
+@locked_task(key="drain-inboxes")
+def drain_inboxes_cron_task():
+    """Start the runs inbox events are waiting for, and recover events whose run died with its slot.
+
+    The normal paths drain when an event is posted and when a run ends (``sessions.inbox``); this backstop keeps a
+    missed one to a minute. At most ``DRAIN_SWEEP_LIMIT`` sessions a tick; non-blocking lock, so a sweep that overruns
+    the interval is never double-dispatched.
+    """
+    from sessions.inbox.complete import recover_stale_events
+    from sessions.inbox.drain import drain_logged, sessions_to_drain
+
+    if recovered := recover_stale_events():
+        logger.info("drain_inboxes: recovered %d event(s) from stale runs", recovered)
+    for thread_id in sessions_to_drain():
+        drain_logged(thread_id)
+
+
 @task(queue_name=TASK_QUEUE_INTERACTIVE)
 async def evaluate_pipeline_watch_task(repo_id: str, ref: str, pipeline_id: int | None = None) -> None:
     """Judge CI for a watched branch and take the one action it implies.

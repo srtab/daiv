@@ -14,6 +14,7 @@ from django_tasks_db.backend import TaskResult as DatabaseTaskResult
 
 from core import ui_events
 from sessions.delegation import resume_coordinator
+from sessions.inbox.complete import on_run_ended
 from sessions.models import Run, RunStatus, Session
 from sessions.queue import dispatch_next_queued, release_runs_waiting_for
 from sessions.signal_defs import run_ended, run_finished
@@ -134,6 +135,15 @@ def release_waiting_runs(sender: type, run: Any, **kwargs: Any) -> None:
     On ``run_ended`` rather than ``run_finished`` so a chat turn that delegated releases its waiting legs too.
     """
     release_runs_waiting_for(run)
+
+
+@receiver(run_ended, dispatch_uid="sessions.settle_inbox_events")
+def settle_inbox_events(sender: type, run: Any, **kwargs: Any) -> None:
+    """Settle the inbox events ``run`` took and start the session's next run (:mod:`sessions.inbox.complete`).
+
+    On ``run_ended`` so a chat turn's end settles and drains too.
+    """
+    on_run_ended(run)
 
 
 @receiver(run_finished, dispatch_uid="sessions.resume_delegating_session")

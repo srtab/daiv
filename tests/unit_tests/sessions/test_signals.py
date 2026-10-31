@@ -279,6 +279,18 @@ class TestReleaseWaitingRuns:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestSettleInboxEvents:
+    @pytest.mark.parametrize("trigger", [SessionOrigin.CHAT, SessionOrigin.API_JOB, SessionOrigin.PIPELINE_WEBHOOK])
+    def test_every_ended_run_settles_its_inbox_events(self, trigger):
+        ended = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=trigger)
+
+        with patch("sessions.signals.on_run_ended") as settle:
+            run_ended.send(sender=Run, run=ended)
+
+        settle.assert_called_once_with(ended)
+
+
+@pytest.mark.django_db(transaction=True)
 class TestSyncReleasesQueuedSibling:
     def test_terminal_dbtaskresult_releases_queued_sibling(self, create_db_task_result):
         """When sync_stuck_runs reconciles a stuck RUNNING Run whose
