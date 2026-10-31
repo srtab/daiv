@@ -220,13 +220,15 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # In this case, ignore the branch name and merge request ID from the state,
             # and use the source branch and merge request ID from the merge request.
             merge_request = runtime.context.merge_request
-        elif merge_request is None and not self.fork_branch:
+        elif not self.fork_branch and (
+            merge_request is None or merge_request.source_branch != runtime.context.repo.current_ref
+        ):
             # Surface any pre-existing open MR on the current branch so the chat composer pill
             # reflects reality from the very first turn. A *first* issue-scope turn starts on the
             # default branch, where this lookup short-circuits; a follow-up turn starts on the
             # branch the previous turn published to (``Session.ref``, resolved in
             # ``address_issue_task``), so a cleared checkpoint re-discovers that MR here.
-            merge_request = await self._alookup_open_mr(runtime.context)
+            merge_request = await self._alookup_open_mr(runtime.context) or merge_request
 
         update: dict[str, Any] = {
             "merge_request": merge_request,

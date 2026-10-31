@@ -10,7 +10,7 @@ from django.dispatch import Signal
 run_finished = Signal()
 
 # Emitted by ``RunManager.finish``/``afinish`` for every Run that reaches a terminal status, chat included, before
-# ``run_finished``. Arguments: run (Run).
+# ``run_finished``. Arguments: run (Run) and ``run_finished``'s flags.
 run_ended = Signal()
 
 # Emitted when CI fails on a commit DAIV pushed and the merge request's CI attempts are spent; once per commit.

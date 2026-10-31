@@ -12,6 +12,9 @@ from typing import TYPE_CHECKING, Any, Literal
 from unittest.mock import DEFAULT, AsyncMock, Mock, patch
 
 from django.core.cache import cache
+from django.db import NotSupportedError
+from django.db.models.sql.compiler import SQLCompiler
+from django.db.models.sql.constants import LOUTER
 from django.test import Client
 
 import httpx
@@ -417,6 +420,23 @@ def _clear_site_settings_overrides():
     site_settings.__dict__.clear()
     yield
     site_settings.__dict__.clear()
+
+
+@pytest.fixture(autouse=True)
+def _postgres_row_lock_rules(monkeypatch):
+    """Refuse ``select_for_update()`` over a nullable outer join, as PostgreSQL does and SQLite (which drops
+    ``FOR UPDATE``) cannot."""
+    original = SQLCompiler.as_sql
+
+    def as_sql(self, *args, **kwargs):
+        compiled = original(self, *args, **kwargs)
+        query = self.query
+        outer = any(getattr(join, "join_type", None) == LOUTER for join in query.alias_map.values())
+        if query.select_for_update and not query.select_for_update_of and outer:
+            raise NotSupportedError("FOR UPDATE cannot be applied to the nullable side of an outer join")
+        return compiled
+
+    monkeypatch.setattr(SQLCompiler, "as_sql", as_sql)
 
 
 @pytest.fixture

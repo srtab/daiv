@@ -73,6 +73,7 @@ class ChatMessagePayload(TypedDict):
 class DelegationFinishedPayload(TypedDict):
     batch_id: str
     summary: str
+    muted: NotRequired[bool]
 
 
 DelegatedOutcome = Literal["passing", "stopped_after_attempts", "no_push"]
@@ -144,6 +145,14 @@ def validate_payload(kind: str, payload: Any) -> None:
         raise ValueError(f"a {kind} payload is missing {', '.join(missing)}")
 
 
+def follows_session(kind: str, payload: Mapping[str, Any]) -> bool:
+    """Whether a waking event concerns whichever branch its session is on, not a branch of its own: a chat message, a
+    follow-up job sent without a branch, a finished delegated batch."""
+    if kind == EventKind.FOLLOW_UP_JOB:
+        return not payload.get("ref")
+    return kind in (EventKind.CHAT_MESSAGE, EventKind.DELEGATION_FINISHED)
+
+
 def run_trigger_type(kind: str, payload: Mapping[str, Any]) -> str:
     """The trigger type a run started by ``kind`` gets."""
     if kind == EventKind.FOLLOW_UP_JOB:
@@ -162,12 +171,20 @@ def pipeline_key(pipeline_id: int) -> str:
     return _key("pipeline", pipeline_id)
 
 
+def quiet_pipeline_key(pipeline_id: int, reason: str) -> str:
+    return _key("pipeline", pipeline_id, reason)
+
+
 def note_key(note_id: int) -> str:
     return _key("note", note_id)
 
 
 def review_comment_key(comment_id: int) -> str:
     return _key("review-comment", comment_id)
+
+
+def comment_key(note_or_review_comment_key: str) -> str:
+    return _key("comment", note_or_review_comment_key)
 
 
 def batch_key(batch_id: uuid.UUID | str) -> str:

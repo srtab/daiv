@@ -266,13 +266,13 @@ class TestClaimForRun:
     async def test_it_claims_a_free_slot_for_the_run(self):
         thread_id = await amake_job_session()
 
-        assert await SessionLock.aclaim_for_run(thread_id, "run-1") is True
+        assert await sync_to_async(SessionLock.claim_for_run)(thread_id, "run-1") is True
         assert await active_holder(thread_id) == "run-1"
 
     async def test_it_refuses_a_live_holders_slot(self):
         thread_id = await amake_job_session(active_run_id="chat-run")
 
-        assert await SessionLock.aclaim_for_run(thread_id, "run-1") is False
+        assert await sync_to_async(SessionLock.claim_for_run)(thread_id, "run-1") is False
         assert await active_holder(thread_id) == "chat-run"
 
     async def test_it_takes_over_a_stale_slot_and_says_so(self, caplog):
@@ -280,7 +280,7 @@ class TestClaimForRun:
         thread_id = await amake_job_session(active_run_id="chat-run", last_active_at=stale)
 
         with caplog.at_level("WARNING", logger="daiv.sessions"):
-            assert await SessionLock.aclaim_for_run(thread_id, "run-1") is True
+            assert await sync_to_async(SessionLock.claim_for_run)(thread_id, "run-1") is True
 
         assert await active_holder(thread_id) == "run-1"
         assert "stale takeover" in caplog.text

@@ -79,7 +79,7 @@ Rows are evaluated top to bottom; the first match wins.
 
 The session's top bar and details panel show CI for each open merge request the session owns: **Waiting for CI** while no result has arrived since DAIV last pushed or a run is looking at a failure, then **Passing**, **Failing** or **Needs a person**. A failing merge request links the last run that looked at a failure, whose summary says what it found.
 
-**Fix CI failures** in the merge request menu turns the watch on or off for that merge request only. Turned off, CI results are still remembered but never wake the session. Turning it back on gives the merge request its attempts back.
+**Fix CI failures** in the merge request menu turns the watch on or off for that merge request only. Turned off, CI results are still remembered but never wake the session. Turning it back on gives the merge request its attempts back and judges the pipeline it last judged again at once, so a failure reported while the watch was off, or out of attempts, wakes the session; a commit a run already looked at is not looked at again. Turning it on when it is already on changes nothing.
 
 ---
 

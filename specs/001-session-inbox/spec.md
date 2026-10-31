@@ -10,19 +10,23 @@
 
 - CI failures on a merge request DAIV published should be handled in the session that published it, not in a separate per-merge-request conversation.
 - Everything that asks an existing session to act should arrive through one inbox per session.
-- Events are combined into one turn, and an event either wakes the agent or is only remembered.
+- Events for one branch and requester are combined into one turn, and an event either wakes the agent or is only remembered.
 - The agent does not report a structured verdict; the system decides from facts it can observe.
 
 ## Clarifications
 
 ### Session 2026-10-30
 
-- Q: Are mentions of DAIV on a merge request DAIV published routed to the owning session, and whose identity does that turn act under? → A: Routed to the owning session, and the turn acts as the owner. The comment is content, and its author is recorded for attribution.
+- Q: Are mentions of DAIV on a merge request DAIV published routed to the owning session, and whose identity does that turn act under? → A: Routed to the owning session, and the turn acts as the mention's author through the DAIV account linked to their platform account, with no personal tools when there is none (a username or email match never counts), so another person's request never runs with the owner's tools. The comment is content, and its author is recorded for attribution.
 - Q: When a different session publishes to a merge request that another session already owns, who should own it afterwards? → A: Ownership moves only to a later session of the same person. When a different person's session publishes, the original session keeps ownership and records that push as a remembered event.
 - Q: When the session that owns a merge request has no DAIV user as its owner, what should CI failures and mentions do? → A: Turns run as today's runs with no DAIV user do: no personal tools, no per-user access check, and the merge request comment as the only notification.
 - Q: When a delegated job's session publishes a merge request and CI later fails on it, should the session that delegated the job hear about it? → A: CI is handled in the delegated job's session, and each outcome (passing, stopped after N attempts, a CI turn that pushed nothing) also reaches the delegating session as a remembered event.
 - Q: When a waking event arrives at a session that isn't running a turn, how soon should its turn start? → A: Within 1 minute.
 - Q: Which refinements from planning does the spec adopt? → A: All seven listed in the plan's research (accepted with the plan, 2026-10-30). They are recorded in FR-010, FR-018, FR-021, FR-028, FR-030 and the Assumptions.
+
+### Session 2026-10-31
+
+- Q: When requests from different people wait for one busy session, does one turn handle them all? → A: No. A turn serves one requester and acts as them; each requester's waiting requests get a turn of their own, one after another, so one person's request never runs with another's access or personal tools.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -56,7 +60,7 @@ While a session is running a turn, new events for it wait. When the turn ends, o
 
 **Why this priority**: Once CI results go to the session that published the merge request, that session will often be busy, for example with its owner chatting. Without combining, every event costs a separate turn and can act on information that is already stale. Without waiting that costs nothing, a busy session ties up capacity that other jobs need.
 
-**Independent Test**: While a session runs a long turn, send it a CI failure, a mention, and a newer passing pipeline for the same merge request. Exactly one follow-up turn starts when the first one ends. Its input lists the mention and shows the failure as replaced by the passing pipeline.
+**Independent Test**: While a session runs a long turn, send it a CI failure, a mention by the session's owner, and a newer passing pipeline for the same merge request. Exactly one follow-up turn starts when the first one ends. Its input lists the mention and shows the failure as replaced by the passing pipeline.
 
 **Acceptance Scenarios**:
 
@@ -102,7 +106,7 @@ All of them reach the session through the same inbox. Waiting, combining, de-dup
 
 **Why this priority**: Each source currently has its own delivery path, and the paths behave differently. For example, a CI fix run waiting for a busy session holds processing capacity, while a resumed delegation does not. Having one path stops each new source adding another.
 
-**Independent Test**: While the session that delegated a batch is busy, let the batch finish and also submit a follow-up job to that session. Both arrive through the inbox and are handled together in one turn after the current one. Both are visible to an operator while they wait.
+**Independent Test**: While the session that delegated a batch is busy, let the batch finish and also submit a follow-up job to that session as the user who delegated it. Both arrive through the inbox and are handled together in one turn after the current one. Both are visible to an operator while they wait.
 
 **Acceptance Scenarios**:
 
@@ -116,17 +120,17 @@ All of them reach the session through the same inbox. Waiting, combining, de-dup
 
 ### User Story 5 - Mentions on a DAIV-published merge request reach the session that owns it (Priority: P5)
 
-When someone mentions DAIV on a merge request a session owns, the mention goes to that session, whether it is in a comment on the merge request or in a review comment on its diff. The agent handles it with the context of the original work and acts as the session's owner. Its reply appears on the merge request, where the person asked.
+When someone mentions DAIV on a merge request a session owns, the mention goes to that session, whether it is in a comment on the merge request or in a review comment on its diff. The agent handles it with the context of the original work and acts as the person who mentioned it. Its reply appears on the merge request, where the person asked.
 
-**Why this priority**: It gives the merge request one coherent history and lets review feedback benefit from the original context. It comes after CI because a mention can now make the agent act with the owner's access on someone else's request. That is accepted on purpose, and FR-026 and FR-027 bound it.
+**Why this priority**: It gives the merge request one coherent history and lets review feedback benefit from the original context. It comes after CI because a mention now runs in the owner's session on someone else's request. FR-026 and FR-027 bound it: the turn acts as the mention's author, never with the owner's personal tools.
 
-**Independent Test**: A session publishes a merge request. A reviewer mentions DAIV in a comment asking for a change. The turn appears in the owning session, attributed to the reviewer and acting as the owner. The reply is posted on the merge request, and no other conversation is created.
+**Independent Test**: A session publishes a merge request. A reviewer mentions DAIV in a comment asking for a change. The turn appears in the owning session, attributed to the reviewer and acting as the reviewer. The reply is posted on the merge request, and no other conversation is created.
 
 **Acceptance Scenarios**:
 
-1. **Given** a session owns a merge request, **When** a reviewer mentions DAIV in a comment on it, **Then** a turn starts in the owning session, acting as the owner. Its input names the reviewer and quotes the comment.
+1. **Given** a session owns a merge request, **When** a reviewer mentions DAIV in a comment on it, **Then** a turn starts in the owning session, acting as the reviewer through the DAIV account linked to their platform account. Its input names the reviewer and quotes the comment.
 2. **Given** that turn replies, **When** it finishes, **Then** the reply is posted on the merge request, in the thread where DAIV was mentioned.
-3. **Given** the owning session is busy, **When** a mention arrives together with a CI failure, **Then** one later turn handles both, and the reply to the mention is still posted on the merge request.
+3. **Given** the owning session is busy, **When** a mention arrives together with a CI failure, **Then** one later turn handles both when the reviewer is the owner, else each gets a turn acting as its requester, and the reply to the mention is still posted on the merge request.
 4. **Given** someone DAIV would not accept a mention from today, **When** they mention DAIV on an owned merge request, **Then** no turn starts, and the mention is handled as it is today for such a person.
 5. **Given** a comment on an owned merge request does not mention DAIV, **When** the next turn starts for any reason, **Then** the comment is part of its input as context.
 
@@ -204,7 +208,7 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 
 - **FR-025**: A mention of DAIV on a merge request a session owns MUST be delivered to the owning session's inbox as a waking event, whether it is in a comment or in a review comment on the diff. The system MUST NOT create a separate conversation for it.
 - **FR-026**: A mention MUST start a turn only if its author passes the same check that a mention needs today. Otherwise it is handled as it is today for that author.
-- **FR-027**: The turn that handles a mention MUST act as the session's owner, and its input MUST name the mention's author and quote the comment.
+- **FR-027**: The turn that handles a mention MUST act as the mention's author through the DAIV account linked to their platform account (as no one when there is none; a username or email match MUST NOT count, nor for the owner of a session a webhook starts), and its input MUST name the mention's author and quote the comment.
 - **FR-028**: The reply to a mention MUST be posted on the merge request, in the thread where DAIV was mentioned, including when the turn also handled other events. When one turn handles several mentions on a merge request, the full reply goes to the latest mention's thread, and each other mention's thread gets a link to it.
 
 **Visibility and control**
@@ -230,7 +234,7 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 
 - **SC-001**: 100% of agent turns that respond to CI failures on DAIV-published merge requests appear in the session that published the merge request. No separate conversation is created for CI handling.
 - **SC-002**: A CI failure the agent finds is not caused by the code never leads the session to show "attempts exhausted". Replaying the 2026-10-30 merge request 9 scenario ends with the session showing CI as passing after the manual retry.
-- **SC-003**: No session ever runs two turns at once. Any number of events arriving during one turn produce at most one follow-up turn.
+- **SC-003**: No session ever runs two turns at once. Any number of events arriving during one turn produce at most one follow-up turn per branch and requester.
 - **SC-004**: Events waiting on busy sessions delay no other job: with every waiting event's session busy, unrelated jobs start as soon as they would with no events pending.
 - **SC-005**: Duplicate deliveries from the git platform produce no duplicate turns and no duplicate merge request comments.
 - **SC-006**: A repeated CI failure on a commit the agent has already examined starts no additional turn.
@@ -247,7 +251,7 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 - Chat turns may keep running interactively for responsiveness. Only their scheduling relative to other turns follows the inbox rules.
 - The limit of consecutive system-started turns reuses the existing limit on how many times delegations may resume a session in a row (3).
 - Notifications use the channels and preferences that already exist.
-- Turns run with the owner's identity, as they do today for CI fix runs and resumed delegations. This includes turns started by another person's mention: the owner's access and personal tools are then used on that person's request. This was accepted in the 2026-10-30 clarification, and is limited by the check on who may mention DAIV (FR-026).
+- Turns run as whoever asked for them: a person's request as the DAIV account linked to their platform account (as no one when there is none), a CI fix as the owner, a resumed delegation as the user who delegated. Requests from different people get turns of their own (2026-10-31 clarification).
 - Today a mention on a DAIV-published merge request runs as its author in the merge request's own conversation. After this feature, that holds only for merge requests no session owns.
 - On GitHub, mentions in diff review comments are seen only once the operator subscribes the GitHub App to review-comment events. Until then, they are ignored, as they are today.
 - Out of scope, and unchanged:

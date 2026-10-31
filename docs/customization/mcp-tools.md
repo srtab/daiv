@@ -129,11 +129,13 @@ the requester — there is no scope field to change that. Personal servers work 
 custom servers above (same transport options, same tool-filter capabilities, same **Test
 connection**/sync gating for the Tool filter section) with a few important differences.
 
-**Where they load.** A personal server is loaded only in runs where DAIV knows who triggered the
-run: chat sessions, dashboard-initiated runs, and jobs submitted via the API or MCP interface.
-Webhook- and label-triggered runs (for example, issue or merge-request label automation) have no
-acting user and therefore load **global servers only** — personal servers are never loaded in those
-contexts.
+**Where they load.** A personal server is loaded only in runs where DAIV knows whom the run acts
+as: chat sessions, dashboard-initiated runs, jobs submitted via the API or MCP interface, and runs a
+GitLab/GitHub event starts for a person who signed in to DAIV with that platform account (an issue
+label or mention, or a mention on a merge request a DAIV session owns). A session's CI fixes act as
+its owner, and a resumed delegation as the user who delegated. A mention on a merge request no
+session owns, or by someone who never signed in with that account, has no acting user and loads
+**global servers only**.
 
 **Header values are always literal.** Unlike global servers, personal server headers cannot
 reference host environment variables (`env_ref`). Every header value is a literal string, encrypted

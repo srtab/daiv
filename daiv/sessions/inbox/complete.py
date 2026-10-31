@@ -7,6 +7,11 @@
 | FAILED otherwise | back to ``pending`` with ``attempts + 1``, or ``failed`` (``retries_exhausted``) at
   ``MAX_EVENT_ATTEMPTS``, logged with ``logger.error`` |
 
+A run that still holds its session's slot when it ends frees it: the drain claimed the slot when it created the run,
+and only the run's task releases it, so a run stopped or failed before its task ran would keep it. The session is then
+drained, except when the run's finish says ``skip_dispatch`` (the drain's own enqueue failed): draining there would
+spend every attempt on the enqueue at once, so the sweep retries it instead, a minute apart.
+
 A session with no DAIV user has no one to notify, so a successful run a CI failure woke posts its summary on the
 merge request instead (FR-018). A failed post is logged; the events stay handled. When such a run pushed nothing and
 its session was delegated, the parent session remembers it as a ``no_push`` ``delegated_ci_outcome`` (FR-021).
@@ -29,7 +34,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
 
-from sessions.executor.lock import stale_cutoff
+from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.drain import drain_logged
 from sessions.inbox.post import post_delegated_ci_outcome
 from sessions.models import EventFailure, EventKind, EventState, InboxEvent, Run, RunStatus, Session
@@ -42,13 +47,20 @@ MAX_EVENT_ATTEMPTS = 3
 ANSWERED_IN_ANOTHER_THREAD = "I answered this together with a later mention: {url}"
 
 
-def on_run_ended(run: Run) -> None:
-    """Settle the events ``run`` took, then drain its session. Never raises. SYNC ONLY."""
+def on_run_ended(run: Run, *, drain: bool = True) -> None:
+    """Settle the events ``run`` took, free the slot if ``run`` still holds it, then drain its session unless
+    ``drain`` is ``False``. Never raises. SYNC ONLY."""
     try:
         settle_events(run)
     except Exception:
         logger.exception("inbox: settling the events of run=%s failed; the sweep retries them", run.pk)
-    if run.session_id:
+    if not run.session_id:
+        return
+    try:
+        SessionLock.release_for_run(run.session_id, run.pk)
+    except Exception:
+        logger.exception("inbox: could not free the slot run=%s held; it frees once stale", run.pk)
+    if drain:
         drain_logged(run.session_id)
 
 

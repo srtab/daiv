@@ -80,15 +80,26 @@ _FAST_FORWARDED = {
 }
 
 
-def render_input(run: Run, *, fast_forward: FastForward | None = None) -> RenderedInput:
-    """The input for ``run`` from the events it took, and what bringing its checkout up to the remote branch did.
-    SYNC ONLY."""
+def run_events(run: Run) -> list[InboxEvent]:
+    """The events ``run`` took, and the ones they superseded, oldest first. SYNC ONLY."""
+    return list(InboxEvent.objects.filter(run=run).select_related("author").order_by("created_at", "id"))
+
+
+arun_events = sync_to_async(run_events)
+
+
+def render_input(
+    run: Run, *, fast_forward: FastForward | None = None, events: Sequence[InboxEvent] | None = None
+) -> RenderedInput:
+    """The input for ``run`` from the events it took (``events``, read from the database when ``None``), and what
+    bringing its checkout up to the remote branch did. SYNC ONLY unless ``events`` is given."""
     # Deferred: ``sessions.signals`` imports this module at app load, and the agent stack must not load with it.
     from langchain_core.messages import HumanMessage
 
     from automation.agent.synthetic import synthetic_message
 
-    events = list(InboxEvent.objects.filter(run=run).select_related("author").order_by("created_at", "id"))
+    if events is None:
+        events = run_events(run)
     context = render_context(events, fast_forward=fast_forward, branch=run.ref)
     return RenderedInput(
         context=synthetic_message(context, kind=INBOX_CONTEXT_KIND) if context else None,

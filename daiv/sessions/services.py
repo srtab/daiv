@@ -87,6 +87,8 @@ def get_or_create_session(
     ref: str = "",
     user=None,
     external_username: str = "",
+    external_provider: str = "",
+    external_uid: str = "",
     title: str = "",
     agent_model: str = "",
     agent_thinking_level: str = "",
@@ -111,6 +113,8 @@ def get_or_create_session(
             "ref": ref,
             "user": user,
             "external_username": external_username,
+            "external_provider": external_provider,
+            "external_uid": external_uid,
             "title": title[: Session._meta.get_field("title").max_length],
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
@@ -207,24 +211,26 @@ async def aget_session_ref(*, thread_id: str) -> str:
     return await Session.objects.filter(thread_id=thread_id).values_list("ref", flat=True).afirst() or ""
 
 
-async def aget_task_run_id(task_result_id: uuid.UUID | str) -> str | None:
-    """The id of the ``Run`` linked to a task result, or ``None`` when none is.
+@dataclass(frozen=True)
+class TaskRun:
+    """The ``Run`` linked to a task result and the DAIV user it acts as, read when the task starts, so a user who
+    linked their platform account meanwhile is the one it acts as."""
+
+    run_id: str | None = None
+    user_id: int | None = None
+
+
+async def aget_task_run(task_result_id: uuid.UUID | str) -> TaskRun:
+    """The ``Run`` linked to a task result; an empty :class:`TaskRun` when none is.
 
     A webhook callback commits the Run with its task (see ``webhooks.dispatch``), so a worker that sees the task
     sees its Run too.
     """
-    run_id = await Run.objects.filter(task_result_id=task_result_id).values_list("pk", flat=True).afirst()
-    if run_id is None:
+    row = await Run.objects.filter(task_result_id=task_result_id).values_list("pk", "user_id").afirst()
+    if row is None:
         logger.warning("No run is linked to task result %s; running without one", task_result_id)
-        return None
-    return str(run_id)
-
-
-async def aget_run_user_id(run_id: str | None) -> int | None:
-    """The DAIV user a run was started by, resolved from its author when the run was created; ``None`` for none."""
-    if not run_id:
-        return None
-    return await Run.objects.filter(pk=run_id).values_list("user_id", flat=True).afirst()
+        return TaskRun()
+    return TaskRun(run_id=str(row[0]), user_id=row[1])
 
 
 async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
@@ -264,6 +270,8 @@ def create_run(
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
+    external_provider: str = "",
+    external_uid: str = "",
     muted: bool | None = None,
     batch_id: uuid.UUID | None = None,
     thread_id: str | None = None,
@@ -282,6 +290,8 @@ def create_run(
         ref=ref,
         user=user,
         external_username=external_username,
+        external_provider=external_provider,
+        external_uid=external_uid,
         title=title,
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
@@ -298,6 +308,8 @@ def create_run(
         task_result_id=task_result_id,
         user=user,
         external_username=external_username,
+        external_provider=external_provider,
+        external_uid=external_uid,
         repo_id=repo_id,
         ref=ref,
         prompt=prompt,
@@ -516,11 +528,11 @@ async def _asubmit_follow_up(
     mcp_overrides: dict | None,
 ) -> Run | BatchSubmitFailure:
     """Hand a job for an existing session to its inbox: the run the drain started for it when the session was idle,
-    or the session's next run for its branch, which other jobs on that branch may share. Its references join the
-    session when a run takes it; ``mcp_overrides`` replace the session's before it is posted, and only while no run
-    on the session is unfinished."""
+    or the session's next run for its branch, which other jobs on that branch may share, also when the slot was claimed
+    between the post and its drain. Its references join the session when a run takes it; ``mcp_overrides`` replace the
+    session's before it is posted, and only while no run on the session is unfinished."""
     from sessions.inbox import kinds
-    from sessions.inbox.post import apost_event
+    from sessions.inbox.post import aattach_next_run, apost_event
 
     if target.repo_id != session.repo_id:
         return BatchSubmitFailure(
@@ -561,6 +573,8 @@ async def _asubmit_follow_up(
         )
     if result.run_id is not None:
         return await Run.objects.aget(pk=result.run_id)
+    if (run := await aattach_next_run(result.event)) is not None:
+        return run
     # The caller is told the job failed, so a later drain must not start it after all.
     await InboxEvent.objects.filter(pk=result.event.pk, state=EventState.PENDING).aupdate(
         state=EventState.DISMISSED, updated_at=timezone.now()
@@ -576,7 +590,7 @@ async def _asubmit_follow_up(
         event.failure,
     )
     return BatchSubmitFailure(
-        repo_id=target.repo_id, ref=target.ref, error=f"FollowUpNotStarted: {event.failure or 'enqueue_failed'}"
+        repo_id=target.repo_id, ref=target.ref, error=f"FollowUpNotStarted: {event.failure or 'not_started'}"
     )
 
 

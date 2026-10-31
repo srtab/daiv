@@ -257,7 +257,7 @@ class TestInboxRun:
         )
         return run
 
-    async def test_it_runs_on_the_claimed_slot_with_the_rendered_input_as_the_owner(self, member_user):
+    async def test_it_runs_on_the_claimed_slot_with_the_rendered_input(self, member_user):
         run = await self._inbox_run(user=member_user)
 
         spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True))["spec"]
@@ -266,14 +266,30 @@ class TestInboxRun:
         context, request = spec.input_messages
         assert "!3 was merged into main" in context.content
         assert request.content.startswith("CI failed on this merge request. Failed jobs: lint.")
-        assert spec.acting_user_id == member_user.pk
 
-    async def test_a_session_without_an_owner_acts_as_no_one(self):
-        run = await self._inbox_run(user=None)
+    async def test_it_acts_as_the_runs_user_not_the_owner(self, member_user, admin_user):
+        run = await self._inbox_run(user=member_user)
+        await Run.objects.filter(pk=run.pk).aupdate(user=admin_user)
 
-        spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), user_id=42, inbox=True))["spec"]
+        spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True))["spec"]
 
-        assert spec.acting_user_id is None
+        assert spec.acting_user_id == admin_user.pk
+
+    async def test_the_input_factory_reuses_the_events_read_at_start(self, member_user):
+        run = await self._inbox_run(user=member_user)
+        spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True))["spec"]
+        await InboxEvent.objects.filter(run=run).adelete()
+
+        context, _request = await spec.input_factory("advanced")
+
+        assert "Your working copy was fast-forwarded." in context.content
+
+    async def test_a_run_whose_events_were_settled_before_it_started_does_not_run(self, member_user):
+        run = await self._inbox_run(user=member_user)
+        await InboxEvent.objects.filter(run=run).aupdate(state=EventState.PENDING, run=None)
+
+        with pytest.raises(ValueError, match="holds no event to act on"):
+            await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True)
 
     async def test_a_run_without_events_keeps_its_prompt_and_waits_for_the_slot(self):
         thread_id = await amake_job_session()

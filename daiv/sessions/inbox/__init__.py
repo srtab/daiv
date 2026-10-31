@@ -10,14 +10,23 @@ a delegated batch finishing: each becomes an ``InboxEvent`` on that session, pos
   request is never dropped.
 - **One run per session, claimed when the run is created.** :func:`sessions.inbox.drain.adrain` claims
   ``Session.active_run_id`` with the run's pk in the same transaction that makes the run READY, and ``run_job_task``
-  runs it under the ``Claimed`` lock policy: it heartbeats and releases, and never polls. No worker waits for a busy
-  session; the drain is retried when the holder's run ends, and by a per-minute sweep.
-- **One QUEUED next run per busy session and branch.** A waking event that lands on a busy session joins the
-  session's QUEUED run for the event's branch, or creates it, so every source gets a ``Run`` id to show or return
-  while it waits. The drain promotes it to READY when the slot frees.
-- **A run takes the pending events for its branch.** The branch is that of the oldest waking event. Every pending
-  event whose ``ref`` is blank or equals it is taken; events for another branch wait for a run on theirs. Of the
-  pending events sharing a ``subject`` only the newest is taken; the older ones become ``superseded``.
+  runs it under the ``Claimed`` lock policy: it heartbeats and releases, and never polls. Until a worker starts it, a
+  per-minute task on the interactive queue heartbeats the claim, and a run that ends without its task running frees it
+  when it ends. No worker waits for a busy session; the drain is retried when the holder's run ends, and by the sweep.
+- **A run serves one requester and acts as them** (:class:`sessions.inbox.drain.Requester`): the DAIV user whose
+  request woke it, else a person's platform account no one linked (acting as no one), else, for what DAIV woke on its
+  own, the user who delegated a finished batch or the session's owner; ``run_job_task`` takes that user from the run,
+  never from the session. Requests from different people get runs of their own. A platform account is known only as
+  the active DAIV user who signed in with it, never one that only shares its username or email.
+- **One QUEUED next run per busy session, branch and requester.** A waking event that lands on a busy session joins
+  its requester's QUEUED run for the event's branch, or creates it, so every source gets a ``Run`` id to show or
+  return while it waits. The drain promotes it to READY when the slot frees.
+- **A run takes the pending events for its branch and requester.** The branch and requester are those of the oldest
+  waking event. Every waking event of that requester whose ``ref`` is blank or equals the branch is taken, and every
+  remembered one for the branch; the rest wait for runs of their own. A chat message, a follow-up job sent without a
+  branch and a finished batch follow the session to the branch its runs moved to; a mention or a CI result keeps its
+  merge request's. Of the pending events sharing a ``subject`` only the newest is taken; the older ones become
+  ``superseded``.
 - **Remembered events reach the model as a hidden synthetic message.** :func:`sessions.inbox.render.arender_input`
   turns the taken events into a ``synthetic_message(kind="inbox")`` the transcript hides, followed by one
   ``HumanMessage`` with people's words, or a DAIV-written prompt when only CI or a delegation woke the run.

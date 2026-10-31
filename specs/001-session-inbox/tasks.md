@@ -88,7 +88,7 @@ description: "Task list for the Session Inbox feature"
   - the third failure marks them `failed` with `retries_exhausted` and logs with `logger.error`;
   - every outcome then calls `adrain`.
 - [X] T010 [P] Extend `tests/unit_tests/sessions/executor/test_lock.py`: the new `Claimed` policy heartbeats, releases the slot only while `active_run_id == holder_id`, and never polls `try_claim`.
-- [X] T011 [P] Extend `tests/unit_tests/sessions/executor/test_tasks.py`: `run_job_task` for an inbox run uses `Claimed`, builds `input_messages` from `arender_input`, and passes `acting_user_id = session.user_id`. For a session with no user it passes `None`.
+- [X] T011 [P] Extend `tests/unit_tests/sessions/executor/test_tasks.py`: `run_job_task` for an inbox run uses `Claimed`, builds `input_messages` from `arender_input`, and passes the run's `user_id` as `acting_user_id`, not the session owner's.
 - [X] T012 [P] Extend `tests/unit_tests/sessions/test_tasks.py`:
   - `drain_inboxes_cron_task` drains only sessions with pending waking events and a free or stale slot;
   - it returns `taken` events whose run's slot is stale to `pending` with `attempts + 1`.
@@ -148,7 +148,7 @@ description: "Task list for the Session Inbox feature"
   - enqueue with `sessions.queue.aenqueue_run` on commit, and on failure release the slot and return events to `pending`.
 
   Depends on T016–T020.
-- [X] T022 Make `run_job_task` in `daiv/sessions/executor/tasks.py` run inbox runs, those with linked `inbox_events`: use the `Claimed` policy, set `input_messages` from `arender_input(run)` (context first, then request), and set `acting_user_id=session.user_id`. Keep the existing `HumanMessage(prompt)` path for runs with no events.
+- [X] T022 Make `run_job_task` in `daiv/sessions/executor/tasks.py` run inbox runs, those with linked `inbox_events`: use the `Claimed` policy, set `input_messages` from `arender_input(run)` (context first, then request), and set `acting_user_id=run.user_id`. Keep the existing `HumanMessage(prompt)` path for runs with no events.
 - [X] T023 Implement `daiv/sessions/inbox/complete.py` with `aon_run_ended(run)`, per research.md R12 (mention replies are added in US5). Register a `run_ended` receiver in `daiv/sessions/signals.py` that calls it and then `adrain(run.session_id)`.
 - [X] T024 Add `drain_inboxes_cron_task` with `@cron("* * * * *")` to `daiv/sessions/tasks.py`. It recovers stale `taken` events, then drains sessions that have pending waking events and a free or stale slot, at most 200 per tick, as the existing sweeps cap themselves.
 

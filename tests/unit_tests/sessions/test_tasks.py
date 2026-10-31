@@ -12,6 +12,7 @@ from sessions.tasks import (
     drain_inboxes_cron_task,
     generate_batch_title_task,
     generate_title_task,
+    keep_inbox_claims_alive_cron_task,
     resume_stalled_batches_cron_task,
     sync_stuck_runs_cron_task,
 )
@@ -39,6 +40,14 @@ def test_resume_stalled_batches_cron_task_runs_the_sweep():
         resume_stalled_batches_cron_task.func()
 
     sweep.assert_called_once_with()
+
+
+def test_the_inbox_claims_are_kept_alive_from_the_interactive_queue():
+    with patch("sessions.inbox.drain.keep_queued_claims_alive", return_value=0) as heartbeat:
+        keep_inbox_claims_alive_cron_task.func()
+
+    heartbeat.assert_called_once_with()
+    assert keep_inbox_claims_alive_cron_task.queue_name == TASK_QUEUE_INTERACTIVE
 
 
 @pytest.mark.django_db(transaction=True)

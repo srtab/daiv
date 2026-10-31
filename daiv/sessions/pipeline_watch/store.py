@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from django.db.models import Exists, OuterRef, Q
 from django.db.models.fields.json import KT
 
+from sessions.inbox.ownership import aownership_for_branch
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, QuietReason
 
 if TYPE_CHECKING:
@@ -40,20 +41,12 @@ class WatchStore:
 
     async def aopen(self, repo_id: str, ref: str) -> MergeRequestOwnership | None:
         """The open ownership whose merge request's source branch is ``ref``."""
-        return await (
-            MergeRequestOwnership.objects
-            .filter(repo_id=repo_id, source_branch=ref, closed_at__isnull=True)
-            .order_by("-updated_at")
-            .afirst()
-        )
+        return await aownership_for_branch(repo_id, ref)
 
     async def ahas_open(self, repo_id: str, ref: str) -> bool:
         return await MergeRequestOwnership.objects.filter(
             repo_id=repo_id, source_branch=ref, closed_at__isnull=True
         ).aexists()
-
-    async def aget(self, repo_id: str, merge_request_iid: int) -> MergeRequestOwnership | None:
-        return await MergeRequestOwnership.objects.filter(repo_id=repo_id, merge_request_iid=merge_request_iid).afirst()
 
     async def arecord_pipeline(self, ownership_id: int, pipeline_id: int) -> bool:
         """Record ``pipeline_id`` as judged, reporting whether this caller won: two deliveries of one pipeline must not
@@ -66,20 +59,50 @@ class WatchStore:
         )
         return updated == 1
 
+    async def aforget_pipeline(self, ownership_id: int, pipeline_id: int, *, previous: int | None) -> None:
+        """Undo :meth:`arecord_pipeline` after posting the pipeline's result failed, unless a later one was recorded."""
+        await MergeRequestOwnership.objects.filter(pk=ownership_id, last_pipeline_id=pipeline_id).aupdate(
+            last_pipeline_id=previous
+        )
+
+    async def agave_up_before(self, event: InboxEvent) -> bool:
+        """Whether an earlier pipeline on the commit of ``event``, a ``budget_spent`` CI failure, already ran out of
+        attempts, so the owner was told."""
+        return (
+            await InboxEvent.objects
+            .filter(
+                session_id=event.session_id,
+                merge_request_iid=event.merge_request_iid,
+                kind=EventKind.CI_FAILED,
+                reason=QuietReason.BUDGET_SPENT,
+                payload__sha=event.payload["sha"],
+            )
+            .exclude(pk=event.pk)
+            .aexists()
+        )
+
     async def aset_enabled(self, ownership_id: int, *, enabled: bool) -> None:
-        """Turn the watch on or off; turning it on gives it its attempts back, as a person asking again is a new
-        budget."""
-        updates = {"watch_enabled": enabled} | ({"attempts": 0} if enabled else {})
+        """Turn the watch on or off. Turning it on gives it its attempts back, as a person asking again is a new budget,
+        and forgets the last pipeline judged so it is judged anew."""
+        updates = {"watch_enabled": enabled}
+        if enabled:
+            updates |= {"attempts": 0, "last_pipeline_id": None}
         await MergeRequestOwnership.objects.filter(pk=ownership_id).aupdate(**updates)
 
     def unjudged(self, *, quiet_since: datetime, horizon: datetime, limit: int) -> QuerySet[MergeRequestOwnership]:
         """Open, watched merge requests whose latest DAIV commit has no CI result yet, quiet since ``quiet_since`` and
-        claimed after ``horizon``: the ones a missed webhook may have left waiting."""
-        judged = InboxEvent.objects.annotate(sha=KT("payload__sha")).filter(
-            session=OuterRef("session"),
-            kind__in=CI_KINDS,
-            merge_request_iid=OuterRef("merge_request_iid"),
-            sha=OuterRef("last_daiv_sha"),
+        claimed after ``horizon``: the ones a missed webhook may have left waiting. A result kept quiet because the
+        watch was off does not count, so a watch turned back on is judged even if its own evaluation failed."""
+        judged = (
+            InboxEvent.objects
+            .annotate(sha=KT("payload__sha"))
+            .filter(
+                session=OuterRef("session"),
+                kind__in=CI_KINDS,
+                merge_request_iid=OuterRef("merge_request_iid"),
+                sha=OuterRef("last_daiv_sha"),
+            )
+            .exclude(reason=QuietReason.WATCH_OFF)
         )
         return (
             MergeRequestOwnership.objects

@@ -72,6 +72,17 @@ def drain_inboxes_cron_task():
         drain_logged(thread_id)
 
 
+@cron("* * * * *")
+@task(queue_name=TASK_QUEUE_INTERACTIVE)
+@locked_task(key="keep-inbox-claims-alive")
+def keep_inbox_claims_alive_cron_task():
+    """Heartbeat the slots the inbox claimed for runs whose task still waits for a worker, so a backlog of agent runs
+    does not pass for a dead run. On the interactive queue, which agent runs never hold up."""
+    from sessions.inbox.drain import keep_queued_claims_alive
+
+    keep_queued_claims_alive()
+
+
 @task(queue_name=TASK_QUEUE_INTERACTIVE)
 async def classify_push_task(
     repo_id: str, branch: str, before: str, after: str, pusher_username: str, commit_count: int

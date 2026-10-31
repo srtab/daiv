@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.utils.html import escapejs
 
 import pytest
+from allauth.socialaccount.models import SocialAccount
 from sessions.conf import settings as sessions_settings
 from sessions.delegation import outcome_states
 from sessions.executor.lock import STALE_RUN_MINUTES
@@ -528,8 +529,11 @@ def test_detail_missing_checkpoint_expired_when_run_stale(member_client, member_
 
 @pytest.mark.django_db
 def test_detail_visible_to_run_actor(member_client, member_user):
-    """A webhook session (user=None) is reachable by the external actor via by_owner."""
-    session = _create_session(user=None, external_username=member_user.username, origin=SessionOrigin.ISSUE_WEBHOOK)
+    """A webhook session (user=None) is reachable via by_owner by the user linked to the account that started it."""
+    SocialAccount.objects.create(user=member_user, provider="gitlab", uid="77")
+    session = _create_session(
+        user=None, external_provider="gitlab", external_uid="77", origin=SessionOrigin.ISSUE_WEBHOOK
+    )
 
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))

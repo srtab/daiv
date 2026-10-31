@@ -22,7 +22,14 @@ _NEWEST_FIRST = ("-created_at", "-id")
 
 
 def _started_by_q(user: User) -> models.Q:
-    return models.Q(user=user) | models.Q(external_username=user.username)
+    """Rows ``user`` started: as themselves, or through a git platform account they signed in with, matched by its id
+    and never by its username, which another person may share."""
+    from allauth.socialaccount.models import SocialAccount
+
+    linked = SocialAccount.objects.filter(
+        user=user, provider=models.OuterRef("external_provider"), uid=models.OuterRef("external_uid")
+    )
+    return models.Q(user=user) | models.Exists(linked)
 
 
 def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]:
@@ -41,10 +48,9 @@ class SessionQuerySet(models.QuerySet["Session"]):
     def _owner_q(self, user: User) -> models.Q:
         """Ownership predicate shared by ``by_owner``/``visible_to``.
 
-        A user owns a session when they own the session row, match its
-        ``external_username``, subscribe to its schedule, or acted in any of its runs
-        (user FK or external_username on the Run). The run-level match preserves
-        per-actor visibility on shared webhook threads.
+        A user owns a session when they own the session row, started it through a git
+        platform account they linked, subscribe to its schedule, or started any of its runs
+        either way. The run-level match preserves per-actor visibility on shared webhook threads.
         """
         from sessions.models import Run
 
@@ -163,7 +169,8 @@ class SessionManager(models.Manager.from_queryset(SessionQuerySet)):
 
 class RunQuerySet(models.QuerySet["Run"]):
     def started_by(self, user: User) -> models.QuerySet[Run]:
-        """Runs the user started, by account or by git platform username; not those of a schedule they subscribe to."""
+        """Runs the user started, as themselves or through a git platform account they linked; not those of a schedule
+        they subscribe to."""
         return self.filter(_started_by_q(user))
 
     def not_archived_by(self, user: User) -> models.QuerySet[Run]:
@@ -344,7 +351,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
     def _emit_run_finished(run: Run, **flags: bool) -> None:
         from sessions.models import SessionOrigin
 
-        run_ended.send_robust(sender=type(run), run=run)
+        run_ended.send_robust(sender=type(run), run=run, **flags)
         if run.trigger_type == SessionOrigin.CHAT:
             return
         run_finished.send_robust(sender=type(run), run=run, **flags)

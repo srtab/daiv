@@ -1,6 +1,6 @@
 # Contract: platform events → inbox events
 
-Webhooks keep authenticating before parsing (`patterns/security.md` rule 5). Each row lists the platform delivery, the inbox event it becomes, and its de-duplication key. "Owned" means `aownership_for_branch` or `aowning_session` returns an open ownership.
+Webhooks keep authenticating before parsing (`patterns/security.md` rule 5). Each row lists the platform delivery, the inbox event it becomes, and its de-duplication key. "Owned" means `aownership_for_branch` or `aopen_ownership` returns an open ownership.
 
 An unowned merge request keeps today's behaviour in every row.
 

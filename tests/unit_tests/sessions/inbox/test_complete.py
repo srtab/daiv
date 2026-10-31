@@ -8,6 +8,7 @@ from asgiref.sync import sync_to_async
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox.complete import MAX_EVENT_ATTEMPTS, aon_run_ended, recover_stale_events
 from sessions.models import EventFailure, EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.queue import ENQUEUE_FAILED_PREFIX
 
 from codebase.clients.base import CommentThread
 from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, mention_payload
@@ -74,6 +75,19 @@ class TestOutcomes:
         assert "failed after 3 attempts" in caplog.text
         drain.assert_called_once_with(run.session_id)
 
+    async def test_a_run_whose_drain_failed_to_enqueue_it_spends_an_attempt_and_leaves_the_drain_to_the_sweep(
+        self, drain
+    ):
+        run, event = await _run_with_event(
+            RunStatus.FAILED, error_message=f"{ENQUEUE_FAILED_PREFIX}: RuntimeError: broker down"
+        )
+
+        await aon_run_ended(run, drain=False)
+
+        stored = await _state(event)
+        assert (stored.state, stored.attempts, stored.run_id) == (EventState.PENDING, 1, None)
+        drain.assert_not_called()
+
     async def test_events_the_run_did_not_take_are_left_alone(self, drain):
         run, _ = await _run_with_event(RunStatus.FAILED)
         pending = await amake_event(await Session.objects.aget(pk=run.session_id), EventKind.NOTICE, run=run)
@@ -93,6 +107,26 @@ class TestOutcomes:
 
         assert "settling the events" in caplog.text
         drain.assert_called_once_with(run.session_id)
+
+
+class TestSlot:
+    async def test_a_run_stopped_before_its_task_ran_frees_the_slot_the_drain_claimed(self, drain):
+        run, event = await _run_with_event(RunStatus.READY)
+        await Session.objects.filter(pk=run.session_id).aupdate(active_run_id=str(run.pk))
+
+        assert await sync_to_async(Run.objects.cancel)(run) is True
+
+        assert (await Session.objects.aget(pk=run.session_id)).active_run_id is None
+        assert (await _state(event)).state == EventState.DISMISSED
+        drain.assert_called_once_with(run.session_id)
+
+    async def test_another_holders_slot_is_left_alone(self, drain):
+        run, _ = await _run_with_event(RunStatus.FAILED)
+        await Session.objects.filter(pk=run.session_id).aupdate(active_run_id="chat-run")
+
+        await aon_run_ended(run)
+
+        assert (await Session.objects.aget(pk=run.session_id)).active_run_id == "chat-run"
 
 
 class TestRecoverStaleEvents:

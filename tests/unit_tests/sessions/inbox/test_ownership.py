@@ -3,7 +3,7 @@ import uuid
 from django.utils import timezone
 
 import pytest
-from sessions.inbox.ownership import aclaim_ownership, aownership_for_branch, aowning_session
+from sessions.inbox.ownership import aclaim_ownership, aopen_ownership, aownership_for_branch
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
@@ -141,19 +141,19 @@ class TestAttempts:
         assert (await _claim(await _publishing_run(alice, trigger))).attempts == 2
 
 
-class TestOwningSession:
-    async def test_it_is_the_owning_session(self):
+class TestOpenOwnership:
+    async def test_it_names_the_owning_session(self):
         run = await _publishing_run(None)
         await _claim(run)
 
-        assert (await aowning_session(REPO, 9)).pk == run.session_id
+        assert (await aopen_ownership(REPO, 9)).session.pk == run.session_id
 
     async def test_an_unowned_or_closed_merge_request_has_none(self):
         await _claim(await _publishing_run(None))
         await MergeRequestOwnership.objects.aupdate(closed_at=timezone.now())
 
-        assert await aowning_session(REPO, 9) is None
-        assert await aowning_session(REPO, 10) is None
+        assert await aopen_ownership(REPO, 9) is None
+        assert await aopen_ownership(REPO, 10) is None
 
     async def test_a_deleted_owning_session_is_replaced_by_one_for_the_same_person(self):
         alice = await _user("alice")
@@ -161,7 +161,7 @@ class TestOwningSession:
         await _claim(run)
         await Session.objects.filter(pk=run.session_id).adelete()
 
-        session = await aowning_session(REPO, 9, title="Install gettext")
+        session = (await aopen_ownership(REPO, 9, title="Install gettext")).session
 
         assert session.pk != run.session_id
         assert (session.user_id, session.origin, session.ref) == (

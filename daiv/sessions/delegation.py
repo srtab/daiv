@@ -19,10 +19,11 @@ the default branch always does.
 :func:`resume_coordinator` runs on every leg's ``run_finished``. Once the whole batch is terminal it posts one waking
 ``delegation_finished`` event to the coordinator's inbox (source key ``batch:<id>``, so several legs finishing at once
 post it once), whose summary covers every leg without quoting DAIV's own error text. The inbox starts the
-coordinator's ``SessionOrigin.DELEGATION_RESUME`` run once the session is free, as its owner and after checking the
-owner may still run on its repository. A batch none of whose legs reached the task queue or waited for the
-coordinator resumes nothing: the tool already told the agent nothing started, and neither does one whose every leg
-was cancelled. ``continuation_of_batch_id`` is no longer written; it stays readable on older continuations.
+coordinator's ``SessionOrigin.DELEGATION_RESUME`` run once the session is free, as the legs' user and with their mute,
+after checking that user may still run on its repository. A
+batch none of whose legs reached the task queue or waited for the coordinator resumes nothing: the tool already told
+the agent nothing started, and neither does one whose every leg was cancelled. ``continuation_of_batch_id`` is no
+longer written; it stays readable on older continuations.
 
 ``SessionJobDelegator.astatus`` reports the session's batches, its latest ``MAX_STATUS_BATCHES`` without a batch id,
 and ``acancel`` asks a batch's unfinished legs to stop through ``RunManager.cancel``: a leg that is not running yet
@@ -313,11 +314,14 @@ def _resume_batch(batch_id: uuid.UUID) -> bool:
     if coordinator is None:
         logger.info("resume_coordinator: batch %s has no coordinator session left to resume", batch_id)
         return False
+    payload: dict = {"batch_id": str(batch_id), "summary": render_batch_summary(batch_id, legs)}
+    if legs[0].muted is not None:
+        payload["muted"] = legs[0].muted
     result = post_event(
         coordinator.pk,
         kind=EventKind.DELEGATION_FINISHED,
         source_key=kinds.batch_key(batch_id),
-        payload={"batch_id": str(batch_id), "summary": render_batch_summary(batch_id, legs)},
+        payload=payload,
         wake=True,
         author=legs[0].user,
     )

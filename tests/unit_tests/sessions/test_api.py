@@ -715,7 +715,7 @@ async def test_session_ci_watch_on_gives_the_attempts_back_and_asks_for_an_evalu
     assert resp.json()["watch"]["open"] is True
     await ownership.arefresh_from_db()
     assert (ownership.watch_enabled, ownership.attempts) == (True, 0)
-    assert watch_world.evaluations == [{"repo_id": "group/project", "ref": "daiv/b7"}]
+    assert watch_world.evaluations == [{"repo_id": "group/project", "ref": "daiv/b7", "pipeline_id": None}]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -875,6 +875,28 @@ async def test_session_turns_report_the_queued_next_run_and_what_waits_for_it(cl
     assert [(e["id"], e["kind"], e["summary"]) for e in queued["events"]] == [
         (str(chat.pk), "chat_message", "Also add a test")
     ]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_report_what_waits_for_every_next_run(client, authed, member_user):
+    from sessions.models import EventKind
+
+    from tests.unit_tests.sessions.inbox.conftest import amake_event
+
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, active_run_id="chat-run")
+    mine = await _create_run_async(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT, user=user)
+    theirs = await _create_run_async(
+        session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.MR_WEBHOOK, user=member_user
+    )
+    chat = await amake_event(session, EventKind.CHAT_MESSAGE, run=mine, author=user)
+    mention = await amake_event(session, EventKind.MENTION, run=theirs, author=member_user)
+
+    hydrated = HydratedThread([], False, None, None, None)
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert [e["id"] for e in resp.json()["queued"]["events"]] == [str(chat.pk), str(mention.pk)]
 
 
 @pytest.mark.django_db(transaction=True)

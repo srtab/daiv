@@ -566,7 +566,12 @@ async def test_a_turn_sent_while_a_next_run_is_queued_joins_it(client: TestAsync
         origin=SessionOrigin.CHAT, thread_id="t-next", user=user, repo_id="a/b", ref="main"
     )
     next_run = await Run.objects.acreate(
-        session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="a/b", ref="main", status=RunStatus.QUEUED
+        session=session,
+        trigger_type=SessionOrigin.PIPELINE_WEBHOOK,
+        repo_id="a/b",
+        ref="main",
+        status=RunStatus.QUEUED,
+        user=user,
     )
     await amake_event(session, run=next_run)
 

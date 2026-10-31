@@ -171,13 +171,13 @@ async def session_turns(request: HttpRequest, thread_id: str):
 
 
 def queued_payload(session: Session) -> dict | None:
-    """SYNC ONLY: the session's next run and the events waiting for it, oldest first."""
-    next_run = next_runs(session).first()
-    if next_run is None:
+    """SYNC ONLY: the session's oldest next run, and the events waiting for any of its next runs, oldest first."""
+    runs = list(next_runs(session))
+    if not runs:
         return None
-    events = InboxEvent.objects.filter(run=next_run, state=EventState.PENDING).select_related("author")
+    events = InboxEvent.objects.filter(run__in=runs, state=EventState.PENDING).select_related("author")
     return {
-        "run_id": str(next_run.pk),
+        "run_id": str(runs[0].pk),
         "events": [
             {"id": str(event.pk), "kind": event.kind, "summary": summarize(event), "created_at": event.created_at}
             for event in events.order_by("created_at", "id")

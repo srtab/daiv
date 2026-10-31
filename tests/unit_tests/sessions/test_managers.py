@@ -7,6 +7,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 import pytest
+from allauth.socialaccount.models import SocialAccount
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
 from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
@@ -305,12 +306,14 @@ class TestOwnedBy:
         assert list(Session.objects.owned_by(admin_user)) == [mine]
 
     def test_a_run_actor_owns_the_shared_thread(self, other_user):
+        SocialAccount.objects.create(user=other_user, provider="gitlab", uid="77")
         session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.ISSUE_WEBHOOK)
         Run.objects.create(
             session=session,
             trigger_type=SessionOrigin.ISSUE_WEBHOOK,
             repo_id="acme/api",
-            external_username=other_user.username,
+            external_provider="gitlab",
+            external_uid="77",
         )
 
         assert list(Session.objects.owned_by(other_user)) == [session]
@@ -330,12 +333,15 @@ def _session(user, origin=SessionOrigin.UI_JOB, **fields) -> Session:
 
 @pytest.mark.django_db
 class TestStartedBy:
-    def test_matches_the_account_or_the_platform_username(self, member_user, other_user):
-        by_account = _run_at(_session(member_user), timezone.now())
-        by_username = _run_at(_session(None), timezone.now(), external_username=member_user.username)
+    def test_matches_the_user_or_their_linked_account_never_the_platform_username(self, member_user, other_user):
+        SocialAccount.objects.create(user=member_user, provider="gitlab", uid="77")
+        by_user = _run_at(_session(member_user), timezone.now())
+        by_linked_account = _run_at(_session(None), timezone.now(), external_provider="gitlab", external_uid="77")
+        _run_at(_session(None), timezone.now(), external_provider="github", external_uid="77")
+        _run_at(_session(None), timezone.now(), external_username=member_user.username)
         _run_at(_session(other_user), timezone.now())
 
-        assert set(Run.objects.started_by(member_user)) == {by_account, by_username}
+        assert set(Run.objects.started_by(member_user)) == {by_user, by_linked_account}
 
 
 @pytest.mark.django_db

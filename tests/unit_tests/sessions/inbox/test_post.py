@@ -5,10 +5,10 @@ from unittest.mock import patch
 import pytest
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox import kinds
-from sessions.inbox.post import apost_event
+from sessions.inbox.post import aattach_next_run, apost_event
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
-from tests.unit_tests.sessions.inbox.conftest import amake_session, chat_payload, ci_payload
+from tests.unit_tests.sessions.inbox.conftest import amake_session, chat_payload, ci_payload, mention_payload
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -147,6 +147,49 @@ class TestBusySession:
 
         assert second.run_id == first.run_id
 
+    async def test_another_requesters_waking_event_gets_its_own_next_run(self, drain, admin_user, member_user):
+        session = await amake_session(user=admin_user, active_run_id="chat-run")
+
+        failure = await _post_ci(session.thread_id)
+        mention = await apost_event(
+            session.thread_id, kind=EventKind.MENTION, source_key="note:1", payload=mention_payload(), wake=True,
+            author=member_user,
+        )  # fmt: skip
+
+        assert failure.run_id != mention.run_id
+        assert await Run.objects.filter(pk=failure.run_id, user=admin_user).aexists()
+        assert await Run.objects.filter(pk=mention.run_id, user=member_user).aexists()
+
+    async def test_another_requester_waits_behind_a_queued_next_run_in_one_of_their_own(
+        self, drain, admin_user, member_user
+    ):
+        session = await amake_session(user=admin_user, active_run_id="chat-run")
+        failure = await _post_ci(session.thread_id)
+        await Session.objects.filter(pk=session.pk).aupdate(active_run_id=None)
+
+        mention = await apost_event(
+            session.thread_id, kind=EventKind.MENTION, source_key="note:1", payload=mention_payload(), wake=True,
+            author=member_user,
+        )  # fmt: skip
+
+        assert None is not mention.run_id != failure.run_id
+
+    async def test_an_unlinked_authors_next_run_records_their_platform_account(self, drain, admin_user):
+        session = await amake_session(user=admin_user, active_run_id="chat-run")
+
+        result = await apost_event(
+            session.thread_id, kind=EventKind.MENTION, source_key="note:1", payload=mention_payload(), wake=True,
+            author_username="stranger", author_provider="gitlab", author_uid="77",
+        )  # fmt: skip
+
+        run = await Run.objects.aget(pk=result.run_id)
+        assert (run.user_id, run.external_username, run.external_provider, run.external_uid) == (
+            None,
+            "stranger",
+            "gitlab",
+            "77",
+        )
+
     async def test_a_person_who_asked_starts_the_next_run(self, drain, member_user):
         session = await amake_session(active_run_id="chat-run")
 
@@ -162,6 +205,43 @@ class TestBusySession:
         run = await Run.objects.aget(pk=result.run_id)
         assert run.trigger_type == SessionOrigin.MCP_JOB
         assert run.user_id == member_user.pk
+
+    async def test_an_older_queued_run_on_the_branch_leaves_the_event_waiting_without_one(self, drain):
+        session = await amake_session(active_run_id="chat-run")
+        legacy = await Run.objects.acreate(
+            session=session, trigger_type=SessionOrigin.API_JOB, repo_id=session.repo_id, ref=session.ref,
+            status=RunStatus.QUEUED,
+        )  # fmt: skip
+
+        result = await _post_ci(session.thread_id)
+
+        assert (result.created, result.run_id) == (True, None)
+        assert result.event.state == EventState.PENDING
+        assert [run.pk async for run in Run.objects.filter(session=session)] == [legacy.pk]
+
+
+class TestAttachNextRun:
+    async def test_an_event_left_without_a_run_on_a_busy_session_gets_the_next_run(self, drain):
+        session = await amake_session()
+        result = await _post_ci(session.thread_id)
+        await Session.objects.filter(pk=session.pk).aupdate(active_run_id="chat-run")
+
+        run = await aattach_next_run(result.event)
+
+        assert (run.status, run.ref) == (RunStatus.QUEUED, session.ref)
+        assert (await InboxEvent.objects.aget(pk=result.event.pk)).run_id == run.pk
+
+    async def test_an_idle_session_gets_none(self, drain):
+        session = await amake_session()
+        result = await _post_ci(session.thread_id)
+
+        assert await aattach_next_run(result.event) is None
+
+    async def test_an_event_that_joined_a_run_returns_it(self, drain):
+        session = await amake_session(active_run_id="chat-run")
+        result = await _post_ci(session.thread_id)
+
+        assert (await aattach_next_run(result.event)).pk == result.run_id
 
 
 class TestRememberedEvents:

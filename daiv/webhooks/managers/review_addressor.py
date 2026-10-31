@@ -51,6 +51,7 @@ class CommentsAddressorManager(BaseManager):
         mention_note_id: int | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
+        acting_user_id: int | None = None,
     ) -> AgentResult:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -64,6 +65,7 @@ class CommentsAddressorManager(BaseManager):
             mention_note_id: The note that mentioned the bot, which the run answers.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
+            acting_user_id: The DAIV user the run acts as, its ``Run``'s user; ``None`` for none.
 
         Returns:
             An :class:`AgentResult` dict with the agent response and code_changes flag. A vanished source branch
@@ -78,14 +80,18 @@ class CommentsAddressorManager(BaseManager):
         )
 
         try:
-            return await manager._address_comments(sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max)
+            return await manager._address_comments(
+                sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max, acting_user_id=acting_user_id
+            )
         except CloneRefNotFoundError:
             raise
         except Exception:
             manager._add_unable_to_address_review_note()
             raise
 
-    async def _address_comments(self, *, sandbox_env_id: str | None, run_id: str | None, use_max: bool) -> AgentResult:
+    async def _address_comments(
+        self, *, sandbox_env_id: str | None, run_id: str | None, use_max: bool, acting_user_id: int | None = None
+    ) -> AgentResult:
         note = self.client.get_merge_request_note(
             self.repo_id, self.merge_request.merge_request_id, self._require_mention_note_id()
         )
@@ -101,6 +107,7 @@ class CommentsAddressorManager(BaseManager):
                 merge_request=self.merge_request,
                 use_max=use_max,
                 sandbox_env_id=sandbox_env_id,
+                acting_user_id=acting_user_id,
                 run_id=run_id,
                 recover_draft=True,
                 extra_metadata={

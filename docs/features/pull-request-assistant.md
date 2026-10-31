@@ -32,7 +32,7 @@ DAIV has context of the diff and the comment's position, so inline comments give
 
 ### A merge request DAIV published
 
-When a DAIV session published the merge or pull request, a mention goes to that session instead of starting a new one: the session that owns it (see [The session inbox](sessions.md#the-session-inbox)). The run acts as the session's owner and picks up where the session left off. Its final message, or its question, is posted in the thread of your mention; when you mentioned DAIV in several threads before it answered, the full reply goes in the latest one, and each other thread gets a line linking to it.
+When a DAIV session published the merge or pull request, a mention goes to that session instead of starting a new one: the session that owns it (see [The session inbox](sessions.md#the-session-inbox)). It picks up where the session left off, and acts as you: as the DAIV account you signed in to with that GitLab/GitHub account, with its personal MCP servers, never as the session's owner. If you never signed in to DAIV with that account, the run gets no personal tools, even when a DAIV user shares your username. Its final message, or its question, is posted in the thread of your mention; when you mentioned DAIV in several threads before it answered, the full reply goes in the latest one, and each other thread gets a line linking to it.
 
 A mention on a diff line reaches DAIV only on a merge request a session owns. On GitHub this also needs the App subscribed to **Pull request review comment** (see [Platform setup](../getting-started/platform-setup.md#github-configuration)). Comments that don't mention DAIV aren't answered, but the owning session remembers them, and its next run sees them.
 

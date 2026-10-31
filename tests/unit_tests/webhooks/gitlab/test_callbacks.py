@@ -601,7 +601,7 @@ class TestProcessCallback:
             issue_iid=42,
             title="Test Issue",
             use_max=use_max,
-            author=Author(provider=GitPlatform.GITLAB, uid=10, username="testuser", email="testuser@example.com"),
+            author=Author(provider=GitPlatform.GITLAB, uid=10, username="testuser"),
         )
 
     async def test_an_issue_mention_dispatches_an_issue_run_for_its_note(
@@ -618,7 +618,7 @@ class TestProcessCallback:
             issue_iid=7,
             title="Bug",
             use_max=use_max,
-            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer", email="reviewer@example.com"),
+            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer"),
             mention=Mention(note_id=200, comment_id="d1"),
         )
 
@@ -637,7 +637,7 @@ class TestProcessCallback:
             ref="feat",
             title="Some MR",
             use_max=use_max,
-            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer", email="reviewer@example.com"),
+            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer"),
             mention=Mention(note_id=100, comment_id="discussion_1", body="@daiv please review"),
         )
 
@@ -658,7 +658,7 @@ class TestProcessCallback:
             repo_id="group/repo",
             merge_request_iid=1,
             title="Some MR",
-            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer", email="reviewer@example.com"),
+            author=Author(provider=GitPlatform.GITLAB, uid=2, username="reviewer"),
             comment=Mention(note_id=100, comment_id="discussion_1", body="Looks good", on_diff=True),
         )
 
@@ -670,7 +670,7 @@ class TestNotesOnAnOwnedMergeRequest:
         stub_client.git_platform = GitPlatform.GITLAB
         with (
             patch("sessions.inbox.post.drain_logged"),
-            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_linked_user", new=AsyncMock(return_value=None)),
         ):
             yield
 

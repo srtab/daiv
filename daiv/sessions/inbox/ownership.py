@@ -11,7 +11,7 @@ and merges on it reach the owning session's inbox. The claim rules:
 | Owned by person A | a session of person B | ownership stays; A's session gets a ``foreign_publish`` |
 
 An owning session that was deleted counts as no row for its own person; a new session is made for that person when
-an event needs one (:func:`aowning_session`). Every claim records the commit the run pushed as ``last_daiv_sha``,
+an event needs one (:func:`aopen_ownership`). Every claim records the commit the run pushed as ``last_daiv_sha``,
 which is how the CI watch tells DAIV's commits from everyone else's, and a claim by a run a person started gives the
 CI watch its attempts back.
 
@@ -85,7 +85,7 @@ def _claim(run_id: uuid.UUID | str, iid: int, branch: str, pushed_sha: str) -> t
     with transaction.atomic():
         row = (
             MergeRequestOwnership.objects
-            .select_for_update()
+            .select_for_update(of=("self",))
             .select_related("session")
             .filter(repo_id=run.repo_id, merge_request_iid=iid)
             .first()
@@ -162,15 +162,16 @@ def _foreign_publish(
     }
 
 
-def owning_session(repo_id: str, merge_request_iid: int, *, title: str = "") -> Session | None:
-    """The session that owns the open merge request, or ``None`` when no session does or it is closed. SYNC ONLY.
+def open_ownership(repo_id: str, merge_request_iid: int, *, title: str = "") -> MergeRequestOwnership | None:
+    """The open merge request's ownership, whose ``session`` owns it, or ``None`` when no session does or it is
+    closed. SYNC ONLY.
 
     When the owning session was deleted, a new one is made for the same person, named ``title``.
     """
     with transaction.atomic():
         row = (
             MergeRequestOwnership.objects
-            .select_for_update()
+            .select_for_update(of=("self",))
             .select_related("session")
             .filter(repo_id=repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=True)
             .first()
@@ -188,10 +189,10 @@ def owning_session(repo_id: str, merge_request_iid: int, *, title: str = "") -> 
                 merge_request_iid=merge_request_iid,
             )
             row.save(update_fields=["session", "updated_at"])
-        return row.session
+        return row
 
 
-aowning_session = sync_to_async(owning_session)
+aopen_ownership = sync_to_async(open_ownership)
 
 
 async def aownership_for_branch(repo_id: str, source_branch: str) -> MergeRequestOwnership | None:
@@ -233,11 +234,10 @@ async def aclassify_push(
         return
     if await Run.objects.filter(repo_id=repo_id, pushed_sha=after).aexists():
         return
-    session = await aowning_session(repo_id, ownership.merge_request_iid)
-    if session is None:
+    if (owned := await aopen_ownership(repo_id, ownership.merge_request_iid)) is None:
         return
     await apost_event(
-        session.thread_id,
+        owned.session.thread_id,
         kind=EventKind.BRANCH_PUSHED,
         source_key=kinds.push_key(after),
         payload={"before": before, "after": after, "commit_count": commit_count, "pusher_username": pusher_username},
@@ -253,15 +253,14 @@ async def aclose_ownership(
 ) -> bool:
     """Stop the watch on a merged or closed merge request and remember it in the owning session; returns whether a
     session owned it."""
-    session = await aowning_session(repo_id, merge_request_iid)
-    if session is None:
+    if (owned := await aopen_ownership(repo_id, merge_request_iid)) is None:
         return False
     await MergeRequestOwnership.objects.filter(
         repo_id=repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=True
     ).aupdate(closed_at=timezone.now())
     state = "merged" if merged else "closed"
     await apost_event(
-        session.thread_id,
+        owned.session.thread_id,
         kind=EventKind.MR_MERGED if merged else EventKind.MR_CLOSED,
         source_key=kinds.mr_state_key(merge_request_iid, state),
         payload={"target_branch": target_branch, "by_username": by_username},
@@ -277,10 +276,10 @@ async def areopen_ownership(repo_id: str, merge_request_iid: int, *, by_username
     reopened = await MergeRequestOwnership.objects.filter(
         repo_id=repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=False
     ).aupdate(closed_at=None)
-    if not reopened or (session := await aowning_session(repo_id, merge_request_iid)) is None:
+    if not reopened or (owned := await aopen_ownership(repo_id, merge_request_iid)) is None:
         return False
     await apost_event(
-        session.thread_id,
+        owned.session.thread_id,
         kind=EventKind.NOTICE,
         source_key=f"mr-reopened:{merge_request_iid}:{timezone.now().timestamp():.0f}",
         payload={"text": f"!{merge_request_iid} was reopened by {by_username}; its CI and mentions come here again."},

@@ -16,8 +16,10 @@ failure wakes the owning session only when all of these hold, and the first that
 6. the consecutive-run limit is not reached (``run_limit``).
 
 The drain charges the attempt and records the examined commit when it starts the run. A run that pushes nothing
-leaves the watch observing: no pipeline follows, and the run's summary is the explanation. ``budget_spent`` on a new
-DAIV commit tells the owner the watch gave up on it.
+leaves the watch observing: no pipeline follows, and the run's summary is the explanation. ``budget_spent`` tells the
+owner the watch gave up on DAIV's commit, once per commit however often its pipeline is retried. Turning the watch
+back on gives it its attempts back and judges the last pipeline it judged again at once. A failure the watch kept
+quiet is keyed apart from one that wakes, so judging the same pipeline once the watch is back on still wakes.
 
 When the owning session was delegated, its parent remembers a pass and a ``budget_spent`` failure as
 ``delegated_ci_outcome``; :mod:`sessions.inbox.complete` adds a CI-woken run that pushed nothing.
@@ -29,7 +31,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from sessions.inbox import kinds
-from sessions.inbox.ownership import aowning_session
+from sessions.inbox.ownership import aopen_ownership
 from sessions.inbox.policy import amay_wake, areport_run_limit
 from sessions.inbox.post import apost_delegated_ci_outcome, apost_event
 from sessions.models import EventKind, QuietReason
@@ -70,14 +72,20 @@ class PipelineWatch:
         return self._policy
 
     async def aturn_on(self, ownership: MergeRequestOwnership) -> bool:
-        """Watch the merge request again because someone asked to, with its attempts back, then judge its head
-        pipeline at once. Returns ``False`` when the repository has the watch off."""
+        """Watch the merge request again because someone asked to, with its attempts back, then judge the pipeline it
+        last judged (else the branch's latest) at once, so a failure kept quiet while the watch was off or out of
+        attempts wakes the session. A watch already on is left as it is. Returns ``False`` when the repository has the
+        watch off."""
         from sessions.tasks import evaluate_pipeline_watch_task
 
         if not (await self._apolicy()).enabled:
             return False
+        if ownership.watch_enabled:
+            return True
         await self._store.aset_enabled(ownership.pk, enabled=True)
-        await evaluate_pipeline_watch_task.aenqueue(repo_id=self.repo_id, ref=ownership.source_branch)
+        await evaluate_pipeline_watch_task.aenqueue(
+            repo_id=self.repo_id, ref=ownership.source_branch, pipeline_id=ownership.last_pipeline_id
+        )
         return True
 
     async def aturn_off(self, ownership: MergeRequestOwnership) -> None:
@@ -98,7 +106,8 @@ class PipelineWatch:
         return True
 
     async def aevaluate(self, *, ref: str, pipeline_id: int | None) -> None:
-        """Judge the head pipeline of an owned branch and post the result to the owning session."""
+        """Judge the head pipeline of an owned branch and post the result to the owning session. A failed post forgets
+        the pipeline was judged, so the next event or the reconciler retries."""
         ownership = await self._store.aopen(self.repo_id, ref)
         if ownership is None:
             return
@@ -129,10 +138,12 @@ class PipelineWatch:
             return
         if not await self._store.arecord_pipeline(ownership.pk, report.id):
             return
-        session = await aowning_session(self.repo_id, ownership.merge_request_iid)
-        if session is None:
-            return
-        await self._apost(ownership=ownership, session=session, report=report)
+        try:
+            if (owned := await aopen_ownership(self.repo_id, ownership.merge_request_iid)) is not None:
+                await self._apost(ownership=owned, session=owned.session, report=report)
+        except Exception:
+            await self._store.aforget_pipeline(ownership.pk, report.id, previous=ownership.last_pipeline_id)
+            raise
 
     async def _apost(self, *, ownership: MergeRequestOwnership, session: Session, report: PipelineReport) -> None:
         reason: QuietReason | None = None
@@ -146,7 +157,7 @@ class PipelineWatch:
         result = await apost_event(
             session.thread_id,
             kind=kind,
-            source_key=kinds.pipeline_key(report.id),
+            source_key=kinds.pipeline_key(report.id) if reason is None else kinds.quiet_pipeline_key(report.id, reason),
             payload={
                 "pipeline_id": report.id,
                 "sha": report.sha,
@@ -163,6 +174,8 @@ class PipelineWatch:
         if not result.created:
             return
         if reason == QuietReason.BUDGET_SPENT:
+            if await self._store.agave_up_before(result.event):
+                return
             await self._anotify_exhausted(ownership=ownership, session=session, report=report)
         elif reason == QuietReason.RUN_LIMIT:
             await areport_run_limit(session)

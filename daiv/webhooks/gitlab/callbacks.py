@@ -35,7 +35,7 @@ logger = logging.getLogger("daiv.webhooks")
 
 
 def _author(user: User) -> Author:
-    return Author(provider=GitPlatform.GITLAB, uid=user.id, username=user.username, email=user.email)
+    return Author(provider=GitPlatform.GITLAB, uid=user.id, username=user.username)
 
 
 class GitLabCallback(BaseCallback):

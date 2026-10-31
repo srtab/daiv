@@ -168,8 +168,12 @@ class SessionLock:
         return _claim(thread_id, str(run_id))
 
     @staticmethod
-    async def aclaim_for_run(thread_id: str, run_id: object) -> bool:
-        return await sync_to_async(_claim)(thread_id, str(run_id))
+    def release_for_run(thread_id: str, run_id: object) -> None:
+        """:meth:`release` for the slot the inbox drainer claimed for a run, once that run ended or never queued.
+        SYNC ONLY."""
+        Session.objects.filter(thread_id=thread_id, active_run_id=str(run_id)).update(
+            active_run_id=None, last_active_at=timezone.now()
+        )
 
     @staticmethod
     async def heartbeat(thread_id: str, holder_id: str) -> bool:

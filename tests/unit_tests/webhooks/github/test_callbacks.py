@@ -496,7 +496,7 @@ class TestReviewCommentsOnAnOwnedPullRequest:
         mock_repo_client.git_platform = GitPlatform.GITHUB
         with (
             patch("sessions.inbox.post.drain_logged"),
-            patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.dispatch.resolve_linked_user", new=AsyncMock(return_value=None)),
         ):
             yield
 
@@ -516,7 +516,7 @@ class TestReviewCommentsOnAnOwnedPullRequest:
         await create_review_comment_callback("Nit: rename this").process_callback()
 
         event = await InboxEvent.objects.aget(session_id=ownership.session_id)
-        assert (event.kind, event.wake, event.source_key) == ("comment", False, "review-comment:901")
+        assert (event.kind, event.wake, event.source_key) == ("comment", False, "comment:review-comment:901")
 
     @pytest.mark.parametrize("body", ["@daiv why this line?", "Nit: rename this"])
     async def test_an_unowned_pull_request_gets_nothing(self, mock_repo_client, body):
@@ -560,10 +560,10 @@ async def test_a_pull_request_comment_without_a_mention_on_an_owned_pull_request
 
     with (
         patch("sessions.inbox.post.drain_logged"),
-        patch("webhooks.dispatch.resolve_user", new=AsyncMock(return_value=None)),
+        patch("webhooks.dispatch.resolve_linked_user", new=AsyncMock(return_value=None)),
     ):
         assert callback.accept_callback() is True
         await callback.process_callback()
 
     event = await InboxEvent.objects.aget(session_id=ownership.session_id)
-    assert (event.kind, event.source_key, event.payload["is_diff"]) == ("comment", "note:300", False)
+    assert (event.kind, event.source_key, event.payload["is_diff"]) == ("comment", "comment:note:300", False)

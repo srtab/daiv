@@ -199,10 +199,11 @@ Phase 0 of the plan for [spec.md](spec.md). Each decision records what was chose
 ### R11. Acting identity
 
 - **Decision**:
-  - Every inbox-drained run sets `acting_user_id = session.user_id` (FR-027, FR-022).
-  - A session with no DAIV user runs with `acting_user_id=None`, as today's webhook runs do, and skips the access check (clarification, 2026-10-30).
+  - Every inbox-drained run acts as the run's user (FR-027, FR-022): the person whose request woke it (`None` when their account is unknown), else the user who delegated a finished batch, else the session's owner. `run_job_task` passes the run's `user_id` as `acting_user_id`, never the session's.
+  - A platform account counts only as the DAIV user who signed in with it (`accounts.utils.resolve_linked_user`, by provider and account id), never one sharing its username or email, which may be someone else. This holds for a mention's author and for the owner of a session a webhook starts. Webhook runs and sessions record the platform account's id, so linking the account later gives its user the ownerless ones it started, and who may see and control them (`sessions.managers._started_by_q`) matches that id too.
+  - A run serves one requester (clarification, 2026-10-31). The access check runs on the user the run acts as, and is skipped when there is none, as today's webhook runs do, and for a mention, which is gated where it is made (FR-026). A denied requester fails only their own events.
   - The access check reuses `assert_repo_access`. A denial marks the taken events `failed` with reason `access_denied`, and the run never starts.
-  - The issue addressor starts passing `acting_user_id`, so issue sessions get an owner for ownership (FR-001).
+  - The issue addressor starts passing `acting_user_id`, the DAIV account linked to the triggering platform account (`resolve_linked_user`), so issue runs act as their author but never as a username or email match (FR-001).
 - **Rationale**: the decisions the spec clarified.
 
 ### R12. Taken, handled, retried

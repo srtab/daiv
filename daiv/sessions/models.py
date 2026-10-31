@@ -25,6 +25,8 @@ logger = logging.getLogger("daiv.sessions")
 
 CHAT_PROMPT_MAX_LENGTH = 2000
 
+_INBOX_TRIGGER_LITERALS = ["chat", "mr_webhook", "api_job", "mcp_job", "delegation_resume", "pipeline_webhook"]
+
 
 class RunStatus(models.TextChoices):
     QUEUED = "QUEUED", _("Queued")
@@ -145,6 +147,8 @@ class Session(models.Model):
         verbose_name=_("user"),
     )
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
+    external_provider = models.CharField(_("external provider"), max_length=32, blank=True, default="")
+    external_uid = models.CharField(_("external account ID"), max_length=191, blank=True, default="")
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     title = models.CharField(_("title"), max_length=120, blank=True, default="")
@@ -342,6 +346,8 @@ class Run(models.Model):
         verbose_name=_("user"),
     )
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
+    external_provider = models.CharField(_("external provider"), max_length=32, blank=True, default="")
+    external_uid = models.CharField(_("external account ID"), max_length=191, blank=True, default="")
     title = models.CharField(_("title"), max_length=120, blank=True, default="")
     batch_id = models.UUIDField(_("batch ID"), null=True, blank=True, db_index=True)
     continuation_of_batch_id = models.UUIDField(
@@ -455,22 +461,18 @@ class Run(models.Model):
                 ),
                 name="run_one_active_per_session",
             ),
-            # One next run per branch (``sessions.inbox``); the literals must equal ``inbox.kinds.INBOX_TRIGGERS``.
+            # One next run per branch and requester (``sessions.inbox``): a DAIV user, else a platform account no one
+            # linked. The literals must equal ``inbox.kinds.INBOX_TRIGGERS``.
             models.UniqueConstraint(
-                fields=["session", "ref"],
-                condition=models.Q(
-                    status="QUEUED",
-                    trigger_type__in=[
-                        "chat",
-                        "mr_webhook",
-                        "api_job",
-                        "mcp_job",
-                        "delegation_resume",
-                        "pipeline_webhook",
-                    ],
-                ),
-                name="run_one_next_run_per_session",
-            ),  # fmt: skip
+                fields=["session", "ref", "user"],
+                condition=models.Q(status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=False),
+                name="run_one_next_run_per_user",
+            ),
+            models.UniqueConstraint(
+                fields=["session", "ref", "external_provider", "external_uid"],
+                condition=models.Q(status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=True),
+                name="run_one_next_run_per_account",
+            ),
             # The insert of a batch's continuation is the election when several legs finish at once; a FAILED one
             # leaves room for ``sessions.delegation.resume_stalled_batches`` to retry one that never reached the queue.
             models.UniqueConstraint(
@@ -819,6 +821,8 @@ class InboxEvent(models.Model):
         verbose_name=_("author"),
     )
     author_username = models.CharField(_("author username"), max_length=255, blank=True, default="")
+    author_provider = models.CharField(_("author's git platform"), max_length=32, blank=True, default="")
+    author_uid = models.CharField(_("author's account ID"), max_length=191, blank=True, default="")
     state = models.CharField(_("state"), max_length=16, choices=EventState.choices, default=EventState.PENDING)
     run = models.ForeignKey(
         Run,

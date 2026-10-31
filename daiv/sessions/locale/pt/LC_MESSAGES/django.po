@@ -119,6 +119,12 @@ msgstr "utilizador"
 msgid "external username"
 msgstr "nome de utilizador externo"
 
+msgid "external provider"
+msgstr "fornecedor externo"
+
+msgid "external account ID"
+msgstr "ID da conta externa"
+
 msgid "repository"
 msgstr "repositório"
 

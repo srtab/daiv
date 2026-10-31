@@ -247,6 +247,20 @@ class TestNothingPosted:
         assert await _event() is None
         assert (await MergeRequestOwnership.objects.aget()).last_pipeline_id is None
 
+    async def test_a_failed_post_forgets_the_pipeline_so_it_is_judged_again(self, watch):
+        await _owned(last_pipeline_id=99)
+        watch.platform.pipeline = make_pipeline("failed")
+
+        with (
+            patch("sessions.pipeline_watch.service.apost_event", new=AsyncMock(side_effect=RuntimeError("db"))),
+            pytest.raises(RuntimeError),
+        ):
+            await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert (await MergeRequestOwnership.objects.aget()).last_pipeline_id == 99
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+        assert (await _event()).payload["pipeline_id"] == 100
+
     async def test_an_unreadable_pipeline_posts_nothing_and_is_retried_later(self, watch, caplog):
         await _owned()
         watch.platform.read_error = RuntimeError("boom")
@@ -269,6 +283,16 @@ class TestGivingUp:
         assert sent["ownership"].pk == ownership.pk
         assert sent["session"].pk == ownership.session_id
         assert (sent["failing_jobs"], sent["sha"]) == (["tests"], SHA)
+
+    async def test_a_retried_pipeline_on_the_same_commit_tells_the_owner_once(self, watch):
+        await _owned(attempts=3)
+
+        for pipeline_id in (100, 101):
+            watch.platform.pipeline = make_pipeline("failed", pipeline_id=pipeline_id)
+            await watch.make().aevaluate(ref=BRANCH, pipeline_id=pipeline_id)
+
+        assert len(watch.exhausted) == 1
+        assert await InboxEvent.objects.filter(reason=QuietReason.BUDGET_SPENT).acount() == 2
 
     @pytest.mark.parametrize(
         "fields", [{"last_daiv_sha": "0a1b2c3d"}, {"last_examined_sha": SHA}], ids=["not-daivs", "examined"]
@@ -345,16 +369,58 @@ class TestRequestEvaluation:
 
 
 class TestToggle:
-    async def test_turning_it_on_gives_the_attempts_back_and_judges_at_once(self, watch):
-        ownership = await _owned(watch_enabled=False, attempts=3)
+    async def test_turning_it_on_gives_the_attempts_back_and_judges_the_last_pipeline_again(self, watch):
+        ownership = await _owned(watch_enabled=False, attempts=3, last_examined_sha="abc", last_pipeline_id=7)
 
         with patch("sessions.tasks.evaluate_pipeline_watch_task") as task:
             task.aenqueue = AsyncMock()
             assert await watch.make().aturn_on(ownership) is True
 
         await ownership.arefresh_from_db()
-        assert (ownership.watch_enabled, ownership.attempts) == (True, 0)
-        task.aenqueue.assert_awaited_once_with(repo_id=REPO, ref=BRANCH)
+        assert (ownership.watch_enabled, ownership.attempts, ownership.last_pipeline_id) == (True, 0, None)
+        assert ownership.last_examined_sha == "abc"
+        task.aenqueue.assert_awaited_once_with(repo_id=REPO, ref=BRANCH, pipeline_id=7)
+
+    async def test_turning_it_on_when_it_is_on_changes_nothing(self, watch):
+        ownership = await _owned(attempts=1, last_examined_sha=SHA, last_pipeline_id=100)
+
+        with patch("sessions.tasks.evaluate_pipeline_watch_task") as task:
+            task.aenqueue = AsyncMock()
+            assert await watch.make().aturn_on(ownership) is True
+
+        await ownership.arefresh_from_db()
+        assert (ownership.attempts, ownership.last_pipeline_id) == (1, 100)
+        task.aenqueue.assert_not_awaited()
+
+    @pytest.mark.parametrize("pipeline_id", [100, None], ids=["by-id", "latest"])
+    async def test_a_failure_reported_while_the_watch_was_off_wakes_any_later_evaluation(
+        self, watch, drain, pipeline_id
+    ):
+        ownership = await _owned(watch_enabled=False)
+        watch.platform.pipeline = make_pipeline("failed")
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        with patch("sessions.tasks.evaluate_pipeline_watch_task") as task:
+            task.aenqueue = AsyncMock()
+            await watch.make().aturn_on(ownership)
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=pipeline_id)
+
+        quiet, woken = [event async for event in InboxEvent.objects.order_by("created_at")]
+        assert (quiet.wake, quiet.reason) == (False, QuietReason.WATCH_OFF)
+        assert (woken.wake, woken.source_key) == (True, "pipeline:100")
+        drain.assert_called_once_with(ownership.session_id)
+
+    async def test_turning_it_back_on_during_a_fix_leaves_the_examined_commit_alone(self, watch):
+        ownership = await _owned(watch_enabled=False, attempts=1, last_examined_sha=SHA)
+        watch.platform.pipeline = make_pipeline("failed")
+
+        with patch("sessions.tasks.evaluate_pipeline_watch_task") as task:
+            task.aenqueue = AsyncMock()
+            await watch.make().aturn_on(ownership)
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await _event()
+        assert (event.wake, event.reason) == (False, QuietReason.ALREADY_EXAMINED)
 
     async def test_it_cannot_be_turned_on_when_the_repository_has_it_off(self, watch):
         ownership = await _owned(watch_enabled=False)

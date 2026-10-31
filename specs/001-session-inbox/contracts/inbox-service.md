@@ -25,7 +25,7 @@ async def apost_event(
 - **Validates** `payload` against the kind's `TypedDict`. An invalid payload raises `ValueError`; the caller has a bug.
 - **Busy session.** When `wake` is true and the session is busy, the event joins the session's next run for the event's `ref`: the existing QUEUED run for that branch, or one created with the kind's provisional trigger type. `run_id` is that run's id (R3).
 - **Drains on commit** with `transaction.on_commit(adrain)`, so the caller's own transaction commits first. The drain is skipped when the call does not wake the session.
-- **Missing session.** Raises `Session.DoesNotExist` when the session doesn't exist. Callers that route through ownership use `aowning_session` first.
+- **Missing session.** Raises `Session.DoesNotExist` when the session doesn't exist. Callers that route through ownership use `aopen_ownership` first.
 
 `PostResult` is a frozen dataclass: `event: InboxEvent`, `created: bool`, `run_id: UUID | None`.
 
@@ -81,12 +81,12 @@ Mention replies are posted with `RepoClient.create_merge_request_comment(..., re
 
 ```python
 async def aclaim_ownership(*, run_id: UUID | str, merge_request: MergeRequest | dict, pushed_sha: str) -> MergeRequestOwnership | None
-async def aowning_session(repo_id: str, merge_request_iid: int) -> Session | None
+async def aopen_ownership(repo_id: str, merge_request_iid: int) -> MergeRequestOwnership | None
 async def aownership_for_branch(repo_id: str, source_branch: str) -> MergeRequestOwnership | None
 ```
 
 - `aclaim_ownership` applies the [claim rules](../data-model.md#claim-rules-fr-001-applied-after-a-run-publishes). It replaces `PipelineWatch.aarm_after_run` in the executor, and posts `foreign_publish` or `notice` events as those rules require.
-- `aowning_session` returns `None` for an unowned or closed merge request. When the owning session was deleted, it creates a session for the same person, with origin `pipeline_webhook` and title from the merge request (FR-004).
+- `aopen_ownership` returns `None` for an unowned or closed merge request, else the ownership, whose `session` owns it. When the owning session was deleted, it creates a session for the same person, with origin `pipeline_webhook` and title from the merge request (FR-004).
 
 ## Sweeps (`sessions/tasks.py`)
 

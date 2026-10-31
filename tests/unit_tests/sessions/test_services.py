@@ -14,10 +14,10 @@ from sessions.models import EventState, InboxEvent, Run, RunStatus, Session, Ses
 from sessions.services import (
     BatchSubmitFailure,
     RepoTarget,
+    TaskRun,
     acreate_run,
-    aget_run_user_id,
     aget_session_ref,
-    aget_task_run_id,
+    aget_task_run,
     apersist_session_ref,
     areset_session_ref,
     asubmit_batch_runs,
@@ -702,11 +702,32 @@ class TestSessionContinuation:
             )
 
         assert result.runs == []
-        assert [failure.error for failure in result.failed] == ["FollowUpNotStarted: enqueue_failed"]
+        assert [failure.error for failure in result.failed] == ["FollowUpNotStarted: not_started"]
         event = await InboxEvent.objects.aget(session_id=thread)
         assert (event.state, event.run_id) == (EventState.DISMISSED, None)
         assert not await Run.objects.filter(session_id=thread).exclude(status=RunStatus.FAILED).aexists()
         assert (await Session.objects.aget(pk=thread)).active_run_id is None
+
+    async def test_a_follow_up_whose_drain_lost_the_slot_joins_the_next_run(self, member_user):
+        thread = str(uuid.uuid4())
+        await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
+
+        def claimed_before_the_drain(thread_id):
+            Session.objects.filter(pk=thread_id).update(active_run_id="chat-run")
+
+        with patch("sessions.inbox.post.drain_logged", side_effect=claimed_before_the_drain):
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="follow-up",
+                repos=[RepoTarget(repo_id="acme/api", ref="")],
+                trigger_type=SessionOrigin.API_JOB,
+                thread_id=thread,
+            )
+
+        [run] = result.runs
+        assert run.status == RunStatus.QUEUED
+        event = await InboxEvent.objects.aget(session_id=thread)
+        assert (event.state, event.run_id) == (EventState.PENDING, run.pk)
 
     async def test_a_follow_up_on_another_repository_is_refused(self, member_user):
         thread = str(uuid.uuid4())
@@ -874,31 +895,20 @@ async def test_get_session_ref_is_empty_when_there_is_no_working_branch(thread_i
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_task_run_id_is_the_run_linked_to_the_task_result():
+async def test_task_run_is_the_run_linked_to_the_task_result_and_its_current_user(admin_user):
     task_result = await _make_db_task_result()
     run = await acreate_run(trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result_id=task_result.id, repo_id="a/b")
+    await Run.objects.filter(pk=run.pk).aupdate(user=admin_user)
 
-    assert await aget_task_run_id(task_result.id) == str(run.pk)
+    assert await aget_task_run(task_result.id) == TaskRun(run_id=str(run.pk), user_id=admin_user.pk)
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_task_run_id_is_none_when_no_run_is_linked(caplog):
+async def test_task_run_is_empty_when_no_run_is_linked(caplog):
     task_result = await _make_db_task_result()
 
-    assert await aget_task_run_id(task_result.id) is None
+    assert await aget_task_run(task_result.id) == TaskRun()
     assert f"No run is linked to task result {task_result.id}" in caplog.text
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_run_user_id_is_the_user_the_run_resolved_its_author_to(member_user):
-    run = await acreate_run(
-        trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result_id=None, repo_id="a/b", user=member_user
-    )
-    ownerless = await acreate_run(trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result_id=None, repo_id="a/b")
-
-    assert await aget_run_user_id(str(run.pk)) == member_user.pk
-    assert await aget_run_user_id(str(ownerless.pk)) is None
-    assert await aget_run_user_id(None) is None
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
-from sessions.models import EventKind, MergeRequestOwnership, Session, SessionOrigin
+from sessions.models import EventKind, MergeRequestOwnership, QuietReason, Session, SessionOrigin
 from sessions.pipeline_watch.store import WatchStore
 
 from tests.unit_tests.sessions.inbox.conftest import amake_event, ci_payload
@@ -85,6 +85,15 @@ class TestUnjudged:
         await amake_event(session, EventKind.CI_PASSED, merge_request_iid=7, payload=ci_payload(sha="abc"))
 
         assert await self._unjudged() == []
+
+    async def test_a_result_recorded_while_the_watch_was_off_does_not_count_once_it_is_on(self):
+        ownership = await _owned(7, last_daiv_sha="abc", age=timedelta(hours=1))
+        session = await Session.objects.aget(pk=ownership.session_id)
+        await amake_event(
+            session, merge_request_iid=7, payload=ci_payload(sha="abc"), wake=False, reason=QuietReason.WATCH_OFF
+        )
+
+        assert await self._unjudged() == [7]
 
     async def test_a_ci_result_for_an_older_commit_does_not_count(self):
         ownership = await _owned(7, last_daiv_sha="abc", age=timedelta(hours=1))
