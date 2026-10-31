@@ -422,7 +422,7 @@ description: "Task list for the Session Inbox feature"
 
 **Purpose**: Evals, docs, changelog, the repository map and the gates.
 
-- [ ] T106 Write `tests/integration_tests/test_inbox.py` (marker `inbox`) with the three cases of research.md R18:
+- [X] T106 Write `tests/integration_tests/test_inbox.py` (marker `inbox`) with the three cases of research.md R18:
   1. a CI failure not caused by the code: no push, with an explanation;
   2. a mention combined with a CI failure: both addressed;
   3. the branch-moved notice: works from the new head.
@@ -432,15 +432,15 @@ description: "Task list for the Session Inbox feature"
   - **Baseline**: on `main`, with the cases' old-format input (the fix prompt alone), run `make eval-prompts SUITES="inbox" OUT=eval-runs/inbox-before.jsonl`.
   - **After**: on this branch, run `make eval-prompts SUITES="inbox" OUT=eval-runs/inbox-after.jsonl`.
   - **Compare**: `uv run evals/compare_runs.py eval-runs/inbox-before.jsonl eval-runs/inbox-after.jsonl`.
-- [ ] T108 [P] Update `AGENTS.md`:
+- [X] T108 [P] Update `AGENTS.md`:
   - **Repo map**: `run_job_task` is enqueued by `sessions.inbox.drain`, and `sessions.pipeline_watch.dispatch` is gone.
   - **Invariants**: add `sessions/inbox/` to the "Detailed behaviour lives in module docstrings" examples.
-- [ ] T109 [P] Add an `Unreleased` entry to `CHANGELOG.md` in Common Changelog form:
+- [X] T109 [P] Add an `Unreleased` entry to `CHANGELOG.md` in Common Changelog form:
   - the CI watch handles failures in the publishing session;
   - chat messages queue while a session is busy;
   - mentions on DAIV merge requests go to the owning session;
   - **Upgrade note**: subscribe the GitHub App to `pull_request_review_comment`, and migration 0023 converts open CI watches.
-- [ ] T110 Run the gates (`Makefile` targets) and record the results:
+- [X] T110 Run the gates (`Makefile` targets) and record the results:
   - `make lint-fix` (scoped to changed paths, per memory: it mangles untracked WIP);
   - `make lint`;
   - `make lint-typing`;

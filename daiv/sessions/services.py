@@ -242,7 +242,6 @@ def create_run(
     status: str = RunStatus.READY,
     mcp_overrides: dict | None = None,
     parent: Session | None = None,
-    continuation_of_batch_id: uuid.UUID | None = None,
     waits_for_id: uuid.UUID | None = None,
 ) -> Run:
     """Create a Session (idempotent) then a Run linked to it."""
@@ -279,7 +278,6 @@ def create_run(
         title=title[: Run._meta.get_field("title").max_length],
         sandbox_environment_id=sandbox_environment_id,
         merge_request_iid=merge_request_iid,
-        continuation_of_batch_id=continuation_of_batch_id,
         waits_for_id=waits_for_id,
     )
 
