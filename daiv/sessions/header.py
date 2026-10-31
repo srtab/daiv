@@ -14,6 +14,7 @@ read, from the first merge request, for one release.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from django.urls import reverse
@@ -23,6 +24,7 @@ from asgiref.sync import sync_to_async
 
 from codebase.authorization import can_run
 from codebase.base import GitPlatform
+from codebase.clients.base import PLATFORM_ERRORS
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
 from codebase.repo_config import RepositoryConfig
@@ -39,6 +41,8 @@ if TYPE_CHECKING:
 
     from accounts.models import User
     from sessions.delegation import Delegations
+
+logger = logging.getLogger("daiv.sessions")
 
 GOAL_MAX_CHARS = 120
 
@@ -95,7 +99,14 @@ def ci_payload(session: Session) -> list[dict[str, Any]]:
     )
     if not ownerships:
         return []
-    policy = WatchPolicy(RepositoryConfig.get_config(session.repo_id))
+    try:
+        config = RepositoryConfig.get_config(session.repo_id)
+    except PLATFORM_ERRORS:
+        logger.exception(
+            "Failed to read the repository configuration for %s; showing CI with its defaults", session.repo_id
+        )
+        config = RepositoryConfig()
+    policy = WatchPolicy(config)
     return [_ci_item(session, ownership, policy) for ownership in ownerships]
 
 

@@ -21,6 +21,9 @@ owner the watch gave up on DAIV's commit, once per commit however often its pipe
 back on gives it its attempts back and judges the last pipeline it judged again at once. A failure the watch kept
 quiet is keyed apart from one that wakes, so judging the same pipeline once the watch is back on still wakes.
 
+A pipeline is judged once per status: a retried one keeps its id, so its new result is judged and posted under a key
+of its own.
+
 When the owning session was delegated, its parent remembers a pass and a ``budget_spent`` failure as
 ``delegated_ci_outcome``; :mod:`sessions.inbox.complete` adds a CI-woken run that pushed nothing.
 """
@@ -111,8 +114,6 @@ class PipelineWatch:
         ownership = await self._store.aopen(self.repo_id, ref)
         if ownership is None:
             return
-        if pipeline_id is not None and ownership.last_pipeline_id == pipeline_id:
-            return
 
         await self._platform.aensure_client()
         try:
@@ -131,18 +132,19 @@ class PipelineWatch:
                 report.status if report else "missing",
             )
             return
-        if report.id == ownership.last_pipeline_id:
+        if (report.id, report.status) == (ownership.last_pipeline_id, ownership.last_pipeline_status):
             return
         if not await self._platform.ais_head_pipeline(merge_request_iid=ownership.merge_request_iid, report=report):
             logger.info("pipeline_watch: pipeline %s is not the head of %s@%s", report.id, self.repo_id, ref)
             return
-        if not await self._store.arecord_pipeline(ownership.pk, report.id):
+        if not await self._store.arecord_pipeline(ownership.pk, report.id, report.status):
             return
         try:
             if (owned := await aopen_ownership(self.repo_id, ownership.merge_request_iid)) is not None:
                 await self._apost(ownership=owned, session=owned.session, report=report)
         except Exception:
-            await self._store.aforget_pipeline(ownership.pk, report.id, previous=ownership.last_pipeline_id)
+            previous = (ownership.last_pipeline_id, ownership.last_pipeline_status)
+            await self._store.aforget_pipeline(ownership.pk, report.id, report.status, previous=previous)
             raise
 
     async def _apost(self, *, ownership: MergeRequestOwnership, session: Session, report: PipelineReport) -> None:
@@ -157,7 +159,7 @@ class PipelineWatch:
         result = await apost_event(
             session.thread_id,
             kind=kind,
-            source_key=kinds.pipeline_key(report.id) if reason is None else kinds.quiet_pipeline_key(report.id, reason),
+            source_key=kinds.pipeline_key(report.id, kind, reason),
             payload={
                 "pipeline_id": report.id,
                 "sha": report.sha,

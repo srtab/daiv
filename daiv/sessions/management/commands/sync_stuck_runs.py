@@ -20,8 +20,9 @@ class Command(BaseCommand):
     help = (
         "Reconcile non-terminal Run rows. Task-backed runs are re-synced from their linked "
         "DBTaskResult; inline chat runs (which have no task result) that a worker crash left "
-        "stuck in RUNNING are failed once their session heartbeat goes stale, and READY runs whose "
-        "submitter stopped before queueing their task are failed once they are old enough."
+        "stuck in RUNNING are failed once their session heartbeat goes stale, job runs a worker crash left "
+        "RUNNING are failed the same way, and READY runs whose submitter stopped before queueing their task "
+        "are failed once they are old enough."
     )
 
     def handle(self, *args, **options):
@@ -45,11 +46,12 @@ class Command(BaseCommand):
                 logger.exception("Failed to sync run %s", run.id)
 
         reaped = self._reap_orphaned_chat_runs()
+        dead_jobs = self._reap_dead_job_runs()
         never_queued = self._reap_never_queued_runs()
 
         summary = (
             f"Synced: {synced}, already up to date: {skipped}, errored: {len(errored_ids)}, "
-            f"chat runs reaped: {reaped}, never-queued runs reaped: {never_queued}"
+            f"chat runs reaped: {reaped}, dead job runs reaped: {dead_jobs}, never-queued runs reaped: {never_queued}"
         )
         if errored_ids:
             # Fail the command run — and thus the cron task's DBTaskResult when scheduled — so
@@ -88,6 +90,32 @@ class Command(BaseCommand):
         )
         if reaped:
             logger.warning("sync_stuck_runs: reaped %d orphaned chat run(s) stuck in RUNNING", reaped)
+        return reaped
+
+    def _reap_dead_job_runs(self) -> int:
+        """Fail job runs a hard worker crash left RUNNING, which the DBTaskResult sync never ends: it reports the task
+        RUNNING for good. Such a run keeps its session's one active job place (``run_one_active_per_session``), so
+        nothing the inbox holds for the session would start again.
+
+        A live run heartbeats its session's slot, so a run that started before the staleness window on a session
+        whose heartbeat went stale is dead; ``started_at`` keeps a run still setting up on an idle session.
+        """
+        cutoff = stale_cutoff()
+        stale_sessions = Session.objects.filter(last_active_at__lt=cutoff).values("pk")
+        dead = Q(status=RunStatus.RUNNING, started_at__lt=cutoff, session_id__in=stale_sessions)
+        runs = Run.objects.filter(dead, task_result__isnull=False, trigger_type__in=SessionOrigin.one_active())
+        reaped = sum(
+            Run.objects.finish(
+                run,
+                RunStatus.FAILED,
+                where=dead,
+                finished_at=timezone.now(),
+                error_message="Dead job run: its worker stopped heartbeating (crash); reaped by sync_stuck_runs.",
+            )
+            for run in runs
+        )
+        if reaped:
+            logger.warning("sync_stuck_runs: reaped %d dead job run(s) stuck in RUNNING", reaped)
         return reaped
 
     def _reap_never_queued_runs(self) -> int:

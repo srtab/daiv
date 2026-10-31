@@ -76,7 +76,7 @@ async def run_job_task(
     )
 
     # Every enqueue goes through ``sessions.queue.aenqueue_run``, whose ``Run`` holds this row.
-    session_row = await Session.objects.only("thread_id", "mcp_overrides", "external_refs").aget(pk=thread_id)
+    session_row = await Session.objects.only("thread_id", "ref", "mcp_overrides", "external_refs").aget(pk=thread_id)
     input_factory = None
     if inbox:
         if not run_id:
@@ -110,6 +110,8 @@ async def run_job_task(
             trigger="job",
             lock=lock,
             ref=ref,
+            # A request that follows the session falls back like a chat turn when its branch was deleted (merged).
+            fallback_ref_on_missing=inbox and bool(ref) and ref == session_row.ref,
             agent_model=agent_model,
             agent_thinking_level=agent_thinking_level,
             sandbox_env_id=sandbox_environment_id,

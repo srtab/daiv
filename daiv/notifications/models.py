@@ -39,7 +39,7 @@ class Notification(TimeStampedModel):
     )
     event_type = models.CharField(_("event type"), max_length=64, choices=EventType.choices)
     source_type = models.CharField(_("source type"), max_length=64, blank=True, default="")
-    source_id = models.CharField(_("source id"), max_length=64, blank=True, default="")
+    source_id = models.CharField(_("source id"), max_length=128, blank=True, default="")
     subject = models.CharField(_("subject"), max_length=255)
     body = models.TextField(_("body"))
     link_url = models.CharField(_("link URL"), max_length=500, blank=True, default="")

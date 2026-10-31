@@ -227,6 +227,16 @@ class TestCiPayload:
             }
         ]
 
+    def test_an_unreadable_repository_configuration_still_shows_the_ci(self, policy, caplog):
+        session = _session()
+        _owned(session)
+
+        with patch("sessions.header.RepositoryConfig.get_config", side_effect=OSError("platform down")):
+            [item] = ci_payload(session)
+
+        assert item["merge_request_iid"] == 7
+        assert "Failed to read the repository configuration" in caplog.text
+
     def test_no_result_yet_is_running(self, policy):
         session = _session()
         _owned(session)

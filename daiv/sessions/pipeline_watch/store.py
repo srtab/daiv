@@ -48,22 +48,25 @@ class WatchStore:
             repo_id=repo_id, source_branch=ref, closed_at__isnull=True
         ).aexists()
 
-    async def arecord_pipeline(self, ownership_id: int, pipeline_id: int) -> bool:
-        """Record ``pipeline_id`` as judged, reporting whether this caller won: two deliveries of one pipeline must not
-        both post its event."""
+    async def arecord_pipeline(self, ownership_id: int, pipeline_id: int, status: str) -> bool:
+        """Record ``pipeline_id`` in ``status`` as judged, reporting whether this caller won: two deliveries of one
+        pipeline must not both post its event. A retried pipeline keeps its id, so a new status is judged anew."""
+        judged = Q(last_pipeline_id=pipeline_id, last_pipeline_status=status)
         updated = await (
             MergeRequestOwnership.objects
             .filter(pk=ownership_id)
-            .filter(Q(last_pipeline_id__isnull=True) | ~Q(last_pipeline_id=pipeline_id))
-            .aupdate(last_pipeline_id=pipeline_id)
+            .filter(Q(last_pipeline_id__isnull=True) | ~judged)
+            .aupdate(last_pipeline_id=pipeline_id, last_pipeline_status=status)
         )
         return updated == 1
 
-    async def aforget_pipeline(self, ownership_id: int, pipeline_id: int, *, previous: int | None) -> None:
+    async def aforget_pipeline(
+        self, ownership_id: int, pipeline_id: int, status: str, *, previous: tuple[int | None, str]
+    ) -> None:
         """Undo :meth:`arecord_pipeline` after posting the pipeline's result failed, unless a later one was recorded."""
-        await MergeRequestOwnership.objects.filter(pk=ownership_id, last_pipeline_id=pipeline_id).aupdate(
-            last_pipeline_id=previous
-        )
+        await MergeRequestOwnership.objects.filter(
+            pk=ownership_id, last_pipeline_id=pipeline_id, last_pipeline_status=status
+        ).aupdate(last_pipeline_id=previous[0], last_pipeline_status=previous[1])
 
     async def agave_up_before(self, event: InboxEvent) -> bool:
         """Whether an earlier pipeline on the commit of ``event``, a ``budget_spent`` CI failure, already ran out of
@@ -86,7 +89,7 @@ class WatchStore:
         and forgets the last pipeline judged so it is judged anew."""
         updates = {"watch_enabled": enabled}
         if enabled:
-            updates |= {"attempts": 0, "last_pipeline_id": None}
+            updates |= {"attempts": 0, "last_pipeline_id": None, "last_pipeline_status": ""}
         await MergeRequestOwnership.objects.filter(pk=ownership_id).aupdate(**updates)
 
     def unjudged(self, *, quiet_since: datetime, horizon: datetime, limit: int) -> QuerySet[MergeRequestOwnership]:

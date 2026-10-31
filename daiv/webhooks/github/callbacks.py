@@ -36,6 +36,11 @@ def _author(user: User) -> Author:
     return Author(provider=GitPlatform.GITHUB, uid=user.id, username=user.username)
 
 
+def _edited_by_another(action: str, sender: User | None, author: User) -> bool:
+    """An ``edited`` comment someone other than its author edited: the run would act as the author on others' words."""
+    return action == "edited" and (sender is None or sender.id != author.id)
+
+
 class GitHubCallback(BaseCallback):
     """
     Base class for GitHub callbacks.
@@ -125,6 +130,7 @@ class IssueCommentCallback(GitHubCallback):
     action: Literal["created", "edited", "deleted"]
     issue: Issue
     comment: Comment
+    sender: User | None = None
 
     def accept_callback(self) -> bool:
         """
@@ -134,6 +140,7 @@ class IssueCommentCallback(GitHubCallback):
             self.action not in ["created", "edited"]
             or self.issue.state != "open"
             or self.comment.user.id == self._client.current_user.id
+            or _edited_by_another(self.action, self.sender, self.comment.user)
         ):
             return False
 
@@ -228,6 +235,7 @@ class PullRequestReviewCommentCallback(GitHubCallback):
     action: Literal["created", "edited", "deleted"]
     pull_request: PullRequest
     comment: ReviewComment
+    sender: User | None = None
 
     def accept_callback(self) -> bool:
         if (
@@ -235,6 +243,7 @@ class PullRequestReviewCommentCallback(GitHubCallback):
             or self.pull_request.state != "open"
             or not self._repo_config.pull_request_assistant.enabled
             or self.comment.user.id == self._client.current_user.id
+            or _edited_by_another(self.action, self.sender, self.comment.user)
         ):
             return False
         if not self._repo_config.is_user_allowed(self.comment.user.username):

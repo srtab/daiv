@@ -7,7 +7,17 @@ import pytest
 from asgiref.sync import sync_to_async
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox.complete import MAX_EVENT_ATTEMPTS, aon_run_ended, recover_stale_events
-from sessions.models import EventFailure, EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.models import (
+    EventFailure,
+    EventKind,
+    EventState,
+    InboxEvent,
+    MergeRequestOwnership,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+)
 from sessions.queue import ENQUEUE_FAILED_PREFIX
 
 from codebase.clients.base import CommentThread
@@ -74,6 +84,21 @@ class TestOutcomes:
         assert stored.attempts == MAX_EVENT_ATTEMPTS
         assert "failed after 3 attempts" in caplog.text
         drain.assert_called_once_with(run.session_id)
+
+    async def test_a_ci_failure_no_run_could_examine_leaves_its_commit_unexamined(self, drain):
+        """So a re-run pipeline on that commit can wake the session again."""
+        run, event = await _run_with_event(RunStatus.FAILED, attempts=MAX_EVENT_ATTEMPTS - 1)
+        sha = event.payload["sha"]
+        await InboxEvent.objects.filter(pk=event.pk).aupdate(merge_request_iid=9)
+        ownership = await MergeRequestOwnership.objects.acreate(
+            repo_id=run.repo_id, merge_request_iid=9, session_id=run.session_id, source_branch="x", attempts=1,
+            last_examined_sha=sha,
+        )  # fmt: skip
+
+        await aon_run_ended(run)
+
+        await ownership.arefresh_from_db()
+        assert (ownership.attempts, ownership.last_examined_sha) == (1, "")
 
     async def test_a_run_whose_drain_failed_to_enqueue_it_spends_an_attempt_and_leaves_the_drain_to_the_sweep(
         self, drain
@@ -267,16 +292,15 @@ class TestMentionReplies:
             result_summary=summary,
         )  # fmt: skip
 
-    async def _mention(self, run, note_id, *, iid=9, discussion="d", is_diff=False):
+    async def _mention(self, run, note_id, *, iid=9, discussion="d", is_diff=False, **fields):
         payload = mention_payload(note_id=note_id) | {"discussion_id": f"{discussion}{note_id}", "is_diff": is_diff}
         return await amake_event(
             await Session.objects.aget(pk=run.session_id), EventKind.MENTION, run=run, state=EventState.TAKEN,
-            merge_request_iid=iid, payload=payload,
+            merge_request_iid=iid, payload=payload, **fields,
         )  # fmt: skip
 
-    @pytest.mark.parametrize("status", [RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT])
-    async def test_one_mention_gets_the_final_message_in_its_thread(self, drain, client, status):
-        run = await self._run(status=status)
+    async def test_one_mention_gets_the_final_message_in_its_thread(self, drain, client):
+        run = await self._run()
         await self._mention(run, 5521, is_diff=True)
 
         await aon_run_ended(run)
@@ -284,6 +308,38 @@ class TestMentionReplies:
         client.create_merge_request_comment.assert_called_once_with(
             "group/repo", 9, "Renamed it in the three call sites.", reply_to=CommentThread("d5521", on_diff=True)
         )
+
+    async def test_a_question_tells_the_asker_how_to_answer(self, drain, client):
+        client.current_user.username = "daiv"
+        run = await self._run(status=RunStatus.WAITING_INPUT, summary="Which branch should I target?")
+        await self._mention(run, 5521, author_username="alice")
+
+        await aon_run_ended(run)
+
+        body = client.create_merge_request_comment.call_args.args[2]
+        assert body.startswith("Which branch should I target?")
+        assert body.endswith("@alice, reply mentioning @daiv with your answer.")
+
+    async def test_a_run_that_said_nothing_posts_that_it_could_not_address_the_mention(self, drain, client):
+        run = await self._run(summary="")
+        await self._mention(run, 5521)
+
+        await aon_run_ended(run)
+
+        assert "An unexpected error occurred" in client.create_merge_request_comment.call_args.args[2]
+
+    async def test_a_mention_whose_runs_kept_failing_is_told_once_it_fails_for_good(self, drain, client):
+        run = await self._run(status=RunStatus.FAILED)
+        event = await self._mention(run, 5521)
+        await InboxEvent.objects.filter(pk=event.pk).aupdate(attempts=MAX_EVENT_ATTEMPTS - 1)
+
+        await aon_run_ended(run)
+
+        assert (await _state(event)).failure == EventFailure.RETRIES_EXHAUSTED
+        client.create_merge_request_comment.assert_called_once()
+        args, kwargs = client.create_merge_request_comment.call_args
+        assert (args[:2], kwargs["reply_to"]) == (("group/repo", 9), CommentThread("d5521", on_diff=False))
+        assert "An unexpected error occurred" in args[2]
 
     async def test_several_mentions_get_the_reply_in_the_latest_thread_and_a_pointer_in_the_others(self, drain, client):
         run = await self._run()

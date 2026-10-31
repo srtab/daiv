@@ -94,7 +94,8 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             repo_id=spec.repo_id,
             ref=spec.ref,
             thread_id=str(outcome.session_id),
-            status=cast("Literal['QUEUED', 'READY']", outcome.status),
+            # A follow-up's run may have started, or even ended, by the time it is returned.
+            status="QUEUED" if outcome.status == RunStatus.QUEUED else "READY",
         )
         for spec, outcome in zip(payload.repos, result.outcomes, strict=True)
         if not isinstance(outcome, BatchSubmitFailure)

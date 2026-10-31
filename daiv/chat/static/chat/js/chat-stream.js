@@ -273,8 +273,9 @@
       const turn = turns[i];
       if (turn.role === "run_status") continue;
       if (turn.role === "user") return [];
-      for (let j = turn.segments.length - 1; j >= 0; j--) {
-        const s = turn.segments[j];
+      const segments = turn.segments ?? [];
+      for (let j = segments.length - 1; j >= 0; j--) {
+        const s = segments[j];
         if (s.type === "tool_call" && s.name === "write_todos") return parseTodos(s);
       }
     }
@@ -294,7 +295,7 @@
     };
     for (const t of turns) {
       if (t.role === "run_status") continue;
-      for (const seg of t.segments) {
+      for (const seg of t.segments ?? []) {
         if (seg.type !== "tool_call") continue;
         if (seg.name === "publish_artifact") {
           const payload = artifactPayload(seg);
@@ -880,7 +881,7 @@
       for (const t of this.turns) {
         if (t.role === "run_status") continue;
         if (t.id) messages.add(t.id);
-        for (const s of t.segments) {
+        for (const s of t.segments ?? []) {
           if (s.type === "tool_call" && s.id) tools.add(s.id);
         }
       }

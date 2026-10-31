@@ -284,6 +284,16 @@ class TestInboxRun:
 
         assert "Your working copy was fast-forwarded." in context.content
 
+    @pytest.mark.parametrize(("ref", "falls_back"), [("main", True), ("feat/other", False)])
+    async def test_a_run_on_the_sessions_branch_falls_back_when_the_branch_is_gone(self, member_user, ref, falls_back):
+        """A merged merge request's branch may be deleted; a request that follows the session then runs like a chat turn
+        would, from the default branch. A run for another branch (a CI fix of its merge request) does not."""
+        run = await self._inbox_run(user=member_user)
+
+        spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True, ref=ref))["spec"]
+
+        assert spec.fallback_ref_on_missing is falls_back
+
     async def test_a_run_whose_events_were_settled_before_it_started_does_not_run(self, member_user):
         run = await self._inbox_run(user=member_user)
         await InboxEvent.objects.filter(run=run).aupdate(state=EventState.PENDING, run=None)

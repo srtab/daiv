@@ -42,10 +42,18 @@ class TestRecordPipeline:
     async def test_only_the_first_caller_records_a_pipeline(self):
         ownership = await _owned()
 
-        assert await WatchStore().arecord_pipeline(ownership.pk, 100) is True
-        assert await WatchStore().arecord_pipeline(ownership.pk, 100) is False
-        assert await WatchStore().arecord_pipeline(ownership.pk, 101) is True
+        assert await WatchStore().arecord_pipeline(ownership.pk, 100, "failed") is True
+        assert await WatchStore().arecord_pipeline(ownership.pk, 100, "failed") is False
+        assert await WatchStore().arecord_pipeline(ownership.pk, 101, "failed") is True
         assert (await MergeRequestOwnership.objects.aget()).last_pipeline_id == 101
+
+    async def test_a_retried_pipeline_with_a_new_status_is_recorded_again(self):
+        ownership = await _owned()
+
+        assert await WatchStore().arecord_pipeline(ownership.pk, 100, "failed") is True
+        assert await WatchStore().arecord_pipeline(ownership.pk, 100, "success") is True
+        stored = await MergeRequestOwnership.objects.aget()
+        assert (stored.last_pipeline_id, stored.last_pipeline_status) == (100, "success")
 
 
 class TestSetEnabled:

@@ -26,6 +26,8 @@ from django.tasks import TaskResultStatus
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
+from sandbox_envs.models import SandboxEnvironment
+from sandbox_envs.selection import resolve_env_for_run
 
 from automation.agent.references import merge_stored_refs
 from sessions.admission import RepoAccessError, assert_repo_access
@@ -49,6 +51,7 @@ from sessions.queue import aenqueue_run
 from sessions.services import pinned_agent_override
 
 if TYPE_CHECKING:
+    import uuid
     from collections.abc import Iterable
 
     from django.db.models import QuerySet
@@ -259,12 +262,16 @@ def _take(thread_id: str) -> Run | None:
     checked = any(event.kind != EventKind.MENTION for event in asked)
     if user is not None and checked and not _may_run(user, session.repo_id):
         _fail(session, asked, next_run)
+        _drop_emptied(queued_runs)
         transaction.on_commit(partial(drain_logged, thread_id), robust=True)
         return None
 
+    env_id = _sandbox_env_id(session, user)
     try:
         with transaction.atomic():
-            run = _promote_or_create(session, branch, taken, next_run, requester=requester)
+            run = _promote_or_create(
+                session, branch, taken, next_run, requester=requester, sandbox_environment_id=env_id
+            )
     except IntegrityError:
         # A job run took the session's one active place after job_run_active looked (``run_one_active_per_session``).
         logger.info("inbox: thread_id=%s has an active job run; its events wait for that run to end", thread_id)
@@ -279,6 +286,7 @@ def _take(thread_id: str) -> Run | None:
     InboxEvent.objects.filter(
         session=session, state=EventState.SUPERSEDED, run__isnull=True, subject__in={e.subject for e in taken} - {""}
     ).filter(Q(ref="") | Q(ref=branch)).update(run=run)
+    _drop_emptied(queued_run for queued_run in queued_runs if queued_run.pk != run.pk)
     _merge_references(session, taken)
     return run
 
@@ -334,14 +342,16 @@ def _merge_references(session: Session, taken: list[InboxEvent]) -> None:
 
 def _charge_ci_attempts(run: Run) -> None:
     """Spend an attempt of each merge request whose CI failure woke ``run``, once its task is queued, and record the
-    commit it examines."""
+    commit it examines. A run that takes the failure again after a failed one examines the same commit, and is not
+    charged again."""
     woken_by_ci = InboxEvent.objects.filter(
         run=run, state=EventState.TAKEN, kind=EventKind.CI_FAILED, wake=True, merge_request_iid__isnull=False
     )
     for event in woken_by_ci:
-        MergeRequestOwnership.objects.filter(repo_id=run.repo_id, merge_request_iid=event.merge_request_iid).update(
-            last_examined_sha=event.payload["sha"], attempts=F("attempts") + 1
-        )
+        sha = event.payload["sha"]
+        MergeRequestOwnership.objects.filter(repo_id=run.repo_id, merge_request_iid=event.merge_request_iid).exclude(
+            last_examined_sha=sha
+        ).update(last_examined_sha=sha, attempts=F("attempts") + 1)
 
 
 def _supersede(pending: list[InboxEvent]) -> list[InboxEvent]:
@@ -359,10 +369,14 @@ def _supersede(pending: list[InboxEvent]) -> list[InboxEvent]:
 
 
 def _apply_policy(session: Session, survivors: Iterable[InboxEvent]) -> None:
-    """Turn the waking events the policy blocks into remembered ones, recording why."""
+    """Turn the waking events the policy blocks into remembered ones, recording why. A CI failure whose merge request
+    was closed, or whose watch was turned off, since it was posted no longer wakes either."""
     limited = False
     for event in survivors:
-        if event.wake and (reason := may_wake(session, event.kind)) is not None:
+        if not event.wake:
+            continue
+        reason = QuietReason.WATCH_OFF if _watch_stopped(session, event) else may_wake(session, event.kind)
+        if reason is not None:
             event.wake, event.reason = False, reason
             event.save(update_fields=["wake", "reason", "updated_at"])
             limited = limited or reason == QuietReason.RUN_LIMIT
@@ -370,11 +384,32 @@ def _apply_policy(session: Session, survivors: Iterable[InboxEvent]) -> None:
         transaction.on_commit(partial(report_run_limit, session), robust=True)
 
 
+def _watch_stopped(session: Session, event: InboxEvent) -> bool:
+    if event.kind != EventKind.CI_FAILED or event.merge_request_iid is None:
+        return False
+    return (
+        MergeRequestOwnership.objects
+        .filter(repo_id=session.repo_id, merge_request_iid=event.merge_request_iid)
+        .filter(Q(closed_at__isnull=False) | Q(watch_enabled=False))
+        .exists()
+    )
+
+
 def _drop_next_runs(runs: Iterable[Run | None]) -> None:
     """Delete ``runs``, next runs left with no waking event to start them, detaching their events."""
     if ids := [run.pk for run in runs if run is not None]:
         InboxEvent.objects.filter(run_id__in=ids).update(run=None, updated_at=timezone.now())
         Run.objects.filter(pk__in=ids).delete()
+
+
+def _drop_emptied(runs: Iterable[Run]) -> None:
+    """Delete the next runs among ``runs`` the take left with no event, whose requests went to another run (one sent
+    without a branch matches any); ``sessions.queue`` would otherwise start them as plain jobs."""
+    _drop_next_runs(
+        Run.objects.filter(pk__in=[run.pk for run in runs], status=RunStatus.QUEUED).exclude(
+            Exists(InboxEvent.objects.filter(run=OuterRef("pk")))
+        )
+    )
 
 
 def _may_run(user: User, repo_id: str) -> bool:
@@ -398,8 +433,25 @@ def _fail(session: Session, asked: list[InboxEvent], next_run: Run | None) -> No
     _drop_next_runs([next_run])
 
 
+def _sandbox_env_id(session: Session, user: User | None) -> uuid.UUID | None:
+    """The session's sandbox environment, unless it is a USER environment ``user`` does not own: a run for another
+    person, or for no one, never gets the owner's secrets. Then the one the repository resolves to for ``user``."""
+    env_id = session.sandbox_environment_id
+    visible = SandboxEnvironment.objects.visible_to(user)  # ty: ignore[unresolved-attribute]
+    if env_id is None or visible.filter(pk=env_id).exists():
+        return env_id
+    env = async_to_sync(resolve_env_for_run)(user=user, repo_id=session.repo_id)
+    return None if env is None else env.pk
+
+
 def _promote_or_create(
-    session: Session, branch: str, taken: list[InboxEvent], run: Run | None, *, requester: Requester
+    session: Session,
+    branch: str,
+    taken: list[InboxEvent],
+    run: Run | None,
+    *,
+    requester: Requester,
+    sandbox_environment_id: uuid.UUID | None,
 ) -> Run:
     waking = sorted(
         (event for event in taken if event.wake), key=lambda event: (PRECEDENCE[event.kind], event.created_at)
@@ -416,7 +468,7 @@ def _promote_or_create(
         "agent_thinking_level": agent_thinking_level,
         "message_id": chats[-1].payload["agui_message_id"] if chats else "",
         "merge_request_iid": next((event.merge_request_iid for event in waking if event.merge_request_iid), None),
-        "sandbox_environment_id": session.sandbox_environment_id,
+        "sandbox_environment_id": sandbox_environment_id,
         "prompt": render_request(taken),
         "muted": (person or top).payload.get("muted"),
     }

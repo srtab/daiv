@@ -61,22 +61,26 @@ RETRY_MESSAGE = "The previous run failed. Please try again."
 # ``message``.)
 RunStatusValue = Literal["failed", "aborted"]
 
+_CHAT_ERROR_MESSAGES = frozenset({CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE})
+
 
 def _marker(run: Run) -> dict[str, Any] | None:
     """Return a run-status pseudo-turn for a FAILED run, else None."""
     if run.status != RunStatus.FAILED:
         return None
-    # error_message is only user-safe for chat runs: the chat streamer writes fixed
-    # constants (see chat.api.streaming). Background/non-chat runs store raw exception
-    # text and tracebacks in error_message (sessions.queue), which must never be
+    # error_message is user-safe only as the fixed constants the inline chat streamer writes
+    # (see chat.api.streaming). Task-backed runs, a chat message the inbox ran included, store
+    # raw exception text and tracebacks in error_message (sessions.queue), which must never be
     # rendered verbatim. Fall those back to the generic sanitized message.
-    if run.trigger_type == SessionOrigin.CHAT:
-        message = run.error_message or RUN_FAILED_MESSAGE
+    if run.trigger_type == SessionOrigin.CHAT and run.is_cancelled:
+        message, aborted = CANCELLED_BY_USER_MESSAGE, True
+    elif run.trigger_type == SessionOrigin.CHAT:
+        message = run.error_message if run.error_message in _CHAT_ERROR_MESSAGES else RUN_FAILED_MESSAGE
         # A user cancel and an interrupt (stale takeover / process shutdown) are neutral,
         # non-failure terminations — render them as the grey "aborted" marker, not the red
         # failure chip. This is the single, deliberate string-coupling point: nothing
         # persisted distinguishes them from a genuine failure except these shared messages.
-        aborted = run.error_message in (CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE)
+        aborted = message in (CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE)
     elif run.is_cancelled:
         message, aborted = CANCELLED_BY_COORDINATOR_MESSAGE, True
     else:

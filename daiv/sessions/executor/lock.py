@@ -126,14 +126,19 @@ def live_run_for(live: LiveRun | None, session: Session, user: User) -> LiveRun 
 
 
 def background_in_flight(activity: SessionActivity, runs: Iterable[Run]) -> bool:
-    """Whether a live non-chat run (a job, a webhook, a CI fix, a delegation resume) keeps the session of ``activity``
-    in flight.
+    """Whether a live run other than an inline chat turn (a job, a webhook, a CI fix, a delegation resume, a chat
+    message the inbox runs) keeps the session of ``activity`` in flight.
 
-    Only these wake a session page that rendered idle: a chat run streams to the tab that started it.
+    Only these wake a session page that rendered idle: an inline chat turn streams to the tab that started it, and
+    is the only run that is RUNNING without a task.
     """
     return activity.in_flight and any(
-        run.trigger_type != SessionOrigin.CHAT and run.status not in RunStatus.terminal() for run in runs
+        run.status not in RunStatus.terminal() and not _inline_chat_turn(run) for run in runs
     )
+
+
+def _inline_chat_turn(run: Run) -> bool:
+    return run.trigger_type == SessionOrigin.CHAT and run.task_result_id is None and run.status == RunStatus.RUNNING
 
 
 class SessionLock:

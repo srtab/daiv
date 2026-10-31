@@ -50,15 +50,18 @@ class SessionQuerySet(models.QuerySet["Session"]):
 
         A user owns a session when they own the session row, started it through a git
         platform account they linked, subscribe to its schedule, or started any of its runs
-        either way. The run-level match preserves per-actor visibility on shared webhook threads.
+        either way. The run-level match preserves per-actor visibility on shared threads (webhook
+        threads and sessions no user owns), and only there: a person whose mention the inbox ran in
+        another person's session does not own it.
         """
-        from sessions.models import Run
+        from sessions.models import Run, SessionOrigin
 
         run_match = Run.objects.started_by(user).filter(session=models.OuterRef("pk"))
+        shared = models.Q(user__isnull=True) | models.Q(origin__in=SessionOrigin.webhooks())
         return (
             _started_by_q(user)
             | models.Q(scheduled_job__in=user.subscribed_schedules.values("pk"))
-            | models.Exists(run_match)
+            | (shared & models.Exists(run_match))
         )
 
     def owned_by(self, user: User) -> models.QuerySet[Session]:

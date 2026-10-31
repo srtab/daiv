@@ -1,8 +1,11 @@
 from datetime import timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.utils import timezone
+
 import pytest
 from asgiref.sync import sync_to_async
+from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox import kinds
 from sessions.inbox.drain import adrain, atake_for_chat, keep_queued_claims_alive
@@ -279,6 +282,28 @@ class TestActingUser:
 
         assert run.user_id == member_user.pk
 
+    async def test_the_owner_keeps_their_own_environment(self, enqueue, admin_user):
+        private = await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=admin_user, name="mine")
+        session = await amake_session(user=admin_user, sandbox_environment=private)
+        await amake_event(session, EventKind.CHAT_MESSAGE, author=admin_user)
+
+        run = await adrain(session.thread_id)
+
+        assert run.sandbox_environment_id == private.pk
+
+    async def test_another_persons_request_never_runs_in_the_owners_private_environment(
+        self, enqueue, member_user, admin_user
+    ):
+        await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
+        default = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="Default", is_default=True)
+        private = await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=admin_user, name="mine")
+        session = await amake_session(user=admin_user, sandbox_environment=private)
+        await amake_event(session, EventKind.MENTION, author=member_user)
+
+        run = await adrain(session.thread_id)
+
+        assert run.sandbox_environment_id == default.pk
+
     async def test_a_person_without_an_account_acts_as_no_one(self, enqueue, admin_user):
         session = await amake_session(user=admin_user)
         await amake_event(
@@ -421,6 +446,24 @@ class TestSessionBranch:
 
         assert (run.ref, (await _state(event)).run_id) == ("daiv/new-branch", run.pk)
 
+    async def test_a_next_run_whose_requests_another_run_took_is_deleted(self, enqueue):
+        """A follow-up sent without a branch joins the run of the same person's branch; the next run it waited in would
+        otherwise start it again as a plain job."""
+        session = await amake_session(ref="")
+        on_feat = await _queued_next_run(session, ref="feat", trigger=SessionOrigin.API_JOB)
+        blank = await _queued_next_run(session, ref="", trigger=SessionOrigin.API_JOB)
+        follow_up = {"prompt": "Bump the version", "trigger_type": SessionOrigin.API_JOB}
+        await amake_event(
+            session, EventKind.FOLLOW_UP_JOB, ref="feat", run=on_feat, payload=follow_up | {"ref": "feat"}
+        )
+        await amake_event(session, EventKind.FOLLOW_UP_JOB, ref="", run=blank, payload=follow_up)
+
+        run = await adrain(session.thread_id)
+
+        assert run.pk == on_feat.pk
+        assert await InboxEvent.objects.filter(run=on_feat).acount() == 2
+        assert not await Run.objects.filter(pk=blank.pk).aexists()
+
     async def test_a_follow_up_sent_for_a_branch_stays_on_it(self, enqueue):
         session = await amake_session(ref="chore/x")
         payload = {"prompt": "Bump it", "trigger_type": SessionOrigin.API_JOB, "ref": "chore/x"}
@@ -530,3 +573,38 @@ class TestCiAttempts:
 
         await ownership.arefresh_from_db()
         assert (ownership.attempts, ownership.last_examined_sha) == (0, "")
+
+    async def test_a_run_that_takes_the_failure_again_after_a_failed_one_spends_nothing_more(self, enqueue):
+        session = await amake_session()
+        ownership = await MergeRequestOwnership.objects.acreate(
+            repo_id=session.repo_id, merge_request_iid=9, session=session, source_branch=session.ref, attempts=2,
+            last_examined_sha="e96f1f77",
+        )  # fmt: skip
+        await amake_event(session, merge_request_iid=9, payload=ci_payload(sha="e96f1f77"), attempts=1)
+
+        assert await adrain(session.thread_id) is not None
+
+        await ownership.arefresh_from_db()
+        assert (ownership.attempts, ownership.last_examined_sha) == (2, "e96f1f77")
+
+
+class TestStoppedWatch:
+    @pytest.mark.parametrize(
+        "ownership_fields", [{"closed_at": timezone.now()}, {"watch_enabled": False}], ids=["closed", "turned-off"]
+    )
+    async def test_a_ci_failure_whose_watch_stopped_since_it_was_posted_only_is_remembered(
+        self, enqueue, ownership_fields
+    ):
+        session = await amake_session()
+        await MergeRequestOwnership.objects.acreate(
+            repo_id=session.repo_id, merge_request_iid=9, session=session, source_branch=session.ref,
+            **ownership_fields,
+        )  # fmt: skip
+        next_run = await _queued_next_run(session)
+        failure = await amake_event(session, merge_request_iid=9, run=next_run)
+
+        assert await adrain(session.thread_id) is None
+
+        stored = await _state(failure)
+        assert (stored.state, stored.wake, stored.reason) == (EventState.PENDING, False, QuietReason.WATCH_OFF)
+        assert not await Run.objects.filter(pk=next_run.pk).aexists()

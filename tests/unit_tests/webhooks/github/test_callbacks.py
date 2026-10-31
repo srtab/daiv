@@ -210,6 +210,22 @@ class TestIssueCommentCallbackAllowlist:
         )
         assert callback.accept_callback() is True
 
+    @pytest.mark.parametrize(("editor_id", "accepted"), [(10, True), (11, False)])
+    def test_an_edited_comment_is_accepted_only_from_its_author(
+        self, monkeypatch_dependencies, mock_repo_config, mock_repo_client, editor_id, accepted
+    ):
+        mock_repo_config.allowed_usernames = ("alice",)
+        mock_repo_client.current_user = User(**{"id": 999, "login": "daiv-bot"})
+
+        callback = IssueCommentCallback(
+            action="edited",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Test Issue", state="open", labels=[Label(id=1, name=BOT_LABEL)]),
+            comment=Comment(id=200, body="@daiv-bot help", user=User(**{"id": 10, "login": "alice"})),
+            sender=User(**{"id": editor_id, "login": "editor"}),
+        )
+        assert callback.accept_callback() is accepted
+
 
 def create_pull_request_callback(
     action: str = "closed",
@@ -464,10 +480,15 @@ class TestProcessCallback:
 
 
 def create_review_comment_callback(
-    body: str = "@daiv why this line?", *, action: str = "created", in_reply_to_id: int | None = None
+    body: str = "@daiv why this line?",
+    *,
+    action: str = "created",
+    in_reply_to_id: int | None = None,
+    editor: User | None = None,
 ) -> PullRequestReviewCommentCallback:
     return PullRequestReviewCommentCallback(
         action=action,
+        sender=editor or User(**{"id": 10, "login": "alice"}),
         repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
         pull_request=PullRequest(
             id=10,
@@ -540,6 +561,10 @@ class TestReviewCommentAcceptance:
 
     def test_a_deleted_comment_is_rejected(self):
         assert create_review_comment_callback(action="deleted").accept_callback() is False
+
+    def test_a_comment_someone_else_edited_is_rejected(self):
+        editor = User(**{"id": 11, "login": "mallory"})
+        assert create_review_comment_callback(action="edited", editor=editor).accept_callback() is False
 
     def test_an_author_outside_the_allowlist_is_rejected(self, mock_repo_config):
         mock_repo_config.allowed_usernames = ["someone-else"]

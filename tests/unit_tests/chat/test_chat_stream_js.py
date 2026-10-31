@@ -810,3 +810,46 @@ def test_a_message_sent_while_the_session_is_busy_shows_as_queued_until_its_run_
         "opened": False,
     }
     assert out["following"] == {"streaming": True, "run": "next-run", "queuedRunId": ""}
+
+
+INBOX_BODY = """
+const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
+chat.$watch = watchOn(chat);
+chat.$nextTick = () => {};
+chat.scrollToBottom = () => {};
+chat.turns = payload.turns;
+chat.thread = { thread_id: "t1" };
+chat.init();
+const blocks = chat.runBlocks.length;
+chat._streamRun = async () => "done";
+chat._finishTurn = () => {};
+chat.resuming = true;
+await chat._resumeRun("r1");
+process.stdout.write(JSON.stringify({ blocks, resuming: chat.resuming }));
+chat.destroy();
+"""
+
+
+def _inbox_event(eid: str) -> dict:
+    return {
+        "id": eid,
+        "role": "inbox_event",
+        "kind": "ci_passed",
+        "summary": "CI passed",
+        "reason": "",
+        "web_url": "",
+        "created_at": "2026-10-31T00:00:00+00:00",
+    }
+
+
+@pytest.mark.parametrize(
+    ("turns", "blocks"),
+    [
+        ([user("u1"), asst("a1", text("Done.")), _inbox_event("e1")], 2),
+        ([user("u1"), _inbox_event("e1"), asst("a1", text("Done."))], 3),
+    ],
+    ids=["event-last", "event-between"],
+)
+def test_a_remembered_inbox_event_in_the_turns_leaves_the_transcript_and_the_resume_working(turns, blocks):
+    out = run_chat_stream(INBOX_BODY, {"turns": turns}, prelude=REACTIVITY, extra_globals=GLOBALS)
+    assert out == {"blocks": blocks, "resuming": False}

@@ -32,8 +32,8 @@ from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
-def _run(trigger_type, status=RunStatus.RUNNING):
-    return SimpleNamespace(trigger_type=trigger_type, status=status)
+def _run(trigger_type, status=RunStatus.RUNNING, task_result_id=None):
+    return SimpleNamespace(trigger_type=trigger_type, status=status, task_result_id=task_result_id)
 
 
 class TestBackgroundInFlight:
@@ -43,8 +43,17 @@ class TestBackgroundInFlight:
 
         assert background_in_flight(SessionActivity(in_flight=True), runs) is True
 
-    def test_a_chat_run_alone_is_not(self):
+    def test_an_inline_chat_turn_alone_is_not(self):
         assert background_in_flight(SessionActivity(in_flight=True), [_run(SessionOrigin.CHAT)]) is False
+
+    @pytest.mark.parametrize(
+        ("status", "task_result_id"), [(RunStatus.QUEUED, None), (RunStatus.READY, None), (RunStatus.RUNNING, "t")]
+    )
+    def test_a_chat_message_the_inbox_runs_is_background_work(self, status, task_result_id):
+        """It runs as a task, not in the tab that sent it, so a page that rendered idle has to follow it."""
+        runs = [_run(SessionOrigin.CHAT, status, task_result_id)]
+
+        assert background_in_flight(SessionActivity(in_flight=True), runs) is True
 
     def test_a_finished_non_chat_run_is_not(self):
         runs = [_run(SessionOrigin.PIPELINE_WEBHOOK, RunStatus.SUCCESSFUL), _run(SessionOrigin.CHAT)]

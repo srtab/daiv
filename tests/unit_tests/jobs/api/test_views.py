@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
@@ -494,6 +495,22 @@ class TestThreadContinuationAPI:
         body = response.json()
         assert body["jobs"][0]["thread_id"]
         assert body["jobs"][0]["status"] == "READY"
+
+    async def test_a_follow_up_whose_run_already_started_is_reported_accepted(self, authenticated_client):
+        """The inbox may start a follow-up's run before the submit returns; it is still the job the caller asked for."""
+        run = SimpleNamespace(id=uuid.uuid4(), session_id=uuid.uuid4(), status=RunStatus.RUNNING)
+        result = SimpleNamespace(batch_id=uuid.uuid4(), outcomes=[run], failed=[])
+        with patch("jobs.api.views.asubmit_batch_runs", new=AsyncMock(return_value=result)):
+            response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x"))
+
+        assert response.status_code == 202
+        assert response.json()["jobs"][0] == {
+            "job_id": str(run.id),
+            "repo_id": "group/project",
+            "ref": None,
+            "thread_id": str(run.session_id),
+            "status": "READY",
+        }
 
     async def test_continuation_with_unknown_thread_id_rejects(self, authenticated_client):
         body = _single_repo_body(prompt="x", thread_id=str(uuid.uuid4()))

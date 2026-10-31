@@ -117,6 +117,9 @@ def _claim(run_id: uuid.UUID | str, iid: int, branch: str, pushed_sha: str) -> t
                 iid,
                 session.thread_id,
             )
+        if row.last_daiv_sha != pushed_sha:
+            # A pipeline judged before this claim was judged against the previous commit: judge it anew.
+            row.last_pipeline_id, row.last_pipeline_status = None, ""
         row.source_branch, row.last_daiv_sha = branch, pushed_sha
         if run.trigger_type in PERSON_STARTED:
             row.attempts = 0

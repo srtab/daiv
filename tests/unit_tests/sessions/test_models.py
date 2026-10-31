@@ -501,3 +501,14 @@ def test_every_kind_a_publish_reports_has_a_label():
     raised = {publish_error_kind(exc) for exc in (GitPushStaleError("x"), GitlabCreateError("x"), RuntimeError("x"))}
 
     assert raised | {"conflicts", "mr_pending"} <= set(PublishErrorKind.values)
+
+
+def test_by_owner_does_not_match_a_run_the_inbox_ran_for_someone_else_in_a_private_session(django_user_model):
+    """A mention on a merge request a person's chat session owns runs in that session as its author; the author does
+    not own the session for it."""
+    owner = django_user_model.objects.create_user(username="owner", email="o@x.io", password="x")  # noqa: S106
+    mentioner = django_user_model.objects.create_user(username="mentioner", email="m@x.io", password="x")  # noqa: S106
+    session = _mk_session(user=owner, origin=SessionOrigin.CHAT)
+    _mk_run(session, trigger_type=SessionOrigin.MR_WEBHOOK, user=mentioner)
+    assert list(Session.objects.by_owner(owner)) == [session]
+    assert list(Session.objects.by_owner(mentioner)) == []

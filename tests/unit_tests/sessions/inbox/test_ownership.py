@@ -141,6 +141,29 @@ class TestAttempts:
         assert (await _claim(await _publishing_run(alice, trigger))).attempts == 2
 
 
+class TestJudgedPipeline:
+    async def test_a_new_commit_forgets_the_pipeline_judged_against_the_previous_one(self):
+        """A pipeline on the new commit judged before the claim was taken for someone else's; it is judged again."""
+        alice = await _user("alice")
+        run = await _publishing_run(alice)
+        await _claim(run)
+        await MergeRequestOwnership.objects.aupdate(last_pipeline_id=200, last_pipeline_status="failed")
+
+        ownership = await _claim(run, sha="0a1b2c3d")
+
+        assert (ownership.last_pipeline_id, ownership.last_pipeline_status) == (None, "")
+
+    async def test_the_same_commit_keeps_it(self):
+        alice = await _user("alice")
+        run = await _publishing_run(alice)
+        await _claim(run)
+        await MergeRequestOwnership.objects.aupdate(last_pipeline_id=200, last_pipeline_status="failed")
+
+        ownership = await _claim(run)
+
+        assert (ownership.last_pipeline_id, ownership.last_pipeline_status) == (200, "failed")
+
+
 class TestOpenOwnership:
     async def test_it_names_the_owning_session(self):
         run = await _publishing_run(None)

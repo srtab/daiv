@@ -218,11 +218,35 @@ def test_a_leg_its_delegating_session_cancelled_renders_aborted_marker():
 def test_chat_failed_run_renders_error_message_verbatim():
     # Chat runs use the streamer's fixed, user-safe constants — render verbatim.
     turns = [_user("h1"), _assistant("a1")]
-    runs = [_run("r1", trigger_type=SessionOrigin.CHAT, status=RunStatus.FAILED, error_message="some chat message")]
+    runs = [_run("r1", trigger_type=SessionOrigin.CHAT, status=RunStatus.FAILED, error_message=INTERRUPTED_MESSAGE)]
     result = annotate_transcript(turns, runs)
     marker = result[-1]
     assert marker["role"] == "run_status"
-    assert marker["message"] == "some chat message"
+    assert marker["message"] == INTERRUPTED_MESSAGE
+
+
+def test_a_chat_message_the_inbox_ran_never_renders_its_raw_error():
+    """It ran as a task, whose failure stores the exception and traceback."""
+    turns = [_user("h1"), _assistant("a1")]
+    error = "sessions.executor.run.RunStoppedError\nTraceback (most recent call last): ..."
+    runs = [_run("r1", trigger_type=SessionOrigin.CHAT, status=RunStatus.FAILED, error_message=error)]
+    marker = annotate_transcript(turns, runs)[-1]
+    assert (marker["status"], marker["message"]) == ("failed", RUN_FAILED_MESSAGE)
+
+
+def test_a_chat_message_the_inbox_ran_and_its_owner_stopped_reads_as_stopped():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [
+        _run(
+            "r1",
+            trigger_type=SessionOrigin.CHAT,
+            status=RunStatus.FAILED,
+            error_message="sessions.executor.run.RunStoppedError",
+            is_cancelled=True,
+        )
+    ]
+    marker = annotate_transcript(turns, runs)[-1]
+    assert (marker["status"], marker["message"]) == ("aborted", CANCELLED_BY_USER_MESSAGE)
 
 
 def test_chat_failed_run_with_empty_error_message_falls_back_to_generic():

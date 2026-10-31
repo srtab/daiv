@@ -167,12 +167,14 @@ def _key(*parts: object) -> str:
     return ":".join(str(part) for part in parts)[:KEY_MAX_LENGTH]
 
 
-def pipeline_key(pipeline_id: int) -> str:
-    return _key("pipeline", pipeline_id)
-
-
-def quiet_pipeline_key(pipeline_id: int, reason: str) -> str:
-    return _key("pipeline", pipeline_id, reason)
+def pipeline_key(pipeline_id: int, kind: str = EventKind.CI_FAILED, reason: str | None = None) -> str:
+    """A waking failure keys on the pipeline alone; a quiet one, a pass and a stop each on a suffix of their own, so a
+    retried pipeline's new result is not taken for one already posted."""
+    if reason:
+        return _key("pipeline", pipeline_id, reason)
+    if kind == EventKind.CI_FAILED:
+        return _key("pipeline", pipeline_id)
+    return _key("pipeline", pipeline_id, kind)
 
 
 def note_key(note_id: int) -> str:

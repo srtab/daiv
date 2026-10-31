@@ -5,11 +5,14 @@ from types import SimpleNamespace
 from django.utils import timezone
 
 from notifications.choices import EnvelopeStatus
+from notifications.models import Notification
 from notifications.policy import (
     NOTIFY_WORTHY_STATUSES,
     RECLASSIFY_MAX_AGE,
     STATUS_TONES,
     envelope_tone,
+    notification_source_for_inbox_pause,
+    notification_source_for_watch,
     notifies,
     notify_worthy,
     status_severity,
@@ -88,3 +91,13 @@ class TestNotifies:
         run = SimpleNamespace(trigger_type=SessionOrigin.ISSUE_WEBHOOK)
         assert notifies(run, EnvelopeStatus.FAILED) is True
         assert notifies(run, EnvelopeStatus.ALL_CLEAR) is False
+
+
+def test_the_session_keys_fit_the_source_id_column():
+    """SQLite does not enforce varchar length, so a key longer than the column only fails on Postgres."""
+    session = SimpleNamespace(thread_id="0" * 36)
+    keys = [
+        notification_source_for_watch(session, "a" * 40)[1],
+        notification_source_for_inbox_pause(session, "1" * 36)[1],
+    ]
+    assert max(map(len, keys)) <= Notification._meta.get_field("source_id").max_length

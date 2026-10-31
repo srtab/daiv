@@ -197,7 +197,7 @@ class CommentsAddressorManager(BaseManager):
         if not self._claim_unable_note():
             return
         body = render_to_string(
-            "webhooks/unable_address_review.txt",
+            "core/unable_address_review.txt",
             {
                 "bot_name": BOT_NAME,
                 "bot_username": self.client.current_user.username,

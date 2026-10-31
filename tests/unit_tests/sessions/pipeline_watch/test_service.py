@@ -107,7 +107,7 @@ class TestVerdicts:
         event = await _event()
         assert (event.session_id, event.kind, event.wake) == (ownership.session_id, EventKind.CI_PASSED, False)
         assert (event.source_key, event.subject, event.ref, event.merge_request_iid) == (
-            "pipeline:100",
+            "pipeline:100:ci_passed",
             "ci:7",
             BRANCH,
             7,
@@ -210,14 +210,28 @@ class TestNothingPosted:
         assert await _event() is None
 
     async def test_a_pipeline_judged_before_posts_nothing(self, watch):
-        await _owned(last_pipeline_id=100)
+        await _owned(last_pipeline_id=100, last_pipeline_status="failed")
         watch.platform.pipeline = make_pipeline("failed")
 
         await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
         await watch.make().aevaluate(ref=BRANCH, pipeline_id=None)
 
         assert await _event() is None
-        assert watch.platform.reads == 1
+
+    async def test_a_retried_pipeline_that_passes_is_remembered_as_passing(self, watch):
+        """A retry keeps the pipeline's id; its new status is judged and posted under a key of its own."""
+        ownership = await _owned()
+        watch.platform.pipeline = make_pipeline("failed")
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+        watch.platform.pipeline = make_pipeline("success")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        events = [event async for event in InboxEvent.objects.filter(session=ownership.session).order_by("created_at")]
+        assert [(event.kind, event.source_key) for event in events] == [
+            (EventKind.CI_FAILED, "pipeline:100"),
+            (EventKind.CI_PASSED, "pipeline:100:ci_passed"),
+        ]
 
     async def test_two_deliveries_of_one_pipeline_post_once(self, watch):
         await _owned()

@@ -23,7 +23,7 @@ logger = logging.getLogger("daiv.sessions")
 def sync_stuck_runs_cron_task():
     """Reconcile non-terminal Runs periodically (crash-recovery backstop).
 
-    Re-syncs task-backed runs from their linked DBTaskResult, reaps inline chat runs a
+    Re-syncs task-backed runs from their linked DBTaskResult, reaps inline chat runs and job runs a
     worker crash left stuck in RUNNING (once the session heartbeat goes stale), and fails READY
     runs whose submitter stopped before queueing them. The normal
     path is the ``run_finished`` signal / streamer ``finally``; this is the safety net for

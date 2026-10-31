@@ -178,6 +178,41 @@ class TestSyncStuckRunsCommand:
         run.refresh_from_db()
         assert run.status == RunStatus.RUNNING
 
+    @pytest.mark.parametrize(
+        ("started_ago", "heartbeat_ago", "status"),
+        [
+            (timedelta(hours=1), timedelta(hours=1), RunStatus.FAILED),
+            (timedelta(hours=1), timedelta(minutes=1), RunStatus.RUNNING),
+            (timedelta(minutes=1), timedelta(hours=1), RunStatus.RUNNING),
+        ],
+        ids=["dead", "heartbeating", "just-started-on-an-idle-session"],
+    )
+    def test_a_job_run_a_worker_crash_left_running_is_failed_once_its_heartbeat_is_stale(
+        self, create_db_task_result, started_ago, heartbeat_ago, status
+    ):
+        """Its task stays RUNNING for good, and the run keeps its session's one active job place."""
+        now = timezone.now()
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()),
+            origin=SessionOrigin.API_JOB,
+            repo_id="group/project",
+            last_active_at=now - heartbeat_ago,
+        )
+        task = create_db_task_result(status="RUNNING", started_at=now - started_ago)
+        run = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.API_JOB,
+            repo_id="group/project",
+            status=RunStatus.RUNNING,
+            started_at=now - started_ago,
+            task_result=task,
+        )
+
+        call_command("sync_stuck_runs")
+
+        run.refresh_from_db()
+        assert run.status == status
+
     def test_a_ready_run_never_queued_is_failed_and_releases_its_sessions_queue(self, create_db_task_result):
         session = _make_session()
         stranded = Run.objects.create(
