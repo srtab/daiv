@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
+from codebase.base import GitPlatform
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -28,15 +30,15 @@ class RelatedMergeRequest:
     merge_request: MergeRequest
 
 
-def _escape_link_text(text: str) -> str:
-    return re.sub(r"([\\\[\]])", r"\\\1", text)
+def _reference(entry: RelatedMergeRequest) -> str:
+    separator = "!" if entry.client.git_platform == GitPlatform.GITLAB else "#"
+    return f"{entry.repo_slug}{separator}{entry.merge_request.merge_request_id}"
 
 
 def render_related_block(related: Sequence[RelatedMergeRequest]) -> str:
-    lines = [
-        f"- `{entry.repo_slug}`: [{_escape_link_text(entry.merge_request.title)}]({entry.merge_request.web_url})"
-        for entry in related
-    ]
+    """The block listing ``related`` as the platform's own cross-references, which it links and titles only for a
+    reader who can see the referenced repository: a title written out here would reach every reader of this one."""
+    lines = [f"- {_reference(entry)}" for entry in related]
     return "\n".join([RELATED_START, "**Related merge requests** (same DAIV session):", "", *lines, RELATED_END])
 
 

@@ -133,9 +133,22 @@ def _question_close_call(messages: Sequence[Any], index: int) -> ToolCall | None
     return delivered_question_call(messages[index - 2 : index])
 
 
+def _is_prose_reply(message: Any) -> bool:
+    return isinstance(message, AIMessage) and not message.tool_calls
+
+
+def closing_replies_start(messages: Sequence[Any]) -> int:
+    """The index of the first of the assistant replies without tool calls that end ``messages``: the agent's own
+    close, which notices a middleware mints after the agent loop (a publish failure, say) can follow."""
+    index = len(messages) - 1
+    while index > 0 and _is_prose_reply(messages[index]) and _is_prose_reply(messages[index - 1]):
+        index -= 1
+    return index
+
+
 def pending_question(messages: Sequence[AnyMessage]) -> dict[str, Any] | None:
     """The validated payload of the question a thread's last turn ended on, or ``None``."""
-    call = _question_close_call(messages, len(messages) - 1) if messages else None
+    call = _question_close_call(messages, closing_replies_start(messages)) if messages else None
     if call is None:
         return None
     return AskUserQuestionInput.model_validate(call["args"]).model_dump()

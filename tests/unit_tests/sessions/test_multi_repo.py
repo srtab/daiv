@@ -14,6 +14,7 @@ from sessions.multi_repo import (
     ais_multi_repo,
     aload_extra_repos,
     apersist_extra_repo_state,
+    asubmit_jobs,
     asubmit_shared_session_run,
 )
 from sessions.services import RepoTarget
@@ -168,6 +169,35 @@ async def test_shared_flag_on_single_repo_thread_is_rejected(member_user, enqueu
 
     with pytest.raises(SharedSessionError, match="is not a multi-repository session"):
         await _submit(member_user, [RepoTarget("g/app")], thread_id=thread_id)
+
+
+async def test_a_shared_flag_on_a_single_repo_thread_continues_it_as_one(member_user, enqueue):
+    """A one-repository ``shared_session`` stores no extra repositories; its continuation is an ordinary one."""
+    thread_id = str(uuid.uuid4())
+    await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.API_JOB, repo_id="g/app", user=member_user)
+    admission = MagicMock(targets=[RepoTarget("g/app")], agent_model="", agent_thinking_level="")
+
+    with (
+        patch("sessions.multi_repo.aadmit", AsyncMock(return_value=admission)),
+        patch("sessions.multi_repo.asubmit_batch_runs", AsyncMock()) as batch,
+        patch("sessions.multi_repo.asubmit_shared_session_run", AsyncMock()) as shared,
+    ):
+        await asubmit_jobs(
+            user=member_user,
+            repos=[RepoTarget("g/app")],
+            shared=True,
+            thread_id=thread_id,
+            prompt="go on",
+            agent_model=None,
+            agent_thinking_level=None,
+            environment=None,
+            muted=None,
+            trigger_type=SessionOrigin.API_JOB,
+            references=None,
+        )
+
+    batch.assert_awaited_once()
+    shared.assert_not_awaited()
 
 
 async def test_unknown_thread_is_rejected(member_user, enqueue):

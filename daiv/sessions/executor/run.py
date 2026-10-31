@@ -7,7 +7,7 @@ import uuid
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from django.urls import reverse
 
@@ -66,7 +66,7 @@ class AgentRun:
     ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``workspace`` is where the
     agent works; draft recovery publishes through it, and the executor releases its sandbox session. ``settings`` is
     what the run resolved once, and ``session_links`` what builds the links they allow; draft recovery publishes with
-    both. ``requested_ref`` is the ref the clone asked for, which ``ctx.repo.ref`` differs from after a fallback."""
+    both."""
 
     ctx: RuntimeCtx
     agent: CompiledStateGraph[Any, RuntimeCtx]
@@ -77,7 +77,6 @@ class AgentRun:
     settings: AgentSettings
     session_links: SessionLinksResolver | None
     extra_repos: tuple[SessionRepository, ...] = ()
-    requested_ref: str = ""
 
 
 async def execute_run(
@@ -265,7 +264,7 @@ class _Recovery:
 
 
 async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery, run_relay: RunRelay | None) -> RunOutcome:
-    from automation.agent.utils import extract_text_content
+    from automation.agent.utils import closing_reply_text
 
     async with _agent_run(spec, hooks) as run:
         try:
@@ -276,7 +275,7 @@ async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery, run_relay
         messages = result.get("messages")
         if not messages:
             raise ValueError(f"Agent returned no messages for repo_id={spec.repo_id}")
-        return await _after_run(spec, run, response_text=extract_text_content(messages[-1].content))
+        return await _after_run(spec, run, response_text=closing_reply_text(messages))
 
 
 async def _ainvoke(run: AgentRun, spec: RunSpec, run_relay: RunRelay | None) -> dict[str, Any]:
@@ -421,7 +420,6 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     settings=settings,
                     session_links=session_links,
                     extra_repos=tuple(extra_rows),
-                    requested_ref=main_ref or cast("str", ctx.config.default_branch),
                 )
                 try:
                     yield run
@@ -545,18 +543,18 @@ async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
 
 
 async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None = None) -> RunOutcome:
-    """``response_text`` is ``None`` for a stream, which has no invoke result: the checkpoint's last message
+    """``response_text`` is ``None`` for a stream, which has no invoke result: the checkpoint's closing reply
     stands in."""
     from automation.agent.questions import pending_question
     from automation.agent.usage_tracking import build_usage_summary
-    from automation.agent.utils import extract_text_content
+    from automation.agent.utils import closing_reply_text
     from sessions.executor.result import build_agent_result
 
     snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}
     messages = values.get("messages") or []
     if response_text is None:
-        response_text = extract_text_content(messages[-1].content) if messages else ""
+        response_text = closing_reply_text(messages)
     merge_request = values.get("merge_request")
     published = bool(values.get("published"))
     sibling_publishes = checkpointed_repo_publishes(values)

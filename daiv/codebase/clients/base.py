@@ -561,14 +561,19 @@ class RepoClient(abc.ABC):
         return GitHubClient(integration=get_github_integration(), installation_id=settings.GITHUB_INSTALLATION_ID)
 
 
-async def aget_open_merge_request(client: RepoClient, repo_id: str, source_branch: str) -> MergeRequest | None:
+async def aget_open_merge_request(
+    client: RepoClient, repo_id: str, source_branch: str, *, strict: bool = False
+) -> MergeRequest | None:
     """The open merge request from ``source_branch``, or ``None`` when there is none or the platform failed.
 
     Best-effort: a platform error (:data:`PLATFORM_ERRORS`) is logged and reads as no merge request, so the caller
-    carries on and the publisher opens one if it must. Anything else is a bug and propagates.
+    carries on and the publisher opens one if it must. With ``strict`` it raises instead, for a caller that would
+    otherwise open a second merge request beside the one it couldn't see. Anything else is a bug and propagates.
     """
     try:
         return await sync_to_async(client.get_merge_request_by_branches)(repo_id, source_branch)
     except PLATFORM_ERRORS:
+        if strict:
+            raise
         logger.exception("Failed to look up the open merge request for %s on %s", repo_id, source_branch)
         return None

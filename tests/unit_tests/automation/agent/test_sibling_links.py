@@ -8,10 +8,18 @@ from automation.agent.sibling_links import (
     render_related_block,
     with_related_block,
 )
-from codebase.base import MergeRequest, User
+from codebase.base import GitPlatform, MergeRequest, User
 
 
-def rel(slug: str, *, title: str = "T", url: str = "u", description: str = "body", iid: int = 1) -> RelatedMergeRequest:
+def rel(
+    slug: str,
+    *,
+    title: str = "T",
+    url: str = "u",
+    description: str = "body",
+    iid: int = 1,
+    platform: GitPlatform = GitPlatform.GITLAB,
+) -> RelatedMergeRequest:
     merge_request = MergeRequest(
         repo_id=slug,
         merge_request_id=iid,
@@ -23,22 +31,28 @@ def rel(slug: str, *, title: str = "T", url: str = "u", description: str = "body
         draft=False,
         web_url=url,
     )
-    client = Mock()
+    client = Mock(git_platform=platform)
     client.get_merge_request.return_value = merge_request
     return RelatedMergeRequest(client=client, repo_slug=slug, merge_request=merge_request)
 
 
 def test_render_related_block():
-    assert render_related_block([rel("g/mod", title="Fix X", url="https://gl/g/mod/-/merge_requests/3")]) == (
-        f"{RELATED_START}\n**Related merge requests** (same DAIV session):\n\n"
-        f"- `g/mod`: [Fix X](https://gl/g/mod/-/merge_requests/3)\n{RELATED_END}"
+    assert render_related_block([rel("g/mod", iid=3)]) == (
+        f"{RELATED_START}\n**Related merge requests** (same DAIV session):\n\n- g/mod!3\n{RELATED_END}"
     )
 
 
-def test_render_related_block_escapes_link_text():
-    block = render_related_block([rel("g/mod", title="Fix [lib] parser\\", url="https://gl/m/3")])
+def test_render_related_block_uses_github_references_on_github():
+    assert "- octo/mod#3" in render_related_block([rel("octo/mod", iid=3, platform=GitPlatform.GITHUB)])
 
-    assert "- `g/mod`: [Fix \\[lib\\] parser\\\\](https://gl/m/3)" in block
+
+def test_render_related_block_writes_no_title_or_url():
+    """A platform reference is resolved per reader; a title or URL written out reaches readers of this repository
+    who can't see the other one."""
+    block = render_related_block([rel("g/secret", title="Rotate prod KMS keys", url="https://gl/g/secret/-/mr/3")])
+
+    assert "Rotate prod KMS keys" not in block
+    assert "https://gl/g/secret" not in block
 
 
 def test_with_related_block_replaces_existing_block_once():

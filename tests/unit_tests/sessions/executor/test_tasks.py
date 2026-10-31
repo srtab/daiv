@@ -227,17 +227,27 @@ async def test_run_job_task_reads_session_mcp_overrides():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("extra_repos", "expected"), [(["g/mod"], True), ([], False)], ids=["multi-repo", "single-repo"]
+    ("extra_repos", "earlier_run", "expected"),
+    [(["g/mod"], True, True), (["g/mod"], False, False), ([], True, False)],
+    ids=["multi-repo-continuation", "multi-repo-first-turn", "single-repo"],
 )
-async def test_job_falls_back_on_a_missing_ref_only_in_a_multi_repo_session(extra_repos, expected):
-    from sessions.models import SessionRepository
+async def test_job_falls_back_on_a_missing_ref_only_when_continuing_a_multi_repo_session(
+    extra_repos, earlier_run, expected
+):
+    """A continuation's stored branch may be gone after a merge; the first turn's refs are the caller's, and a typo
+    there must fail the job as it does for a single repository."""
+    from sessions.models import Run, RunStatus, SessionRepository
 
     thread_id = str(uuid.uuid4())
     await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="g/r")
     for position, repo_id in enumerate(extra_repos, start=1):
         await SessionRepository.objects.acreate(session_id=thread_id, position=position, repo_id=repo_id)
+    run_fields = {"session_id": thread_id, "trigger_type": SessionOrigin.API_JOB, "repo_id": "g/r"}
+    if earlier_run:
+        await Run.objects.acreate(**run_fields, status=RunStatus.SUCCESSFUL)
+    run = await Run.objects.acreate(**run_fields, status=RunStatus.RUNNING)
 
-    spec = (await _execute_run_call(thread_id))["spec"]
+    spec = (await _execute_run_call(thread_id, run_id=str(run.id)))["spec"]
 
     assert spec.fallback_ref_on_missing is expected
 

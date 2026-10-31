@@ -84,6 +84,20 @@ def test_retry_for_needs_a_viewer_who_owns_the_session_and_can_run_on_it(member_
 
 
 @pytest.mark.django_db
+def test_retry_for_needs_run_access_on_every_repository_of_a_multi_repo_session(member_user):
+    from sessions.models import SessionRepository
+
+    session = _session(user=member_user)
+    SessionRepository.objects.create(session=session, position=1, repo_id="group/module")
+    runs = [_run(session, status=RunStatus.FAILED, prompt="fix it")]
+
+    with patch("sessions.header.can_run", side_effect=lambda _user, repo_id: repo_id == "group/project"):
+        retry = retry_for(session, runs, [], member_user, can_act=True)
+
+    assert retry == ""
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(("status", "can_act"), [(RunStatus.SUCCESSFUL, None), (RunStatus.FAILED, True)])
 def test_retry_for_asks_for_run_access_only_when_it_has_to(member_user, status, can_act):
     session = _session(user=member_user)

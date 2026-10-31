@@ -39,13 +39,16 @@ def retry_for(
 ) -> str:
     """SYNC ONLY: ``retry_message`` for a ``user`` the chat endpoint lets post to ``session``, else empty.
 
-    ``can_act`` is ``can_run`` on the session's repository, for a caller that already has it.
+    ``can_act`` is ``can_run`` on the session's main repository, for a caller that already has it; the chat endpoint
+    also needs it on every extra repository of a multi-repository session.
     """
     if not (message := retry_message(turns, runs)):
         return ""
     if can_act is None:
         can_act = can_run(user, session.repo_id)
     if not can_act or not Session.objects.by_owner(user).filter(pk=session.pk).exists():
+        return ""
+    if not all(can_run(user, repo_id) for repo_id in session.repo_ids()[1:]):
         return ""
     return message
 

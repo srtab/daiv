@@ -226,7 +226,7 @@ By default, several entries in `repos` fan out into independent jobs, one sessio
 
 ### Merge requests
 
-At the end of each turn every repository that changed gets its own commit, branch and merge request; unchanged repositories get nothing. One repository failing to publish does not stop the others. Each merge request's description links to the session's other merge requests. External references (such as a support ticket) go into every merge request; GitLab or GitHub issue references go only into the main repository's.
+At the end of each turn every repository that changed gets its own commit, branch and merge request; unchanged repositories get nothing. One repository failing to publish does not stop the others. Each merge request's description lists the session's other merge requests as platform references (`group/project!12`, `owner/repo#12`), which the platform links and titles only for readers who can see that repository. External references (such as a support ticket) go into every merge request, but only the main repository's closes them: the others merely relate to them. GitLab or GitHub issue references go only into the main repository's.
 
 The job status adds two lists:
 
@@ -239,7 +239,7 @@ The job status adds two lists:
 
 ### Continuing a multi-repository session
 
-Pass the session's `thread_id`. `shared_session` is optional; send the main repository alone, or the identical list in the same order, and no `ref`s. Anything else returns `400`. Each repository continues on its stored working branch; if that branch is gone (its merge request was merged), the repository falls back to its default branch and opens a new merge request the next time it changes.
+Pass the session's `thread_id`. `shared_session` is optional and ignored: the session decides whether a continuation is shared, so a single-repository session continues as one even with `shared_session: true`. Send the main repository alone, or the identical list in the same order, and no `ref`s. Anything else returns `400`. Each repository continues on its stored working branch; if that branch is gone (its merge request was merged), the repository falls back to its default branch and opens a new merge request the next time it changes.
 
 ### Visibility and CI
 

@@ -458,11 +458,25 @@ async def test_extra_repo_missing_branch_falls_back_to_default():
             "g/app",
             scope=RepoScope.GLOBAL,
             sandbox_spec=sandbox_spec(base_image=None),
+            fallback_ref_on_missing=True,
             extra_repos=[ExtraRepo("g/mod", "gone")],
         ) as ctx:
             assert ctx.extra_repos[0].ref == "main"
 
     assert loaded == [("g/app", "main"), ("g/mod", "gone"), ("g/mod", "main")]
+
+
+async def test_extra_repo_missing_branch_raises_without_fallback():
+    repo_client, _ = _multi_repo_client(gone={("g/mod", "gone")})
+
+    with _context_deps(repo_client), _per_repo_config(), pytest.raises(CloneRefNotFoundError):
+        async with set_runtime_ctx(
+            "g/app",
+            scope=RepoScope.GLOBAL,
+            sandbox_spec=sandbox_spec(base_image=None),
+            extra_repos=[ExtraRepo("g/mod", "gone")],
+        ):
+            pass
 
 
 async def test_main_repo_missing_branch_still_raises_with_extra_repos():

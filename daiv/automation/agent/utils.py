@@ -13,6 +13,7 @@ from skills.constants import FRONTMATTER_RE
 
 from .constants import REPO_PATH
 from .events import ASSISTANT_MESSAGE_EVENT, assistant_message_payload
+from .questions import closing_replies_start
 
 logger = logging.getLogger("daiv.agent")
 
@@ -55,6 +56,12 @@ def extract_text_content(content: str | list) -> str:
 
     # Fallback for unexpected types
     return str(content)
+
+
+def closing_reply_text(messages: Sequence[BaseMessage]) -> str:
+    """The text the last turn closes on: the agent's closing reply and any notice minted after it, in order."""
+    texts = (extract_text_content(m.content) for m in messages[closing_replies_start(messages) :])
+    return "\n\n".join(text for text in texts if text)
 
 
 FINAL_ASSISTANT_TEXT_MAX_CHARS = 6000

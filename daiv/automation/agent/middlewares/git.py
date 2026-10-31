@@ -164,6 +164,11 @@ class GitState(AgentState):
     """
 
 
+def _turn_publish_reset() -> dict[str, Any]:
+    """The turn's publish results before anything published; ``abefore_agent`` starts every agent-loop turn from it."""
+    return {"code_changes": False, "published": False, "repo_publishes": [], "main_publish_error": None}
+
+
 def _sibling_failure_notice(ctx: RuntimeCtx, repo_publishes: list[RepoPublish]) -> str | None:
     """The turn-end notice naming each extra repository whose publish failed; ``None`` when none did."""
     failed = [
@@ -275,11 +280,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
         update: dict[str, Any] = {
             "merge_request": merge_request,
-            "code_changes": False,
-            "published": False,
             "protected_branch_fallback_source": None,
-            "repo_publishes": [],
-            "main_publish_error": None,
+            **_turn_publish_reset(),
         }
         if pre_run_dirty_files:
             update["pre_run_dirty_files"] = pre_run_dirty_files
@@ -454,14 +456,15 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         the command reads the repository, the run executor acquires no sandbox session for it either: its
         workspace is then not ready, and probing git through it would raise (``SandboxFileBackend is not
         bound to a sandbox session``), so this no-ops. A disk workspace is always ready and correctly
-        reports a clean tree.
+        reports a clean tree. The short-circuit also skipped ``abefore_agent``, so this clears the turn's publish
+        results itself: the executor would otherwise report, persist and re-arm the previous turn's.
         """
         if not self._workspace.is_ready:
             logger.debug(
                 "Workspace not ready at turn end (run short-circuited before the agent loop); "
                 "skipping patch capture and publish"
             )
-            return None
+            return _turn_publish_reset()
 
         update: dict[str, Any] = {}
         if self.capture_patch:
@@ -495,16 +498,21 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 ctx, self._workspace, settings=self._settings, session_links=self._session_links, skip_ci=self.skip_ci
             )
             update["repo_publishes"] = [publish.to_state() for publish in repo_publishes]
+            update["main_publish_error"] = None
 
         publisher = GitChangePublisher(ctx, self._workspace, settings=self._settings, session_links=self._session_links)
         outcome: PublishOutcome | None = None
         notice: str | None = None
         try:
             outcome = await publisher.publish(
-                merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci, agent_summary=agent_summary
+                merge_request=self._publish_target(state, runtime),
+                skip_ci=self.skip_ci,
+                agent_summary=None if multi_repo else agent_summary,
             )
         except UnresolvedMergeConflictsError as exc:
             logger.warning("Not publishing: %s", exc)
+            if multi_repo:
+                update["main_publish_error"] = str(exc)
             in_main, there = (f" in the main repository `{ctx.repository.slug}`", " there") if multi_repo else ("", "")
             notice = (
                 f"I didn't publish the merge{in_main}: {', '.join(f'`{path}`' for path in exc.paths)} still "

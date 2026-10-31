@@ -14,6 +14,7 @@ import io
 import logging
 import tarfile
 from enum import StrEnum
+from itertools import zip_longest
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
 
     from sandbox_envs.spec import SandboxSpec
 
-    from automation.agent.context import RuntimeCtx
+    from automation.agent.context import CredentialSource, RuntimeCtx
     from codebase.clients.base import GitEgressCredential
     from core.sandbox.client import DAIVSandboxClient
     from core.sandbox.schemas import EgressConfigRequest, EgressSecret
@@ -93,11 +94,7 @@ class SandboxSession:
     """
 
     def __init__(
-        self,
-        client: DAIVSandboxClient,
-        spec: SandboxSpec,
-        *,
-        credential_source: Callable[[], Awaitable[list[GitEgressCredential | None]]] | None = None,
+        self, client: DAIVSandboxClient, spec: SandboxSpec, *, credential_source: CredentialSource | None = None
     ) -> None:
         if not spec.enabled:
             raise ValueError("A sandbox session needs a spec with a base image")
@@ -106,6 +103,7 @@ class SandboxSession:
         self._credential_source = credential_source
         self._session_id: str | None = None
         self._egress: EgressConfigRequest | None = None
+        self._credentials: list[GitEgressCredential | None] = []
         self._acquisition = SandboxAcquisition.NOT_ACQUIRED
         self._checkpointed = False
         self._skills_seed_errors: list[str] = []
@@ -183,8 +181,9 @@ class SandboxSession:
 
         Nothing is minted when the container carries no platform token (no egress proxy, or a token-less start), and
         nothing is pushed when the re-mint yields no token or the same ones: GitLab's clone tokens are day-cached, so in
-        practice only GitHub's per-call installation tokens rotate. Each skip is debug-logged. Raises on a failed mint
-        or push.
+        practice only GitHub's per-call installation tokens rotate. Each skip is debug-logged. A repository whose
+        re-mint fails or yields no token keeps the token it holds, so one repository can't hold back the others'
+        refresh. Raises on a failed push.
         """
         session_id = self._session_id
         if session_id is None:
@@ -196,7 +195,12 @@ class SandboxSession:
                 "Not refreshing platform egress for sandbox session %s: it carries no platform token", session_id
             )
             return False
-        egress = with_platform_credentials(current, await self._credential_source())
+        minted = await self._credential_source(keep_going=True)
+        credentials = [
+            new if new is not None and new.value is not None else held
+            for new, held in zip_longest(minted, self._credentials)
+        ]
+        egress = with_platform_credentials(current, credentials)
         fresh = _platform_secrets(egress)
         if not fresh:
             logger.debug(
@@ -210,7 +214,7 @@ class SandboxSession:
             )
             return False
         await self._client.update_egress(session_id, egress)
-        self._egress = egress
+        self._egress, self._credentials = egress, credentials
         return True
 
     async def release(self, *, resumable: bool) -> None:
@@ -265,6 +269,7 @@ class SandboxSession:
         opening it would force the egress proxy onto hermetic runs.
         """
         credentials = await self._credential_source() if self._credential_source is not None else []
+        self._credentials = credentials
         if not any(credentials) or (
             self._spec.egress is None and all(c is None or c.value is None for c in credentials)
         ):

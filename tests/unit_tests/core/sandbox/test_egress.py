@@ -100,10 +100,25 @@ def test_main_credential_is_host_wide_and_siblings_are_path_scoped():
     cfg = with_platform_credentials(None, [MAIN, MOD])
 
     assert [(r.host, r.path_prefix, r.inject) for r in cfg.policy.rules] == [
+        ("gitlab.com", MAIN.path, PLATFORM_EGRESS_SECRET_NAME),
         ("gitlab.com", "/g/mod.git", f"{PLATFORM_EGRESS_SECRET_NAME}1"),
         ("gitlab.com", None, PLATFORM_EGRESS_SECRET_NAME),
     ]
     assert cfg.secrets[f"{PLATFORM_EGRESS_SECRET_NAME}1"].value.get_secret_value() == "S"
+
+
+def test_a_sandbox_ignoring_path_prefix_reads_the_main_token_first():
+    cfg = with_platform_credentials(None, [MAIN, MOD])
+
+    assert cfg.policy.rules[0].inject == PLATFORM_EGRESS_SECRET_NAME
+
+
+def test_a_sibling_without_a_path_adds_no_rule():
+    pathless = PlatformCredential(host="gitlab.com", header="Authorization", value=MOD.value, path="")
+
+    assert [(r.path_prefix, r.inject) for r in with_platform_credentials(None, [MAIN, pathless]).policy.rules] == [
+        (None, PLATFORM_EGRESS_SECRET_NAME)
+    ]
 
 
 def test_reapplying_replaces_every_platform_rule_and_secret():
@@ -120,7 +135,7 @@ def test_environment_rules_are_kept_after_platform_rules():
 
     result = with_platform_credentials(env, [MAIN, MOD])
 
-    assert [r.host for r in result.policy.rules] == ["gitlab.com", "gitlab.com", "pypi.org"]
+    assert [r.host for r in result.policy.rules] == ["gitlab.com", "gitlab.com", "gitlab.com", "pypi.org"]
 
 
 def test_tokenless_sibling_adds_no_rule():

@@ -700,8 +700,9 @@ async def _apublish_extra_repo(
 ) -> RepoPublish:
     slug = handle.repository.slug
     branch = "" if handle.head_detached else handle.current_ref
+    target: MergeRequest | None = None
     try:
-        target = await aopen_branch_merge_request(handle)
+        target = await aopen_branch_merge_request(handle, strict=True)
         publisher = GitChangePublisher(
             _extra_repo_ctx(ctx, handle), workspace.for_repo(handle), settings=settings, session_links=session_links
         )
@@ -718,7 +719,7 @@ async def _apublish_extra_repo(
         return RepoPublish(
             repo_id=handle.repo_id, merge_request=outcome.merge_request, published=outcome.published, current_ref=branch
         )
-    return RepoPublish(repo_id=handle.repo_id, merge_request=None, published=False, current_ref=branch, error=error)
+    return RepoPublish(repo_id=handle.repo_id, merge_request=target, published=False, current_ref=branch, error=error)
 
 
 def publish_failure(slug: str, exc: Exception) -> str:
@@ -726,19 +727,25 @@ def publish_failure(slug: str, exc: Exception) -> str:
 
 
 def _extra_repo_ctx(ctx: RuntimeCtx, handle: RepoHandle) -> RuntimeCtx:
-    """``ctx`` seen through ``handle`` alone, minus the platform-issue references: in ``handle``'s merge request their
-    ``Closes`` line would name an issue of ``handle``'s repository, not the one meant."""
-    references = tuple(ref for ref in ctx.references if ref.provider not in PLATFORM_ISSUE_PROVIDERS)
+    """``ctx`` seen through ``handle`` alone, minus the platform-issue references (in ``handle``'s merge request their
+    ``Closes`` line would name an issue of ``handle``'s repository, not the one meant) and with every other reference
+    only related: a ``Fixes`` line in each repository would close the work item when the first of them merges."""
+    references = tuple(
+        ref.model_copy(update={"relation": "relates"})
+        for ref in ctx.references
+        if ref.provider not in PLATFORM_ISSUE_PROVIDERS
+    )
     return replace(ctx, repos=(handle,), references=references)
 
 
-async def aopen_branch_merge_request(handle: RepoHandle) -> MergeRequest | None:
+async def aopen_branch_merge_request(handle: RepoHandle, *, strict: bool = False) -> MergeRequest | None:
     """The open merge request from the branch ``handle``'s clone is on; ``None`` on a detached HEAD (a commit-pinned
-    run, such as a SWE-bench eval on a raw SHA) or the default branch, which no run's merge request starts from."""
+    run, such as a SWE-bench eval on a raw SHA) or the default branch, which no run's merge request starts from.
+    ``strict`` is :func:`~codebase.clients.base.aget_open_merge_request`'s."""
     slug = handle.repository.slug
     if handle.head_detached:
         logger.debug("Skipping MR lookup for %s: detached HEAD (commit-pinned run)", slug)
         return None
     if not handle.current_ref or handle.current_ref == handle.config.default_branch:
         return None
-    return await aget_open_merge_request(handle.client, slug, handle.current_ref)
+    return await aget_open_merge_request(handle.client, slug, handle.current_ref, strict=strict)

@@ -9,7 +9,7 @@ from asgiref.sync import sync_to_async
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION
 from sessions.admission import AdmissionError, aadmit, aassert_repo_access
-from sessions.models import RunStatus, Session, SessionRepository
+from sessions.models import Run, RunStatus, Session, SessionRepository
 from sessions.services import (
     BatchSubmitResult,
     RepoTarget,
@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from accounts.models import User
     from automation.agent.git_state import RepoPublish
     from automation.agent.references import RefIn
-    from sessions.models import Run
 
 MAX_REPOS_PER_SESSION = 5
 THREAD_NOT_FOUND = "thread_id not found"
@@ -39,6 +38,14 @@ class SharedSessionError(AdmissionError):
 
 async def ais_multi_repo(thread_id: str) -> bool:
     return await SessionRepository.objects.filter(session_id=thread_id).aexists()
+
+
+async def acontinues_multi_repo_session(thread_id: str, run_id: str | None) -> bool:
+    """Whether the run ``run_id`` continues a multi-repository session, whose stored branches a merge may have deleted
+    since. The session's first run still carries the refs its caller typed, and those must exist."""
+    if not await ais_multi_repo(thread_id):
+        return False
+    return await Run.objects.filter(session_id=thread_id).exclude(pk=run_id).aexists()
 
 
 async def aload_extra_repos(thread_id: str) -> list[SessionRepository]:
@@ -135,14 +142,16 @@ async def asubmit_jobs(
     """Admit and submit a jobs request: one run on a shared session when ``shared`` is set or ``thread_id`` continues
     a multi-repository session, else an independent run per repository.
 
-    ``thread_id`` must name a session ``user`` owns and has not archived. Every refusal is an
+    ``thread_id`` must name a session ``user`` owns and has not archived; the session then decides whether the
+    continuation is shared, whatever ``shared`` says, so a one-repository shared session continues like any other
+    single-repository one. Every refusal is an
     :class:`~sessions.admission.AdmissionError`. The result holds one outcome per entry of ``repos``, or a shared
     session's single one, for its main repository.
     """
     if thread_id is not None:
         owned = Session.objects.by_owner(user).filter(thread_id=thread_id)
         found = await owned.aexists()
-        shared = shared or (found and await ais_multi_repo(thread_id))
+        shared = found and await ais_multi_repo(thread_id)
         if not shared and len(repos) != 1:
             raise AdmissionError("thread_id continuation requires exactly one repo")
         if not found:

@@ -44,8 +44,10 @@ def with_platform_credentials(
     The first credential is the main repository's: a host-wide rule injecting ``PLATFORM_EGRESS_SECRET_NAME``.
     Each later one is limited to its ``path`` and injects ``PLATFORM_EGRESS_SECRET_NAME<i>``, placed before
     the host-wide rule so the sidecar's first match gives each repository its own token. A later credential
-    without a token adds no rule: the main rule already makes the host reachable. A ``None`` keeps its position and
-    adds nothing.
+    without a token or a path adds no rule: the main rule already makes the host reachable. A ``None`` keeps its
+    position and adds nothing. When there are scoped rules, the main repository's path gets one of its own ahead of
+    them: a sandbox that ignores ``path_prefix`` then reads every rule as host-wide and gives the main repository its
+    own token, failing only the others' pushes, instead of handing the main repository a sibling's token.
 
     Idempotent: platform rules and secrets already present are replaced, not duplicated. With no ``egress``
     the base is a deny-all policy; an existing policy keeps its ``default``, ``intercept`` and non-platform
@@ -60,6 +62,7 @@ def with_platform_credentials(
 
     scoped: list[EgressRule] = []
     main_rule: EgressRule | None = None
+    main_scoped: EgressRule | None = None
     for index, credential in enumerate(credentials):
         if credential is None:
             continue
@@ -69,12 +72,16 @@ def with_platform_credentials(
             secrets[inject] = EgressSecret(header=credential.header, value=credential.value)
         if index == 0:
             main_rule = EgressRule(host=credential.host, methods=["*"], inject=inject)
-        elif inject is not None:
-            scoped.append(
-                EgressRule(host=credential.host, methods=["*"], inject=inject, path_prefix=credential.path or None)
-            )
+            if inject is not None and credential.path:
+                main_scoped = EgressRule(
+                    host=credential.host, methods=["*"], inject=inject, path_prefix=credential.path
+                )
+        elif inject is not None and credential.path:
+            scoped.append(EgressRule(host=credential.host, methods=["*"], inject=inject, path_prefix=credential.path))
 
     hosts = {credential.host for credential in credentials if credential is not None}
+    if scoped and main_scoped is not None:
+        scoped.append(main_scoped)
     platform_rules = [*reversed(scoped), *([main_rule] if main_rule is not None else [])]
     other_rules = [rule for rule in base_policy.rules if not _is_platform_rule(rule, hosts)]
     policy = base_policy.model_copy(update={"rules": [*platform_rules, *other_rules]})

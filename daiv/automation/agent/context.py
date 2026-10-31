@@ -1,11 +1,11 @@
 import logging
 import sys
-from collections.abc import AsyncGenerator, Awaitable, Callable, Generator  # noqa: TC003
+from collections.abc import AsyncGenerator, Awaitable, Generator  # noqa: TC003
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from time import monotonic
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from asgiref.sync import sync_to_async
 from git import Repo  # noqa: TC002
@@ -26,6 +26,14 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.agent")
+
+
+@runtime_checkable
+class CredentialSource(Protocol):
+    """Mints every repository's git egress credential, main first and one slot per repository (``None`` where it has
+    none). A failed mint raises, unless ``keep_going``: then it is logged and its slot is ``None``."""
+
+    def __call__(self, *, keep_going: bool = False) -> Awaitable[list[GitEgressCredential | None]]: ...
 
 
 @dataclass(frozen=True)
@@ -79,9 +87,7 @@ class RuntimeCtx:
     egress."""
     sandbox_client: DAIVSandboxClient | None = field(default=None, compare=False, repr=False)
     """The run's sandbox transport: opened by :func:`set_runtime_ctx` for an enabled sandbox and closed with it."""
-    credential_source: Callable[[], Awaitable[list[GitEgressCredential | None]]] | None = field(
-        default=None, compare=False, repr=False
-    )
+    credential_source: CredentialSource | None = field(default=None, compare=False, repr=False)
     """Mints every repository's git egress credential, main first and one per repository (``None`` where it has none),
     for the run's sandbox session; ``None`` without a sandbox. Each call mints anew, so the session gets any token the
     clone's self-heal re-minted."""
@@ -193,14 +199,33 @@ def _clone_handle(
     )
 
 
-def _credential_source(
-    repo_client: RepoClient, repositories: Sequence[Repository]
-) -> Callable[[], Awaitable[list[GitEgressCredential | None]]]:
+def _clone_extra_handle(
+    clones: ExitStack, repo_client: RepoClient, extra: ExtraRepo, *, offline: bool, fallback: bool
+) -> RepoHandle:
+    """Resolve and clone one of the run's extra repositories, for as long as ``clones`` stays open."""
+    repository = repo_client.get_repository(extra.repo_id)
+    config = RepositoryConfig.get_config(
+        repo_id=extra.repo_id, repository=repository, offline=offline, repo_client=repo_client
+    )
+    ref = extra.ref or cast("str", config.default_branch)
+    return _clone_handle(clones, repo_client, extra.repo_id, repository, config, ref, fallback=fallback)
+
+
+def _credential_source(repo_client: RepoClient, repositories: Sequence[Repository]) -> CredentialSource:
     """Mint each repository's git egress credential, main first, on each call: a turn can outlive the tokens minted
     at its start. A repository without one keeps its ``None`` slot, since position tells the main credential apart."""
 
-    async def mint() -> list[GitEgressCredential | None]:
-        return [await sync_to_async(repo_client.get_git_egress_credential)(r) for r in repositories]
+    async def mint(*, keep_going: bool = False) -> list[GitEgressCredential | None]:
+        credentials: list[GitEgressCredential | None] = []
+        for repository in repositories:
+            try:
+                credentials.append(await sync_to_async(repo_client.get_git_egress_credential)(repository))
+            except Exception:
+                if not keep_going:
+                    raise
+                logger.exception("Could not mint the git egress credential of %s", repository.slug)
+                credentials.append(None)
+        return credentials
 
     return mint
 
@@ -237,8 +262,8 @@ async def set_runtime_ctx(
             the remote (a merged-and-deleted branch) retries on the repository default branch
             instead of raising. ``ctx.repo.ref`` then reflects the branch actually used.
         repo_client: The run's platform client (``ctx.repo.client``); the configured platform's when omitted.
-        extra_repos: Repositories cloned beside the main one, in order; each falls back to its default branch
-            when its ref is gone.
+        extra_repos: Repositories cloned beside the main one, in order, off the event loop; a missing ref falls
+            back to the default branch under the same ``fallback_ref_on_missing`` rule as the main one.
 
     Yields:
         RuntimeCtx: The runtime context
@@ -266,14 +291,9 @@ async def set_runtime_ctx(
                 _clone_handle(clones, repo_client, repo_id, repository, config, ref, fallback=fallback_ref_on_missing)
             ]
             for extra in extra_repos:
-                extra_repository = repo_client.get_repository(extra.repo_id)
-                extra_config = RepositoryConfig.get_config(
-                    repo_id=extra.repo_id, repository=extra_repository, offline=offline, repo_client=repo_client
-                )
-                extra_ref = extra.ref or cast("str", extra_config.default_branch)
                 handles.append(
-                    _clone_handle(
-                        clones, repo_client, extra.repo_id, extra_repository, extra_config, extra_ref, fallback=True
+                    await sync_to_async(_clone_extra_handle)(
+                        clones, repo_client, extra, offline=offline, fallback=fallback_ref_on_missing
                     )
                 )
             ctx = RuntimeCtx(

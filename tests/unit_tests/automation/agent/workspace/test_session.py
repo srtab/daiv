@@ -735,6 +735,7 @@ class TestMultiRepoCredentials:
 
         egress = client.sessions[session.session_id].request.egress
         assert [(rule.host, rule.inject, rule.path_prefix) for rule in egress.policy.rules] == [
+            ("gitlab.com", PLATFORM_EGRESS_SECRET_NAME, "/g/app.git"),
             ("gitlab.com", f"{PLATFORM_EGRESS_SECRET_NAME}1", "/g/mod.git"),
             ("gitlab.com", PLATFORM_EGRESS_SECRET_NAME, None),
             ("api.example.com", None, None),
@@ -757,6 +758,31 @@ class TestMultiRepoCredentials:
         assert await session.refresh_credential() is True
 
         assert len(client.calls_to("update_egress")) == 1
+
+    @pytest.mark.parametrize(
+        "sibling_remint",
+        [
+            pytest.param(None, id="mint-failed"),
+            pytest.param(
+                GitEgressCredential.for_token(host="gitlab.com", token=None, path="/g/mod.git"), id="no-token"
+            ),
+        ],
+    )
+    async def test_refresh_keeps_a_siblings_held_token_when_its_remint_yields_none(self, sibling_remint):
+        client = FakeSandboxClient.opened()
+        main = GitEgressCredential.for_token(host="gitlab.com", token="M", path="/g/app.git")  # noqa: S106
+        mod = GitEgressCredential.for_token(host="gitlab.com", token="S", path="/g/mod.git")  # noqa: S106
+        source = AsyncMock(return_value=[main, mod])
+        session = SandboxSession(client, sandbox_spec(), credential_source=source)
+        await session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+        rotated = GitEgressCredential.for_token(host="gitlab.com", token="M2", path="/g/app.git")  # noqa: S106
+        source.return_value = [rotated, sibling_remint]
+
+        assert await session.refresh_credential() is True
+
+        source.assert_awaited_with(keep_going=True)
+        ((_, pushed),) = client.calls_to("update_egress")
+        assert pushed == with_platform_credentials(sandbox_spec().egress, [rotated, mod])
 
     async def test_refresh_skips_when_no_token_changed(self):
         client = FakeSandboxClient.opened()

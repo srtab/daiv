@@ -6,6 +6,7 @@ from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.utils import (
     FINAL_ASSISTANT_TEXT_MAX_CHARS,
     build_langsmith_config,
+    closing_reply_text,
     extract_text_content,
     final_assistant_text,
     repo_relative_text,
@@ -112,6 +113,27 @@ def test_extract_text_content_from_none():
     result = extract_text_content(content)
     assert result == "None"
     assert isinstance(result, str)
+
+
+class TestClosingReplyText:
+    def test_is_the_agents_closing_reply(self):
+        messages = [HumanMessage("fix the parser"), AIMessage("Fixed it.")]
+
+        assert closing_reply_text(messages) == "Fixed it."
+
+    def test_keeps_the_reply_when_a_notice_follows_it(self):
+        """A publish-failure notice minted after the agent loop must not stand in for the agent's answer."""
+        messages = [HumanMessage("fix it"), AIMessage("Fixed both."), AIMessage("I couldn't publish g/mod.")]
+
+        assert closing_reply_text(messages) == "Fixed both.\n\nI couldn't publish g/mod."
+
+    def test_stops_at_the_last_tool_call(self):
+        messages = [AIMessage("", tool_calls=[{"name": "bash", "args": {}, "id": "c1"}]), AIMessage("Done.")]
+
+        assert closing_reply_text(messages) == "Done."
+
+    def test_is_empty_without_messages(self):
+        assert closing_reply_text([]) == ""
 
 
 class TestFinalAssistantText:

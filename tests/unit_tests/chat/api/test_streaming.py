@@ -790,6 +790,34 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_events_tells_a_blank_ref_which_branch_it_ran_on():
+    """A page with no branch yet sends a blank ref; the frame is what moves its composer pill to the branch used."""
+
+    def _default_branch_ctx(*_args, **_kwargs):
+        ctx = MagicMock()
+        entered = MagicMock(sandbox=None, sandbox_client=None)
+        entered.repo.ref = "main"
+        ctx.__aenter__ = AsyncMock(return_value=entered)
+        ctx.__aexit__ = AsyncMock(return_value=None)
+        return ctx
+
+    with (
+        patch("automation.agent.context.set_runtime_ctx", _default_branch_ctx),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.start_chat_run", new=AsyncMock(return_value=SimpleNamespace(pk="run-pk"))),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.areset_session_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        streamer = ChatRunStreamer(repo_id="a/b", ref="", thread_id="t-stream", run_id="r-1", input_data=_run_input())
+        emitted = [ev async for ev in streamer.events()]
+
+    fallback_events = [e for e in emitted if e.type == EventType.CUSTOM and getattr(e, "name", None) == "ref_fallback"]
+    assert [e.value for e in fallback_events] == [{"requested": "", "using": "main"}]
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
     """A setting ``_run_spec`` drops or renames is swallowed silently: the turn runs on defaults (every footer
     vanishes without ``references``, the pinned model without ``agent_model``)."""

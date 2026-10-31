@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from git import GitCommandError
+from gitlab.exceptions import GitlabError
 from langchain_core.runnables import RunnableLambda
 from pydantic import SecretStr
 
@@ -812,7 +813,7 @@ async def _publish_on_a_live_session(
     publisher = _make_publisher()
     publisher.workspace = SandboxWorkspace(
         acquired_session(
-            client, session_id, egress=turn_start, credential_source=AsyncMock(side_effect=lambda: [remint()])
+            client, session_id, egress=turn_start, credential_source=AsyncMock(side_effect=lambda **_: [remint()])
         )
     )
 
@@ -1851,8 +1852,44 @@ class TestPublishExtraRepos:
 
         _, pub_cls, lookup, _ = await _publish_extras(_multi_repo_ctx(mod), open_mr=open_mr, skip_ci=True)
 
-        lookup.assert_awaited_once_with(mod.client, "g/mod", "fix-x")
+        lookup.assert_awaited_once_with(mod.client, "g/mod", "fix-x", strict=True)
         pub_cls.return_value.publish.assert_awaited_once_with(merge_request=open_mr, skip_ci=True, as_draft=False)
+
+    async def test_a_failed_lookup_records_an_error_instead_of_opening_a_second_mr(self):
+        mod = make_repo_handle("g/mod", current_ref="fix-x")
+        lookup_error = GitlabError("502 Bad Gateway")
+
+        with (
+            patch("automation.agent.publishers.aget_open_merge_request", AsyncMock(side_effect=lookup_error)),
+            patch("automation.agent.publishers.GitChangePublisher") as pub_cls,
+        ):
+            [publish] = await apublish_extra_repos(
+                _multi_repo_ctx(mod), Mock(), settings=agent_settings(), session_links=None
+            )
+
+        pub_cls.return_value.publish.assert_not_called()
+        assert publish.error == "Publishing to g/mod failed (GitlabError)"
+
+    async def test_a_failed_publish_keeps_the_repositorys_open_mr(self):
+        mod = make_repo_handle("g/mod", current_ref="fix-x")
+        open_mr = make_merge_request(repo_id="g/mod", source_branch="fix-x")
+
+        [publish], _, _, _ = await _publish_extras(
+            _multi_repo_ctx(mod), open_mr=open_mr, publish=RuntimeError("push rejected")
+        )
+
+        assert publish.merge_request == open_mr
+        assert publish.error == "Publishing to g/mod failed (RuntimeError)"
+
+    async def test_a_sibling_publish_only_relates_to_work_items_the_turn_closes(self):
+        sentry = ExternalRef(key="PROJ-1A", provider="sentry", relation="closes")
+        ctx = RuntimeCtx(
+            bot_username="daiv", repos=(make_repo_handle("g/app"), make_repo_handle("g/mod")), references=(sentry,)
+        )
+
+        _, pub_cls, _, _ = await _publish_extras(ctx)
+
+        assert [ref.relation for ref in pub_cls.call_args.args[0].references] == ["relates"]
 
     @pytest.mark.parametrize(
         "handle",

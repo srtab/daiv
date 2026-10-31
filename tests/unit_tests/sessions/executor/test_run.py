@@ -166,24 +166,6 @@ async def test_a_multi_repo_run_clones_main_on_the_sessions_current_branch():
     stack.reset.assert_awaited_once_with(thread_id=spec.thread_id, new_ref="main")
 
 
-@pytest.mark.parametrize(("session_ref", "requested"), [("daiv/fix-1", "daiv/fix-1"), ("", "main")])
-async def test_a_multi_repo_run_requests_the_sessions_branch(session_ref, requested):
-    seen = {}
-
-    async def _stream(run):
-        seen["requested_ref"] = run.requested_ref
-        yield "event"
-
-    with agent_stack(_agent()) as stack:
-        stack.load_extra_repos.return_value = [SimpleNamespace(repo_id="g/mod", ref="", sandbox_environment_id=None)]
-        stack.session_ref.return_value = session_ref
-        stack.ctx.config.default_branch = "main"
-        async for _ in stream_run(make_spec(ref="dev"), _stream, should_stop=AsyncMock(return_value=False)):
-            pass
-
-    assert seen["requested_ref"] == requested
-
-
 async def test_a_single_repo_run_clones_the_ref_it_was_given():
     with agent_stack(_agent()) as stack:
         await execute_run(make_spec(ref="feat/x"))
