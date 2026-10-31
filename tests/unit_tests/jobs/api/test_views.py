@@ -6,6 +6,7 @@ from django.utils import timezone
 import pytest
 from asgiref.sync import async_to_sync, sync_to_async
 from django_tasks_db.models import DBTaskResult
+from mcp_connectors.models import MCPServer
 from ninja.testing import TestAsyncClient
 from sessions.executor.tasks import run_job_task
 from sessions.models import EventKind, HiddenSession, InboxEvent, Run, RunStatus, Session, SessionOrigin
@@ -15,6 +16,7 @@ from core.models import Provider, ProviderType
 from core.site_settings import site_settings
 from daiv.api import api
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
+from tests.unit_tests.mcp_connectors.helpers import only_servers
 from tests.unit_tests.sessions.conftest import FakeRun, fake_acreate_run, make_artifact, make_task_result
 
 
@@ -267,6 +269,17 @@ async def test_submit_job_gives_a_repository_its_own_prompt(authenticated_client
     assert response.status_code == 202
     assert captured["prompt"] == "batch"
     assert captured["repos"] == [RepoTarget(repo_id="group/project", prompt="only here")]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_resolved_mcp_overrides(authenticated_client: TestAsyncClient):
+    await sync_to_async(only_servers)(("grafana", MCPServer.Status.ON_DEMAND))
+    captured: dict = {}
+    with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+        response = await authenticated_client.post("/jobs", json=_single_repo_body(mcp_overrides={"grafana": True}))
+
+    assert response.status_code == 202
+    assert captured["mcp_overrides"] == {"grafana": "on"}
 
 
 @pytest.mark.django_db(transaction=True)

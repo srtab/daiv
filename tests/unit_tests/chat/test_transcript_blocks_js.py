@@ -11,11 +11,13 @@ from tests.unit_tests.chat.transcript_fixtures import (
     bash,
     delegate,
     edit,
+    enriched_leg,
     grep,
     publish,
     question,
     read,
     refused_question,
+    started_leg,
     status_turn,
     text,
     thinking,
@@ -26,9 +28,7 @@ from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
 
-BUILD = (
-    "buildRunBlocks(vars.turns, {inFlight: vars.inFlight, latestArtifactsById: new Map(), mcpServers: vars.servers})"
-)
+BUILD = "buildRunBlocks(vars.turns, {inFlight: vars.inFlight, latestArtifactsById: new Map(), mcpRows: vars.servers})"
 
 KEYS = """((blocks) => {
   const keys = [];
@@ -41,8 +41,9 @@ KEYS = """((blocks) => {
 })"""
 
 
-def _blocks(turns, *, in_flight=False, servers=()):
-    return run_transcript(BUILD, {"turns": turns, "inFlight": in_flight, "servers": list(servers)})
+def _blocks(turns, *, in_flight=False, servers=(), labels=None):
+    rows = [{"name": name} for name in servers]
+    return run_transcript(BUILD, {"turns": turns, "inFlight": in_flight, "servers": rows}, labels=labels)
 
 
 def _group_line(segs, servers=()):
@@ -121,9 +122,9 @@ def test_pending_prompt_is_its_own_block_without_items():
 
 def test_a_publish_after_the_last_step_shows_only_in_the_cards_and_the_ending_splits_text_from_the_rest():
     b = _blocks([user("u1"), asst("a1", read("c1"), read("c2"), publish("p1"), delegate("d1"), text("done"))])[0]
-    assert _kinds(b["endingText"]) == ["text"]
-    assert [i["seg"]["id"] for i in b["endingTail"]] == ["d1"]
-    assert [len(card["items"]) for card in b["cards"]] == [1]
+    assert _kinds(b["endingText"]) == ["text"] and b["endingTail"] == []
+    assert _kinds(b["cards"]) == ["delegated", "artifacts"]
+    assert [len(card["items"]) for card in b["cards"][1:]] == [1]
 
 
 def test_a_folded_runs_closing_question_comes_after_its_text_and_its_cards():
@@ -149,7 +150,7 @@ def test_live_run_keeps_its_publishes_in_place_as_one_card():
 
 def test_checking_delegated_jobs_is_a_step_and_delegating_is_not():
     b = _blocks([user("u1"), asst("a1", read("c1"), check_jobs("j1"), delegate("d1"), read("c2"))], in_flight=True)[0]
-    assert _kinds(b["items"]) == ["group", "special", "step"]
+    assert _kinds(b["items"]) == ["group", "delegated", "step"]
     assert b["items"][0]["line"]["text"] == "Read 1 file, checked delegated jobs"
     assert b["stats"]["steps"] == 3
 
@@ -215,9 +216,10 @@ def test_a_second_build_reuses_rows_of_unchanged_segments():
       const toolRow = window.toolRow;
       window.toolRow = (seg, ctx) => { calls++; return toolRow(seg, ctx); };
       const counts = [];
-      const build = (servers) => {
+      const build = (names) => {
         const before = calls;
-        buildRunBlocks(vars.turns, {inFlight: false, latestArtifactsById: new Map(), mcpServers: servers});
+        const mcpRows = names.map((name) => ({ name }));
+        buildRunBlocks(vars.turns, {inFlight: false, latestArtifactsById: new Map(), mcpRows});
         counts.push(calls - before);
       };
       build(["sentry"]);
@@ -237,7 +239,7 @@ def test_a_second_build_reuses_artifacts_and_group_lines_of_unchanged_segments()
       const artifactItem = window.artifactItem;
       window.artifactItem = (seg, latest) => { calls++; return artifactItem(seg, latest); };
       const latest = new Map();
-      const build = () => buildRunBlocks(vars.turns, {inFlight: true, latestArtifactsById: latest, mcpServers: []});
+      const build = () => buildRunBlocks(vars.turns, {inFlight: true, latestArtifactsById: latest, mcpRows: []});
       const first = build();
       const second = build();
       return [calls, first[0].items[0].line === second[0].items[0].line];
@@ -250,7 +252,7 @@ def test_a_text_segment_found_not_blank_is_not_read_again():
     expr = """(() => {
       let reads = 0;
       vars.turns[1].segments.push({ type: "text", get content() { reads++; return "Found it."; } });
-      for (let i = 0; i < 3; i++) buildRunBlocks(vars.turns, {inFlight: true, mcpServers: []});
+      for (let i = 0; i < 3; i++) buildRunBlocks(vars.turns, {inFlight: true, mcpRows: []});
       return reads;
     })()"""
     assert run_transcript(expr, {"turns": [user("u1"), asst("a1", read("c1"))]}) == 1
@@ -341,7 +343,7 @@ def test_a_question_the_agent_could_not_ask_carries_a_failed_row():
 
 REBUILD = """(() => {
   const build = (previous) =>
-    buildRunBlocks(vars.turns, {latestArtifactsById: new Map(), mcpServers: [], previous});
+    buildRunBlocks(vars.turns, {latestArtifactsById: new Map(), mcpRows: [], previous});
   const first = build();
   const again = build(first);
   vars.turns[3].segments[0].content += " more";
@@ -357,6 +359,19 @@ REBUILD = """(() => {
     liveStep: landed[1].items[1] === first[1].items[1],
   };
 })()"""
+
+
+def test_a_changed_group_keeps_the_objects_of_its_unchanged_steps():
+    expr = """(() => {
+      const build = (previous) => buildRunBlocks(vars.turns, {inFlight: true, mcpRows: [], previous});
+      const first = build();
+      vars.turns[1].segments[1].args = '{"file_path": "/workspace/repo/b.py"}';
+      const next = build(first);
+      const [before, after] = [first[0].items[0], next[0].items[0]];
+      return [after === before, after.steps.map((step, i) => step === before.steps[i])];
+    })()"""
+    turns = [user("u1"), asst("a1", read("c1"), read("c2", result=None, status="running"), streaming=True)]
+    assert run_transcript(expr, {"turns": turns}) == [False, [True, False]]
 
 
 def test_a_rebuild_keeps_every_block_and_item_that_did_not_change():
@@ -385,7 +400,7 @@ def test_a_changed_mcp_server_icon_or_read_only_list_re_derives_its_rows():
       const build = (icon, readOnly) => {
         const before = calls;
         const mcpRows = [{ name: "sentry", icon, read_only_tools: readOnly }];
-        const opts = { inFlight: false, latestArtifactsById: new Map(), mcpServers: ["sentry"], mcpRows };
+        const opts = { inFlight: false, latestArtifactsById: new Map(), mcpRows };
         const blocks = buildRunBlocks(vars.turns, opts);
         seen.push([calls - before, blocks[0].items[0].row.iconSrc]);
       };
@@ -428,3 +443,168 @@ def test_an_event_after_the_live_run_leaves_that_run_live():
     blocks = _blocks(turns, in_flight=True)
 
     assert [block["live"] for block in blocks] == [True, False]
+
+
+def _cards(block):
+    return block["cards"]
+
+
+def _items(block):
+    return block["items"]
+
+
+def test_enriched_legs_win_over_the_tool_result():
+    seg = delegate(legs=[enriched_leg(state="finished")])
+    item = _cards(_blocks([user("u1"), asst("a1", read("c1"), seg, text("done"))])[0])[0]
+    assert item["kind"] == "delegated" and item["legs"][0]["state"] == "finished" and item["goal"] == "Fix lint"
+
+
+def test_streaming_card_falls_back_to_the_tool_result():
+    failed = {"repo_id": "a/y", "ref": "", "error": "no access", "still_runs": False}
+    lost = {"repo_id": "a/z", "ref": "", "error": "late", "still_runs": True}
+    result = {
+        "batch_id": "b",
+        "started": [started_leg(), started_leg("a/w", after_turn=True)],
+        "failed": [failed, lost],
+    }
+    item = _items(_blocks([user("u1"), asst("a1", delegate(result=result), streaming=True)], in_flight=True)[0])[0]
+    assert [leg["state"] for leg in item["legs"]] == ["queued", "waits", "failed", "lost"]
+    assert item["legs"][2]["error"] == "no access" and item["legs"][0]["merge_request_url"] == ""
+    assert item["legs"][0]["session_url"] == "https://daiv.example/dashboard/sessions/t-a-x/"
+    assert all(set(leg) == set(item["legs"][0]) for leg in item["legs"])
+
+
+def test_a_leg_keeps_only_web_or_page_links():
+    lost = {"repo_id": "a/z", "ref": "", "error": "late", "still_runs": True, "session_url": "javascript:alert(1)"}
+    result = {"batch_id": "b", "started": [], "failed": [lost]}
+    mr = "https://git.example/a/y/-/merge_requests/2"
+    legs = [
+        enriched_leg(merge_request_url="javascript:alert(1)//merge_requests/1", session_url="/sessions/t-a-x/"),
+        enriched_leg("a/y", "", state="finished", merge_request_url=mr),
+    ]
+    seg = delegate(result=result, legs=legs)
+    shown = _cards(_blocks([user("u1"), asst("a1", read("c1"), seg, text("done"))])[0])[0]["legs"]
+    assert [(leg["repo_id"], leg["merge_request_url"], leg["session_url"]) for leg in shown] == [
+        ("a/x", "", "/sessions/t-a-x/"),
+        ("a/y", mr, ""),
+        ("a/z", "", ""),
+    ]
+
+
+def test_a_started_leg_links_to_the_pages_own_session_path():
+    turns = [user("u1"), asst("a1", delegate(), streaming=True)]
+    labels = {"session_path": "/dashboard/sessions/{thread_id}/"}
+    item = _items(_blocks(turns, in_flight=True, labels=labels)[0])[0]
+    assert item["legs"][0]["session_url"] == "/dashboard/sessions/t-a-x/"
+
+
+def test_whole_call_failure_is_the_card_error():
+    seg = delegate(result={"error": "nope"})
+    item = _items(_blocks([user("u1"), asst("a1", seg, streaming=True)], in_flight=True)[0])[0]
+    assert item["error"] == "nope" and item["legs"] == []
+
+
+def test_a_null_batch_with_nothing_started_is_the_card_error():
+    failed = {"repo_id": "a/y", "ref": "main", "error": "no access", "still_runs": False}
+    seg = delegate(result={"batch_id": None, "started": [], "failed": [failed]}, legs=[enriched_leg()])
+    item = _items(_blocks([user("u1"), asst("a1", seg, streaming=True)], in_flight=True)[0])[0]
+    assert item["error"] == "a/y \u00b7 main: no access" and item["legs"] == []
+    empty = delegate(result={"batch_id": None, "started": [], "failed": []})
+    item = _items(_blocks([user("u1"), asst("a1", empty, streaming=True)], in_flight=True)[0])[0]
+    assert item["error"] == "No job started."
+
+
+def test_a_running_call_has_no_error_and_no_legs():
+    item = _items(_blocks([user("u1"), asst("a1", delegate(result="null"), streaming=True)], in_flight=True)[0])[0]
+    assert item["error"] == "" and item["legs"] == []
+    running = {**delegate(), "result": None, "status": "running"}
+    item = _items(_blocks([user("u1"), asst("a1", running, streaming=True)], in_flight=True)[0])[0]
+    assert item["error"] == "" and item["legs"] == []
+
+
+def test_a_call_the_run_never_answered_is_the_card_error():
+    unanswered = {**delegate(), "result": None, "status": "error"}
+    item = _cards(_blocks([user("u1"), asst("a1", read("c1"), unanswered, text("done"))])[0])[0]
+    assert item["error"] == "The call didn't finish." and item["legs"] == [] and item["goal"] == "Fix lint"
+
+
+def test_a_non_json_result_is_the_card_error():
+    seg = delegate(result="the service is down")
+    item = _items(_blocks([user("u1"), asst("a1", seg, streaming=True)], in_flight=True)[0])[0]
+    assert item["error"] == "the service is down" and item["legs"] == []
+
+
+def test_a_refused_target_joins_the_enriched_legs_with_its_error():
+    refused = {"repo_id": "a/y", "ref": "", "error": "no access", "still_runs": False}
+    result = {"batch_id": "b", "started": [started_leg()], "failed": [refused]}
+    seg = delegate(result=result, legs=[enriched_leg(state="running"), enriched_leg("a/y", "", state="failed")])
+    legs = _cards(_blocks([user("u1"), asst("a1", read("c1"), seg, text("done"))])[0])[0]["legs"]
+    assert [(leg["repo_id"], leg["state"], leg["error"]) for leg in legs] == [
+        ("a/x", "running", ""),
+        ("a/y", "failed", "no access"),
+    ]
+    only = delegate(result=result, legs=[enriched_leg(state="running")])
+    legs = _cards(_blocks([user("u1"), asst("a1", read("c1"), only, text("done"))])[0])[0]["legs"]
+    assert [(leg["repo_id"], leg["state"], leg["error"]) for leg in legs] == [
+        ("a/x", "running", ""),
+        ("a/y", "failed", "no access"),
+    ]
+
+
+@pytest.mark.parametrize(("state", "shown"), [("running", ("running", "")), ("lost", ("lost", "late"))])
+def test_a_leg_that_still_runs_is_its_enriched_leg_whatever_state_it_moved_on_to(state, shown):
+    lost = {"repo_id": "a/z", "ref": "", "error": "late", "still_runs": True}
+    result = {"batch_id": "b", "started": [started_leg()], "failed": [lost]}
+    seg = delegate(result=result, legs=[enriched_leg(state="running"), enriched_leg("a/z", "", state=state)])
+    legs = _cards(_blocks([user("u1"), asst("a1", read("c1"), seg, text("done"))])[0])[0]["legs"]
+    assert [(leg["repo_id"], leg["state"], leg["error"]) for leg in legs] == [("a/x", "running", ""), ("a/z", *shown)]
+
+
+def test_delegate_is_not_a_step_and_is_hoisted_before_artifacts():
+    b = _blocks([user("u1"), asst("a1", read("c1"), delegate(), publish("p1"), read("c2"), text("x"))])[0]
+    assert b["stats"]["steps"] == 2 and _kinds(b["cards"]) == ["delegated", "artifacts"]
+    assert _kinds(b["items"]) == ["step", "special", "special", "step"]
+
+
+def test_a_folded_run_ends_with_its_text_then_its_cards_then_its_question():
+    b = _blocks([user("u1"), asst("a1", read("c1"), delegate(), publish("p1"), text("Done."), question("q1"))])[0]
+    assert (_kinds(b["endingText"]), _kinds(b["cards"]), _kinds(b["endingTail"])) == (
+        ["text"],
+        ["delegated", "artifacts"],
+        ["question"],
+    )
+
+
+def test_each_delegate_call_of_a_folded_run_is_its_own_card_with_its_own_legs():
+    first = delegate("d1", legs=[enriched_leg("a/x")])
+    second = delegate("d2", legs=[enriched_leg("a/y", state="finished")])
+    b = _blocks([user("u1"), asst("a1", read("c1"), first, read("c2"), second, text("x"))])[0]
+    assert [c["seg"]["id"] for c in b["cards"]] == ["d1", "d2"]
+    assert [c["legs"][0]["repo_id"] for c in b["cards"]] == ["a/x", "a/y"]
+    assert b["stats"]["steps"] == 2
+
+
+def test_a_live_delegated_item_is_identical_across_derives_until_its_segment_changes():
+    turns = [user("u1"), asst("a1", read("c1"), delegate("d1"), streaming=True)]
+    expr = """(() => {
+  const a = buildRunBlocks(vars.turns, {inFlight: true});
+  const b = buildRunBlocks(vars.turns, {inFlight: true, previous: a});
+  return [a[0].items[1] === b[0].items[1], a[0] === b[0]];
+})()"""
+    assert run_transcript(expr, {"turns": turns}) == [True, True]
+
+
+def test_the_folded_row_of_a_delegate_call_counts_its_started_jobs():
+    result = {"batch_id": "b", "started": [started_leg(), started_leg("a/y")], "failed": []}
+    b = _blocks([user("u1"), asst("a1", read("c1"), delegate(result=result), read("c2"))])[0]
+    assert b["items"][1]["row"]["phrase"] == "Delegated 2 jobs"
+    one = _blocks([user("u1"), asst("a1", read("c1"), delegate(), read("c2"))])[0]
+    assert one["items"][1]["row"]["phrase"] == "Delegated 1 job"
+    none = _blocks([user("u1"), asst("a1", read("c1"), delegate(result="null"), read("c2"))])[0]
+    assert none["items"][1]["row"]["phrase"] == "Delegated jobs"
+
+
+def test_cancelling_delegated_jobs_has_its_own_group_line():
+    cancel = tool_call("j2", "cancel_delegated_jobs", {"batch_id": "b1"}, result='{"cancelled": []}')
+    assert _group_line([check_jobs("j1"), cancel])["text"] == "Checked delegated jobs, cancelled delegated jobs"
+    assert _group_line([cancel, cancel])["text"] == "Cancelled delegated jobs 2 times"

@@ -1,3 +1,7 @@
+---
+description: "After DAIV publishes a merge request it watches CI and spends a bounded number of agent runs making it green, then reports any jobs still failing."
+---
+
 # Pipeline Watch
 
 After DAIV publishes a merge request, it watches the merge request's CI and tells the session that published it what happened. A CI failure on a commit DAIV pushed wakes that session, up to a configurable number of times, to look at the failure and fix it; if the failure is not something a code change can fix, the run explains why instead of pushing. Everything else CI reports, a pass or a pipeline that needs a person, is remembered by the session and shown to the agent the next time it runs.

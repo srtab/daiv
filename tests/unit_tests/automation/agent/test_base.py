@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+import openai
 import pytest
 
 from automation.agent.base import CLAUDE_THINKING_MODELS, OPENAI_THINKING_MODELS, get_model, get_model_kwargs
@@ -418,6 +419,51 @@ class TestGetModelKwargs:
         assert kw["extra_body"]["reasoning"]["enabled"] is True
         assert kw["extra_body"]["reasoning"]["effort"] == ThinkingLevelChoices.MEDIUM
         assert "temperature" not in kw
+
+    @pytest.mark.parametrize(
+        ("slug", "model_spec", "expects_sdk_timeout"),
+        [
+            ("openai", "openai:gpt-5.4", True),
+            ("openrouter", "openrouter:z-ai/glm-5", True),
+            ("anthropic", "anthropic:claude-sonnet-4-6", False),
+            ("google_genai", "google_genai:gemini-2.5-pro", False),
+        ],
+    )
+    def test_timeout_and_retries_applied_per_provider(self, slug, model_spec, expects_sdk_timeout):
+        """Every provider gets the bounded default, in the timeout shape its langchain integration accepts."""
+        self._enable_seed(slug, "sk")
+        kw = get_model_kwargs(resolved=parse_model_spec(model_spec))
+        assert kw["max_retries"] == 2
+        if expects_sdk_timeout:
+            assert isinstance(kw["timeout"], openai.Timeout)
+            assert (kw["timeout"].read, kw["timeout"].connect) == (120.0, 10.0)
+        else:
+            assert kw["timeout"] == 120.0
+
+    def test_caller_timeout_and_retries_take_precedence(self):
+        self._enable_seed("openai", "sk-o")
+        kw = get_model_kwargs(resolved=parse_model_spec("openai:gpt-5.4"), timeout=45, max_retries=5)
+        assert (kw["timeout"].read, kw["timeout"].connect) == (45.0, 10.0)
+        assert kw["max_retries"] == 5
+
+    def test_short_timeout_caps_connect_fuse(self):
+        self._enable_seed("openai", "sk-o")
+        kw = get_model_kwargs(resolved=parse_model_spec("openai:gpt-5.4"), timeout=5)
+        assert (kw["timeout"].read, kw["timeout"].connect) == (5.0, 5.0)
+
+    def test_explicit_none_override_does_not_unbind(self):
+        self._enable_seed("anthropic", "sk-a")
+        kw = get_model_kwargs(resolved=parse_model_spec("anthropic:claude-sonnet-4-6"), timeout=None, max_retries=None)
+        assert kw["timeout"] == 120.0
+        assert kw["max_retries"] == 2
+
+    @pytest.mark.parametrize("model_spec", ["openai:gpt-5.4", "openrouter:z-ai/glm-5"])
+    def test_openai_family_models_do_not_share_an_async_client(self, model_spec):
+        """A process-wide client reuses connections opened in a previous task's event loop, which
+        fails with ``Event loop is closed`` once the worker runs the next task in a fresh loop."""
+        self._enable_seed(model_spec.split(":")[0], "sk")
+        first, second = get_model(model=model_spec), get_model(model=model_spec)
+        assert first.root_async_client._client is not second.root_async_client._client
 
 
 @pytest.mark.parametrize("model_spec", [name for name in ModelName if "/claude-" in name])

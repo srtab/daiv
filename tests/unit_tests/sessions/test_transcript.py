@@ -13,12 +13,14 @@ from django.utils import timezone
 import pytest
 from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
+from sessions.delegation import load_delegations
 from sessions.executor.lock import LiveRun, SessionActivity
 from sessions.models import CHAT_PROMPT_MAX_LENGTH, Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.transcript import (
     RETRY_MESSAGE,
     annotate_transcript,
     expired_run_turns,
+    mark_delegations,
     mark_skill_links,
     marker_id,
     retry_message,
@@ -32,7 +34,13 @@ from core.constants import (
     INTERRUPTED_MESSAGE,
     RUN_FAILED_MESSAGE,
 )
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import (
+    delegate_segment,
+    delegate_turns,
+    make_artifact,
+    make_coordinator,
+    make_leg,
+)
 
 CREATED_AT = datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC)
 STARTED_AT = datetime(2026, 7, 31, 12, 0, 2, tzinfo=UTC)
@@ -1143,3 +1151,141 @@ class TestInterleaveInboxEvents:
         turns = [{"id": "u1", "role": "user"}]
 
         assert interleave_inbox_events(turns, [], []) is turns
+
+
+@pytest.fixture
+def owner(member_user):
+    return member_user
+
+
+@pytest.mark.django_db
+def test_delegate_segment_gets_the_legs_current_states_oldest_first(owner):
+    coordinator = make_coordinator(owner)
+    batch = uuid.uuid4()
+    finished = make_leg(
+        coordinator,
+        batch,
+        status=RunStatus.SUCCESSFUL,
+        repo_id="acme/a",
+        ref="main",
+        session_ref="daiv/work-branch",
+        merge_request_web_url="http://mr/1",
+    )
+    running = make_leg(coordinator, batch, status=RunStatus.RUNNING, repo_id="acme/b", finished_at=None)
+    turns = delegate_turns(batch)
+
+    mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+
+    legs = turns[0]["segments"][0]["legs"]
+    assert [leg["state"] for leg in legs] == ["finished", "running"]
+    assert legs[0] == {
+        "repo_id": "acme/a",
+        "ref": "main",
+        "state": "finished",
+        "merge_request_url": "http://mr/1",
+        "session_url": reverse("session_detail", kwargs={"thread_id": finished.session_id}),
+    }
+    assert legs[1]["session_url"] == reverse("session_detail", kwargs={"thread_id": running.session_id})
+
+
+@pytest.mark.django_db
+def test_leg_the_viewer_cannot_see_keeps_only_its_repository_and_state(owner, other_user):
+    coordinator = make_coordinator(owner)
+    batch = uuid.uuid4()
+    make_leg(
+        coordinator,
+        batch,
+        status=RunStatus.SUCCESSFUL,
+        repo_id="acme/secret",
+        ref="release",
+        session_ref="daiv/other",
+        result_summary="private",
+        merge_request_web_url="http://mr/1",
+    )
+    turns = delegate_turns(batch)
+
+    mark_delegations(turns, load_delegations(coordinator.thread_id, other_user))
+
+    (leg,) = turns[0]["segments"][0]["legs"]
+    assert leg == {
+        "repo_id": "acme/secret",
+        "ref": "release",
+        "state": "finished",
+        "merge_request_url": "",
+        "session_url": "",
+    }
+
+
+@pytest.mark.django_db
+def test_two_batches_in_one_transcript_keep_their_own_legs(owner, admin_user, django_assert_num_queries):
+    coordinator = make_coordinator(owner)
+    first, second = uuid.uuid4(), uuid.uuid4()
+    make_leg(coordinator, first, status=RunStatus.RUNNING)
+    make_leg(coordinator, first, status=RunStatus.RUNNING)
+    make_leg(coordinator, second, status=RunStatus.RUNNING)
+    turns = delegate_turns(first, second)
+    delegations = load_delegations(coordinator.thread_id, admin_user)
+
+    with django_assert_num_queries(0):
+        mark_delegations(turns, delegations)
+
+    assert [len(segment["legs"]) for segment in turns[0]["segments"]] == [2, 1]
+
+
+@pytest.mark.django_db
+def test_a_batch_belonging_to_another_session_is_left_untouched(owner):
+    coordinator, stranger = make_coordinator(owner), make_coordinator(owner)
+    batch = uuid.uuid4()
+    make_leg(stranger, batch, status=RunStatus.RUNNING)
+    turns = delegate_turns(batch)
+
+    mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+
+    assert "legs" not in turns[0]["segments"][0]
+
+
+@pytest.mark.django_db
+def test_a_batch_without_runs_is_left_to_the_tool_result(owner):
+    coordinator = make_coordinator(owner)
+    turns = delegate_turns(uuid.uuid4())
+
+    mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+
+    assert "legs" not in turns[0]["segments"][0]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "result", [None, "{not json", '{"error": "nope"}', '{"batch_id": "nope"}', '{"batch_id": null}', "[1]"]
+)
+def test_a_delegate_result_without_a_batch_id_is_skipped(owner, result):
+    coordinator = make_coordinator(owner)
+    make_leg(coordinator, uuid.uuid4(), status=RunStatus.RUNNING)
+    segment = delegate_segment(uuid.uuid4())
+    segment["result"] = result
+    turns = [{"role": "assistant", "segments": [segment]}]
+
+    goals = mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+
+    assert "legs" not in segment
+    assert goals == {}
+
+
+@pytest.mark.django_db
+def test_mark_delegations_returns_the_calls_own_trimmed_goals(owner):
+    coordinator = make_coordinator(owner)
+    named, blank, unparsable, foreign = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    for batch in (named, blank, unparsable):
+        make_leg(coordinator, batch, status=RunStatus.RUNNING)
+    turns = [
+        *delegate_turns(named, goal="  Bump auth  "),
+        *delegate_turns(blank, goal=" "),
+        *delegate_turns(foreign, goal="Not ours"),
+    ]
+    broken = delegate_segment(unparsable)
+    broken["args"] = "{not json"
+    turns.append({"role": "assistant", "segments": [broken]})
+
+    goals = mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+
+    assert goals == {named: "Bump auth"}

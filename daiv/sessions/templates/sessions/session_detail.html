@@ -48,6 +48,7 @@
   {% session_title session as page_title %}
   <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}', active: {{ is_in_flight|yesno:'true,false' }} })"
        @daiv:live-run-ended.window="resume()"
+       @daiv:session-check.window="_checkForBackgroundRun()"
        style="display:none" aria-hidden="true"></div>
   {% endif %}
 
@@ -143,7 +144,7 @@
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
        @daiv:agent-changed.window="applyAgentSelection($event.detail)"
        @daiv:session-turns.window="applyPolledTurns($event.detail.turns, $event.detail.waiting_since, $event.detail.active)"
-       @daiv:session-header.window="applySkillLinks($event.detail?.turns)"
+       @daiv:session-header.window="applyServerSegments($event.detail?.turns)"
        @daiv:session-live-run.window="followLiveRun($event.detail)"
        @daiv:session-settled.window="holdReload($event)"
        x-cloak

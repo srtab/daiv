@@ -147,6 +147,36 @@ async def _amerge_session_refs(session: Session, external_refs: list[dict]) -> N
     session.external_refs = await sync_to_async(_merge_locked)()
 
 
+class SessionBusyError(Exception):
+    """A continuation tried to change its session's MCP overrides while another of its runs is unfinished."""
+
+
+async def _aset_session_mcp_overrides(session: Session, mcp_overrides: dict, *, run: Run | None = None) -> None:
+    """Replace a continued session's MCP overrides under a row lock, before its follow-up is posted or once ``run``'s
+    row exists.
+
+    Raises :class:`SessionBusyError` while another run on the session is unfinished: ``run_job_task`` reads the
+    overrides when a run starts, so that run would start with these instead of its own.
+    """
+
+    def _set_locked() -> None:
+        with transaction.atomic():
+            current = Session.objects.select_for_update().only("mcp_overrides").get(pk=session.pk).mcp_overrides
+            if current == mcp_overrides:
+                return
+            others = Run.objects.filter(session_id=session.pk).exclude(status__in=RunStatus.terminal())
+            if run is not None:
+                others = others.exclude(pk=run.pk)
+            if others.exists():
+                raise SessionBusyError(
+                    "mcp_overrides can't change while another run on this thread is unfinished; resubmit once it is"
+                )
+            Session.objects.filter(pk=session.pk).update(mcp_overrides=mcp_overrides)
+
+    await sync_to_async(_set_locked)()
+    session.mcp_overrides = mcp_overrides
+
+
 async def apersist_session_ref(
     *, thread_id: str, current_ref: str, merge_request: MergeRequest | dict | None, published: bool
 ) -> None:
@@ -344,6 +374,7 @@ async def asubmit_batch_runs(
             agent_thinking_level=agent_thinking_level,
             muted=muted,
             references=[*stored_refs, *(ref.to_stored() for ref in repos[0].references)],
+            mcp_overrides=mcp_overrides,
         )
         return BatchSubmitResult(batch_id=batch_id, outcomes=[follow_up])
 
@@ -401,6 +432,18 @@ async def asubmit_batch_runs(
                 repo_id=target.repo_id, ref=target.ref, error=f"RunCreationFailed: {type(err).__name__}: {err}"
             )
 
+        if mcp_overrides is not None and run.session.mcp_overrides != mcp_overrides:
+            try:
+                await _aset_session_mcp_overrides(run.session, mcp_overrides, run=run)
+            except Exception as err:  # noqa: BLE001
+                if not isinstance(err, SessionBusyError):
+                    logger.exception(
+                        "submit_batch_runs: session MCP override update failed for repo_id=%s", target.repo_id
+                    )
+                await amark_failed_and_advance(
+                    run, prefix="mcp_overrides_update_failed", err=err, log_context="submit_batch_runs"
+                )
+                return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
         if target_refs := [*stored_refs, *(ref.to_stored() for ref in target.references)]:
             try:
                 await _amerge_session_refs(run.session, target_refs)
@@ -470,10 +513,12 @@ async def _asubmit_follow_up(
     agent_thinking_level: str,
     muted: bool | None,
     references: list[dict],
+    mcp_overrides: dict | None,
 ) -> Run | BatchSubmitFailure:
     """Hand a job for an existing session to its inbox: the run the drain started for it when the session was idle,
     or the session's next run for its branch, which other jobs on that branch may share. Its references join the
-    session when a run takes it."""
+    session when a run takes it; ``mcp_overrides`` replace the session's before it is posted, and only while no run
+    on the session is unfinished."""
     from sessions.inbox import kinds
     from sessions.inbox.post import apost_event
 
@@ -488,6 +533,17 @@ async def _asubmit_follow_up(
         payload["references"] = references
     if muted is not None:
         payload["muted"] = muted
+    if mcp_overrides is not None and session.mcp_overrides != mcp_overrides:
+        try:
+            await _aset_session_mcp_overrides(session, mcp_overrides)
+        except Exception as err:
+            if not isinstance(err, SessionBusyError):
+                logger.exception("submit_batch_runs: session MCP override update failed for thread_id=%s", session.pk)
+            return BatchSubmitFailure(
+                repo_id=target.repo_id,
+                ref=target.ref,
+                error=f"mcp_overrides_update_failed: {type(err).__name__}: {err}",
+            )
     try:
         result = await apost_event(
             session.thread_id,

@@ -783,6 +783,28 @@ html {
   .status-dot-pending {
     @apply bg-gray-500;
   }
+
+  .leg-dot {
+    @apply inline-block h-2 w-2 shrink-0 rounded-full bg-text-faint;
+  }
+  .leg-dot--queued,
+  .leg-dot--waits {
+    @apply bg-transparent ring-[1.5px] ring-text-faint ring-inset;
+  }
+  .leg-dot--running {
+    @apply bg-status-found;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  .leg-dot--waiting_input {
+    @apply rotate-45 rounded-[1.5px] bg-status-found;
+  }
+  .leg-dot--finished {
+    @apply bg-status-clear;
+  }
+  .leg-dot--failed,
+  .leg-dot--lost {
+    @apply bg-status-fail;
+  }
 }
 
 /* -- Chat UI ------------------------------------------------------------- */
@@ -830,7 +852,25 @@ html {
   }
 
   .session-topbar {
-    @apply flex h-13 shrink-0 items-center gap-3 border-b border-border bg-ground px-4 sm:px-(--app-content-gutter);
+    @apply flex min-h-13 shrink-0 items-center gap-3 border-b border-border bg-ground px-4 sm:px-(--app-content-gutter);
+  }
+  .session-topbar__lead {
+    @apply flex min-w-0 flex-col;
+  }
+  .session-topbar__lead--child {
+    @apply py-1;
+  }
+  .session-topbar__back {
+    @apply inline-flex max-w-full min-w-0 items-center gap-1 self-start text-[11px] text-text-muted;
+  }
+  .session-topbar__back-icon {
+    @apply h-3 w-3 shrink-0 -rotate-45;
+  }
+  .session-topbar__back-title {
+    @apply truncate text-accent;
+  }
+  .session-topbar__back:hover .session-topbar__back-title {
+    @apply text-accent-bright;
   }
   /* Status sits under the title on phones, beside it from sm: up. */
   .session-topbar__heading {
@@ -983,6 +1023,61 @@ html {
     @apply block text-[12px] text-text-muted;
   }
 
+  .delegations-btn {
+    @apply inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-[12px] text-text
+      transition-colors hover:bg-surface-3;
+  }
+  .delegations-btn__long {
+    @apply max-sm:hidden;
+  }
+  .delegations-btn__short {
+    @apply font-mono sm:hidden;
+  }
+  .delegations-btn__status {
+    @apply inline-flex items-center gap-1.5 text-text-muted;
+  }
+  .delegations-btn--failed .delegations-btn__status {
+    @apply text-status-fail;
+  }
+  .delegations-menu {
+    @apply w-80 max-w-[calc(100vw-2rem)];
+  }
+  .delegations-menu__legs {
+    @apply max-h-80 overflow-y-auto;
+  }
+  .delegations-menu__row {
+    @apply flex items-center gap-1;
+  }
+  .delegations-menu__leg {
+    @apply h-auto min-w-0 flex-1 py-2;
+  }
+  .delegations-menu__leg[aria-disabled="true"] {
+    @apply cursor-default hover:bg-transparent;
+  }
+  .delegations-menu__open {
+    @apply text-accent;
+  }
+  .delegations-menu__mr {
+    @apply shrink-0 rounded-lg px-2 py-1 font-mono text-[12px] text-accent transition-colors hover:bg-surface-3
+      hover:text-accent-bright focus:bg-surface-3;
+  }
+
+  .delegated-leg {
+    @apply flex min-w-0 items-start gap-2.5;
+  }
+  .delegated-leg .leg-dot {
+    @apply mt-1.5;
+  }
+  .delegated-leg__body {
+    @apply flex min-w-0 flex-1 flex-col;
+  }
+  .delegated-leg__repo {
+    @apply truncate font-mono text-[12px] text-text;
+  }
+  .delegated-leg__sub {
+    @apply text-[12px] text-text-muted;
+  }
+
   /* The title renames in place: a pencil on hover or focus, then an input the same size. */
   /* The pull lives on the flex item, not the button: a negative margin inside a `max-w-full` box truncates early. */
   .session-topbar__title--editable {
@@ -1080,6 +1175,15 @@ html {
   .session-details__list a { @apply text-accent hover:text-accent-bright; }
   .session-details__list {
     @apply m-0 flex list-none flex-col gap-1.5 p-0 text-[13px];
+  }
+  .session-details__count {
+    @apply ml-1 text-text-faint;
+  }
+  .delegations-batch {
+    @apply flex flex-col gap-2;
+  }
+  .delegations-batch__line {
+    @apply truncate text-[12px] text-text-muted;
   }
 
   /* Transcript */
@@ -2233,14 +2337,6 @@ html {
     font-size: 12.5px;
   }
 
-  .body-jump {
-    color: #93c5fd;
-  }
-
-  .body-jump:hover {
-    text-decoration: underline;
-  }
-
   .body-buttons {
     display: flex;
     flex-wrap: wrap;
@@ -2733,6 +2829,34 @@ html {
 
   .artifact-card__meta--error {
     @apply text-red-300;
+  }
+
+  .delegated-card__goal {
+    @apply border-b border-white/[0.06] px-4 py-2.5 text-[13px] text-text;
+  }
+
+  .delegated-card__repo {
+    @apply min-w-0 truncate font-mono text-[13px] text-text-strong;
+  }
+
+  .delegated-card__ref {
+    @apply min-w-0 flex-1 truncate font-mono text-[12px] text-text-faint;
+  }
+
+  .delegated-card__state {
+    @apply text-[12px] text-text-muted;
+  }
+
+  .delegated-card__link {
+    @apply font-mono text-[12px] text-accent hover:text-accent-bright;
+  }
+
+  .delegated-card__error {
+    @apply w-full pl-5 text-[12px] text-status-fail;
+  }
+
+  .delegated-card__failed {
+    @apply px-4 py-3 text-[13px] whitespace-pre-line text-status-fail;
   }
 
   .artifact-download {

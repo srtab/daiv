@@ -1,0 +1,95 @@
+[
+  {
+    "type": "human",
+    "content": "@daiv /code-review"
+  },
+  {
+    "type": "ai",
+    "content": "Collecting the diff for review.",
+    "tool_calls": [
+      {
+        "name": "bash",
+        "args": {
+          "command": "git diff origin/main...HEAD > /tmp/review.diff && wc -l /tmp/review.diff"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "bash",
+    "content": "87 /tmp/review.diff"
+  },
+  {
+    "type": "ai",
+    "content": "Dispatching the correctness and security reviewers.",
+    "tool_calls": [
+      {
+        "name": "task",
+        "args": {
+          "subagent_type": "cr-correctness",
+          "description": "Review /tmp/review.diff for correctness bugs"
+        }
+      },
+      {
+        "name": "task",
+        "args": {
+          "subagent_type": "cr-security",
+          "description": "Review /tmp/review.diff for security issues"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "task",
+    "content": "I could not open /tmp/review.diff from my workspace, so I have no findings."
+  },
+  {
+    "type": "tool",
+    "name": "task",
+    "content": "The diff file was not readable from here. No findings."
+  },
+  {
+    "type": "ai",
+    "content": "Neither reviewer could read the diff file, so I'll review it directly.",
+    "tool_calls": [
+      {
+        "name": "bash",
+        "args": {
+          "command": "cat /tmp/review.diff"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "bash",
+    "content": "diff --git a/api/views/orders.py b/api/views/orders.py\n@@ -30,7 +30,9 @@ class OrderList(ListAPIView):\n-    queryset = Order.objects.all()\n+    queryset = Order.objects.select_related(\"customer\").order_by(\"-created_at\")\n+    pagination_class = StandardPagination\n"
+  },
+  {
+    "type": "ai",
+    "content": "Trying the frontend lint as well, since the MR touches a template.",
+    "tool_calls": [
+      {
+        "name": "bash",
+        "args": {
+          "command": "npm run lint"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "bash",
+    "content": "bash: npm: command not found\nexit code 127"
+  },
+  {
+    "type": "ai",
+    "content": "npm is not installed in this environment, so the lint step can't run here; the pipeline runs it anyway."
+  },
+  {
+    "type": "ai",
+    "content": "Review: the ordering and select_related change is correct and removes an N+1 on customer. One nit: StandardPagination's page size should be confirmed with the API consumers. No blocking issues."
+  }
+]

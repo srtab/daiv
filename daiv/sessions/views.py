@@ -38,6 +38,7 @@ from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
 from sessions.conf import settings as sessions_settings
+from sessions.delegation import outcome_states
 from sessions.executor.lock import live_run_for, session_activity
 from sessions.filters import (
     RANGE_CHOICES,
@@ -49,7 +50,7 @@ from sessions.filters import (
     resolve_scope,
 )
 from sessions.forms import AgentRunCreateForm
-from sessions.header import build_session_header, retry_for
+from sessions.header import build_session_header, delegations_for, retry_for
 from sessions.hydration import ahydrate_thread
 from sessions.inbox.render import inbox_panel_events, remembered_events
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
@@ -316,6 +317,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
             "icons": transcript_icons(),
             "show_raw": settings.DEBUG if show_raw is None else show_raw,
             "session_path": reverse("session_detail", args=["THREAD-ID"]).replace("THREAD-ID", "{thread_id}"),
+            "leg_states": outcome_states(),
         }
 
         if session is None:
@@ -373,8 +375,11 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         )
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
         mark_skill_links(ctx["turns"], session.thread_id)
+        delegations = delegations_for(ctx["turns"], session, self.request.user)
         retry = retry_for(session, runs, ctx["turns"], self.request.user, can_act=ctx["can_act"])
-        ctx["header"] = build_session_header(session, runs, retry=retry, merge_request=merge_request)
+        ctx["header"] = build_session_header(
+            session, runs, retry=retry, user=self.request.user, delegations=delegations, merge_request=merge_request
+        )
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
         ctx["can_mute"] = Session.objects.by_owner(self.request.user).filter(pk=session.pk).exists()
         ctx["inbox_events"] = inbox_panel_events(session.thread_id) if ctx["can_mute"] else None

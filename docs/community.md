@@ -1,3 +1,7 @@
+---
+description: "Contribute to DAIV, the open-source SWE agent for GitLab and GitHub: code, docs, testing or feedback. Report issues and find project resources."
+---
+
 # Community
 
 DAIV is open-source and contributions are welcome — code, documentation, testing, or feedback.

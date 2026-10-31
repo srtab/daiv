@@ -1,3 +1,7 @@
+---
+description: "Connect Claude Code, Cursor or Codex CLI to DAIV over the Model Context Protocol (MCP) and delegate coding tasks to the agent from your editor."
+---
+
 # MCP Endpoint
 
 DAIV exposes a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server endpoint, allowing AI coding assistants to delegate tasks to the DAIV agent — directly from your editor or terminal.
@@ -82,7 +86,7 @@ url = "https://daiv.example.com/mcp/"
 | `list_environments` | List the sandbox environments visible to you (your own `USER` environments plus all `GLOBAL` ones), ordered by scope then name. Supports `limit` (default 20, max 50) and `cursor`; use a returned `name` or `id` as `submit_job`'s `environment` argument. |
 | `get_environment` | Look up a single sandbox environment by name or UUID. Returns full details with secret env-var values masked, or nothing if it is not in your visible scopes. |
 | `list_jobs` | List your recent agent runs (newest first), optionally filtered by `repo_id` and `status`. Supports `limit` (default 20, max 50) and `cursor`. Returns a lean summary per run plus `next_cursor` — use `get_job_status` for a single run's full result text. |
-| `schedule_job` | Create a recurring or one-off scheduled run owned by you. Takes `name`, `prompt`, a 1–20 entry `repos` list, and a `frequency` (`hourly`/`daily`/`weekdays`/`weekly`/`custom`/`once`) with its companion field (`time` for daily/weekdays/weekly, `cron_expression` for custom, `run_at` for once). Optional `agent_model`, `agent_thinking_level`, `environment`, and `muted` mirror `submit_job`. |
+| `schedule_job` | Create a recurring or one-off scheduled run owned by you. Takes `name`, `prompt`, a 1–20 entry `repos` list, and a `frequency` (`hourly`/`daily`/`weekdays`/`weekly`/`custom`/`once`) with its companion field (`time` for daily/weekdays/weekly, `cron_expression` for custom, `run_at` for once). Optional `agent_model`, `agent_thinking_level`, `environment`, `mcp_overrides`, and `muted` mirror `submit_job`. |
 | `list_scheduled_jobs` | List your scheduled jobs (newest first), optionally filtered by `enabled_only` or `repo_id`. Supports `limit` (default 20, max 50) and `cursor`. |
 
 The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environments`, `list_repositories`) share one pagination contract: pass an optional `limit` and `cursor`, and read back `{ "<items>": [...], "next_cursor": <token or null> }`. To page, call again with `cursor` set to the previous response's `next_cursor` until it comes back `null`; a cursor encodes only sort position, so reuse it with the **same** filters.
@@ -105,6 +109,7 @@ The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environme
   On thread continuation (when `thread_id` is set), newly supplied references are **merged** into the session's existing set when the run that takes the job starts, deduped by `(provider, key)` — the first-seen entry wins. A session accumulates at most 50 references in total across all turns.
 
   **Note (v1 limitation):** DAIV writes the MR description only when the MR is first created. References declared on a later turn reach that turn's commit trailers but do not rewrite an existing MR's description body.
+- `mcp_overrides` — MCP servers to switch on or off for every job in the batch, relative to the default set: `{"grafana": true}` adds an on-demand server, `{"sentry": false}` drops an active one. Names are those of the global servers and your own personal ones; an unknown name or a value other than `true`/`false` is returned as an error. On a continued thread (`thread_id`) they apply on top of the thread's own, so a server you don't name keeps its setting. A continuation that would change them while another run on the thread is unfinished is returned in `failed`, since that run would pick them up too.
 
 For the full request/response schema, the batch `repos` contract, and the job lifecycle, see the [Jobs API](jobs-api.md).
 

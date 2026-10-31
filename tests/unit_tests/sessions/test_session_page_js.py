@@ -14,19 +14,25 @@ from tests.unit_tests.test_template_comments import DAIV_DIR
 pytestmark = requires_node
 
 SESSION_PAGE_JS = DAIV_DIR / "sessions/static/sessions/js/session-page.js"
+TRANSCRIPT_LABELS_JS = DAIV_DIR / "chat/static/chat/js/transcript-labels.js"
 
 HARNESS = """
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const { src, initial, watch, wide, stored, storageBlocked, archived, steps } = JSON.parse(readFileSync(0, "utf8"));
+const {
+  src, labelsSrc, initial, watch, delegations, wide, stored, storageBlocked, archived, steps,
+} = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
 const fetches = [];
 const pending = [];
 const storage = new Map(stored == null ? [] : [["key", stored]]);
 let clock = 10;
-const json = { "session-header": { latest_run: initial, watch, run_count: 1 } };
+const json = { "session-header": { latest_run: initial, watch, run_count: 1, delegations } };
+const watchers = {};
+const dispatched = [];
 const frames = [];
+const timers = [];
 const scrolled = [];
 const section = {
   shown: false,
@@ -43,6 +49,8 @@ const sandbox = {
     },
   },
   requestAnimationFrame: (cb) => frames.push(cb),
+  setTimeout: (cb, ms) => timers.push({ cb, ms }),
+  clearTimeout: () => {},
   localStorage: {
     getItem: (k) => { if (storageBlocked) throw new Error("blocked"); return storage.get(k) ?? null; },
     setItem: (k, v) => { if (storageBlocked) throw new Error("blocked"); storage.set(k, v); },
@@ -56,9 +64,14 @@ const sandbox = {
   },
 };
 sandbox.document.title = "Old — DAIV Sessions";
-sandbox.window = { matchMedia: () => ({ matches: wide, addEventListener() {}, removeEventListener() {} }) };
+sandbox.window = {
+  matchMedia: () => ({ matches: wide, addEventListener() {}, removeEventListener() {} }),
+  dispatchEvent: (event) => dispatched.push(event.type),
+};
+sandbox.CustomEvent = class { constructor(type) { this.type = type; } };
 sandbox.Alpine = { data: (name, factory) => { components[name] = factory; } };
 vm.createContext(sandbox);
+vm.runInContext(readFileSync(labelsSrc, "utf8"), sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
 const labels = {
@@ -72,6 +85,7 @@ const page = components.sessionPage({
 const focused = [];
 Object.assign(page, {
   streaming: false, resuming: false, waiting: false, archived, csrfToken: "tok", $nextTick: (cb) => cb(),
+  $watch: (expression, callback) => { watchers[expression] = callback; },
   $refs: {
     titleInput: { focus: () => focused.push("input"), select() {} },
     titleButton: { focus: () => focused.push("button"), getBoundingClientRect: () => ({ width: 312 }) },
@@ -85,6 +99,8 @@ for (const [action, value] of steps) {
   if (action === "set") Object.assign(page, value);
   else if (action === "poll") page.applyHeader(value);
   else if (action === "run-ended") page.settle();
+  else if (action === "nav-running") watchers["$store.nav?.running"](...value);
+  else if (action === "tick") timers.splice(0).forEach((timer) => timer.cb());
   else if (action === "reply") { pending.shift()(value.body, value.status); await sending; await flush(); }
   else if (action === "rename") page.startRename();
   else if (action === "draft") page.titleDraft = value;
@@ -104,6 +120,9 @@ for (const [action, value] of steps) {
       docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
       ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn, ci: page.ci,
       explanations: page.ci.map((item) => page.ciExplanation(item)), muted: page.muted, queued: page.queued,
+      delegations: page.delegations, delegationsLabel: page.delegationsBadge.label, dispatched: [...dispatched],
+      delegationsState: page.delegationsBadge.state, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
+      timers: timers.map((timer) => timer.ms),
     });
   }
 }
@@ -123,11 +142,15 @@ def _ci(status="running", *, explanation=None, iid=7) -> dict:
     return {"merge_request_iid": iid, "status": status, "watch_enabled": True, "explanation_run_id": explanation}
 
 
-def _run(steps, *, initial=DONE, watch=None, wide=True, stored=None, storage_blocked=False, archived=False) -> dict:
+def _run(
+    steps, *, initial=DONE, watch=None, delegations=None, wide=True, stored=None, storage_blocked=False, archived=False
+) -> dict:
     payload = {
         "src": str(SESSION_PAGE_JS),
+        "labelsSrc": str(TRANSCRIPT_LABELS_JS),
         "initial": initial,
         "watch": watch,
+        "delegations": delegations,
         "wide": wide,
         "stored": stored,
         "storageBlocked": storage_blocked,
@@ -445,3 +468,98 @@ def test_no_retry_when_the_server_offers_none():
 )
 def test_no_retry_while_a_run_is_busy_or_settling_or_the_session_is_archived(step):
     assert _run([step, ["offers-retry", [_marker("run-status-r2")]]], initial=RETRYABLE)["seen"] == [[False]]
+
+
+# ---------------------------------------------------------------------------
+# delegated jobs
+# ---------------------------------------------------------------------------
+
+
+def _leg(repo_id: str, state: str) -> dict:
+    return {"repo_id": repo_id, "ref": "", "state": state, "merge_request_url": "", "session_url": ""}
+
+
+def _delegations(*, total=2, running=0, waiting=0, failed=0, legs=None) -> dict:
+    counts = {"total": total, "running": running, "waiting": waiting, "failed": failed}
+    return {**counts, "batches": [], "legs": legs or []}
+
+
+@pytest.mark.parametrize(
+    ("counts", "label", "state"),
+    [
+        ({"running": 2, "waiting": 1, "failed": 1}, "2 delegated · 2 running", "running"),
+        ({"waiting": 2, "failed": 1}, "2 delegated · 2 queued", "queued"),
+        ({"failed": 1}, "2 delegated · 1 failed", "failed"),
+        ({"total": 1}, "1 delegated", ""),
+    ],
+)
+def test_the_top_bar_sums_up_the_delegated_jobs(counts, label, state):
+    seen = _read(delegations=_delegations(**counts))
+
+    assert (seen["delegationsLabel"], seen["delegationsState"]) == (label, state)
+
+
+def test_a_session_that_delegated_nothing_has_no_delegations():
+    seen = _read()
+
+    assert (seen["delegations"], seen["delegationsLabel"], seen["delegationsState"], seen["legs"]) == (None, "", "", [])
+
+
+def test_the_popover_lists_the_legs_in_the_servers_order():
+    legs = [_leg("a/two", "failed"), _leg("a/one", "running"), _leg("a/three", "finished")]
+
+    seen = _read(delegations=_delegations(total=3, running=1, failed=1, legs=legs))
+
+    assert seen["legs"] == ["a/two", "a/one", "a/three"]
+
+
+def test_each_poll_replaces_the_delegations():
+    polled = _delegations(failed=2)
+    steps = [["poll", {"latest_run": DONE, "delegations": polled}], ["read", None]]
+
+    seen = _run(steps, delegations=_delegations(running=2))["seen"][0]
+
+    assert seen["delegations"] == polled
+    assert (seen["delegationsLabel"], seen["delegationsState"]) == ("2 delegated · 2 failed", "failed")
+
+
+def test_a_poll_without_delegations_keeps_the_ones_the_page_has():
+    delegations = _delegations(running=1)
+
+    seen = _run([["poll", {"latest_run": FAILED}], ["read", None]], delegations=delegations)["seen"][0]
+
+    assert (seen["delegations"], seen["delegationsLabel"]) == (delegations, "2 delegated · 1 running")
+
+
+@pytest.mark.parametrize(
+    ("counts", "checks"), [({"running": 1}, 1), ({"waiting": 1}, 1), ({"failed": 2}, 0), (None, 0)]
+)
+def test_a_run_ending_asks_for_a_check_while_a_delegated_job_is_unsettled(counts, checks):
+    delegations = None if counts is None else _delegations(**counts)
+
+    seen = _run([["nav-running", [2, 3]], ["tick", None], ["read", None]], delegations=delegations)["seen"][0]
+
+    assert seen["dispatched"] == ["daiv:session-check"] * checks
+
+
+def test_runs_ending_together_ask_for_one_check_after_the_interval():
+    steps = [["nav-running", [2, 3]], ["nav-running", [1, 2]], ["read", None], ["tick", None], ["read", None]]
+
+    before, after = _run(steps, delegations=_delegations(running=1))["seen"]
+
+    assert (before["timers"], before["dispatched"]) == ([5000], [])
+    assert after["dispatched"] == ["daiv:session-check"]
+
+
+def test_a_run_starting_asks_for_no_check_of_its_own():
+    seen = _run([["nav-running", [3, 2]], ["tick", None], ["read", None]], delegations=_delegations(running=1))
+
+    assert seen["seen"][0]["dispatched"] == []
+
+
+def test_a_check_due_after_the_jobs_settled_is_dropped():
+    steps = [["nav-running", [2, 3]], ["poll", {"latest_run": DONE, "delegations": _delegations(failed=1)}]]
+
+    seen = _run([*steps, ["tick", None], ["read", None]], delegations=_delegations(running=1))["seen"][0]
+
+    assert seen["dispatched"] == []

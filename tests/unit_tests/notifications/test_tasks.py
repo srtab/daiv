@@ -450,6 +450,7 @@ async def _make_scheduled_run(
     response_text: str = "The run finished.",
     error_message: str = "",
     with_schedule: bool = True,
+    prompt: str = "",
 ) -> Run:
     """Build a ``ScheduledJob(intent=…) -> Session(scheduled_job=…) -> Run(session=…)`` chain.
 
@@ -477,6 +478,7 @@ async def _make_scheduled_run(
         status=status,
         result_summary=response_text,
         error_message=error_message,
+        prompt=prompt,
     )
 
 
@@ -544,7 +546,7 @@ async def test_ac3_report_intent_passes_all_clear_through_with_no_findings():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_ac4_found_issues_with_empty_list_coerced_to_all_clear():
+async def test_ac4_found_issues_with_empty_list_coerced_to_needs_attention():
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     classification = RunClassification(status="found-issues", summary="Odd but empty.", actionable=[])
 
@@ -552,7 +554,7 @@ async def test_ac4_found_issues_with_empty_list_coerced_to_all_clear():
         await classify_run_task.func(str(run.pk))
 
     envelope = await RunEnvelope.objects.aget(run=run)
-    assert envelope.status == EnvelopeStatus.ALL_CLEAR
+    assert envelope.status == EnvelopeStatus.NEEDS_ATTENTION
     assert envelope.actionable == []
     assert envelope.count == 0
 
@@ -721,10 +723,12 @@ async def test_successful_run_with_empty_prose_is_all_clear_without_llm_call():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_forwards_run_prose_and_model_names_to_method(site_settings_override):
-    # Seam assertion: the run's prose and the primary-before-fallback model tuple (empties filtered)
-    # actually reach the classification method — not just that the output happens to be right.
-    run = await _make_scheduled_run(intent=Intent.WATCH_FIND, response_text="classify this exact prose")
+async def test_forwards_run_prose_prompt_and_model_names_to_method(site_settings_override):
+    # Seam assertion: the run's prose, its prompt and the primary-before-fallback model tuple (empties
+    # filtered) actually reach the classification method — not just that the output happens to be right.
+    run = await _make_scheduled_run(
+        intent=Intent.WATCH_FIND, response_text="classify this exact prose", prompt="/sentry-triage project=x"
+    )
     llm = _llm_returning(RunClassification(status="all-clear", summary="ok", actionable=[]))
     site_settings_override(run_classifier_model_name="primary", run_classifier_fallback_model_name="fallback")
 
@@ -733,7 +737,9 @@ async def test_forwards_run_prose_and_model_names_to_method(site_settings_overri
 
     build.assert_called_once_with(RunClassification, ("primary", "fallback"))
     messages = llm.with_config.return_value.ainvoke.call_args.args[0]
-    assert messages[1].content == "classify this exact prose"
+    assert messages[1].content == (
+        "<task>\n/sentry-triage project=x\n</task>\n\n<report>\nclassify this exact prose\n</report>"
+    )
 
 
 @pytest.mark.django_db(transaction=True)

@@ -13,12 +13,14 @@ from automation.agent.provider_clients import MissingApiKeyError, build_sdk_clie
 from core.constants import BOT_NAME
 from core.models import ProviderType
 from core.models import ThinkingLevelChoices as ThinkingLevel
+from core.site_settings import site_settings
 
 logger = logging.getLogger("daiv.automation")
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    import openai
     from langchain_core.language_models.chat_models import BaseChatModel
 
     from core.models import Provider
@@ -251,6 +253,39 @@ def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:
     kw["http_async_client"] = httpx.AsyncClient(verify=False)  # noqa: S501
 
 
+def _resolve_request_timeout(provider_type: ProviderType, timeout_seconds: float) -> openai.Timeout | float:
+    """Return a per-request timeout in the shape each provider's langchain integration accepts.
+
+    ``langchain-openai`` (OpenAI + OpenRouter) takes the SDK's own ``Timeout``, which gives the
+    connect phase a short fuse. Being unhashable, it also keeps langchain from handing every model
+    one process-wide async client, whose pooled connections die with the event loop of the task
+    that opened them. ``langchain-anthropic`` and ``langchain-google-genai`` only accept a number.
+    """
+    timeout_seconds = float(timeout_seconds)
+    if provider_type in HTTPX_CLIENT_PROVIDER_TYPES:
+        import openai
+
+        return openai.Timeout(timeout_seconds, connect=min(10.0, timeout_seconds))
+    return timeout_seconds
+
+
+def _apply_request_timeout_and_retries(kw: dict, provider_type: ProviderType) -> None:
+    """Bound how long a model call can hang and how many times it retries.
+
+    Unset, every provider is unbounded: langchain passes ``timeout=None`` straight to each SDK.
+    A caller's own ``timeout`` / ``max_retries`` win, but an explicit ``None`` counts as unset so
+    no caller can reintroduce the unbounded default. A caller's numeric timeout is shaped like the
+    default, so it cannot opt an OpenAI-family model back into the process-wide client.
+    """
+    if kw.get("max_retries") is None:
+        kw["max_retries"] = site_settings.model_max_retries
+    timeout = kw.get("timeout")
+    if timeout is None:
+        timeout = site_settings.model_request_timeout_seconds
+    if isinstance(timeout, int | float):
+        kw["timeout"] = _resolve_request_timeout(provider_type, timeout)
+
+
 def get_model(*, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:
     """
     Get the model instance to use for the agent.
@@ -328,6 +363,8 @@ def get_model_kwargs(*, resolved: ResolvedProvider, thinking_level: ThinkingLeve
 
     else:
         raise RuntimeError(f"Unknown provider_type {row.provider_type!r} on slug {row.slug!r}")
+
+    _apply_request_timeout_and_retries(kw, row.provider_type)
 
     if not row.verify_ssl:
         _apply_insecure_http_clients(kw, row)

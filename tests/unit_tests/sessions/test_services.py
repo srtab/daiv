@@ -740,7 +740,7 @@ async def test_get_or_create_session_stamps_mcp_overrides():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_continuation_submit_does_not_clobber_stored_overrides():
+async def test_get_or_create_session_keeps_an_existing_sessions_mcp_overrides():
     from sessions.models import SessionOrigin
 
     await sync_to_async(get_or_create_session)(
@@ -906,7 +906,7 @@ async def test_run_user_id_is_the_user_the_run_resolved_its_author_to(member_use
 # ---------------------------------------------------------------------------
 
 
-async def _submit_turn(thread_id, references=None, prompt="p"):
+async def _submit_turn(thread_id, references=None, prompt="p", mcp_overrides=None):
     fake_task = await _make_db_task_result()
     patcher, mock_task = _patch_run_job_task()
     mock_task.aenqueue.return_value = fake_task
@@ -918,6 +918,7 @@ async def _submit_turn(thread_id, references=None, prompt="p"):
             trigger_type=SessionOrigin.MCP_JOB,
             thread_id=thread_id,
             references=references,
+            mcp_overrides=mcp_overrides,
         )
 
 
@@ -1017,3 +1018,74 @@ async def test_continuation_without_refs_leaves_stored_refs_alone():
     await _submit_turn(thread_id)
     session = await Session.objects.aget(thread_id=thread_id)
     assert session.external_refs == [{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuation_replaces_the_threads_mcp_overrides():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    await Run.objects.filter(session__thread_id=thread_id).aupdate(status=RunStatus.SUCCESSFUL)
+    await _submit_turn(thread_id, mcp_overrides={"grafana": "on"})
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.mcp_overrides == {"grafana": "on"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuation_cannot_change_mcp_overrides_while_another_run_is_unfinished():
+    """``run_job_task`` reads the overrides when a run starts, so the unfinished run would pick them up too."""
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    result = await _submit_turn(thread_id, mcp_overrides={"grafana": "on"})
+    assert result.failed[0].error.startswith("mcp_overrides_update_failed: SessionBusyError:")
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.mcp_overrides == {"sentry": "off"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuation_may_queue_when_it_keeps_the_threads_mcp_overrides():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    result = await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    assert [run.status for run in result.runs] == [RunStatus.QUEUED]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuation_without_mcp_overrides_keeps_the_threads():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    await _submit_turn(thread_id)
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.mcp_overrides == {"sentry": "off"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_run_creation_leaves_the_threads_mcp_overrides_alone():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    with patch("sessions.services.Run.objects.create", side_effect=RuntimeError("boom")):
+        result = await _submit_turn(thread_id, mcp_overrides={"grafana": "on"})
+    assert len(result.failed) == 1
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.mcp_overrides == {"sentry": "off"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_mcp_overrides_update_fails_the_follow_up_before_it_is_posted():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id)
+    boom = AsyncMock(side_effect=RuntimeError("db down"))
+    with patch("sessions.services._aset_session_mcp_overrides", boom):
+        result = await _submit_turn(thread_id, mcp_overrides={"grafana": "on"})
+    assert result.runs == []
+    assert result.failed[0].error == "mcp_overrides_update_failed: RuntimeError: db down"
+    assert not await InboxEvent.objects.filter(session_id=thread_id).aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_mcp_overrides_update_leaves_the_threads_refs_alone():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id)
+    with patch("sessions.services._aset_session_mcp_overrides", AsyncMock(side_effect=RuntimeError("db down"))):
+        await _submit_turn(thread_id, references=[RefIn(key="PROJ-9", provider="jira")], mcp_overrides={"a": "on"})
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.external_refs == []

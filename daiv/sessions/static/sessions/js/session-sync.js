@@ -1,7 +1,8 @@
 // Polls the session turns endpoint while no run streams to this page, and hands the
 // session to the chat component as soon as a run holder appears.
 // A page that rendered idle stays dormant until a run the viewer can see starts (the nav store's
-// latest running start moves); it then asks whether that run is background work on this session.
+// latest running start moves) or sessionPage asks (`daiv:session-check`); it then asks whether a run is
+// background work on this session, and otherwise refreshes the top bar from that one fetch.
 document.addEventListener("alpine:init", () => {
   Alpine.data("sessionSync", ({ turnsUrl, liveRunId, active }) => ({
     _engaged: active,
@@ -65,7 +66,10 @@ document.addEventListener("alpine:init", () => {
       this._checking = true;
       try {
         const data = await this._fetchTurns();
-        if (!data.background) return;
+        if (!data.background) {
+          window.dispatchEvent(new CustomEvent("daiv:session-header", { detail: data }));
+          return;
+        }
         this._engaged = true;
         this._start();
         this._apply(data);

@@ -1,3 +1,7 @@
+---
+description: "Configure the LLM providers DAIV runs on (OpenRouter, OpenAI, Anthropic, Google Gemini or a custom provider) and how models are specified."
+---
+
 # LLM Providers
 
 DAIV supports the following LLM providers:

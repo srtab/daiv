@@ -11,7 +11,7 @@ from ninja.security import django_auth
 from accounts.api.security import AuthBearer
 from codebase.authorization import can_run
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
-from sessions.header import aci_payload, latest_run_payload, retry_for, watch_payload
+from sessions.header import aci_payload, delegations_for, latest_run_payload, retry_for, watch_payload
 from sessions.hydration import ahydrate_thread
 from sessions.inbox.drain import next_runs
 from sessions.inbox.render import remembered_events, summarize
@@ -132,8 +132,9 @@ async def session_turns(request: HttpRequest, thread_id: str):
     """Re-hydrated transcript of an in-flight session, which the detail page polls while no run streams to it.
     ``live_run`` names the slot holder, so the page can stream that run from the relay instead; ``background``
     tells a page that rendered idle whether a run that started since is one it should follow; ``latest_run``, ``ci``
-    (with ``watch``, its single-watch shape for older pages) and ``run_count`` keep the page's top bar and details
-    panel current. ``queued`` is the session's next run and what is waiting for it, ``None`` when nothing is."""
+    (with ``watch``, its single-watch shape for older pages), ``run_count`` and ``delegations`` keep the page's top
+    bar and details panel current. ``queued`` is the session's next run and what is waiting for it, ``None`` when
+    nothing is."""
     session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
@@ -146,10 +147,11 @@ async def session_turns(request: HttpRequest, thread_id: str):
             turns.extend(expired_run_turns(runs, turns))
         turns[:] = interleave_inbox_events(turns, runs, remembered_events(session.thread_id))
         mark_skill_links(turns, session.thread_id)
+        delegations = delegations_for(turns, session, user)
         retry = retry_for(session, runs, turns, user)
-        return live_run_for(activity.live, session, user), latest_run_payload(runs, retry)
+        return live_run_for(activity.live, session, user), latest_run_payload(runs, retry), delegations
 
-    live, latest_run = await sync_to_async(finish_turns)()
+    live, latest_run, delegations = await sync_to_async(finish_turns)()
     response = {
         "turns": turns,
         "active": activity.in_flight,
@@ -158,6 +160,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
         "expired": hydrated.expired,
         "latest_run": latest_run,
         "run_count": len(runs),
+        "delegations": delegations,
         "live_run": {"id": live.id, "stoppable": live.stoppable, "started_at": live.started_at.isoformat()}
         if live
         else None,

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from django.urls import reverse
 from django.utils.translation import gettext as _
 
 from asgiref.sync import sync_to_async
@@ -25,15 +26,21 @@ from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
 from codebase.repo_config import RepositoryConfig
-from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, RunStatus, Session, SessionOrigin
+from sessions.delegation import FAILED, RUNNING, WAITING, load_delegations
+from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.store import CI_KINDS
-from sessions.templatetags.session_tags import status_variant
-from sessions.transcript import marker_id, retry_message
+from sessions.templatetags.session_tags import session_title, status_variant
+from sessions.transcript import mark_delegations, marker_id, retry_message
 
 if TYPE_CHECKING:
+    import uuid
+    from collections.abc import Mapping
+
     from accounts.models import User
-    from sessions.models import Run
+    from sessions.delegation import Delegations
+
+GOAL_MAX_CHARS = 120
 
 _CI_STATUS_BY_KIND = {EventKind.CI_FAILED: "failing", EventKind.CI_PASSED: "passing", EventKind.CI_STOPPED: "stopped"}
 _CI_TONES = {"failing": "fail", "passing": "clear", "running": "attn", "stopped": "found"}
@@ -151,10 +158,79 @@ def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
     return {"iid": iid, "url": f"{html_url.rstrip('/')}/{path}/{iid}"}
 
 
+def delegations_for(turns: list[dict[str, Any]], session: Session, user: User) -> dict[str, Any] | None:
+    """SYNC ONLY: set the ``legs`` of the ``delegate_jobs`` calls in ``turns`` and return the jobs ``session``
+    delegated as ``user`` sees them, newest batch first, or ``None`` when it never delegated. A delegated session
+    cannot delegate, so it costs no query.
+
+    A batch's ``goal`` is the one its call in ``turns`` gave, else the first line of the prompt of its first leg the
+    viewer may see. ``legs`` holds every batch's legs in one list.
+    """
+    if session.parent_id:
+        return None
+    delegations = load_delegations(session.thread_id, user)
+    if not delegations.batches:
+        return None
+    called = mark_delegations(turns, delegations)
+    goals = {**_prompt_goals(delegations, called), **called}
+    batches = [
+        {
+            "goal": goals.get(batch_id, ""),
+            "created_at": legs[0].created_at.isoformat(),
+            "legs": delegations.legs[batch_id],
+        }
+        for batch_id, legs in reversed(delegations.batches.items())
+    ]
+    legs = [leg for batch in batches for leg in batch["legs"]]
+    states = [leg["state"] for leg in legs]
+    return {
+        "total": len(states),
+        "running": sum(state in RUNNING for state in states),
+        "waiting": sum(state in WAITING for state in states),
+        "failed": sum(state in FAILED for state in states),
+        "batches": batches,
+        "legs": legs,
+    }
+
+
+def _prompt_goals(delegations: Delegations, goals: Mapping[uuid.UUID, str]) -> dict[uuid.UUID, str]:
+    """The goal of each batch ``goals`` lacks, from its first visible leg's prompt: one query, none when none lacks."""
+    firsts = {
+        batch_id: first.pk
+        for batch_id, legs in delegations.batches.items()
+        if batch_id not in goals
+        and (first := next((leg for leg in legs if leg.session_id in delegations.visible), None))
+    }
+    if not firsts:
+        return {}
+    prompts = dict(Run.objects.filter(pk__in=firsts.values()).values_list("pk", "prompt"))
+    return {
+        batch_id: (prompts.get(pk, "").strip().splitlines() or [""])[0][:GOAL_MAX_CHARS]
+        for batch_id, pk in firsts.items()
+    }
+
+
+def parent_link(session: Session, user: User) -> dict[str, str] | None:
+    """SYNC ONLY: the session that delegated ``session``, when ``user`` may see it."""
+    if not session.parent_id:
+        return None
+    parent = Session.objects.visible_to(user).filter(pk=session.parent_id).first()
+    if parent is None:
+        return None
+    return {"title": session_title(parent), "url": reverse("session_detail", kwargs={"thread_id": parent.thread_id})}
+
+
 def build_session_header(
-    session: Session, runs: list[Run], *, retry: str, merge_request: dict | None = None
+    session: Session,
+    runs: list[Run],
+    *,
+    retry: str,
+    user: User,
+    delegations: dict[str, Any] | None,
+    merge_request: dict | None = None,
 ) -> dict[str, Any]:
-    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first and the ``merge_request`` the page shows."""
+    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first, the ``delegations`` from
+    :func:`delegations_for`, and the ``merge_request`` the page shows."""
     ci = ci_payload(session)
     return {
         "latest_run": latest_run_payload(runs, retry),
@@ -162,4 +238,6 @@ def build_session_header(
         "watch": watch_payload(ci),
         "issue": issue_link(session, runs),
         "run_count": len(runs),
+        "delegations": delegations,
+        "parent": parent_link(session, user),
     }

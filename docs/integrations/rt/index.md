@@ -1,3 +1,7 @@
+---
+description: "Trigger DAIV on new Request Tracker tickets with a single RT Scrip: it triages each ticket, analyses root causes in code, and posts an internal comment."
+---
+
 # Request Tracker Triage
 
 Trigger DAIV automatically whenever a new ticket lands in Request Tracker. The DAIV agent reads the ticket, performs triage (bug / config / how-to / unclear) and — when the ticket is code-related — a root-cause analysis against the queue's repository. The report is posted back to the ticket as an **internal comment** (staff-only, not emailed to the requester).

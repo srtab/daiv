@@ -1,3 +1,7 @@
+---
+description: "Deploy a self-hosted DAIV instance with Docker Swarm or Docker Compose: PostgreSQL, Redis, the DAIV app and worker, plus the optional scheduler and sandbox."
+---
+
 # Deployment
 
 This guide walks you through deploying DAIV using Docker Swarm or Docker Compose. After completing this guide, you'll have a fully functional DAIV instance ready to connect to your codebase.

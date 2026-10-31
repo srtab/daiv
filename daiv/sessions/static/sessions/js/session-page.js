@@ -14,6 +14,18 @@ document.addEventListener("alpine:init", () => {
     }
   };
 
+  const CHECK_INTERVAL_MS = 5000;
+
+  const delegationsSummary = (delegations) => {
+    const T = window.TranscriptLabels;
+    if (delegations.running) return { state: "running", text: T.tn("delegations_running", delegations.running) };
+    if (delegations.waiting) return { state: "queued", text: T.tn("delegations_queued", delegations.waiting) };
+    if (delegations.failed) return { state: "failed", text: T.tn("delegations_failed", delegations.failed) };
+    return { state: "", text: "" };
+  };
+
+  const unsettled = (delegations) => Boolean(delegations?.running || delegations?.waiting);
+
   // x-show reveals on the next animation frame, so a scroll sent from $nextTick can land on a hidden panel.
   const whenShown = (el, then, frames = 10) => {
     if (el.getClientRects().length) then();
@@ -29,6 +41,7 @@ document.addEventListener("alpine:init", () => {
     queued: null,
     muted: Boolean(config.muted),
     runCount: 0,
+    delegations: null,
     title: config.title || "",
     titleDraft: "",
     titleWidth: 0,
@@ -42,8 +55,14 @@ document.addEventListener("alpine:init", () => {
     _watchAt: -Infinity,
     _media: null,
     _onMedia: null,
+    _checkTimer: null,
     init() {
       this.applyHeader(readJSON("session-header"));
+      // A dormant page polls nothing, so runs ending while a delegated job is unsettled ask sessionSync for one
+      // fetch per interval; a run starting already gets one from sessionSync's own watch.
+      this.$watch("$store.nav?.running", (running, previous) => {
+        if (running < previous && unsettled(this.delegations)) this._askForCheck();
+      });
       this._media = window.matchMedia?.(WIDE) ?? null;
       this.wide = Boolean(this._media?.matches);
       this._onMedia = (event) => {
@@ -55,6 +74,14 @@ document.addEventListener("alpine:init", () => {
     },
     destroy() {
       this._media?.removeEventListener?.("change", this._onMedia);
+      clearTimeout(this._checkTimer);
+    },
+    _askForCheck() {
+      if (this._checkTimer) return;
+      this._checkTimer = setTimeout(() => {
+        this._checkTimer = null;
+        if (unsettled(this.delegations)) window.dispatchEvent(new CustomEvent("daiv:session-check"));
+      }, CHECK_INTERVAL_MS);
     },
     _remembered() {
       try {
@@ -92,6 +119,12 @@ document.addEventListener("alpine:init", () => {
     get busy() {
       return this._running || this.waiting;
     },
+    get delegationsBadge() {
+      if (!this.delegations) return { count: "", state: "", text: "", label: "" };
+      const count = window.TranscriptLabels.tn("delegations_total", this.delegations.total);
+      const { state, text } = delegationsSummary(this.delegations);
+      return { count, state, text, label: [count, text].filter(Boolean).join(" · ") };
+    },
     get status() {
       if (this._running) return { variant: "running", label: config.labels.running };
       if (this.waiting) return { variant: "queued", label: config.labels.queued };
@@ -114,6 +147,7 @@ document.addEventListener("alpine:init", () => {
       const stale = data.requestedAt <= this._watchAt;
       if ("watch" in data && !stale) this._showCi(data);
       if ("queued" in data) this.queued = data.queued ?? null;
+      if ("delegations" in data) this.delegations = data.delegations ?? null;
     },
     _showCi(data) {
       this.ci = data?.ci ?? [];

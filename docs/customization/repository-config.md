@@ -1,3 +1,7 @@
+---
+description: "Configure DAIV per repository with a .daiv.yml file: access control, file access, feature toggles, branch naming, commit messages and model overrides."
+---
+
 # Repository Config
 
 Customize DAIV's behavior per repository using a `.daiv.yml` file in the root of the default branch.

@@ -1,3 +1,7 @@
+---
+description: "The admin-only DAIV Site Configuration UI: tune agent models, tools, LLM providers and OAuth login at runtime, overriding environment variables."
+---
+
 # Site Configuration
 
 Site Configuration is the **admin-only** web UI for tuning DAIV's runtime behavior without redeploying. Settings are grouped by area, stored in the database, and **override the matching environment-variable defaults** — so you can pick agent models, toggle agent tools, register LLM providers, and switch OAuth login on or off, all from the dashboard.
@@ -19,7 +23,7 @@ The configuration is split into the following groups, organized by category.
 
 | Group | Category | What it configures |
 |-------|----------|--------------------|
-| **Agent** | AI tasks | Primary, fallback, `daiv-max`, and explore models; their thinking levels; the agent recursion limit; and whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests. |
+| **Agent** | AI tasks | Primary, fallback, `daiv-max`, and explore models; their thinking levels; the agent recursion limit; the per-request LLM timeout and retry count (applied to every provider and model-backed task); and whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests. |
 | **Commit & PR Writer** | AI tasks | Primary and fallback models that generate commit messages and pull/merge request descriptions from diffs. |
 | **Titling** | AI tasks | Primary and fallback models that generate session and run titles from prompts. |
 | **Providers** | Models | LLM provider records — slug, wire protocol, base URL, API key, and extra headers — that every model field draws from. |

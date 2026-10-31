@@ -1,3 +1,7 @@
+---
+description: "Trigger DAIV agents programmatically with the Jobs REST API from CI pipelines, scripts or other tools: submit a prompt, get a job ID, poll the result."
+---
+
 # Jobs API
 
 The Jobs API lets you trigger DAIV agents programmatically — outside of the usual git webhook flow. Submit a prompt, get a job ID, and poll for the result.
@@ -77,6 +81,7 @@ POST /api/jobs
 | `environment`          | string           | no       | Select a sandbox environment (by name or id) applied to every job in the batch. An unresolvable environment is rejected with `400`. |
 | `thread_id`            | string (UUID)    | no       | Continue an existing thread. Requires exactly one repo in `repos`, and the most recent run on that thread must belong to you, and you must not have archived the session (otherwise `400`). If the session is busy, the job joins the session's next run for its branch, in `QUEUED` state, which starts once the current run ends; see [Job lifecycle](#job-lifecycle). |
 | `references`           | array of objects | no       | Up to 20 external work-item references (Jira/Sentry/RT tickets, git-platform issues, …) that DAIV links into the MR/PR it creates. Each item: `{ "key": "PROJ-123", "url": "https://…", "provider": "jira", "relation": "relates" }` — only `key` is required. |
+| `mcp_overrides`        | object           | no       | MCP servers to switch on or off for every job in the batch, relative to the default set: `{"grafana": true}` adds an on-demand server, `{"sentry": false}` drops an active one. Names are those of the global servers and your own personal ones; an unknown name is rejected with `400`, and a value other than `true`/`false` with `422`. On a continued thread (`thread_id`) they apply on top of the thread's own, so a server you don't name keeps its setting. A continuation that would change them while another run on the thread is unfinished is returned in `failed`, since that run would pick them up too. |
 
 `references` is the same schema the MCP `submit_job` tool takes, validated by the same code; see [`references` on the MCP endpoint](mcp-endpoint.md#available-tools) for the per-field rules, the provider list, the `closes` auto-close semantics, the continuation merge, and the v1 limitation on existing MRs. An invalid reference (bad key charset, non-`http(s)` URL, more than 20 entries) is rejected with `422` and nothing is stored.
 
@@ -196,7 +201,7 @@ For `POST /api/jobs`:
 
 | Code | When |
 |------|------|
-| `400` | Invalid request — bad `agent_model` / `agent_thinking_level` override, no `agent_model` given and no system default model configured (a model set only in `.daiv.yml` does not count), unresolvable `environment`, or invalid `thread_id` continuation (unknown/unowned thread, a session you archived, or more than one repo). |
+| `400` | Invalid request — bad `agent_model` / `agent_thinking_level` override, no `agent_model` given and no system default model configured (a model set only in `.daiv.yml` does not count), unresolvable `environment`, an unknown MCP server in `mcp_overrides`, or invalid `thread_id` continuation (unknown/unowned thread, a session you archived, or more than one repo). |
 | `404` | A repository in `repos` is not found or you lack write access to it. The response does not say which one. |
 | `422` | Malformed body or unknown fields (e.g. the removed `use_max` or `notify_on`). |
 | `429` | Rate limit exceeded (see [Rate limiting](#rate-limiting)). |

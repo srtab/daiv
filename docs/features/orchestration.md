@@ -1,3 +1,7 @@
+---
+description: "Let the DAIV agent delegate work to independent jobs on other repositories or new sessions on the same one, then report the combined outcome."
+---
+
 # Orchestration
 
 Orchestration lets the agent hand work to new, independent jobs — on your other repositories or on its own — and pick up again once they have all finished, to report the combined outcome or carry on.
@@ -98,7 +102,7 @@ The `goal` only titles the batch; it is never sent to a leg.
 | Legs cannot ask questions | Nobody is watching a leg, so it decides or reports instead of stopping for input. |
 | Legs and the resumed run keep the coordinator's mute | A muted job or schedule stays quiet through its delegations. |
 | Only the coordinator's session can check or cancel its legs | The tools see the batches their own session delegated, and no other session's. |
-| At most **3 resumes in a row** may delegate again | A coordinator resumed three times in a row by its own delegations, with no other run on its session in between, finishes in that turn instead of delegating again, so failing legs cannot loop it. |
+| At most **3 runs in a row** nobody asked for | After three runs in a row on the coordinator's session that no person started, a finished batch is only remembered instead of resuming it, until a person starts a run there, and its owner is told, so failing legs cannot loop it. |
 
 If no target starts, the tool says so and no resume comes: the coordinator deals with the failures in the same turn. If the resumed run cannot be queued when the last leg finishes, or gives up waiting for the coordinator's session, DAIV retries it within a few minutes, and it starts any leg left waiting after the coordinator's turn ended.
 
@@ -146,7 +150,15 @@ While the agent works on a task in chat, it may come across an unrelated problem
 
 ## Seeing the batch
 
-Every leg is its own session in the [Sessions](sessions.md) list, and the legs of one call share a batch. The coordinator's session shows the delegation and, later, the resumed run with the legs' summary. [Notifications](notifications.md) treat the legs as a batch, so you get one rollup when they need a look.
+Every leg is its own session in the [Sessions](sessions.md) list, and the legs of one call share a batch. The coordinator's session page shows where each leg stands now, not where it stood when it was delegated:
+
+- **Transcript** — each `delegate_jobs` call is a **Delegated jobs** card: its goal, and one row per leg with its state, merge request and session.
+- **Top bar** — a button counts the legs and says how many are running, queued or failed; it opens a list of every leg.
+- **Details panel** — a **Delegated jobs** section lists the legs batch by batch, newest first.
+
+A leg is *Queued*, *Starts after this turn*, *Running*, *Stopping*, *Finished*, *Failed*, *Cancelled* or *Lost* (it started, but DAIV lost track of it). An open page updates within a few seconds of a leg starting or finishing. In these three places, a leg whose session you cannot see shows only its repository, branch and state. A leg's own session page links back to the coordinator's (**Delegated by**) when you can see it.
+
+The coordinator's session then shows the resumed run with the legs' summary. [Notifications](notifications.md) treat the legs as a batch, so you get one rollup when they need a look.
 
 !!! note "Why not call DAIV's own MCP endpoint?"
     [`submit_job`](mcp-endpoint.md) starts the same kind of jobs, but a caller can only poll or block for the result. That suits an editor or a script; inside an agent run it would hold a worker while the legs wait for one, with no way to resume afterwards. `delegate_jobs` ends the coordinator's turn and resumes it when the work is done.
