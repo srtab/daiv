@@ -546,7 +546,7 @@ async def test_ac3_report_intent_passes_all_clear_through_with_no_findings():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_ac4_found_issues_with_empty_list_coerced_to_all_clear():
+async def test_ac4_found_issues_with_empty_list_coerced_to_needs_attention():
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     classification = RunClassification(status="found-issues", summary="Odd but empty.", actionable=[])
 
@@ -554,7 +554,7 @@ async def test_ac4_found_issues_with_empty_list_coerced_to_all_clear():
         await classify_run_task.func(str(run.pk))
 
     envelope = await RunEnvelope.objects.aget(run=run)
-    assert envelope.status == EnvelopeStatus.ALL_CLEAR
+    assert envelope.status == EnvelopeStatus.NEEDS_ATTENTION
     assert envelope.actionable == []
     assert envelope.count == 0
 

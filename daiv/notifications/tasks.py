@@ -145,7 +145,7 @@ async def classify_run_task(run_id: str) -> None:
     them: a FAILED run is a tooling problem (``failed``, no LLM call); a WAITING_INPUT run is
     ``needs-input`` with its question lines (no LLM call); a ``report``-intent run never
     yields a finding (``actionable == []``); a ``found-issues`` draft with no items is coerced to
-    ``all-clear``; and — the reverse direction — only a ``found-issues`` envelope ever carries
+    ``needs-attention``; and — the reverse direction — only a ``found-issues`` envelope ever carries
     actionable items (any other status is emptied), so an off-contract draft can never persist an
     incoherent envelope. The classification *method*
     (:func:`notifications.classification.llm.classify_response_text`) only proposes a draft.
@@ -243,14 +243,12 @@ async def classify_run_task(run_id: str) -> None:
 
     # Apply the load-bearing invariants in code (never delegated to the method), speaking the
     # ``EnvelopeStatus`` enum rather than raw strings so the vocabulary has a single source of truth:
-    # a non-finding-bearing intent (report) never yields a *finding* (AC3) — a would-be ``found-issues``
-    # coerces up to ``needs-attention``; a ``found-issues`` draft with no items coerces down to
-    # ``all-clear`` (AC4). ``Intent.finding_bearing()`` is the enum's own source of truth for this.
+    # a non-finding-bearing intent (report) never yields a *finding* (AC3), and a ``found-issues`` draft with
+    # no items has none to show (AC4) — both become ``needs-attention``, so the run still notifies.
+    # ``Intent.finding_bearing()`` is the enum's own source of truth for this.
     status = EnvelopeStatus(draft.status)
-    if status == EnvelopeStatus.FOUND_ISSUES and intent not in Intent.finding_bearing():
+    if status == EnvelopeStatus.FOUND_ISSUES and (intent not in Intent.finding_bearing() or not draft.actionable):
         status = EnvelopeStatus.NEEDS_ATTENTION
-    elif status == EnvelopeStatus.FOUND_ISSUES and not draft.actionable:
-        status = EnvelopeStatus.ALL_CLEAR
 
     # Only ``found-issues`` carries items; every other status (incl. a coerced report, or an
     # off-contract draft that arrived with items) is emptied.
