@@ -34,7 +34,7 @@ def test_backfill_ineligible_freezes_only_terminal_runs():
     assert runs[RunStatus.QUEUED].classify_eligible is True
 
 
-open_watches_migration = import_module("sessions.migrations.0023_migrate_open_watches")
+open_watches_migration = import_module("sessions.migrations.0021_session_inbox")
 
 
 @pytest.mark.django_db
