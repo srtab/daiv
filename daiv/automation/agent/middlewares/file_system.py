@@ -52,6 +52,13 @@ _WRITE_FILE_EXTRA = (
     "create a new file, or to deliberately rewrite one end to end."
 )
 
+# deepagents' ``_parallel_file_mutation_error`` rejects every same-path mutation after the first in one response.
+_EDIT_FILE_EXTRA = (
+    "- Send at most one edit_file call per file in a response: parallel calls on the same file are rejected after "
+    "the first. To change several places in one file, make one edit whose old_string spans them, or edit them in "
+    "separate responses."
+)
+
 
 def _with_path_reminder(base: str, *extras: str) -> str:
     return "\n".join((base, *extras, REMINDER_ABSOLUTE_PATHS))
@@ -296,7 +303,7 @@ _LS_EXTRA = (
 LIST_FILES_TOOL_DESCRIPTION = _with_path_reminder(LIST_FILES_TOOL_DESCRIPTION_BASE, _LS_EXTRA)
 READ_FILE_TOOL_DESCRIPTION = _with_path_reminder(READ_FILE_TOOL_DESCRIPTION_BASE)
 WRITE_FILE_TOOL_DESCRIPTION = _with_path_reminder(WRITE_FILE_TOOL_DESCRIPTION_BASE, _WRITE_FILE_EXTRA)
-EDIT_FILE_TOOL_DESCRIPTION = _with_path_reminder(EDIT_FILE_TOOL_DESCRIPTION_BASE)
+EDIT_FILE_TOOL_DESCRIPTION = _with_path_reminder(EDIT_FILE_TOOL_DESCRIPTION_BASE, _EDIT_FILE_EXTRA)
 
 WRITE_FILE_TOOL = "write_file"
 EDIT_FILE_TOOL = "edit_file"

@@ -9,7 +9,7 @@ from deepagents.backends.composite import CompositeBackend
 from deepagents.graph import _apply_custom_middleware
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
 from deepagents.middleware.filesystem import FilesystemPermission, _check_fs_permission
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
@@ -102,6 +102,29 @@ def test_write_file_description_does_not_contradict_upstream():
     assert "edit_file" in WRITE_FILE_TOOL_DESCRIPTION, "must still steer edits to edit_file"
     assert "ONLY create new files" not in WRITE_FILE_TOOL_DESCRIPTION
     assert "will fail on files that already exist" not in WRITE_FILE_TOOL_DESCRIPTION
+
+
+async def test_edit_file_description_warns_of_upstream_parallel_edit_rejection(setup):
+    """The edit_file description warns that a same-file edit after the first in one response is
+    rejected. If upstream stops rejecting it, this fails so the warning can go."""
+    from automation.agent.middlewares.file_system import EDIT_FILE_TOOL_DESCRIPTION
+
+    path = f"/{setup.repo.name}/module.py"
+    calls = [
+        {"name": "edit_file", "id": f"call_{i}", "args": {"file_path": path, "old_string": "x", "new_string": "y"}}
+        for i in range(2)
+    ]
+    state = {"messages": [AIMessage(content="", tool_calls=calls)]}
+    request = ToolCallRequest(
+        tool_call=calls[1], tool=None, state=state, runtime=_runtime(state=state, working_dir=setup.repo)
+    )
+    handler = AsyncMock(return_value=ToolMessage(content="ok", tool_call_id="call_1", name="edit_file"))
+
+    result = await setup.middleware.awrap_tool_call(request, handler)
+
+    assert result.status == "error"
+    handler.assert_not_awaited()
+    assert "parallel calls on the same file are rejected" in EDIT_FILE_TOOL_DESCRIPTION
 
 
 async def test_glob_description_does_not_claim_bare_patterns_fail(tmp_path: Path):
