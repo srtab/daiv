@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 from ag_ui.core.events import EventType, ToolCallArgsEvent, ToolCallEndEvent, ToolCallResultEvent, ToolCallStartEvent
@@ -27,6 +28,9 @@ REASONING_EVENT_TYPES = frozenset({
     EventType.REASONING_END,
     EventType.REASONING_ENCRYPTED_VALUE,
 })
+
+
+_ERROR_PREFIX = re.compile(r"\s*error\b", re.IGNORECASE)
 
 
 class SubagentEventFilter:
@@ -83,10 +87,12 @@ class SubagentEventFilter:
     * drops the LATE OnToolEnd re-emitted START/ARGS/END for tool_calls we
       already synthesized (deduping by tool_call_id),
     * synthesizes TOOL_CALL_RESULT for a started tool_call whose ToolMessage
-      reaches a STATE_SNAPSHOT without one. Upstream emits RESULT only from
-      OnToolEnd, which never fires for a call a middleware answers without
-      running the tool (deepagents' parallel same-file edit guard), so the
-      chat row would spin until the run ends.
+      reaches a STATE_SNAPSHOT or an ``on_chain_end`` RAW event without one,
+      and drops a natural RESULT arriving after it. Upstream emits RESULT only
+      from OnToolEnd, which never fires for a call a middleware answers without
+      running the tool (deepagents' parallel same-file edit guard), so the chat
+      row would spin until the run ends. The RAW source matters because upstream
+      withholds node-exit snapshots while a subagent runs.
     """
 
     def __init__(self) -> None:
@@ -94,6 +100,7 @@ class SubagentEventFilter:
         self._natural_started: set[str] = set()
         self._natural_index: dict[str, int] = {}
         self._answered: set[str] = set()
+        self._synthesized_answers: set[str] = set()
 
     async def apply(self, stream: AsyncIterator[BaseEvent]) -> AsyncGenerator[BaseEvent]:
         async for event in stream:
@@ -113,13 +120,15 @@ class SubagentEventFilter:
                 yield event
                 for synth in self._synthesize_unstarted(self._iter_latest_tool_calls(event)):
                     yield synth
-                for synth in self._synthesize_unanswered(event):
+                for synth in self._synthesize_unanswered(self._snapshot_messages(event)):
                     yield synth
                 continue
 
             if event.type == EventType.RAW:
                 yield event
                 for synth in self._synthesize_unstarted(self._iter_chat_model_end_tool_calls(event)):
+                    yield synth
+                for synth in self._synthesize_unanswered(self._chain_end_messages(event)):
                     yield synth
                 continue
 
@@ -139,6 +148,8 @@ class SubagentEventFilter:
             if event.type == EventType.TOOL_CALL_RESULT:
                 tcid = getattr(event, "tool_call_id", None)
                 if isinstance(tcid, str):
+                    if tcid in self._synthesized_answers:
+                        continue
                     self._answered.add(tcid)
 
             yield event
@@ -247,32 +258,47 @@ class SubagentEventFilter:
             self._synthesized.add(tcid)
         return events
 
-    def _synthesize_unanswered(self, event: BaseEvent) -> list[BaseEvent]:
-        """Build TOOL_CALL_RESULT for every ToolMessage in the snapshot whose call was started on this stream but
-        never answered. Calls this stream never started are skipped: the snapshot also carries earlier turns."""
+    def _synthesize_unanswered(self, messages: list[Any]) -> list[BaseEvent]:
+        """Build TOOL_CALL_RESULT for every ToolMessage whose call was started on this stream but never answered.
+        Calls this stream never started are skipped: snapshots and the root graph's output also carry earlier turns."""
+        unanswered = (self._natural_started | self._synthesized) - self._answered
         events: list[BaseEvent] = []
-        for message in self._snapshot_messages(event):
+        for message in messages if unanswered else []:
             tcid = self._field(message, "tool_call_id")
-            if self._msg_role(message) != "tool" or not isinstance(tcid, str) or tcid in self._answered:
+            if self._msg_role(message) != "tool" or tcid not in unanswered:
                 continue
-            if tcid not in self._natural_started and tcid not in self._synthesized:
-                continue
+            content = normalize_tool_content(self._field(message, "content"))
+            # The event has no status: the chat UI marks a row failed only by this prefix (``ERROR_PREFIX_RE``).
+            if self._field(message, "status") == "error" and not _ERROR_PREFIX.match(content):
+                content = f"Error: {content}"
             events.append(
                 ToolCallResultEvent(
                     type=EventType.TOOL_CALL_RESULT,
                     tool_call_id=tcid,
                     message_id=str(self._field(message, "id") or tcid),
-                    content=normalize_tool_content(self._field(message, "content")),
+                    content=content,
                     role="tool",
                 )
             )
+            unanswered.discard(tcid)
             self._answered.add(tcid)
+            self._synthesized_answers.add(tcid)
         return events
 
     @classmethod
     def _snapshot_messages(cls, event: BaseEvent) -> list[Any]:
         snap = getattr(event, "snapshot", None)
         msgs = snap.get("messages") if isinstance(snap, dict) else None
+        return msgs if isinstance(msgs, list) else []
+
+    @classmethod
+    def _chain_end_messages(cls, event: BaseEvent) -> list[Any]:
+        """The ``messages`` a node (or the root graph) returned, from an ``on_chain_end`` RAW event; else ``[]``."""
+        raw = getattr(event, "event", None)
+        if not isinstance(raw, dict) or raw.get("event") != "on_chain_end":
+            return []
+        output = (raw.get("data") or {}).get("output")
+        msgs = output.get("messages") if isinstance(output, dict) else None
         return msgs if isinstance(msgs, list) else []
 
     @classmethod

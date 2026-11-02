@@ -702,6 +702,54 @@ async def test_filter_synthesizes_result_for_tool_call_answered_without_running(
     assert results == [("tc-ran", "r1", "edited"), ("tc-rejected", "r2", "no")]
 
 
+def _tools_chain_end(*messages: dict) -> RawEvent:
+    return RawEvent(
+        event={
+            "event": "on_chain_end",
+            "metadata": {"langgraph_checkpoint_ns": "tools:p"},
+            "data": {"output": {"messages": list(messages)}},
+        }
+    )
+
+
+async def test_filter_synthesizes_result_from_tools_chain_end_when_no_snapshot_carries_it():
+    # Upstream withholds node-exit snapshots while a subagent runs; the node's RAW output still arrives.
+    started = _chat_model_end(output={"tool_calls": [{"id": "tc-rejected", "name": "edit_file", "args": {}}]})
+    chain_end = _tools_chain_end({"type": "tool", "id": "r2", "tool_call_id": "tc-rejected", "content": "Error: no"})
+
+    out = await _drain(_filter([started, chain_end]))
+
+    assert [(e.tool_call_id, e.content) for e in out if e.type == EventType.TOOL_CALL_RESULT] == [
+        ("tc-rejected", "Error: no")
+    ]
+
+
+async def test_filter_marks_a_synthesized_error_result_as_failed_for_the_ui():
+    started = _chat_model_end(output={"tool_calls": [{"id": "tc-capped", "name": "bash", "args": {}}]})
+    chain_end = _tools_chain_end({
+        "type": "tool",
+        "id": "r",
+        "tool_call_id": "tc-capped",
+        "status": "error",
+        "content": "Budget exhausted.",
+    })
+
+    out = await _drain(_filter([started, chain_end]))
+
+    [result] = [e for e in out if e.type == EventType.TOOL_CALL_RESULT]
+    assert result.content == "Error: Budget exhausted."
+
+
+async def test_filter_drops_a_natural_result_arriving_after_a_synthesized_one():
+    started = _chat_model_end(output={"tool_calls": [{"id": "tc-late", "name": "task", "args": {}}]})
+    chain_end = _tools_chain_end({"type": "tool", "id": "r", "tool_call_id": "tc-late", "content": "done"})
+    late = _ev(ToolCallResultEvent, ns="", tool_call_id="tc-late", message_id="r", content="done")
+
+    out = await _drain(_filter([started, chain_end, late]))
+
+    assert len([e for e in out if e.type == EventType.TOOL_CALL_RESULT]) == 1
+
+
 async def test_filter_synthesizes_no_result_for_a_tool_call_it_never_started():
     # A snapshot carries the thread's whole history; a result for a call this stream never started has no row.
     snapshot = _ev(

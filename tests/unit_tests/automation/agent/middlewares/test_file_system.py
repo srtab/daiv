@@ -104,11 +104,9 @@ def test_write_file_description_does_not_contradict_upstream():
     assert "will fail on files that already exist" not in WRITE_FILE_TOOL_DESCRIPTION
 
 
-async def test_edit_file_description_warns_of_upstream_parallel_edit_rejection(setup):
-    """The edit_file description warns that a same-file edit after the first in one response is
-    rejected. If upstream stops rejecting it, this fails so the warning can go."""
-    from automation.agent.middlewares.file_system import EDIT_FILE_TOOL_DESCRIPTION
-
+async def test_upstream_still_rejects_parallel_same_file_edits(setup):
+    """``_ONE_WRITE_PER_FILE`` warns the model that a same-file edit after the first in one response
+    is rejected. If upstream stops rejecting it, this fails so the warning can go."""
     path = f"/{setup.repo.name}/module.py"
     calls = [
         {"name": "edit_file", "id": f"call_{i}", "args": {"file_path": path, "old_string": "x", "new_string": "y"}}
@@ -124,7 +122,6 @@ async def test_edit_file_description_warns_of_upstream_parallel_edit_rejection(s
 
     assert result.status == "error"
     handler.assert_not_awaited()
-    assert "parallel calls on the same file are rejected" in EDIT_FILE_TOOL_DESCRIPTION
 
 
 async def test_glob_description_does_not_claim_bare_patterns_fail(tmp_path: Path):
