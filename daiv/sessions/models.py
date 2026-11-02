@@ -729,6 +729,7 @@ class MergeRequestOwnership(models.Model):
     last_examined_sha = models.CharField(_("last commit examined"), max_length=64, blank=True, default="")
     last_pipeline_id = models.BigIntegerField(_("last pipeline judged"), null=True, blank=True)
     last_pipeline_status = models.CharField(_("last pipeline status judged"), max_length=32, blank=True, default="")
+    last_reconciled_at = models.DateTimeField(_("CI last re-read"), null=True, blank=True)
     closed_at = models.DateTimeField(_("closed at"), null=True, blank=True)
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     updated_at = models.DateTimeField(_("updated at"), auto_now=True)

@@ -128,6 +128,7 @@ for (const [action, value] of steps) {
       docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
       ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn, ci: page.ci,
       explanations: page.ci.map((item) => page.ciExplanation(item)), muted: page.muted, upNext: page.upNext,
+      ciTexts: page.ci.map((item) => page.ciText(item)),
       delegations: page.delegations, delegationsLabel: page.delegationsBadge.label, dispatched: [...dispatched],
       delegationsState: page.delegationsBadge.state, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
       timers: timers.map((timer) => timer.ms),
@@ -371,6 +372,17 @@ def test_a_failure_links_the_run_that_looked_at_it():
     result = _run([["poll", {"latest_run": DONE, "ci": ci, "watch": WATCH_OFF}], ["read", None]])
 
     assert result["seen"][0]["explanations"] == ["#run-status-r-1", "", ""]
+
+
+def test_a_failure_names_its_failing_jobs_after_its_label():
+    ci = [
+        _ci("failing") | {"label": "Stopped after 3 attempts", "failed_jobs": ["tests", "lint"]},
+        _ci("failing", iid=8) | {"label": "Failing"},
+        _ci("passing", iid=9) | {"label": "Passing", "failed_jobs": []},
+    ]
+    result = _run([["poll", {"latest_run": DONE, "ci": ci, "watch": WATCH_OFF}], ["read", None]])
+
+    assert result["seen"][0]["ciTexts"] == ["Stopped after 3 attempts · tests, lint", "Failing", "Passing"]
 
 
 @pytest.mark.parametrize(("status", "body"), [(502, {}), (409, {"detail": "Something else"}), (422, {"detail": []})])

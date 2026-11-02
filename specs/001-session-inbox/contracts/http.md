@@ -28,14 +28,18 @@ New fields in the response:
 
 ```json
 {
-  "queued": {"run_id": "<uuid>", "events": [{"id": "<uuid>", "kind": "chat_message", "summary": "…", "created_at": "…"}]},
-  "timeline": [{"id": "<uuid>", "kind": "ci_passed", "summary": "Pipeline 830731 passed", "web_url": "…", "created_at": "…", "state": "pending"}],
-  "ci": [{"merge_request_iid": 9, "status": "failing|passing|running|stopped", "attempts": 1, "max_attempts": 3, "watch_enabled": true, "explanation_run_id": "<uuid>|null"}]
+  "turns": [{"id": "inbox-<uuid>", "role": "inbox_event", "kind": "ci_passed", "summary": "Pipeline 830731 passed", "reason": "", "reason_text": "", "failure_label": "", "web_url": "…", "created_at": "…"}],
+  "up_next": {
+    "groups": [{"run_id": "<uuid>|", "who": "…", "is_viewer": true, "starting": false, "bubbles": [{"id": "inbox-<uuid>", "event_id": "<uuid>", "kind": "chat_message", "received": false, "failed": false, "text": "…", "source_iid": 9, "trigger_type": "", "web_url": "", "created_at": "…"}], "told": ["<inbox_event entry>"]}],
+    "told": [{"branch": "chore/x", "lines": ["<inbox_event entry>"]}]
+  },
+  "ci": [{"merge_request_iid": 9, "status": "failing|passing|running|stopped", "label": "Failing|Stopped after 3 attempts|…", "tone": "…", "failed_jobs": ["tests"], "attempts": 1, "max_attempts": 3, "watch_enabled": true, "explanation_run_id": "<uuid>|null"}]
 }
 ```
 
-- **`timeline`**: remembered events, to interleave with transcript turns by `created_at`. The server side is `annotate_transcript`, which emits `inbox_event` pseudo-entries like the existing `run_status` entries.
-- **`ci`**: replaces the single `watch` payload. It lists every open merge request the session owns (FR-003). `watch` stays one release for old pages, derived from the first item.
+- **`inbox_event` entries in `turns`**: events runs already took, and failed ones, interleaved with the transcript before the first turn of the run that took them (`interleave_inbox_events`). A failed event carries its `failure_label`; a quieted one its `reason` and `reason_text`.
+- **`up_next`** (also served alone by `GET /api/sessions/{thread_id}/up-next`): the runs still to start, in the order the drain will start them, one group per branch and requester, each with the requests that start it (`bubbles`) and the remembered events it will be told; plus the remembered events no group will take, per branch. Every viewer of the session sees it (FR-034).
+- **`ci`**: replaces the single `watch` payload. It lists every open merge request the session owns (FR-003), its status taken from the latest CI event of each subject on the newest commit (one subject per merge request on GitLab, one per workflow on GitHub). After a give-up the `label` reads "Stopped after N attempts" and `failed_jobs` names the failing jobs (FR-017). `watch` stays one release for old pages, derived from the first item.
 - Summaries are built from payload fields and never contain exception text.
 
 ## CI watch toggle: `POST /api/sessions/{thread_id}/ci-watch`

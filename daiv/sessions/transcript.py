@@ -350,7 +350,7 @@ def inbox_event_entry(event: InboxEvent, *, reason: str | None = None) -> dict[s
         "kind": event.kind,
         "summary": summarize(event),
         "reason": reason,
-        "reason_text": reason_text(event.kind, reason),
+        "reason_text": reason_text(event.kind, reason, event.payload),
         "failure_label": event.get_failure_display() if event.state == EventState.FAILED else "",
         "web_url": event.payload.get("web_url", ""),
         "created_at": event.created_at.isoformat(),

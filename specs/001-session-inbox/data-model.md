@@ -45,9 +45,9 @@ Something that happened which concerns one session.
 | `mention` | yes | — | 2 | `mr_webhook` |
 | `follow_up_job` | yes | — | 3 | `api_job` / `mcp_job` (from payload) |
 | `delegation_finished` | yes | — | 4 | `delegation_resume` |
-| `ci_failed` | per R7 | `ci:<iid>` | 5 | `pipeline_webhook` |
-| `ci_passed` | no | `ci:<iid>` | — | — |
-| `ci_stopped` | no | `ci:<iid>` | — | — (status needs a person: blocked, manual, canceled, skipped with jobs) |
+| `ci_failed` | per R7 | `ci:<iid>`, or `ci:<iid>:<workflow id>` on GitHub | 5 | `pipeline_webhook` |
+| `ci_passed` | no | as `ci_failed` | — | — |
+| `ci_stopped` | no | as `ci_failed` | — | — (status needs a person: blocked, manual, canceled, skipped with jobs) |
 | `branch_pushed` | no | `branch:<ref>` | — | — |
 | `foreign_publish` | no | `branch:<ref>` | — | — |
 | `mr_merged` / `mr_closed` | no | `mr-state:<iid>` | — | — |
@@ -64,10 +64,10 @@ Waking events always carry a `ref`:
 
 Each kind has a `TypedDict`, validated in `inbox.kinds`. Payloads hold what the renderer and the timeline need, and never credentials.
 
-- `ci_*`: `pipeline_id`, `sha`, `status`, `web_url`, `failed_jobs`, a list of names.
+- `ci_*`: `pipeline_id`, `sha`, `status`, `web_url`, `failed_jobs`, a list of names; on GitHub also `workflow` (its name); a `budget_spent` failure also `attempts`.
 - `mention`, `comment`: `note_id`, `discussion_id` (GitLab), `review_comment_id` (GitHub, diff), `body`, `web_url`, `is_diff`.
 - `branch_pushed`: `before`, `after`, `commit_count`, `pusher_username`.
-- `foreign_publish`: `thread_id`, `owner_username`, `sha`.
+- `foreign_publish`: `thread_id`, `owner_username`, `sha`, and the publishing session's `title` and `web_url`.
 - `mr_merged` / `mr_closed`: `target_branch`, `by_username`.
 - `follow_up_job`: `prompt`, `trigger_type`, `ref`, `agent_model`, `agent_thinking_level`, `references`.
 - `chat_message`: `text`, `agui_message_id`, `agent_model`, `agent_thinking_level`, attachment references (no file content).
@@ -110,6 +110,7 @@ Which session owns a merge request DAIV published, and that merge request's CI w
 | `last_daiv_sha` | Char(64), blank | The head DAIV last pushed, by any session |
 | `last_examined_sha` | Char(64), blank | The commit the last CI-woken run examined |
 | `last_pipeline_id` | BigInteger, null | The last pipeline judged, so a redelivery is skipped |
+| `last_reconciled_at` | DateTime, null | When the reconciler last re-read its CI; counts as hearing of it, so a backlog rotates |
 | `closed_at` | DateTime, null | Set on merge or close; the watch stops observing |
 | `created_at`, `updated_at` | DateTime | |
 
@@ -125,9 +126,9 @@ Which session owns a merge request DAIV published, and that merge request's CI w
 | Owned, same person (or both ownerless) | any session of that person | Ownership moves to the publishing session |
 | Owner session has no user | session with a user | Ownership moves; a `notice` event goes to the old session |
 | Owned by person A | a session of person B | Ownership doesn't move; a `foreign_publish` event goes to A's session |
-| Owner session deleted (`session` null) | any | Treated as "no row" if it is the same person; otherwise as person B |
+| Owner session deleted (`session` null) | any | Treated as "no row" if it is the same person; otherwise as person B, and the `foreign_publish` goes to a new session for the owner, which a `notice` tells why it exists (FR-004) |
 
-Every claim sets `last_daiv_sha = Run.pushed_sha`. A claim by a run started by a person (`chat`, `mr_webhook`, `api_job`, `mcp_job`, `ui_job`, `issue_webhook`, `schedule`) resets `attempts` to 0.
+Every claim sets `last_daiv_sha = Run.pushed_sha`. A claim by a run started by a person (`chat`, `mr_webhook`, `api_job`, `mcp_job`, `ui_job`, `issue_webhook`, `schedule`) resets `attempts` to 0. So does a person turning the merge request's watch back on (`ci-watch`), which also forgets the last pipeline judged so it is judged again: asking again is a new budget (FR-016).
 
 ### CI wake rule (FR-015), evaluated when a `ci_failed` event is posted
 
@@ -158,7 +159,7 @@ When the drainer dispatches a run that takes a waking `ci_failed`, it sets `last
 | `trigger_type` | Unchanged values. Set from event precedence when an inbox run is dispatched (R6) |
 | `continuation_of_batch_id` | No longer written for new continuations (R19). The column and its constraint stay for history |
 
-The QUEUED "next run" (R3) is a normal `Run` with `status=QUEUED` and `task_result=None`, whose `ref` is the branch of the events it gathers. Add `UniqueConstraint(session, ref)` on `status='QUEUED' AND trigger_type IN <inbox triggers>`, so a session has at most one next run per branch.
+The QUEUED "next run" (R3) is a normal `Run` with `status=QUEUED` and `task_result=None`, whose `ref` is the branch of the events it gathers and whose user is their requester (2026-10-31 clarification). Two partial unique constraints on `status='QUEUED' AND trigger_type IN <inbox triggers>` — one on `(session, ref, user)` for a requester with a DAIV account, one on `(session, ref, external_provider, external_uid)` for one without — give a session at most one next run per branch and requester.
 
 Delegated job legs, which are QUEUED on their own new sessions with `waits_for`, use `trigger_type=delegated_job`. That is outside the inbox set, so the constraint doesn't apply to them.
 
@@ -183,4 +184,4 @@ These go in `constitutions/glossary/README.md`:
 |---|---|---|
 | Inbox event | Something that happened which concerns a Session: a CI result, a mention, a queued chat message, a follow-up job, a delegated batch finishing (`InboxEvent`). It wakes the agent or is only remembered | message, notification |
 | Owning session | The Session that most recently published a merge request, among the sessions of the person who first published it (`MergeRequestOwnership`) | MR thread |
-| Next run | The one QUEUED Run that waking events join while their Session is busy | queued job |
+| Next run | A QUEUED Run that waking events join while their Session is busy: one per branch and requester | queued job |

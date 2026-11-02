@@ -1,6 +1,6 @@
 import uuid
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.tasks.base import DEFAULT_TASK_PRIORITY
 
@@ -10,6 +10,7 @@ from sessions.executor.lock import stale_cutoff
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.tasks import (
     drain_inboxes_cron_task,
+    evaluate_pipeline_watch_task,
     generate_batch_title_task,
     generate_title_task,
     keep_inbox_claims_alive_cron_task,
@@ -289,3 +290,18 @@ def test_the_enqueued_title_row_is_what_the_interactive_worker_claims(database_t
     assert row.queue_name == TASK_QUEUE_INTERACTIVE
     assert row.priority > DEFAULT_TASK_PRIORITY
     assert row.task_path == "sessions.tasks.generate_title_task"
+
+
+@pytest.mark.parametrize(
+    ("pipeline_id", "called"), [(42, "aevaluate"), (None, "aevaluate_latest")], ids=["by-id", "latest"]
+)
+async def test_a_ci_evaluation_judges_its_pipeline_or_else_every_ci_subjects_latest(pipeline_id, called):
+    """Without a pipeline, as after a publish or a watch turned back on, every GitHub workflow is judged, not one."""
+    with patch("sessions.pipeline_watch.service.PipelineWatch") as watch:
+        watch.return_value.aevaluate = AsyncMock()
+        watch.return_value.aevaluate_latest = AsyncMock()
+        await evaluate_pipeline_watch_task.func(repo_id="group/repo", ref="daiv/branch", pipeline_id=pipeline_id)
+
+    getattr(watch.return_value, called).assert_awaited_once()
+    other = "aevaluate_latest" if called == "aevaluate" else "aevaluate"
+    getattr(watch.return_value, other).assert_not_awaited()

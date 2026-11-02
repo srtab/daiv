@@ -13,10 +13,11 @@ from django.utils import timezone
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from sessions.management.commands.sync_stuck_runs import NEVER_QUEUED_AFTER
-from sessions.models import Run, RunStatus, Session, SessionArchive, SessionOrigin
+from sessions.models import EventState, Run, RunStatus, Session, SessionArchive, SessionOrigin
 from sessions.queue import ENQUEUE_FAILED_PREFIX
 
 from tests.unit_tests.sessions.conftest import create_archive
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
 def _make_session(*, thread_id: str | None = None) -> Session:
@@ -187,10 +188,14 @@ class TestSyncStuckRunsCommand:
         ],
         ids=["dead", "heartbeating", "just-started-on-an-idle-session"],
     )
-    def test_a_job_run_a_worker_crash_left_running_is_failed_once_its_heartbeat_is_stale(
-        self, create_db_task_result, started_ago, heartbeat_ago, status
+    @pytest.mark.parametrize(
+        "trigger", [SessionOrigin.API_JOB, SessionOrigin.CHAT, SessionOrigin.MR_WEBHOOK, SessionOrigin.PIPELINE_WEBHOOK]
+    )
+    def test_a_task_backed_run_a_worker_crash_left_running_is_failed_once_its_heartbeat_is_stale(
+        self, create_db_task_result, trigger, started_ago, heartbeat_ago, status
     ):
-        """Its task stays RUNNING for good, and the run keeps its session's one active job place."""
+        """Its task stays RUNNING for good: a job run keeps its session's one active job place, an inbox run shows
+        RUNNING with the events it took never settled."""
         now = timezone.now()
         session = Session.objects.create(
             thread_id=str(uuid.uuid4()),
@@ -201,7 +206,7 @@ class TestSyncStuckRunsCommand:
         task = create_db_task_result(status="RUNNING", started_at=now - started_ago)
         run = Run.objects.create(
             session=session,
-            trigger_type=SessionOrigin.API_JOB,
+            trigger_type=trigger,
             repo_id="group/project",
             status=RunStatus.RUNNING,
             started_at=now - started_ago,
@@ -212,6 +217,39 @@ class TestSyncStuckRunsCommand:
 
         run.refresh_from_db()
         assert run.status == status
+
+    def test_a_dead_inbox_run_ends_putting_its_events_back_and_draining_its_session(
+        self, caplog, create_db_task_result
+    ):
+        stale = timezone.now() - timedelta(hours=1)
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", last_active_at=stale
+        )
+        dead = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.PIPELINE_WEBHOOK,
+            repo_id="group/project",
+            status=RunStatus.RUNNING,
+            started_at=stale,
+            task_result=create_db_task_result(status="RUNNING", started_at=stale),
+        )
+        Session.objects.filter(pk=session.pk).update(active_run_id=str(dead.pk))
+        failure = make_event(session, state=EventState.TAKEN, run=dead)
+
+        with (
+            patch("sessions.inbox.drain.aenqueue_run", new=AsyncMock(return_value=None)),
+            caplog.at_level("INFO", logger="daiv.sessions"),
+        ):
+            call_command("sync_stuck_runs")
+
+        dead.refresh_from_db()
+        failure.refresh_from_db()
+        assert dead.status == RunStatus.FAILED
+        assert failure.attempts == 1
+        rerun = Run.objects.get(session=session, status=RunStatus.READY)
+        assert (failure.state, failure.run_id) == (EventState.TAKEN, rerun.pk)
+        assert Session.objects.get(pk=session.pk).active_run_id == str(rerun.pk)
+        assert any("dead inbox runs reaped: 1" in rec.message for rec in caplog.records)
 
     def test_a_ready_run_never_queued_is_failed_and_releases_its_sessions_queue(self, create_db_task_result):
         session = _make_session()

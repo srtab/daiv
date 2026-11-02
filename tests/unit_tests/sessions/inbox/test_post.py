@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox import kinds
-from sessions.inbox.post import aattach_next_run, apost_event
+from sessions.inbox.post import aattach_next_run, apost_delegated_ci_outcome, apost_event
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.sessions.inbox.conftest import amake_session, chat_payload, ci_payload, mention_payload
@@ -268,6 +268,43 @@ class TestRememberedEvents:
 
         assert result.event.reason == "already_examined"
         drain.assert_not_called()
+
+
+class TestDelegatedCiOutcome:
+    async def _child(self):
+        parent = await amake_session(repo_id="group/coordinator")
+        return parent, await amake_session(parent=parent)
+
+    async def test_a_retried_pipeline_that_passes_after_another_outcome_still_reaches_the_parent(self, drain):
+        """A retried pipeline keeps its id, so only its outcome tells its ending apart from the one before."""
+        parent, child = await self._child()
+
+        for outcome in ("no_push", "stopped_after_attempts", "passing"):
+            await apost_delegated_ci_outcome(
+                child, merge_request_iid=9, pipeline_id=830724, outcome=outcome, web_url="https://ci/830724"
+            )
+
+        outcomes = [event.payload["outcome"] async for event in InboxEvent.objects.filter(session=parent)]
+        assert sorted(outcomes) == ["no_push", "passing", "stopped_after_attempts"]
+
+    async def test_the_same_outcome_twice_reaches_the_parent_once(self, drain):
+        parent, child = await self._child()
+
+        for _ in range(2):
+            await apost_delegated_ci_outcome(
+                child, merge_request_iid=9, pipeline_id=830724, outcome="passing", web_url="https://ci/830724"
+            )
+
+        assert await InboxEvent.objects.filter(session=parent).acount() == 1
+
+    async def test_a_session_without_a_parent_tells_no_one(self, drain):
+        session = await amake_session()
+
+        await apost_delegated_ci_outcome(
+            session, merge_request_iid=9, pipeline_id=1, outcome="passing", web_url="https://ci/1"
+        )
+
+        assert await InboxEvent.objects.acount() == 0
 
 
 class TestRefusals:

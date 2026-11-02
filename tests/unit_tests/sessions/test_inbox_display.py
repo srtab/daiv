@@ -31,6 +31,23 @@ def test_reason_text_per_quiet_reason(kind, reason, text):
     assert reason_text(kind, reason) == text
 
 
+@pytest.mark.parametrize(
+    ("attempts", "jobs", "text"),
+    [
+        (3, ["tests", "lint"], "not fixing: stopped after 3 attempts, failing: tests, lint"),
+        (1, [], "not fixing: stopped after 1 attempt"),
+    ],
+)
+def test_a_give_up_says_how_many_attempts_and_which_jobs_fail(attempts, jobs, text):
+    payload = ci_payload(jobs=jobs) | {"attempts": attempts}
+
+    assert reason_text("ci_failed", "budget_spent", payload) == text
+
+
+def test_a_give_up_recorded_without_its_attempts_is_out_of_attempts():
+    assert reason_text("ci_failed", "budget_spent", ci_payload()) == "not fixing: out of attempts"
+
+
 def test_reason_text_is_empty_without_a_reason():
     assert reason_text("ci_failed", "") == ""
 
@@ -53,6 +70,15 @@ def test_a_ci_bubble_with_no_failed_jobs_names_only_the_pipeline(session):
     event = make_event(session, EventKind.CI_FAILED, payload=ci_payload(8812, jobs=()))
 
     assert bubble(event)["text"] == "Pipeline 8812 failed"
+
+
+@pytest.mark.parametrize(
+    ("jobs", "text"), [(["ruff"], "Lint run 8812 failed: ruff"), ([], "Lint run 8812 failed")], ids=["jobs", "none"]
+)
+def test_a_github_ci_bubble_names_the_workflow_that_failed(session, jobs, text):
+    payload = ci_payload(8812, jobs=jobs) | {"workflow": "Lint"}
+
+    assert bubble(make_event(session, EventKind.CI_FAILED, payload=payload))["text"] == text
 
 
 def test_a_finished_delegation_bubble_says_how_many_jobs_succeeded(session):

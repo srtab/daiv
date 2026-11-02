@@ -98,13 +98,18 @@ async def classify_push_task(
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE)
 async def evaluate_pipeline_watch_task(repo_id: str, ref: str, pipeline_id: int | None = None) -> None:
-    """Judge CI for an owned branch and post the result to the owning session's inbox.
+    """Judge CI for an owned branch and post the result to the owning session's inbox: the pipeline ``pipeline_id``,
+    or without one the latest pipeline of each CI subject on the branch.
 
     Short and user-visible, so it runs on the interactive queue rather than behind agent runs.
     """
     from sessions.pipeline_watch.service import PipelineWatch
 
-    await PipelineWatch(repo_id).aevaluate(ref=ref, pipeline_id=pipeline_id)
+    watch = PipelineWatch(repo_id)
+    if pipeline_id is None:
+        await watch.aevaluate_latest(ref=ref)
+    else:
+        await watch.aevaluate(ref=ref, pipeline_id=pipeline_id)
 
 
 @cron("*/10 * * * *")

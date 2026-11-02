@@ -25,8 +25,9 @@ Since your last run on this session:
 ```
 
 **Rules**:
-- **Order**: one line per surviving event, oldest first. A superseded event appears only as an indented "Superseded by …" line under its replacement's subject.
-- **Branch line**: the fast-forward result (R17) is part of the branch line: "was fast-forwarded", or "could not be fast-forwarded because you have unpublished commits".
+- **Order**: one line per remembered event, oldest first, and of a subject's events only the newest (US3/AC4): the remembered events it replaced are dropped. A waking event a newer one replaced keeps its line, with the later replaced waking events and the newest event as indented "Superseded by …" lines beneath it (US2/AC2).
+- **Foreign publish**: the line names the publishing session by its title and links its page.
+- **Branch line**: the fast-forward result (R17) is part of the branch line: "was fast-forwarded"; "was rewritten (rebased or force-pushed), so your working copy was moved to its new head" when the checkout held nothing unpublished; or "could not be fast-forwarded because you have unpublished commits".
 - **Quoting**: mention and comment bodies are quoted, and the quote is cut at 1,000 characters.
 - **Size**: the message is capped at 8,000 characters. Over the cap, the oldest remembered lines collapse into "N more <kind> events". Waking events are never collapsed (FR-014).
 - **Owner identity**: the message never states the owner's identity or credentials.

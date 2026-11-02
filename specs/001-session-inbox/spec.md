@@ -28,6 +28,11 @@
 
 - Q: When requests from different people wait for one busy session, does one turn handle them all? → A: No. A turn serves one requester and acts as them; each requester's waiting requests get a turn of their own, one after another, so one person's request never runs with another's access or personal tools.
 
+### Session 2026-11-02
+
+- Q: Does turning a merge request's CI watch back on reset its attempt budget? → A: Yes. A person turning the watch back on is asking for new attempts, as the old toggle did. Recorded in FR-016.
+- Q: Are comments without a mention on an owned merge request remembered only from authors the repository allows? → A: No. They are remembered from anyone except DAIV's own bot; the allowlist gates mentions only (FR-023, FR-026).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - CI failures are handled in the session that produced the merge request (Priority: P1)
@@ -184,7 +189,7 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
   - the merge request's attempt budget is not spent.
 
   Otherwise the failure MUST be remembered only.
-- **FR-016**: The attempt budget MUST be counted per merge request, charged only for turns that a CI failure woke, and reset when a run requested by a person publishes to the merge request.
+- **FR-016**: The attempt budget MUST be counted per merge request, charged only for turns that a CI failure woke, and reset when a run requested by a person publishes to the merge request, or when a person turns the merge request's CI watch back on.
 - **FR-017**: When the budget is spent and CI fails on a new commit DAIV pushed, the system MUST notify the owner and show "stopped after N attempts" with the failing jobs.
 - **FR-018**: When a turn that a CI failure woke pushes nothing, the system MUST NOT show the watch as given up. It MUST show the agent's final explanation and notify the owner with it. Every turn a CI failure woke MUST notify the owner of its outcome, whether or not it pushed.
 - **FR-019**: The system MUST keep recording CI results after a give-up or a turn that pushed nothing, so that a later pass or failure is reflected in the session's status.

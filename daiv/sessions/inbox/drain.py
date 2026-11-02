@@ -6,9 +6,11 @@ event per subject, turns the CI and delegation wakes the policy blocks into reme
 run left with nothing to wake it. When a waking event survives, it picks the branch and requester of the oldest one,
 checks that requester may still run on the repository (a mention is gated where it is made, FR-026), promotes their
 next run for the branch (or creates a READY one), claims the slot for it and marks ``taken`` the requester's waking
-events for the branch and every remembered one. A denied requester's events fail, and the drain goes on to the next.
-The run is enqueued once that commits, and a CI failure among its events then spends one of its merge request's
-attempts on the commit it reports; a failed enqueue frees the slot and puts the events back, for the sweep to retry.
+events for the branch and every remembered one. A CI failure among them spends one of its merge request's attempts on
+the commit it reports in that same transaction, so a crash before the enqueue still counts it. A denied requester's
+events fail, their next run ends FAILED with the ``access_denied`` label (a follow-up job's id still resolves), and
+the drain goes on to the next requester. The run is enqueued once the take commits; a failed enqueue frees the slot,
+puts the events back and refunds the attempt, for the sweep to retry.
 
 A next run is a QUEUED run with an inbox trigger type, no task yet, and events linked to it. ``sessions.queue`` leaves
 such runs alone: only this module starts them, because only it claims the slot for them.
@@ -198,18 +200,18 @@ async def alink_chat_run(holder_id: str, run: Run) -> None:
 def drain(thread_id: str) -> Run | None:
     """Start the session's next run from its pending events, and return it; ``None`` when none started. SYNC ONLY."""
     try:
-        run = _take(thread_id)
+        took = _take(thread_id)
     except Session.DoesNotExist:
         return None
-    if run is None:
+    if took is None:
         return None
+    run, charges = took
     if async_to_sync(aenqueue_run)(run, log_context="inbox", skip_dispatch=True, inbox=True) is not None:
         logger.error(
             "inbox: could not enqueue run=%s for thread_id=%s; its events wait for the next drain", run.pk, thread_id
         )
-        _undo_take(run)
+        _undo_take(run, charges)
         return None
-    _charge_ci_attempts(run)
     return run
 
 
@@ -249,8 +251,16 @@ def sessions_to_drain(limit: int = DRAIN_SWEEP_LIMIT) -> list[str]:
     )
 
 
+class _Charge(NamedTuple):
+    """A CI attempt the take spent: the merge request, the commit it recorded as examined, the failure that woke."""
+
+    merge_request_iid: int
+    sha: str
+    event_id: uuid.UUID
+
+
 @transaction.atomic
-def _take(thread_id: str) -> Run | None:
+def _take(thread_id: str) -> tuple[Run, list[_Charge]] | None:
     session = Session.objects.select_for_update(of=("self",)).select_related("user").get(pk=thread_id)
     if slot_busy(session) or job_run_active(session):
         return None
@@ -307,7 +317,7 @@ def _take(thread_id: str) -> Run | None:
     ).filter(Q(ref="") | Q(ref=branch)).update(run=run)
     _drop_emptied(queued_run for queued_run in queued_runs if queued_run.pk != run.pk)
     _merge_references(session, taken)
-    return run
+    return run, _charge_ci_attempts(session, taken)
 
 
 def _follow_session_branch(session: Session, pending: list[InboxEvent], queued_runs: list[Run]) -> None:
@@ -353,18 +363,19 @@ def _merge_references(session: Session, taken: list[InboxEvent]) -> None:
         Session.objects.filter(pk=session.pk).update(external_refs=merged)
 
 
-def _charge_ci_attempts(run: Run) -> None:
-    """Spend an attempt of each merge request whose CI failure woke ``run``, once its task is queued, and record the
-    commit it examines. A run that takes the failure again after a failed one examines the same commit, and is not
-    charged again."""
-    woken_by_ci = InboxEvent.objects.filter(
-        run=run, state=EventState.TAKEN, kind=EventKind.CI_FAILED, wake=True, merge_request_iid__isnull=False
-    )
-    for event in woken_by_ci:
+def _charge_ci_attempts(session: Session, taken: list[InboxEvent]) -> list[_Charge]:
+    """Spend an attempt of each merge request whose CI failure woke the run taking ``taken``, and record the commit it
+    examines; return the charges. A run that takes the failure again after a failed one examines the same commit, and
+    is not charged again."""
+    charges = []
+    for event in taken:
+        if event.kind != EventKind.CI_FAILED or not event.wake or event.merge_request_iid is None:
+            continue
         sha = event.payload["sha"]
-        MergeRequestOwnership.objects.filter(repo_id=run.repo_id, merge_request_iid=event.merge_request_iid).exclude(
-            last_examined_sha=sha
-        ).update(last_examined_sha=sha, attempts=F("attempts") + 1)
+        rows = MergeRequestOwnership.objects.filter(repo_id=session.repo_id, merge_request_iid=event.merge_request_iid)
+        if rows.exclude(last_examined_sha=sha).update(last_examined_sha=sha, attempts=F("attempts") + 1):
+            charges.append(_Charge(event.merge_request_iid, sha, event.pk))
+    return charges
 
 
 def _supersede(pending: list[InboxEvent]) -> list[InboxEvent]:
@@ -415,16 +426,33 @@ def _may_run(user: User, repo_id: str) -> bool:
 
 
 def _fail(session: Session, asked: list[InboxEvent], next_run: Run | None) -> None:
+    """Fail the events of a requester who may no longer run on the repository, and finish their QUEUED next run
+    FAILED with the ``access_denied`` label, so the id a follow-up job's caller polls still resolves.
+
+    The finish says ``skip_dispatch``: the caller drains once this commits, and its events, already failed rather
+    than taken, are left as they are by the run's end (:func:`sessions.inbox.complete.settle_events`)."""
     logger.warning(
         "inbox: a requester on thread_id=%s may no longer run on %s; %d event(s) failed",
         session.thread_id,
         session.repo_id,
         len(asked),
     )
+    now = timezone.now()
     InboxEvent.objects.filter(pk__in=[event.pk for event in asked]).update(
-        state=EventState.FAILED, failure=EventFailure.ACCESS_DENIED, run=None, updated_at=timezone.now()
+        state=EventState.FAILED, failure=EventFailure.ACCESS_DENIED, run=None, updated_at=now
     )
-    _drop_next_runs([next_run])
+    if next_run is None:
+        return
+    InboxEvent.objects.filter(run=next_run).update(run=None, updated_at=now)
+    Run.objects.finish(
+        next_run,
+        RunStatus.FAILED,
+        skip_dispatch=True,
+        never_started=True,
+        error_message=str(EventFailure.ACCESS_DENIED.label),
+        finished_at=now,
+        started_at=now,
+    )
 
 
 def _sandbox_env_id(session: Session, user: User | None) -> uuid.UUID | None:
@@ -480,11 +508,30 @@ def _agent_override(session: Session, person: InboxEvent | None) -> tuple[str, s
     return pinned_agent_override(session)
 
 
-def _undo_take(run: Run) -> None:
-    """Free the slot claimed for ``run`` and put its events back, after its enqueue failed. Usually a no-op: the
-    failed run's ``run_ended`` already did both (:func:`sessions.inbox.complete.on_run_ended`), unless its finish
-    did not land."""
-    SessionLock.release_for_run(run.session_id, run.pk)
-    InboxEvent.objects.filter(run=run, state=EventState.TAKEN).update(
-        state=EventState.PENDING, run=None, updated_at=timezone.now()
-    )
+def _undo_take(run: Run, charges: list[_Charge]) -> None:
+    """Free the slot claimed for ``run``, put its events back and refund the CI attempts its take spent, after its
+    enqueue failed. The slot and events are usually back already: the failed run's ``run_ended`` did both
+    (:func:`sessions.inbox.complete.on_run_ended`), unless its finish did not land.
+
+    A refund leaves the merge request's examined commit blank, as the one before is not kept. That commit is older than
+    the failure's, so it is no longer the head DAIV pushed, the only commit whose failure wakes the session. A failure
+    another drain took after ``run_ended`` put it back keeps its charge: that run did not charge the commit again. The
+    session row lock orders the check against such a take.
+    """
+    with transaction.atomic():
+        Session.objects.select_for_update().filter(pk=run.session_id).exists()
+        SessionLock.release_for_run(run.session_id, run.pk)
+        InboxEvent.objects.filter(run=run, state=EventState.TAKEN).update(
+            state=EventState.PENDING, run=None, updated_at=timezone.now()
+        )
+        retaken = set(
+            InboxEvent.objects.filter(
+                pk__in=[charge.event_id for charge in charges], state=EventState.TAKEN
+            ).values_list("pk", flat=True)
+        )
+        for charge in charges:
+            if charge.event_id in retaken:
+                continue
+            rows = MergeRequestOwnership.objects.filter(repo_id=run.repo_id, merge_request_iid=charge.merge_request_iid)
+            rows.filter(attempts__gt=0).update(attempts=F("attempts") - 1)
+            rows.filter(last_examined_sha=charge.sha).update(last_examined_sha="")

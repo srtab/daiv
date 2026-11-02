@@ -116,7 +116,7 @@ def post_delegated_ci_outcome(
         post_event(
             child.parent_id,
             kind=EventKind.DELEGATED_CI_OUTCOME,
-            source_key=child_ci_key(child.thread_id, pipeline_id),
+            source_key=child_ci_key(child.thread_id, pipeline_id, outcome),
             payload={
                 "child_thread_id": child.thread_id,
                 "merge_request_iid": merge_request_iid,

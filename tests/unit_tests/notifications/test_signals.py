@@ -6,13 +6,14 @@ import pytest
 from notifications.choices import ChannelType, EventType
 from notifications.models import Notification, UserChannelBinding
 from notifications.signals import classify_on_run_finished
-from sessions.models import Run, RunStatus, SessionOrigin
-from sessions.signal_defs import run_finished, watch_exhausted
+from sessions.models import EventKind, EventState, Run, RunStatus, SessionOrigin
+from sessions.signal_defs import run_ended, run_finished, watch_exhausted
 
 from accounts.models import User
 from schedules.models import DispatchError, Frequency, ScheduledJob
 from schedules.signals import schedule_dispatch_failed
 from tests.unit_tests.sessions.conftest import make_run
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
 @pytest.mark.django_db
@@ -174,6 +175,21 @@ class TestClassifyOnRunFinished:
         with patch("notifications.signals.classify_run_task") as task_mock:
             classify_on_run_finished(sender=Run, run=run)
         task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_a_chat_run_a_ci_failure_also_woke_classifies_when_it_ends(self):
+        """A drain run led by a queued chat message still owes the owner its CI outcome (FR-018)."""
+        run = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=SessionOrigin.CHAT)
+        make_event(run.session, EventKind.CI_FAILED, run=run, state=EventState.HANDLED, wake=True)
+        with patch("notifications.signals.classify_run_task") as task_mock:
+            run_ended.send(sender=Run, run=run)
+        task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_a_chat_run_no_ci_failure_woke_is_left_unclassified(self):
+        run = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=SessionOrigin.CHAT)
+        make_event(run.session, EventKind.CI_FAILED, run=run, state=EventState.HANDLED, wake=False)
+        with patch("notifications.signals.classify_run_task") as task_mock:
+            run_ended.send(sender=Run, run=run)
+        task_mock.enqueue.assert_not_called()
 
     def test_never_raises_on_enqueue_failure(self):
         run = self._schedule_run(status=RunStatus.SUCCESSFUL)

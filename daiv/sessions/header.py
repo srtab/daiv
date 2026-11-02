@@ -5,9 +5,11 @@ addresses.
 ``latest_run_payload`` and ``ci_payload`` are also what the turns poll returns, so what the page rendered and what
 keeps it current are built by the same code.
 
-CI is reported per merge request the session owns (``MergeRequestOwnership``), from the latest CI event in its inbox:
-``failing``, ``passing``, ``stopped`` (a status that needs a person), or ``running`` while no result has arrived since
-DAIV last published or a run is looking at a failure. A failure links the last run that looked at one
+CI is reported per merge request the session owns (``MergeRequestOwnership``), from the latest CI event of each CI
+subject in its inbox (one on GitLab, one per workflow on GitHub) on the newest one's commit: ``failing`` when any
+fails, else ``stopped`` (a status that needs a person) when any is, else ``passing``; or ``running`` while no result
+has arrived since DAIV last published or a run is looking at a failure. A failure names its failing jobs, says
+"Stopped after N attempts" when the watch ran out of them, and links the last run that looked at one
 (``explanation_run_id``), whose summary says what it found. ``watch_payload`` keeps the single-watch shape older pages
 read, from the first merge request, for one release.
 """
@@ -18,6 +20,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from django.urls import reverse
+from django.utils.text import capfirst
 from django.utils.translation import gettext as _
 
 from asgiref.sync import sync_to_async
@@ -29,9 +32,19 @@ from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
 from codebase.repo_config import RepositoryConfig
 from sessions.delegation import FAILED, RUNNING, WAITING, load_delegations
-from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
+from sessions.inbox_display import stopped_after
+from sessions.models import (
+    EventKind,
+    InboxEvent,
+    MergeRequestOwnership,
+    QuietReason,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+)
 from sessions.pipeline_watch.policy import WatchPolicy
-from sessions.pipeline_watch.store import CI_KINDS
+from sessions.pipeline_watch.store import latest_ci_results, on_newest_commit
 from sessions.templatetags.session_tags import session_title, status_variant
 from sessions.transcript import mark_delegations, marker_id, retry_message
 
@@ -115,19 +128,27 @@ aci_payload = sync_to_async(ci_payload)
 
 def _ci_item(session: Session, ownership: MergeRequestOwnership, policy: WatchPolicy) -> dict[str, Any]:
     events = InboxEvent.objects.filter(session=session, merge_request_iid=ownership.merge_request_iid)
-    latest = events.filter(kind__in=CI_KINDS).order_by("-created_at").first()
+    results = on_newest_commit(list(latest_ci_results(session.pk, ownership.merge_request_iid)))
     woke = events.filter(kind=EventKind.CI_FAILED, wake=True, run__isnull=False).order_by("-created_at")
     looking = woke.exclude(run__status__in=RunStatus.terminal()).exists()
-    if latest is None or latest.created_at < ownership.updated_at or looking:
+    if not results or results[0].created_at < ownership.updated_at or looking:
         status = "running"
     else:
-        status = _CI_STATUS_BY_KIND[latest.kind]
+        found = {_CI_STATUS_BY_KIND[event.kind] for event in results}
+        status = next(status for status in ("failing", "stopped", "passing") if status in found)
+    failing = [event for event in results if event.kind == EventKind.CI_FAILED] if status == "failing" else []
+    gave_up = next((event for event in failing if event.reason == QuietReason.BUDGET_SPENT), None)
     explanation = woke.values_list("run_id", flat=True).first()
+    if gave_up:
+        label = capfirst(stopped_after(gave_up.payload.get("attempts", ownership.attempts)))
+    else:
+        label = _ci_label(status)
     return {
         "merge_request_iid": ownership.merge_request_iid,
         "status": status,
-        "label": str(_ci_label(status)),
+        "label": label,
         "tone": _CI_TONES[status],
+        "failed_jobs": list(dict.fromkeys(job for event in failing for job in event.payload["failed_jobs"])),
         "attempts": ownership.attempts,
         "max_attempts": policy.max_attempts,
         "watch_enabled": ownership.watch_enabled and policy.enabled,

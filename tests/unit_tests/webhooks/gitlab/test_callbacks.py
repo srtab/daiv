@@ -27,6 +27,8 @@ from webhooks.gitlab.models import (
 from codebase.base import GitPlatform
 from codebase.base import User as BaseUser
 from codebase.repo_config import RepositoryConfig
+from core.constants import BOT_MAX_LABEL
+from core.site_settings import site_settings
 from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 
 
@@ -474,7 +476,8 @@ class TestMergeRequestStateOnAnOwnedMergeRequest:
         await callback.process_callback()
 
         event = await InboxEvent.objects.aget(session_id=ownership.session_id)
-        assert (event.kind, event.wake, event.source_key) == (kind, False, f"mr-state:1:{state}")
+        assert (event.kind, event.wake) == (kind, False)
+        assert event.source_key.startswith(f"mr-state:1:{state}:")
         assert event.payload == {"target_branch": "develop", "by_username": "developer"}
         await ownership.arefresh_from_db()
         assert ownership.closed_at is not None
@@ -663,6 +666,12 @@ class TestProcessCallback:
         )
 
 
+async def deliver(callback: NoteCallback) -> None:
+    """What the webhook view does with a parsed payload."""
+    if callback.accept_callback():
+        await callback.process_callback()
+
+
 @pytest.mark.django_db(transaction=True)
 class TestNotesOnAnOwnedMergeRequest:
     @pytest.fixture(autouse=True)
@@ -683,6 +692,14 @@ class TestNotesOnAnOwnedMergeRequest:
         assert (event.kind, event.wake, event.source_key) == ("mention", True, "note:100")
         assert (event.payload["is_diff"], event.payload["discussion_id"]) == (True, "discussion_1")
 
+    async def test_a_mention_on_a_daiv_max_merge_request_asks_for_the_max_model(self):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
+
+        await create_note_callback("@daiv fix it", labels=[BOT_MAX_LABEL]).process_callback()
+
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.payload["agent_model"]) == ("mention", site_settings.agent_max_model_name)
+
     async def test_a_diff_mention_on_an_unowned_merge_request_is_still_ignored(self):
         with patch("webhooks.dispatch.address_mr_comments_task") as task:
             await create_note_callback("@daiv why this line?", note_type="DiffNote").process_callback()
@@ -697,6 +714,25 @@ class TestNotesOnAnOwnedMergeRequest:
 
         event = await InboxEvent.objects.aget(session_id=ownership.session_id)
         assert (event.kind, event.wake, event.payload["body"]) == ("comment", False, "Looks good to me")
+
+    async def test_a_note_without_a_mention_is_remembered_from_an_author_outside_the_allowlist(self, repo_config):
+        repo_config.allowed_usernames = ("alice",)
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
+
+        await deliver(create_note_callback("Looks good to me", username="mallory"))
+
+        event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+        assert (event.kind, event.wake, event.author_username) == ("comment", False, "mallory")
+
+    async def test_a_mention_from_an_author_outside_the_allowlist_posts_and_starts_nothing(self, repo_config):
+        repo_config.allowed_usernames = ("alice",)
+        await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
+
+        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+            await deliver(create_note_callback("@daiv fix it", username="mallory"))
+
+        task.get_or_enqueue.assert_not_called()
+        assert not await InboxEvent.objects.aexists()
 
 
 @pytest.mark.django_db(transaction=True)

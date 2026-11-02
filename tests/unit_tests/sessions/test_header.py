@@ -32,6 +32,7 @@ from tests.unit_tests.sessions.conftest import (
     make_leg,
     make_task_result,
 )
+from tests.unit_tests.sessions.inbox.conftest import ci_payload as ci_event_payload
 from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
@@ -202,14 +203,14 @@ class TestCiPayload:
         assert ci_payload(_session()) == []
 
     @pytest.mark.parametrize(
-        ("kind", "status", "label", "tone"),
+        ("kind", "status", "label", "tone", "jobs"),
         [
-            (EventKind.CI_FAILED, "failing", "Failing", "fail"),
-            (EventKind.CI_PASSED, "passing", "Passing", "clear"),
-            (EventKind.CI_STOPPED, "stopped", "Needs a person", "found"),
+            (EventKind.CI_FAILED, "failing", "Failing", "fail", ["build"]),
+            (EventKind.CI_PASSED, "passing", "Passing", "clear", []),
+            (EventKind.CI_STOPPED, "stopped", "Needs a person", "found", []),
         ],
     )
-    def test_the_latest_ci_result_is_the_status(self, policy, kind, status, label, tone):
+    def test_the_latest_ci_result_is_the_status(self, policy, kind, status, label, tone, jobs):
         session = _session()
         _owned(session, attempts=1)
         _ci_event(session, kind, wake=False)
@@ -220,12 +221,44 @@ class TestCiPayload:
                 "status": status,
                 "label": label,
                 "tone": tone,
+                "failed_jobs": jobs,
                 "attempts": 1,
                 "max_attempts": 3,
                 "watch_enabled": True,
                 "explanation_run_id": None,
             }
         ]
+
+    def test_a_give_up_says_it_stopped_after_its_attempts_and_names_the_failing_jobs(self, policy):
+        session = _session()
+        _owned(session, attempts=3)
+        _ci_event(
+            session,
+            EventKind.CI_FAILED,
+            wake=False,
+            reason="budget_spent",
+            payload=ci_event_payload(jobs=["tests", "lint"]),
+        )
+
+        [item] = ci_payload(session)
+        assert (item["status"], item["label"], item["tone"]) == ("failing", "Stopped after 3 attempts", "fail")
+        assert item["failed_jobs"] == ["tests", "lint"]
+
+    @pytest.mark.parametrize(("attempts", "label"), [(3, "Stopped after 3 attempts"), (1, "Stopped after 1 attempt")])
+    def test_a_give_up_counts_the_attempts_it_recorded_once_the_watch_gives_them_back(self, policy, attempts, label):
+        session = _session()
+        _owned(session, attempts=0)
+        payload = ci_event_payload() | {"attempts": attempts}
+        _ci_event(session, EventKind.CI_FAILED, wake=False, reason="budget_spent", payload=payload)
+
+        assert ci_payload(session)[0]["label"] == label
+
+    def test_a_failure_the_agent_already_examined_is_not_a_give_up(self, policy):
+        session = _session()
+        _owned(session, attempts=1)
+        _ci_event(session, EventKind.CI_FAILED, wake=False, reason="already_examined")
+
+        assert ci_payload(session)[0]["label"] == "Failing"
 
     def test_an_unreadable_repository_configuration_still_shows_the_ci(self, policy, caplog):
         session = _session()
@@ -285,6 +318,55 @@ class TestCiPayload:
         _owned(session, 9, closed_at=timezone.now())
 
         assert [item["merge_request_iid"] for item in ci_payload(session)] == [8, 7]
+
+
+@pytest.mark.django_db
+class TestCiSubjects:
+    """A GitLab merge request has one CI subject; on GitHub each workflow is one. The status is that of the latest
+    result of every subject on the newest result's commit."""
+
+    @staticmethod
+    def _result(session: Session, kind: str, subject: str, *, sha: str = "head", **fields):
+        status = {EventKind.CI_PASSED: "success", EventKind.CI_STOPPED: "manual"}.get(kind, "failed")
+        payload = ci_event_payload(sha=sha, status=status, jobs=["lint"] if kind == EventKind.CI_FAILED else ())
+        return _ci_event(session, kind, subject=subject, payload=payload, wake=False, **fields)
+
+    def test_a_later_gitlab_pipeline_decides_the_status(self, policy):
+        session = _session()
+        _owned(session)
+        self._result(session, EventKind.CI_FAILED, "ci:7")
+        self._result(session, EventKind.CI_PASSED, "ci:7")
+
+        assert ci_payload(session)[0]["status"] == "passing"
+
+    @pytest.mark.parametrize(
+        ("other", "status"),
+        [(EventKind.CI_FAILED, "failing"), (EventKind.CI_STOPPED, "stopped"), (EventKind.CI_PASSED, "passing")],
+    )
+    def test_one_github_workflows_pass_does_not_hide_anothers_result(self, policy, other, status):
+        session = _session()
+        _owned(session)
+        self._result(session, other, "ci:7:11")
+        self._result(session, EventKind.CI_PASSED, "ci:7:12")
+
+        assert ci_payload(session)[0]["status"] == status
+
+    def test_a_failing_workflow_names_its_own_jobs_once(self, policy):
+        session = _session()
+        _owned(session)
+        self._result(session, EventKind.CI_FAILED, "ci:7:11")
+        self._result(session, EventKind.CI_FAILED, "ci:7:12")
+        self._result(session, EventKind.CI_PASSED, "ci:7:13")
+
+        assert ci_payload(session)[0]["failed_jobs"] == ["lint"]
+
+    def test_a_workflow_that_did_not_run_on_the_latest_commit_does_not_count(self, policy):
+        session = _session()
+        _owned(session)
+        self._result(session, EventKind.CI_FAILED, "ci:7:11", sha="older")
+        self._result(session, EventKind.CI_PASSED, "ci:7:12", sha="head")
+
+        assert ci_payload(session)[0]["status"] == "passing"
 
 
 def test_watch_payload_is_the_first_merge_requests_ci_in_the_old_shape():

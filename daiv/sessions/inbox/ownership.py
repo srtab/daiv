@@ -8,17 +8,19 @@ and merges on it reach the owning session's inbox. The claim rules:
 | No row | any | the row is created, owned by the publishing session and its user |
 | Owned by the same person, or both ownerless | any session of that person | ownership moves to the publishing session |
 | The owner has no user | a session with a user | ownership moves; the old session gets a ``notice`` |
-| Owned by person A | a session of person B | ownership stays; A's session gets a ``foreign_publish`` |
+| Owned by person A | a session of person B | ownership stays; A's session gets a ``foreign_publish`` naming B's |
 
 An owning session that was deleted counts as no row for its own person; a new session is made for that person when
-an event needs one (:func:`aopen_ownership`). Every claim records the commit the run pushed as ``last_daiv_sha``,
-which is how the CI watch tells DAIV's commits from everyone else's, and a claim by a run a person started gives the
-CI watch its attempts back.
+an event needs one (:func:`aopen_ownership`) or another person publishes, and its first event is a ``notice`` saying
+why it exists. Every claim records the commit the run pushed as ``last_daiv_sha``, which is how the CI watch tells
+DAIV's commits from everyone else's, and a claim by a run a person started gives the CI watch its attempts back.
 
 What else happens to an owned merge request reaches the owning session as remembered events: a push to its branch
 whose commit DAIV did not push (``branch_pushed``, decided ``PUSH_CLASSIFY_DELAY`` after the webhook so DAIV's own
 publish has recorded its commit by then), its merge or close (``mr_merged``, ``mr_closed``; the watch stops), and a
-reopen (a ``notice``; the watch resumes).
+reopen (a ``notice``; the watch resumes). A close and a reopen are each keyed on when they happened, so a merge request
+closed again after a reopen is remembered again; a redelivered close finds it closed already and posts nothing. A close
+or reopen whose event could not be posted is undone, unless another was recorded meanwhile, so a redelivery posts it.
 """
 
 from __future__ import annotations
@@ -26,17 +28,21 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
+from django.urls import reverse
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
+from core.utils import build_absolute_url
 from sessions.inbox import kinds
-from sessions.inbox.post import apost_event
+from sessions.inbox.post import apost_event, post_event
 from sessions.models import EventKind, MergeRequestOwnership, Run, Session, SessionOrigin
 from sessions.repo_state import mr_to_payload
+from sessions.templatetags.session_tags import session_title
 from sessions.titling import MAX_TITLE_LENGTH
 
 if TYPE_CHECKING:
@@ -67,18 +73,29 @@ async def aclaim_ownership(
     iid, branch = payload.get("id"), payload.get("source_branch")
     if not iid or not branch:
         return None
-    ownership, posts = await sync_to_async(_claim)(run_id, iid, branch, pushed_sha)
+    ownership, posts = await sync_to_async(_claim)(run_id, iid, branch, pushed_sha, payload.get("title") or "")
     for post in posts:
-        try:
-            await apost_event(**post)
-        except Exception:
-            logger.exception(
-                "inbox: could not tell thread_id=%s about %s!%s", post["thread_id"], ownership.repo_id, iid
-            )
+        await _apost_logged(post, ownership.repo_id)
     return ownership
 
 
-def _claim(run_id: uuid.UUID | str, iid: int, branch: str, pushed_sha: str) -> tuple[MergeRequestOwnership, list[dict]]:
+def _post_logged(post: dict[str, Any], repo_id: str) -> None:
+    """Post ``post``, logging a failure instead of raising: the ownership change it reports has committed, and the
+    event wakes no one. SYNC ONLY."""
+    try:
+        post_event(**post)
+    except Exception:
+        logger.exception(
+            "inbox: could not tell thread_id=%s about %s!%s", post["thread_id"], repo_id, post["merge_request_iid"]
+        )
+
+
+_apost_logged = sync_to_async(_post_logged)
+
+
+def _claim(
+    run_id: uuid.UUID | str, iid: int, branch: str, pushed_sha: str, title: str
+) -> tuple[MergeRequestOwnership, list[dict]]:
     run = Run.objects.select_related("session__user").get(pk=run_id)
     session = run.session
     posts: list[dict[str, Any]] = []
@@ -108,15 +125,9 @@ def _claim(run_id: uuid.UUID | str, iid: int, branch: str, pushed_sha: str) -> t
             row.session, row.owner = session, session.user
             if previous is not None and previous.pk != session.pk:
                 posts.append(_moved_notice(previous, session, iid, branch, run_id))
-        elif previous is not None:
-            posts.append(_foreign_publish(previous, session, iid, branch, pushed_sha, run_id))
         else:
-            logger.info(
-                "inbox: %s!%s belongs to a deleted session of another person; thread_id=%s published to it",
-                run.repo_id,
-                iid,
-                session.thread_id,
-            )
+            owner = previous if previous is not None else _replace_session(row, title=title)
+            posts.append(_foreign_publish(owner, session, iid, branch, pushed_sha, run_id))
         if row.last_daiv_sha != pushed_sha:
             # A pipeline judged before this claim was judged against the previous commit: judge it anew.
             row.last_pipeline_id, row.last_pipeline_status = None, ""
@@ -157,7 +168,13 @@ def _foreign_publish(
         "thread_id": owner.thread_id,
         "kind": EventKind.FOREIGN_PUBLISH,
         "source_key": f"foreign-publish:{pushed_sha or run_id}",
-        "payload": {"thread_id": session.thread_id, "owner_username": _username(session), "sha": pushed_sha},
+        "payload": {
+            "thread_id": session.thread_id,
+            "owner_username": _username(session),
+            "sha": pushed_sha,
+            "title": session_title(session),
+            "web_url": build_absolute_url(reverse("session_detail", kwargs={"thread_id": session.thread_id})),
+        },
         "wake": False,
         "subject": kinds.branch_subject(branch),
         "ref": branch,
@@ -169,7 +186,8 @@ def open_ownership(repo_id: str, merge_request_iid: int, *, title: str = "") -> 
     """The open merge request's ownership, whose ``session`` owns it, or ``None`` when no session does or it is
     closed. SYNC ONLY.
 
-    When the owning session was deleted, a new one is made for the same person, named ``title``.
+    When the owning session was deleted, a new one is made for the same person, named ``title``
+    (:func:`_replace_session`).
     """
     with transaction.atomic():
         row = (
@@ -182,20 +200,44 @@ def open_ownership(repo_id: str, merge_request_iid: int, *, title: str = "") -> 
         if row is None:
             return None
         if row.session is None:
-            row.session = Session.objects.create(
-                thread_id=str(uuid.uuid4()),
-                origin=SessionOrigin.PIPELINE_WEBHOOK,
-                repo_id=repo_id,
-                ref=row.source_branch,
-                user_id=row.owner_id,
-                title=(title or f"!{merge_request_iid}")[:MAX_TITLE_LENGTH],
-                merge_request_iid=merge_request_iid,
-            )
+            _replace_session(row, title=title)
             row.save(update_fields=["session", "updated_at"])
         return row
 
 
 aopen_ownership = sync_to_async(open_ownership)
+
+
+def _replace_session(row: MergeRequestOwnership, *, title: str) -> Session:
+    """A new session owning ``row`` for its owner, whose owning session was deleted, named ``title``; a ``notice``
+    tells it why it exists once it commits. The caller saves ``row``. SYNC ONLY, in the transaction that locks ``row``.
+    """
+    iid = row.merge_request_iid
+    row.session = Session.objects.create(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.PIPELINE_WEBHOOK,
+        repo_id=row.repo_id,
+        ref=row.source_branch,
+        user_id=row.owner_id,
+        title=(title or f"!{iid}")[:MAX_TITLE_LENGTH],
+        merge_request_iid=iid,
+    )
+    notice = {
+        "thread_id": row.session.thread_id,
+        "kind": EventKind.NOTICE,
+        "source_key": f"ownership-replaced:{iid}",
+        "payload": {
+            "text": (
+                f"The session that owned !{iid} was deleted, so this one was made for it; CI results and mentions on "
+                f"!{iid} come here from now on."
+            )
+        },
+        "wake": False,
+        "ref": row.source_branch,
+        "merge_request_iid": iid,
+    }
+    transaction.on_commit(partial(_post_logged, notice, row.repo_id))
+    return row.session
 
 
 async def aownership_for_branch(repo_id: str, source_branch: str) -> MergeRequestOwnership | None:
@@ -254,40 +296,60 @@ async def aclassify_push(
 async def aclose_ownership(
     repo_id: str, merge_request_iid: int, *, merged: bool, by_username: str, target_branch: str
 ) -> bool:
-    """Stop the watch on a merged or closed merge request and remember it in the owning session; returns whether a
-    session owned it."""
+    """Stop the watch on a merged or closed merge request and remember it in the owning session; returns whether this
+    call closed one a session owned. A redelivered close, even one racing the first, finds it closed and posts nothing.
+    """
     if (owned := await aopen_ownership(repo_id, merge_request_iid)) is None:
         return False
-    await MergeRequestOwnership.objects.filter(
-        repo_id=repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=True
-    ).aupdate(closed_at=timezone.now())
+    closed_at = timezone.now()
+    if not await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at__isnull=True).aupdate(closed_at=closed_at):
+        return False
     state = "merged" if merged else "closed"
-    await apost_event(
-        owned.session.thread_id,
-        kind=EventKind.MR_MERGED if merged else EventKind.MR_CLOSED,
-        source_key=kinds.mr_state_key(merge_request_iid, state),
-        payload={"target_branch": target_branch, "by_username": by_username},
-        wake=False,
-        subject=kinds.mr_state_subject(merge_request_iid),
-        merge_request_iid=merge_request_iid,
-    )
+    try:
+        await apost_event(
+            owned.session.thread_id,
+            kind=EventKind.MR_MERGED if merged else EventKind.MR_CLOSED,
+            source_key=f"{kinds.mr_state_key(merge_request_iid, state)}:{closed_at.timestamp():.6f}",
+            payload={"target_branch": target_branch, "by_username": by_username},
+            wake=False,
+            subject=kinds.mr_state_subject(merge_request_iid),
+            merge_request_iid=merge_request_iid,
+        )
+    except Exception:
+        await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at=closed_at).aupdate(closed_at=None)
+        raise
     return True
 
 
 async def areopen_ownership(repo_id: str, merge_request_iid: int, *, by_username: str) -> bool:
     """Watch a reopened merge request again and tell the owning session; returns whether it was closed and owned."""
-    reopened = await MergeRequestOwnership.objects.filter(
-        repo_id=repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=False
-    ).aupdate(closed_at=None)
-    if not reopened or (owned := await aopen_ownership(repo_id, merge_request_iid)) is None:
-        return False
-    await apost_event(
-        owned.session.thread_id,
-        kind=EventKind.NOTICE,
-        source_key=f"mr-reopened:{merge_request_iid}:{timezone.now().timestamp():.0f}",
-        payload={"text": f"!{merge_request_iid} was reopened by {by_username}; its CI and mentions come here again."},
-        wake=False,
-        subject=kinds.mr_state_subject(merge_request_iid),
-        merge_request_iid=merge_request_iid,
+    closed = await (
+        MergeRequestOwnership.objects
+        .filter(repo_id=repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=False)
+        .only("pk", "closed_at")
+        .afirst()
     )
+    if closed is None or not await MergeRequestOwnership.objects.filter(
+        pk=closed.pk, closed_at=closed.closed_at
+    ).aupdate(closed_at=None):
+        return False
+    try:
+        if (owned := await aopen_ownership(repo_id, merge_request_iid)) is None:
+            return False
+        await apost_event(
+            owned.session.thread_id,
+            kind=EventKind.NOTICE,
+            source_key=f"mr-reopened:{merge_request_iid}:{timezone.now().timestamp():.0f}",
+            payload={
+                "text": f"!{merge_request_iid} was reopened by {by_username}; its CI and mentions come here again."
+            },
+            wake=False,
+            subject=kinds.mr_state_subject(merge_request_iid),
+            merge_request_iid=merge_request_iid,
+        )
+    except Exception:
+        await MergeRequestOwnership.objects.filter(pk=closed.pk, closed_at__isnull=True).aupdate(
+            closed_at=closed.closed_at
+        )
+        raise
     return True

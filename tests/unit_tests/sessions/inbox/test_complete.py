@@ -6,7 +6,13 @@ from django.utils import timezone
 import pytest
 from asgiref.sync import sync_to_async
 from sessions.executor.lock import stale_cutoff
-from sessions.inbox.complete import MAX_EVENT_ATTEMPTS, aon_run_ended, recover_stale_events
+from sessions.inbox.complete import (
+    ANSWERED_IN_ANOTHER_THREAD,
+    MAX_EVENT_ATTEMPTS,
+    aon_run_ended,
+    arelease_chat_claim,
+    recover_stale_events,
+)
 from sessions.models import (
     EventFailure,
     EventKind,
@@ -20,10 +26,13 @@ from sessions.models import (
 )
 from sessions.queue import ENQUEUE_FAILED_PREFIX
 
+from codebase.base import GitPlatform
 from codebase.clients.base import CommentThread
 from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, mention_payload
 
 pytestmark = pytest.mark.django_db(transaction=True)
+
+CI_SUMMARY = "The failure is a GitHub auth error, not the change; I pushed nothing."
 
 
 @pytest.fixture
@@ -187,64 +196,132 @@ async def _recover() -> int:
     return await sync_to_async(recover_stale_events)()
 
 
+class TestReleaseChatClaim:
+    async def test_the_events_a_turn_took_and_no_run_took_over_go_back_to_pending(self):
+        session = await amake_session()
+        claimed = await amake_event(session, EventKind.MR_MERGED, state=EventState.TAKEN, claim_token="r-1")  # noqa: S106
+        run = await Run.objects.acreate(session=session, trigger_type=SessionOrigin.CHAT, repo_id=session.repo_id)
+        linked = await amake_event(session, EventKind.MR_MERGED, state=EventState.TAKEN, run=run)
+        other_holder = await amake_event(session, EventKind.MR_MERGED, state=EventState.TAKEN, claim_token="r-2")  # noqa: S106
+        elsewhere = await amake_event(
+            await amake_session(),
+            EventKind.MR_MERGED,
+            state=EventState.TAKEN,
+            claim_token="r-1",  # noqa: S106
+        )
+
+        assert await arelease_chat_claim(session.thread_id, "r-1") == 1
+
+        stored = await _state(claimed)
+        assert (stored.state, stored.claim_token, stored.attempts) == (EventState.PENDING, "", 0)
+        assert [(await _state(event)).state for event in (linked, other_holder, elsewhere)] == [EventState.TAKEN] * 3
+
+
 class TestOwnerlessCiReport:
-    async def _ci_run(self, *, user=None, status=RunStatus.SUCCESSFUL, wake=True) -> Run:
+    @pytest.fixture
+    def client(self):
+        client = MagicMock()
+        client.current_user.username = "daiv"
+        with patch("codebase.clients.RepoClient.create_instance", return_value=client):
+            yield client
+
+    async def _ci_run(
+        self, *, user=None, status=RunStatus.SUCCESSFUL, wake=True, attempts=0, summary=CI_SUMMARY, **run_fields
+    ) -> Run:
         session = await amake_session(user=user)
         run = await Run.objects.acreate(
             session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=session.repo_id, status=status,
-            result_summary="The failure is a GitHub auth error, not the change; I pushed nothing.",
+            result_summary=summary, **run_fields,
         )  # fmt: skip
-        await amake_event(session, EventKind.CI_FAILED, run=run, state=EventState.TAKEN, merge_request_iid=9, wake=wake)
+        await amake_event(
+            session, EventKind.CI_FAILED, run=run, state=EventState.TAKEN, merge_request_iid=9, wake=wake,
+            attempts=attempts,
+        )  # fmt: skip
         return run
 
-    async def test_a_session_without_a_user_gets_the_summary_on_the_merge_request(self, drain):
+    async def test_a_session_without_a_user_gets_the_summary_on_the_merge_request(self, drain, client):
         run = await self._ci_run()
 
-        with patch("sessions.pipeline_watch.platform.WatchPlatform.apost_note") as note:
-            await aon_run_ended(run)
+        await aon_run_ended(run)
 
-        note.assert_awaited_once_with(merge_request_iid=9, body=run.result_summary)
+        client.create_merge_request_comment.assert_called_once_with("group/repo", 9, CI_SUMMARY)
+
+    async def test_a_question_goes_on_the_merge_request_with_how_to_answer_it(self, drain, client):
+        run = await self._ci_run(status=RunStatus.WAITING_INPUT, summary="Should I pin the auth action instead?")
+
+        await aon_run_ended(run)
+
+        (repo_id, iid, body), _ = client.create_merge_request_comment.call_args
+        assert (repo_id, iid) == ("group/repo", 9)
+        assert body.startswith("Should I pin the auth action instead?")
+        assert body.endswith("\n\nReply mentioning @daiv with your answer.")
+
+    async def test_a_ci_failure_no_run_could_fix_gets_the_failure_note_once_it_fails_for_good(self, drain, client):
+        run = await self._ci_run(
+            status=RunStatus.FAILED, attempts=MAX_EVENT_ATTEMPTS - 1, error_message="RuntimeError: token=s3cr3t"
+        )
+
+        await aon_run_ended(run)
+
+        client.create_merge_request_comment.assert_called_once()
+        (repo_id, iid, body), _ = client.create_merge_request_comment.call_args
+        assert (repo_id, iid) == ("group/repo", 9)
+        assert "An unexpected error occurred" in body
+        assert "s3cr3t" not in body
 
     @pytest.mark.parametrize(
-        ("owned", "status", "wake"),
+        ("owned", "status", "wake", "attempts"),
         [
-            (True, RunStatus.SUCCESSFUL, True),
-            (False, RunStatus.WAITING_INPUT, True),
-            (False, RunStatus.SUCCESSFUL, False),
+            (True, RunStatus.SUCCESSFUL, True, 0),
+            (True, RunStatus.FAILED, True, MAX_EVENT_ATTEMPTS - 1),
+            (False, RunStatus.SUCCESSFUL, False, 0),
+            (False, RunStatus.FAILED, True, 0),
         ],
-        ids=["owned", "asked-a-question", "not-woken-by-ci"],
+        ids=["owned", "owned-and-failed-for-good", "not-woken-by-ci", "failed-with-attempts-left"],
     )
-    async def test_otherwise_nothing_is_posted(self, drain, member_user, owned, status, wake):
-        run = await self._ci_run(user=member_user if owned else None, status=status, wake=wake)
+    async def test_otherwise_nothing_is_posted(self, drain, client, member_user, owned, status, wake, attempts):
+        run = await self._ci_run(user=member_user if owned else None, status=status, wake=wake, attempts=attempts)
 
-        with patch("sessions.pipeline_watch.platform.WatchPlatform.apost_note") as note:
+        await aon_run_ended(run)
+
+        client.create_merge_request_comment.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("status", "attempts", "state"),
+        [
+            (RunStatus.SUCCESSFUL, 0, EventState.HANDLED),
+            (RunStatus.WAITING_INPUT, 0, EventState.HANDLED),
+            (RunStatus.FAILED, MAX_EVENT_ATTEMPTS - 1, EventState.FAILED),
+        ],
+        ids=["summary", "question", "failure-note"],
+    )
+    async def test_a_failed_post_is_logged_and_changes_no_event(self, drain, client, caplog, status, attempts, state):
+        run = await self._ci_run(status=status, attempts=attempts)
+        client.create_merge_request_comment.side_effect = RuntimeError("platform down")
+
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
             await aon_run_ended(run)
 
-        note.assert_not_called()
-
-    async def test_a_failed_post_is_logged_and_changes_no_event(self, drain, caplog):
-        run = await self._ci_run()
-
-        with (
-            patch("codebase.clients.RepoClient.create_instance", side_effect=RuntimeError("no client")),
-            caplog.at_level("ERROR", logger="daiv.sessions"),
-        ):
-            await aon_run_ended(run)
-
-        assert "failed to comment on" in caplog.text
+        assert "could not comment on" in caplog.text
         assert caplog.records[-1].exc_info is not None
-        assert await InboxEvent.objects.filter(run=run, state=EventState.HANDLED).acount() == 1
+        assert (
+            await InboxEvent.objects.filter(state=state, attempts=attempts + (status == RunStatus.FAILED)).acount() == 1
+        )
 
 
 class TestDelegatedNoPush:
-    async def _ci_run(self, *, pushed_sha: str = "", parent: bool = True, status=RunStatus.SUCCESSFUL) -> Run:
+    async def _ci_run(
+        self, *, pushed_sha: str = "", parent: bool = True, status=RunStatus.SUCCESSFUL, attempts: int = 0
+    ) -> Run:
         coordinator = await amake_session(repo_id="group/coordinator") if parent else None
         session = await amake_session(parent=coordinator)
         run = await Run.objects.acreate(
             session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=session.repo_id, status=status,
             pushed_sha=pushed_sha,
         )  # fmt: skip
-        await amake_event(session, EventKind.CI_FAILED, run=run, state=EventState.TAKEN, merge_request_iid=9)
+        await amake_event(
+            session, EventKind.CI_FAILED, run=run, state=EventState.TAKEN, merge_request_iid=9, attempts=attempts
+        )
         return run
 
     async def test_a_ci_run_that_pushed_nothing_is_remembered_by_the_parent(self, drain):
@@ -256,7 +333,7 @@ class TestDelegatedNoPush:
 
         event = await InboxEvent.objects.aget(session_id=session.parent_id)
         assert (event.kind, event.wake, event.source_key) == (
-            EventKind.DELEGATED_CI_OUTCOME, False, f"child-ci:{session.thread_id}:830724",
+            EventKind.DELEGATED_CI_OUTCOME, False, f"child-ci:{session.thread_id}:830724:no_push",
         )  # fmt: skip
         assert event.payload == {
             "child_thread_id": session.thread_id,
@@ -265,10 +342,59 @@ class TestDelegatedNoPush:
             "web_url": "https://gitlab.example/pipelines/830724",
         }
 
+    async def test_a_ci_run_that_asked_a_question_and_pushed_nothing_is_remembered_by_the_parent(self, drain):
+        run = await self._ci_run(status=RunStatus.WAITING_INPUT)
+        session = await Session.objects.aget(pk=run.session_id)
+
+        with patch("sessions.inbox.post.drain_logged"):
+            await aon_run_ended(run)
+
+        event = await InboxEvent.objects.aget(session_id=session.parent_id)
+        assert (event.kind, event.payload["outcome"]) == (EventKind.DELEGATED_CI_OUTCOME, "no_push")
+
+    async def test_a_ci_failure_no_run_could_fix_is_remembered_by_the_parent_once_it_fails_for_good(self, drain):
+        run = await self._ci_run(status=RunStatus.FAILED, attempts=MAX_EVENT_ATTEMPTS - 1)
+        session = await Session.objects.aget(pk=run.session_id)
+
+        with patch("sessions.inbox.post.drain_logged"):
+            await aon_run_ended(run)
+
+        event = await InboxEvent.objects.aget(session_id=session.parent_id)
+        assert (event.kind, event.source_key) == (
+            EventKind.DELEGATED_CI_OUTCOME, f"child-ci:{session.thread_id}:830724:no_push",
+        )  # fmt: skip
+
+    async def test_a_ci_failure_whose_run_died_with_its_slot_is_remembered_by_the_parent_once_it_fails_for_good(self):
+        run = await self._ci_run(status=RunStatus.RUNNING, attempts=MAX_EVENT_ATTEMPTS - 1)
+        session = await Session.objects.aget(pk=run.session_id)
+        await Session.objects.filter(pk=run.session_id).aupdate(
+            active_run_id=str(run.pk), last_active_at=stale_cutoff() - timedelta(minutes=1)
+        )
+
+        with patch("sessions.inbox.post.drain_logged"):
+            await _recover()
+
+        event = await InboxEvent.objects.aget(session_id=session.parent_id)
+        assert (event.kind, event.payload["outcome"]) == (EventKind.DELEGATED_CI_OUTCOME, "no_push")
+
     @pytest.mark.parametrize(
         ("fields"),
-        [{"pushed_sha": "f00dfeed"}, {"parent": False}, {"status": RunStatus.FAILED}],
-        ids=["pushed", "no-parent", "failed"],
+        [
+            {"pushed_sha": "f00dfeed"},
+            {"pushed_sha": "f00dfeed", "status": RunStatus.WAITING_INPUT},
+            {"parent": False},
+            {"status": RunStatus.FAILED},
+            {"status": RunStatus.FAILED, "attempts": MAX_EVENT_ATTEMPTS - 1, "pushed_sha": "f00dfeed"},
+            {"status": RunStatus.FAILED, "attempts": MAX_EVENT_ATTEMPTS - 1, "parent": False},
+        ],
+        ids=[
+            "pushed",
+            "asked-after-pushing",
+            "no-parent",
+            "failed",
+            "failed-for-good-after-pushing",
+            "failed-for-good-without-a-parent",
+        ],
     )
     async def test_otherwise_no_parent_hears_of_it(self, drain, fields):
         run = await self._ci_run(**fields)
@@ -342,7 +468,11 @@ class TestMentionReplies:
         assert (args[:2], kwargs["reply_to"]) == (("group/repo", 9), CommentThread("d5521", on_diff=False))
         assert "An unexpected error occurred" in args[2]
 
-    async def test_several_mentions_get_the_reply_in_the_latest_thread_and_a_pointer_in_the_others(self, drain, client):
+    async def test_several_mentions_get_the_reply_in_the_latest_thread_and_a_link_to_it_in_the_others(
+        self, drain, client
+    ):
+        client.git_platform = GitPlatform.GITLAB
+        client.create_merge_request_comment.side_effect = [701, 702, 703]
         run = await self._run()
         await self._mention(run, 1)
         await self._mention(run, 2)
@@ -353,10 +483,45 @@ class TestMentionReplies:
         calls = [
             (c.args[1], c.args[2], c.kwargs["reply_to"].id) for c in client.create_merge_request_comment.call_args_list
         ]
-        assert calls[0] == (9, "Renamed it in the three call sites.", "d2")
-        assert calls[1][::2] == (9, "d1") and "https://gitlab.example/mr/9#2" in calls[1][1]
-        assert calls[2] == (10, "Renamed it in the three call sites.", "d3")
-        assert len(calls) == 3
+        assert calls == [
+            (9, "Renamed it in the three call sites.", "d2"),
+            (9, ANSWERED_IN_ANOTHER_THREAD.format(url="https://gitlab.example/mr/9#note_701"), "d1"),
+            (10, "Renamed it in the three call sites.", "d3"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("is_diff", "web_url", "link"),
+        [
+            (False, "https://github.com/o/r/pull/9#issuecomment-2", "https://github.com/o/r/pull/9#issuecomment-701"),
+            (True, "https://github.com/o/r/pull/9#discussion_r2", "https://github.com/o/r/pull/9#discussion_r701"),
+        ],
+        ids=["conversation", "review-thread"],
+    )
+    async def test_on_github_the_link_names_the_reply_by_its_kind_of_comment(
+        self, drain, client, is_diff, web_url, link
+    ):
+        client.git_platform = GitPlatform.GITHUB
+        client.create_merge_request_comment.side_effect = [701, 702]
+        run = await self._run()
+        await self._mention(run, 1, is_diff=is_diff)
+        latest = await self._mention(run, 2, is_diff=is_diff)
+        await InboxEvent.objects.filter(pk=latest.pk).aupdate(payload=latest.payload | {"web_url": web_url})
+
+        await aon_run_ended(run)
+
+        assert client.create_merge_request_comment.call_args.args[2] == ANSWERED_IN_ANOTHER_THREAD.format(url=link)
+
+    async def test_without_the_replys_id_the_link_points_at_the_latest_mention(self, drain, client):
+        client.git_platform = GitPlatform.GITLAB
+        client.create_merge_request_comment.return_value = None
+        run = await self._run()
+        await self._mention(run, 1)
+        await self._mention(run, 2)
+
+        await aon_run_ended(run)
+
+        body = client.create_merge_request_comment.call_args.args[2]
+        assert body == ANSWERED_IN_ANOTHER_THREAD.format(url="https://gitlab.example/mr/9#2")
 
     async def test_a_failed_post_is_logged_and_the_events_stay_handled(self, drain, client, caplog):
         run = await self._run()

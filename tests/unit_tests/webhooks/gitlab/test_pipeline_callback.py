@@ -1,8 +1,13 @@
+from unittest.mock import patch
+
 import pytest
+from sessions.models import EventKind, InboxEvent, QuietReason
 from webhooks.gitlab.callbacks import PipelineCallback
 from webhooks.gitlab.models import PipelineEvent, Project, User
 
 from codebase.repo_config import RepositoryConfig
+from core.site_settings import site_settings
+from tests.unit_tests.conftest import site_snapshot
 from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 
 
@@ -27,12 +32,14 @@ def monkeypatch_dependencies(monkeypatch, stub_client, repo_config):
     monkeypatch.setattr("webhooks.gitlab.callbacks.RepositoryConfig.get_config", lambda *a, **kw: repo_config)
 
 
-def make_callback(status: str, *, user_id: int = 10, ref: str = "daiv/branch") -> PipelineCallback:
+def make_callback(
+    status: str, *, user_id: int = 10, ref: str = "daiv/branch", source: str | None = "push"
+) -> PipelineCallback:
     return PipelineCallback(
         object_kind="pipeline",
         project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
         user=User(id=user_id, username="someone", name="Someone", email="someone@example.com"),
-        object_attributes=PipelineEvent(id=100, iid=1, ref=ref, sha="abc123", status=status),
+        object_attributes=PipelineEvent(id=100, iid=1, ref=ref, sha="abc123", status=status, source=source),
     )
 
 
@@ -44,6 +51,17 @@ def test_terminal_statuses_are_accepted(status, monkeypatch_dependencies):
 @pytest.mark.parametrize("status", ["created", "pending", "running", "waiting_for_resource", "preparing"])
 def test_transitional_statuses_are_ignored(status, monkeypatch_dependencies):
     assert make_callback(status).accept_callback() is False
+
+
+@pytest.mark.parametrize("status", ["success", "failed"])
+def test_a_child_pipeline_is_ignored(status, monkeypatch_dependencies):
+    """A child pipeline runs on its parent's ref and commit with a higher id, so judging it could hide the parent's
+    later failure; the merge request's result is the parent's, which a ``strategy: depend`` child reaches."""
+    assert make_callback(status, source="parent_pipeline").accept_callback() is False
+
+
+def test_a_pipeline_whose_source_is_not_named_is_accepted(monkeypatch_dependencies):
+    assert make_callback("failed", source=None).accept_callback() is True
 
 
 @pytest.mark.parametrize("status", ["blocked", "manual"])
@@ -65,9 +83,27 @@ def test_a_pipeline_daiv_triggered_is_still_accepted(monkeypatch_dependencies, s
     assert callback.accept_callback() is True
 
 
-def test_a_repo_with_the_watch_disabled_is_ignored(monkeypatch_dependencies, repo_config):
+@pytest.mark.parametrize("switch", ["repository", "site"])
+def test_a_pipeline_is_accepted_with_the_watch_turned_off(monkeypatch_dependencies, repo_config, switch):
+    """A watch turned off still remembers CI results, so whether one wakes the session is the evaluation's call."""
+    repo_config.pipeline_watch.enabled = switch != "repository"
+    site = site_snapshot(pipeline_watch_enabled=switch != "site")
+
+    with patch.object(site_settings, "snapshot", return_value=site):
+        assert make_callback("failed").accept_callback() is True
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failure_with_the_watch_off_is_remembered(monkeypatch_dependencies, repo_config, evaluate_inline):
     repo_config.pipeline_watch.enabled = False
-    assert make_callback("failed").accept_callback() is False
+    ownership = await amake_owned_merge_request(last_daiv_sha="abc123")
+    callback = make_callback("failed")
+
+    assert callback.accept_callback() is True
+    await callback.process_callback()
+
+    event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+    assert (event.kind, event.wake, event.reason) == (EventKind.CI_FAILED, False, QuietReason.WATCH_OFF)
 
 
 @pytest.fixture

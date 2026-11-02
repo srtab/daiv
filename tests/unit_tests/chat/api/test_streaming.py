@@ -1384,6 +1384,90 @@ class TestInboxContext:
         assert "could not add the inbox context" in caplog.text
 
 
+@pytest.mark.django_db(transaction=True)
+class TestEventsTakenForATurnThatEnds:
+    async def _session_with_taken_event(self):
+        from sessions.models import EventKind, EventState
+
+        from tests.unit_tests.sessions.inbox.conftest import amake_event
+
+        session = await Session.objects.acreate(
+            thread_id="t-stream", origin="chat", repo_id="a/b", ref="main", active_run_id="r-1"
+        )
+        return await amake_event(
+            session,
+            EventKind.MR_MERGED,
+            merge_request_iid=3,
+            state=EventState.TAKEN,
+            claim_token="r-1",  # noqa: S106
+        )
+
+    async def test_a_clone_failure_leaves_them_pending_for_the_next_turn(self, real_chat_inbox):
+        from sessions.inbox.drain import atake_for_chat
+        from sessions.models import EventState, InboxEvent
+
+        event = await self._session_with_taken_event()
+
+        with _recorded_turn(_mock_agent([]), runtime_ctx=_failing_ctx):
+            [_ async for _ in _streamer().events()]
+
+        stored = await InboxEvent.objects.aget(pk=event.pk)
+        assert (stored.state, stored.claim_token, stored.attempts) == (EventState.PENDING, "", 0)
+        assert [taken.pk for taken in await atake_for_chat("t-stream", holder_id="r-2")] == [event.pk]
+
+    async def test_a_put_back_failure_is_logged_and_still_releases_the_slot(self, chat_inbox, caplog):
+        chat_inbox.release_claim.side_effect = RuntimeError("db down")
+
+        with _recorded_turn(_mock_agent([]), runtime_ctx=_failing_ctx) as calls, caplog.at_level("ERROR"):
+            [_ async for _ in _streamer().events()]
+
+        assert "could not put back the inbox events" in caplog.text
+        assert calls == [_RELEASE]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestEventsOfAStoppedTurn:
+    @pytest.fixture(autouse=True)
+    def _patch_run_lifecycle(self):
+        """Override the module-level autouse: the turn's ``Run`` row is real, so its end settles the events."""
+
+    @pytest.mark.parametrize(
+        ("cancel", "heartbeat", "state", "attempts"),
+        [(True, True, "dismissed", 0), (False, False, "pending", 1)],
+        ids=["stopped-by-the-owner", "interrupted"],
+    )
+    async def test_only_the_owners_stop_dismisses_them(self, real_chat_inbox, cancel, heartbeat, state, attempts):
+        from sessions.models import EventKind, EventState, InboxEvent
+
+        from tests.unit_tests.sessions.inbox.conftest import amake_event
+
+        session = await Session.objects.acreate(
+            thread_id="t-stream", origin="chat", repo_id="a/b", ref="main", active_run_id="r-1"
+        )
+        event = await amake_event(
+            session,
+            EventKind.MR_MERGED,
+            merge_request_iid=3,
+            state=EventState.TAKEN,
+            claim_token="r-1",  # noqa: S106
+        )
+
+        with (
+            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([_snapshot()] * 2)),
+            patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
+            patch("sessions.live.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=cancel)),
+            patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock(return_value=heartbeat)),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        ):
+            [_ async for _ in _streamer().events()]
+
+        run = await Run.objects.aget(session_id="t-stream")
+        assert (run.status, run.cancel_requested_at is not None) == ("FAILED", cancel)
+        stored = await InboxEvent.objects.aget(pk=event.pk)
+        assert (stored.state, stored.attempts) == (state, attempts)
+
+
 async def test_the_inbox_is_drained_once_the_turn_releases_the_slot(chat_inbox):
     order: list[str] = []
     chat_inbox.drain.side_effect = lambda thread_id: order.append(f"drain {thread_id}")

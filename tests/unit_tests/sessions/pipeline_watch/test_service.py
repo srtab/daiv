@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
+from sessions.inbox.drain import newest_of_each_subject
 from sessions.models import (
     EventKind,
     InboxEvent,
@@ -17,6 +18,7 @@ from sessions.models import (
     SessionOrigin,
 )
 from sessions.pipeline_watch.service import PipelineWatch
+from sessions.pipeline_watch.store import WatchStore
 from sessions.signal_defs import watch_exhausted
 
 from ..conftest import make_job, make_pipeline
@@ -31,6 +33,7 @@ class FakePlatform:
 
     def __init__(self):
         self.pipeline = None
+        self.latest = []
         self.head_sha = SHA
         self.read_error = None
         self.reads = 0
@@ -38,13 +41,19 @@ class FakePlatform:
     async def aensure_client(self):
         return None
 
-    async def aread_pipeline(self, *, ref, pipeline_id):
+    async def aread_pipeline(self, *, pipeline_id):
         # A real yield point, so concurrent evaluations both get past the read before either records the pipeline.
         await asyncio.sleep(0)
         self.reads += 1
         if self.read_error is not None:
             raise self.read_error
-        return self.pipeline
+        return next((pipeline for pipeline in self.latest if pipeline.id == pipeline_id), self.pipeline)
+
+    async def aread_latest_pipelines(self, *, ref):
+        self.reads += 1
+        if self.read_error is not None:
+            raise self.read_error
+        return [pipeline.model_copy(update={"jobs": []}) for pipeline in self.latest]
 
     async def ais_head_pipeline(self, *, merge_request_iid, report):
         return bool(merge_request_iid) and report.sha == self.head_sha
@@ -97,6 +106,17 @@ async def _event() -> InboxEvent | None:
     return await InboxEvent.objects.afirst()
 
 
+async def _events() -> list[InboxEvent]:
+    return [event async for event in InboxEvent.objects.order_by("created_at")]
+
+
+def _workflow_run(status: str, *, pipeline_id: int = 100, workflow_id: int = 11, name: str = "Lint"):
+    """A GitHub Actions run: one of the workflow runs on a commit."""
+    return make_pipeline(status, pipeline_id=pipeline_id).model_copy(
+        update={"workflow_id": workflow_id, "workflow_name": name}
+    )
+
+
 class TestVerdicts:
     async def test_a_green_pipeline_is_remembered_as_passing(self, watch):
         ownership = await _owned()
@@ -146,6 +166,200 @@ class TestVerdicts:
         await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
 
         assert (await _event()).wake is True
+
+
+class TestCiSubjects:
+    """A GitLab pipeline covers the whole commit, so the merge request has one CI subject; GitHub runs one workflow
+    run per workflow on a commit, and each workflow is a subject of its own."""
+
+    async def test_a_gitlab_pipeline_is_the_merge_requests_one_subject(self, watch):
+        await _owned()
+        watch.platform.pipeline = make_pipeline("failed")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await _event()
+        assert event.subject == "ci:7"
+        assert "workflow" not in event.payload
+
+    async def test_a_github_workflow_run_is_a_subject_of_its_own_named_for_its_workflow(self, watch):
+        await _owned()
+        watch.platform.pipeline = _workflow_run("failed", workflow_id=11, name="Lint")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await _event()
+        assert (event.subject, event.payload["workflow"]) == ("ci:7:11", "Lint")
+
+    async def test_one_workflows_pass_does_not_replace_anothers_waking_failure(self, watch):
+        await _owned()
+        watch.platform.pipeline = _workflow_run("failed", pipeline_id=100, workflow_id=11)
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+        watch.platform.pipeline = _workflow_run("success", pipeline_id=101, workflow_id=12, name="Tests")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=101)
+
+        failed, passed = await _events()
+        assert (failed.kind, failed.wake, passed.kind) == (EventKind.CI_FAILED, True, EventKind.CI_PASSED)
+        assert newest_of_each_subject([failed, passed]) == [failed, passed]
+
+    async def test_a_later_gitlab_pipeline_replaces_the_earlier_one(self, watch):
+        await _owned()
+        for pipeline_id, status in ((100, "failed"), (101, "success")):
+            watch.platform.pipeline = make_pipeline(status, pipeline_id=pipeline_id)
+            await watch.make().aevaluate(ref=BRANCH, pipeline_id=pipeline_id)
+
+        failed, passed = await _events()
+        assert newest_of_each_subject([failed, passed]) == [passed]
+
+
+class TestLatestOfEachSubject:
+    """What the reconciler judges on a branch nothing was heard of: the latest pipeline of each CI subject, since on
+    GitHub the newest run on a branch is one workflow's of several."""
+
+    async def test_a_github_workflow_failure_is_judged_though_another_workflow_ran_after_it(self, watch):
+        await _owned()
+        watch.platform.latest = [
+            _workflow_run("success", pipeline_id=101, workflow_id=12, name="Tests"),
+            _workflow_run("failed", pipeline_id=100, workflow_id=11),
+        ]
+
+        await watch.make().aevaluate_latest(ref=BRANCH)
+
+        assert [(event.kind, event.subject, event.wake) for event in await _events()] == [
+            (EventKind.CI_PASSED, "ci:7:12", False),
+            (EventKind.CI_FAILED, "ci:7:11", True),
+        ]
+
+    async def test_a_gitlab_branch_has_its_one_latest_pipeline_judged(self, watch):
+        await _owned()
+        watch.platform.latest = [make_pipeline("failed")]
+
+        await watch.make().aevaluate_latest(ref=BRANCH)
+
+        event = await _event()
+        assert (event.kind, event.subject, event.wake) == (EventKind.CI_FAILED, "ci:7", True)
+
+    async def test_a_pipeline_already_judged_in_its_status_is_not_judged_again(self, watch):
+        """The merge request remembers only the last pipeline judged, so another workflow's failure the drain has
+        examined since would otherwise be posted again as already examined."""
+        await _owned()
+        watch.platform.latest = [
+            _workflow_run("failed", pipeline_id=100, workflow_id=11),
+            _workflow_run("success", pipeline_id=101, workflow_id=12, name="Tests"),
+        ]
+        await watch.make().aevaluate_latest(ref=BRANCH)
+        await MergeRequestOwnership.objects.aupdate(last_examined_sha=SHA)
+        watch.platform.reads = 0
+
+        await watch.make().aevaluate_latest(ref=BRANCH)
+
+        assert [event.payload["pipeline_id"] for event in await _events()] == [100, 101]
+        assert watch.platform.reads == 1
+
+    async def test_a_watch_turned_back_on_judges_them_anew(self, watch):
+        """Turning the watch on forgets the last pipeline judged, so a failure it kept quiet wakes the session."""
+        ownership = await _owned(watch_enabled=False)
+        watch.platform.latest = [_workflow_run("failed", pipeline_id=100, workflow_id=11)]
+        await watch.make().aevaluate_latest(ref=BRANCH)
+        await WatchStore().aset_enabled(ownership.pk, enabled=True)
+
+        await watch.make().aevaluate_latest(ref=BRANCH)
+
+        assert [(event.reason, event.wake) for event in await _events()] == [(QuietReason.WATCH_OFF, False), ("", True)]
+
+    async def test_a_failure_kept_quiet_while_the_watch_was_off_is_judged_again_once_it_is_on(self, watch):
+        """Another workflow judged since keeps the merge request's last pipeline set, so only the quiet reason tells
+        that the failure was never judged with the watch on."""
+        ownership = await _owned(watch_enabled=False)
+        watch.platform.latest = [
+            _workflow_run("failed", pipeline_id=100, workflow_id=11),
+            _workflow_run("success", pipeline_id=101, workflow_id=12, name="Tests"),
+        ]
+        await watch.make().aevaluate_latest(ref=BRANCH)
+        await MergeRequestOwnership.objects.filter(pk=ownership.pk).aupdate(watch_enabled=True)
+
+        await watch.make().aevaluate_latest(ref=BRANCH)
+
+        assert [(event.subject, event.reason, event.wake) for event in await _events()] == [
+            ("ci:7:11", QuietReason.WATCH_OFF, False),
+            ("ci:7:12", "", False),
+            ("ci:7:11", "", True),
+        ]
+
+    async def test_an_unreadable_branch_posts_nothing_and_says_it_was_not_read(self, watch, caplog):
+        await _owned()
+        watch.platform.read_error = RuntimeError("boom")
+
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
+            assert await watch.make().aevaluate_latest(ref=BRANCH) is False
+
+        assert await _event() is None
+        assert "the latest pipelines" in caplog.text
+
+    async def test_a_subject_that_fails_to_be_judged_does_not_stop_the_others(self, watch):
+        await _owned()
+        watch.platform.latest = [
+            _workflow_run("failed", pipeline_id=100, workflow_id=11),
+            _workflow_run("success", pipeline_id=101, workflow_id=12, name="Tests"),
+        ]
+        real_post = PipelineWatch._apost
+
+        async def post(self, *, ownership, session, report):
+            if report.id == 100:
+                raise RuntimeError("post failed")
+            await real_post(self, ownership=ownership, session=session, report=report)
+
+        with patch.object(PipelineWatch, "_apost", post), pytest.raises(RuntimeError, match="post failed"):
+            await watch.make().aevaluate_latest(ref=BRANCH)
+
+        assert [event.payload["pipeline_id"] for event in await _events()] == [101]
+
+
+class TestOutOfOrder:
+    """A pipeline older than one already judged on the same commit and CI subject is replaced: reported late, it
+    neither wakes a turn nor turns a pass back into a failure."""
+
+    async def test_a_late_gitlab_pipeline_on_the_same_commit_is_skipped(self, watch, drain):
+        await _owned()
+        watch.platform.pipeline = make_pipeline("success", pipeline_id=101)
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=101)
+        watch.platform.pipeline = make_pipeline("failed", pipeline_id=100)
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert [event.kind for event in await _events()] == [EventKind.CI_PASSED]
+        drain.assert_not_called()
+
+    async def test_a_late_github_run_is_skipped_only_within_its_own_workflow(self, watch):
+        await _owned()
+        watch.platform.pipeline = _workflow_run("success", pipeline_id=101, workflow_id=11)
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=101)
+
+        late_runs = (
+            _workflow_run("failed", pipeline_id=100, workflow_id=11),
+            _workflow_run("failed", pipeline_id=99, workflow_id=12),
+        )
+        for late in late_runs:
+            watch.platform.pipeline = late
+            await watch.make().aevaluate(ref=BRANCH, pipeline_id=late.id)
+
+        assert [(event.kind, event.payload["pipeline_id"]) for event in await _events()] == [
+            (EventKind.CI_PASSED, 101),
+            (EventKind.CI_FAILED, 99),
+        ]
+
+    async def test_a_newer_pipeline_on_another_commit_does_not_hide_one_on_the_head(self, watch):
+        await _owned(last_daiv_sha="")
+        watch.platform.head_sha = "0a1b2c3d"
+        watch.platform.pipeline = make_pipeline("success", pipeline_id=101).model_copy(update={"sha": "0a1b2c3d"})
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=101)
+        watch.platform.head_sha = SHA
+        watch.platform.pipeline = make_pipeline("failed", pipeline_id=100)
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert [event.payload["pipeline_id"] for event in await _events()] == [101, 100]
 
 
 class TestWakeRule:
@@ -214,7 +428,8 @@ class TestNothingPosted:
         watch.platform.pipeline = make_pipeline("failed")
 
         await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
-        await watch.make().aevaluate(ref=BRANCH, pipeline_id=None)
+        watch.platform.latest = [make_pipeline("failed")]
+        await watch.make().aevaluate_latest(ref=BRANCH)
 
         assert await _event() is None
 
@@ -298,6 +513,25 @@ class TestGivingUp:
         assert sent["session"].pk == ownership.session_id
         assert (sent["failing_jobs"], sent["sha"]) == (["tests"], SHA)
 
+    async def test_a_give_up_records_how_many_attempts_were_spent(self, watch):
+        await _owned(attempts=3)
+        watch.platform.pipeline = make_pipeline("failed", [make_job("failed", name="tests")])
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await _event()
+        assert (event.reason, event.payload["attempts"], event.payload["failed_jobs"]) == (
+            QuietReason.BUDGET_SPENT, 3, ["tests"],
+        )  # fmt: skip
+
+    async def test_a_failure_kept_quiet_for_another_reason_records_no_attempts(self, watch):
+        await _owned(attempts=3, last_examined_sha=SHA)
+        watch.platform.pipeline = make_pipeline("failed")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert "attempts" not in (await _event()).payload
+
     async def test_a_retried_pipeline_on_the_same_commit_tells_the_owner_once(self, watch):
         await _owned(attempts=3)
 
@@ -343,7 +577,7 @@ class TestDelegatedOutcome:
 
         event = await InboxEvent.objects.aget(session=parent)
         assert (event.kind, event.wake, event.source_key) == (
-            EventKind.DELEGATED_CI_OUTCOME, False, f"child-ci:{ownership.session_id}:{pipeline.id}",
+            EventKind.DELEGATED_CI_OUTCOME, False, f"child-ci:{ownership.session_id}:{pipeline.id}:{outcome}",
         )  # fmt: skip
         assert event.payload == {
             "child_thread_id": ownership.session_id,
@@ -351,6 +585,55 @@ class TestDelegatedOutcome:
             "outcome": outcome,
             "web_url": pipeline.web_url,
         }
+
+    async def test_one_workflows_pass_is_no_pass_while_another_workflow_fails(self, watch):
+        parent, _ = await self._child()
+        lint_failed = _workflow_run("failed", pipeline_id=100, workflow_id=11)
+        tests_passed = _workflow_run("success", pipeline_id=101, workflow_id=12)
+        watch.platform.latest = [tests_passed, lint_failed]
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=101)
+
+        assert not await InboxEvent.objects.filter(session=parent).aexists()
+
+        watch.platform.latest = [tests_passed, _workflow_run("success", pipeline_id=100, workflow_id=11)]
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await InboxEvent.objects.aget(session=parent)
+        assert (event.payload["outcome"], event.source_key.split(":")[-2]) == ("passing", "100")
+
+    async def test_one_workflows_pass_is_no_pass_while_another_workflow_still_runs(self, watch):
+        """A workflow still running has posted nothing, so only the platform knows it is there."""
+        parent, _ = await self._child()
+        tests_passed = _workflow_run("success", pipeline_id=101, workflow_id=12)
+        watch.platform.latest = [tests_passed, _workflow_run("running", pipeline_id=100, workflow_id=11)]
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=101)
+
+        assert not await InboxEvent.objects.filter(session=parent).aexists()
+
+    async def test_a_workflow_that_succeeded_before_its_result_was_posted_counts_as_passing(self, watch):
+        parent, _ = await self._child()
+        watch.platform.latest = [
+            _workflow_run("success", pipeline_id=101, workflow_id=12),
+            _workflow_run("success", pipeline_id=100, workflow_id=11),
+        ]
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=101)
+
+        assert await InboxEvent.objects.filter(session=parent, kind=EventKind.DELEGATED_CI_OUTCOME).aexists()
+
+    async def test_unreadable_latest_pipelines_tell_the_parent_nothing(self, watch):
+        parent, _ = await self._child()
+        watch.platform.pipeline = make_pipeline("success")
+
+        async def unreadable(*, ref):
+            raise RuntimeError("boom")
+
+        with patch.object(watch.platform, "aread_latest_pipelines", unreadable):
+            await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        assert not await InboxEvent.objects.filter(session=parent).aexists()
 
     @pytest.mark.parametrize("status", ["failed", "manual"], ids=["woken", "stopped"])
     async def test_other_verdicts_tell_the_parent_nothing(self, watch, status):
@@ -383,7 +666,7 @@ class TestRequestEvaluation:
 
 
 class TestToggle:
-    async def test_turning_it_on_gives_the_attempts_back_and_judges_the_last_pipeline_again(self, watch):
+    async def test_turning_it_on_gives_the_attempts_back_and_judges_the_latest_pipelines_again(self, watch):
         ownership = await _owned(watch_enabled=False, attempts=3, last_examined_sha="abc", last_pipeline_id=7)
 
         with patch("sessions.tasks.evaluate_pipeline_watch_task") as task:
@@ -393,7 +676,7 @@ class TestToggle:
         await ownership.arefresh_from_db()
         assert (ownership.watch_enabled, ownership.attempts, ownership.last_pipeline_id) == (True, 0, None)
         assert ownership.last_examined_sha == "abc"
-        task.aenqueue.assert_awaited_once_with(repo_id=REPO, ref=BRANCH, pipeline_id=7)
+        task.aenqueue.assert_awaited_once_with(repo_id=REPO, ref=BRANCH)
 
     async def test_turning_it_on_when_it_is_on_changes_nothing(self, watch):
         ownership = await _owned(attempts=1, last_examined_sha=SHA, last_pipeline_id=100)
@@ -406,18 +689,20 @@ class TestToggle:
         assert (ownership.attempts, ownership.last_pipeline_id) == (1, 100)
         task.aenqueue.assert_not_awaited()
 
-    @pytest.mark.parametrize("pipeline_id", [100, None], ids=["by-id", "latest"])
-    async def test_a_failure_reported_while_the_watch_was_off_wakes_any_later_evaluation(
-        self, watch, drain, pipeline_id
-    ):
+    @pytest.mark.parametrize("latest", [False, True], ids=["by-id", "latest"])
+    async def test_a_failure_reported_while_the_watch_was_off_wakes_any_later_evaluation(self, watch, drain, latest):
         ownership = await _owned(watch_enabled=False)
         watch.platform.pipeline = make_pipeline("failed")
+        watch.platform.latest = [watch.platform.pipeline]
         await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
 
         with patch("sessions.tasks.evaluate_pipeline_watch_task") as task:
             task.aenqueue = AsyncMock()
             await watch.make().aturn_on(ownership)
-        await watch.make().aevaluate(ref=BRANCH, pipeline_id=pipeline_id)
+        if latest:
+            await watch.make().aevaluate_latest(ref=BRANCH)
+        else:
+            await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
 
         quiet, woken = [event async for event in InboxEvent.objects.order_by("created_at")]
         assert (quiet.wake, quiet.reason) == (False, QuietReason.WATCH_OFF)

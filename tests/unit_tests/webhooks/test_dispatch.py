@@ -410,6 +410,16 @@ class TestOwnedMergeRequest:
             "group/repo", 7, Emoji.EYES, 300, on_diff=False
         )
 
+    async def test_a_mention_on_a_max_merge_request_asks_for_the_max_model(self, steps, owned):
+        steps.client.git_platform = GitPlatform.GITLAB
+
+        await _mr_comment_run(steps, mention=self._mention(), use_max=True)
+
+        event = await InboxEvent.objects.aget(session_id=owned.session_id)
+        assert (event.payload["agent_model"], event.payload["agent_thinking_level"]) == (
+            site_settings.agent_max_model_name, site_settings.agent_max_thinking_level,
+        )  # fmt: skip
+
     async def test_a_github_review_comment_is_keyed_apart_from_conversation_comments(self, steps, owned):
         steps.client.git_platform = GitPlatform.GITHUB
 

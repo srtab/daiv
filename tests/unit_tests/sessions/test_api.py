@@ -715,7 +715,7 @@ async def test_session_ci_watch_on_gives_the_attempts_back_and_asks_for_an_evalu
     assert resp.json()["watch"]["open"] is True
     await ownership.arefresh_from_db()
     assert (ownership.watch_enabled, ownership.attempts) == (True, 0)
-    assert watch_world.evaluations == [{"repo_id": "group/project", "ref": "daiv/b7", "pipeline_id": None}]
+    assert watch_world.evaluations == [{"repo_id": "group/project", "ref": "daiv/b7"}]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -802,6 +802,7 @@ async def test_session_turns_report_ci_on_the_merge_requests_the_session_owns(cl
             "status": "running",
             "label": "Waiting for CI",
             "tone": "attn",
+            "failed_jobs": [],
             "attempts": 1,
             "max_attempts": 3,
             "watch_enabled": True,

@@ -47,9 +47,5 @@ class WatchPolicy:
         return resolve_pipeline_watch_max_attempts(site=self._site, repo=self._config)
 
     @classmethod
-    def enabled_for(cls, config: RepositoryConfig) -> bool:
-        return cls(config).enabled
-
-    @classmethod
     async def afor_repo(cls, repo_id: str) -> WatchPolicy:
         return cls(await sync_to_async(RepositoryConfig.get_config)(repo_id))

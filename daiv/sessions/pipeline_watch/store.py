@@ -5,10 +5,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from django.db.models import Exists, OuterRef, Q
-from django.db.models.fields.json import KT
+from django.db.models import Exists, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce, Greatest
 
 from sessions.inbox.ownership import aownership_for_branch
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, QuietReason
@@ -21,11 +21,26 @@ if TYPE_CHECKING:
 CI_KINDS = (EventKind.CI_FAILED, EventKind.CI_PASSED, EventKind.CI_STOPPED)
 
 
+def latest_ci_results(session_id: str, merge_request_iid: int) -> QuerySet[InboxEvent]:
+    """The latest CI event of each CI subject of a merge request in ``session_id``'s inbox, newest first."""
+    ci = InboxEvent.objects.filter(session_id=session_id, merge_request_iid=merge_request_iid, kind__in=CI_KINDS)
+    newest = ci.filter(subject=OuterRef("subject")).order_by("-created_at", "-pk").values("pk")[:1]
+    return ci.filter(pk=Subquery(newest)).order_by("-created_at", "-pk")
+
+
+def on_newest_commit(results: list[InboxEvent]) -> list[InboxEvent]:
+    """Those of ``results`` (newest first) on the newest one's commit. Each was posted for its merge request's head,
+    so the newest names the latest head, and a subject whose result is on an older commit has not run on it."""
+    return [event for event in results if event.payload["sha"] == results[0].payload["sha"]] if results else []
+
+
 def gave_up(session: OuterRef, *, since: datetime) -> Exists:
-    """Whether CI on a merge request of ``session`` ran out of attempts since ``since`` and has not passed after."""
+    """Whether CI on a merge request of ``session`` ran out of attempts since ``since`` and its subject has not
+    passed after."""
     passed_after = InboxEvent.objects.filter(
         session=OuterRef("session"),
         merge_request_iid=OuterRef("merge_request_iid"),
+        subject=OuterRef("subject"),
         kind=EventKind.CI_PASSED,
         created_at__gt=OuterRef("created_at"),
     )
@@ -60,6 +75,46 @@ class WatchStore:
         )
         return updated == 1
 
+    async def asuperseded(self, session_id: str | None, subject: str, sha: str, pipeline_id: int) -> bool:
+        """Whether a pipeline newer than ``pipeline_id`` on ``sha`` was already judged for the CI ``subject``."""
+        return await InboxEvent.objects.filter(
+            session_id=session_id,
+            subject=subject,
+            kind__in=CI_KINDS,
+            payload__sha=sha,
+            payload__pipeline_id__gt=pipeline_id,
+        ).aexists()
+
+    async def ajudged(
+        self, session_id: str | None, subject: str, pipeline_id: int, status: str, *, watch_on: bool
+    ) -> bool:
+        """Whether ``pipeline_id`` in ``status`` was already judged for the CI ``subject``. With the ``watch_on``, a
+        result it kept quiet because it was off does not count, so a watch turned back on judges it anew."""
+        judged = InboxEvent.objects.filter(
+            session_id=session_id,
+            subject=subject,
+            kind__in=CI_KINDS,
+            payload__pipeline_id=pipeline_id,
+            payload__status=status,
+        )
+        if watch_on:
+            judged = judged.exclude(reason=QuietReason.WATCH_OFF)
+        return await judged.aexists()
+
+    async def apassed(self, session_id: str, subject: str, pipeline_id: int, status: str) -> bool:
+        """Whether the latest result posted for the CI ``subject`` is ``pipeline_id`` passing in ``status``."""
+        latest = await (
+            InboxEvent.objects
+            .filter(session_id=session_id, subject=subject, kind__in=CI_KINDS)
+            .order_by("-created_at", "-pk")
+            .afirst()
+        )
+        return (
+            latest is not None
+            and latest.kind == EventKind.CI_PASSED
+            and (latest.payload["pipeline_id"], latest.payload["status"]) == (pipeline_id, status)
+        )
+
     async def aforget_pipeline(
         self, ownership_id: int, pipeline_id: int, status: str, *, previous: tuple[int | None, str]
     ) -> None:
@@ -92,24 +147,28 @@ class WatchStore:
             updates |= {"attempts": 0, "last_pipeline_id": None, "last_pipeline_status": ""}
         await MergeRequestOwnership.objects.filter(pk=ownership_id).aupdate(**updates)
 
-    def unjudged(self, *, quiet_since: datetime, horizon: datetime, limit: int) -> QuerySet[MergeRequestOwnership]:
-        """Open, watched merge requests whose latest DAIV commit has no CI result yet, quiet since ``quiet_since`` and
-        claimed after ``horizon``: the ones a missed webhook may have left waiting. A result kept quiet because the
-        watch was off does not count, so a watch turned back on is judged even if its own evaluation failed."""
-        judged = (
+    def quiet(self, *, since: datetime, limit: int) -> QuerySet[MergeRequestOwnership, dict[str, Any]]:
+        """Open, watched merge requests nothing was heard of since ``since``, at most ``limit``, stalest first: no CI
+        result, whatever it was, no claim, which a publish makes, and no re-read by the reconciler
+        (:meth:`amark_reconciled`). What a missed webhook may have left behind, a manual retry's pass included."""
+        last_result = (
             InboxEvent.objects
-            .annotate(sha=KT("payload__sha"))
-            .filter(
-                session=OuterRef("session"),
-                kind__in=CI_KINDS,
-                merge_request_iid=OuterRef("merge_request_iid"),
-                sha=OuterRef("last_daiv_sha"),
-            )
-            .exclude(reason=QuietReason.WATCH_OFF)
+            .filter(session=OuterRef("session"), merge_request_iid=OuterRef("merge_request_iid"), kind__in=CI_KINDS)
+            .order_by("-created_at")
+            .values("created_at")[:1]
+        )
+        heard_at = Greatest(
+            "updated_at", Coalesce(Subquery(last_result), "updated_at"), Coalesce("last_reconciled_at", "updated_at")
         )
         return (
             MergeRequestOwnership.objects
-            .filter(closed_at__isnull=True, watch_enabled=True, updated_at__lt=quiet_since, updated_at__gte=horizon)
-            .exclude(Exists(judged))
-            .only("id", "repo_id", "merge_request_iid", "source_branch")[:limit]
+            .filter(closed_at__isnull=True, watch_enabled=True)
+            .annotate(heard_at=heard_at)
+            .filter(heard_at__lt=since)
+            .order_by("heard_at", "pk")
+            .values("pk", "repo_id", "merge_request_iid", "source_branch")[:limit]
         )
+
+    async def amark_reconciled(self, ownership_id: int, *, at: datetime) -> None:
+        """Record that the reconciler re-read the merge request's CI at ``at``, which counts as hearing of it."""
+        await MergeRequestOwnership.objects.filter(pk=ownership_id).aupdate(last_reconciled_at=at)

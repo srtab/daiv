@@ -29,6 +29,7 @@ from notifications.policy import (
     notification_source_for_run,
     notifies,
     within_relevance_window,
+    woken_by_ci_failure,
 )
 from notifications.run_notifiers import emit_run_notification, resolve_recipients
 from schedules.models import Intent
@@ -275,7 +276,8 @@ def reclassify_missing_envelopes_cron_task():
     failed unrecoverably (provider errors past all retries + fallback) or an ``.enqueue()`` that was
     dropped (a broker/DB blip, swallowed in ``classify_on_run_finished``) would otherwise strand the
     run at "classifying…" forever — nothing re-fires the signal. This periodic sweep re-targets
-    terminal non-chat runs (all origins returned by ``SessionOrigin.classified()``) that still have no
+    terminal non-chat runs (all origins returned by ``SessionOrigin.classified()``), and chat runs a CI failure also
+    woke (``classify_ci_woken_chat_run``), that still have no
     ``RunEnvelope`` and re-enqueues classification, which is idempotent (``dedup=True`` + the in-task
     ``aexists`` guard) so re-enqueuing an in-flight or already-classified run is a safe no-op.
     A FAILED run with no envelope is likewise re-targeted and gets its ``failed`` envelope with no LLM
@@ -297,8 +299,8 @@ def reclassify_missing_envelopes_cron_task():
     age_floor = now - RECLASSIFY_MAX_AGE
     stranded_ids = list(
         Run.objects
+        .filter(Q(trigger_type__in=SessionOrigin.classified()) | woken_by_ci_failure())
         .filter(
-            trigger_type__in=SessionOrigin.classified(),
             status__in=RunStatus.terminal(),
             envelope__isnull=True,
             classify_eligible=True,
@@ -326,9 +328,10 @@ def redrive_missing_notifications_cron_task():
 
     If a worker dies after the envelope is written but before its notification is delivered, the run has
     an envelope (so the reclassify backstop skips it) and the notification would be lost forever. This
-    sweep re-emits the notification for classified, notify-worthy, in-window, un-muted runs that are still
-    missing at least one recipient's Notification row; the per-run/batch unique constraints make the
-    re-emit idempotent, so recipients that already have a row are left untouched.
+    sweep re-emits the notification for classified, in-window, un-muted runs that ``notifies()`` lets through
+    (notify-worthy, or woken by a CI failure) and that are still missing at least one recipient's Notification
+    row; the per-run/batch unique constraints make the re-emit idempotent, so recipients that already have a row
+    are left untouched.
 
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock.
     """
@@ -343,16 +346,21 @@ def redrive_missing_notifications_cron_task():
     now = timezone.now()
     candidates = (
         Run.objects
+        .filter(Q(trigger_type__in=SessionOrigin.classified()) | woken_by_ci_failure())
         .filter(
-            trigger_type__in=SessionOrigin.classified(),
             status__in=RunStatus.terminal(),
             classify_eligible=True,
             envelope__isnull=False,
-            envelope__status__in=NOTIFY_WORTHY_STATUSES,
             finished_at__isnull=False,
             finished_at__gte=now - RECLASSIFY_MAX_AGE,
         )
-        .exclude(envelope__status=EnvelopeStatus.NEEDS_INPUT, trigger_type__in=SessionOrigin.webhooks())
+        .filter(
+            (
+                Q(envelope__status__in=NOTIFY_WORTHY_STATUSES)
+                & ~Q(envelope__status=EnvelopeStatus.NEEDS_INPUT, trigger_type__in=SessionOrigin.webhooks())
+            )
+            | woken_by_ci_failure()
+        )
         .select_related("envelope", "session", "session__scheduled_job", "session__scheduled_job__user", "user")
         .prefetch_related("session__scheduled_job__subscribers")
         .order_by("finished_at")[:REDRIVE_BATCH_LIMIT]

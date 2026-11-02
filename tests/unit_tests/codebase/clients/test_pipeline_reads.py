@@ -119,3 +119,49 @@ class TestTransientPlatformErrors:
 
         assert is_transient_platform_error(requests.ConnectionError("connection refused"))
         assert is_transient_platform_error(OSError("socket closed"))
+
+
+class TestCiSubjectIdentity:
+    """GitHub runs one workflow run per workflow on a commit, so a run names its workflow; GitLab's one pipeline
+    covers the whole commit and names none."""
+
+    def test_a_github_run_names_its_workflow(self):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from codebase.clients.github.client import GitHubClient
+
+        client = GitHubClient.__new__(GitHubClient)
+        run = SimpleNamespace(
+            id=100, head_sha="abc", conclusion="failure", html_url="https://gh/run/100", workflow_id=11, name="Lint",
+            jobs=lambda: [SimpleNamespace(id=1, name="ruff", conclusion="failure")],
+        )  # fmt: skip
+        repo = MagicMock()
+        repo.get_workflow_run.return_value = run
+        client.client = MagicMock()
+        client.client.get_repo.return_value = repo
+
+        pipeline = client.get_pipeline("g/r", 100)
+
+        assert (pipeline.workflow_id, pipeline.workflow_name) == (11, "Lint")
+
+    def test_a_gitlab_pipeline_names_no_workflow(self):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from codebase.clients.gitlab.client import GitLabClient
+
+        client = GitLabClient.__new__(GitLabClient)
+        jobs = MagicMock()
+        jobs.list.return_value = [
+            SimpleNamespace(id=1, name="lint", status="failed", stage="test", allow_failure=False)
+        ]
+        pipeline = SimpleNamespace(id=100, iid=3, sha="abc", status="failed", web_url="https://gl/p/100", jobs=jobs)
+        project = MagicMock()
+        project.pipelines.get.return_value = pipeline
+        client.client = MagicMock()
+        client.client.projects.get.return_value = project
+
+        result = client.get_pipeline("g/r", 100)
+
+        assert (result.workflow_id, result.workflow_name) == (None, "")

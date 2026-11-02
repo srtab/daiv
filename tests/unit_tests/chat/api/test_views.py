@@ -1471,6 +1471,57 @@ async def test_completion_releases_slot_when_spawn_rejects_run_id(
     await user.adelete()
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_that_could_not_start_frees_the_slot_when_putting_back_its_events_fails(
+    client: TestAsyncClient, authed, fake_redis, patched_streamer, caplog
+):
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()
+    with (
+        patch("chat.api.runner.supervisor.spawn", side_effect=RuntimeError("already live for run_id=r-1")),
+        patch("chat.api.views.arelease_chat_claim", side_effect=RuntimeError("db down")),
+        caplog.at_level("ERROR", logger="daiv.chat"),
+    ):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-spawnfail"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 409
+    assert (await Session.objects.aget(thread_id="t-spawnfail")).active_run_id is None
+    assert caplog.records[-1].exc_info is not None
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_that_could_not_start_puts_back_the_events_it_took(
+    client: TestAsyncClient, authed, fake_redis, patched_streamer
+):
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-spawnfail", user=user, repo_id="a/b", ref="main"
+    )
+    remembered = await amake_event(session, EventKind.MR_MERGED, merge_request_iid=3)
+
+    with patch("chat.api.runner.supervisor.spawn", side_effect=RuntimeError("already live for run_id=r-1")):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-spawnfail"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 409
+    remembered = await InboxEvent.objects.aget(pk=remembered.pk)
+    assert (remembered.state, remembered.claim_token) == ("pending", "")
+    await user.adelete()
+
+
 # ---------------------------------------------------------------------------
 # GET /chat/spend — session spend refresh
 # ---------------------------------------------------------------------------

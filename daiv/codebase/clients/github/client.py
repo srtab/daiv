@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
     from github.IssueComment import IssueComment
     from github.PullRequest import PullRequest
+    from github.WorkflowRun import WorkflowRun
 
 
 logger = logging.getLogger("daiv.clients")
@@ -256,9 +257,15 @@ class GitHubClient(RepoClient):
         """
         Set webhooks for a repository.
         """
-        # Adding `pull_request_review_comment` also needs a callback for it and a review-comment
-        # reaction path — conversation comments and diff comments use different endpoints.
-        events = ["push", "issues", "pull_request_review", "issue_comment", "pull_request", "workflow_run"]
+        events = [
+            "push",
+            "issues",
+            "pull_request_review",
+            "pull_request_review_comment",
+            "issue_comment",
+            "pull_request",
+            "workflow_run",
+        ]
         config = {
             "url": url,
             "content_type": "json",
@@ -634,13 +641,16 @@ class GitHubClient(RepoClient):
             return pr.create_review_comment_reply(int(reply_to.id), body).id
         return pr.create_issue_comment(body).id
 
-    def _workflow_run_to_pipeline(self, run) -> Pipeline:
+    def _workflow_run_to_pipeline(self, run, *, with_jobs: bool = True) -> Pipeline:
+        jobs = run.jobs() if with_jobs else []
         return Pipeline(
             id=run.id,
             iid=None,
             sha=run.head_sha,
             status=github_conclusion_to_status(run.conclusion),
             web_url=run.html_url,
+            workflow_id=run.workflow_id,
+            workflow_name=run.name or "",
             jobs=[
                 Job(
                     id=job.id,
@@ -652,7 +662,7 @@ class GitHubClient(RepoClient):
                     allow_failure=False,
                     failure_reason=None,
                 )
-                for job in run.jobs()
+                for job in jobs
             ],
         )
 
@@ -673,6 +683,21 @@ class GitHubClient(RepoClient):
         # item straight off the iterator instead of counting and then indexing.
         run = next(iter(repo.get_workflow_runs(branch=ref)), None)
         return self._workflow_run_to_pipeline(run) if run is not None else None
+
+    def get_latest_pipelines_for_ref(self, repo_id: str, ref: str) -> list[Pipeline]:
+        """The newest run of each workflow on the head commit of ``ref``, without its jobs; empty when the branch is
+        gone."""
+        repo = self.client.get_repo(repo_id, lazy=True)
+        try:
+            head_sha = repo.get_branch(ref).commit.sha
+        except GithubException as exc:
+            if exc.status == 404:
+                return []
+            raise
+        newest: dict[int, WorkflowRun] = {}
+        for run in repo.get_workflow_runs(branch=ref, head_sha=head_sha):
+            newest.setdefault(run.workflow_id, run)
+        return [self._workflow_run_to_pipeline(run, with_jobs=False) for run in newest.values()]
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """
@@ -804,8 +829,8 @@ class GitHubClient(RepoClient):
         """
         Serialize an issue comment, which is also what a pull request conversation comment is.
 
-        Only issue comments arrive here — DAIV subscribes to no review-comment event. The author's ``name`` is
-        left out: nothing reads it, and PyGithub completes a missing one with a ``/users`` request per comment.
+        Diff comments are review comments, which take another path. The author's ``name`` is left out: nothing reads
+        it, and PyGithub completes a missing one with a ``/users`` request per comment.
         """
         return Note(
             id=comment.id,

@@ -71,9 +71,9 @@ class Workspace(Protocol):
         ...
 
     async def fast_forward(self, branch: str) -> FastForward:
-        """Bring the checkout up to the remote ``branch`` before the agent starts, when someone pushed to it since
-        the checkout was made and it holds nothing unpublished (``GitManager.fast_forward``). A disk clone is fresh,
-        so it is mostly ``"unchanged"``; a warm sandbox keeps its checkout between runs."""
+        """Bring the checkout up to the remote ``branch`` before the agent starts, when someone pushed to it or rewrote
+        it since the checkout was made and it holds nothing unpublished (``GitManager.fast_forward``). A disk clone is
+        fresh, so it is mostly ``"unchanged"``; a warm sandbox keeps its checkout between runs."""
         ...
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:

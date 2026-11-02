@@ -15,6 +15,7 @@ from langchain_core.messages import HumanMessage
 from sessions.executor.lock import Held, SessionLock, SessionLockLostError
 from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
+from sessions.inbox.complete import arelease_chat_claim
 from sessions.inbox.drain import alink_chat_run, drain_logged
 from sessions.inbox.render import arender_input
 from sessions.live import relay
@@ -76,10 +77,13 @@ async def finalize_chat_run(
     error_message: str = "",
     question: dict | None = None,
     agent_result: AgentResult | None = None,
+    stopped: bool = False,
 ) -> None:
     """Terminal transition for a chat Run. Reuses ``usage_field_updates`` and ``agent_result_field_updates`` so
     the denormalization stays identical to the task-backed path (``Run.sync_from_task_result``). On failure,
-    ``error_message`` is persisted so the run timeline shows a reason instead of a blank FAILED pill.
+    ``error_message`` is persisted so the run timeline shows a reason instead of a blank FAILED pill. A failed run its
+    owner ``stopped`` records the stop in ``cancel_requested_at``, as ``RunManager.cancel`` does for a task-backed
+    run, so the inbox dismisses the events it took instead of retrying them.
     """
     if not success:
         status = RunStatus.FAILED
@@ -88,6 +92,8 @@ async def finalize_chat_run(
     else:
         status = RunStatus.SUCCESSFUL
     update: dict[str, Any] = {"finished_at": timezone.now()}
+    if status == RunStatus.FAILED and stopped:
+        update["cancel_requested_at"] = update["finished_at"]
     if status == RunStatus.WAITING_INPUT:
         update["question"] = question
     if response_text:
@@ -327,7 +333,8 @@ class ChatRunStreamer:
             logger.exception("chat: could not add the inbox context for thread_id=%s", self.thread_id)
 
     async def _end_turn(self, turn: _Turn, *, succeeded: bool) -> None:
-        """Finalize the ``Run`` row, then release the slot; each failure is logged, never raised over how the turn
+        """Finalize the ``Run`` row, put back the inbox events the view took that no ``Run`` took over (the turn ended
+        before its ``Run`` existed), then release the slot; each failure is logged, never raised over how the turn
         ended."""
         if turn.chat_run is not None:
             try:
@@ -339,9 +346,16 @@ class ChatRunStreamer:
                     error_message=turn.error or "",
                     question=turn.question,
                     agent_result=turn.agent_result,
+                    stopped=turn.error == CANCELLED_BY_USER_MESSAGE,
                 )
             except Exception:
                 logger.exception("chat: failed to finalize chat run for thread_id=%s", self.thread_id)
+        try:
+            await arelease_chat_claim(self.thread_id, self.run_id)
+        except Exception:
+            logger.exception(
+                "chat: could not put back the inbox events of thread_id=%s; they return once it is idle", self.thread_id
+            )
         try:
             await SessionLock.release(self.thread_id, self.run_id)
         except Exception:

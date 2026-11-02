@@ -245,7 +245,7 @@ The drainer runs:
   - The "no push" exhaust path (`service.py:189-196`) is removed: a CI run that pushes nothing leaves the watch observing (FR-018, FR-019).
   - The 6-hour expiry is removed. The watch observes until the merge request is merged or closed.
   - The reconciler keeps its re-read of the latest pipeline for owned merge requests with no CI event for 30 minutes, as a backstop for missed webhooks.
-  - The `POST /api/sessions/{id}/ci-watch` toggle acts on the ownership row.
+  - The `POST /api/sessions/{id}/ci-watch` toggle acts on the ownership row. Turning it back on resets `attempts` and forgets the last pipeline judged, so the watch judges it again with a fresh budget (FR-016, decided 2026-11-02).
 - **Data migration**: every open watch (a WATCHING or FIXING session) becomes an ownership row owned by that merge request's own thread session. This keeps the spec's assumption that open watches finish where they are, and leaves one mechanism.
 - **Deploy safety**: `Session.watch_*` stop being written and are dropped in a later release, because a dropped column breaks pods still running the old code mid-deploy.
 

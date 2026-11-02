@@ -10,7 +10,9 @@ from notifications.choices import EventType
 from notifications.models import Notification
 from notifications.policy import SOURCE_SESSION
 from notifications.watch_notifiers import emit_watch_exhausted
-from sessions.models import MergeRequestOwnership
+from sessions.models import EventKind, EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus, SessionOrigin
+
+from tests.unit_tests.sessions.conftest import make_task_result
 
 pytestmark = pytest.mark.django_db
 
@@ -114,6 +116,81 @@ class TestPayload:
         _emit(watch_ownership, jobs=())
 
         assert "the pipeline" in Notification.objects.get().body
+
+
+def _ci_run(ownership, summary="", *, iid=7, status=RunStatus.SUCCESSFUL, **fields) -> Run:
+    """A run that took a waking CI failure on merge request ``iid``."""
+    run = Run.objects.create(
+        session=ownership.session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=ownership.repo_id,
+        status=status, result_summary=summary, **fields,
+    )  # fmt: skip
+    InboxEvent.objects.create(
+        session=ownership.session, kind=EventKind.CI_FAILED, source_key=f"pipeline:{run.pk}", wake=True,
+        merge_request_iid=iid, run=run, state=EventState.HANDLED,
+        payload={"pipeline_id": 1, "sha": "abc123", "status": "failed", "web_url": "https://ci/1", "failed_jobs": []},
+    )  # fmt: skip
+    return run
+
+
+class TestExplanation:
+    """The owner hears why the watch stopped from the last run CI woke on the merge request (SC-007)."""
+
+    def test_the_last_ci_woken_runs_summary_reaches_the_body_and_the_summary(self, watch_ownership):
+        _ci_run(watch_ownership, "An older look.")
+        _ci_run(watch_ownership, "The registry timed out; nothing in the code to fix.")
+
+        _emit(watch_ownership)
+
+        notification = Notification.objects.get()
+        assert "The registry timed out; nothing in the code to fix." in notification.body
+        assert "An older look." not in notification.body
+        assert notification.context["summary"] == "The registry timed out; nothing in the code to fix."
+
+    def test_a_run_with_no_summary_explains_with_its_response(self, watch_ownership):
+        _ci_run(watch_ownership, task_result=make_task_result(return_value={"response": "Flaky runner."}))
+
+        _emit(watch_ownership)
+
+        assert Notification.objects.get().context["summary"] == "Flaky runner."
+
+    @pytest.mark.parametrize(
+        "fields", [{"iid": 8}, {"status": RunStatus.RUNNING}], ids=["another-merge-request", "still-running"]
+    )
+    def test_only_a_finished_run_woken_by_this_merge_requests_ci_explains_it(self, watch_ownership, fields):
+        _ci_run(watch_ownership, "Not this one.", **fields)
+
+        _emit(watch_ownership)
+
+        notification = Notification.objects.get()
+        assert "Not this one." not in notification.body
+        assert "summary" not in notification.context
+
+    def test_with_no_ci_woken_run_the_notification_still_goes_out(self, watch_ownership):
+        _emit(watch_ownership)
+
+        notification = Notification.objects.get()
+        assert "tests, lint" in notification.body
+        assert "summary" not in notification.context
+
+    def test_repository_paths_in_the_explanation_are_relative_to_the_repository(self, watch_ownership):
+        _ci_run(watch_ownership, "The lockfile /workspace/repo/uv.lock pins an old index.")
+
+        _emit(watch_ownership)
+
+        notification = Notification.objects.get()
+        assert "The lockfile uv.lock pins an old index." in notification.body
+        assert notification.context["summary"] == "The lockfile uv.lock pins an old index."
+
+    def test_an_ownerless_merge_requests_comment_leaves_the_explanation_to_the_runs_own_comment(self, watch_ownership):
+        """The run's final message is already on the merge request, posted when the run ended."""
+        _ci_run(watch_ownership, "Flaky runner.")
+        MergeRequestOwnership.objects.filter(pk=watch_ownership.pk).update(owner=None)
+        watch_ownership.refresh_from_db()
+
+        with patch("sessions.pipeline_watch.platform.WatchPlatform.apost_note", new=AsyncMock()) as note:
+            _emit(watch_ownership)
+
+        assert "Flaky runner." not in note.await_args.kwargs["body"]
 
 
 class TestRecipient:

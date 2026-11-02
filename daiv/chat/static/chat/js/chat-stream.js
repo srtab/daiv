@@ -1268,18 +1268,27 @@
       return parseQuestions(seg);
     },
 
-    // Open only in the transcript's last message turn, with no run in flight; anything later means answered.
+    // Open with no run in flight until the owner replies; a run something else started (CI, a delegated batch, a
+    // follow-up job, a mention) passes it by.
     isQuestionOpen(ti) {
       if (this.archived || this.streaming || this.resuming) return false;
       return !this._repliedAfter(ti);
     },
 
     _repliedAfter(ti) {
+      let passing = false;
       for (let i = ti + 1; i < this.turns.length; i++) {
-        const role = this.turns[i].role;
-        if (role === "user" || role === "assistant") return true;
+        const turn = this.turns[i];
+        if (turn.role === "user") passing = this._startedByOthers(turn);
+        if ((turn.role === "user" || turn.role === "assistant") && !passing) return true;
       }
       return false;
+    },
+
+    // A run's first turn that DAIV wrote, or that inbox events opened without the owner's own chat message.
+    _startedByOthers(turn) {
+      if (turn.author === "daiv") return true;
+      return Array.isArray(turn.opening) && !turn.opening.some((bubble) => bubble.kind === "chat_message");
     },
 
     _questionDraft(seg) {
@@ -1312,7 +1321,8 @@
       if (!question) return [];
       let reply;
       for (let i = ti + 1; i < this.turns.length && !reply; i++) {
-        if (this.turns[i].role === "user") reply = this.turns[i];
+        const turn = this.turns[i];
+        if (turn.role === "user" && !this._startedByOthers(turn)) reply = turn;
       }
       const text = reply?.segments.find((s) => s.type === "text")?.content || "";
       const prefix = answerPrefix(question);

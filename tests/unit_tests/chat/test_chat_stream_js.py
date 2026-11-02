@@ -11,6 +11,7 @@ from sessions.models import RunStatus, SessionOrigin
 from sessions.transcript import annotate_transcript
 
 from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload
+from automation.agent.questions import QUESTION_DELIVERED
 from tests.unit_tests.chat.chat_stream_driver import REACTIVITY, run_chat_stream
 from tests.unit_tests.chat.transcript_fixtures import (
     asst,
@@ -926,3 +927,49 @@ def test_an_event_daiv_could_not_handle_reads_not_handled():
     events = [{"kind": "mention", "failure_label": "The runs that took it kept failing"}, {"kind": "comment"}]
 
     assert _bubbles(events=events)["rows"] == ["Mention not handled", "Comment"]
+
+
+QUESTION_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat" });
+chat.turns = payload.turns;
+const seg = chat.turns[1].segments[0];
+process.stdout.write(JSON.stringify({ open: chat.isQuestionOpen(1), summary: chat.answeredSummary(seg, 1) }));
+"""
+
+
+def _opened_by(kind: str) -> dict:
+    return {**user("u2"), "opening": [{"id": f"inbox-{kind}", "kind": kind, "received": kind != "chat_message"}]}
+
+
+def _after_question(*turns: dict) -> dict:
+    args = {"questions": [{"header": "Approach", "question": "Which fix?", "options": [{"label": "Retry"}]}]}
+    asked = asst("a1", tool_call("q1", "ask_user_question", args, result=QUESTION_DELIVERED))
+    return run_chat_stream(QUESTION_BODY, {"turns": [user("u1"), asked, *turns]}, extra_globals=GLOBALS)
+
+
+@pytest.mark.parametrize(
+    "started",
+    [
+        _opened_by("ci_failed"),
+        _opened_by("delegation_finished"),
+        _opened_by("follow_up_job"),
+        _opened_by("mention"),
+        {**user("u2"), "author": "daiv", "origin": "pipeline_webhook"},
+    ],
+    ids=["ci-fix", "delegation", "follow-up-job", "mention", "daiv-authored"],
+)
+def test_a_turn_the_owner_did_not_send_leaves_the_question_open(started):
+    assert _after_question(started, asst("a2", text("Fixed CI.")))["open"] is True
+
+
+@pytest.mark.parametrize("reply", [user("u2"), _opened_by("chat_message")], ids=["inline", "from-the-inbox"])
+def test_the_owners_chat_message_answers_the_question(reply):
+    assert _after_question(reply, asst("a2", text("On it.")))["open"] is False
+
+
+def test_the_answer_is_read_from_the_owners_reply_past_a_system_turn():
+    reply = {**user("u3"), "segments": [text("**Approach** — Retry")]}
+
+    out = _after_question(_opened_by("ci_failed"), asst("a2", text("Fixed CI.")), reply)
+
+    assert out == {"open": False, "summary": "Approach · Retry"}

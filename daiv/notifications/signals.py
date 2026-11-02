@@ -9,11 +9,12 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from sessions.models import RunStatus, SessionOrigin
-from sessions.signal_defs import inbox_paused, run_finished, watch_exhausted
+from sessions.signal_defs import inbox_paused, run_ended, run_finished, watch_exhausted
 
 from notifications.choices import ChannelType
 from notifications.inbox_notifiers import emit_inbox_paused
 from notifications.models import UserChannelBinding
+from notifications.policy import woke_on_ci_failure
 from notifications.schedule_notifiers import emit_schedule_dispatch_failed
 from notifications.tasks import classify_run_task
 from notifications.watch_notifiers import emit_watch_exhausted
@@ -39,6 +40,20 @@ def classify_on_run_finished(sender, run, **kwargs) -> None:
         classify_run_task.enqueue(str(run.pk))
     except Exception:
         logger.exception("classify_on_run_finished: failed to enqueue classification for run=%s", run.pk)
+
+
+@receiver(run_ended, dispatch_uid="notifications.classify_ci_woken_chat_run")
+def classify_ci_woken_chat_run(sender, run, **kwargs) -> None:
+    """Enqueue classification for a ``chat`` run that also took a waking CI failure, which ``run_finished`` never
+    reaches: the drain names a run after its top request, so a queued chat message leads a run that also answers CI,
+    and the owner is still owed its outcome (FR-018). Exception-safe, like :func:`classify_on_run_finished`."""
+    try:
+        if run.trigger_type != SessionOrigin.CHAT or run.status not in RunStatus.terminal():
+            return
+        if woke_on_ci_failure(run):
+            classify_run_task.enqueue(str(run.pk))
+    except Exception:
+        logger.exception("classify_ci_woken_chat_run: failed to enqueue classification for run=%s", run.pk)
 
 
 @receiver(watch_exhausted, dispatch_uid="notifications.on_watch_exhausted")

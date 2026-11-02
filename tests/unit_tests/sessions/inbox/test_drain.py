@@ -1,14 +1,16 @@
 from datetime import timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
+from ninja.testing import TestAsyncClient
 from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox import kinds
-from sessions.inbox.drain import adrain, atake_for_chat, keep_queued_claims_alive
+from sessions.inbox.drain import adrain, atake_for_chat, drain_logged, keep_queued_claims_alive
 from sessions.models import (
     EventFailure,
     EventKind,
@@ -23,7 +25,9 @@ from sessions.models import (
 )
 from sessions.queue import EnqueueFailure
 
+from accounts.models import APIKey
 from codebase.authorization import RepositoryAccessDenied
+from daiv.api import api
 from tests.unit_tests.sessions.conftest import make_task_result
 from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload
 
@@ -213,9 +217,9 @@ class TestNothingToWake:
 
 
 class TestAccess:
-    async def test_an_owner_without_access_fails_the_events_and_starts_nothing(self, enqueue, member_user):
+    async def test_an_owner_without_access_fails_the_events_and_their_next_run(self, enqueue, member_user):
         session = await amake_session(user=member_user)
-        next_run = await _queued_next_run(session)
+        next_run = await _queued_next_run(session, user=member_user)
         event = await amake_event(session, run=next_run)
         denied = Mock(side_effect=RepositoryAccessDenied([session.repo_id]))
 
@@ -224,10 +228,60 @@ class TestAccess:
 
         denied.assert_called_once_with(member_user, [session.repo_id])
         stored = await _state(event)
-        assert (stored.state, stored.failure) == (EventState.FAILED, EventFailure.ACCESS_DENIED)
-        assert not await Run.objects.filter(pk=next_run.pk).aexists()
+        assert (stored.state, stored.failure, stored.run_id) == (EventState.FAILED, EventFailure.ACCESS_DENIED, None)
+        failed = await Run.objects.aget(pk=next_run.pk)
+        assert (failed.status, failed.error_message) == (RunStatus.FAILED, EventFailure.ACCESS_DENIED.label)
+        assert failed.finished_at is not None
         assert (await Session.objects.aget(pk=session.pk)).active_run_id is None
         enqueue.assert_not_awaited()
+
+    async def test_a_follow_up_job_whose_requester_lost_access_still_resolves_as_failed(self, admin_user):
+        await cache.aclear()
+        _, key = await APIKey.objects.create_key(user=admin_user, name="k")
+        client = TestAsyncClient(api, headers={"Authorization": f"Bearer {key}"})
+        session = await amake_session(user=admin_user, active_run_id="chat-run", last_active_at=timezone.now())
+        body = {"repos": [{"repo_id": session.repo_id, "ref": None}], "prompt": "Bump it"}
+        with patch("sessions.queue.run_job_task"):
+            submitted = await client.post("/jobs", json=body | {"thread_id": session.thread_id})
+        [job] = submitted.json()["jobs"]
+        assert job["status"] == "QUEUED"
+        await Session.objects.filter(pk=session.pk).aupdate(active_run_id=None)
+
+        with patch("sessions.admission.assert_can_run", Mock(side_effect=RepositoryAccessDenied([session.repo_id]))):
+            assert await adrain(session.thread_id) is None
+
+        response = await client.get(f"/jobs/{job['job_id']}")
+        assert response.status_code == 200
+        assert response.json()["status"] == "FAILED"
+        follow_up = await InboxEvent.objects.aget(session=session, kind=EventKind.FOLLOW_UP_JOB)
+        assert (follow_up.state, follow_up.failure) == (EventState.FAILED, EventFailure.ACCESS_DENIED)
+
+    async def test_finishing_the_denied_next_run_drains_once_and_leaves_its_events_failed(
+        self, enqueue, member_user, admin_user
+    ):
+        session = await amake_session(user=admin_user)
+        next_run = await _queued_next_run(session, trigger=SessionOrigin.API_JOB, user=member_user)
+        follow_up = await amake_event(session, EventKind.FOLLOW_UP_JOB, author=member_user, run=next_run)
+        failure = await amake_event(session)
+
+        def deny_member(user, repo_ids):
+            if user == member_user:
+                raise RepositoryAccessDenied(repo_ids)
+
+        drained = Mock(wraps=drain_logged)
+        with (
+            patch("sessions.admission.assert_can_run", Mock(side_effect=deny_member)),
+            patch("sessions.inbox.drain.drain_logged", drained),
+            patch("sessions.inbox.complete.drain_logged", drained),
+        ):
+            await adrain(session.thread_id)
+
+        drained.assert_called_once_with(session.thread_id)
+        stored = await _state(follow_up)
+        assert (stored.state, stored.failure, stored.attempts) == (EventState.FAILED, EventFailure.ACCESS_DENIED, 0)
+        assert (await Run.objects.aget(pk=next_run.pk)).status == RunStatus.FAILED
+        run = await Run.objects.aget(session=session, status=RunStatus.READY)
+        assert (run.user_id, (await _state(failure)).run_id) == (admin_user.pk, run.pk)
 
     async def test_an_owner_with_access_starts_the_run(self, enqueue, admin_user):
         session = await amake_session(user=admin_user)
@@ -532,12 +586,19 @@ class TestEnqueueFailure:
         assert (stored.state, stored.run_id) == (EventState.PENDING, None)
         assert "could not enqueue" in caplog.text
 
-    async def test_it_spends_no_ci_attempt(self):
+    @pytest.mark.parametrize(
+        ("before", "after"),
+        [((0, ""), (0, "")), ((1, "0ld5ha"), (1, "")), ((2, "e96f1f77"), (2, "e96f1f77"))],
+        ids=["first-attempt", "after-an-older-commit", "commit-already-examined"],
+    )
+    async def test_it_spends_no_ci_attempt(self, before, after):
         session = await amake_session()
+        attempts, examined = before
         ownership = await MergeRequestOwnership.objects.acreate(
-            repo_id=session.repo_id, merge_request_iid=9, session=session, source_branch=session.ref
-        )
-        await amake_event(session, merge_request_iid=9)
+            repo_id=session.repo_id, merge_request_iid=9, session=session, source_branch=session.ref,
+            attempts=attempts, last_examined_sha=examined,
+        )  # fmt: skip
+        await amake_event(session, merge_request_iid=9, payload=ci_payload(sha="e96f1f77"))
 
         with patch(
             "sessions.inbox.drain.aenqueue_run", new=AsyncMock(return_value=EnqueueFailure(task_enqueued=False))
@@ -545,7 +606,51 @@ class TestEnqueueFailure:
             await adrain(session.thread_id)
 
         await ownership.arefresh_from_db()
-        assert (ownership.attempts, ownership.last_examined_sha) == (0, "")
+        assert (ownership.attempts, ownership.last_examined_sha) == after
+
+    async def test_a_failure_another_run_took_meanwhile_keeps_its_attempt(self):
+        """Once the failed run's end put the failure back, another drain may take it before this one undoes its take;
+        that run examines the commit charged here, so the charge stays."""
+        session = await amake_session()
+        ownership = await MergeRequestOwnership.objects.acreate(
+            repo_id=session.repo_id, merge_request_iid=9, session=session, source_branch=session.ref
+        )
+        failure = await amake_event(session, merge_request_iid=9, payload=ci_payload(sha="e96f1f77"))
+        enqueued: list[Run] = []
+
+        async def fail_after_another_drain_took_it(run, **kwargs):
+            enqueued.append(run)
+            if len(enqueued) > 1:
+                return None
+            await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED)
+            await InboxEvent.objects.filter(run=run).aupdate(state=EventState.PENDING, run=None)
+            await Session.objects.filter(pk=run.session_id).aupdate(active_run_id=None)
+            assert await adrain(session.thread_id) is not None
+            return EnqueueFailure(task_enqueued=False)
+
+        with patch("sessions.inbox.drain.aenqueue_run", new=fail_after_another_drain_took_it):
+            assert await adrain(session.thread_id) is None
+
+        await ownership.arefresh_from_db()
+        assert (ownership.attempts, ownership.last_examined_sha) == (1, "e96f1f77")
+        assert (await _state(failure)).run_id == enqueued[1].pk
+        assert (await Session.objects.aget(pk=session.pk)).active_run_id == str(enqueued[1].pk)
+
+    async def test_a_crash_after_the_take_leaves_the_attempt_spent(self):
+        session = await amake_session()
+        ownership = await MergeRequestOwnership.objects.acreate(
+            repo_id=session.repo_id, merge_request_iid=9, session=session, source_branch=session.ref, attempts=1
+        )
+        await amake_event(session, merge_request_iid=9, payload=ci_payload(sha="e96f1f77"))
+
+        with (
+            patch("sessions.inbox.drain.aenqueue_run", new=AsyncMock(side_effect=SystemExit)),
+            pytest.raises(SystemExit),
+        ):
+            await adrain(session.thread_id)
+
+        await ownership.arefresh_from_db()
+        assert (ownership.attempts, ownership.last_examined_sha) == (2, "e96f1f77")
 
 
 class TestCiAttempts:

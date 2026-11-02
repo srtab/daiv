@@ -48,7 +48,7 @@ sequenceDiagram
 5. **The CI run** — runs in the publishing session, on the merge request's branch, with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its `gitlab` / `gh` platform tool, then pushes a fix or explains why it pushed nothing. It can't ask a question: nobody is there to answer. If the session is busy, the failure waits and joins the session's next run.
 6. **A run that pushes nothing** explains, without giving up. No push means no new pipeline, so the session shows CI as failing with a link to that run's explanation, and you receive its summary as a run notification. Retrying the same pipeline by hand does not wake the session again: the commit was already examined. If the retry passes, the session shows CI passing.
 7. **Attempts spent** — when a failure on a new DAIV commit finds no attempts left, the merge request's owner is notified once for that commit. A run a person starts that publishes to the merge request gives the attempts back.
-8. **Reconciler** — a cron task runs every 10 minutes and re-reads the latest pipeline of each watched merge request whose latest DAIV commit still has no CI result 30 minutes after it was pushed, for up to six hours. Nothing expires: the watch observes until the merge request is merged or closed. Each tick re-reads at most 200 branches.
+8. **Reconciler** — a cron task runs every 10 minutes and re-reads the CI of each watched merge request nothing was heard of for 30 minutes, whatever it last reported, so a missed webhook (a manual retry's, say) is repaired. On GitLab it reads the branch's latest pipeline; on GitHub, the latest run of each workflow on the branch's head commit. A pipeline already judged in its status is skipped without reading its jobs. Nothing expires: the watch observes until the merge request is merged or closed. Each tick re-reads at most 200 branches, the longest-quiet first, and a branch it could not read is tried again on the next tick.
 
 ---
 
@@ -79,7 +79,7 @@ Rows are evaluated top to bottom; the first match wins.
 
 The session's top bar and details panel show CI for each open merge request the session owns: **Waiting for CI** while no result has arrived since DAIV last pushed or a run is looking at a failure, then **Passing**, **Failing** or **Needs a person**. A failing merge request links the last run that looked at a failure, whose summary says what it found.
 
-**Fix CI failures** in the merge request menu turns the watch on or off for that merge request only. Turned off, CI results are still remembered but never wake the session. Turning it back on gives the merge request its attempts back and judges the pipeline it last judged again at once, so a failure reported while the watch was off, or out of attempts, wakes the session; a commit a run already looked at is not looked at again. Turning it on when it is already on changes nothing.
+**Fix CI failures** in the merge request menu turns the watch on or off for that merge request only. Turned off, CI results are still remembered but never wake the session. Turning it back on gives the merge request its attempts back and judges the branch's latest pipelines again at once (on GitHub, every workflow's), so a failure reported while the watch was off, or out of attempts, wakes the session; a commit a run already looked at is not looked at again. Turning it on when it is already on changes nothing.
 
 ---
 
@@ -97,7 +97,7 @@ Configure under **Configuration → Pipeline Watch** in the dashboard (admin onl
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `pipeline_watch_enabled` | `true` | Master switch. Set to `false` to disable the feature entirely. Env var: `DAIV_PIPELINE_WATCH_ENABLED`. |
+| `pipeline_watch_enabled` | `true` | Master switch. Set to `false` and no CI failure wakes a session; owning sessions still remember every CI result, a failure with the reason *Watch off*. Env var: `DAIV_PIPELINE_WATCH_ENABLED`. |
 | `pipeline_watch_max_attempts` | `3` | Maximum fix attempts per merge request (minimum 1). Env var: `DAIV_PIPELINE_WATCH_MAX_ATTEMPTS`. |
 
 ### Per repository
@@ -112,7 +112,7 @@ pipeline_watch:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `pipeline_watch.enabled` | `bool` | site-wide | Disable watch for this repository by setting to `false`. |
+| `pipeline_watch.enabled` | `bool` | site-wide | Set to `false` and CI failures on this repository never wake a session; they are still remembered, with the reason *Watch off*. |
 | `pipeline_watch.max_attempts` | `int` | site-wide | Fix attempts before giving up on this repository. |
 
 ---
@@ -125,7 +125,11 @@ GitHub Actions does not expose per-job required-ness through the API, so DAIV tr
 
 ### GitHub: one event per workflow, not per push
 
-A `workflow_run` event reports a single workflow, not the branch's whole CI. A repository with several workflows on one push delivers one event per workflow, each judged on its own — so the first workflow to finish green can show CI as passing while another is still running or about to fail. Repositories that split required checks across workflows should expect the status to flip as each workflow reports.
+A `workflow_run` event reports a single workflow, not the branch's whole CI. A repository with several workflows on one push delivers one event per workflow, each judged on its own — so the first workflow to finish green can show CI as passing while another is still running or about to fail. Repositories that split required checks across workflows should expect the status to flip as each workflow reports. A session that delegated the work is told its CI passed only once the latest run of every workflow on the commit has passed.
+
+### GitLab: child pipelines
+
+A child pipeline (`trigger: include:`) runs on its parent's branch and commit, so DAIV ignores it and judges the parent pipeline, which is the merge request's result. For a child's failure to count, trigger it with `strategy: depend`, so the parent pipeline fails with it.
 
 ### GitLab: merge-request pipelines and the reconciler poll
 

@@ -13,16 +13,19 @@ from sessions.inbox.render import author_name
 from sessions.models import EventKind, QuietReason
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from sessions.models import InboxEvent, Run
 
 RECEIVED_KINDS = frozenset({EventKind.CI_FAILED, EventKind.DELEGATION_FINISHED})
 
 
-def reason_text(kind: str, reason: str) -> str:
-    """Why an event of ``kind`` did not wake the agent, for its timeline line; ``""`` with no ``reason``."""
+def reason_text(kind: str, reason: str, payload: Mapping[str, Any] | None = None) -> str:
+    """Why an event of ``kind`` did not wake the agent, for its timeline line; ``""`` with no ``reason``. A give-up
+    says how many attempts were spent and which jobs fail when its ``payload`` records them."""
     if not reason:
         return ""
-    text = _reason(reason)
+    text = _gave_up(payload or {}) if reason == QuietReason.BUDGET_SPENT else _reason(reason)
     if kind == EventKind.CI_FAILED:
         return _("not fixing: %(reason)s") % {"reason": text}
     if kind == EventKind.DELEGATION_FINISHED:
@@ -47,6 +50,20 @@ def _reason(reason: str) -> str:
     return reason
 
 
+def stopped_after(attempts: int) -> str:
+    """That CI fixing gave up after ``attempts`` attempts, in lower case: ``capfirst`` it to start a sentence."""
+    return ngettext("stopped after %(n)s attempt", "stopped after %(n)s attempts", attempts) % {"n": attempts}
+
+
+def _gave_up(payload: Mapping[str, Any]) -> str:
+    if (attempts := payload.get("attempts")) is None:
+        return _reason(QuietReason.BUDGET_SPENT)
+    text = stopped_after(attempts)
+    if jobs := payload.get("failed_jobs"):
+        return _("%(stopped)s, failing: %(jobs)s") % {"stopped": text, "jobs": ", ".join(jobs)}
+    return text
+
+
 def received_summary(event: InboxEvent) -> str:
     """The one line a CI failure or a finished delegated batch shows in its received bubble; ``""`` for a batch that
     recorded no outcome, whose bubble's source line says it all."""
@@ -57,9 +74,12 @@ def received_summary(event: InboxEvent) -> str:
             "%(succeeded)s of %(total)s job succeeded", "%(succeeded)s of %(total)s jobs succeeded", total
         ) % {"succeeded": event.payload["succeeded"], "total": total}
     pipeline_id, jobs = event.payload["pipeline_id"], event.payload.get("failed_jobs") or []
+    names = {"id": pipeline_id, "workflow": event.payload.get("workflow"), "jobs": ", ".join(jobs)}
+    if names["workflow"]:
+        return (_("%(workflow)s run %(id)s failed: %(jobs)s") if jobs else _("%(workflow)s run %(id)s failed")) % names
     if jobs:
-        return _("Pipeline %(id)s failed: %(jobs)s") % {"id": pipeline_id, "jobs": ", ".join(jobs)}
-    return _("Pipeline %(id)s failed") % {"id": pipeline_id}
+        return _("Pipeline %(id)s failed: %(jobs)s") % names
+    return _("Pipeline %(id)s failed") % names
 
 
 def bubble(event: InboxEvent) -> dict[str, Any]:

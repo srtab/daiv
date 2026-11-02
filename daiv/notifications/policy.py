@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from notifications.choices import EnvelopeStatus, EventType
@@ -49,12 +50,29 @@ def notify_worthy(status: str) -> bool:
 
 
 def notifies(run, status: str) -> bool:
-    """Whether this run's outcome notifies. A webhook question is already posted on the forge, mentioning the asker."""
+    """Whether this run's outcome notifies. A webhook question is already posted on the forge, mentioning the asker.
+    A run a CI failure woke always tells its owner how it ended, ``all-clear`` included (FR-018)."""
     from sessions.models import SessionOrigin
 
     if status == EnvelopeStatus.NEEDS_INPUT and run.trigger_type in SessionOrigin.webhooks():
-        return False
-    return notify_worthy(status)
+        worthy = False
+    else:
+        worthy = notify_worthy(status)
+    return worthy or woke_on_ci_failure(run)
+
+
+def woken_by_ci_failure() -> Exists:
+    """A ``Run`` filter matching the runs that took a waking ``ci_failed`` inbox event."""
+    from sessions.models import EventKind, InboxEvent
+
+    return Exists(InboxEvent.objects.filter(run=OuterRef("pk"), kind=EventKind.CI_FAILED, wake=True))
+
+
+def woke_on_ci_failure(run) -> bool:
+    """Whether ``run`` took a waking ``ci_failed`` inbox event."""
+    from sessions.models import EventKind, InboxEvent
+
+    return InboxEvent.objects.filter(run_id=run.pk, kind=EventKind.CI_FAILED, wake=True).exists()
 
 
 def status_severity(status: str) -> int:

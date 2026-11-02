@@ -15,6 +15,7 @@ from sandbox_envs.selection import resolve_env_for_run
 from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_access, aresolve_environment
 from sessions.executor.lock import SessionLock, session_activity, stale_cutoff
 from sessions.inbox import kinds
+from sessions.inbox.complete import arelease_chat_claim
 from sessions.inbox.drain import ais_busy, atake_for_chat
 from sessions.inbox.post import apost_event
 from sessions.live import relay
@@ -327,8 +328,13 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     except RuntimeError as err:
         # ``spawn`` rejects a run_id already live in this process's registry. A client can
         # reuse a run_id across threads, which ``try_claim``'s per-thread slot doesn't catch —
-        # so release the slot we just claimed above, or the collision wedges the session until
-        # stale takeover (STALE_RUN_MINUTES).
+        # so put back the events and release the slot we just claimed above, or the collision wedges
+        # the session until stale takeover (STALE_RUN_MINUTES).
+        try:
+            await arelease_chat_claim(thread_id, run_id)
+        except Exception:
+            # The inbox sweep retries the events once the session goes quiet; the slot must still be freed.
+            logger.exception("chat: could not put back the events run_id=%s took on thread_id=%s", run_id, thread_id)
         await SessionLock.release(thread_id, run_id)
         raise HttpError(409, "A run with this run_id is already in progress.") from err
 

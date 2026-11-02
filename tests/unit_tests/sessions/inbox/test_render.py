@@ -79,6 +79,66 @@ class TestContext:
             "  Superseded by pipeline 830731 on e96f1f77: PASSED.",
         ]
 
+    def test_of_remembered_events_about_one_subject_only_the_newest_is_shown_in_its_place(self):
+        older = _event(
+            EventKind.CI_PASSED, ci_payload(1, status="success", jobs=()), state=EventState.SUPERSEDED, subject="ci:9"
+        )
+        comment = _comment("Nice.", minute=1)
+        newest = _event(EventKind.CI_STOPPED, ci_payload(2, status="manual", jobs=()), minute=2, subject="ci:9")
+
+        assert render_context([older, comment, newest]).splitlines()[2:] == [
+            '- Comment by alice on !9 (not addressed to you): "Nice."',
+            "- CI on !9 (branch chore/x): pipeline 2 STOPPED (manual) on e96f1f77. https://gitlab.example/pipelines/2",
+        ]
+
+    def test_a_remembered_event_a_waking_one_replaced_is_dropped(self):
+        passed = _event(
+            EventKind.CI_PASSED, ci_payload(1, status="success", jobs=()), state=EventState.SUPERSEDED, subject="ci:9"
+        )
+        failed = _event(EventKind.CI_FAILED, ci_payload(2), minute=1, subject="ci:9")
+
+        assert render_context([passed, failed]) == ""
+
+    def test_a_replaced_waking_event_keeps_its_chain_without_the_remembered_ones_between(self):
+        failed = _event(EventKind.CI_FAILED, ci_payload(1), state=EventState.SUPERSEDED, subject="ci:9")
+        passed = _event(
+            EventKind.CI_PASSED,
+            ci_payload(2, status="success", jobs=()),
+            minute=1,
+            state=EventState.SUPERSEDED,
+            subject="ci:9",
+        )
+        refailed = _event(EventKind.CI_FAILED, ci_payload(3), minute=2, state=EventState.SUPERSEDED, subject="ci:9")
+        newest = _event(EventKind.CI_PASSED, ci_payload(4, status="success", jobs=()), minute=3, subject="ci:9")
+
+        assert render_context([failed, passed, refailed, newest]).splitlines()[2:] == [
+            "- CI on !9 (branch chore/x): pipeline 1 FAILED on e96f1f77, jobs: build. https://gitlab.example/pipelines/1",
+            "  Superseded by pipeline 3 on e96f1f77: FAILED.",
+            "  Superseded by pipeline 4 on e96f1f77: PASSED.",
+        ]
+
+    def test_a_foreign_publish_names_and_links_the_publishing_session(self):
+        payload = {
+            "thread_id": "2b0c",
+            "owner_username": "bob",
+            "sha": "0a1b2c3dbb",
+            "title": "Bump gettext",
+            "web_url": "https://daiv.example/sessions/2b0c/",
+        }
+
+        assert render_context([_event(EventKind.FOREIGN_PUBLISH, payload)]).splitlines()[2:] == [
+            '- bob published 0a1b2c3d to the branch chore/x from their session "Bump gettext" '
+            "(https://daiv.example/sessions/2b0c/); this session still owns the merge request."
+        ]
+
+    def test_a_foreign_publish_posted_without_the_session_name_still_renders(self):
+        payload = {"thread_id": "2b0c", "owner_username": "bob", "sha": "0a1b2c3dbb"}
+
+        assert render_context([_event(EventKind.FOREIGN_PUBLISH, payload)]).splitlines()[2:] == [
+            "- bob published 0a1b2c3d to the branch chore/x from a session of their own; this session still owns the "
+            "merge request."
+        ]
+
     def test_a_quiet_ci_failure_says_why_the_agent_was_not_woken(self):
         quiet = _event(EventKind.CI_FAILED, ci_payload(), wake=False, reason=QuietReason.ALREADY_EXAMINED)
 
@@ -114,6 +174,10 @@ class TestFastForward:
         ("result", "sentence"),
         [
             ("advanced", "Your working copy was fast-forwarded."),
+            (
+                "replaced",
+                "The branch was rewritten (rebased or force-pushed), so your working copy was moved to its new head.",
+            ),
             ("diverged", "Your working copy could not be fast-forwarded because you have unpublished commits."),
         ],
     )
@@ -186,6 +250,20 @@ class TestSummarize:
         payload = {"batch_id": "b", "summary": "…", "succeeded": 2, "total": 3}
 
         assert summarize(_event(EventKind.DELEGATION_FINISHED, payload)) == "2 of 3 succeeded"
+
+    def test_a_foreign_publish_names_the_publishing_session_and_leaves_its_link_to_the_row(self):
+        payload = {
+            "thread_id": "2b0c",
+            "owner_username": "bob",
+            "sha": "0a1b2c3dbb",
+            "title": "Bump gettext",
+            "web_url": "https://daiv.example/sessions/2b0c/",
+        }
+
+        assert summarize(_event(EventKind.FOREIGN_PUBLISH, payload)) == (
+            'bob published 0a1b2c3d to the branch chore/x from their session "Bump gettext"; this session still owns '
+            "the merge request."
+        )
 
 
 @pytest.mark.django_db(transaction=True)

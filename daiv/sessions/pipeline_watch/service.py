@@ -16,16 +16,27 @@ failure wakes the owning session only when all of these hold, and the first that
 6. the consecutive-run limit is not reached (``run_limit``).
 
 The drain charges the attempt and records the examined commit when it starts the run. A run that pushes nothing
-leaves the watch observing: no pipeline follows, and the run's summary is the explanation. ``budget_spent`` tells the
-owner the watch gave up on DAIV's commit, once per commit however often its pipeline is retried. Turning the watch
-back on gives it its attempts back and judges the last pipeline it judged again at once. A failure the watch kept
-quiet is keyed apart from one that wakes, so judging the same pipeline once the watch is back on still wakes.
+leaves the watch observing: no pipeline follows, and the run's summary is the explanation. ``budget_spent`` records
+the attempts spent and tells the owner the watch gave up on DAIV's commit, once per commit however often its pipeline
+is retried. Turning the watch back on gives it its attempts back and judges the latest pipeline of each CI subject on
+the branch again at once. A failure the watch kept quiet is keyed apart from one that wakes, so judging the same
+pipeline once the watch is back on still wakes.
 
-A pipeline is judged once per status: a retried one keeps its id, so its new result is judged and posted under a key
-of its own.
+Each result is posted under its CI subject (``kinds.ci_subject``): the merge request's on GitLab, whose one pipeline
+covers a commit, and its workflow's on GitHub, which runs one workflow run per workflow, so one workflow's newer run
+never replaces another's failure. A pipeline is judged once per status: a retried one keeps its id, so its new result
+is judged and posted under a key of its own. One older than a pipeline already judged on the same commit and subject
+was replaced, so a late delivery is skipped. A GitLab child pipeline is never judged: it runs on its parent's ref and
+commit, and the merge request's result is its parent's.
 
-When the owning session was delegated, its parent remembers a pass and a ``budget_spent`` failure as
-``delegated_ci_outcome``; :mod:`sessions.inbox.complete` adds a CI-woken run that pushed nothing.
+A claim, a watch turned back on and the reconciler judge the latest pipeline of each CI subject on a branch
+(:meth:`PipelineWatch.aevaluate_latest`). The merge request remembers only the last pipeline it judged, so there one
+whose result in that status was already posted for its subject is skipped, unless the watch forgot the last pipeline
+judged to have it judged anew, or the result was kept quiet because the watch was off and the watch is on now.
+
+When the owning session was delegated, its parent remembers a ``budget_spent`` failure, and a pass once the latest
+pipeline of every CI subject on the branch passed on the commit, as ``delegated_ci_outcome``;
+:mod:`sessions.inbox.complete` adds a CI-woken run that pushed nothing.
 """
 
 from __future__ import annotations
@@ -45,6 +56,7 @@ from sessions.pipeline_watch.store import WatchStore
 from sessions.signal_defs import watch_exhausted
 
 if TYPE_CHECKING:
+    from codebase.base import Pipeline
     from sessions.models import MergeRequestOwnership, Session
 
 logger = logging.getLogger("daiv.sessions")
@@ -75,8 +87,8 @@ class PipelineWatch:
         return self._policy
 
     async def aturn_on(self, ownership: MergeRequestOwnership) -> bool:
-        """Watch the merge request again because someone asked to, with its attempts back, then judge the pipeline it
-        last judged (else the branch's latest) at once, so a failure kept quiet while the watch was off or out of
+        """Watch the merge request again because someone asked to, with its attempts back, then judge the latest
+        pipeline of each CI subject on the branch at once, so a failure kept quiet while the watch was off or out of
         attempts wakes the session. A watch already on is left as it is. Returns ``False`` when the repository has the
         watch off."""
         from sessions.tasks import evaluate_pipeline_watch_task
@@ -86,9 +98,7 @@ class PipelineWatch:
         if ownership.watch_enabled:
             return True
         await self._store.aset_enabled(ownership.pk, enabled=True)
-        await evaluate_pipeline_watch_task.aenqueue(
-            repo_id=self.repo_id, ref=ownership.source_branch, pipeline_id=ownership.last_pipeline_id
-        )
+        await evaluate_pipeline_watch_task.aenqueue(repo_id=self.repo_id, ref=ownership.source_branch)
         return True
 
     async def aturn_off(self, ownership: MergeRequestOwnership) -> None:
@@ -108,21 +118,60 @@ class PipelineWatch:
         await evaluate_pipeline_watch_task.aenqueue(repo_id=self.repo_id, ref=ref, pipeline_id=pipeline_id)
         return True
 
-    async def aevaluate(self, *, ref: str, pipeline_id: int | None) -> None:
-        """Judge the head pipeline of an owned branch and post the result to the owning session. A failed post forgets
-        the pipeline was judged, so the next event or the reconciler retries."""
+    async def aevaluate(self, *, ref: str, pipeline_id: int) -> None:
+        """Judge a pipeline of an owned branch and post the result to the owning session. A failed post forgets the
+        pipeline was judged, so the next event or the reconciler retries."""
         ownership = await self._store.aopen(self.repo_id, ref)
         if ownership is None:
             return
 
         await self._platform.aensure_client()
         try:
-            pipeline = await self._platform.aread_pipeline(ref=ref, pipeline_id=pipeline_id)
+            pipeline = await self._platform.aread_pipeline(pipeline_id=pipeline_id)
         except Exception as exc:
             # Unreadable is not a verdict: the next event or the reconciler retries.
             log_read_failure(exc, what="the pipeline", target=f"{self.repo_id}@{ref}")
             return
+        await self._ajudge(ownership, ref, pipeline)
 
+    async def aevaluate_latest(self, *, ref: str) -> bool:
+        """Judge the latest pipeline of each CI subject on an owned branch, each as :meth:`aevaluate` judges one, and
+        return whether every one was read. One already judged in its status is skipped before its jobs are read
+        (:meth:`WatchStore.ajudged`), unless the watch forgot the last pipeline it judged. A subject that fails to be
+        judged does not stop the others; the first such error is raised once all were tried."""
+        ownership = await self._store.aopen(self.repo_id, ref)
+        if ownership is None:
+            return True
+
+        await self._platform.aensure_client()
+        try:
+            listed = await self._platform.aread_latest_pipelines(ref=ref)
+        except Exception as exc:
+            log_read_failure(exc, what="the latest pipelines", target=f"{self.repo_id}@{ref}")
+            return False
+        watch_on = ownership.watch_enabled and (await self._apolicy()).enabled
+        read, errors = True, []
+        for latest in listed:
+            subject = kinds.ci_subject(ownership.merge_request_iid, latest.workflow_id)
+            if ownership.last_pipeline_id is not None and await self._store.ajudged(
+                ownership.session_id, subject, latest.id, latest.status, watch_on=watch_on
+            ):
+                continue
+            try:
+                pipeline = await self._platform.aread_pipeline(pipeline_id=latest.id)
+            except Exception as exc:
+                log_read_failure(exc, what="the pipeline", target=f"{self.repo_id}@{ref}")
+                read = False
+                continue
+            try:
+                await self._ajudge(ownership, ref, pipeline)
+            except Exception as exc:
+                errors.append(exc)
+        if errors:
+            raise errors[0]
+        return read
+
+    async def _ajudge(self, ownership: MergeRequestOwnership, ref: str, pipeline: Pipeline | None) -> None:
         report = PipelineReport.of(pipeline)
         if report is None or not report.is_judgeable:
             logger.debug(
@@ -133,6 +182,11 @@ class PipelineWatch:
             )
             return
         if (report.id, report.status) == (ownership.last_pipeline_id, ownership.last_pipeline_status):
+            return
+        if await self._store.asuperseded(ownership.session_id, _subject(ownership, report), report.sha, report.id):
+            logger.info(
+                "pipeline_watch: pipeline %s on %s@%s was replaced by a newer one", report.id, self.repo_id, ref
+            )
             return
         if not await self._platform.ais_head_pipeline(merge_request_iid=ownership.merge_request_iid, report=report):
             logger.info("pipeline_watch: pipeline %s is not the head of %s@%s", report.id, self.repo_id, ref)
@@ -156,19 +210,24 @@ class PipelineWatch:
         else:
             kind = EventKind.CI_FAILED
             reason = await self._aquiet_reason(ownership, session, report)
+        payload = {
+            "pipeline_id": report.id,
+            "sha": report.sha,
+            "status": report.status,
+            "web_url": report.web_url,
+            "failed_jobs": [job.name for job in report.failed_jobs],
+        }
+        if report.workflow_id is not None:
+            payload["workflow"] = report.workflow_name
+        if reason == QuietReason.BUDGET_SPENT:
+            payload["attempts"] = ownership.attempts
         result = await apost_event(
             session.thread_id,
             kind=kind,
             source_key=kinds.pipeline_key(report.id, kind, reason),
-            payload={
-                "pipeline_id": report.id,
-                "sha": report.sha,
-                "status": report.status,
-                "web_url": report.web_url,
-                "failed_jobs": [job.name for job in report.failed_jobs],
-            },
+            payload=payload,
             wake=kind == EventKind.CI_FAILED and reason is None,
-            subject=kinds.ci_subject(ownership.merge_request_iid),
+            subject=_subject(ownership, report),
             ref=ownership.source_branch,
             merge_request_iid=ownership.merge_request_iid,
             reason=reason,
@@ -181,7 +240,9 @@ class PipelineWatch:
             await self._anotify_exhausted(ownership=ownership, session=session, report=report)
         elif reason == QuietReason.RUN_LIMIT:
             await areport_run_limit(session)
-        if kind == EventKind.CI_PASSED or reason == QuietReason.BUDGET_SPENT:
+        if reason == QuietReason.BUDGET_SPENT or (
+            kind == EventKind.CI_PASSED and await self._apassing(ownership, session, report)
+        ):
             await apost_delegated_ci_outcome(
                 session,
                 merge_request_iid=ownership.merge_request_iid,
@@ -189,6 +250,30 @@ class PipelineWatch:
                 outcome="passing" if kind == EventKind.CI_PASSED else "stopped_after_attempts",
                 web_url=report.web_url,
             )
+
+    async def _apassing(self, ownership: MergeRequestOwnership, session: Session, report: PipelineReport) -> bool:
+        """Whether the merge request passes on the commit of ``report``, a pass: the latest pipeline of every other CI
+        subject on the branch is on that commit and succeeded, or was judged a pass. The platform names the subjects,
+        since one still running has posted nothing. Only a delegating parent is told, so a session without one costs no
+        read."""
+        if session.parent_id is None:
+            return False
+        try:
+            listed = await self._platform.aread_latest_pipelines(ref=ownership.source_branch)
+        except Exception as exc:
+            log_read_failure(exc, what="the latest pipelines", target=f"{self.repo_id}@{ownership.source_branch}")
+            return False
+        for latest in listed:
+            if latest.id == report.id:
+                continue
+            if latest.sha != report.sha:
+                return False
+            subject = kinds.ci_subject(ownership.merge_request_iid, latest.workflow_id)
+            if latest.status != "success" and not await self._store.apassed(
+                session.pk, subject, latest.id, latest.status
+            ):
+                return False
+        return True
 
     async def _aquiet_reason(
         self, ownership: MergeRequestOwnership, session: Session, report: PipelineReport
@@ -219,3 +304,7 @@ class PipelineWatch:
             pipeline_url=report.web_url,
             sha=report.sha,
         )
+
+
+def _subject(ownership: MergeRequestOwnership, report: PipelineReport) -> str:
+    return kinds.ci_subject(ownership.merge_request_iid, report.workflow_id)

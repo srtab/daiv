@@ -1239,6 +1239,19 @@ class TestInterleaveInboxEvents:
 
         assert inbox_event_entry(event)["reason_text"] == "not fixing: out of attempts"
 
+    def test_a_give_up_says_how_many_attempts_and_which_jobs_fail(self):
+        from sessions.transcript import inbox_event_entry
+
+        event = self._event(
+            0, kind="ci_failed", reason="budget_spent",
+            payload={
+                "pipeline_id": 8812, "sha": "abc", "status": "failed", "web_url": "", "failed_jobs": ["tests"],
+                "attempts": 3,
+            },
+        )  # fmt: skip
+
+        assert inbox_event_entry(event)["reason_text"] == "not fixing: stopped after 3 attempts, failing: tests"
+
     def test_a_reason_given_overrides_the_stored_one(self):
         from sessions.transcript import inbox_event_entry
 

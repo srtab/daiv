@@ -153,6 +153,7 @@ class PipelineEvent(BaseModel):
     ref: str
     sha: str
     status: str
+    source: str | None = None
 
 
 class MergeRequestEvent(BaseModel):

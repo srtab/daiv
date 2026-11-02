@@ -20,6 +20,12 @@ class TestValidatePayload:
     def test_optional_keys_may_be_left_out(self):
         kinds.validate_payload(EventKind.MENTION, {"note_id": 5, "body": "@daiv look", "web_url": "https://mr/9"})
 
+    def test_a_mention_may_carry_the_model_its_label_asked_for(self):
+        assert {"agent_model", "agent_thinking_level"} <= kinds.CommentPayload.__optional_keys__
+
+    def test_a_foreign_publish_may_name_and_link_the_publishing_session(self):
+        assert {"title", "web_url"} <= kinds.ForeignPublishPayload.__optional_keys__
+
     def test_an_unknown_kind_raises(self):
         with pytest.raises(ValueError, match="unknown"):
             kinds.validate_payload("unknown", {})
@@ -82,10 +88,11 @@ class TestKeys:
         assert kinds.job_key(batch) == f"job:{batch}"
         assert kinds.push_key("e96f1f77") == "push:e96f1f77"
         assert kinds.mr_state_key(9, "merged") == "mr-state:9:merged"
-        assert kinds.child_ci_key("thread-1", 830724) == "child-ci:thread-1:830724"
+        assert kinds.child_ci_key("thread-1", 830724, "no_push") == "child-ci:thread-1:830724:no_push"
 
     def test_subjects(self):
         assert kinds.ci_subject(9) == "ci:9"
+        assert kinds.ci_subject(9, workflow_id=11) == "ci:9:11"
         assert kinds.mr_state_subject(9) == "mr-state:9"
         assert kinds.branch_subject("chore/x") == "branch:chore/x"
         assert kinds.child_ci_subject("thread-1", 9) == "child-ci:thread-1:9"

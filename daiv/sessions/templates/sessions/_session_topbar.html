@@ -50,7 +50,7 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
         <a class="mr-split__main"
            :href="thread.merge_request.url || null"
            target="_blank" rel="noopener noreferrer"
-           :title="[thread.merge_request.title, watch ? '{{ _("CI")|escapejs }}: ' + watch.label : ''].filter(Boolean).join(' · ')">
+           :title="[thread.merge_request.title, watch ? '{{ _("CI")|escapejs }}: ' + (ciText(ci[0]) || watch.label) : ''].filter(Boolean).join(' · ')">
           {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
           <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% translate "MR" %}'"></span>
           <span class="mr-split__draft mr-split__draft--bar" x-show="thread.merge_request.draft">{% translate "Draft" %}</span>
@@ -116,8 +116,8 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
 
     <template x-if="watch && !thread?.merge_request">
       <span class="mr-split__ci" :class="'mr-split__ci--' + watch.tone"
-            :title="'{{ _("CI")|escapejs }}: ' + watch.label" data-testid="session-ci">
-        <span class="mr-split__ci-dot" aria-hidden="true"></span><span class="mr-split__ci-label" x-text="'{{ _("CI")|escapejs }}: ' + watch.label"></span>
+            :title="'{{ _("CI")|escapejs }}: ' + (ciText(ci[0]) || watch.label)" data-testid="session-ci">
+        <span class="mr-split__ci-dot" aria-hidden="true"></span><span class="mr-split__ci-label" x-text="'{{ _("CI")|escapejs }}: ' + (ciText(ci[0]) || watch.label)"></span>
       </span>
     </template>
 

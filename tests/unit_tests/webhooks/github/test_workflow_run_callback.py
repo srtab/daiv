@@ -1,8 +1,13 @@
+from unittest.mock import patch
+
 import pytest
+from sessions.models import EventKind, InboxEvent, QuietReason
 from webhooks.github.callbacks import WorkflowRunCallback
 from webhooks.github.models import Repository, WorkflowRun
 
 from codebase.repo_config import RepositoryConfig
+from core.site_settings import site_settings
+from tests.unit_tests.conftest import site_snapshot
 from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 
 
@@ -36,9 +41,27 @@ def test_a_run_still_going_is_ignored(monkeypatch_dependencies):
     assert make_callback(action="requested", conclusion=None).accept_callback() is False
 
 
-def test_a_repo_with_the_watch_disabled_is_ignored(monkeypatch_dependencies, repo_config):
+@pytest.mark.parametrize("switch", ["repository", "site"])
+def test_a_run_is_accepted_with_the_watch_turned_off(monkeypatch_dependencies, repo_config, switch):
+    """A watch turned off still remembers CI results, so whether one wakes the session is the evaluation's call."""
+    repo_config.pipeline_watch.enabled = switch != "repository"
+    site = site_snapshot(pipeline_watch_enabled=switch != "site")
+
+    with patch.object(site_settings, "snapshot", return_value=site):
+        assert make_callback().accept_callback() is True
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failure_with_the_watch_off_is_remembered(monkeypatch_dependencies, repo_config, evaluate_inline):
     repo_config.pipeline_watch.enabled = False
-    assert make_callback().accept_callback() is False
+    ownership = await amake_owned_merge_request(repo_id="owner/repo", last_daiv_sha="abc123")
+    callback = make_callback()
+
+    assert callback.accept_callback() is True
+    await callback.process_callback()
+
+    event = await InboxEvent.objects.aget(session_id=ownership.session_id)
+    assert (event.kind, event.wake, event.reason) == (EventKind.CI_FAILED, False, QuietReason.WATCH_OFF)
 
 
 @pytest.fixture

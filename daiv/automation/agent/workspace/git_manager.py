@@ -20,7 +20,7 @@ logger = logging.getLogger("daiv.tools")
 
 _FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
-FastForward = Literal["advanced", "unchanged", "diverged"]
+FastForward = Literal["advanced", "replaced", "unchanged", "diverged"]
 # Only the opening and closing markers: a bare ``=======`` is also a setext heading underline.
 _CONFLICT_MARKER_PATTERN = r"^(<{7}|>{7})( |$)"
 
@@ -328,22 +328,50 @@ class GitManager:
     async def fast_forward(self, branch: str) -> FastForward:
         """Move ``HEAD`` up to ``origin/<branch>`` when the remote moved and the checkout has nothing unpublished.
 
-        ``"advanced"`` when it moved, ``"unchanged"`` when the remote is where ``HEAD`` is (or could not be read: the
-        run then works from what it has, and the push integrates later), ``"diverged"`` when ``HEAD`` holds commits
-        the remote lacks or the tree's changes stand in the way, in which case the checkout is left as it was.
+        ``"advanced"`` when it fast-forwarded. ``"replaced"`` when the remote branch was rewritten (a rebase or a
+        force-push) and the checkout held nothing unpublished (:meth:`_holds_nothing_unpublished`), so it was reset to
+        the new head. ``"unchanged"`` when the remote is where ``HEAD`` is (or could not be read: the run then works
+        from what it has, and the push integrates later). ``"diverged"`` when ``HEAD`` holds commits no ``origin`` ref
+        had, or the tree's changes or a pending merge stand in the way; the checkout is then left as it was.
         """
+        # Before the fetch moves origin/<branch>: a rewritten head no longer holds the commits HEAD was published as.
+        # The fetch stays out of the batches: a local runner runs a batch's commands concurrently.
+        read_head = ("rev-parse", "HEAD")
+        head, status, unpushed, merge = await self._git_batch([
+            read_head,
+            ("status", "--porcelain"),
+            ("rev-list", "-n1", "HEAD", "--not", "--remotes=origin"),
+            ("rev-parse", "-q", "--verify", "MERGE_HEAD"),
+        ])
+        published = self._holds_nothing_unpublished(status, unpushed, merge)
         fetch = await self._git("fetch", "origin", branch, check=False)
         if fetch.exit_code != 0:
             logger.warning("Could not fetch origin/%s to fast-forward (exit %s)", branch, fetch.exit_code)
             return "unchanged"
-        remote = self._sha_from(("rev-parse", "FETCH_HEAD"), await self._git("rev-parse", "FETCH_HEAD"))
-        if remote == await self.head_sha():
+        read_remote = ("rev-parse", "FETCH_HEAD")
+        fetched, ancestor = await self._git_batch([read_remote, ("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD")])
+        remote = self._sha_from(read_remote, self._require_ok(read_remote, fetched))
+        if remote == self._sha_from(read_head, self._require_ok(read_head, head)):
             return "unchanged"
-        if (await self._git("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD", check=False)).exit_code != 0:
+        if ancestor.exit_code == 0:
+            ff = await self._git("merge", "--ff-only", "FETCH_HEAD", check=False)
+            return "advanced" if ff.exit_code == 0 else "diverged"
+        if not published:
             return "diverged"
-        if (await self._git("merge", "--ff-only", "FETCH_HEAD", check=False)).exit_code != 0:
+        reset = await self._git("reset", "--keep", "FETCH_HEAD", check=False)
+        if reset.exit_code != 0:
+            logger.warning("Could not move the checkout to the rewritten origin/%s: %s", branch, reset.output.strip())
             return "diverged"
-        return "advanced"
+        return "replaced"
+
+    @staticmethod
+    def _holds_nothing_unpublished(status: GitResult, unpushed: GitResult, merge: GitResult) -> bool:
+        """Whether moving the checkout off ``HEAD`` loses nothing: a clean tree (``status --porcelain``), every commit
+        of ``HEAD`` on an ``origin`` ref (``rev-list -n1 HEAD --not --remotes=origin``) and no pending merge
+        (``rev-parse -q --verify MERGE_HEAD``). A command that failed counts as holding something."""
+        clean = status.exit_code == 0 and not status.output.strip()
+        pushed = unpushed.exit_code == 0 and not unpushed.output.strip()
+        return clean and pushed and merge.exit_code == 1
 
     async def push_head_to(
         self, branch: str, *, force: bool = False, integrate_on_reject: bool = False, skip_ci: bool = False

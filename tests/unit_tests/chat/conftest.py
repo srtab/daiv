@@ -13,9 +13,9 @@ def real_chat_inbox():
 
 @pytest.fixture(autouse=True)
 def chat_inbox(request):
-    """Stub the session inbox around a chat turn: linking the events the view took, the context they render to and
-    the drain after the turn. Most chat tests drive fake ``Run`` rows and no database; a test of that wiring asks for
-    ``real_chat_inbox``."""
+    """Stub the session inbox around a chat turn: linking the events the view took, the context they render to,
+    putting back the ones no run took over, and the drain after the turn. Most chat tests drive fake ``Run`` rows
+    and no database; a test of that wiring asks for ``real_chat_inbox``."""
     if "real_chat_inbox" in request.fixturenames:
         yield None
         return
@@ -23,6 +23,7 @@ def chat_inbox(request):
     with (
         patch("chat.api.streaming.alink_chat_run", new=AsyncMock()) as link,
         patch("chat.api.streaming.arender_input", new=AsyncMock(return_value=rendered)) as render,
+        patch("chat.api.streaming.arelease_chat_claim", new=AsyncMock()) as release_claim,
         patch("chat.api.streaming.drain_logged", new=MagicMock()) as drain,
     ):
-        yield SimpleNamespace(link=link, render=render, drain=drain)
+        yield SimpleNamespace(link=link, render=render, release_claim=release_claim, drain=drain)

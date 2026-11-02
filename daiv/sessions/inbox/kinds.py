@@ -23,6 +23,8 @@ class CiPayload(TypedDict):
     status: str
     web_url: str
     failed_jobs: list[str]
+    workflow: NotRequired[str]
+    attempts: NotRequired[int]
 
 
 class CommentPayload(TypedDict):
@@ -32,6 +34,8 @@ class CommentPayload(TypedDict):
     discussion_id: NotRequired[str]
     review_comment_id: NotRequired[int]
     is_diff: NotRequired[bool]
+    agent_model: NotRequired[str]
+    agent_thinking_level: NotRequired[str]
 
 
 class BranchPushedPayload(TypedDict):
@@ -45,6 +49,8 @@ class ForeignPublishPayload(TypedDict):
     thread_id: str
     owner_username: str
     sha: str
+    title: NotRequired[str]
+    web_url: NotRequired[str]
 
 
 class MergeRequestStatePayload(TypedDict):
@@ -211,12 +217,17 @@ def mr_state_key(merge_request_iid: int, state: str) -> str:
     return _key("mr-state", merge_request_iid, state)
 
 
-def child_ci_key(child_thread_id: str, pipeline_id: int) -> str:
-    return _key("child-ci", child_thread_id, pipeline_id)
+def child_ci_key(child_thread_id: str, pipeline_id: int, outcome: str) -> str:
+    """Keyed on the outcome too: a retried pipeline keeps its id, so a pass after ``no_push`` is a new ending."""
+    return _key("child-ci", child_thread_id, pipeline_id, outcome)
 
 
-def ci_subject(merge_request_iid: int) -> str:
-    return _key("ci", merge_request_iid)
+def ci_subject(merge_request_iid: int, workflow_id: int | None = None) -> str:
+    """A merge request's CI, or one workflow's on it: GitHub runs a workflow run per workflow on a commit, so one
+    workflow's newer run must not replace another's."""
+    if workflow_id is None:
+        return _key("ci", merge_request_iid)
+    return _key("ci", merge_request_iid, workflow_id)
 
 
 def mr_state_subject(merge_request_iid: int) -> str:

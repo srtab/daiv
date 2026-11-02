@@ -1,1 +1,1 @@
-@{{ asker }}, reply mentioning @{{ bot_username }} with your answer.
+{% if asker %}@{{ asker }}, reply{% else %}Reply{% endif %} mentioning @{{ bot_username }} with your answer.

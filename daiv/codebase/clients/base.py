@@ -321,6 +321,12 @@ class RepoClient(abc.ABC):
         """Most recent pipeline for a branch, with its jobs. ``None`` when the branch has none."""
         raise NotImplementedError
 
+    def get_latest_pipelines_for_ref(self, repo_id: str, ref: str) -> list[Pipeline]:
+        """The most recent pipeline of each CI subject on a branch, without its jobs (``get_pipeline`` reads them):
+        GitLab's one pipeline per commit, or the newest run of each GitHub workflow on the branch's head commit. Empty
+        when the branch has none."""
+        raise NotImplementedError
+
     def get_git_auth_env(self, repository: Repository) -> GitAuthEnv | None:
         """Per-invocation credential overlay for *local-mode* git network operations
         (push/fetch/ls-remote), or ``None`` for platforms whose remotes need no credential

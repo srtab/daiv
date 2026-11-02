@@ -1043,6 +1043,60 @@ def _push_from_another_clone(tmp_path: Path, origin_dir: Path, *, name: str = "p
     return other.head.commit.hexsha
 
 
+def _publish(repo: Repo, name: str) -> None:
+    (Path(repo.working_dir) / name).write_text("mine\n")
+    repo.git.add("-A")
+    repo.index.commit(f"Add {name}")
+    repo.remotes.origin.push("main")
+
+
+def _rewrite_from_another_clone(tmp_path: Path, origin_dir: Path) -> str:
+    """Someone rebased ``origin/main`` onto its first commit and force-pushed it; returns the new head's sha."""
+    other = Repo.clone_from(origin_dir.as_posix(), tmp_path / "rewriter", branch="main")
+    _configure_repo_identity(other)
+    other.git.reset("--hard", "HEAD~1")
+    (Path(other.working_dir) / "rebased.txt").write_text("theirs\n")
+    other.git.add("-A")
+    other.index.commit("Rebased")
+    other.remotes.origin.push("main", force=True)
+    return other.head.commit.hexsha
+
+
+async def test_fast_forward_moves_a_checkout_with_nothing_unpublished_to_a_rewritten_remote(tmp_path: Path) -> None:
+    repo, origin_dir = _init_repo_with_origin(tmp_path)
+    _publish(repo, "mine.txt")
+    rewritten = _rewrite_from_another_clone(tmp_path, origin_dir)
+
+    assert await GitManager(LocalGitRunner(repo)).fast_forward("main") == "replaced"
+    assert repo.head.commit.hexsha == rewritten
+    assert (Path(repo.working_dir) / "rebased.txt").exists()
+
+
+async def test_fast_forward_keeps_unpublished_commits_when_the_remote_was_rewritten(tmp_path: Path) -> None:
+    repo, origin_dir = _init_repo_with_origin(tmp_path)
+    _publish(repo, "mine.txt")
+    _rewrite_from_another_clone(tmp_path, origin_dir)
+    (Path(repo.working_dir) / "local.txt").write_text("local\n")
+    repo.git.add("-A")
+    repo.index.commit("Unpublished")
+    local = repo.head.commit.hexsha
+
+    assert await GitManager(LocalGitRunner(repo)).fast_forward("main") == "diverged"
+    assert repo.head.commit.hexsha == local
+
+
+async def test_fast_forward_keeps_uncommitted_changes_when_the_remote_was_rewritten(tmp_path: Path) -> None:
+    repo, origin_dir = _init_repo_with_origin(tmp_path)
+    _publish(repo, "mine.txt")
+    published = repo.head.commit.hexsha
+    _rewrite_from_another_clone(tmp_path, origin_dir)
+    (Path(repo.working_dir) / "mine.txt").write_text("edited\n")
+
+    assert await GitManager(LocalGitRunner(repo)).fast_forward("main") == "diverged"
+    assert repo.head.commit.hexsha == published
+    assert (Path(repo.working_dir) / "mine.txt").read_text() == "edited\n"
+
+
 async def test_fast_forward_advances_a_clean_checkout_to_the_remote_head(tmp_path: Path) -> None:
     repo, origin_dir = _init_repo_with_origin(tmp_path)
     pushed = _push_from_another_clone(tmp_path, origin_dir)
@@ -1084,11 +1138,54 @@ async def test_fast_forward_works_the_same_through_a_sandbox() -> None:
     assert client.ran("merge --ff-only FETCH_HEAD")
 
 
+async def test_fast_forward_through_a_sandbox_finds_an_unmoved_remote_in_three_round_trips() -> None:
+    gm, client = _sandbox_manager({"rev-parse FETCH_HEAD": (0, FakeSandboxClient.HEAD_SHA)})
+
+    assert await gm.fast_forward("b") == "unchanged"
+    batches = [commands for _session, commands in client.calls_to("run_commands")]
+    assert [len(batch) for batch in batches] == [4, 1, 2]
+    assert "rev-parse HEAD" in batches[0][0]
+    assert "fetch origin b" in batches[1][0]
+
+
+_REWRITTEN_REMOTE = {
+    "fetch origin b": (0, ""),
+    "rev-parse FETCH_HEAD": (0, "b" * 40),
+    "rev-parse HEAD": (0, "a" * 40),
+    "merge-base --is-ancestor HEAD FETCH_HEAD": (1, ""),
+}
+
+
+async def test_fast_forward_through_a_sandbox_moves_a_published_checkout_to_a_rewritten_remote() -> None:
+    gm, client = _sandbox_manager(_REWRITTEN_REMOTE)
+
+    assert await gm.fast_forward("b") == "replaced"
+    assert client.ran("reset --keep FETCH_HEAD")
+    checked = next(i for i, c in enumerate(client.commands) if "--remotes=origin" in c)
+    assert checked < next(i for i, c in enumerate(client.commands) if "fetch origin b" in c)
+
+
+@pytest.mark.parametrize(
+    "unpublished",
+    [
+        {"rev-list": (0, "c" * 40)},
+        {"status --porcelain": (0, " M README.md\n")},
+        {"rev-parse -q --verify MERGE_HEAD": (0, "d" * 40)},
+    ],
+    ids=["local-commit", "uncommitted-change", "pending-merge"],
+)
+async def test_fast_forward_through_a_sandbox_never_resets_over_unpublished_work(unpublished) -> None:
+    gm, client = _sandbox_manager(unpublished | _REWRITTEN_REMOTE)
+
+    assert await gm.fast_forward("b") == "diverged"
+    assert not client.ran("reset")
+
+
 async def test_fast_forward_through_a_sandbox_that_cannot_reach_the_remote_changes_nothing(caplog) -> None:
     gm, client = _sandbox_manager({"fetch origin b": (128, "fatal: unable to access")})
 
     with caplog.at_level("WARNING", logger="daiv.tools"):
         assert await gm.fast_forward("b") == "unchanged"
 
-    assert not client.ran("merge")
+    assert not client.ran("FETCH_HEAD")
     assert "Could not fetch origin/b" in caplog.text

@@ -53,7 +53,9 @@ async def adrain(thread_id: str) -> Run | None
 async def atake_for_chat(thread_id: str, *, holder_id: str) -> list[InboxEvent]
 ```
 
-Called by the chat view right after it claims the slot with `try_claim` (R9). It marks every pending event for the session's current branch `taken` with `claim_token=holder_id`. `alink_chat_run(holder_id, run)` later sets their `run` once the chat `Run` row exists.
+Called by the chat view right after it claims the slot with `try_claim` (R9). It supersedes older events per subject, then marks the pending **remembered** events for the session's current branch `taken` with `claim_token=holder_id`. `alink_chat_run(holder_id, run)` later sets their `run` once the chat `Run` row exists. When the turn ends before that, the events go back to `pending`.
+
+Waking events are left `pending` for the drain, which starts their run once the chat turn ends: only the drain renders a waking event's request, charges a CI attempt, and serves one requester per run. This narrows FR-010's "every pending event" for an idle chat turn; the waking events still reach the agent in the very next run.
 
 ## `arender_input`
 
@@ -94,4 +96,4 @@ async def aownership_for_branch(repo_id: str, source_branch: str) -> MergeReques
 |---|---|---|
 | `drain_inboxes_cron_task` | `* * * * *` | `adrain` for sessions with pending waking events and a free or stale slot. Returns stale `taken` events to `pending` (R12, R13) |
 | `classify_push_task` | Enqueued with `run_after=+60s` | Decides `branch_pushed` against recorded DAIV SHAs (R8) |
-| `reconcile_pipeline_watches_cron_task` | `*/10`, existing | Re-reads the latest pipeline for owned, open merge requests with no CI event for 30 min. The 6-hour expiry is removed |
+| `reconcile_pipeline_watches_cron_task` | `*/10`, existing | Re-reads the latest pipeline of each CI subject for owned, open, watched merge requests nothing was heard of for 30 min (no CI event, claim or re-read), at most 200 a tick, stalest first. The 6-hour expiry is removed |

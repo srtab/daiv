@@ -116,10 +116,11 @@ async def dispatch_mr_comment_run(
     """Address a comment that mentioned DAIV on a merge request, in the session that owns it when one does.
 
     ``ref`` is the merge request's source branch, ``None`` when the payload omits it (GitHub's ``issue_comment``);
-    it is then fetched, and left blank if that fails, since the run is still worth starting.
+    it is then fetched, and left blank if that fails, since the run is still worth starting. ``use_max`` runs it on the
+    site's max model either way: a mention for the owning session carries that model for the run that takes it.
     """
     if (ownership := await aopen_ownership(repo_id, merge_request_iid, title=title)) is not None:
-        if await _post_comment(ownership, client, author, mention, kind=EventKind.MENTION):
+        if await _post_comment(ownership, client, author, mention, kind=EventKind.MENTION, use_max=use_max):
             await _react(
                 partial(
                     client.create_merge_request_note_emoji,
@@ -170,11 +171,17 @@ async def dispatch_mr_comment(
 
 
 async def _post_comment(
-    ownership: MergeRequestOwnership, client: RepoClient, author: Author, comment: Mention, *, kind: str
+    ownership: MergeRequestOwnership,
+    client: RepoClient,
+    author: Author,
+    comment: Mention,
+    *,
+    kind: str,
+    use_max: bool = False,
 ) -> bool:
     """Post ``comment`` to the owning session's inbox, on the merge request's branch; returns whether it is new,
     since an edit keeps the comment's key. A remembered comment has a key of its own, so editing it to mention DAIV
-    still wakes the session."""
+    still wakes the session. With ``use_max`` the payload names the model and thinking level the drain runs it on."""
     review_comment = comment.on_diff and client.git_platform == GitPlatform.GITHUB
     payload: dict[str, Any] = {
         "body": comment.body,
@@ -183,6 +190,8 @@ async def _post_comment(
         "is_diff": comment.on_diff,
         ("review_comment_id" if review_comment else "note_id"): comment.note_id,
     }
+    if use_max:
+        payload["agent_model"], payload["agent_thinking_level"] = _pinned_model(use_max)
     source_key = kinds.review_comment_key(comment.note_id) if review_comment else kinds.note_key(comment.note_id)
     result = await apost_event(
         ownership.session.thread_id,

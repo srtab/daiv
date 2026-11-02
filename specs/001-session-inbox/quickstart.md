@@ -106,12 +106,20 @@ uv run evals/compare_runs.py eval-runs/inbox-before.jsonl eval-runs/inbox-after.
 1. As a reviewer allowed by the repository's `.daiv.yml`, mention DAIV in a diff comment on a DAIV merge request (GitLab DiffNote; GitHub review comment).
 
 **Expected**:
-- The run appears in the owning session, attributed to the reviewer, acting as the owner.
+- The run appears in the owning session, attributed to the reviewer, acting as the reviewer through the DAIV account linked to their platform account (with no personal tools when they never signed in to DAIV with it).
 - The reply is posted in the diff discussion.
 
 2. Mention DAIV as a user **not** in the allowlist.
 
 **Expected**: no run starts, and the mention is handled as it is today.
+
+3. As anyone, comment on the merge request without mentioning DAIV. Then send a chat message in the owning session.
+
+**Expected**: the comment starts no run and shows in the session's conversation; the chat turn's input quotes it (US5/AC5).
+
+4. While the owning session is busy, mention DAIV in two different threads of the merge request.
+
+**Expected**: one run handles both. The full reply is posted in the latest mention's thread, and the earlier thread gets a line linking to that reply (FR-028).
 
 ### Replay of the 2026-10-30 incident (SC-002)
 

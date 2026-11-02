@@ -4,12 +4,12 @@ from typing import Literal
 
 from sessions.inbox.ownership import aclose_ownership, areopen_ownership, aschedule_push_classification
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
-from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.service import PipelineWatch
 
 from codebase.base import GitPlatform, NoteType
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
+from codebase.clients.gitlab.utils import CHILD_PIPELINE_SOURCE
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import note_mentions_daiv
 from core.constants import has_bot_label, has_max_label
@@ -141,7 +141,8 @@ class NoteCallback(GitLabCallback):
 
     def accept_callback(self) -> bool:
         """
-        Check if the webhook is accepted.
+        Check if the webhook is accepted. The allowed usernames gate only a note that mentions DAIV: any other note on
+        a merge request is accepted from anyone but DAIV, for the session that owns it to remember.
         """
         if (
             self.object_attributes.noteable_type not in [NoteableType.ISSUE, NoteableType.MERGE_REQUEST]
@@ -150,10 +151,9 @@ class NoteCallback(GitLabCallback):
         ):
             return False
 
-        # Check if user is allowed to interact with DAIV
-        if not self._repo_config.is_user_allowed(self.user.username):
+        if self._mentions_daiv and not self._repo_config.is_user_allowed(self.user.username):
             logger.info(
-                "Rejecting note on project %s: user '%s' is not in the allowed usernames list",
+                "Rejecting mention on project %s: user '%s' is not in the allowed usernames list",
                 self.project.path_with_namespace,
                 self.user.username,
             )
@@ -187,7 +187,7 @@ class NoteCallback(GitLabCallback):
                 web_url=self.object_attributes.url,
                 on_diff=self.object_attributes.type == NoteType.DIFF_NOTE,
             )
-            if not note_mentions_daiv(self.object_attributes.note, self._client.current_user):
+            if not self._mentions_daiv:
                 await dispatch_mr_comment(
                     client=self._client,
                     repo_id=self.project.path_with_namespace,
@@ -207,6 +207,10 @@ class NoteCallback(GitLabCallback):
                 author=_author(self.user),
                 mention=note,
             )
+
+    @cached_property
+    def _mentions_daiv(self) -> bool:
+        return note_mentions_daiv(self.object_attributes.note, self._client.current_user)
 
     @cached_property
     def _is_merge_request_note(self) -> bool:
@@ -233,7 +237,7 @@ class NoteCallback(GitLabCallback):
             and self.object_attributes.action == NoteAction.CREATE
             and self.issue
             and self.issue.state == "opened"
-            and note_mentions_daiv(self.object_attributes.note, self._client.current_user)
+            and self._mentions_daiv
         )
 
 
@@ -343,14 +347,18 @@ class PipelineCallback(GitLabCallback):
     object_attributes: PipelineEvent
 
     def accept_callback(self) -> bool:
-        """Accept pipelines the judge has an outcome for, on repos with the watch enabled.
+        """Accept pipelines the judge has an outcome for, whatever the watch switches say: with the watch off a result
+        is still remembered, and the evaluation reads the switches to keep it from waking anyone.
+
+        A child pipeline is not accepted: it runs on its parent's ref and commit, and the merge request's result is
+        its parent's, which a ``strategy: depend`` child reaches.
 
         Deliberately does *not* reject pipelines attributed to DAIV: the service-account
-        heal on ephemeral-token repos makes those the ones worth watching. Status is tested
-        first because ``_repo_config`` blocks the event loop on a cache round-trip.
+        heal on ephemeral-token repos makes those the ones worth watching.
         """
-        return self.object_attributes.status in JUDGEABLE_PIPELINE_STATUSES and WatchPolicy.enabled_for(
-            self._repo_config
+        return (
+            self.object_attributes.source != CHILD_PIPELINE_SOURCE
+            and self.object_attributes.status in JUDGEABLE_PIPELINE_STATUSES
         )
 
     async def process_callback(self):

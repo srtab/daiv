@@ -1,9 +1,16 @@
 import uuid
+from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
 import pytest
-from sessions.inbox.ownership import aclaim_ownership, aopen_ownership, aownership_for_branch
+from sessions.inbox.ownership import (
+    aclaim_ownership,
+    aclose_ownership,
+    aopen_ownership,
+    aownership_for_branch,
+    areopen_ownership,
+)
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
@@ -18,9 +25,14 @@ async def _user(username: str) -> User:
     return await User.objects.acreate(username=username, email=f"{username}@example.com")
 
 
-async def _publishing_run(user: User | None, trigger: str = SessionOrigin.CHAT) -> Run:
+async def _publishing_run(user: User | None, trigger: str = SessionOrigin.CHAT, title: str = "") -> Run:
     session = await Session.objects.acreate(
-        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id=REPO, ref=MR["source_branch"], user=user
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.CHAT,
+        repo_id=REPO,
+        ref=MR["source_branch"],
+        user=user,
+        title=title,
     )
     return await Run.objects.acreate(
         session=session, trigger_type=trigger, repo_id=REPO, status=RunStatus.RUNNING, user=user
@@ -32,7 +44,22 @@ async def _claim(run: Run, sha: str = "e96f1f77") -> MergeRequestOwnership:
 
 
 async def _events(session_id: str) -> list[InboxEvent]:
-    return [event async for event in InboxEvent.objects.filter(session_id=session_id)]
+    return [event async for event in InboxEvent.objects.filter(session_id=session_id).order_by("created_at", "id")]
+
+
+async def _replaced_owner_session() -> MergeRequestOwnership:
+    """The ownership of !9 after alice's owning session was deleted and a replacement made for her."""
+    alice = await _user("alice")
+    run = await _publishing_run(alice)
+    await _claim(run)
+    await Session.objects.filter(pk=run.session_id).adelete()
+    return await aopen_ownership(REPO, 9, title="Install gettext")
+
+
+REPLACED_NOTICE = (
+    "The session that owned !9 was deleted, so this one was made for it; CI results and mentions on !9 come here "
+    "from now on."
+)
 
 
 class TestClaimRules:
@@ -78,7 +105,7 @@ class TestClaimRules:
 
     async def test_another_persons_publish_leaves_it_and_tells_the_owner(self):
         alice, bob = await _user("alice"), await _user("bob")
-        owner, other = await _publishing_run(alice), await _publishing_run(bob)
+        owner, other = await _publishing_run(alice), await _publishing_run(bob, title="Bump gettext")
         await _claim(owner)
 
         ownership = await _claim(other, sha="0a1b2c3d")
@@ -87,7 +114,15 @@ class TestClaimRules:
         assert ownership.last_daiv_sha == "0a1b2c3d"
         [event] = await _events(owner.session_id)
         assert (event.kind, event.wake, event.ref) == (EventKind.FOREIGN_PUBLISH, False, "chore/install-gettext")
-        assert event.payload == {"thread_id": other.session_id, "owner_username": "bob", "sha": "0a1b2c3d"}
+        web_url = event.payload.pop("web_url")
+        assert event.payload == {
+            "thread_id": other.session_id,
+            "owner_username": "bob",
+            "sha": "0a1b2c3d",
+            "title": "Bump gettext",
+        }
+        assert web_url.startswith("https://")
+        assert web_url.endswith(f"/sessions/{other.session_id}/")
         assert await _events(other.session_id) == []
 
     async def test_a_deleted_owners_session_counts_as_no_row_for_the_same_person(self):
@@ -98,15 +133,21 @@ class TestClaimRules:
 
         assert (await _claim(current)).session_id == current.session_id
 
-    async def test_a_deleted_owners_session_still_keeps_it_from_another_person(self):
+    async def test_a_deleted_owners_session_still_keeps_it_from_another_person_and_its_replacement_is_told(self):
         alice, bob = await _user("alice"), await _user("bob")
         gone, other = await _publishing_run(alice), await _publishing_run(bob)
         await _claim(gone)
         await Session.objects.filter(pk=gone.session_id).adelete()
 
-        ownership = await _claim(other)
+        ownership = await _claim(other, sha="0a1b2c3d")
 
-        assert (ownership.session_id, ownership.owner_id) == (None, alice.pk)
+        replacement = await Session.objects.aget(pk=ownership.session_id)
+        assert ownership.owner_id == alice.pk
+        assert (replacement.user_id, replacement.title) == (alice.pk, "Install gettext")
+        notice, published = await _events(replacement.pk)
+        assert (notice.kind, notice.payload["text"]) == (EventKind.NOTICE, REPLACED_NOTICE)
+        assert (published.kind, published.payload["sha"]) == (EventKind.FOREIGN_PUBLISH, "0a1b2c3d")
+        assert await _events(other.session_id) == []
 
     async def test_an_unknown_merge_request_claims_nothing(self):
         run = await _publishing_run(None)
@@ -194,6 +235,105 @@ class TestOpenOwnership:
         )
         assert session.title == "Install gettext"
         assert (await MergeRequestOwnership.objects.aget()).session_id == session.pk
+
+    async def test_a_replacement_session_is_told_once_why_it_exists(self):
+        session = (await _replaced_owner_session()).session
+
+        await aopen_ownership(REPO, 9)
+
+        [notice] = await _events(session.pk)
+        assert (notice.kind, notice.wake, notice.merge_request_iid) == (EventKind.NOTICE, False, 9)
+        assert notice.payload["text"] == REPLACED_NOTICE
+
+
+class TestMergeRequestState:
+    @staticmethod
+    async def _close(merged: bool = False) -> bool:
+        return await aclose_ownership(REPO, 9, merged=merged, by_username="sfr", target_branch="main")
+
+    @staticmethod
+    async def _owner_session_id() -> str:
+        run = await _publishing_run(await _user("alice"))
+        await _claim(run)
+        return run.session_id
+
+    async def test_a_close_after_a_reopen_is_remembered_again(self):
+        session_id = await self._owner_session_id()
+
+        await self._close()
+        await areopen_ownership(REPO, 9, by_username="sfr")
+        await self._close()
+
+        assert [event.kind for event in await _events(session_id)] == [
+            EventKind.MR_CLOSED,
+            EventKind.NOTICE,
+            EventKind.MR_CLOSED,
+        ]
+
+    async def test_a_redelivered_close_posts_nothing(self):
+        session_id = await self._owner_session_id()
+        assert await self._close()
+
+        assert not await self._close()
+
+        assert len(await _events(session_id)) == 1
+
+    async def test_a_close_another_delivery_recorded_meanwhile_posts_nothing(self):
+        session_id = await self._owner_session_id()
+        owned = await aopen_ownership(REPO, 9)
+        await MergeRequestOwnership.objects.aupdate(closed_at=timezone.now())
+
+        with patch("sessions.inbox.ownership.aopen_ownership", new=AsyncMock(return_value=owned)):
+            assert not await self._close()
+
+        assert await _events(session_id) == []
+
+    @staticmethod
+    def _failing_post(meanwhile=None):
+        async def post(*args, **kwargs):
+            if meanwhile is not None:
+                await MergeRequestOwnership.objects.aupdate(closed_at=meanwhile)
+            raise RuntimeError("db down")
+
+        return patch("sessions.inbox.ownership.apost_event", new=AsyncMock(side_effect=post))
+
+    async def test_a_close_whose_event_could_not_be_posted_is_posted_on_redelivery(self):
+        session_id = await self._owner_session_id()
+
+        with self._failing_post(), pytest.raises(RuntimeError):
+            await self._close()
+
+        assert await self._close()
+        assert [event.kind for event in await _events(session_id)] == [EventKind.MR_CLOSED]
+
+    async def test_a_failed_close_leaves_a_close_recorded_meanwhile(self):
+        await self._owner_session_id()
+        later = timezone.now()
+
+        with self._failing_post(meanwhile=later), pytest.raises(RuntimeError):
+            await self._close()
+
+        assert (await MergeRequestOwnership.objects.aget()).closed_at == later
+
+    async def test_a_reopen_whose_notice_could_not_be_posted_is_posted_on_redelivery(self):
+        session_id = await self._owner_session_id()
+        await self._close()
+
+        with self._failing_post(), pytest.raises(RuntimeError):
+            await areopen_ownership(REPO, 9, by_username="sfr")
+
+        assert await areopen_ownership(REPO, 9, by_username="sfr")
+        assert [event.kind for event in await _events(session_id)] == [EventKind.MR_CLOSED, EventKind.NOTICE]
+
+    async def test_a_failed_reopen_leaves_a_close_recorded_meanwhile(self):
+        await self._owner_session_id()
+        await self._close()
+        later = timezone.now()
+
+        with self._failing_post(meanwhile=later), pytest.raises(RuntimeError):
+            await areopen_ownership(REPO, 9, by_username="sfr")
+
+        assert (await MergeRequestOwnership.objects.aget()).closed_at == later
 
 
 class TestOwnershipForBranch:

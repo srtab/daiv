@@ -5,7 +5,6 @@ from typing import Literal
 from pydantic import Field
 from sessions.inbox.ownership import aclose_ownership, areopen_ownership, aschedule_push_classification
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
-from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.service import PipelineWatch
 
 from codebase.base import GitPlatform
@@ -134,7 +133,8 @@ class IssueCommentCallback(GitHubCallback):
 
     def accept_callback(self) -> bool:
         """
-        Check if the webhook is accepted.
+        Check if the webhook is accepted. The allowed usernames gate only a comment that mentions DAIV: any other
+        comment on a pull request is accepted from anyone but DAIV, for the session that owns it to remember.
         """
         if (
             self.action not in ["created", "edited"]
@@ -144,10 +144,9 @@ class IssueCommentCallback(GitHubCallback):
         ):
             return False
 
-        # Check if user is allowed to interact with DAIV
-        if not self._repo_config.is_user_allowed(self.comment.user.username):
+        if self._mentions_daiv and not self._repo_config.is_user_allowed(self.comment.user.username):
             logger.info(
-                "Rejecting comment on %s#%s: user '%s' is not in the allowed usernames list",
+                "Rejecting mention on %s#%s: user '%s' is not in the allowed usernames list",
                 self.repository.full_name,
                 self.issue.number,
                 self.comment.user.username,
@@ -179,7 +178,7 @@ class IssueCommentCallback(GitHubCallback):
                 body=self.comment.body,
                 web_url=self.comment.html_url,
             )
-            if not note_mentions_daiv(self.comment.body, self._client.current_user):
+            if not self._mentions_daiv:
                 await dispatch_mr_comment(
                     client=self._client,
                     repo_id=self.repository.full_name,
@@ -199,6 +198,10 @@ class IssueCommentCallback(GitHubCallback):
                 author=_author(self.comment.user),
                 mention=comment,
             )
+
+    @cached_property
+    def _mentions_daiv(self) -> bool:
+        return note_mentions_daiv(self.comment.body, self._client.current_user)
 
     @property
     def _is_merge_request_comment(self) -> bool:
@@ -222,14 +225,15 @@ class IssueCommentCallback(GitHubCallback):
             and self.issue.is_issue()
             and self.issue.state == "open"
             and self.action in ["created", "edited"]
-            and note_mentions_daiv(self.comment.body, self._client.current_user)
+            and self._mentions_daiv
         )
 
 
 class PullRequestReviewCommentCallback(GitHubCallback):
     """
     GitHub Pull Request Review Comment Webhook: a comment on a diff line, which reaches only a session owning the pull
-    request, as a mention or a remembered comment.
+    request, as a mention or a remembered comment. The allowed usernames gate only a mention; a comment without one is
+    remembered from anyone but DAIV.
     """
 
     action: Literal["created", "edited", "deleted"]
@@ -246,15 +250,19 @@ class PullRequestReviewCommentCallback(GitHubCallback):
             or _edited_by_another(self.action, self.sender, self.comment.user)
         ):
             return False
-        if not self._repo_config.is_user_allowed(self.comment.user.username):
+        if self._mentions_daiv and not self._repo_config.is_user_allowed(self.comment.user.username):
             logger.info(
-                "Rejecting review comment on %s#%s: user '%s' is not in the allowed usernames list",
+                "Rejecting review comment mention on %s#%s: user '%s' is not in the allowed usernames list",
                 self.repository.full_name,
                 self.pull_request.number,
                 self.comment.user.username,
             )
             return False
         return True
+
+    @cached_property
+    def _mentions_daiv(self) -> bool:
+        return note_mentions_daiv(self.comment.body, self._client.current_user)
 
     async def process_callback(self):
         comment = Mention(
@@ -264,7 +272,7 @@ class PullRequestReviewCommentCallback(GitHubCallback):
             web_url=self.comment.html_url,
             on_diff=True,
         )
-        if not note_mentions_daiv(self.comment.body, self._client.current_user):
+        if not self._mentions_daiv:
             await dispatch_mr_comment(
                 client=self._client,
                 repo_id=self.repository.full_name,
@@ -392,16 +400,15 @@ class WorkflowRunCallback(GitHubCallback):
     workflow_run: WorkflowRun
 
     def accept_callback(self) -> bool:
-        """Accept finished workflow runs on repos with the watch enabled.
+        """Accept finished workflow runs, whatever the watch switches say: with the watch off a result is still
+        remembered, and the evaluation reads the switches to keep it from waking anyone.
 
         Deliberately does not reject runs DAIV's own push triggered — that is the normal case.
-        Translating the conclusion puts both platforms on the judge's one vocabulary; the
-        config read comes last because it blocks the event loop on a cache round-trip.
+        Translating the conclusion puts both platforms on the judge's one vocabulary.
         """
         return (
             self.action == "completed"
             and github_conclusion_to_status(self.workflow_run.conclusion) in JUDGEABLE_PIPELINE_STATUSES
-            and WatchPolicy.enabled_for(self._repo_config)
         )
 
     async def process_callback(self):

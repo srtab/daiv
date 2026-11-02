@@ -525,3 +525,50 @@ Task: "T051 acting_user_id in daiv/webhooks/managers/issue_addressor.py"
 - `[P]` means a different file and no unfinished dependency.
 - Commit after each task or logical group, with no `Co-Authored-By` lines.
 - Each checkpoint is a place to stop, validate the story on its own, and ship.
+
+---
+
+## Phase 9: Convergence
+
+- [X] T112 Return the events an inline chat turn took under its `claim_token` to `pending` when the turn ends before its `Run` exists (`_end_turn` in `daiv/chat/api/streaming.py`, and the spawn-failure branch in `daiv/chat/api/views.py`). Today they stay `taken` until the session goes 30 minutes idle. Add a test in which a clone failure leaves them pending for the next turn. Per FR-013, US2/AC4 (partial)
+- [X] T113 Notify the owner of every run that took a waking `ci_failed`, whatever its envelope status, including a fix the classifier calls `all-clear` (`daiv/notifications/policy.py`, `daiv/notifications/run_notifiers.py`). In `daiv/sessions/inbox/complete.py`, also handle FAILED and WAITING_INPUT runs, not only SUCCESSFUL ones: on a session with no DAIV user, post the outcome as a merge request comment; for a run that pushed nothing, post `no_push` to a delegating parent. Per FR-018, FR-021, SC-007 (contradicts)
+- [X] T114 For a `budget_spent` failure, show "stopped after N attempts" and the failing job names on the session page. That means the CI item in `daiv/sessions/header.py`, its topbar and details rendering, and `session-page.js`, plus its timeline line (`daiv/sessions/inbox/render.py`, `daiv/sessions/inbox_display.py`). Per FR-017, US1/AC5 (partial)
+- [X] T115 Accept judgeable pipeline and workflow-run webhooks on owned branches whatever the site or repository watch switch says (`PipelineCallback.accept_callback` in `daiv/webhooks/gitlab/callbacks.py`, `WorkflowRunCallback` in `daiv/webhooks/github/callbacks.py`). `_aquiet_reason` then remembers them with `watch_off`. Update the callback tests that assert rejection. Per spec edge case "The CI watch is turned off", FR-019, FR-023 (contradicts)
+- [X] T116 Put the outcome in the `delegated_ci_outcome` source key (`child_ci_key` in `daiv/sessions/inbox/kinds.py` and its callers). Today a pass after `no_push` or `stopped_after_attempts` on the same retried pipeline is deduplicated away, and the delegating session never hears of it. Per FR-021, US4/AC5 (partial)
+- [X] T117 In `GitManager.fast_forward` (`daiv/automation/agent/workspace/git_manager.py`), tell a remote branch that was rewritten (a rebase or force-push) apart from unpublished local commits. Move a checkout with nothing unpublished to the remote head and report that it moved. Keep "diverged", with its "unpublished commits" line in `daiv/sessions/inbox/render.py`, for real local commits only. Test both cases on the disk and sandbox workspaces. Per FR-024, US3/AC2 (partial)
+- [X] T118 Keep the owner's open `ask_user_question` card open when a system-started turn runs after it. In `_repliedAfter` (`daiv/chat/static/chat/js/chat-stream.js`), don't count a turn opened by an inbox event as a reply, except the owner's own chat message. Add a JS test. Per spec edge case "The session is waiting for the owner to answer a question" (contradicts)
+- [X] T119 When a QUEUED next run's requester has lost repository access, finish the run as FAILED with the `access_denied` label instead of deleting it (`_fail` in `daiv/sessions/inbox/drain.py`). A follow-up job's `job_id` then still resolves through the jobs API and MCP. Per FR-022, US4/AC3 (partial)
+- [X] T120 Reap task-backed `chat`, `mr_webhook` and `pipeline_webhook` inbox runs that a hard worker crash left RUNNING, as `_reap_dead_job_runs` already does for the `one_active()` triggers (`daiv/sessions/management/commands/sync_stuck_runs.py`). They then end and emit `run_ended`. Per US2/AC4 (partial)
+- [X] T121 Post a `notice` event to the session that `open_ownership` creates when a merge request's owning session was deleted. It names the merge request and says why the session exists (`daiv/sessions/inbox/ownership.py`). Per FR-004, spec edge case "The owning session no longer exists" (missing)
+- [X] T122 Include the agent's explanation in the "stopped after N attempts" notification (`daiv/notifications/watch_notifiers.py`): the `result_summary` of the last CI-woken run on the merge request. Per SC-007 (partial)
+- [X] T123 Make the reconciler repair any missed webhook, including a manual-retry pass (`daiv/sessions/pipeline_watch/reconciler.py`, and `unjudged` in `store.py`).
+  - Drop `WATCH_POLL_HORIZON`.
+  - Re-read the latest pipeline of every open, watched ownership that has had no CI event for 30 minutes, not only the ones whose DAIV commit has none.
+
+  Per plan T045 / R15, SC-002 (partial)
+- [X] T124 Skip a pipeline older than the last one judged on the same commit (`PipelineWatch.aevaluate` in `daiv/sessions/pipeline_watch/service.py`). A late delivery then neither wakes a turn nor turns "passing" back into "failing". Per spec edge case "Events delivered out of order" (partial)
+- [X] T125 Judge GitHub CI per commit across all of its workflow runs, or give each workflow its own `ci:` subject (`daiv/sessions/pipeline_watch/`, `daiv/sessions/inbox/kinds.py`). One workflow's pass then no longer replaces another's waking failure or shows the pull request as passing. Per FR-035, FR-003, Constitution III (partial)
+- [X] T126 For a subject whose chain holds no waking event, render only the newest event (`render_context` in `daiv/sessions/inbox/render.py`). Keep the "Superseded by …" chain for replaced waking events, and update `contracts/agent-input.md` to match. Per US3/AC4 (contradicts)
+- [X] T127 Key `mr_merged` and `mr_closed` per delivery, as the reopen notice already is (`aclose_ownership` in `daiv/sessions/inbox/ownership.py`). After close, reopen and close again, the agent is then told the merge request is closed. Per US3/AC3 (partial)
+- [X] T128 Carry the `daiv-max` model and thinking level in the `mention` payload on owned merge requests (`dispatch_mr_comment_run` and `_post_comment` in `daiv/webhooks/dispatch.py`), and have the drain apply them, as unowned merge requests already do. Per FR-025 (partial)
+- [X] T129 Remember comments without a mention on owned merge requests from any author except the bot, on GitLab notes and on GitHub issue and review comments. To do that, apply `is_user_allowed` only to comments that mention DAIV. If the allowlist stays as a guard against prompt injection, document the limit in `docs/features/pull-request-assistant.md` instead, and propose the FR-023 amendment. Per FR-023, US5/AC5 (partial)
+- [X] T130 Name and link the publishing session in the `foreign_publish` line (`daiv/sessions/inbox/render.py` and its timeline label). When the owning session was deleted, deliver a foreign push to its replacement through `open_ownership`, instead of only logging it (`daiv/sessions/inbox/ownership.py`). Per FR-001 (partial)
+- [X] T131 Point each earlier mention's "answered in another thread" line at the posted reply, built from the comment id that `create_merge_request_comment` returns, not at the latest mention (`_reply_to_mentions` in `daiv/sessions/inbox/complete.py`). Per FR-028 (partial)
+- [X] T132 Have an idle chat turn take the chat requester's own waking events for its branch. Otherwise, record the deviation (waking events are left for the drain) under `atake_for_chat` in `contracts/inbox-service.md`. Per FR-010 (contradicts)
+- [X] T133 Mark the events a stopped inline chat turn took as `dismissed`, not retried, so an owner's Stop never ends in a `retries_exhausted` ERROR log (`daiv/chat/api/streaming.py`, `daiv/sessions/inbox/complete.py`). Per FR-030, Constitution VI (partial)
+- [X] T134 Charge the CI attempt and record `last_examined_sha` in the transaction that takes a waking `ci_failed`, and undo both with the take when the enqueue fails (`_take` and `_charge_ci_attempts` in `daiv/sessions/inbox/drain.py`). Per T029, SC-006 (partial)
+- [X] T135 Add `pull_request_review_comment` to the events in GitHub `set_repository_webhooks`, and delete its stale comment (`daiv/codebase/clients/github/client.py`). Per FR-035 (partial)
+- [X] T136 Add a test that a GitHub review comment written by DAIV's own bot is ignored (`tests/unit_tests/webhooks/github/test_callbacks.py`). Per Constitution IV, T097 (partial)
+- [X] T137 In `docs/features/pull-request-assistant.md`, qualify the "Inline on the diff" bullet: diff mentions reach DAIV only on owned merge requests. Add `inbox` to the eval-prompts marker list in `AGENTS.md`. Per T105, T108 (partial)
+- [X] T138 Before running T111, update `quickstart.md` scenario 5:
+  - expect the run to act as the reviewer, through their linked DAIV account;
+  - add steps for a remembered comment (US5/AC5);
+  - add steps for several mentions (FR-028).
+
+  Per FR-027 (partial)
+- [X] T139 Update the design docs to the 2026-10-31 clarification and the endpoints as built:
+  - redefine "Next run" as one QUEUED run per session, branch and requester, in `constitutions/glossary/README.md` and `data-model.md`;
+  - change `contracts/http.md` to the `up_next` poll field and the shape of the timeline's `inbox_event` entry.
+
+  Per the 2026-10-31 clarification, FR-034 (partial)
+- [X] T140 Get a maintainer to decide whether turning a merge request's watch back on resets its attempt budget (`aset_enabled` in `daiv/sessions/pipeline_watch/store.py`). FR-016 names only a publish from a person-requested run as a reset. If the reset stays, record it in `research.md` and `data-model.md` and propose the FR-016 amendment; otherwise drop it and update the test that covers it. Per FR-016 (contradicts)

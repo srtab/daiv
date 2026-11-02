@@ -3,10 +3,12 @@
 Two messages, built from the events the run took:
 
 - the **context**, a ``synthetic_message(kind="inbox")`` the transcript hides: one line per remembered event, oldest
-  first, an event a newer one of the same subject replaced shown with ``Superseded by …`` lines beneath it. A line
-  about the branch moving says whether the working copy was fast-forwarded to it, and when the working copy moved with
-  no such event, a line says so on its own. Capped at ``CONTEXT_MAX_CHARS``: past it, the oldest remembered lines
-  collapse into ``N more <kind> events``. Omitted when there is nothing to report.
+  first, and of a subject's events only the newest. A waking event a newer one replaced keeps its line, with the later
+  replaced waking events and the newest event as ``Superseded by …`` lines beneath it; the replaced remembered events
+  are dropped. A foreign publish names the publishing session and links its page. A line about the branch moving says
+  whether the working copy followed it, and when the working copy moved with no such event, a line says so on its own.
+  Capped at ``CONTEXT_MAX_CHARS``: past it, the oldest remembered lines collapse into ``N more <kind> events``.
+  Omitted when there is nothing to report.
 - the **request**, a ``HumanMessage``: people's words when the run took any (chat messages, mentions with their
   authors, the follow-up job's prompt), then DAIV's own sections (a delegated batch's summary, the CI fix prompt), in
   precedence order and separated by a blank line.
@@ -77,6 +79,7 @@ class RenderedInput:
 
 _FAST_FORWARDED = {
     "advanced": "Your working copy was fast-forwarded.",
+    "replaced": "The branch was rewritten (rebased or force-pushed), so your working copy was moved to its new head.",
     "diverged": "Your working copy could not be fast-forwarded because you have unpublished commits.",
 }
 
@@ -159,23 +162,26 @@ def render_context(events: Sequence[InboxEvent], *, fast_forward: FastForward | 
     """The context message's text for ``events``, or ``""`` when no line is due."""
     position = {event.pk: index for index, event in enumerate(events)}
     moved = _FAST_FORWARDED.get(fast_forward or "")
-    chained = list(dict.fromkeys(e.subject for e in events if e.state == EventState.SUPERSEDED and e.subject))
     entries: list[_Entry] = []
-    for subject in chained:
-        chain = [event for event in events if event.subject == subject]
-        entries.append(
-            _Entry(
-                position=position[chain[0].pk],
-                lines=[_line(chain[0]), *(f"  Superseded by {_short(event)}." for event in chain[1:])],
-                kind=chain[-1].kind,
-                collapsible=not chain[-1].wake,
+    for chain in _chains(events):
+        newest = chain[-1]
+        replaced = [event for event in chain[:-1] if event.wake and event.state == EventState.SUPERSEDED]
+        if replaced:
+            entries.append(
+                _Entry(
+                    position=position[replaced[0].pk],
+                    lines=[
+                        _line(replaced[0]),
+                        *(f"  Superseded by {_short(event)}." for event in [*replaced[1:], newest]),
+                    ],
+                    kind=newest.kind,
+                    collapsible=not newest.wake,
+                )
             )
-        )
-    entries.extend(
-        _Entry(position=position[event.pk], lines=[_line(event)], kind=event.kind, collapsible=True)
-        for event in events
-        if not event.wake and event.state != EventState.SUPERSEDED and event.subject not in chained
-    )
+        elif not newest.wake and newest.state != EventState.SUPERSEDED:
+            entries.append(
+                _Entry(position=position[newest.pk], lines=[_line(newest)], kind=newest.kind, collapsible=True)
+            )
     pushes = [entry for entry in entries if entry.kind == EventKind.BRANCH_PUSHED]
     if moved and pushes:
         pushes[-1].lines[-1] = f"{pushes[-1].lines[-1]} {moved}"
@@ -192,6 +198,18 @@ def render_context(events: Sequence[InboxEvent], *, fast_forward: FastForward | 
     if not entries:
         return ""
     return _fit(sorted(entries, key=attrgetter("position")))
+
+
+def _chains(events: Sequence[InboxEvent]) -> list[list[InboxEvent]]:
+    """``events`` grouped by subject, each group oldest first; an event with no subject is a group of its own."""
+    by_subject: dict[str, list[InboxEvent]] = {}
+    alone: list[list[InboxEvent]] = []
+    for event in events:
+        if event.subject:
+            by_subject.setdefault(event.subject, []).append(event)
+        else:
+            alone.append([event])
+    return [*by_subject.values(), *alone]
 
 
 def _fit(entries: list[_Entry]) -> str:
@@ -267,6 +285,8 @@ def summarize(event: InboxEvent) -> str:
             text = f"{author_name(event)} on !{event.merge_request_iid}: {payload['body']}"
         case EventKind.CI_FAILED | EventKind.CI_PASSED | EventKind.CI_STOPPED:
             text = f"CI on !{event.merge_request_iid}: pipeline {payload['pipeline_id']} {_ci_status(event).lower()}"
+        case EventKind.FOREIGN_PUBLISH:
+            text = _foreign_publish(event, link=False)
         case _:
             text = _describe(event)
     text = " ".join(text.split())
@@ -294,10 +314,7 @@ def _describe(event: InboxEvent) -> str:
                 f"{'commit' if count == 1 else 'commits'} ({payload['before'][:8]} → {payload['after'][:8]})."
             )
         case EventKind.FOREIGN_PUBLISH:
-            return (
-                f"{payload['owner_username']} published {payload['sha'][:8]} to the branch {event.ref} from a session "
-                "of their own; this session still owns the merge request."
-            )
+            return _foreign_publish(event, link=True)
         case EventKind.MR_MERGED:
             return f"!{event.merge_request_iid} was merged into {payload['target_branch']} by {payload['by_username']}."
         case EventKind.MR_CLOSED:
@@ -317,6 +334,19 @@ def _describe(event: InboxEvent) -> str:
         case EventKind.NOTICE:
             return payload["text"]
     return f"{event.get_kind_display()}."
+
+
+def _foreign_publish(event: InboxEvent, *, link: bool) -> str:
+    """The publishing session named by its title, and with ``link`` its page's URL; an event posted before the payload
+    carried them says only that it was a session of the publisher's own."""
+    payload = event.payload
+    source = f'their session "{payload["title"]}"' if payload.get("title") else "a session of their own"
+    if link and payload.get("web_url"):
+        source = f"{source} ({payload['web_url']})"
+    return (
+        f"{payload['owner_username']} published {payload['sha'][:8]} to the branch {event.ref} from {source}; this "
+        "session still owns the merge request."
+    )
 
 
 def _short(event: InboxEvent) -> str:

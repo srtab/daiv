@@ -242,6 +242,11 @@ document.addEventListener("alpine:init", () => {
     ciExplanation(item) {
       return item?.status === "failing" && item.explanation_run_id ? `#run-status-${item.explanation_run_id}` : "";
     },
+    ciText(item) {
+      if (!item) return "";
+      const jobs = item.status === "failing" ? (item.failed_jobs ?? []) : [];
+      return [item.label, jobs.join(", ")].filter(Boolean).join(" · ");
+    },
     async _send(url, method, body) {
       return fetch(url, {
         method,
