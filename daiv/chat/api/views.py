@@ -159,9 +159,10 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     under the authenticated caller; subsequent requests must be able to see it (a
     webhook-origin session with ``user=None`` is continuable by anyone with visibility).
     ``SessionLock.try_claim`` atomically claims the per-session run slot. When the session is busy — the slot is
-    held, a next run is queued, or another run is waiting to start — the message is not refused: it becomes a
-    ``chat_message`` inbox event that joins the session's next run, and the response says so (``queued``, or a
-    ``daiv.queued`` event on the stream). An idle turn takes the session's pending remembered events as its context.
+    held, a next run is queued, or another run is waiting to start — or the page sent it mid-run (``queue`` in
+    ``forwarded_props``), the message is not refused: it becomes a ``chat_message`` inbox event that joins the
+    session's next run, and the response says so (``queued``, or a ``daiv.queued`` event on the stream). An idle
+    turn takes the session's pending remembered events as its context.
 
     Runs execute detached (see ``chat.api.runner``); the response is a run handle (JSON) or an
     inline relay tail (``Accept: text/event-stream``).
@@ -279,7 +280,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     message_id = _extract_last_user_message_id(input_data) or run_id
     unfinished = [run async for run in session.runs.exclude(status__in=RunStatus.terminal())]
     if (
-        session_activity(session, unfinished).waiting
+        forwarded.get("queue") is True
+        or session_activity(session, unfinished).waiting
         or await ais_busy(session)
         or not await SessionLock.try_claim(thread_id, run_id)
     ):

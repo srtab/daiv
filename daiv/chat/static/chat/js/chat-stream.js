@@ -384,6 +384,10 @@
     sessionLive: !!config.sessionLive,
     // The next run a message sent while the session was busy waits for.
     queuedRunId: "",
+    // A message sent while the session is busy is on its way to the inbox.
+    queueing: false,
+    // A page rendered before its session existed has no Up next and follows no later run.
+    _sessionRendered: !!config.thread,
     waitingSince: config.waitingSince || "",
     runStoppable: config.liveRunStoppable ?? true,
     publishPhase: "",
@@ -1483,7 +1487,7 @@
     // ---------- User actions ------------------------------------------
 
     canSend(text = this.draftMessage) {
-      if (!text.trim() || this.waiting || this.archived) return false;
+      if (!text.trim() || this.archived || this.queueing) return false;
       if (this.thread) return true;
       return !!(this.draftRepoId && this.draftRef);
     },
@@ -1497,7 +1501,8 @@
 
     async submit(text = null) {
       const message = text ?? this.draftMessage;
-      if (!this.canSend(message) || this.streaming || this.resuming) return;
+      if (!this.canSend(message)) return;
+      if (this.streaming || this.resuming || this.waiting) return this._sendToNextRun(message, text === null);
 
       // Read the picker's selection before creating the thread: the live picker is
       // ``x-if``'d on ``!thread``, so assigning ``thread`` first schedules its removal
@@ -1537,24 +1542,7 @@
       this._autoFollow = true;
       this.$nextTick(() => this.scrollToBottom({ force: true }));
 
-      // Send only user turns. Streamed assistant turns carry a client-minted
-      // UUID (set when we pushed the placeholder), but the server stored the
-      // AIMessage under its own LangChain-generated id — echoing the assistant
-      // turn back would slip past ag_ui_langgraph's id-based dedupe and append
-      // a duplicate AIMessage to the checkpoint. The agent reads prior history
-      // from the checkpointer; it doesn't need the client to replay it.
-      const priorMessages = this.turns
-        .slice(0, -1)
-        .filter((t) => t.role === "user")
-        .map((t) => ({
-          id: t.id,
-          role: t.role,
-          content: t.segments
-            .filter((s) => s.type === "text")
-            .map((s) => s.content)
-            .join("\n\n"),
-        }))
-        .filter((m) => m.content);
+      const priorMessages = this._userMessages(this.turns.slice(0, -1));
 
       // The server pins these to ``Session.agent_model`` / ``agent_thinking_level`` on
       // first sight of the thread and rejects a divergent value afterwards.
@@ -1583,25 +1571,9 @@
       this.runStartedAt = Date.now();
       this._activeRun = { threadId: this.thread.thread_id, runId: body.runId };
 
-      // Forward the picker's selection so the API resolves the requested env per-request;
-      // missing or empty falls through to the GLOBAL default on the server.
-      const envHeaders = this.selectedSandboxEnvId ? { "X-Sandbox-Env": this.selectedSandboxEnvId } : {};
-
       let reason = "finished";
       try {
-        const resp = await fetch(this.endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "X-Repo-ID": this.thread.repo_id,
-            "X-Ref": this.thread.ref,
-            "X-CSRFToken": this.csrfToken,
-            ...envHeaders,
-          },
-          body: JSON.stringify(body),
-          credentials: "include",
-        });
+        const resp = await this._postRun(body);
 
         if (!resp.ok) {
           this._pushRunStatus("failed", await formatHttpError(resp));
@@ -1623,6 +1595,87 @@
       } finally {
         if (reason !== "queued") this._finishTurn(assistantTurn, reason);
       }
+    },
+
+    // Send only user turns. Streamed assistant turns carry a client-minted
+    // UUID (set when we pushed the placeholder), but the server stored the
+    // AIMessage under its own LangChain-generated id — echoing the assistant
+    // turn back would slip past ag_ui_langgraph's id-based dedupe and append
+    // a duplicate AIMessage to the checkpoint. The agent reads prior history
+    // from the checkpointer; it doesn't need the client to replay it.
+    _userMessages(turns) {
+      return turns
+        .filter((t) => t.role === "user")
+        .map((t) => ({
+          id: t.id,
+          role: t.role,
+          content: t.segments
+            .filter((s) => s.type === "text")
+            .map((s) => s.content)
+            .join("\n\n"),
+        }))
+        .filter((m) => m.content);
+    },
+
+    _postRun(body) {
+      // Forward the picker's selection so the API resolves the requested env per-request;
+      // missing or empty falls through to the GLOBAL default on the server.
+      const envHeaders = this.selectedSandboxEnvId ? { "X-Sandbox-Env": this.selectedSandboxEnvId } : {};
+      return fetch(this.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "X-Repo-ID": this.thread.repo_id,
+          "X-Ref": this.thread.ref,
+          "X-CSRFToken": this.csrfToken,
+          ...envHeaders,
+        },
+        body: JSON.stringify(body),
+        credentials: "include",
+      });
+    },
+
+    // While the session is busy a message waits for its next run, shown in Up next; the run on screen keeps its
+    // stream. ``queue`` keeps it waiting even if that run ended before it arrived, so this page never misses a run.
+    async _sendToNextRun(message, fromDraft) {
+      if (fromDraft) {
+        this.draftMessage = "";
+        this.$nextTick(() => this.autosize());
+      }
+      this.queueing = true;
+      let failure = "";
+      try {
+        const resp = await this._postRun({
+          threadId: this.thread.thread_id,
+          runId: uuid(),
+          state: {},
+          messages: [...this._userMessages(this.turns), { id: uuid(), role: "user", content: message }],
+          tools: [],
+          context: [],
+          forwardedProps: { queue: true },
+        });
+        if (resp.ok) {
+          const { queued } = await resp.json();
+          this.queuedRunId = queued.run_id || "";
+          window.dispatchEvent(
+            new CustomEvent("daiv:up-next-provisional", {
+              detail: { event_id: queued.event_id, run_id: this.queuedRunId, text: message },
+            }),
+          );
+          if (!this._sessionRendered) window.location.reload();
+        } else {
+          failure = await formatHttpError(resp);
+        }
+      } catch (err) {
+        console.error("chat: failed to queue a message", err);
+        failure = "Connection lost — please retry.";
+      } finally {
+        this.queueing = false;
+      }
+      if (!failure) return;
+      if (fromDraft && !this.draftMessage.trim()) this.draftMessage = message;
+      window.showToast?.(failure, "error");
     },
 
     // What a remembered inbox event is, for its row in the timeline.

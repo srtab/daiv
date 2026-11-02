@@ -587,6 +587,25 @@ async def test_a_turn_sent_while_a_next_run_is_queued_joins_it(client: TestAsync
     await user.adelete()
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_a_message_sent_from_a_busy_page_is_queued_even_when_the_run_just_ended(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-ended", user=user, repo_id="a/b", ref="main")
+
+    with patch("sessions.inbox.post.drain_logged") as drain:
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-ended", forwardedProps={"queue": True}),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    event = await InboxEvent.objects.aget(session_id="t-ended")
+    assert response.json()["queued"]["event_id"] == str(event.pk)
+    drain.assert_called_once_with("t-ended")
+    assert await active_holder("t-ended") is None
+    await user.adelete()
+
+
 @pytest.fixture
 def openrouter_provider(db):
     from core.models import Provider, ProviderType

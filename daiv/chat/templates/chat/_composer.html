@@ -94,7 +94,6 @@ box (``_command_menu.html``).
               :aria-expanded="slashMenuOpen"
               :aria-activedescendant="slashMenuOpen ? 'chat-command-option-' + slashIndex : null"
               rows="1"
-              :disabled="(streaming || resuming || waiting)"
               placeholder="{% translate 'Describe the change, the bug, or what to explore…' %}"
               class="chat-composer__textarea"></textarea>
 
@@ -134,7 +133,7 @@ box (``_command_menu.html``).
           {% icon "stop" "h-3.5 w-3.5" %}
           <span class="sr-only">{% translate "Stop" %}</span>
         </button>
-        <button type="submit" x-show="!(streaming || resuming)"
+        <button type="submit" x-show="!(streaming || resuming) || draftMessage.trim()"
                 :disabled="!canSend()"
                 class="composer-send"
                 title="{% translate 'Send' %}">

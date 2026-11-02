@@ -815,6 +815,106 @@ def test_a_message_sent_while_the_session_is_busy_moves_to_up_next():
     assert out["following"] == {"streaming": True, "run": "next-run", "queuedRunId": ""}
 
 
+MID_RUN_BODY = """
+sandbox.window.showToast = (message, level) => toasts.push([message, level]);
+let reloads = 0;
+sandbox.window.location.reload = () => { reloads += 1; };
+const thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+const chat = reactive(registry.chat({
+  endpoint: "/api/chat",
+  streamEndpoint: "/api/chat/stream",
+  thread: payload.rendered ? thread : null,
+}));
+chat.$watch = watchOn(chat);
+chat.$nextTick = (cb) => cb && cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+chat.init();
+chat.thread = thread;
+chat.turns = [
+  { id: "u1", role: "user", segments: [{ type: "text", content: "Fix the bug" }] },
+  { id: "a1", role: "assistant", segments: [{ type: "text", content: "Looking" }], streaming: true },
+];
+Object.assign(chat, payload.state, { _activeRun: { threadId: "t1", runId: "live" } });
+chat.draftMessage = "Also add a test";
+const canSend = chat.canSend();
+await chat.submit();
+process.stdout.write(JSON.stringify({
+  canSend,
+  sent: sent.map((request) => request.body),
+  turns: chat.turns.map((t) => [t.id, Boolean(t.streaming)]),
+  streaming: chat.streaming,
+  resuming: chat.resuming,
+  run: chat._activeRun?.runId,
+  draft: chat.draftMessage,
+  queuedRunId: chat.queuedRunId,
+  provisional: dispatched.filter((e) => e.type === "daiv:up-next-provisional").map((e) => e.detail),
+  toasts,
+  reloads,
+}));
+chat.destroy();
+"""
+
+MID_RUN_PRELUDE = """
+const sent = [];
+const toasts = [];
+"""
+
+
+def _send_mid_run(state: dict, reply: dict, *, status: int = 200, rendered: bool = True) -> dict:
+    fetch = (
+        "fetch: async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); "
+        f"return {{ ok: {str(status < 400).lower()}, status: {status}, statusText: '', "
+        f"json: async () => ({json.dumps(reply)}), text: async () => '' }}; }},"
+    )
+    return run_chat_stream(
+        MID_RUN_BODY,
+        {"state": state, "rendered": rendered},
+        prelude=REACTIVITY + EVENT_SOURCE + MID_RUN_PRELUDE,
+        extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, " + fetch,
+    )
+
+
+@pytest.mark.parametrize(
+    "state",
+    [{"streaming": True}, {"resuming": True}, {"waitingSince": "2026-11-02T10:00:00Z"}],
+    ids=["streaming", "resuming", "waiting"],
+)
+def test_a_message_sent_mid_run_waits_for_the_next_run_and_leaves_the_live_one_alone(state):
+    reply = {"run_id": "r2", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
+
+    out = _send_mid_run(state, reply)
+
+    assert out["canSend"] is True
+    (body,) = out["sent"]
+    assert body["forwardedProps"] == {"queue": True}
+    assert body["messages"][-1]["content"] == "Also add a test"
+    assert out["turns"] == [["u1", False], ["a1", True]]
+    assert (out["streaming"], out["resuming"], out["run"]) == (
+        state.get("streaming", False),
+        state.get("resuming", False),
+        "live",
+    )
+    assert (out["draft"], out["queuedRunId"]) == ("", "next-run")
+    assert out["provisional"] == [{"event_id": "e1", "run_id": "next-run", "text": "Also add a test"}]
+    assert out["reloads"] == 0
+
+
+def test_a_page_that_started_its_session_reloads_to_show_a_message_queued_mid_run():
+    reply = {"run_id": "r2", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
+
+    out = _send_mid_run({"streaming": True}, reply, rendered=False)
+
+    assert (out["reloads"], out["draft"]) == (1, "")
+
+
+def test_a_refused_mid_run_message_comes_back_to_the_draft():
+    out = _send_mid_run({"streaming": True}, {"detail": "Thread not found"}, status=403)
+
+    assert (out["draft"], out["provisional"], out["streaming"], out["reloads"]) == ("Also add a test", [], True, 0)
+    assert [level for _message, level in out["toasts"]] == ["error"]
+
+
 INBOX_BODY = """
 const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
 chat.$watch = watchOn(chat);
