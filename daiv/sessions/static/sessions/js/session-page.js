@@ -135,6 +135,21 @@ document.addEventListener("alpine:init", () => {
       this.upNext = withProvisional(this.upNext, provisional);
       return this.refreshUpNext();
     },
+    upNextHeading(group, index) {
+      const T = window.TranscriptLabels;
+      const who = group.is_viewer ? T.t("up_next_you") : group.who;
+      const step = index === 0 ? "up_next_next" : "up_next_then";
+      const title = who ? T.t(step, { who }) : T.t(`${step}_anyone`);
+      return [title, this._upNextWhen(group, index)].filter(Boolean).join(" · ");
+    },
+    _upNextWhen(group, index) {
+      const T = window.TranscriptLabels;
+      if (group.starting) return T.t("up_next_starting");
+      if (index === 0) return this.busy ? T.t("up_next_after_live") : "";
+      const previous = this.upNext.groups[index - 1];
+      if (previous.is_viewer) return T.t("up_next_after_yours");
+      return previous.who ? T.t("up_next_after_theirs", { who: previous.who }) : "";
+    },
     _applyUpNext(upNext, requestedAt) {
       this._provisional = this._provisional.filter((provisional) => provisional.at >= requestedAt);
       this.upNext = this._provisional.reduce(withProvisional, upNext);

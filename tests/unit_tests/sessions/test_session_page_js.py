@@ -108,6 +108,7 @@ for (const [action, value] of steps) {
   else if (action === "stream") { page.streaming = value; watchers.streaming?.(value); }
   else if (action === "interval") intervals.filter((i) => !i.cleared).forEach((i) => i.cb());
   else if (action === "provisional") sending = page.addProvisional(value);
+  else if (action === "headings") seen.push((page.upNext?.groups ?? []).map((g, i) => page.upNextHeading(g, i)));
   else if (action === "reply") { pending.shift()(value.body, value.status); await sending; await flush(); }
   else if (action === "rename") page.startRename();
   else if (action === "draft") page.titleDraft = value;
@@ -475,6 +476,38 @@ def test_a_failed_refresh_keeps_up_next():
     ])
 
     assert result["seen"][0]["upNext"] == UP_NEXT
+
+
+def _groups(*groups) -> dict:
+    return {
+        "groups": [
+            {"run_id": f"r-{i}", "bubbles": [], "told": [], "starting": False, **g} for i, g in enumerate(groups)
+        ]
+    }
+
+
+def test_up_next_headings_say_whose_run_and_when():
+    groups = _groups(
+        {"is_viewer": True, "who": "Olga"}, {"is_viewer": False, "who": "Bruno"}, {"is_viewer": False, "who": ""}
+    )
+    result = _run([["poll", {"latest_run": DONE, "up_next": groups}], ["set", {"streaming": True}], ["headings", None]])
+
+    assert result["seen"][0] == [
+        "Next run · as you · starts when this one ends",
+        "Then · as Bruno · after your run",
+        "Then · after Bruno's run",
+    ]
+
+
+def test_a_promoted_run_reads_as_starting_and_an_idle_one_as_next():
+    result = _run([
+        ["poll", {"latest_run": DONE, "up_next": _groups({"is_viewer": False, "who": "Bruno", "starting": True})}],
+        ["headings", None],
+        ["poll", {"latest_run": DONE, "up_next": _groups({"is_viewer": False, "who": ""})}],
+        ["headings", None],
+    ])
+
+    assert result["seen"] == [["Next run · as Bruno · starting"], ["Next run"]]
 
 
 def _bubble_ids(up_next) -> list[list[str]]:

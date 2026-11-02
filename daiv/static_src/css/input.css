@@ -935,42 +935,26 @@ html {
   .chat-inbox-event__kind {
     @apply shrink-0 font-medium text-text;
   }
+  .chat-inbox-event--failed .chat-inbox-event__dot {
+    @apply bg-status-fail;
+  }
   .chat-inbox-event__summary {
     @apply min-w-0 truncate;
+  }
+  .chat-inbox-event__why {
+    @apply min-w-0 truncate;
+    color: color-mix(in srgb, var(--color-status-fail) 55%, var(--color-text-muted));
+  }
+  .chat-inbox-event__why::before {
+    content: "· ";
+    color: var(--color-text-faint);
   }
   .chat-inbox-event__link,
   .chat-inbox-event__time {
     @apply shrink-0 text-text-faint hover:text-accent-bright;
   }
-  .session-details__queued {
-    @apply flex flex-col gap-1.5 text-[13px] text-text-muted;
-  }
-  .session-details__queued-item {
-    @apply truncate;
-  }
   .session-details__ci-link {
     @apply ml-auto text-[12px] text-text-muted underline underline-offset-2 hover:text-accent-bright;
-  }
-  .session-inbox {
-    @apply m-0 flex list-none flex-col gap-2.5 p-0 text-[13px];
-  }
-  .session-inbox__row {
-    @apply flex items-center justify-between gap-2;
-  }
-  .session-inbox__kind {
-    @apply truncate text-text;
-  }
-  .session-inbox__state {
-    @apply shrink-0 text-[12px] text-text-muted;
-  }
-  .session-inbox__state--failed {
-    @apply text-status-fail;
-  }
-  .session-inbox__meta {
-    @apply flex min-w-0 items-center gap-2 text-[12px] text-text-faint;
-  }
-  .session-inbox__why {
-    @apply m-0 text-[12px] text-text-muted;
   }
   .mr-split__draft--bar,
   .mr-split__ci-label {
@@ -1532,82 +1516,209 @@ html {
     flex-direction: row-reverse;
   }
 
-  /* A prompt DAIV wrote (a delegation resume, a CI fix) keeps role "user" for the agent but reads as
-     a one-line disclosure. These rules must stay after the .chat-turn--user ones they override. */
-  .chat-turn--daiv .chat-turn__body {
-    align-items: stretch;
+  /* A run opens with the requests it took: a person's in the blue bubble above, or a message DAIV received (a CI
+     failure, finished delegated jobs) right-aligned the same way but neutral. */
+  .chat-turn__opening {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    max-width: 100%;
+  }
+
+  .received-msg {
+    max-width: min(100%, 70ch);
+    margin-top: 0.5rem;
+    padding: 8px 14px;
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border);
+    border-radius: 14px;
+    border-top-right-radius: 6px;
+    color: #cbd5e1;
     text-align: left;
   }
 
-  .chat-turn--daiv .chat-segment--text {
-    max-width: none;
-    padding: 0;
-    background: none;
-    border: 0;
-    color: inherit;
+  .chat-turn--pending .received-msg {
+    background: transparent;
+    border-style: dashed;
   }
 
-  .chat-turn--daiv .chat-text {
-    white-space: normal;
-  }
-
-  .chat-daiv-notice__summary {
+  .received-msg__from {
     display: flex;
-    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    @apply font-mono;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+  }
+
+  .received-msg__dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--color-text-faint);
+  }
+
+  .received-msg__dot--failed {
+    background: var(--color-status-fail);
+  }
+
+  .received-msg__text {
+    margin: 0;
+    font-size: 14.5px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  .received-msg__meta,
+  .received-msg__when {
+    display: flex;
     align-items: baseline;
     gap: 6px;
-    padding: 2px 0;
-    @apply font-mono;
-    font-size: 12.5px;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    list-style: none;
-    user-select: none;
-    transition: color 0.15s ease;
   }
 
-  .chat-daiv-notice__summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .chat-daiv-notice__summary::before {
-    content: "›";
-    display: inline-block;
-    width: 10px;
+  .received-msg__meta {
+    justify-content: flex-end;
+    margin: 4px 2px 0;
+    font-size: 12px;
     color: var(--color-text-faint);
-    transition: transform 0.15s ease;
   }
 
-  .chat-daiv-notice[open] > .chat-daiv-notice__summary::before {
-    transform: rotate(90deg);
+  .received-msg__toggle {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
   }
 
-  .chat-daiv-notice__summary:hover {
+  .received-msg__toggle:hover {
     color: var(--color-text);
   }
 
-  .chat-daiv-notice__from {
-    font-weight: 600;
-    color: var(--color-brand-bright);
+  .received-msg__toggle:focus-visible {
+    outline: 2px solid rgba(147, 197, 253, 0.5);
+    outline-offset: 2px;
+    border-radius: 3px;
   }
 
-  .chat-daiv-notice__time {
-    display: inline-flex;
-    gap: 6px;
-    color: var(--color-text-faint);
-  }
-
-  .chat-daiv-notice__body {
-    margin: 0.5rem 0 0.75rem 18px;
+  .received-msg__request {
+    align-self: stretch;
+    margin: 0.25rem 0 0.5rem;
     padding-left: 10px;
     border-left: 2px solid color-mix(in srgb, var(--color-brand) 35%, transparent);
     color: var(--color-text-muted);
     font-size: 13.5px;
     line-height: 1.65;
+    text-align: left;
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .chat-daiv-notice__summary::before { transition: none; }
+  /* What the session will do next, after the conversation and before the composer. */
+  .up-next {
+    margin-top: 1.5rem;
+  }
+
+  .up-next__divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .up-next__divider::before,
+  .up-next__divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--color-border);
+  }
+
+  .up-next__title {
+    margin: 0;
+    @apply font-mono;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .up-next__info {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .up-next__info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    padding: 0;
+    border: 1px solid var(--color-text-faint);
+    border-radius: 9999px;
+    background: none;
+    font: 600 9px/1 Georgia, serif;
+    color: var(--color-text-faint);
+    cursor: help;
+  }
+
+  .up-next__info-btn:hover,
+  .up-next__info-btn[aria-expanded="true"] {
+    border-color: var(--color-text-muted);
+    color: var(--color-text);
+  }
+
+  .up-next__info-btn:focus-visible {
+    outline: 2px solid rgba(147, 197, 253, 0.5);
+    outline-offset: 2px;
+  }
+
+  .up-next__tip {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 50%;
+    z-index: 20;
+    width: min(260px, 80vw);
+    padding: 8px 10px;
+    transform: translateX(-50%);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface-2);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--color-text);
+  }
+
+  .up-next__heading {
+    margin: 1rem 0 0;
+    font-size: 12.5px;
+    color: var(--color-text-muted);
+  }
+
+  .up-next__meta {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin: 4px 2px 0;
+    font-size: 12px;
+    color: var(--color-text-faint);
+  }
+
+  .up-next__told {
+    margin-top: 0.75rem;
+  }
+
+  .up-next__told-label {
+    margin: 0;
+    font-size: 12px;
+    color: var(--color-text-faint);
   }
 
   .chat-turn__action-btn {

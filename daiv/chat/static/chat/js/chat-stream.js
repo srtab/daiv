@@ -1620,6 +1620,44 @@
       return window.TranscriptLabels.t(`inbox_${kind}`);
     },
 
+    inboxEventKind(event) {
+      const kind = this.inboxEventLabel(event.kind);
+      return event.failure_label ? window.TranscriptLabels.t("inbox_not_handled", { kind }) : kind;
+    },
+
+    // The bubbles a run opens with: the requests it took, or, for a run DAIV started with no inbox event, what
+    // its trigger received; ``null`` for a run that opens with its prompt.
+    anchorBubbles(anchor) {
+      if (anchor.opening) return anchor.opening;
+      if (anchor.author !== "daiv") return null;
+      const ci = anchor.origin === "pipeline_webhook";
+      return [
+        {
+          id: `${anchor.id}-received`,
+          kind: ci ? "ci_failed" : "delegation_finished",
+          received: true,
+          failed: ci,
+          text: "",
+          source_iid: null,
+          created_at: anchor.sent_at,
+        },
+      ];
+    },
+
+    bubbleKindLabel(bubble) {
+      const T = window.TranscriptLabels;
+      if (bubble.kind === "chat_message") return T.t("bubble_chat");
+      if (bubble.kind === "mention") return T.t("inbox_mention");
+      if (bubble.kind !== "follow_up_job" && bubble.kind !== "job") return "";
+      return T.t({ api_job: "bubble_api_job", mcp_job: "bubble_mcp_job" }[bubble.trigger_type] ?? "bubble_job");
+    },
+
+    receivedSource(bubble) {
+      const T = window.TranscriptLabels;
+      if (bubble.kind !== "ci_failed") return T.t("delegated_jobs");
+      return bubble.source_iid ? T.t("received_ci", { iid: bubble.source_iid }) : T.t("received_ci_plain");
+    },
+
     // The session was busy, so the message waits for its next run (the ``daiv.queued`` answer). It leaves the
     // conversation for Up next until that run opens with it; ``followLiveRun`` tails the run once it starts.
     _queueTurn(assistantTurn, queued) {

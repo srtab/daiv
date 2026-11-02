@@ -1,0 +1,17 @@
+{# bubble: an Alpine expression for a bubble (``sessions.inbox_display``): a person's words, or what DAIV received #}
+<template x-if="!{{ bubble }}.received">
+  <div class="chat-segment chat-segment--text">
+    <span class="chat-text" x-text="{{ bubble }}.text"></span>
+  </div>
+</template>
+<template x-if="{{ bubble }}.received">
+  <div class="received-msg">
+    <p class="received-msg__from">
+      <span class="received-msg__dot" :class="{ 'received-msg__dot--failed': {{ bubble }}.failed }" aria-hidden="true"></span>
+      <span x-text="receivedSource({{ bubble }})"></span>
+    </p>
+    <template x-if="{{ bubble }}.text">
+      <p class="received-msg__text" x-text="{{ bubble }}.text"></p>
+    </template>
+  </div>
+</template>

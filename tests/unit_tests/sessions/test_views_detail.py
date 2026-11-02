@@ -1317,7 +1317,7 @@ def test_detail_gives_an_unpublished_line_the_run_status_semantics(member_client
     assert ":data-run-ending=\"publishFailed(p) && !block.items.length ? '' : false\"" in publish_row
 
 
-@pytest.mark.parametrize("name", ["session_detail.html", "_run_item.html"])
+@pytest.mark.parametrize("name", ["session_detail.html", "_run_item.html", "_up_next.html"])
 def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
     import re
     from pathlib import Path
@@ -1378,6 +1378,14 @@ class TestUpNext:
 
         anchor = next(turn for turn in turns if turn.get("run_id") == str(run.pk))
         assert [bubble["id"] for bubble in anchor["opening"]] == [f"inbox-{chat.pk}"]
+
+    def test_the_page_takes_a_message_queued_while_busy_and_refreshes_up_next(self, member_client, member_user):
+        session = _create_session(user=member_user)
+
+        html = self._get(member_client, session).content.decode()
+
+        assert '@daiv:up-next-provisional.window="addProvisional($event.detail)"' in html
+        assert f"upNextUrl: '/api/sessions/{session.thread_id}/up-next'" in html
 
     def test_the_panel_is_gone(self, member_client, member_user):
         session = _create_session(user=member_user)

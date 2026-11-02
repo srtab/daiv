@@ -855,3 +855,74 @@ def _inbox_event(eid: str) -> dict:
 def test_a_remembered_inbox_event_in_the_turns_leaves_the_transcript_and_the_resume_working(turns, blocks):
     out = run_chat_stream(INBOX_BODY, {"turns": turns}, prelude=REACTIVITY, extra_globals=GLOBALS)
     assert out == {"blocks": blocks, "resuming": False}
+
+
+BUBBLE_BODY = """
+const chat = registry.chat({});
+process.stdout.write(JSON.stringify({
+  kinds: (payload.bubbles ?? []).map((bubble) => chat.bubbleKindLabel(bubble)),
+  sources: (payload.bubbles ?? []).map((bubble) => chat.receivedSource(bubble)),
+  openings: (payload.anchors ?? []).map((anchor) => chat.anchorBubbles(anchor)),
+  rows: (payload.events ?? []).map((event) => chat.inboxEventKind(event)),
+}));
+"""
+
+
+def _bubbles(**payload):
+    return run_chat_stream(BUBBLE_BODY, payload, extra_globals=GLOBALS)
+
+
+def test_a_bubble_names_the_kind_of_request():
+    bubbles = [
+        {"kind": "chat_message", "trigger_type": ""},
+        {"kind": "mention", "trigger_type": ""},
+        {"kind": "follow_up_job", "trigger_type": "api_job"},
+        {"kind": "job", "trigger_type": "mcp_job"},
+        {"kind": "job", "trigger_type": "ui_job"},
+        {"kind": "ci_failed", "trigger_type": "", "received": True},
+    ]
+
+    assert _bubbles(bubbles=bubbles)["kinds"] == ["Chat", "Mention", "API job", "MCP job", "Job", ""]
+
+
+def test_a_received_bubble_names_its_source():
+    bubbles = [
+        {"kind": "ci_failed", "received": True, "source_iid": 101},
+        {"kind": "ci_failed", "received": True, "source_iid": None},
+        {"kind": "delegation_finished", "received": True, "source_iid": None},
+    ]
+
+    assert _bubbles(bubbles=bubbles)["sources"] == ["CI · !101", "CI", "Delegated jobs"]
+
+
+def test_a_run_opens_with_its_events_or_what_started_it():
+    opening = [{"id": "inbox-e1", "kind": "chat_message", "received": False, "text": "Fix it"}]
+    anchors = [
+        {"id": "u1", "author": "sfr", "opening": opening},
+        {"id": "u2", "author": "daiv", "origin": "pipeline_webhook", "sent_at": "2026-11-01T10:00:00Z"},
+        {"id": "u3", "author": "daiv", "origin": "delegation_resume", "sent_at": "2026-11-01T10:00:00Z"},
+        {"id": "u4", "author": "sfr"},
+    ]
+
+    first, ci, delegation, plain = _bubbles(anchors=anchors)["openings"]
+
+    assert first == opening
+    assert ci == [
+        {
+            "id": "u2-received",
+            "kind": "ci_failed",
+            "received": True,
+            "failed": True,
+            "text": "",
+            "source_iid": None,
+            "created_at": "2026-11-01T10:00:00Z",
+        }
+    ]
+    assert (delegation[0]["kind"], delegation[0]["failed"]) == ("delegation_finished", False)
+    assert plain is None
+
+
+def test_an_event_daiv_could_not_handle_reads_not_handled():
+    events = [{"kind": "mention", "failure_label": "The runs that took it kept failing"}, {"kind": "comment"}]
+
+    assert _bubbles(events=events)["rows"] == ["Mention not handled", "Comment"]
