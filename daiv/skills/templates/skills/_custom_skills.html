@@ -52,7 +52,7 @@
             </div>
 
             <p class="card__footer">
-                {% blocktranslate with when=skill.created|timesince size=skill.size_bytes|filesizeformat count counter=skill.file_count %}
+                {% blocktranslate with when=skill.modified|timesince size=skill.size_bytes|filesizeformat count counter=skill.file_count %}
                 Uploaded {{ when }} ago · {{ size }} · {{ counter }} file
                 {% plural %}
                 Uploaded {{ when }} ago · {{ size }} · {{ counter }} files
