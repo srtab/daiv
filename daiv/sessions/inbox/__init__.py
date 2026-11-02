@@ -6,7 +6,7 @@ a delegated batch finishing: each becomes an ``InboxEvent`` on that session, pos
 
 - **An event wakes the agent or is only remembered.** ``wake`` is fixed when the event is posted. A remembered event
   starts no run; the next run on its branch takes it as context. Only CI and delegation events can be turned into
-  remembered ones at take time, by mute or the consecutive-run limit (:mod:`sessions.inbox.policy`), so a person's
+  remembered ones at take time, by the consecutive-run limit (:mod:`sessions.inbox.policy`), so a person's
   request is never dropped.
 - **One run per session, claimed when the run is created.** :func:`sessions.inbox.drain.adrain` claims
   ``Session.active_run_id`` with the run's pk in the same transaction that makes the run READY, and ``run_job_task``

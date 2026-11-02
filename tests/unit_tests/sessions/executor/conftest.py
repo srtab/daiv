@@ -150,7 +150,6 @@ def agent_stack(
         patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {}}) as langsmith,
         patch("sessions.executor.result.build_agent_result", side_effect=_build_result) as build_result,
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
-        patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.aclaim_ownership", _claim),

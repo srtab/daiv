@@ -125,7 +125,7 @@ PRECEDENCE: dict[str, int] = {
 }
 WAKING_KINDS = frozenset(PRECEDENCE)
 
-#: Waking kinds that mute and the consecutive-run limit may turn into remembered ones (``sessions.inbox.policy``).
+#: Waking kinds that the consecutive-run limit may turn into remembered ones (``sessions.inbox.policy``).
 GATED_KINDS = frozenset({EventKind.CI_FAILED, EventKind.DELEGATION_FINISHED})
 
 #: Waking kinds a person asked for; their words are the run's request, and their author may start it.

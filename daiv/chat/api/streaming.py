@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from django.db import transaction
 from django.utils import timezone
 
 from ag_ui.core.events import BaseEvent, CustomEvent, EventType, RunErrorEvent
@@ -16,7 +15,7 @@ from langchain_core.messages import HumanMessage, RemoveMessage
 from sessions.executor.lock import Held, SessionLock, SessionLockLostError
 from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
-from sessions.inbox.complete import arelease_chat_claim
+from sessions.inbox.complete import arelease_chat_claim, awithdraw_chat_run
 from sessions.inbox.drain import alink_chat_run, drain_logged
 from sessions.inbox.render import arender_input
 from sessions.live import relay
@@ -25,8 +24,6 @@ from sessions.live.event_filter import SubagentEventFilter
 from sessions.live.publisher import close_graph_stream, sanitize_run_error
 from sessions.models import (
     CHAT_PROMPT_MAX_LENGTH,
-    EventState,
-    InboxEvent,
     Run,
     RunStatus,
     SessionOrigin,
@@ -36,7 +33,6 @@ from sessions.models import (
 
 from automation.agent.usage_tracking import build_usage_summary
 from codebase.base import Scope
-from core import ui_events
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 
 from .threads import _last_user_message
@@ -117,21 +113,6 @@ async def finalize_chat_run(
         await Run.objects.filter(pk=run.pk).aupdate(**usage_fields)
 
 
-async def withdraw_chat_run(run: Run) -> None:
-    """Delete a chat ``Run`` its owner stopped before DAIV answered, giving the events it took back to the session's
-    next turn: nothing of the turn is left to show or to settle."""
-    await sync_to_async(_withdraw_chat_run)(run)
-
-
-def _withdraw_chat_run(run: Run) -> None:
-    with transaction.atomic():
-        InboxEvent.objects.filter(run=run, state=EventState.TAKEN).update(
-            state=EventState.PENDING, run=None, claim_token="", updated_at=timezone.now()
-        )
-        Run.objects.filter(pk=run.pk).delete()
-        transaction.on_commit(ui_events.publisher.runs_changed)
-
-
 _ANSWER_EVENT_PREFIXES = ("TEXT_MESSAGE_", "THINKING_", "REASONING_", "TOOL_CALL_", "SUBAGENT_")
 
 
@@ -148,7 +129,6 @@ class _Turn:
     agent_result: AgentResult | None = None
     answered: bool = False
     in_thread: bool = False
-    cleared: bool = False
     withdrawn: bool | None = None
     context_message_id: str | None = None
 
@@ -160,7 +140,7 @@ class _Turn:
     @property
     def withdrawable(self) -> bool:
         """Stopped by its owner while still unanswered, with nothing of the turn left in the thread."""
-        return self.error == CANCELLED_BY_USER_MESSAGE and self.unanswered and (not self.in_thread or self.cleared)
+        return self.error == CANCELLED_BY_USER_MESSAGE and self.unanswered and not self.in_thread
 
     def add_text(self, delta: str | None) -> None:
         """Buffer assistant text for ``result_summary``, capped at the 2000 chars ``finalize_chat_run`` keeps."""
@@ -216,7 +196,7 @@ class ChatRunStreamer:
 
     @property
     def withdrawn(self) -> bool:
-        """Its owner stopped the turn before DAIV answered, and the turn was taken back (``withdraw_chat_run``)."""
+        """Its owner stopped the turn before DAIV answered, and the turn was taken back (``awithdraw_chat_run``)."""
         return self._turn.withdrawn is True
 
     async def events(self) -> AsyncGenerator[BaseEvent]:
@@ -375,7 +355,7 @@ class ChatRunStreamer:
                 await close_graph_stream(agui.graph_stream, thread_id=self.thread_id, run_id=self.run_id)
             if withdraw:
                 ids = (turn.context_message_id, turn_message.id if turn_message else None)
-                turn.cleared = await self._clear_turn(run, ids)
+                turn.in_thread = not await self._clear_turn(run, ids)
         if turn.error is not None:
             raise _ReportedRunError
 
@@ -397,9 +377,8 @@ class ChatRunStreamer:
         """Whether the turn is ending because its owner asked it to stop while it still held the session's slot: once
         another holder owns the slot, it owns the thread too. Never raises."""
         try:
-            return (
-                await SessionLock.heartbeat(self.thread_id, self.run_id)
-                and await relay.RunRelay(self.thread_id, self.run_id).cancel_requested()
+            return await relay.RunRelay(self.thread_id, self.run_id).cancel_requested() and await SessionLock.heartbeat(
+                self.thread_id, self.run_id
             )
         except Exception:
             logger.exception("chat: could not tell whether thread_id=%s was stopped by its owner", self.thread_id)
@@ -422,12 +401,12 @@ class ChatRunStreamer:
 
     async def _withdraw(self, turn: _Turn) -> bool:
         """Whether the turn is taken back: it is ``withdrawable`` and its ``Run`` row, if any, is gone
-        (``withdraw_chat_run``). Decided once, so the code the page is sent and the row agree; never raises."""
+        (``awithdraw_chat_run``). Decided once, so the code the page is sent and the row agree; never raises."""
         if turn.withdrawn is None:
             turn.withdrawn = turn.withdrawable
             if turn.withdrawn and turn.chat_run is not None:
                 try:
-                    await withdraw_chat_run(turn.chat_run)
+                    await awithdraw_chat_run(turn.chat_run)
                 except Exception:
                     logger.exception("chat: failed to withdraw the stopped chat run for thread_id=%s", self.thread_id)
                     turn.withdrawn = False

@@ -61,7 +61,7 @@ RETRY_MESSAGE = "The previous run failed. Please try again."
 # ``chat-stream.js`` (``_pushRunStatus``) — keep the two in sync. (Markers stay plain
 # ``dict[str, Any]`` to interleave with ``sessions.turns.build_turns`` output and serialise
 # straight into the Alpine-rendered turns payload; the shape is ``id``/``role``/``status``/
-# ``message``, plus ``silent`` on a stop its owner asked for, which the page keeps but never draws.)
+# ``message``, plus ``silent`` on a stop its owner asked for, which the page draws only under no answer.)
 RunStatusValue = Literal["failed", "aborted"]
 
 _CHAT_ERROR_MESSAGES = frozenset({CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE})

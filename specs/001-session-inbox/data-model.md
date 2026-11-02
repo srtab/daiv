@@ -79,6 +79,7 @@ Each kind has a `TypedDict`, validated in `inbox.kinds`. Payloads hold what the 
 ```text
 pending ──take──▶ taken ──run SUCCESSFUL / WAITING_INPUT──▶ handled
    │                │ ──run cancelled──────────────────────▶ dismissed
+   │                │ ──chat turn stopped before it answered (run deleted)──▶ pending
    │                │ ──run FAILED, attempts < 3──▶ pending (attempts + 1)
    │                │ ──run FAILED, attempts = 3──▶ failed (retries_exhausted, logger.error)
    │                └─slot stale, run never ended (sweep)──▶ pending (attempts + 1)

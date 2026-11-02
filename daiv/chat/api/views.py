@@ -278,10 +278,9 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
 
     prompt = _extract_last_user_message(input_data)
     message_id = _extract_last_user_message_id(input_data) or run_id
-    unfinished = [run async for run in session.runs.exclude(status__in=RunStatus.terminal())]
     if (
         forwarded.get("queue") is True
-        or session_activity(session, unfinished).waiting
+        or await _waiting_to_start(session)
         or await ais_busy(session)
         or not await SessionLock.try_claim(thread_id, run_id)
     ):
@@ -349,6 +348,11 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         # ``Last-Event-ID`` header to resume a run longer than the cap.
         return sse_response(_run_event_frames(thread_id, run_id, "0-0"))
     return {"run_id": run_id, "thread_id": thread_id}
+
+
+async def _waiting_to_start(session: Session) -> bool:
+    unfinished = [run async for run in session.runs.exclude(status__in=RunStatus.terminal())]
+    return session_activity(session, unfinished).waiting
 
 
 async def _queue_message(thread_id: str, *, user, prompt: str, message_id: str) -> dict:

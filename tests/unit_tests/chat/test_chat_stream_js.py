@@ -862,8 +862,15 @@ const toasts = [];
 """
 
 
+QUEUED_REPLY = {
+    "run_id": "r2",
+    "thread_id": "t1",
+    "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"},
+}
+
+
 def _send_mid_run(
-    state: dict, reply: dict, *, status: int = 200, rendered: bool = True, draft: str = "Also add a test"
+    state: dict, reply: dict = QUEUED_REPLY, *, status: int = 200, rendered: bool = True, draft: str = "Also add a test"
 ) -> dict:
     fetch = (
         "fetch: async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); "
@@ -884,9 +891,7 @@ def _send_mid_run(
     ids=["streaming", "resuming", "waiting"],
 )
 def test_a_message_sent_mid_run_waits_for_the_next_run_and_leaves_the_live_one_alone(state):
-    reply = {"run_id": "r2", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
-
-    out = _send_mid_run(state, reply)
+    out = _send_mid_run(state)
 
     assert out["canSend"] is True
     (body,) = out["sent"]
@@ -904,27 +909,21 @@ def test_a_message_sent_mid_run_waits_for_the_next_run_and_leaves_the_live_one_a
 
 
 def test_a_page_that_started_its_session_reloads_to_show_a_message_queued_mid_run():
-    reply = {"run_id": "r2", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
-
-    out = _send_mid_run({"streaming": True}, reply, rendered=False)
+    out = _send_mid_run({"streaming": True}, rendered=False)
 
     assert (out["reloads"], out["draft"]) == (1, "")
 
 
 @pytest.mark.parametrize("draft", ["/clear", "  /plan the migration"])
 def test_a_command_typed_mid_run_waits_in_the_composer_for_the_run_to_end(draft):
-    reply = {"run_id": "r2", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
-
-    out = _send_mid_run({"streaming": True}, reply, draft=draft)
+    out = _send_mid_run({"streaming": True}, draft=draft)
 
     assert (out["sent"], out["draft"], out["provisional"]) == ([], draft, [])
     assert [level for _message, level in out["toasts"]] == ["warning"]
 
 
 def test_a_message_that_only_mentions_a_command_mid_run_is_queued():
-    reply = {"run_id": "r2", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
-
-    out = _send_mid_run({"streaming": True}, reply, draft="/unknown is not a command")
+    out = _send_mid_run({"streaming": True}, draft="/unknown is not a command")
 
     assert [body["messages"][-1]["content"] for body in out["sent"]] == ["/unknown is not a command"]
 
