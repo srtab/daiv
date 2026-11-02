@@ -914,18 +914,12 @@ def test_a_page_that_started_its_session_reloads_to_show_a_message_queued_mid_ru
     assert (out["reloads"], out["draft"]) == (1, "")
 
 
-@pytest.mark.parametrize("draft", ["/clear", "  /plan the migration"])
-def test_a_command_typed_mid_run_waits_in_the_composer_for_the_run_to_end(draft):
+@pytest.mark.parametrize("draft", ["/clear", "  /plan the migration", "/unknown is not a command"])
+def test_a_slash_command_typed_mid_run_is_queued_like_any_message(draft):
     out = _send_mid_run({"streaming": True}, draft=draft)
 
-    assert (out["sent"], out["draft"], out["provisional"]) == ([], draft, [])
-    assert [level for _message, level in out["toasts"]] == ["warning"]
-
-
-def test_a_message_that_only_mentions_a_command_mid_run_is_queued():
-    out = _send_mid_run({"streaming": True}, draft="/unknown is not a command")
-
-    assert [body["messages"][-1]["content"] for body in out["sent"]] == ["/unknown is not a command"]
+    assert [body["messages"][-1]["content"] for body in out["sent"]] == [draft]
+    assert (out["draft"], out["toasts"]) == ("", [])
 
 
 def test_a_refused_mid_run_message_comes_back_to_the_draft():

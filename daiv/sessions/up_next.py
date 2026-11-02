@@ -1,8 +1,9 @@
 """What a session will do next, for the "Up next" section that ends its page.
 
 ``groups`` are the runs still to start, in the order they will: a run the drain promoted that no worker started yet
-(``starting``), then one per branch and requester for the pending events that will wake a run, ordered by their oldest
-event as the drain takes them, then the job runs ``sessions.queue`` holds, which a run's end releases only after it
+(``starting``), then one per branch and requester for the pending events that will wake a run, split where a builtin
+slash command runs alone (``sessions.inbox.drain.split_requests``) and ordered by their oldest event as the drain takes
+them, then the job runs ``sessions.queue`` holds, which a run's end releases only after it
 drained the inbox (``run_ended`` goes out before ``run_finished``, and a chat turn's end sends no ``run_finished``).
 Each group holds the bubbles of the requests that start it and the remembered events its run will be told. ``told``
 holds the remembered events no group will take, one block per branch. What the drain would decide for a pending event
@@ -14,6 +15,7 @@ Runs the page already shows as waiting (``SessionActivity.waiting``) are left ou
 
 from __future__ import annotations
 
+from operator import itemgetter
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import Q
@@ -21,7 +23,16 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 
 from sessions.executor.lock import session_activity
-from sessions.inbox.drain import Requester, branch_of, newest_of_each_subject, next_runs, requester_of, requester_user
+from sessions.inbox.drain import (
+    Requester,
+    branch_of,
+    newest_of_each_subject,
+    next_runs,
+    requester_of,
+    requester_user,
+    runs_alone,
+    split_requests,
+)
 from sessions.inbox.kinds import PERSON_KINDS
 from sessions.inbox.policy import quiet_reasons_now
 from sessions.inbox.render import author_name
@@ -78,18 +89,27 @@ def up_next_payload(
             run = by_key.get((ref, requester)) or run
         key = run.pk if run is not None else (ref, requester)
         asks.setdefault(key, (ref, requester, []))[2].append(event)
-    inbox_groups = []
+    position = {event.pk: index for index, event in enumerate(events)}
+    inbox_groups: list[tuple[int, str, bool, dict[str, Any]]] = []
     for key, (ref, requester, asked) in asks.items():
         run = by_id.get(key)
         user = run.user if run is not None else requester_user(session, asked, requester)
-        inbox_groups.append((ref, _group(run, user, viewer, bubbles=[bubble(event) for event in asked], asked=asked)))
-    groups.extend(group for _, group in inbox_groups)
+        runs = split_requests(asked)
+        for index, requests in enumerate(runs):
+            later = [event for later_requests in runs[index + 1 :] for event in later_requests]
+            holder = run if run is not None and all(event.run_id != run.pk for event in later) else None
+            if holder is not None:
+                run = None
+            group = _group(holder, user, viewer, bubbles=[bubble(event) for event in requests], asked=requests)
+            inbox_groups.append((position[requests[0].pk], ref, runs_alone(requests[0]), group))
+    inbox_groups.sort(key=itemgetter(0))
+    groups.extend(group for *_, group in inbox_groups)
     groups.extend(_group(run, run.user, viewer, bubbles=[run_bubble(run)]) for run in jobs)
 
     told: dict[str, list[dict[str, Any]]] = {}
     for event, ref, reason in remembered:
         entry = inbox_event_entry(event, reason=reason)
-        group = next((group for branch, group in inbox_groups if ref in ("", branch)), None)
+        group = next((group for _, branch, alone, group in inbox_groups if not alone and ref in ("", branch)), None)
         if group is not None:
             group["told"].append(entry)
         else:
