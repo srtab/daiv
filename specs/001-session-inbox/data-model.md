@@ -16,7 +16,7 @@ Something that happened which concerns one session.
 | `ref` | Char(255), blank | The branch the event concerns. Blank means any run may take it (R4) |
 | `merge_request_iid` | PositiveInteger, null | |
 | `wake` | Bool | Fixed when the event is posted |
-| `reason` | Char(32), `QuietReason`, blank | Why a CI failure was only remembered: `not_daiv_commit`, `already_examined`, `budget_spent`, `watch_off`, `muted`, `run_limit` |
+| `reason` | Char(32), `QuietReason`, blank | Why a CI failure was only remembered: `not_daiv_commit`, `already_examined`, `budget_spent`, `watch_off`, `run_limit` |
 | `payload` | JSON | Kind-specific, validated by `inbox.kinds` (see [Payloads](#payloads)) |
 | `author` | FK → User, SET_NULL, null | Who caused it, for attribution. Runs always act as the session owner |
 | `author_username` | Char(255), blank | The platform username when there is no DAIV user |
@@ -83,7 +83,7 @@ pending ──take──▶ taken ──run SUCCESSFUL / WAITING_INPUT──▶ 
    │                │ ──run FAILED, attempts = 3──▶ failed (retries_exhausted, logger.error)
    │                └─slot stale, run never ended (sweep)──▶ pending (attempts + 1)
    ├──newer event, same subject, at take time──▶ superseded
-   ├──blocked by mute or the run limit at take time──▶ pending, wake=False, reason muted | run_limit (remembered)
+   ├──blocked by the run limit at take time──▶ pending, wake=False, reason run_limit (remembered)
    └──requester lost repository access at take time──▶ failed (access_denied)
 ```
 
@@ -134,11 +134,10 @@ Every claim sets `last_daiv_sha = Run.pushed_sha`. A claim by a run started by a
 
 `wake` is true only when all of these hold:
 1. `watch_enabled`, the site switch, the repository config, and `closed_at IS NULL`;
-2. `not session.inbox_muted`;
-3. the pipeline is the merge request's head pipeline, and `pipeline.sha == last_daiv_sha`. A blank `last_daiv_sha` only occurs on a row migrated from an open watch, and counts as a match;
-4. `pipeline.sha != last_examined_sha`;
-5. `attempts < max_attempts`, the existing site/repository cap;
-6. the consecutive-run limit is not reached (FR-033).
+2. the pipeline is the merge request's head pipeline, and `pipeline.sha == last_daiv_sha`. A blank `last_daiv_sha` only occurs on a row migrated from an open watch, and counts as a match;
+3. `pipeline.sha != last_examined_sha`;
+4. `attempts < max_attempts`, the existing site/repository cap;
+5. the consecutive-run limit is not reached (FR-033).
 
 The first condition that fails becomes the event's `reason`.
 
@@ -148,7 +147,6 @@ When the drainer dispatches a run that takes a waking `ci_failed`, it sets `last
 
 | Field | Change |
 |---|---|
-| `inbox_muted` | New Bool, default False. Mutes system-started runs (FR-031) |
 | `watch_state`, `watch_attempts`, `watch_pipeline_id`, `watch_armed_at` | No longer written. Dropped in the next release (Complexity Tracking) |
 
 ## Run (changed)
@@ -165,7 +163,7 @@ Delegated job legs, which are QUEUED on their own new sessions with `waits_for`,
 
 ## Migrations
 
-1. **Schema**: create `InboxEvent` and `MergeRequestOwnership`; add `Session.inbox_muted`, `Run.pushed_sha` and the next-run constraint.
+1. **Schema**: create `InboxEvent` and `MergeRequestOwnership`; add `Run.pushed_sha` and the next-run constraint.
 2. **Data**: for each session with `watch_state IN ('watching', 'fixing')` and a `merge_request_iid`, create an ownership row:
    - `session` = that merge request's own thread session;
    - `owner` = its `user`;

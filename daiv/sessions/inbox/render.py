@@ -55,7 +55,6 @@ _QUIET_REASONS = {
     QuietReason.ALREADY_EXAMINED: "you already examined this commit",
     QuietReason.BUDGET_SPENT: "the CI fix attempts are spent",
     QuietReason.WATCH_OFF: "the CI watch is off",
-    QuietReason.MUTED: "the session is muted",
     QuietReason.RUN_LIMIT: "too many runs in a row started without a person",
 }
 _CI_STATUS = {EventKind.CI_FAILED: "FAILED", EventKind.CI_PASSED: "PASSED", EventKind.CI_STOPPED: "STOPPED"}

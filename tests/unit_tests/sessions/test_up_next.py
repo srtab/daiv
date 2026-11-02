@@ -85,9 +85,9 @@ def test_two_requesters_get_a_group_each_in_the_order_they_asked(session, owner)
     assert payload["told"] == []
 
 
-def test_a_muted_session_lists_a_finished_delegation_as_told(session, owner):
-    Session.objects.filter(pk=session.pk).update(inbox_muted=True)
-    session.refresh_from_db()
+def test_a_session_at_the_run_limit_lists_a_finished_delegation_as_told(session, owner):
+    for _ in range(3):
+        _run(session, status=RunStatus.SUCCESSFUL, trigger=SessionOrigin.PIPELINE_WEBHOOK)
     next_run = _run(session, trigger=SessionOrigin.DELEGATION_RESUME, user=owner)
     event = make_event(session, EventKind.DELEGATION_FINISHED, run=next_run)
 
@@ -97,7 +97,7 @@ def test_a_muted_session_lists_a_finished_delegation_as_told(session, owner):
     (block,) = payload["told"]
     assert block["branch"] == ""
     assert [(line["id"], line["reason_text"]) for line in block["lines"]] == [
-        (f"inbox-{event.pk}", "not acting: muted")
+        (f"inbox-{event.pk}", "not acting: paused after 3 runs in a row")
     ]
 
 

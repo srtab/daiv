@@ -374,11 +374,6 @@ class TestWakeRule:
 
         assert await _quiet_reason(watch) == QuietReason.WATCH_OFF
 
-    async def test_a_muted_session(self, watch):
-        await _owned(session={"inbox_muted": True})
-
-        assert await _quiet_reason(watch) == QuietReason.MUTED
-
     async def test_a_commit_daiv_did_not_push(self, watch):
         await _owned(last_daiv_sha="0a1b2c3d")
 

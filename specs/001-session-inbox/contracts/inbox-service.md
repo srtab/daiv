@@ -39,7 +39,7 @@ async def adrain(thread_id: str) -> Run | None
 - **Otherwise, in one transaction:**
   1. supersedes older pending events per subject;
   2. picks the branch of the oldest surviving waking event (R4);
-  3. turns waking events that the policy blocks (mute, consecutive-run limit) into remembered ones (`wake=False`, `reason` set). If no waking event survives, it deletes the QUEUED next run for that branch, detaching its events, and returns `None`;
+  3. turns waking events that the policy blocks (the consecutive-run limit) into remembered ones (`wake=False`, `reason` set). If no waking event survives, it deletes the QUEUED next run for that branch, detaching its events, and returns `None`;
   4. checks the owner's repository access, marking events `failed/access_denied` if it is denied;
   5. promotes the QUEUED next run for that branch (or creates a READY one), sets `trigger_type` by precedence, and claims `Session.active_run_id = str(run.pk)`;
   6. marks the taken events `taken` with `run=run`;

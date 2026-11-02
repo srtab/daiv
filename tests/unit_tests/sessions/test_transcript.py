@@ -1257,7 +1257,7 @@ class TestInterleaveInboxEvents:
 
         event = self._event(0, kind="delegation_finished", payload={"batch_id": "b", "summary": "2 jobs finished."})
 
-        assert inbox_event_entry(event, reason="muted")["reason_text"] == "not acting: muted"
+        assert inbox_event_entry(event, reason="run_limit")["reason_text"] == "not acting: paused after 3 runs in a row"
 
     def test_a_failed_event_carries_its_failure_label(self):
         from sessions.transcript import inbox_event_entry

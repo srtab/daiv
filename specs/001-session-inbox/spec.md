@@ -146,10 +146,10 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 - **The owning session no longer exists** (deleted): later events go to a new session for that merge request, owned by the same person, and that session's timeline says why it exists.
 - **The owning session has no DAIV user** (for example, an issue labelled by someone with no DAIV account): CI failures and mentions still start turns. Those turns have no personal tools and skip the per-user access check, as such runs do today. Every notification falls back to a comment on the merge request.
 - **A merge request DAIV did not publish**: it has no owning session and no CI watch, and mentions on it behave as they do today.
-- **A mention on an owned merge request whose owner is muted, or whose session has hit the consecutive-turn limit**: a mention comes from a person, so it still starts a turn, and it resets that limit.
+- **A mention on an owned merge request whose session has hit the consecutive-turn limit**: a mention comes from a person, so it still starts a turn, and it resets that limit.
 - **A failure on a commit a person pushed**: it is remembered, not acted on, so the agent does not take over a person's in-progress work.
 - **Events delivered out of order** (an older pipeline reported after a newer one): the older one is treated as replaced and wakes nothing.
-- **The CI watch is turned off** for the repository, site, or merge request, **or the owner muted system turns**: CI events are still remembered, and none wakes the agent.
+- **The CI watch is turned off** for the repository, site, or merge request: CI events are still remembered, and none wakes the agent.
 - **A session the system keeps waking** with no person involved: after a fixed number of consecutive system-started turns without human input, further events are remembered only and the owner is notified.
 - **The session is waiting for the owner to answer a question** the agent asked: a waking event still starts a turn, and the open question stays visible to the owner.
 - **Combined input is too large**: the oldest remembered events are summarised or dropped first. Events that wake the agent are never dropped.
@@ -182,7 +182,7 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 **CI watch**
 
 - **FR-015**: A CI failure MUST wake the session only when all of these hold:
-  - the CI watch is enabled for the repository and for the merge request, and the owner has not muted system turns;
+  - the CI watch is enabled for the repository and for the merge request;
   - the failed pipeline belongs to the merge request's head commit;
   - DAIV pushed that commit;
   - the agent has not already examined a failure on that commit;
@@ -220,7 +220,7 @@ When someone mentions DAIV on a merge request a session owns, the mention goes t
 
 - **FR-029**: The session timeline MUST show turns started by the system separately from turns started by a person, and name their source (CI pipeline, delegated jobs, follow-up job, or a mention and its author).
 - **FR-030**: The owner MUST be able to stop a running system-started turn from the session page. The events a stopped turn took are dismissed, not retried.
-- **FR-031**: The owner MUST be able to mute system-started turns for a session. While muted, CI and delegation events are remembered only, and mentions from people still start turns.
+- **FR-031**: Removed. Owners cannot mute a session; the consecutive-turn limit (FR-033) is what stops system-started turns.
 - **FR-032**: A chat message the owner sends while a system-started turn is running MUST be accepted and handled in the next turn, never rejected.
 - **FR-033**: After a fixed number of consecutive system-started turns with no human input in between (default 3), the system MUST stop waking the session, remember further events only, and notify the owner. A chat message or a mention counts as human input.
 - **FR-034**: Operators MUST be able to see each session's pending and failed events, with their source, arrival time and state.

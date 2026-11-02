@@ -64,10 +64,6 @@ class ArchiveIn(Schema):
     archived: bool
 
 
-class InboxMuteIn(Schema):
-    muted: bool
-
-
 @sessions_router.patch("/{thread_id}", response=dict, url_name="session_update")
 async def session_update(request: HttpRequest, thread_id: str, payload: TitleIn):
     """Rename the session. Blank titles are refused, so the page keeps the old one."""
@@ -108,17 +104,6 @@ async def session_ci_watch(request: HttpRequest, thread_id: str, payload: CIWatc
 async def _ci(session: Session) -> dict:
     ci = await aci_payload(session)
     return {"ci": ci, "watch": watch_payload(ci)}
-
-
-@sessions_router.post("/{thread_id}/inbox-mute", response=dict, url_name="session_inbox_mute")
-async def session_inbox_mute(request: HttpRequest, thread_id: str, payload: InboxMuteIn):
-    """Mute or unmute the session's inbox: while muted, CI results and finished delegated batches are only
-    remembered, and people's requests still start runs. Only the session's owner or an admin may; anyone else gets
-    not found."""
-    user = request.auth  # ty: ignore[unresolved-attribute]
-    if not await Session.objects.by_owner(user).filter(thread_id=thread_id).aupdate(inbox_muted=payload.muted):
-        raise HttpError(404, "Session not found")
-    return {"muted": payload.muted}
 
 
 @sessions_router.post("/{thread_id}/archive", response=dict, url_name="session_archive")

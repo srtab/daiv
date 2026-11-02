@@ -43,8 +43,6 @@ def _reason(reason: str) -> str:
             return _("out of attempts")
         case QuietReason.WATCH_OFF:
             return _("CI fixing is off")
-        case QuietReason.MUTED:
-            return _("muted")
         case QuietReason.RUN_LIMIT:
             return _("paused after %(n)s runs in a row") % {"n": MAX_SYSTEM_RUNS_IN_A_ROW}
     return reason

@@ -34,23 +34,6 @@ async def _runs(session: Session, *triggers: str, status: str = RunStatus.SUCCES
         )
 
 
-class TestMute:
-    @pytest.mark.parametrize("kind", GATED)
-    async def test_it_blocks_ci_and_delegation_wakes(self, kind):
-        session = await _session(inbox_muted=True)
-
-        assert await amay_wake(session, kind) == QuietReason.MUTED
-
-    @pytest.mark.parametrize("kind", UNGATED)
-    async def test_it_never_blocks_a_persons_request(self, kind):
-        session = await _session(inbox_muted=True)
-
-        assert await amay_wake(session, kind) is None
-
-    async def test_an_unmuted_session_wakes(self):
-        assert await amay_wake(await _session(), EventKind.CI_FAILED) is None
-
-
 class TestConsecutiveRunLimit:
     @pytest.mark.parametrize("kind", GATED)
     async def test_it_blocks_after_the_limit_of_system_started_runs(self, kind):
@@ -93,16 +76,22 @@ class TestConsecutiveRunLimit:
 
 class TestQuietReasonsNow:
     @staticmethod
-    def _sync_session(**fields) -> Session:
-        return Session.objects.create(
-            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo", ref="main", **fields
+    def _sync_session(*, at_limit: bool = False) -> Session:
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo", ref="main"
         )
+        for _ in range(MAX_SYSTEM_RUNS_IN_A_ROW if at_limit else 0):
+            Run.objects.create(
+                session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=session.repo_id,
+                status=RunStatus.SUCCESSFUL,
+            )  # fmt: skip
+        return session
 
-    def test_a_muted_session_quiets_a_finished_delegation(self):
-        session = self._sync_session(inbox_muted=True)
+    def test_a_session_at_the_run_limit_quiets_a_finished_delegation(self):
+        session = self._sync_session(at_limit=True)
         event = make_event(session, EventKind.DELEGATION_FINISHED)
 
-        assert quiet_reasons_now(session, [event]) == {event.pk: QuietReason.MUTED}
+        assert quiet_reasons_now(session, [event]) == {event.pk: QuietReason.RUN_LIMIT}
 
     def test_a_ci_failure_on_a_closed_merge_request_is_watch_off(self):
         session = self._sync_session()
@@ -114,25 +103,25 @@ class TestQuietReasonsNow:
         assert quiet_reasons_now(session, [event]) == {event.pk: QuietReason.WATCH_OFF}
 
     def test_a_persons_request_is_never_quieted(self):
-        session = self._sync_session(inbox_muted=True)
+        session = self._sync_session(at_limit=True)
         event = make_event(session, EventKind.CHAT_MESSAGE)
 
         assert quiet_reasons_now(session, [event]) == {}
 
     def test_a_remembered_event_has_no_prediction(self):
-        session = self._sync_session(inbox_muted=True)
+        session = self._sync_session(at_limit=True)
         event = make_event(session, EventKind.COMMENT)
 
         assert quiet_reasons_now(session, [event]) == {}
 
     def test_it_asks_each_question_once_however_many_events(self, django_assert_num_queries):
-        session = self._sync_session(inbox_muted=True)
+        session = self._sync_session(at_limit=True)
         MergeRequestOwnership.objects.create(repo_id=session.repo_id, merge_request_iid=101, watch_enabled=False)
         failures = [make_event(session, EventKind.CI_FAILED, merge_request_iid=iid) for iid in (101, 102, 103)]
         delegations = [make_event(session, EventKind.DELEGATION_FINISHED) for _ in range(3)]
 
-        with django_assert_num_queries(1):
+        with django_assert_num_queries(2):
             reasons = quiet_reasons_now(session, failures + delegations)
 
         assert reasons[failures[0].pk] == QuietReason.WATCH_OFF
-        assert {reasons[event.pk] for event in failures[1:] + delegations} == {QuietReason.MUTED}
+        assert {reasons[event.pk] for event in failures[1:] + delegations} == {QuietReason.RUN_LIMIT}

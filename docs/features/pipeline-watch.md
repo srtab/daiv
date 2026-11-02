@@ -39,7 +39,6 @@ sequenceDiagram
     | Condition | Reason when it fails |
     |---|---|
     | The watch is on for the repository and for this merge request | Watch off |
-    | The session is not muted | Muted |
     | The pipeline ran on the commit DAIV last pushed | Not DAIV's commit |
     | No CI run looked at that commit yet | Already examined |
     | Attempts are left | Attempts spent |

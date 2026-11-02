@@ -227,7 +227,7 @@ One run handles everything one person is waiting for on the session's branch: a 
 
 A run acts as the person whose request woke it: a mention by a teammate runs with the DAIV account they signed in to with that GitLab/GitHub account, and its personal MCP servers, not the session owner's. A commenter who never signed in to DAIV with that platform account, or whose DAIV account is deactivated, gets no personal tools, even when a DAIV user shares their username or email. Before it starts, a run checks that the person it acts as may still run on the repository, except for a mention, which is checked where it is made; a person who may not only has their own requests fail. A session an issue or merge request comment starts is owned the same way: by the DAIV account linked to its author's GitLab/GitHub account, else by no one until that account is linked, when its sessions and runs, the merge requests those sessions own and its requests still waiting pass to that user. A run DAIV woke for a CI failure acts as the session's owner, and one that resumes a finished delegated batch as the user who delegated it, muted when their run was.
 
-**Mute CI and delegations** in the session menu stops CI failures and finished delegated batches from waking the session; they are still remembered, and your own requests still run. DAIV also stops waking a session on its own after three runs in a row that nobody asked for, and tells the owner; sending a message or mentioning DAIV picks it up again.
+DAIV stops waking a session on its own after three runs in a row that nobody asked for, and tells the owner; CI failures and finished delegated batches are still remembered, and sending a message or mentioning DAIV picks it up again.
 
 ---
 

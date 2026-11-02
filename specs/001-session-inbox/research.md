@@ -144,7 +144,7 @@ Phase 0 of the plan for [spec.md](spec.md). Each decision records what was chose
   - A CI failure wakes the session only if:
     - the pipeline's SHA equals the merge request head and `last_daiv_sha`;
     - it differs from `last_examined_sha`;
-    - the attempt budget is left, the watch is on for the merge request, and the session isn't muted (FR-015).
+    - the attempt budget is left, and the watch is on for the merge request (FR-015).
   - Dispatching a CI-woken run sets `last_examined_sha` and charges an attempt.
   - A run started by a person that publishes resets the budget (FR-016).
 - **Rationale**: the SHA DAIV itself pushed is the only signal that can't be forged and works on both platforms. Author email can be spoofed. On GitLab, the pusher identity changes with ephemeral project tokens, and the service account re-triggers pipelines.

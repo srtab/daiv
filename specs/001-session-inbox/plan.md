@@ -12,7 +12,7 @@ A drainer starts one run at a time per session. It claims the session slot when 
 - remembered events and DAIV notices reach the model as a hidden synthetic context message;
 - people's requests reach it as the run's `HumanMessage`.
 
-The session that publishes a merge request owns it. Ownership records the SHA DAIV pushed, so whether a CI failure wakes the agent is decided from facts: the head commit DAIV pushed, not yet examined, budget left, watch on, not muted. The CI watch stops dispatching fix runs into the merge request's own thread, and stops giving up when a fix run pushes nothing.
+The session that publishes a merge request owns it. Ownership records the SHA DAIV pushed, so whether a CI failure wakes the agent is decided from facts: the head commit DAIV pushed, not yet examined, budget left, watch on. The CI watch stops dispatching fix runs into the merge request's own thread, and stops giving up when a fix run pushes nothing.
 
 The decisions behind each part are in [research.md](research.md) (R1–R20).
 
@@ -96,7 +96,7 @@ specs/001-session-inbox/
 ```text
 daiv/
 ├── sessions/
-│   ├── models.py                 # + InboxEvent, MergeRequestOwnership, Session.inbox_muted, Run.pushed_sha
+│   ├── models.py                 # + InboxEvent, MergeRequestOwnership, Run.pushed_sha
 │   ├── migrations/               # schema + data migration of open watches (R15)
 │   ├── inbox/                    # NEW package
 │   │   ├── __init__.py           # module docstring: the inbox's rules (detailed behaviour lives in docstrings)
@@ -104,7 +104,7 @@ daiv/
 │   │   ├── post.py               # apost_event: idempotent insert + drain on commit
 │   │   ├── drain.py              # adrain: supersede, choose branch, claim slot, create/promote run (R2–R4)
 │   │   ├── render.py             # synthetic context + HumanMessage (R5, R14)
-│   │   ├── policy.py             # wake rules: mute, consecutive-run limit (FR-031, FR-033)
+│   │   ├── policy.py             # wake rules: consecutive-run limit (FR-033)
 │   │   ├── complete.py           # run_ended: handled/retry/dismiss/fail, mention replies (R10, R12)
 │   │   └── ownership.py          # claim after publish, lookup, foreign publish (R7, FR-001)
 │   ├── pipeline_watch/           # judges pipelines, posts ci_* events; dispatch.py removed (R15)
@@ -117,7 +117,7 @@ daiv/
 │   ├── tasks.py                  # per-minute drain sweep; push classification task (R8, R13)
 │   ├── header.py, transcript.py  # CI status from ownership; remembered-event timeline entries
 │   ├── api/views.py              # ci-watch on ownership; turns poll: queued events; cancel background runs
-│   └── templates/, static/       # timeline entries, queued state, mute toggle, inbox panel for owners and admins (FR-034)
+│   └── templates/, static/       # timeline entries, queued state, inbox panel for owners and admins (FR-034)
 ├── automation/agent/
 │   ├── publishers.py, events.py  # pushed_sha in PublishOutcome / publish result (R7)
 │   └── workspace/                # fast-forward operation on the Workspace protocol (R17)
@@ -153,7 +153,7 @@ Each slice can ship and be demonstrated on its own, in this order. Every slice a
 |---|---|---|---|
 | 0 | Foundation: models and migration, `apost_event`, drainer with the `Claimed` slot, completion and retries, per-minute sweep, synthetic context, inbox panel on the session page (DAIV has no Django admin) | FR-005–FR-014, FR-034 | — |
 | 1 | CI in the publishing session: `pushed_sha`, ownership claim at publish, CI events and wake rules, the watch moved onto ownership plus the data migration, notifications, the issue addressor's acting user, the header's CI status | US1; FR-001–FR-004, FR-015–FR-020 | 0 |
-| 2 | Busy sessions: queued chat, taking pending events on idle chat, a stop control for background runs, mute, consecutive-run limit | US2; FR-029–FR-033 | 0 |
+| 2 | Busy sessions: queued chat, taking pending events on idle chat, a stop control for background runs, consecutive-run limit | US2; FR-029–FR-033 | 0 |
 | 3 | Remembered events: push, merge and close callbacks on both platforms, delayed push classification, timeline entries, the working-copy fast-forward, the "branch moved" notice | US3; FR-023, FR-024 | 0, 1 |
 | 4 | One delivery path: delegation resume, delegated CI outcome to the parent, jobs and MCP continuation, operator view | US4; FR-021, FR-022 | 0, 1 |
 | 5 | Mentions on owned merge requests: routing, diff comments on both platforms, reply placement, App subscription docs | US5; FR-025–FR-028 | 0, 1 |

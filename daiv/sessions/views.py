@@ -390,7 +390,6 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         )
         ctx["header"]["up_next"] = up_next_payload(session, runs, self.request.user, activity)
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
-        ctx["can_mute"] = Session.objects.by_owner(self.request.user).filter(pk=session.pk).exists()
         ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request

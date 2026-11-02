@@ -175,11 +175,6 @@ class Session(models.Model):
     )
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     external_refs = models.JSONField(_("external references"), default=list, blank=True)
-    inbox_muted = models.BooleanField(
-        _("inbox muted"),
-        default=False,
-        help_text=_("CI results and delegated batches are only remembered; people's requests still start runs."),
-    )
     watch_state = models.CharField(_("watch state"), max_length=10, choices=WatchState.choices, default=WatchState.OFF)
     watch_attempts = models.PositiveSmallIntegerField(_("watch attempts"), default=0)
     watch_pipeline_id = models.BigIntegerField(_("last watched pipeline"), null=True, blank=True)
@@ -787,7 +782,6 @@ class QuietReason(models.TextChoices):
     ALREADY_EXAMINED = "already_examined", _("DAIV already examined this commit")
     BUDGET_SPENT = "budget_spent", _("The CI attempts are spent")
     WATCH_OFF = "watch_off", _("The CI watch is off")
-    MUTED = "muted", _("The session is muted")
     RUN_LIMIT = "run_limit", _("Too many runs in a row without a person")
 
 

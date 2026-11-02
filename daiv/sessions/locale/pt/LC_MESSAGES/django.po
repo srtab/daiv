@@ -907,9 +907,6 @@ msgstr "sem tentativas restantes"
 msgid "CI fixing is off"
 msgstr "a correção de CI está desligada"
 
-msgid "muted"
-msgstr "silenciada"
-
 #, python-format
 msgid "paused after %(n)s runs in a row"
 msgstr "em pausa após %(n)s execuções seguidas"

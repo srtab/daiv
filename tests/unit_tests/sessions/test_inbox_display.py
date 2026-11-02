@@ -21,9 +21,7 @@ def session(db) -> Session:
         ("ci_failed", "already_examined", "not fixing: DAIV already looked at this commit"),
         ("ci_failed", "budget_spent", "not fixing: out of attempts"),
         ("ci_failed", "watch_off", "not fixing: CI fixing is off"),
-        ("ci_failed", "muted", "not fixing: muted"),
         ("ci_failed", "run_limit", "not fixing: paused after 3 runs in a row"),
-        ("delegation_finished", "muted", "not acting: muted"),
         ("delegation_finished", "run_limit", "not acting: paused after 3 runs in a row"),
     ],
 )

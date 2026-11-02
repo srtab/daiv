@@ -47,11 +47,6 @@ New fields in the response:
 - Body gains an optional `merge_request_iid`, which defaults to the session's only owned open merge request. It toggles `MergeRequestOwnership.watch_enabled`.
 - 409 reasons are unchanged (`changed`, `disabled`), plus `not_owned` when the session doesn't own that merge request.
 
-## Inbox mute: `POST /api/sessions/{thread_id}/inbox-mute`
-
-- New action on the existing sessions router. Body `{"muted": bool}`. Owner or admin only. Sets `Session.inbox_muted` (FR-031).
-- While muted, mentions, chat messages and follow-up jobs still wake the agent; CI and delegation events are remembered only.
-
 ## Stop a background run: `POST /api/chat/cancel` (existing)
 
 - Accepts a session's background run when the caller owns the session.

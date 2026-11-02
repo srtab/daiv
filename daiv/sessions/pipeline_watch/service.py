@@ -8,12 +8,11 @@ A head pipeline posts ``ci_passed`` (green), ``ci_stopped`` (a status that needs
 failure wakes the owning session only when all of these hold, and the first that fails is the event's ``reason``:
 
 1. the watch is on for the merge request and the repository (``watch_off``);
-2. the session is not muted (``muted``);
-3. the pipeline ran on the commit DAIV last pushed (``not_daiv_commit``); a blank one, left by a migrated watch,
+2. the pipeline ran on the commit DAIV last pushed (``not_daiv_commit``); a blank one, left by a migrated watch,
    counts as DAIV's;
-4. no CI-woken run examined that commit yet (``already_examined``);
-5. attempts are left (``budget_spent``);
-6. the consecutive-run limit is not reached (``run_limit``).
+3. no CI-woken run examined that commit yet (``already_examined``);
+4. attempts are left (``budget_spent``);
+5. the consecutive-run limit is not reached (``run_limit``).
 
 The drain charges the attempt and records the examined commit when it starts the run. A run that pushes nothing
 leaves the watch observing: no pipeline follows, and the run's summary is the explanation. ``budget_spent`` records
@@ -281,8 +280,6 @@ class PipelineWatch:
         policy = await self._apolicy()
         if not ownership.watch_enabled or not policy.enabled:
             return QuietReason.WATCH_OFF
-        if session.inbox_muted:
-            return QuietReason.MUTED
         if ownership.last_daiv_sha and report.sha != ownership.last_daiv_sha:
             return QuietReason.NOT_DAIV_COMMIT
         if report.sha == ownership.last_examined_sha:

@@ -1,9 +1,9 @@
-"""Whether a CI or delegation event may wake the agent when a run takes it (FR-031, FR-033).
+"""Whether a CI or delegation event may wake the agent when a run takes it (FR-033).
 
 A person's request (a chat message, a mention, a follow-up job) always wakes it. A CI failure or a finished delegated
-batch does not while the session is muted, or once ``MAX_SYSTEM_RUNS_IN_A_ROW`` runs DAIV started itself followed each
-other with no run a person started in between: the event is then only remembered, with the reason recorded, and the
-session's owner is told once per streak (:func:`report_run_limit`).
+batch does not once ``MAX_SYSTEM_RUNS_IN_A_ROW`` runs DAIV started itself followed each other with no run a person
+started in between: the event is then only remembered, with the reason recorded, and the session's owner is told once
+per streak (:func:`report_run_limit`).
 """
 
 from __future__ import annotations
@@ -59,8 +59,6 @@ def quiet_reasons_now(session: Session, events: Iterable[InboxEvent]) -> dict[uu
 
 
 def _gate(session: Session) -> QuietReason | None:
-    if session.inbox_muted:
-        return QuietReason.MUTED
     if system_runs_in_a_row(session) >= MAX_SYSTEM_RUNS_IN_A_ROW:
         return QuietReason.RUN_LIMIT
     return None

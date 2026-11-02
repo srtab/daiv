@@ -183,23 +183,19 @@ class TestNothingToWake:
         assert (await _state(failure)).run_id is None
         assert (await _state(passed)).state == EventState.PENDING
 
-    @pytest.mark.parametrize(
-        ("session_fields", "reason"), [({"inbox_muted": True}, QuietReason.MUTED), ({}, QuietReason.RUN_LIMIT)]
-    )
-    async def test_a_blocked_delegation_wake_is_only_remembered(self, enqueue, session_fields, reason):
-        session = await amake_session(**session_fields)
-        if reason == QuietReason.RUN_LIMIT:
-            for _ in range(3):
-                await Run.objects.acreate(
-                    session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=session.repo_id,
-                    status=RunStatus.SUCCESSFUL,
-                )  # fmt: skip
+    async def test_a_blocked_delegation_wake_is_only_remembered(self, enqueue):
+        session = await amake_session()
+        for _ in range(3):
+            await Run.objects.acreate(
+                session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=session.repo_id,
+                status=RunStatus.SUCCESSFUL,
+            )  # fmt: skip
         finished = await amake_event(session, EventKind.DELEGATION_FINISHED)
 
         assert await adrain(session.thread_id) is None
 
         stored = await _state(finished)
-        assert (stored.wake, stored.reason, stored.state) == (False, reason, EventState.PENDING)
+        assert (stored.wake, stored.reason, stored.state) == (False, QuietReason.RUN_LIMIT, EventState.PENDING)
 
     async def test_the_run_limit_is_reported_once_the_block_commits(self, enqueue):
         session = await amake_session()
