@@ -184,7 +184,7 @@ class Migration(migrations.Migration):
                     models.CharField(
                         blank=True,
                         choices=[
-                            ("access_denied", "The session owner can no longer run on this repository"),
+                            ("access_denied", "The person it would run as can no longer run on this repository"),
                             ("retries_exhausted", "The runs that took it kept failing"),
                             ("session_gone", "The session no longer exists"),
                         ],

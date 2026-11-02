@@ -793,7 +793,7 @@ class QuietReason(models.TextChoices):
 class EventFailure(models.TextChoices):
     """Why an event was never handled; the labels are the only text shown, never exception text."""
 
-    ACCESS_DENIED = "access_denied", _("The session owner can no longer run on this repository")
+    ACCESS_DENIED = "access_denied", _("The person it would run as can no longer run on this repository")
     RETRIES_EXHAUSTED = "retries_exhausted", _("The runs that took it kept failing")
     SESSION_GONE = "session_gone", _("The session no longer exists")
 

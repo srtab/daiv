@@ -922,6 +922,9 @@ msgstr "A pipeline %(id)s falhou: %(jobs)s"
 msgid "Pipeline %(id)s failed"
 msgstr "A pipeline %(id)s falhou"
 
+msgid "The person it would run as can no longer run on this repository"
+msgstr "A pessoa em nome de quem correria já não pode executar neste repositório"
+
 #~ msgid "Session context"
 #~ msgstr "Contexto da sessão"
 

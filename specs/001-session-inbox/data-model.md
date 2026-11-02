@@ -84,7 +84,7 @@ pending ──take──▶ taken ──run SUCCESSFUL / WAITING_INPUT──▶ 
    │                └─slot stale, run never ended (sweep)──▶ pending (attempts + 1)
    ├──newer event, same subject, at take time──▶ superseded
    ├──blocked by mute or the run limit at take time──▶ pending, wake=False, reason muted | run_limit (remembered)
-   └──owner lost repository access at take time──▶ failed (access_denied)
+   └──requester lost repository access at take time──▶ failed (access_denied)
 ```
 
 - When no waking event survives a drain, the session's QUEUED next run for that branch is deleted in the same transaction, and its remaining events are detached (`run=NULL`).
