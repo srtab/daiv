@@ -19,21 +19,14 @@
             <span class="contents" x-html="TranscriptLabels.iconHTML(item.line.icon)"></span>
           </template>
         </span>
-        <span class="step-group__text">
-          <span x-text="item.line.text"></span>
-          <span class="step-group__now" x-show="item.line.running" x-text="`· ${item.line.running}`"></span>
-        </span>
+        <span class="step-group__text" x-text="item.line.text"></span>
         <span class="run-failed" x-show="item.line.failed"
               x-text="TranscriptLabels.t('failed', { count: item.line.failed })"></span>
         {% include "sessions/_line_counts.html" with counts="item.line" %}
         {% icon "chevron-down" "chat-chev chat-chev--down step-group__chev h-3.5 w-3.5" %}
       </summary>
       <template x-if="isOpen(item.key, item.key === currentGroupKey)">
-        <div class="step-group__rows"
-             x-data="{ follow: true, clipped: false, seen: 0 }"
-             :class="{ 'step-group__rows--live': item.key === currentGroupKey, 'step-group__rows--clipped': clipped }"
-             x-effect="if (item.steps.length !== seen) { seen = item.steps.length; follow && $nextTick(() => { $el.scrollTop = $el.scrollHeight; }); }"
-             @scroll.passive="follow = $el.scrollHeight - $el.scrollTop - $el.clientHeight < 24; clipped = $el.scrollTop > 0">
+        <div class="step-group__rows">
           <template x-for="step in item.steps" :key="step.key">
             {% include "sessions/_step_row.html" %}
           </template>

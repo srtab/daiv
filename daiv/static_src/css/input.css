@@ -2526,10 +2526,6 @@ html {
     color: var(--color-text);
   }
 
-  .step-group__now {
-    color: var(--color-status-found);
-  }
-
   .step-group__chev,
   .question-answered__icon,
   .question-answered__chev {
@@ -2551,18 +2547,6 @@ html {
     margin: 2px 0 6px 7px;
     padding-left: 14px;
     border-left: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  /* The running group: about six 26px rows, scrolled to the newest. */
-  .step-group__rows--live {
-    max-height: calc(6 * 26px);
-    overflow-y: auto;
-    scrollbar-width: thin;
-  }
-
-  .step-group__rows--live.step-group__rows--clipped {
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.75rem);
-            mask-image: linear-gradient(to bottom, transparent, #000 1.75rem);
   }
 
   .step-row__summary {
