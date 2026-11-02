@@ -481,6 +481,25 @@ class TestActingUser:
 
         assert run.sandbox_environment_id == default.pk
 
+    async def test_a_follow_up_job_runs_in_the_environment_it_was_submitted_with(self, enqueue, admin_user):
+        session = await amake_session(user=admin_user)
+        gpu = await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=admin_user, name="gpu")
+        payload = {"prompt": "Train it", "trigger_type": SessionOrigin.API_JOB, "sandbox_environment_id": str(gpu.pk)}
+        await amake_event(session, EventKind.FOLLOW_UP_JOB, author=admin_user, payload=payload)
+
+        run = await adrain(session.thread_id)
+
+        assert run.sandbox_environment_id == gpu.pk
+
+    async def test_a_queued_chat_message_gives_the_session_its_tools_selection(self, enqueue, admin_user):
+        session = await amake_session(user=admin_user, mcp_overrides={"grafana": "off"})
+        payload = chat_payload(mcp_overrides={"grafana": "on"})
+        await amake_event(session, EventKind.CHAT_MESSAGE, author=admin_user, payload=payload)
+
+        await adrain(session.thread_id)
+
+        assert (await Session.objects.aget(pk=session.pk)).mcp_overrides == {"grafana": "on"}
+
     async def test_a_person_without_an_account_acts_as_no_one(self, enqueue, admin_user):
         session = await amake_session(user=admin_user)
         await amake_event(

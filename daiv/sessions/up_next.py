@@ -149,7 +149,7 @@ def _group(
     person = next((event for event in asked if event.kind in PERSON_KINDS), None)
     return {
         "run_id": str(run.pk) if run is not None else "",
-        "who": (user.name or user.email) if user is not None else (author_name(person) if person else ""),
+        "who": (user.name if user is not None else "") or (author_name(person) if person else ""),
         "is_viewer": user is not None and user.pk == viewer.pk,
         "starting": starting,
         "bubbles": bubbles,

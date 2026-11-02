@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from functools import partial
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -60,7 +61,6 @@ from slash_commands.parser import parse_slash_command
 from slash_commands.registry import slash_command_registry
 
 if TYPE_CHECKING:
-    import uuid
     from collections.abc import Iterable
 
     from django.db.models import QuerySet
@@ -351,7 +351,7 @@ def _take(thread_id: str) -> tuple[Run, list[_Charge]] | None:
         transaction.on_commit(partial(drain_logged, thread_id), robust=True)
         return None
 
-    env_id = _sandbox_env_id(session, user)
+    env_id = _sandbox_env_id(session, user, taken)
     try:
         with transaction.atomic():
             run = _promote_or_create(
@@ -360,6 +360,7 @@ def _take(thread_id: str) -> tuple[Run, list[_Charge]] | None:
     except IntegrityError:
         # A job run took the session's one active place after job_run_active looked (``run_one_active_per_session``).
         logger.info("inbox: thread_id=%s has an active job run; its events wait for that run to end", thread_id)
+        _drop_emptied(queued_runs)
         return None
     if not SessionLock.claim_for_run(thread_id, run.pk):
         transaction.set_rollback(True)
@@ -375,6 +376,7 @@ def _take(thread_id: str) -> tuple[Run, list[_Charge]] | None:
     if waiting_run is not None and waiting_run.pk != run.pk:
         describe_next_run(waiting_run)
     _merge_references(session, taken)
+    _apply_tools_selection(session, taken)
     return run, _charge_ci_attempts(session, taken)
 
 
@@ -419,6 +421,14 @@ def _merge_references(session: Session, taken: list[InboxEvent]) -> None:
     ]
     if declared and (merged := merge_stored_refs(session.external_refs, declared)) != session.external_refs:
         Session.objects.filter(pk=session.pk).update(external_refs=merged)
+
+
+def _apply_tools_selection(session: Session, taken: list[InboxEvent]) -> None:
+    """Give the session the Tools selection the newest chat message the run took was sent with, which ``run_job_task``
+    reads when the run starts."""
+    selections = [event.payload["mcp_overrides"] for event in taken if "mcp_overrides" in event.payload]
+    if selections and selections[-1] != session.mcp_overrides:
+        Session.objects.filter(pk=session.pk).update(mcp_overrides=selections[-1])
 
 
 def _charge_ci_attempts(session: Session, taken: list[InboxEvent]) -> list[_Charge]:
@@ -513,11 +523,19 @@ def _fail(session: Session, asked: list[InboxEvent], next_run: Run | None) -> No
     )
 
 
-def _sandbox_env_id(session: Session, user: User | None) -> uuid.UUID | None:
-    """The session's sandbox environment, unless it is a USER environment ``user`` does not own: a run for another
-    person, or for no one, never gets the owner's secrets. Then the one the repository resolves to for ``user``."""
-    env_id = session.sandbox_environment_id
+def _sandbox_env_id(session: Session, user: User | None, taken: list[InboxEvent]) -> uuid.UUID | None:
+    """The environment the newest follow-up job among ``taken`` was submitted with, while ``user`` still sees it. Else
+    the session's, unless it is a USER environment ``user`` does not own: a run for another person, or for no one,
+    never gets the owner's secrets. Then the one the repository resolves to for ``user``."""
     visible = SandboxEnvironment.objects.visible_to(user)  # ty: ignore[unresolved-attribute]
+    asked = [
+        event.payload["sandbox_environment_id"]
+        for event in taken
+        if event.kind == EventKind.FOLLOW_UP_JOB and event.payload.get("sandbox_environment_id")
+    ]
+    if asked and visible.filter(pk=asked[-1]).exists():
+        return uuid.UUID(asked[-1])
+    env_id = session.sandbox_environment_id
     if env_id is None or visible.filter(pk=env_id).exists():
         return env_id
     env = async_to_sync(resolve_env_for_run)(user=user, repo_id=session.repo_id)

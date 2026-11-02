@@ -66,6 +66,7 @@ class FollowUpJobPayload(TypedDict):
     agent_thinking_level: NotRequired[str]
     references: NotRequired[list[dict[str, Any]]]
     muted: NotRequired[bool]
+    sandbox_environment_id: NotRequired[str]
 
 
 class ChatMessagePayload(TypedDict):
@@ -74,6 +75,7 @@ class ChatMessagePayload(TypedDict):
     agent_model: NotRequired[str]
     agent_thinking_level: NotRequired[str]
     attachments: NotRequired[list[dict[str, Any]]]
+    mcp_overrides: NotRequired[dict[str, Any]]
 
 
 class DelegationFinishedPayload(TypedDict):

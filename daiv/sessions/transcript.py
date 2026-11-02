@@ -85,7 +85,9 @@ def _marker(run: Run) -> dict[str, Any] | None:
         # persisted distinguishes them from a genuine failure except these shared messages.
         aborted = message in (CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE)
     elif run.is_cancelled:
-        message, aborted = CANCELLED_BY_COORDINATOR_MESSAGE, True
+        # Only a delegated leg is cancelled by its coordinator; any other run, by its owner from the session page.
+        delegated = run.trigger_type == SessionOrigin.DELEGATED_JOB
+        message, aborted = (CANCELLED_BY_COORDINATOR_MESSAGE if delegated else CANCELLED_BY_USER_MESSAGE), True
     else:
         message = RUN_FAILED_MESSAGE
         aborted = False

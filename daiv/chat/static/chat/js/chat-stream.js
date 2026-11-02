@@ -1663,9 +1663,11 @@
       this.queueing = true;
       let failure = "";
       try {
+        const forwardedProps = { queue: true };
+        if (this._mcpTouched) forwardedProps.mcp_servers = [...this.mcpSelected];
         const resp = await this._postRun({
           messages: [{ id: uuid(), role: "user", content: message }],
-          forwardedProps: { queue: true },
+          forwardedProps,
         });
         if (resp.ok) {
           this._announceQueued((await resp.json()).queued, message);

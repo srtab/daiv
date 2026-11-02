@@ -275,11 +275,11 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         await asyncio.to_thread(self._announce_finished, run, skip_dispatch=skip_dispatch, never_started=never_started)
         return True
 
-    def cancel(self, run: Run) -> bool:
+    def cancel(self, run: Run, *, message: str = CANCELLED_BY_COORDINATOR_MESSAGE) -> bool:
         """Ask an unfinished ``run`` to stop, and return whether this call did; ``run`` is left with its row's status.
 
-        A run that is not RUNNING finishes FAILED here as ``never_started``, with ``CANCELLED_BY_COORDINATOR_MESSAGE``,
-        and its task fails too unless a worker claimed it. A ``run_job_task`` running the run stops at its next
+        A run that is not RUNNING finishes FAILED here as ``never_started``, with ``message`` (who stopped it), and its
+        task fails too unless a worker claimed it. A ``run_job_task`` running the run stops at its next
         :meth:`acancel_requested` check, before the agent if it has not reached it, and a RUNNING run finishes as that
         task does: with what it recorded, or SUCCESSFUL if it finished first.
         """
@@ -296,7 +296,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             RunStatus.FAILED,
             where=~models.Q(status=RunStatus.RUNNING),
             never_started=True,
-            error_message=CANCELLED_BY_COORDINATOR_MESSAGE,
+            error_message=message,
             finished_at=now,
             started_at=run.started_at or now,
         )
@@ -307,7 +307,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             status=TaskResultStatus.FAILED,
             finished_at=now,
             exception_class_path=f"{RunStoppedError.__module__}.{RunStoppedError.__qualname__}",
-            traceback=CANCELLED_BY_COORDINATOR_MESSAGE,
+            traceback=message,
         )
         return True
 

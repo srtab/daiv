@@ -25,6 +25,7 @@ from sessions.spend import build_session_spend
 from accounts.api.security import AuthBearer
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from core.api.throttling import JobsRateThrottle
+from core.constants import CANCELLED_BY_USER_MESSAGE
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 
 from . import runner
@@ -278,13 +279,20 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
 
     prompt = _extract_last_user_message(input_data)
     message_id = _extract_last_user_message_id(input_data) or run_id
+    retuned = submitted_overrides is not None and not created and submitted_overrides != session.mcp_overrides
     if (
         forwarded.get("queue") is True
         or await _waiting_to_start(session)
         or await ais_busy(session)
         or not await SessionLock.try_claim(thread_id, run_id)
     ):
-        queued = await _queue_message(thread_id, user=user, prompt=prompt, message_id=message_id)
+        queued = await _queue_message(
+            thread_id,
+            user=user,
+            prompt=prompt,
+            message_id=message_id,
+            mcp_overrides=submitted_overrides if retuned else None,
+        )
         if "text/event-stream" in (request.headers.get("accept") or ""):
             return sse_response(_queued_frames(thread_id, run_id, queued))
         return {"run_id": run_id, "thread_id": thread_id, "queued": queued}
@@ -293,7 +301,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     # The Tools selection is not pinned — ``build_runtime_servers`` re-resolves it every run — so
     # any turn may retune it. Gated on the claim so a rejected duplicate remembers nothing.
     effective_overrides = session.mcp_overrides
-    if submitted_overrides is not None and not created and submitted_overrides != effective_overrides:
+    if retuned:
         effective_overrides = submitted_overrides
         await ChatSessionService.set_mcp_overrides(thread_id, submitted_overrides)
 
@@ -355,13 +363,19 @@ async def _waiting_to_start(session: Session) -> bool:
     return session_activity(session, unfinished).waiting
 
 
-async def _queue_message(thread_id: str, *, user, prompt: str, message_id: str) -> dict:
-    """Hold a message sent while the session is busy as a ``chat_message`` event for its next run."""
+async def _queue_message(
+    thread_id: str, *, user, prompt: str, message_id: str, mcp_overrides: dict | None = None
+) -> dict:
+    """Hold a message sent while the session is busy as a ``chat_message`` event for its next run, with the Tools
+    selection it was sent with, which the session takes when that run does."""
+    payload: dict = {"text": prompt, "agui_message_id": message_id}
+    if mcp_overrides is not None:
+        payload["mcp_overrides"] = mcp_overrides
     result = await apost_event(
         thread_id,
         kind=EventKind.CHAT_MESSAGE,
         source_key=kinds.chat_key(message_id),
-        payload={"text": prompt, "agui_message_id": message_id},
+        payload=payload,
         wake=True,
         author=user,
     )
@@ -404,7 +418,8 @@ async def cancel_chat_run(request: HttpRequest, payload: CancelIn):
         raise HttpError(409, "Run is not in flight for this thread")
 
     if (background := await _background_run(session, payload.run_id)) is not None:
-        return {"cancelled": await sync_to_async(Run.objects.cancel)(background), "local": False}
+        cancelled = await sync_to_async(Run.objects.cancel)(background, message=CANCELLED_BY_USER_MESSAGE)
+        return {"cancelled": cancelled, "local": False}
 
     await relay.RunRelay(payload.thread_id, payload.run_id).request_cancel()
     cancelled_locally = runner.supervisor.cancel_local(payload.run_id)

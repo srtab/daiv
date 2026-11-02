@@ -216,6 +216,20 @@ def test_a_leg_its_delegating_session_cancelled_renders_aborted_marker():
     }
 
 
+def test_a_background_run_its_owner_stopped_is_not_blamed_on_a_coordinator():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [
+        _run(
+            "r1",
+            trigger_type=SessionOrigin.PIPELINE_WEBHOOK,
+            status=RunStatus.FAILED,
+            error_message=CANCELLED_BY_USER_MESSAGE,
+            is_cancelled=True,
+        )
+    ]
+    assert annotate_transcript(turns, runs)[-1]["message"] == CANCELLED_BY_USER_MESSAGE
+
+
 def test_chat_failed_run_renders_error_message_verbatim():
     # Chat runs use the streamer's fixed, user-safe constants — render verbatim.
     turns = [_user("h1"), _assistant("a1")]
