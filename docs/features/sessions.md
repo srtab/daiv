@@ -107,6 +107,7 @@ Click any session to see its full detail page, which includes:
 - **Context** — repository, branch/ref, linked schedule or issue/MR (as a clickable link) or, for a delegated run, the session that delegated it, the agent model and thinking level, and the sandbox environment. Admins viewing another user's session also see the owning user.
 - **Delegated jobs** — on a session that delegated work, each job's current state, in the transcript, the top bar and the details panel (see [Orchestration](orchestration.md#seeing-the-batch)).
 - **Transcript** — the full conversation transcript streams live during active runs, whatever started them (chat, job, webhook or schedule), and is replayed on return visits and mid-run refreshes — reopening the session rejoins the live stream and replays any events it missed (a fresh page load from the start of the run; an automatic reconnect only the events since it dropped).
+- **Up next** — at the end of the conversation, what the session will do next, in order: each run still to start, as whom, with the requests that start it, then the updates the next run will be told (see [The session inbox](#the-session-inbox)). A CI failure or finished delegated batch DAIV won't act on says why, such as *not fixing: out of attempts*; a request DAIV couldn't handle shows in the conversation as a *not handled* line with the reason. A run DAIV started itself opens with the message it received, and **Show request** expands the full prompt the run got.
 
 For in-flight sessions the detail page updates in real time until the run completes.
 

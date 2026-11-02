@@ -1,8 +1,7 @@
 {% load i18n %}
 {% comment %}
-What the session will do next, from ``sessionPage``'s ``upNext`` (``sessions.up_next``): one group per run still to
-start, in the order they will, then the remembered events no group takes. Must sit inside ``sessionPage`` inside
-``chat({…})``, whose helpers name the bubbles and lines.
+``sessionPage``'s ``upNext`` (``sessions.up_next``); must sit inside ``sessionPage`` inside ``chat({…})``, whose
+helpers name the bubbles and lines.
 {% endcomment %}
 <section class="up-next" x-show="upNext" x-cloak aria-labelledby="up-next-title" data-testid="session-up-next">
   <div class="up-next__divider">

@@ -70,14 +70,14 @@ uv run evals/compare_runs.py eval-runs/inbox-before.jsonl eval-runs/inbox-after.
 2. While it runs, fail the merge request's CI, mention DAIV on the merge request, and send a second chat message.
 
 **Expected**:
-- The chat input accepts the message and shows it as queued (no 409).
+- The chat input accepts the message (no 409), and it moves under Up next at the end of the conversation.
 - Exactly one next run starts within 1 minute of the first run ending.
 - Its transcript shows your chat message; the mention reply is posted on the merge request.
 - `InboxEvent` rows for the three events point to that run, with state `handled`.
 
-3. While the first run is still going, open the session page's inbox panel, or query `Run` in `python manage.py shell`.
+3. While the first run is still going, look at Up next on the session page, or query `Run` in `python manage.py shell`.
 
-**Expected**: the next run is `QUEUED` with no task result, so no worker has picked it up. It becomes `READY` only when the first run ends.
+**Expected**: Up next shows the next run with the requests waiting for it. The run is `QUEUED` with no task result, so no worker has picked it up. It becomes `READY` only when the first run ends.
 
 ### 3. Remembered events (US3)
 
@@ -97,9 +97,9 @@ uv run evals/compare_runs.py eval-runs/inbox-before.jsonl eval-runs/inbox-after.
 - When the delegated batch finishes, one run handles both the batch summary and the job prompt.
 - Each delegated merge request's CI outcome appears in the delegating session's timeline as a remembered event.
 
-2. As an admin, open the session page's inbox panel.
+2. As anyone who can view the session (its owner, an admin, or a reader of its repository), open the session page.
 
-**Expected**: source, arrival time and state for each event (FR-034).
+**Expected**: Up next lists each pending event with its source and arrival time, under the run that will take it or as a line the next run will be told; an event DAIV could not handle shows in the conversation, at its arrival, as a "not handled" line with the reason (FR-034).
 
 ### 5. Mentions on an owned merge request (US5)
 
