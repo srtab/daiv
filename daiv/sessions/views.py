@@ -52,15 +52,22 @@ from sessions.filters import (
 from sessions.forms import AgentRunCreateForm
 from sessions.header import build_session_header, delegations_for, retry_for
 from sessions.hydration import ahydrate_thread
-from sessions.inbox.render import inbox_panel_events, timeline_events
+from sessions.inbox.render import opening_events, timeline_events
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns, interleave_inbox_events, mark_skill_links
+from sessions.transcript import (
+    annotate_transcript,
+    expired_run_turns,
+    interleave_inbox_events,
+    mark_run_openings,
+    mark_skill_links,
+)
 from sessions.transcript_labels import transcript_icons, transcript_labels
 from sessions.turns import build_turns
+from sessions.up_next import up_next_payload
 from slash_commands.composer import composer_command_rows
 
 logger = logging.getLogger("daiv.sessions")
@@ -373,6 +380,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
             runs,
             timeline_events(session.thread_id),
         )
+        mark_run_openings(ctx["turns"], opening_events(session.thread_id))
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
         mark_skill_links(ctx["turns"], session.thread_id)
         delegations = delegations_for(ctx["turns"], session, self.request.user)
@@ -380,9 +388,9 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["header"] = build_session_header(
             session, runs, retry=retry, user=self.request.user, delegations=delegations, merge_request=merge_request
         )
+        ctx["header"]["up_next"] = up_next_payload(session, runs, self.request.user)
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
         ctx["can_mute"] = Session.objects.by_owner(self.request.user).filter(pk=session.pk).exists()
-        ctx["inbox_events"] = inbox_panel_events(session.thread_id) if ctx["can_mute"] else None
         ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request

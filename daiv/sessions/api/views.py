@@ -13,13 +13,19 @@ from codebase.authorization import can_run
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
 from sessions.header import aci_payload, delegations_for, latest_run_payload, retry_for, watch_payload
 from sessions.hydration import ahydrate_thread
-from sessions.inbox.drain import next_runs
-from sessions.inbox.render import summarize, timeline_events
-from sessions.models import EventState, HiddenSession, InboxEvent, MergeRequestOwnership, Session
+from sessions.inbox.render import opening_events, timeline_events
+from sessions.models import HiddenSession, MergeRequestOwnership, Session
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns, interleave_inbox_events, mark_skill_links
+from sessions.transcript import (
+    annotate_transcript,
+    expired_run_turns,
+    interleave_inbox_events,
+    mark_run_openings,
+    mark_skill_links,
+)
 from sessions.turns import build_turns
+from sessions.up_next import aup_next_payload
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -133,8 +139,8 @@ async def session_turns(request: HttpRequest, thread_id: str):
     ``live_run`` names the slot holder, so the page can stream that run from the relay instead; ``background``
     tells a page that rendered idle whether a run that started since is one it should follow; ``latest_run``, ``ci``
     (with ``watch``, its single-watch shape for older pages), ``run_count`` and ``delegations`` keep the page's top
-    bar and details panel current. ``queued`` is the session's next run and what is waiting for it, ``None`` when
-    nothing is."""
+    bar and details panel current. ``up_next`` is what the session will do next (``sessions.up_next``), ``None`` when
+    nothing is pending."""
     session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
@@ -146,6 +152,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
         turns[:] = interleave_inbox_events(turns, runs, timeline_events(session.thread_id))
+        mark_run_openings(turns, opening_events(session.thread_id))
         mark_skill_links(turns, session.thread_id)
         delegations = delegations_for(turns, session, user)
         retry = retry_for(session, runs, turns, user)
@@ -166,20 +173,14 @@ async def session_turns(request: HttpRequest, thread_id: str):
         else None,
     }
     response |= await _ci(session)
-    response["queued"] = await sync_to_async(queued_payload)(session)
+    response["up_next"] = await aup_next_payload(session, runs, user)
     return response
 
 
-def queued_payload(session: Session) -> dict | None:
-    """SYNC ONLY: the session's oldest next run, and the events waiting for any of its next runs, oldest first."""
-    runs = list(next_runs(session))
-    if not runs:
-        return None
-    events = InboxEvent.objects.filter(run__in=runs, state=EventState.PENDING).select_related("author")
-    return {
-        "run_id": str(runs[0].pk),
-        "events": [
-            {"id": str(event.pk), "kind": event.kind, "summary": summarize(event), "created_at": event.created_at}
-            for event in events.order_by("created_at", "id")
-        ],
-    }
+@sessions_router.get("/{thread_id}/up-next", response=dict, url_name="session_up_next")
+async def session_up_next(request: HttpRequest, thread_id: str):
+    """What the session will do next, which the detail page polls while a run streams to it."""
+    user = request.auth  # ty: ignore[unresolved-attribute]
+    session = await _get_visible_session(user, thread_id)
+    runs = [r async for r in session.runs.order_by("created_at")]
+    return {"up_next": await aup_next_payload(session, runs, user)}

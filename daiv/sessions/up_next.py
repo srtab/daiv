@@ -52,20 +52,24 @@ def up_next_payload(session: Session, runs: Sequence[Run], viewer: User) -> dict
     groups = [_starting_group(run, events, viewer) for run in starting]
     groups.extend(_group(run, run.user, viewer, bubbles=[run_bubble(run)]) for run in jobs)
 
-    asks: dict[tuple[str, Requester], list[InboxEvent]] = {}
+    by_id = {run.pk: run for run in inbox_runs}
+    by_key: dict[tuple[str, Requester], Run] = {}
+    for run in inbox_runs:
+        by_key.setdefault((run.ref, Requester.of_run(run)), run)
+    asks: dict[Any, tuple[str, Requester, list[InboxEvent]]] = {}
     remembered: list[tuple[InboxEvent, str | None]] = []
     for event in _survivors([event for event in events if event.state == EventState.PENDING]):
         reason = quiet_reason_now(session, event)
-        if event.wake and reason is None:
-            asks.setdefault((event.ref, requester_of(event, session)), []).append(event)
-        else:
+        if not event.wake or reason is not None:
             remembered.append((event, reason))
-    queued: dict[tuple[str, Requester], Run] = {}
-    for run in inbox_runs:
-        queued.setdefault((run.ref, Requester.of_run(run)), run)
+            continue
+        requester = requester_of(event, session)
+        run = by_id.get(event.run_id) or by_key.get((event.ref, requester))
+        key = run.pk if run is not None else (event.ref, requester)
+        asks.setdefault(key, (run.ref if run is not None else event.ref, requester, []))[2].append(event)
     inbox_groups = []
-    for (ref, requester), asked in asks.items():
-        run = queued.get((ref, requester))
+    for key, (ref, requester, asked) in asks.items():
+        run = by_id.get(key)
         user = run.user if run is not None else _requester_user(session, asked, requester)
         inbox_groups.append((ref, _group(run, user, viewer, bubbles=[bubble(event) for event in asked], asked=asked)))
     groups.extend(group for _, group in inbox_groups)

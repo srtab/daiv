@@ -856,29 +856,7 @@ async def test_session_inbox_mute_is_allowed_for_an_admin(client, admin_user):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_session_turns_report_the_queued_next_run_and_what_waits_for_it(client, authed):
-    from sessions.models import EventKind
-
-    from tests.unit_tests.sessions.inbox.conftest import amake_event, chat_payload
-
-    _key_obj, raw, user = authed
-    session = await sync_to_async(_create_session)(user=user, active_run_id="chat-run")
-    next_run = await _create_run_async(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT)
-    chat = await amake_event(session, EventKind.CHAT_MESSAGE, run=next_run, payload=chat_payload("Also add a test"))
-
-    hydrated = HydratedThread([], False, None, None, None)
-    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
-        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
-
-    queued = resp.json()["queued"]
-    assert queued["run_id"] == str(next_run.pk)
-    assert [(e["id"], e["kind"], e["summary"]) for e in queued["events"]] == [
-        (str(chat.pk), "chat_message", "Also add a test")
-    ]
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_session_turns_report_what_waits_for_every_next_run(client, authed, member_user):
+async def test_session_turns_report_up_next(client, authed, member_user):
     from sessions.models import EventKind
 
     from tests.unit_tests.sessions.inbox.conftest import amake_event
@@ -896,11 +874,16 @@ async def test_session_turns_report_what_waits_for_every_next_run(client, authed
     with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
-    assert [e["id"] for e in resp.json()["queued"]["events"]] == [str(chat.pk), str(mention.pk)]
+    groups = resp.json()["up_next"]["groups"]
+    assert [(g["run_id"], [b["id"] for b in g["bubbles"]]) for g in groups] == [
+        (str(mine.pk), [f"inbox-{chat.pk}"]),
+        (str(theirs.pk), [f"inbox-{mention.pk}"]),
+    ]
+    assert "queued" not in resp.json()
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_session_turns_report_nothing_queued(client, authed):
+async def test_session_turns_report_no_up_next(client, authed):
     _key_obj, raw, user = authed
     session = await sync_to_async(_create_session)(user=user)
 
@@ -908,7 +891,34 @@ async def test_session_turns_report_nothing_queued(client, authed):
     with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
-    assert resp.json()["queued"] is None
+    assert resp.json()["up_next"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_up_next_endpoint_returns_the_payload(client, authed):
+    from sessions.models import EventKind
+
+    from tests.unit_tests.sessions.inbox.conftest import amake_event
+
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    comment = await amake_event(session, EventKind.COMMENT)
+
+    resp = await client.get(f"/sessions/{session.thread_id}/up-next", headers=_auth_headers(raw))
+
+    assert resp.status_code == 200
+    assert [line["id"] for line in resp.json()["up_next"]["told"][0]["lines"]] == [f"inbox-{comment.pk}"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_up_next_endpoint_404s_for_an_invisible_session(client, authed):
+    _key_obj, raw, _user = authed
+    other = await User.objects.acreate_user(username="other-up", email="other-up@example.com", password="x")  # noqa: S106
+    session = await sync_to_async(_create_session)(user=other)
+
+    resp = await client.get(f"/sessions/{session.thread_id}/up-next", headers=_auth_headers(raw))
+
+    assert resp.status_code == 404
 
 
 async def _create_run_async(session, **kwargs):

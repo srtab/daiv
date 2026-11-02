@@ -1335,41 +1335,58 @@ def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
 
 
 @pytest.mark.django_db
-class TestInboxPanel:
-    def _session(self, owner) -> Session:
-        session = _create_session(user=owner)
-        make_event(session, EventKind.CHAT_MESSAGE, author_username="sfr")
-        make_event(session, EventKind.CI_FAILED, state=EventState.FAILED, failure=EventFailure.RETRIES_EXHAUSTED)
-        make_event(session, EventKind.CI_PASSED, state=EventState.HANDLED)
-        return session
-
+class TestUpNext:
     def _get(self, client, session):
         with patch("sessions.views.ahydrate_thread", _null_hydration()):
             return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
-    @pytest.mark.parametrize("viewer", ["owner", "admin"])
-    def test_the_owner_and_admins_see_pending_and_failed_events(self, member_client, member_user, admin_client, viewer):
-        session = self._session(member_user)
+    @pytest.mark.parametrize("viewer", ["owner", "reader"])
+    def test_owner_and_repo_readers_get_up_next_in_the_header(self, member_client, member_user, other_user, viewer):
+        owner = member_user if viewer == "owner" else other_user
+        session = _create_session(user=owner)
+        if viewer == "reader":
+            grant_read_access(member_user, session.repo_id)
+        next_run = _create_run(session, status=RunStatus.QUEUED, user=owner)
+        chat = make_event(session, EventKind.CHAT_MESSAGE, run=next_run, author=owner)
+        comment = make_event(session, EventKind.COMMENT)
 
-        resp = self._get(member_client if viewer == "owner" else admin_client, session)
+        up_next = self._get(member_client, session).context["header"]["up_next"]
 
-        assert [(e.kind, e.state) for e in resp.context["inbox_events"]] == [
-            (EventKind.CI_FAILED, EventState.FAILED),
-            (EventKind.CHAT_MESSAGE, EventState.PENDING),
-        ]
-        panel = resp.content.decode().split('data-testid="session-inbox"')[1].split("</section>")[0]
-        assert "Chat message" in panel and "sfr" in panel and "Pending" in panel
-        assert "The runs that took it kept failing" in panel
-        assert "<time datetime=" in panel
+        (group,) = up_next["groups"]
+        assert [bubble["id"] for bubble in group["bubbles"]] == [f"inbox-{chat.pk}"]
+        assert [line["id"] for line in group["told"]] == [f"inbox-{comment.pk}"]
+        assert group["is_viewer"] is (viewer == "owner")
 
-    def test_other_viewers_do_not_see_it(self, member_client, member_user, other_user):
-        session = self._session(other_user)
-        grant_read_access(member_user, session.repo_id)
+    def test_nothing_pending_is_no_up_next(self, member_client, member_user):
+        assert self._get(member_client, _create_session(user=member_user)).context["header"]["up_next"] is None
 
-        resp = self._get(member_client, session)
+    def test_a_failed_event_is_a_timeline_line(self, member_client, member_user):
+        session = _create_session(user=member_user)
+        failed = make_event(session, EventKind.MENTION, state=EventState.FAILED, failure=EventFailure.RETRIES_EXHAUSTED)
 
-        assert resp.context["inbox_events"] is None
-        assert 'data-testid="session-inbox"' not in resp.content.decode()
+        turns = self._get(member_client, session).context["turns"]
+
+        (entry,) = [turn for turn in turns if turn["role"] == "inbox_event"]
+        assert (entry["id"], entry["failure_label"]) == (f"inbox-{failed.pk}", "The runs that took it kept failing")
+
+    def test_an_inbox_run_opens_with_the_events_it_took(self, member_client, member_user):
+        session = _create_session(user=member_user)
+        run = _create_run(session, prompt="Fix it")
+        chat = make_event(session, EventKind.CHAT_MESSAGE, run=run, state=EventState.HANDLED, author=member_user)
+
+        turns = self._get(member_client, session).context["turns"]
+
+        anchor = next(turn for turn in turns if turn.get("run_id") == str(run.pk))
+        assert [bubble["id"] for bubble in anchor["opening"]] == [f"inbox-{chat.pk}"]
+
+    def test_the_panel_is_gone(self, member_client, member_user):
+        session = _create_session(user=member_user)
+        make_event(session, EventKind.CHAT_MESSAGE)
+
+        html = self._get(member_client, session).content.decode()
+
+        assert 'data-testid="session-inbox"' not in html
+        assert 'data-testid="session-queued"' not in html
 
 
 @pytest.mark.django_db
