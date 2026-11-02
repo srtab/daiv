@@ -7,7 +7,8 @@ from ag_ui.core.events import EventType, RawEvent, ToolCallStartEvent
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
@@ -274,6 +275,30 @@ class TestReasoningProvenance:
         assert all(ev.raw_event.get("event") == "on_chat_model_stream" for ev in out)
 
 
+@dataclass
+class _Ctx:
+    pass
+
+
+def _run_graph(model, *, content: str, tools=(), middleware=()):
+    """The AG-UI event stream of a real ``create_agent`` graph run through the real agent class."""
+    agent = create_agent(
+        model=model, tools=list(tools), middleware=list(middleware), context_schema=_Ctx, checkpointer=InMemorySaver()
+    )
+    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=_Ctx())
+    return agui.run(
+        RunAgentInput(
+            thread_id=str(uuid.uuid4()),
+            run_id=str(uuid.uuid4()),
+            state={},
+            messages=[{"id": "m1", "role": "user", "content": content}],
+            tools=[],
+            context=[],
+            forwarded_props={},
+        )
+    )
+
+
 async def test_a_middleware_message_reaches_the_stream_as_text_frames():
     """Closes the producer→consumer loop: a real middleware emitting through
     ``streamed_assistant_message``, a real graph, and the real agent class.
@@ -284,35 +309,19 @@ async def test_a_middleware_message_reaches_the_stream_as_text_frames():
     test that fails for that.
     """
 
-    @dataclass
-    class Ctx:
-        pass
-
     class ReplyingMiddleware(AgentMiddleware):
         """Stands in for SlashCommandMiddleware / LoopBreakerMiddleware: answers without the model."""
 
         async def awrap_model_call(self, request, handler):
             return await streamed_assistant_message("answered without the model")
 
-    agent = create_agent(
-        model=FakeMessagesListChatModel(responses=[AIMessage(content="the model would have answered")]),
-        tools=[],
+    stream = _run_graph(
+        FakeMessagesListChatModel(responses=[AIMessage(content="the model would have answered")]),
+        content="/agents",
         middleware=[ReplyingMiddleware()],
-        context_schema=Ctx,
-        checkpointer=InMemorySaver(),
-    )
-    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=Ctx())
-    payload = RunAgentInput(
-        thread_id=str(uuid.uuid4()),
-        run_id=str(uuid.uuid4()),
-        state={},
-        messages=[{"id": "m1", "role": "user", "content": "/agents"}],
-        tools=[],
-        context=[],
-        forwarded_props={},
     )
 
-    frames = [e async for e in agui.run(payload) if e is not None and e.type in _TEXT_FRAME_TYPES]
+    frames = [e async for e in stream if e is not None and e.type in _TEXT_FRAME_TYPES]
 
     assert [f.type for f in frames] == [
         EventType.TEXT_MESSAGE_START,
@@ -324,42 +333,89 @@ async def test_a_middleware_message_reaches_the_stream_as_text_frames():
     assert len({f.message_id for f in frames}) == 1
 
 
+async def test_every_streamed_tool_call_gets_one_result_even_when_middleware_answers_it():
+    """A real graph whose middleware answers one call without running the tool, through the real agent class and
+    filter: pins that the tools node's output reaches the hook, which sends the result upstream never emits."""
+
+    class _ToolModel(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    @tool
+    def edit_file(file_path: str) -> str:
+        """Edit a file."""
+        return "edited"
+
+    class RejectingMiddleware(AgentMiddleware):
+        """Stands in for deepagents' parallel-edit guard."""
+
+        async def awrap_tool_call(self, request, handler):
+            if request.tool_call["id"] == "call_2":
+                return ToolMessage(content="Error: rejected", tool_call_id="call_2", name="edit_file", status="error")
+            return await handler(request)
+
+    calls = [{"name": "edit_file", "args": {"file_path": "/a"}, "id": f"call_{i}"} for i in (1, 2)]
+    stream = _run_graph(
+        _ToolModel(responses=[AIMessage(content="", tool_calls=calls), AIMessage(content="done")]),
+        content="edit",
+        tools=[edit_file],
+        middleware=[RejectingMiddleware()],
+    )
+
+    events = [e async for e in SubagentEventFilter().apply(stream) if e is not None]
+
+    started = [e.tool_call_id for e in events if e.type == EventType.TOOL_CALL_START]
+    results = [(e.tool_call_id, e.content) for e in events if e.type == EventType.TOOL_CALL_RESULT]
+    assert sorted(started) == ["call_1", "call_2"]
+    assert sorted(results) == [("call_1", "edited"), ("call_2", "Error: rejected")]
+
+
+def _tools_node_end(*messages: ToolMessage) -> dict:
+    return {"event": "on_chain_end", "name": "tools", "data": {"output": {"messages": list(messages)}}}
+
+
+def _hook_agent() -> RuntimeContextLangGraphAGUIAgent:
+    return RuntimeContextLangGraphAGUIAgent(
+        name="DAIV", description="d", graph=_FakeGraph(), config={}, runtime_context=object()
+    )
+
+
+def test_an_unanswered_error_result_is_marked_failed_for_the_ui():
+    rejected = ToolMessage(content="Budget exhausted.", tool_call_id="c1", name="bash", status="error", id="r1")
+    provenance = {"langgraph_checkpoint_ns": "tools:1"}
+
+    [result] = _hook_agent()._unanswered_tool_results(_tools_node_end(rejected), provenance)
+
+    assert (result.tool_call_id, result.message_id, result.content) == ("c1", "r1", "Error: Budget exhausted.")
+    assert result.raw_event == {"metadata": provenance}
+
+
+def test_a_tool_call_is_answered_only_once():
+    agent = _hook_agent()
+    message = ToolMessage(content="ok", tool_call_id="c1", name="ls")
+
+    assert len(agent._unanswered_tool_results(_tools_node_end(message), {})) == 1
+    assert agent._unanswered_tool_results(_tools_node_end(message), {}) == []
+
+
 async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
     """The real middleware in a real graph, through the real agent class: pins that the
     dispatch survives AG-UI translation as a CUSTOM frame and that the producer goes through
     the builder — a hand-rolled payload dict in the middleware fails here. Renames of the
     shared constants are caught by the node test (the JS side hand-types the literals)."""
 
-    @dataclass
-    class Ctx:
-        pass
-
     reply = AIMessage(
         content="done",
         usage_metadata={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
         response_metadata={"model_name": "anthropic/claude-sonnet-4.6"},
     )
-    agent = create_agent(
-        model=FakeMessagesListChatModel(responses=[reply]),
-        tools=[],
-        middleware=[ContextUsageMiddleware()],
-        context_schema=Ctx,
-        checkpointer=InMemorySaver(),
-    )
-    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=Ctx())
-    payload = RunAgentInput(
-        thread_id=str(uuid.uuid4()),
-        run_id=str(uuid.uuid4()),
-        state={},
-        messages=[{"id": "m1", "role": "user", "content": "hi"}],
-        tools=[],
-        context=[],
-        forwarded_props={},
+    stream = _run_graph(
+        FakeMessagesListChatModel(responses=[reply]), content="hi", middleware=[ContextUsageMiddleware()]
     )
 
     frames = [
         e
-        async for e in agui.run(payload)
+        async for e in stream
         if e is not None and e.type == EventType.CUSTOM and getattr(e, "name", "") == CONTEXT_USAGE_EVENT
     ]
 
