@@ -94,9 +94,9 @@ def up_next_payload(
     for key, (ref, requester, asked) in asks.items():
         run = by_id.get(key)
         user = run.user if run is not None else requester_user(session, asked, requester)
-        runs = split_requests(asked)
-        for index, requests in enumerate(runs):
-            later = [event for later_requests in runs[index + 1 :] for event in later_requests]
+        splits = split_requests(asked)
+        for index, requests in enumerate(splits):
+            later = [event for later_requests in splits[index + 1 :] for event in later_requests]
             holder = run if run is not None and all(event.run_id != run.pk for event in later) else None
             if holder is not None:
                 run = None
