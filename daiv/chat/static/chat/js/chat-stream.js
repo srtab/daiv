@@ -137,6 +137,7 @@
   // Menu-while-token form of the backend bare-command parser (slash_commands/parser.py):
   // a space or newline after the token breaks the match and closes the menu.
   const SLASH_TOKEN_RE = /^\s*\/([a-z0-9-]*)$/;
+  const SLASH_COMMAND_RE = /^\s*\/([a-z0-9-]+)(?:\s|$)/i;
 
   // Shape-filtered like loadMcpSelection: a row without a name would throw inside the
   // getters the menu, its $watch and its x-for all read, rather than degrade to no menu.
@@ -384,9 +385,7 @@
     sessionLive: !!config.sessionLive,
     // The next run a message sent while the session was busy waits for.
     queuedRunId: "",
-    // A message sent while the session is busy is on its way to the inbox.
     queueing: false,
-    // A page rendered before its session existed has no Up next and follows no later run.
     _sessionRendered: !!config.thread,
     waitingSince: config.waitingSince || "",
     runStoppable: config.liveRunStoppable ?? true,
@@ -1620,12 +1619,8 @@
       }
     },
 
-    // Send only user turns. Streamed assistant turns carry a client-minted
-    // UUID (set when we pushed the placeholder), but the server stored the
-    // AIMessage under its own LangChain-generated id — echoing the assistant
-    // turn back would slip past ag_ui_langgraph's id-based dedupe and append
-    // a duplicate AIMessage to the checkpoint. The agent reads prior history
-    // from the checkpointer; it doesn't need the client to replay it.
+    // Only user turns: a streamed assistant turn's client-minted id slips past ag_ui_langgraph's id dedupe, so
+    // echoing it would append a duplicate AIMessage to the checkpoint.
     _userMessages(turns) {
       return turns
         .filter((t) => t.role === "user")
@@ -1662,6 +1657,12 @@
     // While the session is busy a message waits for its next run, shown in Up next; the run on screen keeps its
     // stream. ``queue`` keeps it waiting even if that run ended before it arrived, so this page never misses a run.
     async _sendToNextRun(message, fromDraft) {
+      // Queued messages reach the next run joined into one prompt, where a command is no longer a command.
+      const command = SLASH_COMMAND_RE.exec(message)?.[1].toLowerCase();
+      if (command && this.slashCatalog.some((row) => row.name === command)) {
+        window.showToast?.(`/${command} can run once this run ends.`, "warning");
+        return;
+      }
       if (fromDraft) {
         this.draftMessage = "";
         this.$nextTick(() => this.autosize());
@@ -1673,7 +1674,7 @@
           threadId: this.thread.thread_id,
           runId: uuid(),
           state: {},
-          messages: [...this._userMessages(this.turns), { id: uuid(), role: "user", content: message }],
+          messages: [{ id: uuid(), role: "user", content: message }],
           tools: [],
           context: [],
           forwardedProps: { queue: true },
@@ -1753,10 +1754,11 @@
       return text;
     },
 
-    // Stopped before DAIV answered: the server took the turn back, so its message returns to the composer.
+    // Stopped before DAIV answered: the server took the turn back, so its message returns to the composer of the
+    // page whose Stop did it.
     _withdrawTurn(assistantTurn) {
       const text = this._detachTurn(assistantTurn);
-      if (!text) return;
+      if (!text || !this._activeRun?.stopped) return;
       this.draftMessage = this.draftMessage.trim() ? `${text}\n\n${this.draftMessage}` : text;
       this.$nextTick(() => this.autosize());
     },
@@ -1783,6 +1785,7 @@
       // stream stays open so the server's RUN_ERROR(run_cancelled) event and
       // end frame settle the turn state.
       if (!this._activeRun || !this.cancelEndpoint) return;
+      this._activeRun.stopped = true;
       try {
         const resp = await fetch(this.cancelEndpoint, {
           method: "POST",
