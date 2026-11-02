@@ -7,7 +7,8 @@ from ag_ui.core.events import EventType, RawEvent, ToolCallStartEvent
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
@@ -322,6 +323,59 @@ async def test_a_middleware_message_reaches_the_stream_as_text_frames():
     assert frames[1].delta == "answered without the model"
     # One message end to end: the id the producer minted is the id the client dedupes replays on.
     assert len({f.message_id for f in frames}) == 1
+
+
+async def test_every_streamed_tool_call_gets_a_result_even_when_middleware_answers_it():
+    """A real graph whose middleware answers one call without running the tool, through the real agent class and
+    filter: pins that the tools node's snapshot still carries that ToolMessage, which the filter turns into the
+    result upstream never emits, so the chat row stops spinning."""
+
+    @dataclass
+    class Ctx:
+        pass
+
+    class _ToolModel(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    @tool
+    def edit_file(file_path: str) -> str:
+        """Edit a file."""
+        return "edited"
+
+    class RejectingMiddleware(AgentMiddleware):
+        """Stands in for deepagents' parallel-edit guard."""
+
+        async def awrap_tool_call(self, request, handler):
+            if request.tool_call["id"] == "call_2":
+                return ToolMessage(content="Error: rejected", tool_call_id="call_2", name="edit_file", status="error")
+            return await handler(request)
+
+    calls = [{"name": "edit_file", "args": {"file_path": "/a"}, "id": f"call_{i}"} for i in (1, 2)]
+    agent = create_agent(
+        model=_ToolModel(responses=[AIMessage(content="", tool_calls=calls), AIMessage(content="done")]),
+        tools=[edit_file],
+        middleware=[RejectingMiddleware()],
+        context_schema=Ctx,
+        checkpointer=InMemorySaver(),
+    )
+    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=Ctx())
+    payload = RunAgentInput(
+        thread_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        state={},
+        messages=[{"id": "m1", "role": "user", "content": "edit"}],
+        tools=[],
+        context=[],
+        forwarded_props={},
+    )
+
+    events = [e async for e in SubagentEventFilter().apply(agui.run(payload)) if e is not None]
+
+    started = [e.tool_call_id for e in events if e.type == EventType.TOOL_CALL_START]
+    results = {e.tool_call_id: e.content for e in events if e.type == EventType.TOOL_CALL_RESULT}
+    assert sorted(started) == ["call_1", "call_2"]
+    assert results == {"call_1": "edited", "call_2": "Error: rejected"}
 
 
 async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():

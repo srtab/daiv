@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from ag_ui.core.events import EventType, ToolCallArgsEvent, ToolCallEndEvent, ToolCallStartEvent
+from ag_ui.core.events import EventType, ToolCallArgsEvent, ToolCallEndEvent, ToolCallResultEvent, ToolCallStartEvent
+from ag_ui_langgraph.utils import normalize_tool_content
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Iterable
@@ -80,13 +81,19 @@ class SubagentEventFilter:
     * drops ``REASONING_*`` events whose emitter set ``emit-messages: False``
       (see ``REASONING_EVENT_TYPES``),
     * drops the LATE OnToolEnd re-emitted START/ARGS/END for tool_calls we
-      already synthesized (deduping by tool_call_id).
+      already synthesized (deduping by tool_call_id),
+    * synthesizes TOOL_CALL_RESULT for a started tool_call whose ToolMessage
+      reaches a STATE_SNAPSHOT without one. Upstream emits RESULT only from
+      OnToolEnd, which never fires for a call a middleware answers without
+      running the tool (deepagents' parallel same-file edit guard), so the
+      chat row would spin until the run ends.
     """
 
     def __init__(self) -> None:
         self._synthesized: set[str] = set()
         self._natural_started: set[str] = set()
         self._natural_index: dict[str, int] = {}
+        self._answered: set[str] = set()
 
     async def apply(self, stream: AsyncIterator[BaseEvent]) -> AsyncGenerator[BaseEvent]:
         async for event in stream:
@@ -105,6 +112,8 @@ class SubagentEventFilter:
                 # tool_call segments append to the same turn.
                 yield event
                 for synth in self._synthesize_unstarted(self._iter_latest_tool_calls(event)):
+                    yield synth
+                for synth in self._synthesize_unanswered(event):
                     yield synth
                 continue
 
@@ -126,6 +135,11 @@ class SubagentEventFilter:
                     idx = self._chunk_index(event)
                     if idx is not None:
                         self._natural_index[tcid] = idx
+
+            if event.type == EventType.TOOL_CALL_RESULT:
+                tcid = getattr(event, "tool_call_id", None)
+                if isinstance(tcid, str):
+                    self._answered.add(tcid)
 
             yield event
 
@@ -233,6 +247,34 @@ class SubagentEventFilter:
             self._synthesized.add(tcid)
         return events
 
+    def _synthesize_unanswered(self, event: BaseEvent) -> list[BaseEvent]:
+        """Build TOOL_CALL_RESULT for every ToolMessage in the snapshot whose call was started on this stream but
+        never answered. Calls this stream never started are skipped: the snapshot also carries earlier turns."""
+        events: list[BaseEvent] = []
+        for message in self._snapshot_messages(event):
+            tcid = self._field(message, "tool_call_id")
+            if self._msg_role(message) != "tool" or not isinstance(tcid, str) or tcid in self._answered:
+                continue
+            if tcid not in self._natural_started and tcid not in self._synthesized:
+                continue
+            events.append(
+                ToolCallResultEvent(
+                    type=EventType.TOOL_CALL_RESULT,
+                    tool_call_id=tcid,
+                    message_id=str(self._field(message, "id") or tcid),
+                    content=normalize_tool_content(self._field(message, "content")),
+                    role="tool",
+                )
+            )
+            self._answered.add(tcid)
+        return events
+
+    @classmethod
+    def _snapshot_messages(cls, event: BaseEvent) -> list[Any]:
+        snap = getattr(event, "snapshot", None)
+        msgs = snap.get("messages") if isinstance(snap, dict) else None
+        return msgs if isinstance(msgs, list) else []
+
     @classmethod
     def _iter_tool_calls_on(cls, message: Any) -> Iterable[tuple[str, str, Any]]:
         """Yield ``(tool_call_id, name, args)`` for every well-formed tool_call
@@ -250,13 +292,7 @@ class SubagentEventFilter:
         are skipped — their tool_calls are already in ``_synthesized`` /
         ``_natural_started`` from prior snapshots.
         """
-        snap = getattr(event, "snapshot", None)
-        if not isinstance(snap, dict):
-            return
-        msgs = snap.get("messages")
-        if not isinstance(msgs, list):
-            return
-        for m in reversed(msgs):
+        for m in reversed(cls._snapshot_messages(event)):
             if cls._msg_role(m) not in ("ai", "assistant"):
                 continue
             yield from cls._iter_tool_calls_on(m)

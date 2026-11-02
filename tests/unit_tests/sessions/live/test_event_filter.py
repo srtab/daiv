@@ -668,6 +668,53 @@ async def test_filter_skips_synthesis_when_latest_ai_has_no_tool_calls():
     assert [e.type for e in out] == [EventType.STATE_SNAPSHOT]
 
 
+async def test_filter_synthesizes_result_for_tool_call_answered_without_running():
+    # A middleware that answers a call itself (deepagents' parallel-edit guard) fires no OnToolEnd, the only
+    # place upstream emits TOOL_CALL_RESULT; the row would spin until the run ends.
+    model_end = _chat_model_end(
+        output={
+            "tool_calls": [
+                {"id": "tc-ran", "name": "edit_file", "args": {}},
+                {"id": "tc-rejected", "name": "edit_file", "args": {}},
+            ]
+        }
+    )
+    natural_result = _ev(ToolCallResultEvent, ns="", tool_call_id="tc-ran", message_id="r1", content="edited")
+    tools_snapshot = _ev(
+        StateSnapshotEvent,
+        ns="",
+        snapshot={
+            "messages": [
+                {"type": "tool", "id": "r1", "tool_call_id": "tc-ran", "content": "edited"},
+                {
+                    "type": "tool",
+                    "id": "r2",
+                    "tool_call_id": "tc-rejected",
+                    "content": [{"type": "text", "text": "no"}],
+                },
+            ]
+        },
+    )
+
+    out = await _drain(_filter([model_end, natural_result, tools_snapshot]))
+
+    results = [(e.tool_call_id, e.message_id, e.content) for e in out if e.type == EventType.TOOL_CALL_RESULT]
+    assert results == [("tc-ran", "r1", "edited"), ("tc-rejected", "r2", "no")]
+
+
+async def test_filter_synthesizes_no_result_for_a_tool_call_it_never_started():
+    # A snapshot carries the thread's whole history; a result for a call this stream never started has no row.
+    snapshot = _ev(
+        StateSnapshotEvent,
+        ns="",
+        snapshot={"messages": [{"type": "tool", "id": "r-old", "tool_call_id": "tc-earlier-turn", "content": "x"}]},
+    )
+
+    out = await _drain(_filter([snapshot]))
+
+    assert [e.type for e in out] == [EventType.STATE_SNAPSHOT]
+
+
 def test_reasoning_event_types_covers_every_reasoning_event():
     """``REASONING_EVENT_TYPES`` is hand-maintained against a pinned ag-ui version.
 
