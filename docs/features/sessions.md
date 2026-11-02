@@ -174,7 +174,7 @@ As the agent works, the workspace streams updates live:
 - **Todos** — when the agent plans with a todo list, the side rail shows the list with a `done/total` count.
 - **Files changed** — files the agent reads or edits are collected in the rail; click one to jump to the tool call that touched it.
 
-While a run is streaming you can press **Stop** to cancel it server-side. Refreshing the page or losing the connection does not stop the run — reopening the session rejoins the live stream. Only one run can be in flight per session at a time.
+While a run is streaming you can press **Stop** to cancel it server-side. If DAIV hasn't started answering yet, Stop takes your message back: it leaves the conversation, the agent never sees it, and its text returns to the composer. Refreshing the page or losing the connection does not stop the run — reopening the session rejoins the live stream. Only one run can be in flight per session at a time.
 
 A message you send while the session is busy is not refused: it shows as **Pending** and waits for the session's next run, which starts as soon as the current one ends and answers it together with anything else that arrived meanwhile. The page follows that run when it starts. See [The session inbox](#the-session-inbox).
 

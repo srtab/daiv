@@ -1744,13 +1744,27 @@
       return bubble.source_iid ? T.t("received_ci", { iid: bubble.source_iid }) : T.t("received_ci_plain");
     },
 
-    // The session was busy, so the message waits for its next run (the ``daiv.queued`` answer). It leaves the
-    // conversation for Up next until that run opens with it; ``followLiveRun`` tails the run once it starts.
-    _queueTurn(assistantTurn, queued) {
+    // Take ``assistantTurn`` and the user turn that opened it out of the conversation; returns that turn's text.
+    _detachTurn(assistantTurn) {
       const at = this.turns.indexOf(assistantTurn);
       const sent = at > 0 && this.turns[at - 1].role === "user" ? at - 1 : at;
       const text = sent < at ? this.turns[sent].segments.map((segment) => segment.content ?? "").join("") : "";
       if (at >= 0) this.turns.splice(sent, at - sent + 1);
+      return text;
+    },
+
+    // Stopped before DAIV answered: the server took the turn back, so its message returns to the composer.
+    _withdrawTurn(assistantTurn) {
+      const text = this._detachTurn(assistantTurn);
+      if (!text) return;
+      this.draftMessage = this.draftMessage.trim() ? `${text}\n\n${this.draftMessage}` : text;
+      this.$nextTick(() => this.autosize());
+    },
+
+    // The session was busy, so the message waits for its next run (the ``daiv.queued`` answer). It leaves the
+    // conversation for Up next until that run opens with it; ``followLiveRun`` tails the run once it starts.
+    _queueTurn(assistantTurn, queued) {
+      const text = this._detachTurn(assistantTurn);
       window.dispatchEvent(
         new CustomEvent("daiv:up-next-provisional", {
           detail: { event_id: queued.event_id, run_id: queued.run_id || "", text },
@@ -1915,7 +1929,9 @@
         // Cancel and interrupt (stale takeover / shutdown) are neutral, non-failure
         // terminations → the grey "aborted" marker. Messages mirror the server constants
         // (core.constants) so the live marker matches what reload renders.
-        if (evt.code === "run_cancelled") {
+        if (evt.code === "run_withdrawn") {
+          this._withdrawTurn(turn);
+        } else if (evt.code === "run_cancelled") {
           this._pushRunStatus("aborted", "Stopped by user.");
         } else if (evt.code === "run_interrupted") {
           this._pushRunStatus("aborted", evt.message || "Run was interrupted before completing.");

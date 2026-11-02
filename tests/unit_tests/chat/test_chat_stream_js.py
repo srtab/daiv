@@ -915,6 +915,40 @@ def test_a_refused_mid_run_message_comes_back_to_the_draft():
     assert [level for _message, level in out["toasts"]] == ["error"]
 
 
+WITHDRAWN_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat", thread: { thread_id: "t1", repo_id: "r", ref: "main" } });
+chat.$nextTick = (cb) => cb && cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+chat.draftMessage = payload.draft;
+const live = { id: "a2", role: "assistant", segments: [], streaming: true };
+chat.turns = [
+  { id: "h1", role: "user", segments: [{ type: "text", content: "hi" }] },
+  { id: "a1", role: "assistant", segments: [{ type: "text", content: "hey" }] },
+  { id: "h2", role: "user", segments: [{ type: "text", content: "do it" }] },
+  live,
+];
+chat.dispatch({ type: "RUN_ERROR", code: payload.code, message: "Stopped by user." }, live, Date.now());
+process.stdout.write(JSON.stringify({
+  turns: chat.turns.map((t) => (t.role === "run_status" ? `status:${t.status}` : t.id)),
+  draft: chat.draftMessage,
+}));
+"""
+
+
+@pytest.mark.parametrize(("draft", "restored"), [("", "do it"), ("also this", "do it\n\nalso this")])
+def test_a_turn_withdrawn_before_daiv_answered_goes_back_to_the_composer(draft, restored):
+    out = run_chat_stream(WITHDRAWN_BODY, {"code": "run_withdrawn", "draft": draft})
+
+    assert out == {"turns": ["h1", "a1"], "draft": restored}
+
+
+def test_a_turn_stopped_after_daiv_answered_keeps_its_message_and_marker():
+    out = run_chat_stream(WITHDRAWN_BODY, {"code": "run_cancelled", "draft": ""})
+
+    assert out == {"turns": ["h1", "a1", "h2", "a2", "status:aborted"], "draft": ""}
+
+
 KEYDOWN_BODY = """
 if (payload.coarse) sandbox.window.matchMedia = (query) => ({ matches: query === "(pointer: coarse)" });
 const chat = registry.chat({ endpoint: "/api/chat", thread: { thread_id: "t1", repo_id: "r", ref: "main" } });
