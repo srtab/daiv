@@ -129,7 +129,7 @@ def _section(kind: str, events: list[InboxEvent]) -> str:
         return "\n\n".join(f"[{event.created_at:%H:%M}] {event.payload['text']}" for event in events)
     if kind == EventKind.MENTION:
         mentions = [
-            f"{_author(event)} mentioned you on !{event.merge_request_iid} ({event.payload['web_url']}):\n"
+            f"{author_name(event)} mentioned you on !{event.merge_request_iid} ({event.payload['web_url']}):\n"
             f"{_blockquote(event.payload['body'])}"
             for event in events
         ]
@@ -242,13 +242,13 @@ def summarize(event: InboxEvent) -> str:
         case EventKind.CHAT_MESSAGE:
             text = payload["text"]
         case EventKind.MENTION:
-            text = f"{_author(event)} on !{event.merge_request_iid}: {payload['body']}"
+            text = f"{author_name(event)} on !{event.merge_request_iid}: {payload['body']}"
         case EventKind.FOLLOW_UP_JOB:
             text = payload["prompt"]
         case EventKind.DELEGATION_FINISHED:
             text = "Delegated jobs finished"
         case EventKind.COMMENT:
-            text = f"{_author(event)} on !{event.merge_request_iid}: {payload['body']}"
+            text = f"{author_name(event)} on !{event.merge_request_iid}: {payload['body']}"
         case EventKind.CI_FAILED | EventKind.CI_PASSED | EventKind.CI_STOPPED:
             text = f"CI on !{event.merge_request_iid}: pipeline {payload['pipeline_id']} {_ci_status(event).lower()}"
         case _:
@@ -288,7 +288,7 @@ def _describe(event: InboxEvent) -> str:
             return f"!{event.merge_request_iid} was closed by {payload['by_username']}."
         case EventKind.COMMENT:
             return (
-                f"Comment by {_author(event)} on !{event.merge_request_iid} (not addressed to you): "
+                f"Comment by {author_name(event)} on !{event.merge_request_iid} (not addressed to you): "
                 f'"{_cut(payload["body"])}"'
             )
         case EventKind.DELEGATED_CI_OUTCOME:
@@ -318,7 +318,7 @@ def _not_woken(event: InboxEvent) -> str:
     return f"You were not asked to act on it: {_QUIET_REASONS.get(event.reason, event.reason)}."
 
 
-def _author(event: InboxEvent) -> str:
+def author_name(event: InboxEvent) -> str:
     return event.author_username or (event.author.username if event.author is not None else "someone")
 
 
