@@ -836,7 +836,6 @@ chat.turns = [
   { id: "a1", role: "assistant", segments: [{ type: "text", content: "Looking" }], streaming: true },
 ];
 Object.assign(chat, payload.state, { _activeRun: { threadId: "t1", runId: "live" } });
-chat.slashCatalog = [{ name: "clear" }, { name: "plan" }];
 chat.draftMessage = payload.draft;
 const canSend = chat.canSend();
 await chat.submit();
@@ -920,6 +919,15 @@ def test_a_slash_command_typed_mid_run_is_queued_like_any_message(draft):
 
     assert [body["messages"][-1]["content"] for body in out["sent"]] == [draft]
     assert (out["draft"], out["toasts"]) == ("", [])
+
+
+@pytest.mark.parametrize(
+    ("touched", "expected"), [(True, {"queue": True, "mcp_servers": ["grafana"]}), (False, {"queue": True})]
+)
+def test_a_message_queued_mid_run_carries_the_tools_selection_once_touched(touched, expected):
+    out = _send_mid_run({"streaming": True, "_mcpTouched": touched, "mcpSelected": ["grafana"]})
+
+    assert [body["forwardedProps"] for body in out["sent"]] == [expected]
 
 
 def test_a_refused_mid_run_message_comes_back_to_the_draft():

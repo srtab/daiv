@@ -363,9 +363,7 @@ async def _waiting_to_start(session: Session) -> bool:
     return session_activity(session, unfinished).waiting
 
 
-async def _queue_message(
-    thread_id: str, *, user, prompt: str, message_id: str, mcp_overrides: dict | None = None
-) -> dict:
+async def _queue_message(thread_id: str, *, user, prompt: str, message_id: str, mcp_overrides: dict | None) -> dict:
     """Hold a message sent while the session is busy as a ``chat_message`` event for its next run, with the Tools
     selection it was sent with, which the session takes when that run does."""
     payload: dict = {"text": prompt, "agui_message_id": message_id}

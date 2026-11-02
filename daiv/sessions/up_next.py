@@ -26,6 +26,7 @@ from sessions.executor.lock import session_activity
 from sessions.inbox.drain import (
     Requester,
     branch_of,
+    holding_split,
     newest_of_each_subject,
     next_runs,
     requester_of,
@@ -95,11 +96,9 @@ def up_next_payload(
         run = by_id.get(key)
         user = run.user if run is not None else requester_user(session, asked, requester)
         splits = split_requests(asked)
+        held = holding_split(splits, run.pk) if run is not None else None
         for index, requests in enumerate(splits):
-            later = [event for later_requests in splits[index + 1 :] for event in later_requests]
-            holder = run if run is not None and all(event.run_id != run.pk for event in later) else None
-            if holder is not None:
-                run = None
+            holder = run if index == held else None
             group = _group(holder, user, viewer, bubbles=[bubble(event) for event in requests], asked=requests)
             inbox_groups.append((position[requests[0].pk], ref, runs_alone(requests[0]), group))
     inbox_groups.sort(key=itemgetter(0))

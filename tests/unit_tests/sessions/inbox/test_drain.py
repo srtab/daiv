@@ -216,11 +216,13 @@ class TestCommands:
 
         run = await adrain(session.thread_id)
 
-        assert (run.pk != next_run.pk, run.prompt) == (True, "/agents")
+        assert run.pk != next_run.pk
+        assert run.prompt == "/agents"
         assert (await _state(command)).run_id == run.pk
         waiting = await Run.objects.aget(pk=next_run.pk)
         assert (waiting.status, waiting.prompt) == (RunStatus.QUEUED, "Then add a test")
-        assert ((await _state(after)).state, (await _state(after)).run_id) == (EventState.PENDING, next_run.pk)
+        stored = await _state(after)
+        assert (stored.state, stored.run_id) == (EventState.PENDING, next_run.pk)
 
     @pytest.mark.parametrize(
         ("kind", "payload"),
@@ -241,6 +243,16 @@ class TestCommands:
         assert (await _state(command)).run_id == run.pk
         assert (await _state(message)).state == EventState.PENDING
 
+    async def test_a_mention_whose_quoted_body_starts_with_a_command_still_joins(self, enqueue, admin_user):
+        session = await amake_session(user=admin_user)
+        payload = mention_payload("/help @daiv")
+        mention = await amake_event(session, EventKind.MENTION, payload=payload, author=admin_user, merge_request_iid=9)
+        message = await _chat(session, "Fix the bug", author=admin_user)
+
+        run = await adrain(session.thread_id)
+
+        assert [(await _state(event)).run_id for event in (mention, message)] == [run.pk, run.pk]
+
     async def test_a_command_run_takes_no_remembered_event(self, enqueue):
         session = await amake_session()
         await _chat(session, "/help")
@@ -248,7 +260,8 @@ class TestCommands:
 
         await adrain(session.thread_id)
 
-        assert ((await _state(notice)).state, (await _state(notice)).run_id) == (EventState.PENDING, None)
+        stored = await _state(notice)
+        assert (stored.state, stored.run_id) == (EventState.PENDING, None)
 
     async def test_a_denied_requester_fails_the_requests_on_both_sides_of_a_command(self, enqueue, member_user):
         session = await amake_session(user=member_user)

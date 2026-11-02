@@ -71,7 +71,6 @@ logger = logging.getLogger("daiv.sessions")
 
 DRAIN_SWEEP_LIMIT = 200
 
-_REQUEST_TEXT = {EventKind.CHAT_MESSAGE: "text", EventKind.FOLLOW_UP_JOB: "prompt", EventKind.MENTION: "body"}
 _MENTIONED = re.compile(r"(?<![\w@])@([\w.-]+)")
 
 
@@ -128,32 +127,41 @@ def newest_of_each_subject(pending: list[InboxEvent]) -> list[InboxEvent]:
 
 
 def runs_alone(event: InboxEvent) -> bool:
-    """Whether the waking ``event`` asks for a builtin slash command, which ``SlashCommandMiddleware`` answers only
-    when it opens a run's request, and which then ends the run. Inbox runs run in the GLOBAL scope (``run_job_task``).
+    """Whether the waking person ``event``'s request, as a run renders it (``render_request``), is a builtin slash
+    command, which ``SlashCommandMiddleware`` answers only when it opens a run's request, and which then ends the run.
+    Inbox runs run in the GLOBAL scope (``run_job_task``).
 
     The bot's username is not known here, so a command after any mention counts: a wrong match costs only a run of its
     own, while a command that joined other requests would answer for all of them, or be read as prose."""
-    field = _REQUEST_TEXT.get(event.kind)
-    if field is None or not event.wake:
+    if event.kind not in PERSON_KINDS or not event.wake:
         return False
-    text = event.payload[field]
-    return any(
-        (command := parse_slash_command(text, name)) is not None
-        and bool(slash_command_registry.get_commands(scope=Scope.GLOBAL, command=command.command))
-        for name in set(_MENTIONED.findall(text)) or {""}
-    )
+    text = render_request([event])
+    for name in set(_MENTIONED.findall(text)) or {""}:
+        command = parse_slash_command(text, name)
+        if command is not None and slash_command_registry.get_commands(scope=Scope.GLOBAL, command=command.command):
+            return True
+    return False
 
 
 def split_requests(asked: list[InboxEvent]) -> list[list[InboxEvent]]:
     """``asked``, one requester's waking events for a branch oldest first, split into the runs that take them in turn:
     a builtin slash command (:func:`runs_alone`) alone, and the requests between two commands together."""
     runs: list[list[InboxEvent]] = []
+    joinable = False
     for event in asked:
-        if not runs or runs_alone(event) or runs_alone(runs[-1][0]):
-            runs.append([event])
-        else:
+        alone = runs_alone(event)
+        if joinable and not alone:
             runs[-1].append(event)
+        else:
+            runs.append([event])
+        joinable = not alone
     return runs
+
+
+def holding_split(splits: list[list[InboxEvent]], run_id: uuid.UUID) -> int:
+    """The index of the split (:func:`split_requests`) the next run ``run_id`` serves: the last holding one of its
+    events, else the first. Each split before it gets a run of its own."""
+    return max((index for index, requests in enumerate(splits) if any(e.run_id == run_id for e in requests)), default=0)
 
 
 def requester_of(event: InboxEvent, session: Session) -> Requester:
@@ -335,14 +343,14 @@ def _take(thread_id: str) -> tuple[Run, list[_Charge]] | None:
 
     branch, requester = waking[0].ref, requester_of(waking[0], session)
     requested = [event for event in waking if event.ref in ("", branch) and requester_of(event, session) == requester]
-    asked = split_requests(requested)[0]
+    splits = split_requests(requested)
+    asked = splits[0]
     if runs_alone(asked[0]):
         taken = asked
     else:
         taken = [event for event in survivors if event.ref in ("", branch) and (not event.wake or event in asked)]
     waiting_run = queued.get((branch, requester))
-    left_in = {event.run_id for event in requested if event not in asked}
-    next_run = None if waiting_run is None or waiting_run.pk in left_in else waiting_run
+    next_run = waiting_run if waiting_run is not None and holding_split(splits, waiting_run.pk) == 0 else None
     user = requester_user(session, requested, requester)
     checked = any(event.kind != EventKind.MENTION for event in requested)
     if user is not None and checked and not _may_run(user, session.repo_id):

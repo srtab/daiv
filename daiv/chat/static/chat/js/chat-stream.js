@@ -1569,10 +1569,6 @@
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
-      // Only sent once the user has actually touched the Tools sheet: an absent key tells
-      // the server to keep the thread's stored overrides. Sending an untouched selection
-      // would be harmless but would re-diff it against a pool the admin may have changed.
-      if (this._mcpTouched) forwardedProps.mcp_servers = [...this.mcpSelected];
 
       const runId = uuid();
 
@@ -1626,6 +1622,10 @@
     },
 
     _postRun({ runId = uuid(), messages, forwardedProps }) {
+      // Only sent once the user has actually touched the Tools sheet: an absent key tells
+      // the server to keep the thread's stored overrides. Sending an untouched selection
+      // would be harmless but would re-diff it against a pool the admin may have changed.
+      if (this._mcpTouched) forwardedProps = { ...forwardedProps, mcp_servers: [...this.mcpSelected] };
       const body = {
         threadId: this.thread.thread_id,
         runId,
@@ -1663,11 +1663,9 @@
       this.queueing = true;
       let failure = "";
       try {
-        const forwardedProps = { queue: true };
-        if (this._mcpTouched) forwardedProps.mcp_servers = [...this.mcpSelected];
         const resp = await this._postRun({
           messages: [{ id: uuid(), role: "user", content: message }],
-          forwardedProps,
+          forwardedProps: { queue: true },
         });
         if (resp.ok) {
           this._announceQueued((await resp.json()).queued, message);
