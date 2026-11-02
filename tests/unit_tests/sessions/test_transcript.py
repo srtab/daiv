@@ -1103,7 +1103,7 @@ class TestInterleaveInboxEvents:
         )
 
     @staticmethod
-    def _event(minute: int, kind="mr_merged", **payload):
+    def _event(minute: int, kind="mr_merged", payload=None, **fields):
         from datetime import UTC, datetime, timedelta
 
         from sessions.models import InboxEvent
@@ -1115,6 +1115,7 @@ class TestInterleaveInboxEvents:
             wake=False,
             merge_request_iid=9,
             created_at=datetime(2026, 10, 30, 12, tzinfo=UTC) + timedelta(minutes=minute),
+            **fields,
         )
 
     def test_events_land_between_the_runs_they_came_between(self):
@@ -1138,6 +1139,8 @@ class TestInterleaveInboxEvents:
             "kind": "mr_merged",
             "summary": "!9 was merged into main by sfr.",
             "reason": "",
+            "reason_text": "",
+            "failure_label": "",
             "web_url": "",
             "created_at": between.created_at.isoformat(),
         }
@@ -1175,6 +1178,96 @@ class TestInterleaveInboxEvents:
         turns = [{"id": "u1", "role": "user"}]
 
         assert interleave_inbox_events(turns, [], []) is turns
+
+    def test_a_remembered_event_sits_above_the_run_that_took_it(self):
+        from sessions.transcript import interleave_inbox_events
+
+        first, second = self._run(-60), self._run(0)
+        push = self._event(5, run_id=second.id, state="handled")
+        turns = [
+            {"id": "u1", "role": "user", "run_id": str(first.id)},
+            {"id": "a1", "role": "assistant"},
+            {"id": "u2", "role": "user", "run_id": str(second.id)},
+            {"id": "a2", "role": "assistant"},
+        ]
+
+        result = interleave_inbox_events(turns, [first, second], [push])
+
+        assert [turn["id"] for turn in result] == ["u1", "a1", f"inbox-{push.pk}", "u2", "a2"]
+
+    def test_a_failed_event_stays_at_its_arrival(self):
+        from sessions.transcript import interleave_inbox_events
+
+        first, second = self._run(10), self._run(20)
+        failed = self._event(
+            0, kind="mention", run_id=second.id, state="failed", failure="retries_exhausted",
+            payload={"body": "@daiv look", "web_url": "https://mr/9#1"},
+        )  # fmt: skip
+        turns = [
+            {"id": "u1", "role": "user", "run_id": str(first.id)},
+            {"id": "u2", "role": "user", "run_id": str(second.id)},
+        ]
+
+        result = interleave_inbox_events(turns, [first, second], [failed])
+
+        assert [turn["id"] for turn in result] == [f"inbox-{failed.pk}", "u1", "u2"]
+
+    def test_a_quiet_ci_failure_says_why(self):
+        from sessions.transcript import inbox_event_entry
+
+        event = self._event(
+            0, kind="ci_failed", reason="budget_spent",
+            payload={"pipeline_id": 8812, "sha": "abc", "status": "failed", "web_url": "", "failed_jobs": []},
+        )  # fmt: skip
+
+        assert inbox_event_entry(event)["reason_text"] == "not fixing: out of attempts"
+
+    def test_a_reason_given_overrides_the_stored_one(self):
+        from sessions.transcript import inbox_event_entry
+
+        event = self._event(0, kind="delegation_finished", payload={"batch_id": "b", "summary": "2 jobs finished."})
+
+        assert inbox_event_entry(event, reason="muted")["reason_text"] == "not acting: muted"
+
+    def test_a_failed_event_carries_its_failure_label(self):
+        from sessions.transcript import inbox_event_entry
+
+        event = self._event(
+            0, kind="mention", state="failed", failure="retries_exhausted",
+            payload={"body": "@daiv look", "web_url": "https://mr/9#1"},
+        )  # fmt: skip
+
+        assert inbox_event_entry(event)["failure_label"] == "The runs that took it kept failing"
+
+
+class TestMarkRunOpenings:
+    def test_a_run_opens_with_the_events_it_took(self):
+        from datetime import UTC, datetime, timedelta
+
+        from sessions.models import InboxEvent
+        from sessions.transcript import mark_run_openings
+
+        run_id, other_id = uuid.uuid4(), uuid.uuid4()
+        at = datetime(2026, 10, 30, 12, tzinfo=UTC)
+        ci = InboxEvent(
+            kind="ci_failed", wake=True, run_id=run_id, state="handled", created_at=at + timedelta(minutes=2),
+            payload={"pipeline_id": 1, "sha": "abc", "status": "failed", "web_url": "", "failed_jobs": ["lint"]},
+        )  # fmt: skip
+        chat = InboxEvent(
+            kind="chat_message", wake=True, run_id=run_id, state="handled", created_at=at,
+            payload={"text": "Fix it", "agui_message_id": "m1"},
+        )  # fmt: skip
+        turns = [
+            {"id": "u1", "role": "user", "run_id": str(run_id)},
+            {"id": "a1", "role": "assistant", "run_id": str(run_id)},
+            {"id": "u2", "role": "user", "run_id": str(other_id)},
+        ]
+
+        mark_run_openings(turns, [ci, chat])
+
+        assert [bubble["id"] for bubble in turns[0]["opening"]] == [f"inbox-{chat.pk}", f"inbox-{ci.pk}"]
+        assert "opening" not in turns[1]
+        assert "opening" not in turns[2]
 
 
 @pytest.fixture

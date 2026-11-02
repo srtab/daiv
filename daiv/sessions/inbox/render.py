@@ -21,10 +21,12 @@ from itertools import groupby
 from operator import attrgetter
 from typing import TYPE_CHECKING
 
+from django.db.models import Q
+
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.kinds import PRECEDENCE
-from sessions.models import EventKind, EventState, InboxEvent, QuietReason
+from sessions.models import EventKind, EventState, InboxEvent, QuietReason, RunStatus
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -214,12 +216,30 @@ def _fit(entries: list[_Entry]) -> str:
 SUMMARY_MAX_CHARS = 140
 
 
-def remembered_events(session_id: str) -> list[InboxEvent]:
-    """The session's remembered events for its timeline, superseded and failed ones left out. SYNC ONLY."""
+def timeline_events(session_id: str) -> list[InboxEvent]:
+    """The session's events its timeline shows as lines, oldest first: the remembered ones a run took or settled,
+    and every failed one. Pending ones and those a run that has not started took show under Up next. SYNC ONLY."""
     return list(
         InboxEvent.objects
-        .filter(session_id=session_id, wake=False)
-        .exclude(state__in=(EventState.SUPERSEDED, EventState.FAILED))
+        .filter(session_id=session_id)
+        .filter(Q(wake=False) | Q(state=EventState.FAILED))
+        .exclude(state__in=(EventState.PENDING, EventState.SUPERSEDED))
+        .exclude(state=EventState.TAKEN, run__status__in=(RunStatus.READY, RunStatus.QUEUED))
+        .select_related("author", "run")
+        .order_by("created_at", "id")
+    )
+
+
+def opening_events(session_id: str) -> list[InboxEvent]:
+    """The waking events the session's runs took, oldest first, which open those runs in its timeline. SYNC ONLY."""
+    return list(
+        InboxEvent.objects
+        .filter(
+            session_id=session_id,
+            wake=True,
+            run__isnull=False,
+            state__in=(EventState.TAKEN, EventState.HANDLED, EventState.DISMISSED),
+        )
         .select_related("author")
         .order_by("created_at", "id")
     )

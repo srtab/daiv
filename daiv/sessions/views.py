@@ -52,7 +52,7 @@ from sessions.filters import (
 from sessions.forms import AgentRunCreateForm
 from sessions.header import build_session_header, delegations_for, retry_for
 from sessions.hydration import ahydrate_thread
-from sessions.inbox.render import inbox_panel_events, remembered_events
+from sessions.inbox.render import inbox_panel_events, timeline_events
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
@@ -371,7 +371,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["turns"] = interleave_inbox_events(
             turns if hydrated.messages else turns + expired_run_turns(runs, turns),
             runs,
-            remembered_events(session.thread_id),
+            timeline_events(session.thread_id),
         )
         ctx["can_act"] = can_run(self.request.user, session.repo_id)
         mark_skill_links(ctx["turns"], session.thread_id)

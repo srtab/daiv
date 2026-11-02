@@ -5,8 +5,10 @@ already-fetched run rows) so the segmentation logic is unit-testable without the
 mirroring ``sessions.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
 and messages, then zip them here; for a checkpoint with no messages, ``expired_run_turns``
 restores the prompts and queries the artifacts it no longer carries. ``interleave_inbox_events``
-then splices the session's remembered inbox events in as ``inbox_event`` entries, each before the
-first run created after it, the way ``run_status`` markers sit beside their runs.
+then splices the session's remembered and failed inbox events in as ``inbox_event`` entries, each
+before the run that took it, else before the first run created after it, the way ``run_status``
+markers sit beside their runs, and ``mark_run_openings`` gives an inbox run's first turn the
+bubbles of the events that started it.
 ``retry_message`` reads the annotated turns for what the newest run's Retry sends.
 """
 
@@ -34,6 +36,7 @@ from sessions.artifacts import published_tool_result
 from sessions.executor.lock import SessionActivity
 from sessions.models import (
     CHAT_PROMPT_MAX_LENGTH,
+    EventState,
     PublishErrorKind,
     PublishStatus,
     Run,
@@ -334,16 +337,21 @@ def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[
     return result
 
 
-def inbox_event_entry(event: InboxEvent) -> dict[str, Any]:
-    """A remembered inbox event as a timeline entry; its summary is built from the event's payload alone."""
+def inbox_event_entry(event: InboxEvent, *, reason: str | None = None) -> dict[str, Any]:
+    """An inbox event as a timeline entry, built from the event's payload alone; ``reason`` stands in for the stored
+    one, for an event the drain would quiet if it ran now."""
     from sessions.inbox.render import summarize
+    from sessions.inbox_display import reason_text
 
+    reason = reason or event.reason
     return {
         "id": f"inbox-{event.pk}",
         "role": "inbox_event",
         "kind": event.kind,
         "summary": summarize(event),
-        "reason": event.reason,
+        "reason": reason,
+        "reason_text": reason_text(event.kind, reason),
+        "failure_label": event.get_failure_display() if event.state == EventState.FAILED else "",
         "web_url": event.payload.get("web_url", ""),
         "created_at": event.created_at.isoformat(),
     }
@@ -352,20 +360,48 @@ def inbox_event_entry(event: InboxEvent) -> dict[str, Any]:
 def interleave_inbox_events(
     turns: list[dict[str, Any]], runs: Iterable[Run], events: Iterable[InboxEvent]
 ) -> list[dict[str, Any]]:
-    """``turns`` with each of ``events`` as an ``inbox_event`` entry before the first turn of the first run created
-    after it, and the ones newer than every run at the end."""
-    waiting = sorted(events, key=lambda event: (event.created_at, str(event.pk)))
-    if not waiting:
+    """``turns`` with each of ``events`` as an ``inbox_event`` entry before the first turn of the run that took it, or,
+    for one no shown run took and for a failed one, of the first run created after it; the rest at the end."""
+    events = sorted(events, key=_arrival)
+    if not events:
         return turns
+    shown = {run_id for turn in turns if (run_id := turn.get("run_id"))}
+    taken: dict[str, list[InboxEvent]] = {}
+    waiting: list[InboxEvent] = []
+    for event in events:
+        if event.state != EventState.FAILED and (run_id := str(event.run_id)) in shown:
+            taken.setdefault(run_id, []).append(event)
+        else:
+            waiting.append(event)
     created = {str(run.id): run.created_at for run in runs}
     result: list[dict[str, Any]] = []
     for turn in turns:
-        if (at := created.get(turn.get("run_id") or "")) is not None:
+        run_id = turn.get("run_id") or ""
+        before = taken.pop(run_id, [])
+        if (at := created.get(run_id)) is not None:
             while waiting and waiting[0].created_at < at:
-                result.append(inbox_event_entry(waiting.pop(0)))
+                before.append(waiting.pop(0))
+        result.extend(inbox_event_entry(event) for event in sorted(before, key=_arrival))
         result.append(turn)
     result.extend(inbox_event_entry(event) for event in waiting)
     return result
+
+
+def mark_run_openings(turns: list[dict[str, Any]], events: Iterable[InboxEvent]) -> None:
+    """Give the first user turn of each run among ``events`` an ``opening``: the bubbles of the waking events it took,
+    oldest first."""
+    from sessions.inbox_display import bubble
+
+    openings: dict[str, list[dict[str, Any]]] = {}
+    for event in sorted(events, key=_arrival):
+        openings.setdefault(str(event.run_id), []).append(bubble(event))
+    for turn in turns:
+        if turn.get("role") == "user" and (opening := openings.pop(turn.get("run_id") or "", None)) is not None:
+            turn["opening"] = opening
+
+
+def _arrival(event: InboxEvent) -> tuple[Any, str]:
+    return event.created_at, str(event.pk)
 
 
 def retry_message(turns: list[dict[str, Any]], runs: list[Run]) -> str:

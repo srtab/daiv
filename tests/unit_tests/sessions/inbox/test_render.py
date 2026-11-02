@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 
 from django.utils import timezone
@@ -10,13 +11,15 @@ from sessions.inbox.render import (
     MENTION_REPLY_NOTE,
     QUOTE_MAX_CHARS,
     arender_input,
+    opening_events,
     render_context,
     render_request,
+    timeline_events,
 )
-from sessions.models import EventKind, EventState, InboxEvent, QuietReason, Run, SessionOrigin
+from sessions.models import EventKind, EventState, InboxEvent, QuietReason, Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.synthetic import synthetic_kind
-from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload
+from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload, make_event
 
 _START = timezone.now() - timedelta(hours=1)
 
@@ -202,3 +205,34 @@ class TestRenderInput:
 
         assert rendered.context is None
         assert rendered.messages == (rendered.request,)
+
+
+@pytest.mark.django_db
+class TestTimelineReads:
+    @staticmethod
+    def _session() -> Session:
+        return Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="g/r", ref="x")
+
+    @staticmethod
+    def _run(session: Session, status: str = RunStatus.SUCCESSFUL) -> Run:
+        return Run.objects.create(
+            session=session, trigger_type=SessionOrigin.CHAT, repo_id=session.repo_id, status=status
+        )
+
+    def test_timeline_events_leave_out_pending_and_superseded_and_keep_failed(self):
+        session = self._session()
+        make_event(session, EventKind.COMMENT)
+        make_event(session, EventKind.CI_FAILED, wake=False, state=EventState.SUPERSEDED)
+        handled = make_event(session, EventKind.COMMENT, state=EventState.HANDLED, run=self._run(session))
+        failed = make_event(session, EventKind.MENTION, state=EventState.FAILED, failure="retries_exhausted")
+        make_event(session, EventKind.COMMENT, state=EventState.TAKEN, run=self._run(session, RunStatus.READY))
+
+        assert timeline_events(session.thread_id) == [handled, failed]
+
+    def test_opening_events_are_the_waking_events_runs_took(self):
+        session = self._session()
+        chat = make_event(session, EventKind.CHAT_MESSAGE, state=EventState.HANDLED, run=self._run(session))
+        make_event(session, EventKind.MENTION, state=EventState.FAILED, run=self._run(session))
+        make_event(session, EventKind.CHAT_MESSAGE)
+
+        assert opening_events(session.thread_id) == [chat]
