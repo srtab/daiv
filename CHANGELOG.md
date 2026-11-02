@@ -120,6 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed the Skills pages showing a replaced custom skill's first upload date. The skill list, the skill's page and the "already exists" notice on upload now show when it was last uploaded, matching the uploader they name.
 - Fixed tool calls that the agent's middleware rejects without running the tool, such as a second parallel edit to the same file, spinning in the live transcript until the run ended. They now show as failed as soon as they are rejected. The agent is also told to send at most one `edit_file` or `write_file` call per file in a response, since deepagents rejects the rest.
 - Fixed OpenAI and OpenRouter calls made from background tasks failing on every other call with `Event loop is closed`. A model client shared across the worker's per-task event loops caused it. About half of memory extraction and consolidation rounds hit it and quietly fell back to their fallback model.
 - Fixed follow-ups, Retry included, failing with "Conversation not found." on a session whose job was submitted without a branch and never synced one back, such as a job that failed early. Such a follow-up now runs on the repository's default branch. **API note:** `POST /api/chat/completions` now treats a missing or blank `X-Ref` header as the default branch instead of returning `404`.

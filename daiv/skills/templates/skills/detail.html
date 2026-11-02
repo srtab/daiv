@@ -47,7 +47,7 @@
         {% else %}
         <span class="text-gray-400">{% translate "(unknown)" %}</span>
         {% endif %}
-        <span>&middot; {{ skill.created|date:"Y-m-d H:i" }}</span>
+        <span>&middot; {{ skill.modified|date:"Y-m-d H:i" }}</span>
         <span>&middot; {{ skill.size_bytes|filesizeformat }}</span>
     </div>
     {% else %}
