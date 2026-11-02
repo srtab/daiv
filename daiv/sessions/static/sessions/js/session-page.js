@@ -15,6 +15,33 @@ document.addEventListener("alpine:init", () => {
   };
 
   const CHECK_INTERVAL_MS = 5000;
+  const UP_NEXT_INTERVAL_MS = 5000;
+
+  // ``upNext`` with the chat message its sender just queued, under the group of the run that will take it.
+  const withProvisional = (upNext, provisional) => {
+    const id = `inbox-${provisional.event_id}`;
+    const groups = upNext?.groups ?? [];
+    if (groups.some((group) => group.bubbles.some((bubble) => bubble.id === id))) return upNext;
+    const bubble = {
+      id,
+      event_id: provisional.event_id,
+      kind: "chat_message",
+      received: false,
+      failed: false,
+      text: provisional.text,
+      source_iid: null,
+      trigger_type: "",
+      web_url: "",
+      created_at: provisional.created_at,
+    };
+    const at = groups.findIndex((group) => group.run_id === provisional.run_id);
+    const own = { run_id: provisional.run_id, who: "", is_viewer: true, starting: false, bubbles: [bubble], told: [] };
+    const next =
+      at < 0
+        ? [own, ...groups]
+        : groups.map((group, index) => (index === at ? { ...group, bubbles: [...group.bubbles, bubble] } : group));
+    return { groups: next, told: upNext?.told ?? [] };
+  };
 
   const delegationsSummary = (delegations) => {
     const T = window.TranscriptLabels;
@@ -37,8 +64,8 @@ document.addEventListener("alpine:init", () => {
     // CI on each merge request the session owns; `watch` is the first one's, which the top bar's toggle acts on.
     ci: [],
     watch: null,
-    // The session's next run and what waits for it; muted keeps CI and delegations from waking the session.
-    queued: null,
+    // What the session will do next (``sessions.up_next``); muted keeps CI and delegations from waking the session.
+    upNext: null,
     muted: Boolean(config.muted),
     runCount: 0,
     delegations: null,
@@ -56,8 +83,13 @@ document.addEventListener("alpine:init", () => {
     _media: null,
     _onMedia: null,
     _checkTimer: null,
+    _upNextTimer: null,
+    _provisional: [],
     init() {
       this.applyHeader(readJSON("session-header"));
+      // The turns poll that brings Up next pauses while a run streams to the page, so it refreshes on its own then.
+      this.$watch("streaming", (streaming) => this._pollUpNext(streaming));
+      this._pollUpNext(this.streaming);
       // A dormant page polls nothing, so runs ending while a delegated job is unsettled ask sessionSync for one
       // fetch per interval; a run starting already gets one from sessionSync's own watch.
       this.$watch("$store.nav?.running", (running, previous) => {
@@ -75,6 +107,37 @@ document.addEventListener("alpine:init", () => {
     destroy() {
       this._media?.removeEventListener?.("change", this._onMedia);
       clearTimeout(this._checkTimer);
+      this._pollUpNext(false);
+    },
+    _pollUpNext(on) {
+      if (on && !this._upNextTimer) {
+        this._upNextTimer = setInterval(() => this.refreshUpNext(), UP_NEXT_INTERVAL_MS);
+      } else if (!on && this._upNextTimer) {
+        clearInterval(this._upNextTimer);
+        this._upNextTimer = null;
+      }
+    },
+    async refreshUpNext() {
+      if (!config.upNextUrl) return;
+      const requestedAt = performance.now();
+      try {
+        const res = await fetch(config.upNextUrl, { headers: { Accept: "application/json" } });
+        if (res.ok) this._applyUpNext((await res.json()).up_next ?? null, requestedAt);
+      } catch {
+        // The next refresh or turns poll brings it.
+      }
+    },
+    // The sender's queued message, shown until a payload asked for after it was sent, which the server built
+    // knowing it, replaces it.
+    addProvisional({ event_id, run_id, text }) {
+      const provisional = { event_id, run_id, text, at: performance.now(), created_at: new Date().toISOString() };
+      this._provisional.push(provisional);
+      this.upNext = withProvisional(this.upNext, provisional);
+      return this.refreshUpNext();
+    },
+    _applyUpNext(upNext, requestedAt) {
+      this._provisional = this._provisional.filter((provisional) => provisional.at >= requestedAt);
+      this.upNext = this._provisional.reduce(withProvisional, upNext);
     },
     _askForCheck() {
       if (this._checkTimer) return;
@@ -146,7 +209,7 @@ document.addEventListener("alpine:init", () => {
       // A response asked for before the last toggle answered read CI from before it.
       const stale = data.requestedAt <= this._watchAt;
       if ("watch" in data && !stale) this._showCi(data);
-      if ("queued" in data) this.queued = data.queued ?? null;
+      if ("up_next" in data) this._applyUpNext(data.up_next ?? null, data.requestedAt ?? -Infinity);
       if ("delegations" in data) this.delegations = data.delegations ?? null;
     },
     _showCi(data) {

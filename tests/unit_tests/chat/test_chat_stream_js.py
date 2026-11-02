@@ -781,6 +781,7 @@ const queued = {
   live: chat.sessionLive,
   queuedRunId: chat.queuedRunId,
   ended: dispatched.filter((e) => e.type === "daiv:live-run-ended").length,
+  provisional: dispatched.filter((e) => e.type === "daiv:up-next-provisional").map((e) => e.detail),
   opened: opened !== null,
 };
 chat.followLiveRun({ id: "next-run", stoppable: true, started_at: new Date().toISOString() });
@@ -790,7 +791,7 @@ chat.destroy();
 """
 
 
-def test_a_message_sent_while_the_session_is_busy_shows_as_queued_until_its_run_starts():
+def test_a_message_sent_while_the_session_is_busy_moves_to_up_next():
     reply = {"run_id": "r1", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
     fetch = f"fetch: async () => ({{ ok: true, json: async () => ({json.dumps(reply)}) }}),"
 
@@ -802,11 +803,12 @@ def test_a_message_sent_while_the_session_is_busy_shows_as_queued_until_its_run_
     )
 
     assert out["queued"] == {
-        "turns": [{"role": "user", "pending": True}],
+        "turns": [],
         "streaming": False,
         "live": True,
         "queuedRunId": "next-run",
         "ended": 0,
+        "provisional": [{"event_id": "e1", "run_id": "next-run", "text": "Also add a test"}],
         "opened": False,
     }
     assert out["following"] == {"streaming": True, "run": "next-run", "queuedRunId": ""}

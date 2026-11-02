@@ -1620,12 +1620,18 @@
       return window.TranscriptLabels.t(`inbox_${kind}`);
     },
 
-    // The session was busy, so the message waits for its next run (the ``daiv.queued`` answer). It shows as pending
-    // with no reply of its own; the turns poll keeps running and ``followLiveRun`` tails the run once it starts.
+    // The session was busy, so the message waits for its next run (the ``daiv.queued`` answer). It leaves the
+    // conversation for Up next until that run opens with it; ``followLiveRun`` tails the run once it starts.
     _queueTurn(assistantTurn, queued) {
       const at = this.turns.indexOf(assistantTurn);
-      if (at > 0 && this.turns[at - 1].role === "user") this.turns[at - 1].pending = true;
-      if (at >= 0) this.turns.splice(at, 1);
+      const sent = at > 0 && this.turns[at - 1].role === "user" ? at - 1 : at;
+      const text = sent < at ? this.turns[sent].segments.map((segment) => segment.content ?? "").join("") : "";
+      if (at >= 0) this.turns.splice(sent, at - sent + 1);
+      window.dispatchEvent(
+        new CustomEvent("daiv:up-next-provisional", {
+          detail: { event_id: queued.event_id, run_id: queued.run_id || "", text },
+        }),
+      );
       this.streaming = false;
       this.runStartedAt = null;
       this._activeRun = null;

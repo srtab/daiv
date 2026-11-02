@@ -33,6 +33,7 @@ const watchers = {};
 const dispatched = [];
 const frames = [];
 const timers = [];
+const intervals = [];
 const scrolled = [];
 const section = {
   shown: false,
@@ -51,6 +52,8 @@ const sandbox = {
   requestAnimationFrame: (cb) => frames.push(cb),
   setTimeout: (cb, ms) => timers.push({ cb, ms }),
   clearTimeout: () => {},
+  setInterval: (cb, ms) => intervals.push({ cb, ms, cleared: false }),
+  clearInterval: (id) => { if (intervals[id - 1]) intervals[id - 1].cleared = true; },
   localStorage: {
     getItem: (k) => { if (storageBlocked) throw new Error("blocked"); return storage.get(k) ?? null; },
     setItem: (k, v) => { if (storageBlocked) throw new Error("blocked"); storage.set(k, v); },
@@ -79,7 +82,8 @@ const labels = {
   watchFailed: "Couldn't change it",
 };
 const page = components.sessionPage({
-  sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", muteUrl: "/mute", muted: false,
+  sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", muteUrl: "/mute", upNextUrl: "/up-next",
+  muted: false,
   storageKey: "key", title: "Old", titleSuffix: "DAIV Sessions", labels,
 });
 const focused = [];
@@ -101,6 +105,9 @@ for (const [action, value] of steps) {
   else if (action === "run-ended") page.settle();
   else if (action === "nav-running") watchers["$store.nav?.running"](...value);
   else if (action === "tick") timers.splice(0).forEach((timer) => timer.cb());
+  else if (action === "stream") { page.streaming = value; watchers.streaming?.(value); }
+  else if (action === "interval") intervals.filter((i) => !i.cleared).forEach((i) => i.cb());
+  else if (action === "provisional") sending = page.addProvisional(value);
   else if (action === "reply") { pending.shift()(value.body, value.status); await sending; await flush(); }
   else if (action === "rename") page.startRename();
   else if (action === "draft") page.titleDraft = value;
@@ -119,10 +126,11 @@ for (const [action, value] of steps) {
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
       ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn, ci: page.ci,
-      explanations: page.ci.map((item) => page.ciExplanation(item)), muted: page.muted, queued: page.queued,
+      explanations: page.ci.map((item) => page.ciExplanation(item)), muted: page.muted, upNext: page.upNext,
       delegations: page.delegations, delegationsLabel: page.delegationsBadge.label, dispatched: [...dispatched],
       delegationsState: page.delegationsBadge.state, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
       timers: timers.map((timer) => timer.ms),
+      intervals: intervals.filter((i) => !i.cleared).map((i) => i.ms),
     });
   }
 }
@@ -395,7 +403,7 @@ def test_a_poll_asked_for_before_the_toggle_answered_does_not_undo_it():
 
 
 # ---------------------------------------------------------------------------
-# inbox: mute and the queued next run
+# inbox: mute and Up next
 # ---------------------------------------------------------------------------
 
 
@@ -412,16 +420,104 @@ def test_a_refused_mute_puts_the_old_choice_back():
     assert result["seen"][0]["muted"] is False
 
 
-def test_each_poll_brings_what_waits_for_the_next_run():
-    queued = {"run_id": "r-2", "events": [{"id": "e-1", "kind": "chat_message", "summary": "Also add a test"}]}
+UP_NEXT = {
+    "groups": [
+        {
+            "run_id": "r-2",
+            "who": "",
+            "is_viewer": True,
+            "starting": False,
+            "bubbles": [{"id": "inbox-e0", "kind": "chat_message", "text": "Fix the lint"}],
+            "told": [],
+        }
+    ],
+    "told": [],
+}
+
+
+def test_up_next_follows_the_header():
     result = _run([
-        ["poll", {"latest_run": DONE, "queued": queued}],
+        ["poll", {"latest_run": DONE, "up_next": UP_NEXT}],
         ["read", None],
-        ["poll", {"latest_run": DONE, "queued": None}],
+        ["poll", {"latest_run": DONE, "up_next": None}],
         ["read", None],
     ])
 
-    assert [seen["queued"] for seen in result["seen"]] == [queued, None]
+    assert [seen["upNext"] for seen in result["seen"]] == [UP_NEXT, None]
+
+
+def test_up_next_polls_only_while_streaming():
+    result = _run([
+        ["stream", True],
+        ["read", None],
+        ["interval", None],
+        ["reply", {"body": {"up_next": UP_NEXT}}],
+        ["read", None],
+        ["stream", False],
+        ["read", None],
+        ["stream", True],
+        ["stream", True],
+        ["read", None],
+    ])
+
+    assert [seen["intervals"] for seen in result["seen"]] == [[5000], [5000], [], [5000]]
+    assert [request["url"] for request in result["requests"]] == ["/up-next"]
+    assert result["seen"][1]["upNext"] == UP_NEXT
+
+
+def test_a_failed_refresh_keeps_up_next():
+    result = _run([
+        ["poll", {"latest_run": DONE, "up_next": UP_NEXT}],
+        ["stream", True],
+        ["interval", None],
+        ["reply", {"status": 500, "body": {}}],
+        ["read", None],
+    ])
+
+    assert result["seen"][0]["upNext"] == UP_NEXT
+
+
+def _bubble_ids(up_next) -> list[list[str]]:
+    return [[bubble["id"] for bubble in group["bubbles"]] for group in up_next["groups"]]
+
+
+def test_a_provisional_message_joins_the_group_of_its_run():
+    provisional = {"event_id": "e1", "run_id": "r-2", "text": "Also add a test"}
+    result = _run([["poll", {"latest_run": DONE, "up_next": UP_NEXT}], ["provisional", provisional], ["read", None]])
+
+    assert _bubble_ids(result["seen"][0]["upNext"]) == [["inbox-e0", "inbox-e1"]]
+    assert result["requests"][0]["url"] == "/up-next"
+
+
+def test_a_provisional_message_shows_until_the_server_has_it():
+    provisional = {"event_id": "e1", "run_id": "r-2", "text": "Also add a test"}
+    with_it = {**UP_NEXT, "groups": [{**UP_NEXT["groups"][0], "bubbles": [{"id": "inbox-e1", "text": "x"}]}]}
+    result = _run([
+        ["provisional", provisional],
+        ["read", None],
+        ["reply", {"body": {"up_next": with_it}}],
+        ["read", None],
+    ])
+
+    first, then = (seen["upNext"] for seen in result["seen"])
+    assert _bubble_ids(first) == [["inbox-e1"]]
+    assert (first["groups"][0]["run_id"], first["groups"][0]["is_viewer"]) == ("r-2", True)
+    assert _bubble_ids(then) == [["inbox-e1"]]
+
+
+def test_a_reply_asked_for_before_the_message_was_sent_keeps_it():
+    provisional = {"event_id": "e1", "run_id": "r-2", "text": "Also add a test"}
+    result = _run([
+        ["provisional", provisional],
+        ["poll", {"latest_run": DONE, "up_next": None, "requestedAt": 5}],
+        ["read", None],
+        ["poll", {"latest_run": DONE, "up_next": None, "requestedAt": 11}],
+        ["read", None],
+    ])
+
+    first, then = (seen["upNext"] for seen in result["seen"])
+    assert _bubble_ids(first) == [["inbox-e1"]]
+    assert then is None
 
 
 # ---------------------------------------------------------------------------
