@@ -61,7 +61,7 @@ RETRY_MESSAGE = "The previous run failed. Please try again."
 # ``chat-stream.js`` (``_pushRunStatus``) — keep the two in sync. (Markers stay plain
 # ``dict[str, Any]`` to interleave with ``sessions.turns.build_turns`` output and serialise
 # straight into the Alpine-rendered turns payload; the shape is ``id``/``role``/``status``/
-# ``message``, plus ``silent`` on a stop its owner asked for, which the page keeps but never draws.)
+# ``message``, plus ``silent`` on a stop its owner asked for, which the page draws only under no answer.)
 RunStatusValue = Literal["failed", "aborted"]
 
 _CHAT_ERROR_MESSAGES = frozenset({CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE})
@@ -85,7 +85,9 @@ def _marker(run: Run) -> dict[str, Any] | None:
         # persisted distinguishes them from a genuine failure except these shared messages.
         aborted = message in (CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE)
     elif run.is_cancelled:
-        message, aborted = CANCELLED_BY_COORDINATOR_MESSAGE, True
+        # Only a delegated leg is cancelled by its coordinator; any other run, by its owner from the session page.
+        delegated = run.trigger_type == SessionOrigin.DELEGATED_JOB
+        message, aborted = (CANCELLED_BY_COORDINATOR_MESSAGE if delegated else CANCELLED_BY_USER_MESSAGE), True
     else:
         message = RUN_FAILED_MESSAGE
         aborted = False

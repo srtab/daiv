@@ -384,10 +384,7 @@
     sessionLive: !!config.sessionLive,
     // The next run a message sent while the session was busy waits for.
     queuedRunId: "",
-    // A message sent while the session is busy is on its way to the inbox.
     queueing: false,
-    // A page rendered before its session existed has no Up next and follows no later run.
-    _sessionRendered: !!config.thread,
     waitingSince: config.waitingSince || "",
     runStoppable: config.liveRunStoppable ?? true,
     publishPhase: "",
@@ -1572,31 +1569,19 @@
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
-      // Only sent once the user has actually touched the Tools sheet: an absent key tells
-      // the server to keep the thread's stored overrides. Sending an untouched selection
-      // would be harmless but would re-diff it against a pool the admin may have changed.
-      if (this._mcpTouched) forwardedProps.mcp_servers = [...this.mcpSelected];
 
-      const body = {
-        threadId: this.thread.thread_id,
-        runId: uuid(),
-        state: {},
-        messages: priorMessages,
-        tools: [],
-        context: [],
-        forwardedProps,
-      };
+      const runId = uuid();
 
       if (text === null) this.draftMessage = "";
       this.$nextTick(() => this.autosize());
       this.streaming = true;
       this.runStoppable = true;
       this.runStartedAt = Date.now();
-      this._activeRun = { threadId: this.thread.thread_id, runId: body.runId };
+      this._activeRun = { threadId: this.thread.thread_id, runId };
 
       let reason = "finished";
       try {
-        const resp = await this._postRun(body);
+        const resp = await this._postRun({ runId, messages: priorMessages, forwardedProps });
 
         if (!resp.ok) {
           this._pushRunStatus("failed", await formatHttpError(resp));
@@ -1620,12 +1605,8 @@
       }
     },
 
-    // Send only user turns. Streamed assistant turns carry a client-minted
-    // UUID (set when we pushed the placeholder), but the server stored the
-    // AIMessage under its own LangChain-generated id — echoing the assistant
-    // turn back would slip past ag_ui_langgraph's id-based dedupe and append
-    // a duplicate AIMessage to the checkpoint. The agent reads prior history
-    // from the checkpointer; it doesn't need the client to replay it.
+    // Only user turns: a streamed assistant turn's client-minted id slips past ag_ui_langgraph's id dedupe, so
+    // echoing it would append a duplicate AIMessage to the checkpoint.
     _userMessages(turns) {
       return turns
         .filter((t) => t.role === "user")
@@ -1640,7 +1621,20 @@
         .filter((m) => m.content);
     },
 
-    _postRun(body) {
+    _postRun({ runId = uuid(), messages, forwardedProps }) {
+      // Only sent once the user has actually touched the Tools sheet: an absent key tells
+      // the server to keep the thread's stored overrides. Sending an untouched selection
+      // would be harmless but would re-diff it against a pool the admin may have changed.
+      if (this._mcpTouched) forwardedProps = { ...forwardedProps, mcp_servers: [...this.mcpSelected] };
+      const body = {
+        threadId: this.thread.thread_id,
+        runId,
+        state: {},
+        messages,
+        tools: [],
+        context: [],
+        forwardedProps,
+      };
       // Forward the picker's selection so the API resolves the requested env per-request;
       // missing or empty falls through to the GLOBAL default on the server.
       const envHeaders = this.selectedSandboxEnvId ? { "X-Sandbox-Env": this.selectedSandboxEnvId } : {};
@@ -1670,23 +1664,11 @@
       let failure = "";
       try {
         const resp = await this._postRun({
-          threadId: this.thread.thread_id,
-          runId: uuid(),
-          state: {},
-          messages: [...this._userMessages(this.turns), { id: uuid(), role: "user", content: message }],
-          tools: [],
-          context: [],
+          messages: [{ id: uuid(), role: "user", content: message }],
           forwardedProps: { queue: true },
         });
         if (resp.ok) {
-          const { queued } = await resp.json();
-          this.queuedRunId = queued.run_id || "";
-          window.dispatchEvent(
-            new CustomEvent("daiv:up-next-provisional", {
-              detail: { event_id: queued.event_id, run_id: this.queuedRunId, text: message },
-            }),
-          );
-          if (!this._sessionRendered) window.location.reload();
+          this._announceQueued((await resp.json()).queued, message);
         } else {
           failure = await formatHttpError(resp);
         }
@@ -1753,10 +1735,11 @@
       return text;
     },
 
-    // Stopped before DAIV answered: the server took the turn back, so its message returns to the composer.
+    // Stopped before DAIV answered: the server took the turn back, so its message returns to the composer of the
+    // page whose Stop did it.
     _withdrawTurn(assistantTurn) {
       const text = this._detachTurn(assistantTurn);
-      if (!text) return;
+      if (!text || !this._activeRun?.stopped) return;
       this.draftMessage = this.draftMessage.trim() ? `${text}\n\n${this.draftMessage}` : text;
       this.$nextTick(() => this.autosize());
     },
@@ -1764,18 +1747,23 @@
     // The session was busy, so the message waits for its next run (the ``daiv.queued`` answer). It leaves the
     // conversation for Up next until that run opens with it; ``followLiveRun`` tails the run once it starts.
     _queueTurn(assistantTurn, queued) {
-      const text = this._detachTurn(assistantTurn);
-      window.dispatchEvent(
-        new CustomEvent("daiv:up-next-provisional", {
-          detail: { event_id: queued.event_id, run_id: queued.run_id || "", text },
-        }),
-      );
+      this._announceQueued(queued, this._detachTurn(assistantTurn));
       this.streaming = false;
       this.runStartedAt = null;
       this._activeRun = null;
       this.sessionLive = true;
-      this.queuedRunId = queued.run_id || "";
       this.scrollToBottom();
+    },
+
+    // Up next shows a queued message; a page rendered before its session existed has no Up next until it reloads.
+    _announceQueued(queued, text) {
+      this.queuedRunId = queued.run_id || "";
+      window.dispatchEvent(
+        new CustomEvent("daiv:up-next-provisional", {
+          detail: { event_id: queued.event_id, run_id: this.queuedRunId, text },
+        }),
+      );
+      if (!config.thread) window.location.reload();
     },
 
     async stop() {
@@ -1783,6 +1771,7 @@
       // stream stays open so the server's RUN_ERROR(run_cancelled) event and
       // end frame settle the turn state.
       if (!this._activeRun || !this.cancelEndpoint) return;
+      this._activeRun.stopped = true;
       try {
         const resp = await fetch(this.cancelEndpoint, {
           method: "POST",

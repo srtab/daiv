@@ -134,6 +134,8 @@
 
   const turnKey = (turn, ti) => turn.id || `@${ti}`;
 
+  const answered = (run) => run.turns.some(({ turn }) => turn.role === "assistant" && turn.segments?.length);
+
   const splitRuns = (turns) => {
     const runs = [];
     let run = null;
@@ -157,10 +159,11 @@
         run = null;
         return;
       }
-      // A stop its owner asked for leaves the answer where it stopped, with no marker under it.
-      if (turn.role === "run_status" && turn.silent) return;
       // A run without a prompt starts at its first turn, which carries its run_id (a failed one's is its marker).
-      if (!run || turn.role === "user" || (turn.run_id && run.runId && turn.run_id !== run.runId)) open(turn, ti);
+      const opens = !run || turn.role === "user" || (turn.run_id && run.runId && turn.run_id !== run.runId);
+      // A stop its owner asked for leaves the answer where it stopped, with no marker under it.
+      if (turn.role === "run_status" && turn.silent && !opens && answered(run)) return;
+      if (opens) open(turn, ti);
       if (turn.role === "run_status") run.statuses.push(turn);
       else run.turns.push({ turn, ti });
     });

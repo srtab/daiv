@@ -11,17 +11,15 @@ from django.db import IntegrityError, transaction
 
 from asgiref.sync import sync_to_async
 
-from sessions.inbox.drain import drain_logged, is_busy, job_run_active, next_run_for, requester_of
+from sessions.inbox.drain import describe_next_run, drain_logged, is_busy, job_run_active, next_run_for, requester_of
 from sessions.inbox.kinds import (
     KEY_MAX_LENGTH,
-    PRECEDENCE,
     WAKING_KINDS,
     child_ci_key,
     child_ci_subject,
     run_trigger_type,
     validate_payload,
 )
-from sessions.inbox.render import render_request
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session
 
 if TYPE_CHECKING:
@@ -135,16 +133,6 @@ def post_delegated_ci_outcome(
 apost_delegated_ci_outcome = sync_to_async(post_delegated_ci_outcome)
 
 
-def _describe_next_run(run: Run) -> None:
-    """Keep the next run's prompt and provisional trigger type in step with the events waiting for it, so the session
-    page shows what it will do while it waits."""
-    waiting = list(InboxEvent.objects.filter(run=run, state=EventState.PENDING, wake=True).select_related("author"))
-    top = min(waiting, key=lambda event: (PRECEDENCE[event.kind], event.created_at))
-    Run.objects.filter(pk=run.pk).update(
-        prompt=render_request(waiting), trigger_type=run_trigger_type(top.kind, top.payload)
-    )
-
-
 def attach_next_run(event: InboxEvent) -> Run | None:
     """The run that handles the waking ``event``: the one it joined or that took it, else, while its session is busy,
     its branch's next run, created when there is none. ``None`` when the event cannot run (it failed or was
@@ -170,7 +158,7 @@ def _join_next_run(session: Session, event: InboxEvent) -> Run | None:
     if (run := _next_run(session, event)) is not None:
         InboxEvent.objects.filter(pk=event.pk).update(run=run)
         event.run = run
-        _describe_next_run(run)
+        describe_next_run(run)
     return run
 
 

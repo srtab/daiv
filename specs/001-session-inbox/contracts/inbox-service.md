@@ -41,8 +41,8 @@ async def adrain(thread_id: str) -> Run | None
   2. picks the branch of the oldest surviving waking event (R4);
   3. turns waking events that the policy blocks (the consecutive-run limit) into remembered ones (`wake=False`, `reason` set). If no waking event survives, it deletes the QUEUED next run for that branch, detaching its events, and returns `None`;
   4. checks the owner's repository access, marking events `failed/access_denied` if it is denied;
-  5. promotes the QUEUED next run for that branch (or creates a READY one), sets `trigger_type` by precedence, and claims `Session.active_run_id = str(run.pk)`;
-  6. marks the taken events `taken` with `run=run`;
+  5. promotes the QUEUED next run for that branch (or creates a READY one, also when that next run holds requests left for a later run), sets `trigger_type` by precedence, and claims `Session.active_run_id = str(run.pk)`;
+  6. marks the taken events `taken` with `run=run`: the requester's waking events up to their first builtin slash command, with the branch's remembered events, or that command alone when it comes first, since the slash-command middleware answers a command only as a run's whole request;
   7. for a waking `ci_failed`, sets the ownership's `last_examined_sha` and increments `attempts`.
 - **After commit**, it enqueues `run_job_task` through `sessions.queue.aenqueue_run`. An enqueue failure releases the slot and returns the events to `pending` (`patterns/errors.md` rule 1: `logger.error`).
 - **Return value**: the dispatched run, or `None`.

@@ -7,7 +7,7 @@ from sessions.models import EventKind, EventState, Run, RunStatus, Session, Sess
 from sessions.up_next import up_next_payload
 
 from accounts.models import Role, User
-from tests.unit_tests.sessions.inbox.conftest import ci_payload, make_event, mention_payload
+from tests.unit_tests.sessions.inbox.conftest import chat_payload, ci_payload, make_event, mention_payload
 
 pytestmark = pytest.mark.django_db
 
@@ -83,6 +83,43 @@ def test_two_requesters_get_a_group_each_in_the_order_they_asked(session, owner)
     assert (second["who"], second["is_viewer"]) == ("Bruno Reviewer", False)
     assert [bubble["id"] for bubble in second["bubbles"]] == [f"inbox-{mention.pk}"]
     assert payload["told"] == []
+
+
+def test_a_builtin_command_is_a_group_of_its_own_where_the_drain_runs_it(session, owner):
+    reviewer = _user("rev", "Bruno Reviewer")
+    _busy(session)
+    mine = _run(session, user=owner)
+    theirs = _run(session, user=reviewer, trigger=SessionOrigin.MR_WEBHOOK)
+    before = make_event(session, EventKind.CHAT_MESSAGE, run=mine, author=owner, payload=chat_payload("Fix it"))
+    command = make_event(session, EventKind.CHAT_MESSAGE, run=mine, author=owner, payload=chat_payload("/help"))
+    mention = make_event(
+        session, EventKind.MENTION, run=theirs, author=reviewer, merge_request_iid=104, payload=mention_payload()
+    )
+    after = make_event(session, EventKind.CHAT_MESSAGE, run=mine, author=owner, payload=chat_payload("Add a test"))
+    push = make_event(session, EventKind.BRANCH_PUSHED, ref=session.ref, payload=_push())
+
+    groups = _payload(session, owner)["groups"]
+
+    assert [[bubble["id"] for bubble in group["bubbles"]] for group in groups] == [
+        [f"inbox-{before.pk}"],
+        [f"inbox-{command.pk}"],
+        [f"inbox-{mention.pk}"],
+        [f"inbox-{after.pk}"],
+    ]
+    assert [group["run_id"] for group in groups] == ["", "", str(theirs.pk), str(mine.pk)]
+    assert [[line["id"] for line in group["told"]] for group in groups] == [[f"inbox-{push.pk}"], [], [], []]
+
+
+def test_remembered_events_wait_for_the_run_after_a_leading_command(session, owner):
+    _busy(session)
+    mine = _run(session, user=owner)
+    make_event(session, EventKind.CHAT_MESSAGE, run=mine, author=owner, payload=chat_payload("/agents"))
+    make_event(session, EventKind.CHAT_MESSAGE, run=mine, author=owner, payload=chat_payload("Add a test"))
+    push = make_event(session, EventKind.BRANCH_PUSHED, ref=session.ref, payload=_push())
+
+    command, rest = _payload(session, owner)["groups"]
+
+    assert (command["told"], [line["id"] for line in rest["told"]]) == ([], [f"inbox-{push.pk}"])
 
 
 def test_a_session_at_the_run_limit_lists_a_finished_delegation_as_told(session, owner):

@@ -6,7 +6,7 @@ a delegated batch finishing: each becomes an ``InboxEvent`` on that session, pos
 
 - **An event wakes the agent or is only remembered.** ``wake`` is fixed when the event is posted. A remembered event
   starts no run; the next run on its branch takes it as context. Only CI and delegation events can be turned into
-  remembered ones at take time, by mute or the consecutive-run limit (:mod:`sessions.inbox.policy`), so a person's
+  remembered ones at take time, by the consecutive-run limit (:mod:`sessions.inbox.policy`), so a person's
   request is never dropped.
 - **One run per session, claimed when the run is created.** :func:`sessions.inbox.drain.adrain` claims
   ``Session.active_run_id`` with the run's pk in the same transaction that makes the run READY, and ``run_job_task``
@@ -23,10 +23,11 @@ a delegated batch finishing: each becomes an ``InboxEvent`` on that session, pos
   return while it waits. The drain promotes it to READY when the slot frees.
 - **A run takes the pending events for its branch and requester.** The branch and requester are those of the oldest
   waking event. Every waking event of that requester whose ``ref`` is blank or equals the branch is taken, and every
-  remembered one for the branch; the rest wait for runs of their own. A chat message, a follow-up job sent without a
-  branch and a finished batch follow the session to the branch its runs moved to; a mention or a CI result keeps its
-  merge request's. Of the pending events sharing a ``subject`` only the newest is taken; the older ones become
-  ``superseded``.
+  remembered one for the branch, up to the first builtin slash command; the rest wait for runs of their own. A command
+  runs alone, as the slash-command middleware answers it only as a run's whole request. A chat message, a follow-up
+  job sent without a branch and a finished batch follow the session to the branch its runs moved to; a mention or a
+  CI result keeps its merge request's. Of the pending events sharing a ``subject`` only the newest is taken; the older
+  ones become ``superseded``.
 - **Remembered events reach the model as a hidden synthetic message.** :func:`sessions.inbox.render.arender_input`
   turns the taken events into a ``synthetic_message(kind="inbox")`` the transcript hides, followed by one
   ``HumanMessage`` with people's words, or a DAIV-written prompt when only CI or a delegation woke the run.

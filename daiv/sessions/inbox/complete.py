@@ -29,7 +29,9 @@ The sweep (``sessions.tasks.drain_inboxes_cron_task``) settles events the same w
 before the run ended.
 
 An inline chat turn takes its events under its holder id before its ``Run`` exists; when the turn ends before that,
-:func:`arelease_chat_claim` puts them back as ``pending`` for the next turn, without spending an attempt.
+:func:`arelease_chat_claim` puts them back as ``pending`` for the next turn, without spending an attempt. A turn its
+owner stopped before DAIV answered is withdrawn (:func:`awithdraw_chat_run`): its ``Run`` is deleted and its events go
+back the same way.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ import logging
 from typing import TYPE_CHECKING
 from urllib.parse import urldefrag
 
+from django.db import transaction
 from django.db.models import Q
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -45,6 +48,7 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 
 from codebase.base import GitPlatform
+from core import ui_events
 from core.constants import BOT_NAME
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.drain import drain_logged
@@ -100,6 +104,20 @@ async def arelease_chat_claim(thread_id: str, holder_id: str) -> int:
     return await InboxEvent.objects.filter(
         session_id=thread_id, claim_token=holder_id, state=EventState.TAKEN, run__isnull=True
     ).aupdate(state=EventState.PENDING, claim_token="", updated_at=timezone.now())
+
+
+def withdraw_chat_run(run: Run) -> None:
+    """Delete the chat ``Run`` its owner stopped before DAIV answered, putting back the events it took as ``pending``
+    for the next turn: they never reached the model and cost no attempt. SYNC ONLY."""
+    with transaction.atomic():
+        InboxEvent.objects.filter(run=run, state=EventState.TAKEN).update(
+            state=EventState.PENDING, run=None, updated_at=timezone.now()
+        )
+        Run.objects.filter(pk=run.pk).delete()
+        transaction.on_commit(ui_events.publisher.runs_changed)
+
+
+awithdraw_chat_run = sync_to_async(withdraw_chat_run)
 
 
 def settle_events(run: Run) -> None:

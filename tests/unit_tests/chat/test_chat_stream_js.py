@@ -836,7 +836,7 @@ chat.turns = [
   { id: "a1", role: "assistant", segments: [{ type: "text", content: "Looking" }], streaming: true },
 ];
 Object.assign(chat, payload.state, { _activeRun: { threadId: "t1", runId: "live" } });
-chat.draftMessage = "Also add a test";
+chat.draftMessage = payload.draft;
 const canSend = chat.canSend();
 await chat.submit();
 process.stdout.write(JSON.stringify({
@@ -861,7 +861,16 @@ const toasts = [];
 """
 
 
-def _send_mid_run(state: dict, reply: dict, *, status: int = 200, rendered: bool = True) -> dict:
+QUEUED_REPLY = {
+    "run_id": "r2",
+    "thread_id": "t1",
+    "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"},
+}
+
+
+def _send_mid_run(
+    state: dict, reply: dict = QUEUED_REPLY, *, status: int = 200, rendered: bool = True, draft: str = "Also add a test"
+) -> dict:
     fetch = (
         "fetch: async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); "
         f"return {{ ok: {str(status < 400).lower()}, status: {status}, statusText: '', "
@@ -869,7 +878,7 @@ def _send_mid_run(state: dict, reply: dict, *, status: int = 200, rendered: bool
     )
     return run_chat_stream(
         MID_RUN_BODY,
-        {"state": state, "rendered": rendered},
+        {"state": state, "rendered": rendered, "draft": draft},
         prelude=REACTIVITY + EVENT_SOURCE + MID_RUN_PRELUDE,
         extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, " + fetch,
     )
@@ -881,14 +890,12 @@ def _send_mid_run(state: dict, reply: dict, *, status: int = 200, rendered: bool
     ids=["streaming", "resuming", "waiting"],
 )
 def test_a_message_sent_mid_run_waits_for_the_next_run_and_leaves_the_live_one_alone(state):
-    reply = {"run_id": "r2", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
-
-    out = _send_mid_run(state, reply)
+    out = _send_mid_run(state)
 
     assert out["canSend"] is True
     (body,) = out["sent"]
     assert body["forwardedProps"] == {"queue": True}
-    assert body["messages"][-1]["content"] == "Also add a test"
+    assert [(message["role"], message["content"]) for message in body["messages"]] == [("user", "Also add a test")]
     assert out["turns"] == [["u1", False], ["a1", True]]
     assert (out["streaming"], out["resuming"], out["run"]) == (
         state.get("streaming", False),
@@ -901,11 +908,26 @@ def test_a_message_sent_mid_run_waits_for_the_next_run_and_leaves_the_live_one_a
 
 
 def test_a_page_that_started_its_session_reloads_to_show_a_message_queued_mid_run():
-    reply = {"run_id": "r2", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
-
-    out = _send_mid_run({"streaming": True}, reply, rendered=False)
+    out = _send_mid_run({"streaming": True}, rendered=False)
 
     assert (out["reloads"], out["draft"]) == (1, "")
+
+
+@pytest.mark.parametrize("draft", ["/clear", "  /plan the migration", "/unknown is not a command"])
+def test_a_slash_command_typed_mid_run_is_queued_like_any_message(draft):
+    out = _send_mid_run({"streaming": True}, draft=draft)
+
+    assert [body["messages"][-1]["content"] for body in out["sent"]] == [draft]
+    assert (out["draft"], out["toasts"]) == ("", [])
+
+
+@pytest.mark.parametrize(
+    ("touched", "expected"), [(True, {"queue": True, "mcp_servers": ["grafana"]}), (False, {"queue": True})]
+)
+def test_a_message_queued_mid_run_carries_the_tools_selection_once_touched(touched, expected):
+    out = _send_mid_run({"streaming": True, "_mcpTouched": touched, "mcpSelected": ["grafana"]})
+
+    assert [body["forwardedProps"] for body in out["sent"]] == [expected]
 
 
 def test_a_refused_mid_run_message_comes_back_to_the_draft():
@@ -916,7 +938,11 @@ def test_a_refused_mid_run_message_comes_back_to_the_draft():
 
 
 WITHDRAWN_BODY = """
-const chat = registry.chat({ endpoint: "/api/chat", thread: { thread_id: "t1", repo_id: "r", ref: "main" } });
+const chat = registry.chat({
+  endpoint: "/api/chat",
+  cancelEndpoint: "/api/chat/cancel",
+  thread: { thread_id: "t1", repo_id: "r", ref: "main" },
+});
 chat.$nextTick = (cb) => cb && cb();
 chat.scrollToBottom = () => {};
 chat.autosize = () => {};
@@ -928,6 +954,8 @@ chat.turns = [
   { id: "h2", role: "user", segments: [{ type: "text", content: "do it" }] },
   live,
 ];
+chat._activeRun = { threadId: "t1", runId: "r2" };
+if (payload.stoppedHere ?? true) await chat.stop();
 chat.dispatch({ type: "RUN_ERROR", code: payload.code, message: "Stopped by user." }, live, Date.now());
 process.stdout.write(JSON.stringify({
   turns: chat.turns.map((t) => (t.role === "run_status" ? `status:${t.status}${t.silent ? ":silent" : ""}` : t.id)),
@@ -937,15 +965,29 @@ process.stdout.write(JSON.stringify({
 """
 
 
+WITHDRAWN_GLOBALS = "fetch: async () => ({ ok: true, status: 200 }),"
+
+
+def _stop_live_turn(code: str, *, draft: str = "", stopped_here: bool = True) -> dict:
+    payload = {"code": code, "draft": draft, "stoppedHere": stopped_here}
+    return run_chat_stream(WITHDRAWN_BODY, payload, extra_globals=WITHDRAWN_GLOBALS)
+
+
 @pytest.mark.parametrize(("draft", "restored"), [("", "do it"), ("also this", "do it\n\nalso this")])
 def test_a_turn_withdrawn_before_daiv_answered_goes_back_to_the_composer(draft, restored):
-    out = run_chat_stream(WITHDRAWN_BODY, {"code": "run_withdrawn", "draft": draft})
+    out = _stop_live_turn("run_withdrawn", draft=draft)
 
     assert out == {"turns": ["h1", "a1"], "draft": restored, "status": "idle"}
 
 
+def test_a_withdrawn_turn_leaves_the_composer_of_a_page_that_did_not_stop_it_alone():
+    out = _stop_live_turn("run_withdrawn", draft="my own note", stopped_here=False)
+
+    assert out == {"turns": ["h1", "a1"], "draft": "my own note", "status": "idle"}
+
+
 def test_a_turn_stopped_after_daiv_answered_keeps_its_message_under_a_silent_marker():
-    out = run_chat_stream(WITHDRAWN_BODY, {"code": "run_cancelled", "draft": ""})
+    out = _stop_live_turn("run_cancelled")
 
     assert out == {"turns": ["h1", "a1", "h2", "a2", "status:aborted:silent"], "draft": "", "status": "stopped"}
 

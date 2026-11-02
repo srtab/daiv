@@ -285,10 +285,23 @@ def test_run_status_attaches_to_the_preceding_block_and_does_not_end_it():
     assert blocks[0]["endedAt"] == ENDED and blocks[0]["lastTurn"]["id"] == "a1"
 
 
-def test_a_silent_marker_shows_nothing_and_opens_no_block():
-    marker = {**status_turn("aborted"), "run_id": "run-9", "silent": True}
+def test_a_silent_marker_under_an_answer_shows_nothing():
+    marker = {**status_turn("aborted"), "run_id": "run-u1", "silent": True}
     blocks = _blocks([user("u1"), asst("a1", text("ok")), marker])
     assert [len(b["statuses"]) for b in blocks] == [0]
+
+
+@pytest.mark.parametrize(
+    ("turns", "statuses"),
+    [
+        ([user("u1"), {**status_turn("aborted"), "run_id": "run-u1", "silent": True}], [1]),
+        ([user("u1"), asst("a1", streaming=True), {**status_turn("aborted"), "silent": True}], [1]),
+        ([user("u1"), asst("a1", text("ok")), {**status_turn("aborted"), "run_id": "run-9", "silent": True}], [0, 1]),
+    ],
+    ids=["reloaded", "live", "a-run-without-a-prompt"],
+)
+def test_a_silent_marker_of_a_stop_that_left_no_answer_is_drawn(turns, statuses):
+    assert [len(b["statuses"]) for b in _blocks(turns)] == statuses
 
 
 def test_a_marker_carrying_its_own_run_id_is_its_own_block():
