@@ -915,6 +915,57 @@ def test_a_refused_mid_run_message_comes_back_to_the_draft():
     assert [level for _message, level in out["toasts"]] == ["error"]
 
 
+KEYDOWN_BODY = """
+if (payload.coarse) sandbox.window.matchMedia = (query) => ({ matches: query === "(pointer: coarse)" });
+const chat = registry.chat({ endpoint: "/api/chat", thread: { thread_id: "t1", repo_id: "r", ref: "main" } });
+const submitted = [];
+chat.submit = () => submitted.push(chat.draftMessage);
+chat.autosize = () => {};
+chat.$nextTick = (cb) => cb && cb();
+chat.$refs = {};
+chat.draftMessage = payload.draft;
+const at = payload.caret ?? payload.draft.length;
+const prompt = {
+  value: payload.draft, selectionStart: at, selectionEnd: at,
+  setRangeText(text, start, end) {
+    this.value = this.value.slice(0, start) + text + this.value.slice(end);
+    this.selectionStart = this.selectionEnd = start + text.length;
+  },
+};
+let prevented = false;
+const event = { key: "Enter", target: prompt, preventDefault: () => { prevented = true; }, stopPropagation() {} };
+chat.onPromptKeydown({ ...event, ...payload.keys });
+process.stdout.write(JSON.stringify({ prevented, submitted, draft: chat.draftMessage }));
+"""
+
+
+def _press_enter(keys: dict, *, draft: str = "fix it", caret: int | None = None, coarse: bool = False) -> dict:
+    return run_chat_stream(KEYDOWN_BODY, {"keys": keys, "draft": draft, "caret": caret, "coarse": coarse})
+
+
+def test_enter_sends_the_message():
+    assert _press_enter({}) == {"prevented": True, "submitted": ["fix it"], "draft": "fix it"}
+
+
+@pytest.mark.parametrize("modifier", ["ctrlKey", "metaKey"])
+def test_ctrl_or_cmd_enter_breaks_the_line_at_the_caret(modifier):
+    out = _press_enter({modifier: True}, draft="first second", caret=5)
+
+    assert out == {"prevented": True, "submitted": [], "draft": "first\n second"}
+
+
+def test_shift_enter_leaves_the_line_break_to_the_browser():
+    assert _press_enter({"shiftKey": True}) == {"prevented": False, "submitted": [], "draft": "fix it"}
+
+
+def test_enter_on_a_touch_keyboard_breaks_the_line_instead_of_sending():
+    assert _press_enter({}, coarse=True) == {"prevented": False, "submitted": [], "draft": "fix it"}
+
+
+def test_enter_that_commits_an_ime_candidate_sends_nothing():
+    assert _press_enter({"isComposing": True}) == {"prevented": False, "submitted": [], "draft": "fix it"}
+
+
 INBOX_BODY = """
 const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
 chat.$watch = watchOn(chat);

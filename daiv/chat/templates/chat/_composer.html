@@ -87,8 +87,6 @@ box (``_command_menu.html``).
               x-model="draftMessage"
               @input="autosize(); onPromptInput()"
               @keydown="onPromptKeydown($event)"
-              @keydown.meta.enter.prevent="submit()"
-              @keydown.ctrl.enter.prevent="submit()"
               aria-autocomplete="list"
               aria-controls="chat-command-menu"
               :aria-expanded="slashMenuOpen"

@@ -618,13 +618,33 @@
       this.slashIndex = 0;
     },
 
-    // One handler instead of per-key `@keydown.*.prevent` bindings: Alpine's modifiers
-    // preventDefault unconditionally, and plain Enter must keep inserting newlines
-    // whenever the menu is closed.
+    // One handler, since Alpine's key modifiers preventDefault unconditionally. A touch keyboard
+    // has no Ctrl, so there Enter keeps its line break and the Send button sends.
     onPromptKeydown(e) {
       // Enter commits an IME candidate; stealing it would cancel the composition.
       if (e.isComposing || e.keyCode === 229) return;
-      if (!this.slashMenuOpen) return;
+      if (this.slashMenuOpen && this._onSlashMenuKeydown(e)) return;
+      if (e.key !== "Enter" || e.shiftKey || e.altKey) return;
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        this._breakLine(e.target);
+      } else if (!window.matchMedia?.("(pointer: coarse)").matches) {
+        e.preventDefault();
+        this.submit();
+      }
+    },
+
+    _breakLine(prompt) {
+      // ``insertText`` keeps the line break in the browser's undo history.
+      if (!document.execCommand?.("insertText", false, "\n")) {
+        prompt.setRangeText("\n", prompt.selectionStart, prompt.selectionEnd, "end");
+      }
+      this.draftMessage = prompt.value;
+      this.autosize();
+    },
+
+    // Whether the open command menu took the key.
+    _onSlashMenuKeydown(e) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         this.moveSlashHighlight(1);
@@ -640,7 +660,10 @@
         // closeSheet() listener also fire.
         e.stopPropagation();
         this.slashDismissed = true;
+      } else {
+        return false;
       }
+      return true;
     },
 
     moveSlashHighlight(delta) {
