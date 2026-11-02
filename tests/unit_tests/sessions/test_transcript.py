@@ -126,7 +126,7 @@ def test_failed_middle_run_inserts_marker_after_its_segment_by_message_id():
     assert marker["message"] == "Run failed. Check server logs for details."
 
 
-def test_cancelled_run_renders_aborted_marker():
+def test_a_run_its_owner_stopped_keeps_a_silent_marker():
     turns = [_user("h1"), _assistant("a1")]
     runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, error_message=CANCELLED_BY_USER_MESSAGE)]
     result = annotate_transcript(turns, runs)
@@ -135,6 +135,7 @@ def test_cancelled_run_renders_aborted_marker():
         "role": "run_status",
         "status": "aborted",
         "message": CANCELLED_BY_USER_MESSAGE,
+        "silent": True,
     }
 
 
@@ -246,7 +247,7 @@ def test_a_chat_message_the_inbox_ran_and_its_owner_stopped_reads_as_stopped():
         )
     ]
     marker = annotate_transcript(turns, runs)[-1]
-    assert (marker["status"], marker["message"]) == ("aborted", CANCELLED_BY_USER_MESSAGE)
+    assert (marker["status"], marker["message"], marker["silent"]) == ("aborted", CANCELLED_BY_USER_MESSAGE, True)
 
 
 def test_chat_failed_run_with_empty_error_message_falls_back_to_generic():

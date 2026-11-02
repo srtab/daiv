@@ -930,8 +930,9 @@ chat.turns = [
 ];
 chat.dispatch({ type: "RUN_ERROR", code: payload.code, message: "Stopped by user." }, live, Date.now());
 process.stdout.write(JSON.stringify({
-  turns: chat.turns.map((t) => (t.role === "run_status" ? `status:${t.status}` : t.id)),
+  turns: chat.turns.map((t) => (t.role === "run_status" ? `status:${t.status}${t.silent ? ":silent" : ""}` : t.id)),
   draft: chat.draftMessage,
+  status: chat.runStatus.label,
 }));
 """
 
@@ -940,13 +941,13 @@ process.stdout.write(JSON.stringify({
 def test_a_turn_withdrawn_before_daiv_answered_goes_back_to_the_composer(draft, restored):
     out = run_chat_stream(WITHDRAWN_BODY, {"code": "run_withdrawn", "draft": draft})
 
-    assert out == {"turns": ["h1", "a1"], "draft": restored}
+    assert out == {"turns": ["h1", "a1"], "draft": restored, "status": "idle"}
 
 
-def test_a_turn_stopped_after_daiv_answered_keeps_its_message_and_marker():
+def test_a_turn_stopped_after_daiv_answered_keeps_its_message_under_a_silent_marker():
     out = run_chat_stream(WITHDRAWN_BODY, {"code": "run_cancelled", "draft": ""})
 
-    assert out == {"turns": ["h1", "a1", "h2", "a2", "status:aborted"], "draft": ""}
+    assert out == {"turns": ["h1", "a1", "h2", "a2", "status:aborted:silent"], "draft": "", "status": "stopped"}
 
 
 KEYDOWN_BODY = """

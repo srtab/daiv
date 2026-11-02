@@ -285,6 +285,12 @@ def test_run_status_attaches_to_the_preceding_block_and_does_not_end_it():
     assert blocks[0]["endedAt"] == ENDED and blocks[0]["lastTurn"]["id"] == "a1"
 
 
+def test_a_silent_marker_shows_nothing_and_opens_no_block():
+    marker = {**status_turn("aborted"), "run_id": "run-9", "silent": True}
+    blocks = _blocks([user("u1"), asst("a1", text("ok")), marker])
+    assert [len(b["statuses"]) for b in blocks] == [0]
+
+
 def test_a_marker_carrying_its_own_run_id_is_its_own_block():
     marker = {**status_turn("failed"), "run_id": "run-9"}
     blocks = _blocks([user("u1"), asst("a1", text("ok")), marker])

@@ -1932,7 +1932,7 @@
         if (evt.code === "run_withdrawn") {
           this._withdrawTurn(turn);
         } else if (evt.code === "run_cancelled") {
-          this._pushRunStatus("aborted", "Stopped by user.");
+          this._pushRunStatus("aborted", "Stopped by user.", { silent: true });
         } else if (evt.code === "run_interrupted") {
           this._pushRunStatus("aborted", evt.message || "Run was interrupted before completing.");
         } else if (!this._hasFailedPublish()) {
@@ -2011,14 +2011,13 @@
       return `run-status-${run ? run.recordId || run.runId : uuid()}`;
     },
 
-    _pushRunStatus(status, message) {
+    _pushRunStatus(status, message, { silent = false } = {}) {
       const id = this._runStatusId();
       const existing = this.turns.find((t) => t.id === id);
       if (existing) {
-        existing.status = status;
-        existing.message = message;
+        Object.assign(existing, { status, message, silent });
       } else {
-        this.turns.push({ id, role: "run_status", status, message });
+        this.turns.push({ id, role: "run_status", status, message, silent });
       }
       this.scrollToBottom();
     },
