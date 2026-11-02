@@ -33,7 +33,7 @@ from automation.agent.references import merge_stored_refs
 from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.kinds import INBOX_TRIGGERS, PERSON_KINDS, PRECEDENCE, follows_session, run_trigger_type
-from sessions.inbox.policy import may_wake, report_run_limit
+from sessions.inbox.policy import quiet_reason_now, report_run_limit
 from sessions.inbox.render import render_request
 from sessions.models import (
     EventFailure,
@@ -375,24 +375,12 @@ def _apply_policy(session: Session, survivors: Iterable[InboxEvent]) -> None:
     for event in survivors:
         if not event.wake:
             continue
-        reason = QuietReason.WATCH_OFF if _watch_stopped(session, event) else may_wake(session, event.kind)
-        if reason is not None:
+        if (reason := quiet_reason_now(session, event)) is not None:
             event.wake, event.reason = False, reason
             event.save(update_fields=["wake", "reason", "updated_at"])
             limited = limited or reason == QuietReason.RUN_LIMIT
     if limited:
         transaction.on_commit(partial(report_run_limit, session), robust=True)
-
-
-def _watch_stopped(session: Session, event: InboxEvent) -> bool:
-    if event.kind != EventKind.CI_FAILED or event.merge_request_iid is None:
-        return False
-    return (
-        MergeRequestOwnership.objects
-        .filter(repo_id=session.repo_id, merge_request_iid=event.merge_request_iid)
-        .filter(Q(closed_at__isnull=False) | Q(watch_enabled=False))
-        .exists()
-    )
 
 
 def _drop_next_runs(runs: Iterable[Run | None]) -> None:

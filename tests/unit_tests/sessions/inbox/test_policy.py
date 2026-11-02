@@ -4,8 +4,10 @@ from datetime import timedelta
 from django.utils import timezone
 
 import pytest
-from sessions.inbox.policy import MAX_SYSTEM_RUNS_IN_A_ROW, amay_wake
-from sessions.models import EventKind, QuietReason, Run, RunStatus, Session, SessionOrigin
+from sessions.inbox.policy import MAX_SYSTEM_RUNS_IN_A_ROW, amay_wake, quiet_reason_now
+from sessions.models import EventKind, MergeRequestOwnership, QuietReason, Run, RunStatus, Session, SessionOrigin
+
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -87,3 +89,38 @@ class TestConsecutiveRunLimit:
         await _runs(session, SessionOrigin.PIPELINE_WEBHOOK, status=RunStatus.QUEUED)
 
         assert await amay_wake(session, EventKind.CI_FAILED) is None
+
+
+class TestQuietReasonNow:
+    @staticmethod
+    def _sync_session(**fields) -> Session:
+        return Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo", ref="main", **fields
+        )
+
+    def test_a_muted_session_quiets_a_finished_delegation(self):
+        session = self._sync_session(inbox_muted=True)
+        event = make_event(session, EventKind.DELEGATION_FINISHED)
+
+        assert quiet_reason_now(session, event) == QuietReason.MUTED
+
+    def test_a_ci_failure_on_a_closed_merge_request_is_watch_off(self):
+        session = self._sync_session()
+        MergeRequestOwnership.objects.create(
+            repo_id=session.repo_id, merge_request_iid=101, session=session, closed_at=timezone.now()
+        )
+        event = make_event(session, EventKind.CI_FAILED, merge_request_iid=101)
+
+        assert quiet_reason_now(session, event) == QuietReason.WATCH_OFF
+
+    def test_a_persons_request_is_never_quieted(self):
+        session = self._sync_session(inbox_muted=True)
+        event = make_event(session, EventKind.CHAT_MESSAGE)
+
+        assert quiet_reason_now(session, event) is None
+
+    def test_a_remembered_event_has_no_prediction(self):
+        session = self._sync_session(inbox_muted=True)
+        event = make_event(session, EventKind.COMMENT)
+
+        assert quiet_reason_now(session, event) is None

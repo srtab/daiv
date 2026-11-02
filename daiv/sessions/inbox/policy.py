@@ -10,10 +10,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from django.db.models import Q
+
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.kinds import GATED_KINDS
-from sessions.models import InboxEvent, QuietReason, Run, RunStatus, Session, SessionOrigin
+from sessions.models import (
+    EventKind,
+    InboxEvent,
+    MergeRequestOwnership,
+    QuietReason,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+)
 from sessions.signal_defs import inbox_paused
 
 if TYPE_CHECKING:
@@ -34,6 +45,28 @@ def may_wake(session: Session, kind: str) -> QuietReason | None:
 
 
 amay_wake = sync_to_async(may_wake)
+
+
+def quiet_reason_now(session: Session, event: InboxEvent) -> QuietReason | None:
+    """Why the drain would keep ``event`` from waking ``session`` if it ran now, or ``None`` when it would wake it, or
+    when ``event`` was never going to wake it. SYNC ONLY."""
+    if not event.wake:
+        return None
+    if watch_stopped(session, event):
+        return QuietReason.WATCH_OFF
+    return may_wake(session, event.kind)
+
+
+def watch_stopped(session: Session, event: InboxEvent) -> bool:
+    """Whether ``event`` is a CI failure whose merge request was closed, or whose watch was turned off. SYNC ONLY."""
+    if event.kind != EventKind.CI_FAILED or event.merge_request_iid is None:
+        return False
+    return (
+        MergeRequestOwnership.objects
+        .filter(repo_id=session.repo_id, merge_request_iid=event.merge_request_iid)
+        .filter(Q(closed_at__isnull=False) | Q(watch_enabled=False))
+        .exists()
+    )
 
 
 def system_runs_in_a_row(session: Session) -> int:
