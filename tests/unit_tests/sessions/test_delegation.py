@@ -342,7 +342,12 @@ class TestResumeCoordinator:
         assert (event.source_key, event.wake, event.ref, event.author_id) == (
             f"batch:{batch_id}", True, "main", member_user.pk,
         )  # fmt: skip
-        assert event.payload == {"batch_id": str(batch_id), "summary": render_batch_summary(batch_id, [done, failed])}
+        assert event.payload == {
+            "batch_id": str(batch_id),
+            "summary": render_batch_summary(batch_id, [done, failed]),
+            "succeeded": 1,
+            "total": 2,
+        }
         assert not Run.objects.filter(session=coordinator).exists()
         drain.assert_called_once_with(coordinator.pk)
 
@@ -642,6 +647,7 @@ class TestCancel:
         event = await InboxEvent.objects.aget(session=coordinator)
         assert (event.kind, event.source_key) == (EventKind.DELEGATION_FINISHED, f"batch:{batch_id}")
         assert "## acme/api: cancelled" in event.payload["summary"]
+        assert (event.payload["succeeded"], event.payload["total"]) == (1, 2)
 
     async def test_a_stopping_leg_that_finishes_first_keeps_its_merge_request(self, admin_user, drain):
         coordinator = await sync_to_async(make_coordinator)(admin_user)

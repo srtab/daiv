@@ -15,6 +15,7 @@ from sessions.inbox.render import (
     opening_events,
     render_context,
     render_request,
+    summarize,
     timeline_events,
 )
 from sessions.models import EventKind, EventState, InboxEvent, QuietReason, Run, RunStatus, Session, SessionOrigin
@@ -178,6 +179,13 @@ class TestRequest:
         chat = _event(EventKind.CHAT_MESSAGE, {"text": "hi", "agui_message_id": "a"})
 
         assert render_request([superseded, quiet, chat]) == "hi"
+
+
+class TestSummarize:
+    def test_a_finished_delegation_says_how_many_jobs_succeeded(self):
+        payload = {"batch_id": "b", "summary": "…", "succeeded": 2, "total": 3}
+
+        assert summarize(_event(EventKind.DELEGATION_FINISHED, payload)) == "2 of 3 succeeded"
 
 
 @pytest.mark.django_db(transaction=True)

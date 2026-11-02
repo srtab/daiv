@@ -55,10 +55,24 @@ def test_a_ci_bubble_with_no_failed_jobs_names_only_the_pipeline(session):
     assert bubble(event)["text"] == "Pipeline 8812 failed"
 
 
-def test_a_finished_delegation_bubble_is_received_but_not_failed(session):
+def test_a_finished_delegation_bubble_says_how_many_jobs_succeeded(session):
+    payload = {"batch_id": "b", "summary": "…", "succeeded": 3, "total": 3}
+    result = bubble(make_event(session, EventKind.DELEGATION_FINISHED, payload=payload))
+
+    assert (result["received"], result["failed"], result["text"]) == (True, False, "3 of 3 jobs succeeded")
+
+
+def test_a_finished_delegation_with_a_failed_job_is_failed(session):
+    payload = {"batch_id": "b", "summary": "…", "succeeded": 0, "total": 1}
+    result = bubble(make_event(session, EventKind.DELEGATION_FINISHED, payload=payload))
+
+    assert (result["failed"], result["text"]) == (True, "0 of 1 job succeeded")
+
+
+def test_a_finished_delegation_with_no_outcome_leaves_the_text_to_its_source_line(session):
     result = bubble(make_event(session, EventKind.DELEGATION_FINISHED))
 
-    assert (result["received"], result["failed"], result["text"]) == (True, False, "Delegated jobs finished")
+    assert (result["failed"], result["text"]) == (False, "")
 
 
 def test_a_mention_bubble_names_its_author_and_merge_request(session):

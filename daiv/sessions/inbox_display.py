@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from django.utils.translation import gettext as _
+from django.utils.translation import ngettext
 
 from sessions.inbox.policy import MAX_SYSTEM_RUNS_IN_A_ROW
 from sessions.inbox.render import author_name
@@ -47,9 +48,14 @@ def _reason(reason: str) -> str:
 
 
 def received_summary(event: InboxEvent) -> str:
-    """The one line a CI failure or a finished delegated batch shows in its received bubble."""
+    """The one line a CI failure or a finished delegated batch shows in its received bubble; ``""`` for a batch that
+    recorded no outcome, whose bubble's source line says it all."""
     if event.kind == EventKind.DELEGATION_FINISHED:
-        return _("Delegated jobs finished")
+        if (total := event.payload.get("total")) is None:
+            return ""
+        return ngettext(
+            "%(succeeded)s of %(total)s job succeeded", "%(succeeded)s of %(total)s jobs succeeded", total
+        ) % {"succeeded": event.payload["succeeded"], "total": total}
     pipeline_id, jobs = event.payload["pipeline_id"], event.payload.get("failed_jobs") or []
     if jobs:
         return _("Pipeline %(id)s failed: %(jobs)s") % {"id": pipeline_id, "jobs": ", ".join(jobs)}
@@ -74,7 +80,7 @@ def bubble(event: InboxEvent) -> dict[str, Any]:
         "event_id": str(event.pk),
         "kind": event.kind,
         "received": received,
-        "failed": event.kind == EventKind.CI_FAILED,
+        "failed": event.kind == EventKind.CI_FAILED or payload.get("succeeded", 0) < payload.get("total", 0),
         "text": text,
         "source_iid": event.merge_request_iid,
         "trigger_type": payload.get("trigger_type", "") if event.kind == EventKind.FOLLOW_UP_JOB else "",

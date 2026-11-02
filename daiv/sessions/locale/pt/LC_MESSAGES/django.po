@@ -922,6 +922,12 @@ msgstr "A pipeline %(id)s falhou: %(jobs)s"
 msgid "Pipeline %(id)s failed"
 msgstr "A pipeline %(id)s falhou"
 
+#, python-format
+msgid "%(succeeded)s of %(total)s job succeeded"
+msgid_plural "%(succeeded)s of %(total)s jobs succeeded"
+msgstr[0] "%(succeeded)s de %(total)s tarefa concluída com sucesso"
+msgstr[1] "%(succeeded)s de %(total)s tarefas concluídas com sucesso"
+
 msgid "The person it would run as can no longer run on this repository"
 msgstr "A pessoa em nome de quem correria já não pode executar neste repositório"
 

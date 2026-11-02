@@ -73,6 +73,8 @@ class ChatMessagePayload(TypedDict):
 class DelegationFinishedPayload(TypedDict):
     batch_id: str
     summary: str
+    succeeded: NotRequired[int]
+    total: NotRequired[int]
     muted: NotRequired[bool]
 
 

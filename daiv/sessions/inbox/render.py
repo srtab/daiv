@@ -262,7 +262,7 @@ def summarize(event: InboxEvent) -> str:
         case EventKind.FOLLOW_UP_JOB:
             text = payload["prompt"]
         case EventKind.DELEGATION_FINISHED:
-            text = "Delegated jobs finished"
+            text = f"{payload['succeeded']} of {payload['total']} succeeded" if "total" in payload else ""
         case EventKind.COMMENT:
             text = f"{author_name(event)} on !{event.merge_request_iid}: {payload['body']}"
         case EventKind.CI_FAILED | EventKind.CI_PASSED | EventKind.CI_STOPPED:

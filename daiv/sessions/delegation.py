@@ -314,7 +314,12 @@ def _resume_batch(batch_id: uuid.UUID) -> bool:
     if coordinator is None:
         logger.info("resume_coordinator: batch %s has no coordinator session left to resume", batch_id)
         return False
-    payload: dict = {"batch_id": str(batch_id), "summary": render_batch_summary(batch_id, legs)}
+    payload: dict = {
+        "batch_id": str(batch_id),
+        "summary": render_batch_summary(batch_id, legs),
+        "succeeded": sum(leg.status == RunStatus.SUCCESSFUL for leg in legs),
+        "total": len(legs),
+    }
     if legs[0].muted is not None:
         payload["muted"] = legs[0].muted
     result = post_event(
