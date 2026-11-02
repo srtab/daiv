@@ -21,7 +21,7 @@ helpers name the bubbles and lines.
       <template x-for="b in group.bubbles" :key="b.id">
         <article class="chat-turn chat-turn--user chat-turn--pending" data-testid="up-next-request">
           <div class="chat-turn__body">
-            {% include "sessions/_opening_bubble.html" with bubble="b" %}
+            {% include "sessions/_opening_bubble.html" with bubble="b" clamp_id="`up-next-text-${b.id}`" %}
           </div>
           <p class="up-next__meta">
             <span x-text="b.received ? TranscriptLabels.t('received') : bubbleKindLabel(b)"></span>

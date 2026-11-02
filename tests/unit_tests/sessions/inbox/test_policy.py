@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 import pytest
-from sessions.inbox.policy import MAX_SYSTEM_RUNS_IN_A_ROW, amay_wake, quiet_reason_now
+from sessions.inbox.policy import MAX_SYSTEM_RUNS_IN_A_ROW, amay_wake, quiet_reasons_now
 from sessions.models import EventKind, MergeRequestOwnership, QuietReason, Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.sessions.inbox.conftest import make_event
@@ -91,7 +91,7 @@ class TestConsecutiveRunLimit:
         assert await amay_wake(session, EventKind.CI_FAILED) is None
 
 
-class TestQuietReasonNow:
+class TestQuietReasonsNow:
     @staticmethod
     def _sync_session(**fields) -> Session:
         return Session.objects.create(
@@ -102,7 +102,7 @@ class TestQuietReasonNow:
         session = self._sync_session(inbox_muted=True)
         event = make_event(session, EventKind.DELEGATION_FINISHED)
 
-        assert quiet_reason_now(session, event) == QuietReason.MUTED
+        assert quiet_reasons_now(session, [event]) == {event.pk: QuietReason.MUTED}
 
     def test_a_ci_failure_on_a_closed_merge_request_is_watch_off(self):
         session = self._sync_session()
@@ -111,16 +111,28 @@ class TestQuietReasonNow:
         )
         event = make_event(session, EventKind.CI_FAILED, merge_request_iid=101)
 
-        assert quiet_reason_now(session, event) == QuietReason.WATCH_OFF
+        assert quiet_reasons_now(session, [event]) == {event.pk: QuietReason.WATCH_OFF}
 
     def test_a_persons_request_is_never_quieted(self):
         session = self._sync_session(inbox_muted=True)
         event = make_event(session, EventKind.CHAT_MESSAGE)
 
-        assert quiet_reason_now(session, event) is None
+        assert quiet_reasons_now(session, [event]) == {}
 
     def test_a_remembered_event_has_no_prediction(self):
         session = self._sync_session(inbox_muted=True)
         event = make_event(session, EventKind.COMMENT)
 
-        assert quiet_reason_now(session, event) is None
+        assert quiet_reasons_now(session, [event]) == {}
+
+    def test_it_asks_each_question_once_however_many_events(self, django_assert_num_queries):
+        session = self._sync_session(inbox_muted=True)
+        MergeRequestOwnership.objects.create(repo_id=session.repo_id, merge_request_iid=101, watch_enabled=False)
+        failures = [make_event(session, EventKind.CI_FAILED, merge_request_iid=iid) for iid in (101, 102, 103)]
+        delegations = [make_event(session, EventKind.DELEGATION_FINISHED) for _ in range(3)]
+
+        with django_assert_num_queries(1):
+            reasons = quiet_reasons_now(session, failures + delegations)
+
+        assert reasons[failures[0].pk] == QuietReason.WATCH_OFF
+        assert {reasons[event.pk] for event in failures[1:] + delegations} == {QuietReason.MUTED}

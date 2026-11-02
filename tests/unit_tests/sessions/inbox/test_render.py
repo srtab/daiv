@@ -11,6 +11,7 @@ from sessions.inbox.render import (
     MENTION_REPLY_NOTE,
     QUOTE_MAX_CHARS,
     arender_input,
+    opened,
     opening_events,
     render_context,
     render_request,
@@ -19,7 +20,7 @@ from sessions.inbox.render import (
 from sessions.models import EventKind, EventState, InboxEvent, QuietReason, Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.synthetic import synthetic_kind
-from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload, make_event
+from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload, make_event, mention_payload
 
 _START = timezone.now() - timedelta(hours=1)
 
@@ -225,14 +226,25 @@ class TestTimelineReads:
         make_event(session, EventKind.CI_FAILED, wake=False, state=EventState.SUPERSEDED)
         handled = make_event(session, EventKind.COMMENT, state=EventState.HANDLED, run=self._run(session))
         failed = make_event(session, EventKind.MENTION, state=EventState.FAILED, failure="retries_exhausted")
-        make_event(session, EventKind.COMMENT, state=EventState.TAKEN, run=self._run(session, RunStatus.READY))
 
         assert timeline_events(session.thread_id) == [handled, failed]
 
-    def test_opening_events_are_the_waking_events_runs_took(self):
+    def test_opening_events_are_the_waking_events_runs_took_or_tried(self):
         session = self._session()
         chat = make_event(session, EventKind.CHAT_MESSAGE, state=EventState.HANDLED, run=self._run(session))
-        make_event(session, EventKind.MENTION, state=EventState.FAILED, run=self._run(session))
+        failed = make_event(session, EventKind.MENTION, state=EventState.FAILED, run=self._run(session))
+        retried = make_event(session, EventKind.MENTION, payload={**mention_payload(), "tried_runs": ["r1"]})
         make_event(session, EventKind.CHAT_MESSAGE)
 
-        assert opening_events(session.thread_id) == [chat]
+        assert opening_events(session.thread_id) == [chat, failed, retried]
+
+    def test_an_event_opens_the_runs_that_tried_it_then_the_one_holding_it(self):
+        session = self._session()
+        run = self._run(session)
+        event = make_event(
+            session, EventKind.MENTION, state=EventState.TAKEN, run=run,
+            payload={**mention_payload(), "tried_runs": ["r1", "r2"]},
+        )  # fmt: skip
+        pending = make_event(session, EventKind.CHAT_MESSAGE, run=run)
+
+        assert (opened(event), opened(pending)) == (["r1", "r2", str(run.pk)], [])

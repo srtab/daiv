@@ -1,7 +1,15 @@
-{# bubble: an Alpine expression for a bubble (``sessions.inbox_display``): a person's words, or what DAIV received #}
+{# bubble: an Alpine expression for a bubble (``sessions.inbox_display``); clamp_id: one for a page-unique element id #}
 <template x-if="!{{ bubble }}.received">
   <div class="chat-segment chat-segment--text">
-    <span class="chat-text" x-text="{{ bubble }}.text"></span>
+    <div class="chat-user-msg" x-data="userClamp({{ clamp_id }})">
+      <span class="chat-text" :id="id" :class="{ 'chat-text--clamped': collapsed }" x-text="{{ bubble }}.text"></span>
+      <button type="button" class="chat-user-msg__toggle" x-cloak
+              x-show="overflowing"
+              :aria-controls="id"
+              :aria-expanded="(!collapsed).toString()"
+              @click="collapsed = !collapsed"
+              x-text="collapsed ? '{{ show_more_label|escapejs }}' : '{{ show_less_label|escapejs }}'"></button>
+    </div>
   </div>
 </template>
 <template x-if="{{ bubble }}.received">

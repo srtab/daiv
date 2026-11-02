@@ -49,9 +49,11 @@ def _reason(reason: str) -> str:
 def received_summary(event: InboxEvent) -> str:
     """The one line a CI failure or a finished delegated batch shows in its received bubble."""
     if event.kind == EventKind.DELEGATION_FINISHED:
-        return "Delegated jobs finished"
+        return _("Delegated jobs finished")
     pipeline_id, jobs = event.payload["pipeline_id"], event.payload.get("failed_jobs") or []
-    return f"Pipeline {pipeline_id} failed: {', '.join(jobs)}" if jobs else f"Pipeline {pipeline_id} failed"
+    if jobs:
+        return _("Pipeline %(id)s failed: %(jobs)s") % {"id": pipeline_id, "jobs": ", ".join(jobs)}
+    return _("Pipeline %(id)s failed") % {"id": pipeline_id}
 
 
 def bubble(event: InboxEvent) -> dict[str, Any]:

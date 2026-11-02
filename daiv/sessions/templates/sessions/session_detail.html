@@ -210,7 +210,7 @@
                   <div class="chat-turn__body">
                     <template x-for="b in anchorBubbles(block.anchor)" :key="b.id">
                       <div class="chat-turn__opening">
-                        {% include "sessions/_opening_bubble.html" with bubble="b" %}
+                        {% include "sessions/_opening_bubble.html" with bubble="b" clamp_id="`chat-opening-${block.anchor.id}-${b.id}`" %}
                         <template x-if="b.received">
                           <p class="received-msg__meta">
                             <span x-text="TranscriptLabels.t('received')"></span>

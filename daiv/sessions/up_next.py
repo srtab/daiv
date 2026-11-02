@@ -1,11 +1,13 @@
 """What a session will do next, for the "Up next" section that ends its page.
 
 ``groups`` are the runs still to start, in the order they will: a run the drain promoted that no worker started yet
-(``starting``), then the job runs ``sessions.queue`` holds, then one per branch and requester for the pending events
-that will wake a run, ordered by their oldest event as the drain takes them. Each group holds the bubbles of the
-requests that start it and the remembered events its run will be told. ``told`` holds the remembered events no group
-will take, one block per branch. What the drain would decide for a pending event is shown now: an event a newer one
-of its subject replaces is left out, and a waking event the policy quiets is a remembered line with its reason.
+(``starting``), then one per branch and requester for the pending events that will wake a run, ordered by their oldest
+event as the drain takes them, then the job runs ``sessions.queue`` holds, which a run's end releases only after it
+drained the inbox (``run_ended`` goes out before ``run_finished``, and a chat turn's end sends no ``run_finished``).
+Each group holds the bubbles of the requests that start it and the remembered events its run will be told. ``told``
+holds the remembered events no group will take, one block per branch. What the drain would decide for a pending event
+is shown now, through the drain's own rules: an event a newer one of its subject replaces is left out, a request that
+follows the session is on its branch, and a waking event the policy quiets is a remembered line with its reason.
 
 Runs the page already shows as waiting (``SessionActivity.waiting``) are left out, so nothing shows twice.
 """
@@ -19,9 +21,9 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 
 from sessions.executor.lock import session_activity
-from sessions.inbox.drain import Requester, next_runs, requester_of
+from sessions.inbox.drain import Requester, branch_of, newest_of_each_subject, next_runs, requester_of, requester_user
 from sessions.inbox.kinds import PERSON_KINDS
-from sessions.inbox.policy import quiet_reason_now
+from sessions.inbox.policy import quiet_reasons_now
 from sessions.inbox.render import author_name
 from sessions.inbox_display import bubble, run_bubble
 from sessions.models import EventState, InboxEvent, RunStatus
@@ -31,16 +33,20 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from accounts.models import User
+    from sessions.executor.lock import SessionActivity
     from sessions.models import Run, Session
 
 
-def up_next_payload(session: Session, runs: Sequence[Run], viewer: User) -> dict[str, Any] | None:
-    """``session``'s Up next for ``viewer``, from its chronologically ordered ``runs``; ``None`` when nothing is
-    pending. SYNC ONLY."""
-    waiting = set(session_activity(session, runs).waiting)
+def up_next_payload(
+    session: Session, runs: Sequence[Run], viewer: User, activity: SessionActivity | None = None
+) -> dict[str, Any] | None:
+    """``session``'s Up next for ``viewer``, from its chronologically ordered ``runs`` (the unfinished ones suffice)
+    and their ``activity`` when the caller has it; ``None`` when nothing is pending. SYNC ONLY."""
+    waiting = set((activity or session_activity(session, runs)).waiting)
     starting = [run for run in runs if run.status == RunStatus.READY and run not in waiting]
-    inbox_runs = list(next_runs(session).select_related("user"))
+    inbox_runs = [run for run in next_runs(session).select_related("user") if run not in waiting]
     inbox_ids = {run.pk for run in inbox_runs}
+    hidden = {run.pk for run in waiting}
     jobs = [run for run in runs if run.status == RunStatus.QUEUED and run.pk not in inbox_ids and run not in waiting]
     events = list(
         InboxEvent.objects
@@ -50,38 +56,44 @@ def up_next_payload(session: Session, runs: Sequence[Run], viewer: User) -> dict
     )
 
     groups = [_starting_group(run, events, viewer) for run in starting]
-    groups.extend(_group(run, run.user, viewer, bubbles=[run_bubble(run)]) for run in jobs)
 
     by_id = {run.pk: run for run in inbox_runs}
     by_key: dict[tuple[str, Requester], Run] = {}
     for run in inbox_runs:
         by_key.setdefault((run.ref, Requester.of_run(run)), run)
+    survivors = newest_of_each_subject([event for event in events if event.state == EventState.PENDING])
+    reasons = quiet_reasons_now(session, survivors)
     asks: dict[Any, tuple[str, Requester, list[InboxEvent]]] = {}
-    remembered: list[tuple[InboxEvent, str | None]] = []
-    for event in _survivors([event for event in events if event.state == EventState.PENDING]):
-        reason = quiet_reason_now(session, event)
+    remembered: list[tuple[InboxEvent, str, str | None]] = []
+    for event in survivors:
+        ref, reason = branch_of(event, session), reasons.get(event.pk)
         if not event.wake or reason is not None:
-            remembered.append((event, reason))
+            remembered.append((event, ref, reason))
+            continue
+        if event.run_id in hidden:
             continue
         requester = requester_of(event, session)
-        run = by_id.get(event.run_id) or by_key.get((event.ref, requester))
-        key = run.pk if run is not None else (event.ref, requester)
-        asks.setdefault(key, (run.ref if run is not None else event.ref, requester, []))[2].append(event)
+        run = by_id.get(event.run_id)
+        if run is None or run.ref != ref:
+            run = by_key.get((ref, requester)) or run
+        key = run.pk if run is not None else (ref, requester)
+        asks.setdefault(key, (ref, requester, []))[2].append(event)
     inbox_groups = []
     for key, (ref, requester, asked) in asks.items():
         run = by_id.get(key)
-        user = run.user if run is not None else _requester_user(session, asked, requester)
+        user = run.user if run is not None else requester_user(session, asked, requester)
         inbox_groups.append((ref, _group(run, user, viewer, bubbles=[bubble(event) for event in asked], asked=asked)))
     groups.extend(group for _, group in inbox_groups)
+    groups.extend(_group(run, run.user, viewer, bubbles=[run_bubble(run)]) for run in jobs)
 
     told: dict[str, list[dict[str, Any]]] = {}
-    for event, reason in remembered:
+    for event, ref, reason in remembered:
         entry = inbox_event_entry(event, reason=reason)
-        group = next((group for ref, group in inbox_groups if event.ref in ("", ref)), None)
+        group = next((group for branch, group in inbox_groups if ref in ("", branch)), None)
         if group is not None:
             group["told"].append(entry)
         else:
-            told.setdefault("" if event.ref in ("", session.ref) else event.ref, []).append(entry)
+            told.setdefault("" if ref in ("", session.ref) else ref, []).append(entry)
 
     if not groups and not told:
         return None
@@ -123,15 +135,3 @@ def _group(
         "bubbles": bubbles,
         "told": [],
     }
-
-
-def _survivors(pending: list[InboxEvent]) -> list[InboxEvent]:
-    """``pending`` less the events the drain would supersede: all but the newest of each subject."""
-    newest = {event.subject: event for event in pending if event.subject}
-    return [event for event in pending if not event.subject or newest[event.subject] is event]
-
-
-def _requester_user(session: Session, asked: list[InboxEvent], requester: Requester) -> User | None:
-    if requester.user_id is None:
-        return None
-    return next((event.author for event in asked if event.author_id == requester.user_id), session.user)

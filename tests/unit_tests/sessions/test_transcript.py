@@ -1094,12 +1094,14 @@ class TestInterleaveInboxEvents:
     """Remembered events sit in the timeline before the first run created after them."""
 
     @staticmethod
-    def _run(minute: int):
+    def _run(minute: int, status: str = RunStatus.SUCCESSFUL):
         from datetime import UTC, datetime, timedelta
         from types import SimpleNamespace
 
         return SimpleNamespace(
-            id=uuid.uuid4(), created_at=datetime(2026, 10, 30, 12, tzinfo=UTC) + timedelta(minutes=minute)
+            id=uuid.uuid4(),
+            created_at=datetime(2026, 10, 30, 12, tzinfo=UTC) + timedelta(minutes=minute),
+            status=status,
         )
 
     @staticmethod
@@ -1194,6 +1196,21 @@ class TestInterleaveInboxEvents:
         result = interleave_inbox_events(turns, [first, second], [push])
 
         assert [turn["id"] for turn in result] == ["u1", "a1", f"inbox-{push.pk}", "u2", "a2"]
+
+    def test_an_event_a_run_not_started_took_is_left_to_up_next_unless_the_run_shows(self):
+        from sessions.transcript import interleave_inbox_events
+
+        first, starting, waiting = self._run(-60), self._run(0, RunStatus.READY), self._run(1, RunStatus.READY)
+        hidden = self._event(5, run_id=starting.id, state="taken")
+        shown = self._event(6, run_id=waiting.id, state="taken")
+        turns = [
+            {"id": "u1", "role": "user", "run_id": str(first.id)},
+            {"id": "u2", "role": "user", "run_id": str(waiting.id), "pending": True},
+        ]
+
+        result = interleave_inbox_events(turns, [first, starting, waiting], [hidden, shown])
+
+        assert [turn["id"] for turn in result] == ["u1", f"inbox-{shown.pk}", "u2"]
 
     def test_a_failed_event_stays_at_its_arrival(self):
         from sessions.transcript import interleave_inbox_events

@@ -522,6 +522,22 @@ def test_a_provisional_message_joins_the_group_of_its_run():
     assert result["requests"][0]["url"] == "/up-next"
 
 
+def test_a_provisional_message_with_no_run_waits_after_the_inbox_runs_before_the_jobs():
+    up_next = {
+        "groups": [
+            {"run_id": "", "who": "Bruno", "is_viewer": False, "starting": False, "told": [],
+             "bubbles": [{"id": "inbox-e0", "kind": "mention", "text": "@daiv look"}]},
+            {"run_id": "r-9", "who": "", "is_viewer": False, "starting": False, "told": [],
+             "bubbles": [{"id": "run-r-9", "kind": "job", "text": "Upgrade Django"}]},
+        ],
+        "told": [],
+    }  # fmt: skip
+    provisional = {"event_id": "e1", "run_id": "", "text": "Also add a test"}
+    result = _run([["poll", {"latest_run": DONE, "up_next": up_next}], ["provisional", provisional], ["read", None]])
+
+    assert _bubble_ids(result["seen"][0]["upNext"]) == [["inbox-e0"], ["inbox-e1"], ["run-r-9"]]
+
+
 def test_a_provisional_message_shows_until_the_server_has_it():
     provisional = {"event_id": "e1", "run_id": "r-2", "text": "Also add a test"}
     with_it = {**UP_NEXT, "groups": [{**UP_NEXT["groups"][0], "bubbles": [{"id": "inbox-e1", "text": "x"}]}]}

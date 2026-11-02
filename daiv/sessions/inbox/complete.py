@@ -210,8 +210,11 @@ def retry(events: QuerySet[InboxEvent], *, cause: str) -> None:
             event.state, event.failure = EventState.FAILED, EventFailure.RETRIES_EXHAUSTED
             exhausted.append(event)
         else:
+            if event.wake and event.run_id is not None:
+                tried = [*event.payload.get("tried_runs", []), str(event.run_id)]
+                event.payload = {**event.payload, "tried_runs": tried}
             event.state, event.run, event.claim_token = EventState.PENDING, None, ""
-        event.save(update_fields=["attempts", "state", "failure", "run", "claim_token", "updated_at"])
+        event.save(update_fields=["attempts", "state", "failure", "run", "claim_token", "payload", "updated_at"])
     if exhausted:
         logger.error(
             "inbox: %d event(s) of thread_id=%s failed after %d attempts (%s): %s",

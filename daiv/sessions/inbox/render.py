@@ -26,7 +26,7 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.kinds import PRECEDENCE
-from sessions.models import EventKind, EventState, InboxEvent, QuietReason, RunStatus
+from sessions.models import EventKind, EventState, InboxEvent, QuietReason
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -217,31 +217,38 @@ SUMMARY_MAX_CHARS = 140
 
 def timeline_events(session_id: str) -> list[InboxEvent]:
     """The session's events its timeline shows as lines, oldest first: the remembered ones a run took or settled,
-    and every failed one. Pending ones and those a run that has not started took show under Up next. SYNC ONLY."""
+    and every failed one. Pending ones show under Up next, and so do those a run that has not started took, unless
+    the conversation shows that run (``sessions.transcript.interleave_inbox_events``). SYNC ONLY."""
     return list(
         InboxEvent.objects
         .filter(session_id=session_id)
         .filter(Q(wake=False) | Q(state=EventState.FAILED))
         .exclude(state__in=(EventState.PENDING, EventState.SUPERSEDED))
-        .exclude(state=EventState.TAKEN, run__status__in=(RunStatus.READY, RunStatus.QUEUED))
-        .select_related("author", "run")
-        .order_by("created_at", "id")
-    )
-
-
-def opening_events(session_id: str) -> list[InboxEvent]:
-    """The waking events the session's runs took, oldest first, which open those runs in its timeline. SYNC ONLY."""
-    return list(
-        InboxEvent.objects
-        .filter(
-            session_id=session_id,
-            wake=True,
-            run__isnull=False,
-            state__in=(EventState.TAKEN, EventState.HANDLED, EventState.DISMISSED),
-        )
         .select_related("author")
         .order_by("created_at", "id")
     )
+
+
+_OPENED = (EventState.TAKEN, EventState.HANDLED, EventState.DISMISSED, EventState.FAILED)
+
+
+def opening_events(session_id: str) -> list[InboxEvent]:
+    """The waking events the session's runs took, oldest first, which open those runs in its timeline (:func:`opened`).
+    SYNC ONLY."""
+    return list(
+        InboxEvent.objects
+        .filter(session_id=session_id, wake=True)
+        .filter(Q(run__isnull=False, state__in=_OPENED) | Q(payload__has_key="tried_runs"))
+        .select_related("author")
+        .order_by("created_at", "id")
+    )
+
+
+def opened(event: InboxEvent) -> list[str]:
+    """The ids of the runs ``event`` opens: each failed run that took it and put it back
+    (:func:`sessions.inbox.complete.retry`), then the run that holds it now."""
+    current = [str(event.run_id)] if event.run_id is not None and event.state in _OPENED else []
+    return list(dict.fromkeys([*event.payload.get("tried_runs", []), *current]))
 
 
 def summarize(event: InboxEvent) -> str:

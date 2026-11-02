@@ -815,6 +815,113 @@ msgstr "Não foi possível criar o merge request"
 msgid "Couldn't publish the changes"
 msgstr "Não foi possível publicar as alterações"
 
+msgid "{kind} not handled"
+msgstr "Não tratado: {kind}"
+
+msgid "Up next"
+msgstr "A seguir"
+
+msgid "What happens next, in order. Updates under the next run are passed to it; they don't start a run on their own."
+msgstr "O que acontece a seguir, por ordem. As atualizações sob a próxima execução são-lhe passadas; não iniciam uma execução por si só."
+
+msgctxt "who a queued run is for"
+msgid "you"
+msgstr "você"
+
+msgid "Next run · as {who}"
+msgstr "Próxima execução · como {who}"
+
+msgid "Next run"
+msgstr "Próxima execução"
+
+msgid "Then · as {who}"
+msgstr "Depois · como {who}"
+
+msgid "Then"
+msgstr "Depois"
+
+msgid "starts when this one ends"
+msgstr "começa quando esta terminar"
+
+msgid "starting"
+msgstr "a iniciar"
+
+msgid "after your run"
+msgstr "depois da sua execução"
+
+msgid "after {who}'s run"
+msgstr "depois da execução de {who}"
+
+msgid "The next run will be told:"
+msgstr "A próxima execução será informada de:"
+
+msgid "The next run on {branch} will be told:"
+msgstr "A próxima execução em {branch} será informada de:"
+
+msgctxt "kind of request"
+msgid "Chat"
+msgstr "Chat"
+
+msgid "API job"
+msgstr "Tarefa via API"
+
+msgid "MCP job"
+msgstr "Tarefa via MCP"
+
+msgctxt "a message DAIV received"
+msgid "Received"
+msgstr "Recebido"
+
+msgid "CI · !{iid}"
+msgstr "CI · !{iid}"
+
+msgid "CI"
+msgstr "CI"
+
+msgid "Show request"
+msgstr "Mostrar pedido"
+
+msgid "Hide request"
+msgstr "Ocultar pedido"
+
+msgid "About Up next"
+msgstr "Sobre o que vem a seguir"
+
+#, python-format
+msgid "not fixing: %(reason)s"
+msgstr "sem correção: %(reason)s"
+
+#, python-format
+msgid "not acting: %(reason)s"
+msgstr "sem ação: %(reason)s"
+
+msgid "not DAIV's commit"
+msgstr "não é um commit do DAIV"
+
+msgid "DAIV already looked at this commit"
+msgstr "o DAIV já analisou este commit"
+
+msgid "out of attempts"
+msgstr "sem tentativas restantes"
+
+msgid "CI fixing is off"
+msgstr "a correção de CI está desligada"
+
+msgid "muted"
+msgstr "silenciada"
+
+#, python-format
+msgid "paused after %(n)s runs in a row"
+msgstr "em pausa após %(n)s execuções seguidas"
+
+#, python-format
+msgid "Pipeline %(id)s failed: %(jobs)s"
+msgstr "A pipeline %(id)s falhou: %(jobs)s"
+
+#, python-format
+msgid "Pipeline %(id)s failed"
+msgstr "A pipeline %(id)s falhou"
+
 #~ msgid "Session context"
 #~ msgstr "Contexto da sessão"
 

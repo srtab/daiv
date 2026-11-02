@@ -361,17 +361,23 @@ def interleave_inbox_events(
     turns: list[dict[str, Any]], runs: Iterable[Run], events: Iterable[InboxEvent]
 ) -> list[dict[str, Any]]:
     """``turns`` with each of ``events`` as an ``inbox_event`` entry before the first turn of the run that took it, or,
-    for one no shown run took and for a failed one, of the first run created after it; the rest at the end."""
+    for one no shown run took and for a failed one, of the first run created after it; the rest at the end. One that a
+    run not shown and not started yet took is left to Up next (``sessions.up_next``)."""
     events = sorted(events, key=_arrival)
     if not events:
         return turns
+    runs = list(runs)
     shown = {run_id for turn in turns if (run_id := turn.get("run_id"))}
+    unstarted = {str(run.id) for run in runs if run.status in (RunStatus.READY, RunStatus.QUEUED)}
     taken: dict[str, list[InboxEvent]] = {}
     waiting: list[InboxEvent] = []
     for event in events:
-        if event.state != EventState.FAILED and (run_id := str(event.run_id)) in shown:
+        run_id = str(event.run_id)
+        if event.state == EventState.FAILED:
+            waiting.append(event)
+        elif run_id in shown:
             taken.setdefault(run_id, []).append(event)
-        else:
+        elif event.state != EventState.TAKEN or run_id not in unstarted:
             waiting.append(event)
     created = {str(run.id): run.created_at for run in runs}
     result: list[dict[str, Any]] = []
@@ -389,12 +395,14 @@ def interleave_inbox_events(
 
 def mark_run_openings(turns: list[dict[str, Any]], events: Iterable[InboxEvent]) -> None:
     """Give the first user turn of each run among ``events`` an ``opening``: the bubbles of the waking events it took,
-    oldest first."""
+    oldest first, whether it still holds them or failed and put them back (:func:`sessions.inbox.render.opened`)."""
+    from sessions.inbox.render import opened
     from sessions.inbox_display import bubble
 
     openings: dict[str, list[dict[str, Any]]] = {}
     for event in sorted(events, key=_arrival):
-        openings.setdefault(str(event.run_id), []).append(bubble(event))
+        for run_id in opened(event):
+            openings.setdefault(run_id, []).append(bubble(event))
     for turn in turns:
         if turn.get("role") == "user" and (opening := openings.pop(turn.get("run_id") or "", None)) is not None:
             turn["opening"] = opening

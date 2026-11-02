@@ -33,7 +33,7 @@ from automation.agent.references import merge_stored_refs
 from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.kinds import INBOX_TRIGGERS, PERSON_KINDS, PRECEDENCE, follows_session, run_trigger_type
-from sessions.inbox.policy import quiet_reason_now, report_run_limit
+from sessions.inbox.policy import quiet_reasons_now, report_run_limit
 from sessions.inbox.render import render_request
 from sessions.models import (
     EventFailure,
@@ -94,6 +94,25 @@ class Requester(NamedTuple):
     def run_fields(self, username: str = "") -> dict[str, int | str | None]:
         """:meth:`run_lookup` plus ``username``, which names an unlinked account."""
         return self.run_lookup() | {"external_username": "" if self.user_id is not None else username}
+
+
+def branch_of(event: InboxEvent, session: Session) -> str:
+    """The branch a pending ``event`` concerns now: the session's for a request that follows it
+    (:func:`sessions.inbox.kinds.follows_session`), else the one it was posted on."""
+    return session.ref if follows_session(event.kind, event.payload) else event.ref
+
+
+def requester_user(session: Session, asked: list[InboxEvent], requester: Requester) -> User | None:
+    """The DAIV user ``requester`` names: the author of one of ``asked``, else the session's owner."""
+    if requester.user_id is None:
+        return None
+    return next((event.author for event in asked if event.author_id == requester.user_id), session.user)
+
+
+def newest_of_each_subject(pending: list[InboxEvent]) -> list[InboxEvent]:
+    """``pending`` less the events a newer one of the same subject replaces, oldest first."""
+    newest = {event.subject: event for event in pending if event.subject}
+    return [event for event in pending if not event.subject or newest[event.subject] is event]
 
 
 def requester_of(event: InboxEvent, session: Session) -> Requester:
@@ -258,7 +277,7 @@ def _take(thread_id: str) -> Run | None:
     asked = [event for event in waking if event.ref in ("", branch) and requester_of(event, session) == requester]
     taken = [event for event in survivors if event.ref in ("", branch) and (not event.wake or event in asked)]
     next_run = queued.get((branch, requester))
-    user = _requester_user(session, asked, requester)
+    user = requester_user(session, asked, requester)
     checked = any(event.kind != EventKind.MENTION for event in asked)
     if user is not None and checked and not _may_run(user, session.repo_id):
         _fail(session, asked, next_run)
@@ -295,7 +314,7 @@ def _follow_session_branch(session: Session, pending: list[InboxEvent], queued_r
     """Point the pending requests that follow the session (:func:`sessions.inbox.kinds.follows_session`) at its branch,
     which the run they waited for may have moved by publishing to a new one. A next run that only such requests wait
     in moves with them, keeping the id a follow-up job's caller polls; the others let them go."""
-    moved = [event for event in pending if follows_session(event.kind, event.payload) and event.ref != session.ref]
+    moved = [event for event in pending if branch_of(event, session) != event.ref]
     if not moved:
         return
     held = {(run.ref, Requester.of_run(run)) for run in queued_runs}
@@ -325,12 +344,6 @@ def _move(run: Run, ref: str) -> bool:
     return True
 
 
-def _requester_user(session: Session, asked: list[InboxEvent], requester: Requester) -> User | None:
-    if requester.user_id is None:
-        return None
-    return next((event.author for event in asked if event.author_id == requester.user_id), session.user)
-
-
 def _merge_references(session: Session, taken: list[InboxEvent]) -> None:
     """Add the references the follow-up jobs the run took declared to the session, which the run reads them from."""
     declared = [
@@ -356,30 +369,23 @@ def _charge_ci_attempts(run: Run) -> None:
 
 def _supersede(pending: list[InboxEvent]) -> list[InboxEvent]:
     """Mark all but the newest pending event per subject ``superseded``, and return the rest, oldest first."""
-    newest: dict[str, InboxEvent] = {}
-    for event in pending:
-        if event.subject:
-            newest[event.subject] = event
-    replaced = [event for event in pending if event.subject and newest[event.subject] is not event]
-    if replaced:
+    survivors = newest_of_each_subject(pending)
+    if replaced := [event for event in pending if event not in survivors]:
         InboxEvent.objects.filter(pk__in=[event.pk for event in replaced]).update(
             state=EventState.SUPERSEDED, run=None, updated_at=timezone.now()
         )
-    return [event for event in pending if event not in replaced]
+    return survivors
 
 
-def _apply_policy(session: Session, survivors: Iterable[InboxEvent]) -> None:
+def _apply_policy(session: Session, survivors: list[InboxEvent]) -> None:
     """Turn the waking events the policy blocks into remembered ones, recording why. A CI failure whose merge request
     was closed, or whose watch was turned off, since it was posted no longer wakes either."""
-    limited = False
+    reasons = quiet_reasons_now(session, survivors)
     for event in survivors:
-        if not event.wake:
-            continue
-        if (reason := quiet_reason_now(session, event)) is not None:
+        if (reason := reasons.get(event.pk)) is not None:
             event.wake, event.reason = False, reason
             event.save(update_fields=["wake", "reason", "updated_at"])
-            limited = limited or reason == QuietReason.RUN_LIMIT
-    if limited:
+    if QuietReason.RUN_LIMIT in reasons.values():
         transaction.on_commit(partial(report_run_limit, session), robust=True)
 
 

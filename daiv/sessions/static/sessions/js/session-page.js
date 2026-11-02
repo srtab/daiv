@@ -34,11 +34,14 @@ document.addEventListener("alpine:init", () => {
       web_url: "",
       created_at: provisional.created_at,
     };
-    const at = groups.findIndex((group) => group.run_id === provisional.run_id);
+    // A message with no run yet, or one the payload does not know, waits behind the inbox runs listed, before the jobs.
+    const at = provisional.run_id ? groups.findIndex((group) => group.run_id === provisional.run_id) : -1;
     const own = { run_id: provisional.run_id, who: "", is_viewer: true, starting: false, bubbles: [bubble], told: [] };
+    const jobs = groups.findIndex((group) => !group.starting && group.bubbles.some((b) => b.kind === "job"));
+    const end = jobs < 0 ? groups.length : jobs;
     const next =
       at < 0
-        ? [own, ...groups]
+        ? [...groups.slice(0, end), own, ...groups.slice(end)]
         : groups.map((group, index) => (index === at ? { ...group, bubbles: [...group.bubbles, bubble] } : group));
     return { groups: next, told: upNext?.told ?? [] };
   };

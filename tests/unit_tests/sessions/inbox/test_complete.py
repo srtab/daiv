@@ -71,6 +71,7 @@ class TestOutcomes:
 
         stored = await _state(event)
         assert (stored.state, stored.attempts, stored.run_id) == (EventState.PENDING, 1, None)
+        assert stored.payload["tried_runs"] == [str(run.pk)]
         drain.assert_called_once_with(run.session_id)
 
     async def test_the_last_attempt_fails_the_events_and_logs(self, drain, caplog):

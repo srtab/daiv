@@ -14,7 +14,7 @@ from sessions.executor.lock import background_in_flight, live_run_for, session_a
 from sessions.header import aci_payload, delegations_for, latest_run_payload, retry_for, watch_payload
 from sessions.hydration import ahydrate_thread
 from sessions.inbox.render import opening_events, timeline_events
-from sessions.models import HiddenSession, MergeRequestOwnership, Session
+from sessions.models import HiddenSession, MergeRequestOwnership, RunStatus, Session
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
 from sessions.transcript import (
@@ -173,7 +173,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
         else None,
     }
     response |= await _ci(session)
-    response["up_next"] = await aup_next_payload(session, runs, user)
+    response["up_next"] = await aup_next_payload(session, runs, user, activity)
     return response
 
 
@@ -182,5 +182,5 @@ async def session_up_next(request: HttpRequest, thread_id: str):
     """What the session will do next, which the detail page polls while a run streams to it."""
     user = request.auth  # ty: ignore[unresolved-attribute]
     session = await _get_visible_session(user, thread_id)
-    runs = [r async for r in session.runs.order_by("created_at")]
-    return {"up_next": await aup_next_payload(session, runs, user)}
+    unfinished = session.runs.exclude(status__in=RunStatus.terminal()).select_related("user").order_by("created_at")
+    return {"up_next": await aup_next_payload(session, [r async for r in unfinished], user)}

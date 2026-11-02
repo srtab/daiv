@@ -126,16 +126,16 @@ def test_a_promoted_run_not_yet_started_is_starting(session, owner):
     assert [line["id"] for line in group["told"]] == [f"inbox-{comment.pk}"]
 
 
-def test_a_queued_job_run_comes_before_inbox_runs(session, owner):
+def test_inbox_runs_come_before_a_queued_job_run(session, owner):
     _busy(session)
+    job = _run(session, trigger=SessionOrigin.API_JOB, prompt="Upgrade Django")
     next_run = _run(session, user=owner)
     make_event(session, EventKind.CHAT_MESSAGE, run=next_run, author=owner)
-    job = _run(session, trigger=SessionOrigin.API_JOB, prompt="Upgrade Django")
 
     first, second = _payload(session, owner)["groups"]
 
-    assert [bubble["id"] for bubble in first["bubbles"]] == [f"run-{job.pk}"]
-    assert second["run_id"] == str(next_run.pk)
+    assert first["run_id"] == str(next_run.pk)
+    assert [bubble["id"] for bubble in second["bubbles"]] == [f"run-{job.pk}"]
 
 
 def test_a_ci_failure_the_watch_no_longer_covers_is_told_not_run(session, owner):
@@ -183,7 +183,33 @@ def test_a_run_the_conversation_shows_as_waiting_is_left_out(session, owner):
     assert _payload(session, owner) is None
 
 
+def test_an_inbox_run_the_conversation_shows_as_waiting_is_left_out(session, owner):
+    next_run = _run(session, trigger=SessionOrigin.MR_WEBHOOK, user=owner)
+    make_event(session, EventKind.MENTION, run=next_run, author=owner, merge_request_iid=104, payload=mention_payload())
+    Session.objects.filter(pk=session.pk).update(last_active_at=timezone.now())
+    session.refresh_from_db()
+
+    assert _payload(session, owner) is None
+
+
+def test_a_request_that_follows_the_session_is_on_its_new_branch(session, owner):
+    _busy(session)
+    next_run = _run(session, user=owner)
+    chat = make_event(session, EventKind.CHAT_MESSAGE, run=next_run, author=owner)
+    Session.objects.filter(pk=session.pk).update(ref="feat/y")
+    session.refresh_from_db()
+    ci = make_event(session, EventKind.CI_PASSED, ref="feat/y", merge_request_iid=7)
+
+    payload = _payload(session, owner)
+
+    (group,) = payload["groups"]
+    assert [bubble["id"] for bubble in group["bubbles"]] == [f"inbox-{chat.pk}"]
+    assert [line["id"] for line in group["told"]] == [f"inbox-{ci.pk}"]
+    assert payload["told"] == []
+
+
 def test_a_mention_from_an_unlinked_account_names_its_author(session, owner):
+    _busy(session)
     next_run = _run(session, trigger=SessionOrigin.MR_WEBHOOK, external_provider="gitlab", external_uid="77")
     make_event(
         session, EventKind.MENTION, run=next_run, author_username="carol", author_provider="gitlab", author_uid="77",

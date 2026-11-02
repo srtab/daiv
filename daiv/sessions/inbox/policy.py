@@ -28,6 +28,8 @@ from sessions.models import (
 from sessions.signal_defs import inbox_paused
 
 if TYPE_CHECKING:
+    import uuid
+    from collections.abc import Iterable
     from datetime import datetime
 
 MAX_SYSTEM_RUNS_IN_A_ROW = 3
@@ -35,8 +37,28 @@ MAX_SYSTEM_RUNS_IN_A_ROW = 3
 
 def may_wake(session: Session, kind: str) -> QuietReason | None:
     """Why an event of ``kind`` may not wake ``session``'s agent, or ``None`` when it may. SYNC ONLY."""
-    if kind not in GATED_KINDS:
-        return None
+    return _gate(session) if kind in GATED_KINDS else None
+
+
+amay_wake = sync_to_async(may_wake)
+
+
+def quiet_reasons_now(session: Session, events: Iterable[InboxEvent]) -> dict[uuid.UUID, QuietReason]:
+    """Why the drain would keep each of ``events`` from waking ``session`` if it ran now, by event pk; an event it would
+    wake, or that was never going to wake it, is left out. A fixed number of queries, however many events. SYNC ONLY.
+    """
+    waking = [event for event in events if event.wake]
+    stopped = _stopped_ci(session, waking)
+    reasons = dict.fromkeys(
+        (event.pk for event in waking if (event.kind, event.merge_request_iid) in stopped), QuietReason.WATCH_OFF
+    )
+    gated = [event.pk for event in waking if event.kind in GATED_KINDS and event.pk not in reasons]
+    if gated and (reason := _gate(session)) is not None:
+        reasons.update(dict.fromkeys(gated, reason))
+    return reasons
+
+
+def _gate(session: Session) -> QuietReason | None:
     if session.inbox_muted:
         return QuietReason.MUTED
     if system_runs_in_a_row(session) >= MAX_SYSTEM_RUNS_IN_A_ROW:
@@ -44,29 +66,20 @@ def may_wake(session: Session, kind: str) -> QuietReason | None:
     return None
 
 
-amay_wake = sync_to_async(may_wake)
-
-
-def quiet_reason_now(session: Session, event: InboxEvent) -> QuietReason | None:
-    """Why the drain would keep ``event`` from waking ``session`` if it ran now, or ``None`` when it would wake it, or
-    when ``event`` was never going to wake it. SYNC ONLY."""
-    if not event.wake:
-        return None
-    if watch_stopped(session, event):
-        return QuietReason.WATCH_OFF
-    return may_wake(session, event.kind)
-
-
-def watch_stopped(session: Session, event: InboxEvent) -> bool:
-    """Whether ``event`` is a CI failure whose merge request was closed, or whose watch was turned off. SYNC ONLY."""
-    if event.kind != EventKind.CI_FAILED or event.merge_request_iid is None:
-        return False
-    return (
+def _stopped_ci(session: Session, events: list[InboxEvent]) -> set[tuple[str, int]]:
+    """The ``(kind, merge_request_iid)`` of the CI failures among ``events`` whose merge request was closed, or whose
+    watch was turned off."""
+    iids = {event.merge_request_iid for event in events if event.kind == EventKind.CI_FAILED}
+    iids.discard(None)
+    if not iids:
+        return set()
+    stopped = (
         MergeRequestOwnership.objects
-        .filter(repo_id=session.repo_id, merge_request_iid=event.merge_request_iid)
+        .filter(repo_id=session.repo_id, merge_request_iid__in=iids)
         .filter(Q(closed_at__isnull=False) | Q(watch_enabled=False))
-        .exists()
+        .values_list("merge_request_iid", flat=True)
     )
+    return {(EventKind.CI_FAILED, iid) for iid in stopped}
 
 
 def system_runs_in_a_row(session: Session) -> int:
