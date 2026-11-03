@@ -22,7 +22,14 @@ _NEWEST_FIRST = ("-created_at", "-id")
 
 
 def _started_by_q(user: User) -> models.Q:
-    return models.Q(user=user) | models.Q(external_username=user.username)
+    """Rows ``user`` started: as themselves, or through a git platform account they signed in with, matched by its id
+    and never by its username, which another person may share."""
+    from allauth.socialaccount.models import SocialAccount
+
+    linked = SocialAccount.objects.filter(
+        user=user, provider=models.OuterRef("external_provider"), uid=models.OuterRef("external_uid")
+    )
+    return models.Q(user=user) | models.Exists(linked)
 
 
 def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]:
@@ -41,18 +48,20 @@ class SessionQuerySet(models.QuerySet["Session"]):
     def _owner_q(self, user: User) -> models.Q:
         """Ownership predicate shared by ``by_owner``/``visible_to``.
 
-        A user owns a session when they own the session row, match its
-        ``external_username``, subscribe to its schedule, or acted in any of its runs
-        (user FK or external_username on the Run). The run-level match preserves
-        per-actor visibility on shared webhook threads.
+        A user owns a session when they own the session row, started it through a git
+        platform account they linked, subscribe to its schedule, or started any of its runs
+        either way. The run-level match preserves per-actor visibility on shared threads (webhook
+        threads and sessions no user owns), and only there: a person whose mention the inbox ran in
+        another person's session does not own it.
         """
-        from sessions.models import Run
+        from sessions.models import Run, SessionOrigin
 
         run_match = Run.objects.started_by(user).filter(session=models.OuterRef("pk"))
+        shared = models.Q(user__isnull=True) | models.Q(origin__in=SessionOrigin.webhooks())
         return (
             _started_by_q(user)
             | models.Q(scheduled_job__in=user.subscribed_schedules.values("pk"))
-            | models.Exists(run_match)
+            | (shared & models.Exists(run_match))
         )
 
     def owned_by(self, user: User) -> models.QuerySet[Session]:
@@ -163,7 +172,8 @@ class SessionManager(models.Manager.from_queryset(SessionQuerySet)):
 
 class RunQuerySet(models.QuerySet["Run"]):
     def started_by(self, user: User) -> models.QuerySet[Run]:
-        """Runs the user started, by account or by git platform username; not those of a schedule they subscribe to."""
+        """Runs the user started, as themselves or through a git platform account they linked; not those of a schedule
+        they subscribe to."""
         return self.filter(_started_by_q(user))
 
     def not_archived_by(self, user: User) -> models.QuerySet[Run]:
@@ -265,11 +275,11 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         await asyncio.to_thread(self._announce_finished, run, skip_dispatch=skip_dispatch, never_started=never_started)
         return True
 
-    def cancel(self, run: Run) -> bool:
+    def cancel(self, run: Run, *, message: str = CANCELLED_BY_COORDINATOR_MESSAGE) -> bool:
         """Ask an unfinished ``run`` to stop, and return whether this call did; ``run`` is left with its row's status.
 
-        A run that is not RUNNING finishes FAILED here as ``never_started``, with ``CANCELLED_BY_COORDINATOR_MESSAGE``,
-        and its task fails too unless a worker claimed it. A ``run_job_task`` running the run stops at its next
+        A run that is not RUNNING finishes FAILED here as ``never_started``, with ``message`` (who stopped it), and its
+        task fails too unless a worker claimed it. A ``run_job_task`` running the run stops at its next
         :meth:`acancel_requested` check, before the agent if it has not reached it, and a RUNNING run finishes as that
         task does: with what it recorded, or SUCCESSFUL if it finished first.
         """
@@ -286,7 +296,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             RunStatus.FAILED,
             where=~models.Q(status=RunStatus.RUNNING),
             never_started=True,
-            error_message=CANCELLED_BY_COORDINATOR_MESSAGE,
+            error_message=message,
             finished_at=now,
             started_at=run.started_at or now,
         )
@@ -297,7 +307,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             status=TaskResultStatus.FAILED,
             finished_at=now,
             exception_class_path=f"{RunStoppedError.__module__}.{RunStoppedError.__qualname__}",
-            traceback=CANCELLED_BY_COORDINATOR_MESSAGE,
+            traceback=message,
         )
         return True
 
@@ -344,7 +354,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
     def _emit_run_finished(run: Run, **flags: bool) -> None:
         from sessions.models import SessionOrigin
 
-        run_ended.send_robust(sender=type(run), run=run)
+        run_ended.send_robust(sender=type(run), run=run, **flags)
         if run.trigger_type == SessionOrigin.CHAT:
             return
         run_finished.send_robust(sender=type(run), run=run, **flags)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from notifications.choices import EnvelopeStatus, EventType
@@ -49,12 +50,29 @@ def notify_worthy(status: str) -> bool:
 
 
 def notifies(run, status: str) -> bool:
-    """Whether this run's outcome notifies. A webhook question is already posted on the forge, mentioning the asker."""
+    """Whether this run's outcome notifies. A webhook question is already posted on the forge, mentioning the asker.
+    A run a CI failure woke always tells its owner how it ended, ``all-clear`` included (FR-018)."""
     from sessions.models import SessionOrigin
 
     if status == EnvelopeStatus.NEEDS_INPUT and run.trigger_type in SessionOrigin.webhooks():
-        return False
-    return notify_worthy(status)
+        worthy = False
+    else:
+        worthy = notify_worthy(status)
+    return worthy or woke_on_ci_failure(run)
+
+
+def woken_by_ci_failure() -> Exists:
+    """A ``Run`` filter matching the runs that took a waking ``ci_failed`` inbox event."""
+    from sessions.models import EventKind, InboxEvent
+
+    return Exists(InboxEvent.objects.filter(run=OuterRef("pk"), kind=EventKind.CI_FAILED, wake=True))
+
+
+def woke_on_ci_failure(run) -> bool:
+    """Whether ``run`` took a waking ``ci_failed`` inbox event."""
+    from sessions.models import EventKind, InboxEvent
+
+    return InboxEvent.objects.filter(run_id=run.pk, kind=EventKind.CI_FAILED, wake=True).exists()
 
 
 def status_severity(status: str) -> int:
@@ -95,13 +113,16 @@ def notification_source_for_run(run, total: int) -> tuple[str, str, EventType]:
     return SOURCE_RUN, str(run.pk), event_type
 
 
-def notification_source_for_watch(session, pipeline_id: int) -> tuple[str, str, EventType]:
-    """The key a pipeline-watch give-up is deduped on.
+def notification_source_for_watch(session, sha: str) -> tuple[str, str, EventType]:
+    """The key a pipeline-watch give-up is deduped on: one per commit DAIV pushed, so retrying the same failing
+    pipeline does not notify again, while a later commit that also runs out of attempts does."""
+    return SOURCE_SESSION, f"{session.thread_id}:{sha}", EventType.PIPELINE_WATCH_EXHAUSTED
 
-    Scoped to the pipeline, not the thread: a ``thread_id`` outlives the merge request and a watch
-    can be re-armed with a fresh budget, so a thread-only key would mute every later give-up.
-    """
-    return SOURCE_SESSION, f"{session.thread_id}:{pipeline_id}", EventType.PIPELINE_WATCH_EXHAUSTED
+
+def notification_source_for_inbox_pause(session, first_blocked_event_id: str) -> tuple[str, str, EventType]:
+    """The key a session pausing after runs in a row is deduped on: the first event the limit blocked, so one streak
+    notifies once however many events it blocks."""
+    return SOURCE_SESSION, f"{session.thread_id}:{first_blocked_event_id}", EventType.INBOX_PAUSED
 
 
 def notification_source_for_schedule_failure(schedule) -> tuple[str, str, EventType]:

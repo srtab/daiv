@@ -79,7 +79,7 @@ POST /api/jobs
 | `agent_thinking_level` | string           | no       | Override the agent's reasoning effort. One of `minimal`, `low`, `medium`, `high`, `xhigh`. Invalid combinations are rejected with `400`. |
 | `muted`                | boolean          | no       | Mute notifications for every job in this batch. Default false. |
 | `environment`          | string           | no       | Select a sandbox environment (by name or id) applied to every job in the batch. An unresolvable environment is rejected with `400`. |
-| `thread_id`            | string (UUID)    | no       | Continue an existing thread. Requires exactly one repo in `repos`, and the most recent run on that thread must belong to you, and you must not have archived the session (otherwise `400`). If a prior run on the thread is still in flight, the new job is created in `QUEUED` state and released FIFO when that run finishes. |
+| `thread_id`            | string (UUID)    | no       | Continue an existing thread. Requires exactly one repo in `repos`, and the most recent run on that thread must belong to you, and you must not have archived the session (otherwise `400`). If the session is busy, the job joins the session's next run for its branch, in `QUEUED` state, which starts once the current run ends; see [Job lifecycle](#job-lifecycle). |
 | `references`           | array of objects | no       | Up to 20 external work-item references (Jira/Sentry/RT tickets, git-platform issues, …) that DAIV links into the MR/PR it creates. Each item: `{ "key": "PROJ-123", "url": "https://…", "provider": "jira", "relation": "relates" }` — only `key` is required. |
 | `mcp_overrides`        | object           | no       | MCP servers to switch on or off for every job in the batch, relative to the default set: `{"grafana": true}` adds an on-demand server, `{"sentry": false}` drops an active one. Names are those of the global servers and your own personal ones; an unknown name is rejected with `400`, and a value other than `true`/`false` with `422`. On a continued thread (`thread_id`) they apply on top of the thread's own, so a server you don't name keeps its setting. A continuation that would change them while another run on the thread is unfinished is returned in `failed`, since that run would pick them up too. |
 
@@ -118,7 +118,7 @@ curl -s -X POST https://daiv.example.com/api/jobs \
 }
 ```
 
-Each entry in `jobs` is an independent run — poll each `job_id` separately. The `status` is `READY` for an immediately-runnable job, or `QUEUED` if another run is already in flight on the same `thread_id` (see [Job lifecycle](#job-lifecycle)). Pre-enqueue rejections (e.g. unknown `repo_id`) are reported in `failed` as `{repo_id, ref, error}`; the rest of the batch still runs.
+Each entry in `jobs` is an independent run — poll each `job_id` separately. The `status` is `READY` for an immediately-runnable job, or `QUEUED` if the session named by `thread_id` is busy (see [Job lifecycle](#job-lifecycle)). Pre-enqueue rejections (e.g. unknown `repo_id`) are reported in `failed` as `{repo_id, ref, error}`; the rest of the batch still runs.
 
 ### Poll job status
 
@@ -162,7 +162,7 @@ GET /api/jobs/{job_id}
 
 | Status | Meaning |
 |--------|---------|
-| `QUEUED` | Job is waiting for an earlier run on the same thread to finish; released FIFO. Only occurs for thread continuations (`thread_id` supplied). |
+| `QUEUED` | Job is the session's next run, waiting for its current run to finish. Only occurs for thread continuations (`thread_id` supplied). |
 | `READY` | Job is queued, waiting for a worker |
 | `RUNNING` | Agent is executing |
 | `SUCCESSFUL` | Completed — `result` contains the agent's last response |
@@ -212,8 +212,8 @@ For `POST /api/jobs`:
 ```mermaid
 stateDiagram-v2
     [*] --> READY: POST /api/jobs
-    [*] --> QUEUED: POST /api/jobs (thread continuation, prior run in flight)
-    QUEUED --> READY: Prior run on the thread finishes (FIFO)
+    [*] --> QUEUED: POST /api/jobs (thread continuation, session busy)
+    QUEUED --> READY: The session's current run finishes
     READY --> RUNNING: Worker picks up job
     RUNNING --> SUCCESSFUL: Agent completes
     RUNNING --> WAITING_INPUT: Agent asks a question
@@ -221,7 +221,7 @@ stateDiagram-v2
     WAITING_INPUT --> READY: POST /api/jobs (same thread_id, answer as prompt)
 ```
 
-A job only starts in `QUEUED` when you supply a `thread_id` and an earlier run on that thread is still in flight; it is released to `READY` (FIFO) when that run terminates. Every other submission starts at `READY`.
+A job only starts in `QUEUED` when you supply a `thread_id` and the session is busy. The job then joins the session's next run for its branch (`ref`, or the session's branch when you leave it out), which starts at `READY` once the current run ends. Everything waiting for the session on that branch goes into the same run: another job, a chat message, a CI failure DAIV is fixing. So two jobs sent while the session is busy can return the same `job_id`; poll it once and read one `result` for both. A job on a different branch gets a next run of its own. Every other submission starts at `READY`.
 
 Once a job reaches `SUCCESSFUL`, `WAITING_INPUT`, or `FAILED`, the status is final for that job — `WAITING_INPUT` doesn't progress to `SUCCESSFUL` on its own, it waits for a new job on the same thread (see [Answering a question](#answering-a-question)). The `result` field contains the agent's last response in full, not the rest of the run's messages.
 

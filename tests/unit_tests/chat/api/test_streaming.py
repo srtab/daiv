@@ -1,7 +1,7 @@
 """Direct unit tests for ``ChatRunStreamer.events()``.
 
 Covers what the HTTP-level tests in test_views.py don't reach: the turn's lifecycle on top of the
-executor's ``stream_run`` (the ref sync and the CI watch read the finished turn's checkpoint), the
+executor's ``stream_run`` (the ref sync and the merge request claim read the finished turn's checkpoint), the
 run-slot invariants, and the AG-UI adapter's event shaping.
 
 The Run-row lifecycle (``start_chat_run`` / ``finalize_chat_run``) is patched out
@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ag_ui.core import RunAgentInput
-from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentEvent
+from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentEvent, TextMessageStartEvent
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel, GenericFakeChatModel
@@ -26,19 +26,22 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
 from sessions.executor.result import parse_agent_result
+from sessions.inbox.complete import RunEnd
+from sessions.inbox.ownership import Ownerships
 from sessions.live.relay import RunRelay
-from sessions.models import Run, Session
+from sessions.models import EventKind, EventState, InboxEvent, Run, Session
 
 from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
 from chat.api import runner
 from chat.api.streaming import ChatRunStreamer
-from core.constants import RUN_FAILED_MESSAGE
+from core.constants import CANCELLED_BY_USER_MESSAGE, RUN_FAILED_MESSAGE
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
-from tests.unit_tests.sessions.conftest import amake_job_session, watch_recorder
+from tests.unit_tests.sessions.conftest import amake_job_session, claim_recorder
 from tests.unit_tests.sessions.executor.conftest import agent_stack
+from tests.unit_tests.sessions.inbox.conftest import amake_event
 
 
 @pytest.fixture(autouse=True)
@@ -327,6 +330,104 @@ async def test_a_turn_hands_the_graph_only_its_new_message_whatever_the_client_e
     assert seen == [["h1", "a1", "h2"]]
 
 
+class TestWithdrawingAStoppedTurn:
+    """The real ``start_chat_run`` and ``RunEnd.awithdraw`` run here, against the DB."""
+
+    @pytest.fixture(autouse=True)
+    def _patch_run_lifecycle(self):
+        """Its owner stops every turn here while it still holds the slot."""
+        with (
+            patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+            patch("chat.api.streaming.build_usage_summary", return_value=MagicMock(to_dict=lambda: None)),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock(return_value=True)),
+            patch("sessions.live.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=True)),
+        ):
+            yield
+
+    @staticmethod
+    async def _thread_with_a_remembered_event(executor_stack, *middleware):
+        session = await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
+        remembered = await amake_event(
+            session,
+            EventKind.MR_MERGED,
+            merge_request_iid=3,
+            state=EventState.TAKEN,
+            claim_token="r-1",  # noqa: S106
+        )
+        agent = create_agent(
+            model=FakeMessagesListChatModel(responses=[AIMessage(content="never", id="a2")]),
+            tools=[],
+            middleware=list(middleware),
+            checkpointer=InMemorySaver(),
+        )
+        config = {"configurable": {"thread_id": "t-stream"}}
+        await agent.aupdate_state(
+            config, {"messages": [HumanMessage(content="hi", id="h1"), AIMessage("hey", id="a1")]}
+        )
+        executor_stack.create_agent.return_value = agent
+        executor_stack.langsmith.return_value = config
+        return session, remembered, agent, config
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_turn_stopped_before_daiv_answers_leaves_the_thread_and_gives_back_its_events(
+        self, _executor_stack, real_chat_inbox
+    ):
+        started = asyncio.Event()
+
+        class Hang(AgentMiddleware):
+            async def abefore_model(self, state, runtime):
+                started.set()
+                await asyncio.Event().wait()
+
+        session, remembered, agent, config = await self._thread_with_a_remembered_event(_executor_stack, Hang())
+        streamer = _streamer(_run_input({"id": "h2", "role": "user", "content": "do it"}), prompt="do it")
+
+        async def _drain():
+            async for _ in streamer.events():
+                pass
+
+        task = asyncio.create_task(_drain())
+        await asyncio.wait_for(started.wait(), timeout=5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        state = await agent.aget_state(config)
+        assert [message.id for message in state.values["messages"]] == ["h1", "a1"]
+        assert not await Run.objects.filter(session=session).aexists()
+        remembered = await InboxEvent.objects.aget(pk=remembered.pk)
+        assert (remembered.state, remembered.run_id, remembered.claim_token) == (EventState.PENDING, None, "")
+        assert streamer.withdrawn is True
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_stop_landing_as_the_inbox_context_is_written_takes_the_context_back_too(
+        self, _executor_stack, real_chat_inbox
+    ):
+        _session, _remembered, agent, config = await self._thread_with_a_remembered_event(_executor_stack)
+        write_state = agent.aupdate_state
+        contexts: list[list[str]] = []
+
+        async def _stopped_as_the_context_is_written(config, values, **kwargs):
+            await write_state(config, values, **kwargs)
+            if kwargs.get("as_node") == "model":
+                contexts.append([message.id for message in values["messages"]])
+                raise asyncio.CancelledError
+
+        streamer = _streamer(_run_input({"id": "h2", "role": "user", "content": "do it"}), prompt="do it")
+        with (
+            patch.object(agent, "aupdate_state", side_effect=_stopped_as_the_context_is_written),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            async for _ in streamer.events():
+                pass
+
+        state = await agent.aget_state(config)
+        assert len(contexts) == 1 and contexts[0]
+        assert [message.id for message in state.values["messages"]] == ["h1", "a1"]
+        assert streamer.withdrawn is True
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_events_finalizes_failed_when_run_error_event_emitted():
     """ag_ui surfaces an agent failure as a streamed RUN_ERROR event and returns
@@ -520,12 +621,12 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
     async def _capture_release(*args):
         release_calls.append(args)
 
+    agent, cancel = _stopped_while_answering(snap, snap)
     with (
-        # Two events queued, but the cancel check (interval patched to 0) fires
-        # after the first — the second must never be yielded.
-        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snap, snap])),
+        # The cancel check (interval patched to 0) fires after the first snapshot: the second is never yielded.
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agent),
         patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
-        patch("sessions.live.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=True)),
+        patch("sessions.live.relay.RunRelay.cancel_requested", new=cancel),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
@@ -533,8 +634,13 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
     ):
         seen = [e async for e in _streamer().events()]
 
-    assert [e.type for e in seen] == [EventType.CUSTOM, EventType.STATE_SNAPSHOT, EventType.RUN_ERROR]
-    assert seen[-1].code == "run_cancelled"  # the stop closed the stream before the second snapshot
+    assert [e.type for e in seen] == [
+        EventType.CUSTOM,
+        EventType.TEXT_MESSAGE_START,
+        EventType.STATE_SNAPSHOT,
+        EventType.RUN_ERROR,
+    ]
+    assert seen[-1].code == "run_cancelled"
     assert finalize_calls == [{"success": False, "error_message": "Stopped by user."}]
     assert release_calls == [("t-stream", "r-1")]
 
@@ -896,14 +1002,14 @@ def _recorded_turn(
     agui_agent,
     *,
     heartbeat: bool | AsyncMock = True,
-    cancel: bool = False,
+    cancel: bool | AsyncMock = False,
     runtime_ctx=_mock_ctx,
     graph=None,
     checkpoint: dict | None = None,
     errors: dict[str, Exception] | None = None,
 ):
     """Patch the chat turn's collaborators around ``agui_agent``; yield ``calls``, which logs start and each
-    after-run step in order. ``checkpoint`` is the finished turn's state, which the ref sync and the watch read.
+    after-run step in order. ``checkpoint`` is the finished turn's state, which the ref sync and the claim read.
     ``errors`` maps a step name to the exception it raises after it is logged."""
     calls: list[tuple] = []
     errors = errors or {}
@@ -923,15 +1029,20 @@ def _recorded_turn(
     async def _persist(*, thread_id, current_ref, merge_request, published):
         _log("persist", current_ref, merge_request)
 
-    class _Watch(watch_recorder([])):
-        async def aarm_after_run(self, **kwargs):
-            _log("arm", kwargs["published"])
-            await super().aarm_after_run(**kwargs)
+    record_claim = claim_recorder([])
+
+    async def _claim(**kwargs):
+        _log("claim", kwargs["run_id"], kwargs["merge_request"])
+        await record_claim(**kwargs)
 
     async def _release(thread_id, run_id):
         _log("release", thread_id, run_id)
 
+    async def _withdraw(_run_end):
+        _log("withdraw")
+
     heartbeat_mock = heartbeat if isinstance(heartbeat, AsyncMock) else AsyncMock(return_value=heartbeat)
+    cancel_mock = cancel if isinstance(cancel, AsyncMock) else AsyncMock(return_value=cancel)
     compiled = graph or _graph(**(checkpoint or {}))
     with (
         patch("automation.agent.context.set_runtime_ctx", runtime_ctx),
@@ -939,12 +1050,13 @@ def _recorded_turn(
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agui_agent),
         patch("chat.api.streaming.start_chat_run", side_effect=_start),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_finalize),
+        patch.object(RunEnd, "awithdraw", autospec=True, side_effect=_withdraw),
         patch("sessions.executor.run.apersist_session_ref", side_effect=_persist),
-        patch("sessions.executor.run.PipelineWatch", _Watch),
+        patch.object(Ownerships, "aclaim", _claim),
         patch("chat.api.streaming.SessionLock.release", side_effect=_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=heartbeat_mock),
         patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
-        patch("sessions.live.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=cancel)),
+        patch("sessions.live.relay.RunRelay.cancel_requested", new=cancel_mock),
     ):
         yield calls
 
@@ -963,6 +1075,53 @@ def _raising_agent(*events):
 _RELEASE = ("release", "t-stream", "r-1")
 
 
+def _answer_started() -> TextMessageStartEvent:
+    return TextMessageStartEvent(type=EventType.TEXT_MESSAGE_START, message_id="m-1")
+
+
+def _stopped_while_answering(*after) -> tuple[MagicMock, AsyncMock]:
+    """An agent whose owner presses Stop once its answer has started, then yields ``after``; and the stop flag."""
+    stopped = asyncio.Event()
+
+    def _events():
+        yield _answer_started()
+        stopped.set()
+        yield from after
+
+    return _mock_agent(_events()), AsyncMock(side_effect=stopped.is_set)
+
+
+async def _hard_cancel(*, answer_first: bool, heartbeat: bool = True) -> tuple[ChatRunStreamer, list[tuple]]:
+    """Stop a turn whose agent hangs, the way the Stop button does in this process: flag it, then cancel its task."""
+    started = asyncio.Event()
+
+    async def _hang(_input):
+        if answer_first:
+            yield _answer_started()
+        started.set()
+        await asyncio.Event().wait()
+        yield  # pragma: no cover - makes this an async generator
+
+    agent = MagicMock(graph_stream=None)
+    agent.run = _hang
+    streamer = _streamer()
+
+    async def _drain():
+        async for _ in streamer.events():
+            pass
+
+    with (
+        _recorded_turn(agent, cancel=AsyncMock(side_effect=started.is_set), heartbeat=heartbeat) as calls,
+        patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 3600.0),
+    ):
+        task = asyncio.create_task(_drain())
+        await asyncio.wait_for(started.wait(), timeout=5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    return streamer, calls
+
+
 class TestChatAfterRunMatrix:
     async def test_a_clean_turn_runs_the_after_run_steps_in_order(self):
         mr = {"source_branch": "feature-y", "merge_request_id": 42}
@@ -973,7 +1132,7 @@ class TestChatAfterRunMatrix:
         ) as calls:
             [event async for event in _streamer().events()]
 
-        assert calls == [("start",), ("persist", "main", mr), ("arm", True), ("finalize", True, ""), _RELEASE]
+        assert calls == [("start",), ("persist", "main", mr), ("claim", "run-pk", mr), ("finalize", True, ""), _RELEASE]
 
     async def test_a_raised_agent_error_becomes_a_run_error_event(self):
         from core.constants import RUN_FAILED_MESSAGE
@@ -1043,40 +1202,89 @@ class TestChatAfterRunMatrix:
         assert events[-1].code == "run_interrupted"
 
     async def test_a_cancel_request_stops_the_turn_and_skips_ref_and_watch(self):
-        from core.constants import CANCELLED_BY_USER_MESSAGE
-
-        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), cancel=True) as calls:
+        agent, stop = _stopped_while_answering(_snapshot())
+        with _recorded_turn(agent, cancel=stop) as calls:
             events = [event async for event in _streamer().events()]
 
         assert events[-1].code == "run_cancelled"
         assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
 
+    async def test_a_cancel_request_before_daiv_answers_withdraws_the_turn(self):
+        streamer = _streamer()
+
+        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), cancel=True) as calls:
+            events = [event async for event in streamer.events()]
+
+        assert (events[-1].code, streamer.withdrawn) == ("run_withdrawn", True)
+        assert calls == [("start",), ("withdraw",), _RELEASE]
+
     async def test_a_hard_cancel_after_a_stop_request_is_recorded_as_stopped(self):
-        import asyncio
+        streamer, calls = await _hard_cancel(answer_first=True)
 
-        from core.constants import CANCELLED_BY_USER_MESSAGE
+        assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
+        assert streamer.withdrawn is False
 
-        started = asyncio.Event()
+    async def test_a_hard_cancel_before_daiv_answers_withdraws_the_turn(self):
+        streamer, calls = await _hard_cancel(answer_first=False)
 
-        async def _hang(_input):
-            started.set()
-            await asyncio.Event().wait()
-            yield  # pragma: no cover - makes this an async generator
+        assert calls == [("start",), ("withdraw",), _RELEASE]
+        assert streamer.withdrawn is True
 
-        agent = MagicMock()
-        agent.run = _hang
+    async def test_a_turn_whose_slot_was_taken_over_is_never_withdrawn(self):
+        streamer, calls = await _hard_cancel(answer_first=False, heartbeat=False)
 
-        async def _drain():
-            async for _ in _streamer().events():
-                pass
+        assert ("withdraw",) not in calls
+        assert streamer.withdrawn is False
+
+    async def test_a_stop_asked_for_while_daiv_thinks_withdraws_the_turn_before_its_answer_streams(self):
+        streamer = _streamer()
+
+        with (
+            _recorded_turn(_mock_agent([_answer_started(), _snapshot()]), cancel=True) as calls,
+            # The run executes in another process, so only the flag says it was stopped.
+            patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 3600.0),
+        ):
+            events = [event async for event in streamer.events()]
+
+        assert [event.type for event in events if event.type != EventType.CUSTOM] == [EventType.RUN_ERROR]
+        assert (events[-1].code, streamer.withdrawn) == ("run_withdrawn", True)
+        assert calls == [("start",), ("withdraw",), _RELEASE]
+
+    async def test_a_turn_that_cannot_be_withdrawn_is_recorded_as_stopped(self):
+        streamer = _streamer()
+
+        with _recorded_turn(
+            _mock_agent([_snapshot(), _snapshot()]), cancel=True, errors={"withdraw": RuntimeError("db down")}
+        ) as calls:
+            events = [event async for event in streamer.events()]
+
+        assert (events[-1].code, streamer.withdrawn) == ("run_cancelled", False)
+        assert calls == [("start",), ("withdraw",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
+
+    async def test_a_turn_stopped_after_it_spent_tokens_is_kept_for_its_spend(self):
+        summarizer = FakeMessagesListChatModel(
+            responses=[
+                AIMessage(
+                    "summary",
+                    usage_metadata={"input_tokens": 900, "output_tokens": 100, "total_tokens": 1000},
+                    response_metadata={"model_name": "claude-sonnet-4-5"},
+                )
+            ]
+        )
+
+        async def _summarize_then_wait(_input):
+            await summarizer.ainvoke("summarize the thread")
+            yield _snapshot()
+            yield _snapshot()
+
+        agent = MagicMock(graph_stream=None)
+        agent.run = _summarize_then_wait
+        streamer = _streamer()
 
         with _recorded_turn(agent, cancel=True) as calls:
-            task = asyncio.create_task(_drain())
-            await asyncio.wait_for(started.wait(), timeout=5)
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
+            events = [event async for event in streamer.events()]
 
+        assert (events[-1].code, streamer.withdrawn) == ("run_cancelled", False)
         assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
 
     async def test_a_heartbeat_error_is_logged_and_keeps_the_turn_running(self, caplog):
@@ -1097,7 +1305,9 @@ class TestChatAfterRunMatrix:
         assert ("finalize", True, "") in calls
         assert "heartbeat failed" in caplog.text
 
-    @pytest.mark.parametrize(("step", "message"), [("persist", "persist session ref"), ("arm", "arm pipeline watch")])
+    @pytest.mark.parametrize(
+        ("step", "message"), [("persist", "persist session ref"), ("claim", "claim the merge request")]
+    )
     async def test_a_failed_ref_or_watch_step_is_logged_and_the_turn_still_succeeds(self, caplog, step, message):
         mr = {"source_branch": "feature-y", "merge_request_id": 42}
 
@@ -1111,7 +1321,7 @@ class TestChatAfterRunMatrix:
         ):
             [event async for event in _streamer().events()]
 
-        assert calls == [("start",), ("persist", "main", mr), ("arm", True), ("finalize", True, ""), _RELEASE]
+        assert calls == [("start",), ("persist", "main", mr), ("claim", "run-pk", mr), ("finalize", True, ""), _RELEASE]
         assert f"failed to {message}" in caplog.text
 
     async def test_a_finalize_failure_is_logged_and_still_releases_the_slot(self, caplog):
@@ -1146,11 +1356,11 @@ class TestChatAfterRunMatrix:
         assert calls == [("start",), ("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
 
     async def test_a_reader_that_goes_away_with_the_cancel_flag_set_is_recorded_as_stopped(self):
-        from core.constants import CANCELLED_BY_USER_MESSAGE
-
-        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), cancel=True) as calls:
+        stop = AsyncMock(return_value=False)
+        with _recorded_turn(_mock_agent([_answer_started(), _snapshot()]), cancel=stop) as calls:
             events = _streamer().events()
             await anext(events)
+            stop.return_value = True
             await events.aclose()
 
         assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
@@ -1296,3 +1506,194 @@ class TestTurnMeasurements:
 
         run = await Run.objects.aget(session_id="t-stream")
         assert run.clone_seconds == 1.5
+
+
+@pytest.mark.django_db(transaction=True)
+class TestInboxContext:
+    @pytest.fixture(autouse=True)
+    def _patch_run_lifecycle(self):
+        """Override the module-level autouse: the turn's ``Run`` row is real, so events can point at it."""
+
+    async def _session_with_taken_events(self) -> Session:
+        from sessions.models import EventKind, EventState
+
+        from tests.unit_tests.sessions.inbox.conftest import amake_event
+
+        session = await Session.objects.acreate(
+            thread_id="t-stream", origin="chat", repo_id="a/b", ref="main", active_run_id="r-1"
+        )
+        await amake_event(session, EventKind.MR_MERGED, merge_request_iid=3, state=EventState.TAKEN, claim_token="r-1")  # noqa: S106
+        return session
+
+    async def test_the_turns_run_takes_over_the_events_the_view_took(self, real_chat_inbox):
+        from sessions.models import InboxEvent
+
+        await self._session_with_taken_events()
+        turn = SimpleNamespace(chat_run=None)
+
+        run_id = await _streamer()._start_turn(turn, "main")
+
+        event = await InboxEvent.objects.aget()
+        assert (str(event.run_id), event.claim_token) == (run_id, "")
+
+    async def test_their_context_is_written_ahead_of_the_persons_message(self, real_chat_inbox):
+        from automation.agent.synthetic import synthetic_kind
+
+        await self._session_with_taken_events()
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock())
+
+        await streamer._add_inbox_context(
+            turn, SimpleNamespace(agent=agent, config={"configurable": {}}, fast_forward=None)
+        )
+
+        [call] = agent.aupdate_state.await_args_list
+        [context] = call.args[1]["messages"]
+        assert synthetic_kind(context) == "inbox"
+        assert "!3 was merged into main" in context.content
+        assert call.kwargs == {"as_node": "model"}
+
+    async def test_a_turn_with_nothing_taken_writes_nothing(self, real_chat_inbox):
+        await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock())
+
+        await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward=None))
+
+        agent.aupdate_state.assert_not_awaited()
+
+    async def test_a_warm_checkout_brought_up_to_the_remote_says_so(self, real_chat_inbox):
+        await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock())
+
+        await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward="advanced"))
+
+        [context] = agent.aupdate_state.await_args.args[1]["messages"]
+        assert "The branch main moved on the remote. Your working copy was fast-forwarded." in context.content
+
+    async def test_a_failed_write_is_logged_and_the_turn_goes_on(self, real_chat_inbox, caplog):
+        await self._session_with_taken_events()
+        turn = SimpleNamespace(chat_run=None)
+        streamer = _streamer()
+        await streamer._start_turn(turn, "main")
+        agent = MagicMock(aupdate_state=AsyncMock(side_effect=RuntimeError("redis down")))
+
+        with caplog.at_level("ERROR", logger="daiv.chat"):
+            await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward=None))
+
+        assert "could not add the inbox context" in caplog.text
+
+
+@pytest.mark.django_db(transaction=True)
+class TestEventsTakenForATurnThatEnds:
+    async def _session_with_taken_event(self):
+        from sessions.models import EventKind, EventState
+
+        from tests.unit_tests.sessions.inbox.conftest import amake_event
+
+        session = await Session.objects.acreate(
+            thread_id="t-stream", origin="chat", repo_id="a/b", ref="main", active_run_id="r-1"
+        )
+        return await amake_event(
+            session,
+            EventKind.MR_MERGED,
+            merge_request_iid=3,
+            state=EventState.TAKEN,
+            claim_token="r-1",  # noqa: S106
+        )
+
+    async def test_a_clone_failure_leaves_them_pending_for_the_next_turn(self, real_chat_inbox):
+        from sessions.inbox.chat_claim import ChatClaim
+        from sessions.models import EventState, InboxEvent
+
+        event = await self._session_with_taken_event()
+
+        with _recorded_turn(_mock_agent([]), runtime_ctx=_failing_ctx):
+            [_ async for _ in _streamer().events()]
+
+        stored = await InboxEvent.objects.aget(pk=event.pk)
+        assert (stored.state, stored.claim_token, stored.attempts) == (EventState.PENDING, "", 0)
+        assert [taken.pk for taken in await ChatClaim("t-stream", "r-2").atake()] == [event.pk]
+
+    async def test_a_put_back_failure_is_logged_and_still_releases_the_slot(self, chat_inbox, caplog):
+        chat_inbox.release_claim.side_effect = RuntimeError("db down")
+
+        with _recorded_turn(_mock_agent([]), runtime_ctx=_failing_ctx) as calls, caplog.at_level("ERROR"):
+            [_ async for _ in _streamer().events()]
+
+        assert "could not put back the inbox events" in caplog.text
+        assert calls == [_RELEASE]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestEventsOfAStoppedTurn:
+    @pytest.fixture(autouse=True)
+    def _patch_run_lifecycle(self):
+        """Override the module-level autouse: the turn's ``Run`` row is real, so its end settles the events."""
+
+    @pytest.mark.parametrize(
+        ("cancel", "heartbeat", "state", "attempts"),
+        [(True, True, "dismissed", 0), (False, False, "pending", 1)],
+        ids=["stopped-by-the-owner", "interrupted"],
+    )
+    async def test_only_the_owners_stop_dismisses_them(self, real_chat_inbox, cancel, heartbeat, state, attempts):
+        from sessions.models import EventKind, EventState, InboxEvent
+
+        from tests.unit_tests.sessions.inbox.conftest import amake_event
+
+        session = await Session.objects.acreate(
+            thread_id="t-stream", origin="chat", repo_id="a/b", ref="main", active_run_id="r-1"
+        )
+        event = await amake_event(
+            session,
+            EventKind.MR_MERGED,
+            merge_request_iid=3,
+            state=EventState.TAKEN,
+            claim_token="r-1",  # noqa: S106
+        )
+
+        agent, stop = _stopped_while_answering(_snapshot())
+        never_stopped = AsyncMock(return_value=False)
+        with (
+            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agent),
+            patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
+            patch("sessions.live.relay.RunRelay.cancel_requested", new=stop if cancel else never_stopped),
+            patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock(return_value=heartbeat)),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        ):
+            [_ async for _ in _streamer().events()]
+
+        run = await Run.objects.aget(session_id="t-stream")
+        assert (run.status, run.cancel_requested_at is not None) == ("FAILED", cancel)
+        stored = await InboxEvent.objects.aget(pk=event.pk)
+        assert (stored.state, stored.attempts) == (state, attempts)
+
+
+async def test_the_inbox_is_drained_once_the_turn_releases_the_slot(chat_inbox):
+    order: list[str] = []
+    chat_inbox.drain.side_effect = lambda drain: order.append(f"drain {drain.thread_id}")
+
+    async def _release(thread_id, run_id):
+        order.append("release")
+
+    streamer = _streamer()
+    with patch("chat.api.streaming.SessionLock.release", _release):
+        await streamer._end_turn(streamer._turn, succeeded=True)
+
+    assert order == ["release", "drain t-stream"]
+
+
+async def test_a_failed_release_skips_the_drain(chat_inbox, caplog):
+    streamer = _streamer()
+    with patch("chat.api.streaming.SessionLock.release", AsyncMock(side_effect=RuntimeError("db down"))):
+        await streamer._end_turn(streamer._turn, succeeded=True)
+
+    chat_inbox.drain.assert_not_called()

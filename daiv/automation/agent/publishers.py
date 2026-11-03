@@ -93,6 +93,9 @@ class PublishOutcome:
     published: bool
     created_merge_request: bool = False
     protected_branch_fallback_source: str | None = None
+    pushed_sha: str = ""
+    """The commit this publish pushed, read after the push; empty when nothing was pushed or HEAD could not be read.
+    The CI watch tells DAIV's own commits from everyone else's by it."""
     diff_stats: MergeRequestDiffStats | None = None
     """Lines added/removed and files touched by the run's work, for the composer's ``+x −y``
     pill. ``None`` only when no publish was attempted; a publish that found nothing reports
@@ -238,10 +241,6 @@ class GitChangePublisher:
         suppress_bot_pipeline = not skip_ci and await sync_to_async(self.client.push_uses_ephemeral_token)(
             self.ctx.repository
         )
-        # Opening an MR triggers a pipeline of its own, as its author, so only a push to an
-        # already-open MR needs the heal — and only it needs the pushed sha.
-        will_heal = suppress_bot_pipeline and merge_request is not None
-
         # Only an existing MR's source branch may have advanced under the run (a dependabot
         # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
         # A fresh, unique branch can't, so leave integration off for new MRs.
@@ -251,16 +250,15 @@ class GitChangePublisher:
             )
         except GitCommandError as exc:
             raise PushRejectedError(str(exc)) from exc
-        # Read after the push: an integrate-on-reject rebase or merge moves HEAD, and the heal below
-        # needs the sha that actually landed on the remote.
-        pushed_sha = None
-        if will_heal:
-            try:
-                pushed_sha = await git_manager.head_sha()
-            except Exception:
-                # The branch is already pushed (skip-ci'd): raising here would orphan it and
-                # discard the agent's reply over a sha the heal can degrade without.
-                logger.exception("Could not read HEAD after pushing '%s'; the CI heal cannot verify it", branch_name)
+        # Read after the push: an integrate-on-reject rebase or merge moves HEAD, and both the heal below and the CI
+        # watch need the sha that actually landed on the remote.
+        pushed_sha = ""
+        try:
+            pushed_sha = await git_manager.head_sha()
+        except Exception:
+            # The branch is already pushed: raising here would orphan it and discard the agent's reply over a sha the
+            # heal and the watch can degrade without.
+            logger.exception("Could not read HEAD after pushing '%s'; the CI heal and watch can't use it", branch_name)
 
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
@@ -296,6 +294,7 @@ class GitChangePublisher:
                     merge_request=None,
                     published=True,
                     protected_branch_fallback_source=protected_branch_fallback_source,
+                    pushed_sha=pushed_sha,
                     diff_stats=diff_stats,
                 )
             created_merge_request = True
@@ -318,13 +317,14 @@ class GitChangePublisher:
                     merge_request.draft,
                 )
             if suppress_bot_pipeline:
-                await self._trigger_service_account_pipeline(merge_request, pushed_sha)
+                await self._trigger_service_account_pipeline(merge_request, pushed_sha or None)
 
         return PublishOutcome(
             merge_request=merge_request,
             published=True,
             created_merge_request=created_merge_request,
             protected_branch_fallback_source=protected_branch_fallback_source,
+            pushed_sha=pushed_sha,
             diff_stats=diff_stats,
         )
 

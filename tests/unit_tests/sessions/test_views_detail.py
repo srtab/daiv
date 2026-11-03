@@ -4,6 +4,7 @@ import json
 import re
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.urls import reverse
@@ -11,11 +12,23 @@ from django.utils import timezone
 from django.utils.html import escapejs
 
 import pytest
+from allauth.socialaccount.models import SocialAccount
 from sessions.conf import settings as sessions_settings
 from sessions.delegation import outcome_states
 from sessions.executor.lock import STALE_RUN_MINUTES
 from sessions.hydration import HydratedThread
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import (
+    EventFailure,
+    EventKind,
+    EventState,
+    HiddenSession,
+    MergeRequestOwnership,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    WatchState,
+)
 from sessions.transcript_labels import transcript_icons
 
 from tests.unit_tests.sessions.conftest import (
@@ -27,6 +40,7 @@ from tests.unit_tests.sessions.conftest import (
     make_delegating_run,
     make_leg,
 )
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -515,8 +529,11 @@ def test_detail_missing_checkpoint_expired_when_run_stale(member_client, member_
 
 @pytest.mark.django_db
 def test_detail_visible_to_run_actor(member_client, member_user):
-    """A webhook session (user=None) is reachable by the external actor via by_owner."""
-    session = _create_session(user=None, external_username=member_user.username, origin=SessionOrigin.ISSUE_WEBHOOK)
+    """A webhook session (user=None) is reachable via by_owner by the user linked to the account that started it."""
+    SocialAccount.objects.create(user=member_user, provider="gitlab", uid="77")
+    session = _create_session(
+        user=None, external_provider="gitlab", external_uid="77", origin=SessionOrigin.ISSUE_WEBHOOK
+    )
 
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
@@ -1036,13 +1053,26 @@ def test_detail_has_no_issue_item_for_other_origins(member_client, member_user):
 
 
 @pytest.mark.django_db
-def test_detail_hands_the_ci_watch_to_the_page(member_client, member_user):
-    session = _create_session(user=member_user, origin=SessionOrigin.CHAT, watch_state=WatchState.FIXING)
+def test_detail_hands_ci_on_the_owned_merge_requests_to_the_page(member_client, member_user):
+    session = _create_session(user=member_user, origin=SessionOrigin.CHAT)
     _create_run(session)
+    MergeRequestOwnership.objects.create(
+        repo_id=session.repo_id, merge_request_iid=5, session=session, source_branch="feature"
+    )
 
-    resp = _get_detail(member_client, session)
+    with (
+        patch("sessions.header.WatchPolicy", return_value=SimpleNamespace(enabled=True, max_attempts=3)),
+        patch("sessions.header.RepositoryConfig.get_config"),
+    ):
+        resp = _get_detail(member_client, session)
 
-    assert resp.context["header"]["watch"] == {"state": "fixing", "label": "Fixing", "tone": "attn", "open": True}
+    assert [(item["merge_request_iid"], item["status"]) for item in resp.context["header"]["ci"]] == [(5, "running")]
+    assert resp.context["header"]["watch"] == {
+        "state": "running",
+        "label": "Waiting for CI",
+        "tone": "attn",
+        "open": True,
+    }
     assert b'id="session-header"' in resp.content
 
 
@@ -1170,34 +1200,6 @@ def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, 
 
 
 @pytest.mark.django_db
-def test_detail_reads_the_watch_off_the_merge_requests_thread(member_client, member_user):
-    from sessions.pipeline_watch.store import watch_thread_id
-
-    session = _create_session(user=member_user)
-    _create_session(thread_id=watch_thread_id(session.repo_id, 5), merge_request_iid=5, watch_state=WatchState.WATCHING)
-
-    with patch(
-        "sessions.views.ahydrate_thread",
-        AsyncMock(return_value=HydratedThread([], False, {"id": 5, "source_branch": "b"}, None, None)),
-    ):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-
-    assert resp.context["header"]["watch"]["state"] == WatchState.WATCHING
-
-
-@pytest.mark.django_db
-def test_detail_reads_the_watch_of_a_merge_request_found_by_its_branch(member_client, member_user):
-    from sessions.pipeline_watch.store import watch_thread_id
-
-    session = _create_session(user=member_user, ref="feature")
-    _create_session(thread_id=watch_thread_id(session.repo_id, 5), merge_request_iid=5, watch_state=WatchState.FIXING)
-
-    resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
-
-    assert resp.context["header"]["watch"]["state"] == WatchState.FIXING
-
-
-@pytest.mark.django_db
 def test_detail_and_new_chat_embed_the_transcript_labels(member_client, member_user):
     session = _create_session(user=member_user)
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
@@ -1315,7 +1317,7 @@ def test_detail_gives_an_unpublished_line_the_run_status_semantics(member_client
     assert ":data-run-ending=\"publishFailed(p) && !block.items.length ? '' : false\"" in publish_row
 
 
-@pytest.mark.parametrize("name", ["session_detail.html", "_run_item.html"])
+@pytest.mark.parametrize("name", ["session_detail.html", "_run_item.html", "_up_next.html"])
 def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
     import re
     from pathlib import Path
@@ -1330,6 +1332,69 @@ def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
     for helper, key in calls:
         assert key in labels, key
         assert isinstance(labels[key], list) == (helper == "tn"), f"{helper}('{key}') does not match its label shape"
+
+
+@pytest.mark.django_db
+class TestUpNext:
+    def _get(self, client, session):
+        with patch("sessions.views.ahydrate_thread", _null_hydration()):
+            return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    @pytest.mark.parametrize("viewer", ["owner", "reader"])
+    def test_owner_and_repo_readers_get_up_next_in_the_header(self, member_client, member_user, other_user, viewer):
+        owner = member_user if viewer == "owner" else other_user
+        session = _create_session(user=owner)
+        if viewer == "reader":
+            grant_read_access(member_user, session.repo_id)
+        next_run = _create_run(session, status=RunStatus.QUEUED, user=owner)
+        chat = make_event(session, EventKind.CHAT_MESSAGE, run=next_run, author=owner)
+        comment = make_event(session, EventKind.COMMENT)
+
+        up_next = self._get(member_client, session).context["header"]["up_next"]
+
+        (group,) = up_next["groups"]
+        assert [bubble["id"] for bubble in group["bubbles"]] == [f"inbox-{chat.pk}"]
+        assert [line["id"] for line in group["told"]] == [f"inbox-{comment.pk}"]
+        assert group["is_viewer"] is (viewer == "owner")
+
+    def test_nothing_pending_is_no_up_next(self, member_client, member_user):
+        assert self._get(member_client, _create_session(user=member_user)).context["header"]["up_next"] is None
+
+    def test_a_failed_event_is_a_timeline_line(self, member_client, member_user):
+        session = _create_session(user=member_user)
+        failed = make_event(session, EventKind.MENTION, state=EventState.FAILED, failure=EventFailure.RETRIES_EXHAUSTED)
+
+        turns = self._get(member_client, session).context["turns"]
+
+        (entry,) = [turn for turn in turns if turn["role"] == "inbox_event"]
+        assert (entry["id"], entry["failure_label"]) == (f"inbox-{failed.pk}", "The runs that took it kept failing")
+
+    def test_an_inbox_run_opens_with_the_events_it_took(self, member_client, member_user):
+        session = _create_session(user=member_user)
+        run = _create_run(session, prompt="Fix it")
+        chat = make_event(session, EventKind.CHAT_MESSAGE, run=run, state=EventState.HANDLED, author=member_user)
+
+        turns = self._get(member_client, session).context["turns"]
+
+        anchor = next(turn for turn in turns if turn.get("run_id") == str(run.pk))
+        assert [bubble["id"] for bubble in anchor["opening"]] == [f"inbox-{chat.pk}"]
+
+    def test_the_page_takes_a_message_queued_while_busy_and_refreshes_up_next(self, member_client, member_user):
+        session = _create_session(user=member_user)
+
+        html = self._get(member_client, session).content.decode()
+
+        assert '@daiv:up-next-provisional.window="addProvisional($event.detail)"' in html
+        assert f"upNextUrl: '/api/sessions/{session.thread_id}/up-next'" in html
+
+    def test_the_panel_is_gone(self, member_client, member_user):
+        session = _create_session(user=member_user)
+        make_event(session, EventKind.CHAT_MESSAGE)
+
+        html = self._get(member_client, session).content.decode()
+
+        assert 'data-testid="session-inbox"' not in html
+        assert 'data-testid="session-queued"' not in html
 
 
 @pytest.mark.django_db

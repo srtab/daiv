@@ -285,6 +285,25 @@ def test_run_status_attaches_to_the_preceding_block_and_does_not_end_it():
     assert blocks[0]["endedAt"] == ENDED and blocks[0]["lastTurn"]["id"] == "a1"
 
 
+def test_a_silent_marker_under_an_answer_shows_nothing():
+    marker = {**status_turn("aborted"), "run_id": "run-u1", "silent": True}
+    blocks = _blocks([user("u1"), asst("a1", text("ok")), marker])
+    assert [len(b["statuses"]) for b in blocks] == [0]
+
+
+@pytest.mark.parametrize(
+    ("turns", "statuses"),
+    [
+        ([user("u1"), {**status_turn("aborted"), "run_id": "run-u1", "silent": True}], [1]),
+        ([user("u1"), asst("a1", streaming=True), {**status_turn("aborted"), "silent": True}], [1]),
+        ([user("u1"), asst("a1", text("ok")), {**status_turn("aborted"), "run_id": "run-9", "silent": True}], [0, 1]),
+    ],
+    ids=["reloaded", "live", "a-run-without-a-prompt"],
+)
+def test_a_silent_marker_of_a_stop_that_left_no_answer_is_drawn(turns, statuses):
+    assert [len(b["statuses"]) for b in _blocks(turns)] == statuses
+
+
 def test_a_marker_carrying_its_own_run_id_is_its_own_block():
     marker = {**status_turn("failed"), "run_id": "run-9"}
     blocks = _blocks([user("u1"), asst("a1", text("ok")), marker])
@@ -419,6 +438,30 @@ def test_a_changed_mcp_server_icon_or_read_only_list_re_derives_its_rows():
         [1, "https://x.test/a.png"],
         [0, "https://x.test/a.png"],
     ]
+
+
+def _inbox_event(event_id, kind="ci_passed"):
+    return {"id": event_id, "role": "inbox_event", "kind": kind, "summary": "CI on !9: pipeline 1 passed"}
+
+
+def test_a_remembered_event_is_a_compact_block_of_its_own_between_runs():
+    turns = [user("u1"), asst("a1", text("Done.")), _inbox_event("inbox-e1"), user("u2"), asst("a2", text("Again."))]
+
+    blocks = _blocks(turns)
+
+    assert [block["key"] for block in blocks] == ["u1", "inbox-e1", "u2"]
+    event_block = blocks[1]
+    assert event_block["event"]["kind"] == "ci_passed"
+    assert (event_block["anchor"], event_block["items"]) == (None, [])
+    assert [block["event"] for block in (blocks[0], blocks[2])] == [None, None]
+
+
+def test_an_event_after_the_live_run_leaves_that_run_live():
+    turns = [user("u1"), asst("a1", read("c1", result=None, status="running")), _inbox_event("inbox-e1")]
+
+    blocks = _blocks(turns, in_flight=True)
+
+    assert [block["live"] for block in blocks] == [True, False]
 
 
 def _cards(block):

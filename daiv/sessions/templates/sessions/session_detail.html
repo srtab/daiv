@@ -64,10 +64,6 @@
   {% translate "Show more" as show_more_label %}
   {% translate "Show less" as show_less_label %}
 
-  {# Titles for a prompt DAIV wrote, keyed by the run's trigger (``SessionOrigin.daiv_authored``). #}
-  {% translate "Delegated jobs finished" as daiv_resume_title %}
-  {% translate "CI failed" as daiv_ci_fix_title %}
-
   {# Composer wording. The progress pill and the MCP rows are assembled in JS from live #}
   {# counts, so the pieces are translated here and handed over rather than built from an #}
   {# English template. #}
@@ -150,9 +146,10 @@
        x-cloak
        class="session-page">
   <div class="contents"
-       {% if session %}x-data="sessionPage({ sessionUrl: '{% url 'api:session_update' session.thread_id %}', ciWatchUrl: '{% url 'api:session_ci_watch' session.thread_id %}', archiveUrl: '{% url 'api:session_archive' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', title: '{{ page_title|escapejs }}', titleSuffix: 'DAIV Sessions', labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}', watching: '{{ watching_label|escapejs }}', watchOff: '{{ watch_off_label|escapejs }}', watchFailed: '{{ watch_failed_label|escapejs }}' } })"
+       {% if session %}x-data="sessionPage({ sessionUrl: '{% url 'api:session_update' session.thread_id %}', ciWatchUrl: '{% url 'api:session_ci_watch' session.thread_id %}', archiveUrl: '{% url 'api:session_archive' session.thread_id %}', upNextUrl: '{% url 'api:session_up_next' session.thread_id %}', storageKey: 'daiv.session-details.{{ request.user.pk }}', title: '{{ page_title|escapejs }}', titleSuffix: 'DAIV Sessions', labels: { running: '{{ running_label|escapejs }}', queued: '{{ queued_label|escapejs }}', watching: '{{ watching_label|escapejs }}', watchOff: '{{ watch_off_label|escapejs }}', watchFailed: '{{ watch_failed_label|escapejs }}' } })"
        @daiv:session-turns.window="applyHeader($event.detail)"
        @daiv:session-header.window="applyHeader($event.detail)"
+       @daiv:up-next-provisional.window="addProvisional($event.detail)"
        @daiv:live-run-ended.window="settle()"{% endif %}>
   {% if session %}
     {% include "sessions/_session_topbar.html" %}
@@ -167,7 +164,7 @@
          :class="{ 'chat-column--empty': !thread && turns.length === 0 }">
       {% if watch_only %}
         <div class="mb-4 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-gray-300">
-          {% blocktranslate with iid=session.merge_request_iid state=session.get_watch_state_display %}This session tracks CI on !{{ iid }} ({{ state }}). It gets a transcript once DAIV runs a fix or someone comments on the merge request.{% endblocktranslate %}
+          {% blocktranslate with iid=session.merge_request_iid %}This session tracks CI on !{{ iid }}. It gets a transcript once DAIV looks at a failure or someone mentions it on the merge request.{% endblocktranslate %}
         </div>
       {% elif expired %}
         <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-200">
@@ -202,48 +199,67 @@
 
         <template x-for="block in runBlocks" :key="block.key">
           <div class="run-block" :id="!block.anchor && block.runId ? `run-${block.runId}` : null">
+            <template x-if="block.event">
+              {% include "sessions/_inbox_event_row.html" with event="block.event" %}
+            </template>
             <template x-if="block.anchor">
               <article class="chat-turn chat-turn--user" :id="runAnchorId(block.anchor)"
-                       :class="{ 'chat-turn--daiv': block.anchor.author === 'daiv', 'chat-turn--pending': block.anchor.pending }">
-                <div class="chat-turn__body">
-                  <template x-for="(seg, si) in block.anchor.segments" :key="si">
-                    <div class="chat-segment" :class="`chat-segment--${seg.type}`">
-                      <template x-if="seg.type === 'text' && block.anchor.author === 'daiv'">
-                        <details class="chat-daiv-notice">
-                          <summary class="chat-daiv-notice__summary">
-                            <span class="chat-daiv-notice__from">DAIV</span>
-                            <span aria-hidden="true">·</span>
-                            <span x-text="({ delegation_resume: '{{ daiv_resume_title|escapejs }}', pipeline_webhook: '{{ daiv_ci_fix_title|escapejs }}' })[block.anchor.origin] || ''"></span>
-                            <template x-if="block.anchor.sent_at">
-                              <span class="chat-daiv-notice__time">
+                       :class="{ 'chat-turn--pending': block.anchor.pending }"
+                       x-data="{ request: false }">
+                <template x-if="anchorBubbles(block.anchor)">
+                  <div class="chat-turn__body">
+                    <template x-for="b in anchorBubbles(block.anchor)" :key="b.id">
+                      <div class="chat-turn__opening">
+                        {% include "sessions/_opening_bubble.html" with bubble="b" clamp_id="`chat-opening-${block.anchor.id}-${b.id}`" %}
+                        <template x-if="b.received">
+                          <p class="received-msg__meta">
+                            <span x-text="TranscriptLabels.t('received')"></span>
+                            <template x-if="b.created_at">
+                              <span class="received-msg__when">
                                 <span aria-hidden="true">·</span>
-                                <time :datetime="block.anchor.sent_at"
-                                      :title="absoluteTime(block.anchor.sent_at)"
-                                      x-text="relativeTime(block.anchor.sent_at)"></time>
+                                <time :datetime="b.created_at" :title="absoluteTime(b.created_at)" x-text="relativeTime(b.created_at)"></time>
                               </span>
                             </template>
-                          </summary>
-                          <div class="chat-daiv-notice__body chat-text" x-html="renderMarkdown(seg.content)"></div>
-                        </details>
-                      </template>
-                      <template x-if="seg.type === 'text' && block.anchor.author !== 'daiv'">
-                        <div class="chat-user-msg" x-data="userClamp(`chat-user-text-${block.anchor.id}-${si}`)">
-                          <span class="chat-text"
-                                :id="id"
-                                :class="{ 'chat-text--clamped': collapsed }"
-                                x-text="seg.content"></span>
-                          <button type="button" class="chat-user-msg__toggle" x-cloak
-                                  x-show="overflowing"
-                                  :aria-controls="id"
-                                  :aria-expanded="(!collapsed).toString()"
-                                  @click="collapsed = !collapsed"
-                                  x-text="collapsed ? '{{ show_more_label|escapejs }}' : '{{ show_less_label|escapejs }}'"></button>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
-                </div>
-                <template x-if="block.anchor.author !== 'daiv' && turnHasActions(block.anchor)">
+                            <span aria-hidden="true">·</span>
+                            <button type="button" class="received-msg__toggle" :aria-expanded="request.toString()"
+                                    @click="request = !request"
+                                    x-text="request ? TranscriptLabels.t('hide_request') : TranscriptLabels.t('show_request')"></button>
+                          </p>
+                        </template>
+                      </div>
+                    </template>
+                    <template x-if="request">
+                      <div class="received-msg__request">
+                        <template x-for="(seg, si) in block.anchor.segments" :key="si">
+                          <div class="chat-text" x-show="seg.type === 'text'" x-html="renderMarkdown(seg.content)"></div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="!anchorBubbles(block.anchor)">
+                  <div class="chat-turn__body">
+                    <template x-for="(seg, si) in block.anchor.segments" :key="si">
+                      <div class="chat-segment" :class="`chat-segment--${seg.type}`">
+                        <template x-if="seg.type === 'text'">
+                          <div class="chat-user-msg" x-data="userClamp(`chat-user-text-${block.anchor.id}-${si}`)">
+                            <span class="chat-text"
+                                  :id="id"
+                                  :class="{ 'chat-text--clamped': collapsed }"
+                                  x-text="seg.content"></span>
+                            <button type="button" class="chat-user-msg__toggle" x-cloak
+                                    x-show="overflowing"
+                                    :aria-controls="id"
+                                    :aria-expanded="(!collapsed).toString()"
+                                    @click="collapsed = !collapsed"
+                                    x-text="collapsed ? '{{ show_more_label|escapejs }}' : '{{ show_less_label|escapejs }}'"></button>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="turnHasActions(block.anchor) && (block.anchor.opening ? block.anchor.opening.some((b) => !b.received) : block.anchor.author !== 'daiv')">
                   <div class="chat-turn__actions">
                     {% include "sessions/_copy_turn_button.html" with turn="block.anchor" %}
                     <template x-if="block.anchor.pending">
@@ -368,6 +384,10 @@
                 aria-hidden="true"></span>
           <span x-text="runStatus.label"></span>
         </div>
+
+        {% if session %}
+          {% include "sessions/_up_next.html" %}
+        {% endif %}
       </div>
 
       {% if not expired %}

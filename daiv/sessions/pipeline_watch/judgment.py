@@ -89,3 +89,11 @@ class PipelineReport:
     @property
     def web_url(self) -> str:
         return self.pipeline.web_url
+
+    @property
+    def workflow_id(self) -> int | None:
+        return self.pipeline.workflow_id
+
+    @property
+    def workflow_name(self) -> str:
+        return self.pipeline.workflow_name

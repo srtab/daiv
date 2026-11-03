@@ -75,9 +75,9 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
         # Best-effort: a teardown-time Redis failure must not mask the cancellation.
         with contextlib.suppress(Exception):
             if await run_relay.cancel_requested():
+                code = "run_withdrawn" if streamer.withdrawn else "run_cancelled"
                 await publish_event(
-                    run_relay,
-                    RunErrorEvent(type=EventType.RUN_ERROR, message=CANCELLED_BY_USER_MESSAGE, code="run_cancelled"),
+                    run_relay, RunErrorEvent(type=EventType.RUN_ERROR, message=CANCELLED_BY_USER_MESSAGE, code=code)
                 )
         raise
     except Exception:

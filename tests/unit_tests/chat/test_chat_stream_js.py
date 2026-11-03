@@ -11,6 +11,7 @@ from sessions.models import RunStatus, SessionOrigin
 from sessions.transcript import annotate_transcript
 
 from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload
+from automation.agent.questions import QUESTION_DELIVERED
 from tests.unit_tests.chat.chat_stream_driver import REACTIVITY, run_chat_stream
 from tests.unit_tests.chat.transcript_fixtures import (
     asst,
@@ -490,7 +491,8 @@ def test_a_page_loaded_live_folds_each_run_as_its_stream_finishes():
         LIVE_PAGE_BODY,
         {"turns": [user("u1", started_at=None)], "frames": RUN_FRAMES},
         prelude=REACTIVITY + EVENT_SOURCE,
-        extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, fetch: async () => ({ ok: true }),",
+        extra_globals=GLOBALS
+        + " EventSource: FakeEventSource, setTimeout, fetch: async () => ({ ok: true, json: async () => ({}) }),",
     )
     assert out["rejoined"] == {"folded": True, "workedFor": "Worked for 5s · 1 step"}
     assert out["later"]["folded"] is True
@@ -759,3 +761,443 @@ def test_a_fallback_ending_does_not_stack_a_marker_on_the_red_line():
     ]
     out = _drive(turns, script=script)
     assert out[-2] == [] and out[-1] == ["error"]
+
+
+QUEUED_MESSAGE_BODY = """
+const chat = reactive(registry.chat({
+  endpoint: "/api/chat",
+  streamEndpoint: "/api/chat/stream",
+  thread: { thread_id: "t1", repo_id: "r", ref: "main" },
+}));
+chat.$watch = watchOn(chat);
+chat.$nextTick = (cb) => cb && cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+chat.init();
+chat.draftMessage = "Also add a test";
+await chat.submit();
+const queued = {
+  turns: chat.turns.map((t) => ({ role: t.role, pending: Boolean(t.pending) })),
+  streaming: chat.streaming,
+  live: chat.sessionLive,
+  queuedRunId: chat.queuedRunId,
+  ended: dispatched.filter((e) => e.type === "daiv:live-run-ended").length,
+  provisional: dispatched.filter((e) => e.type === "daiv:up-next-provisional").map((e) => e.detail),
+  opened: opened !== null,
+};
+chat.followLiveRun({ id: "next-run", stoppable: true, started_at: new Date().toISOString() });
+const following = { streaming: chat.streaming, run: chat._activeRun?.runId, queuedRunId: chat.queuedRunId };
+process.stdout.write(JSON.stringify({ queued, following }));
+chat.destroy();
+"""
+
+
+def test_a_message_sent_while_the_session_is_busy_moves_to_up_next():
+    reply = {"run_id": "r1", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
+    fetch = f"fetch: async () => ({{ ok: true, json: async () => ({json.dumps(reply)}) }}),"
+
+    out = run_chat_stream(
+        QUEUED_MESSAGE_BODY,
+        {},
+        prelude=REACTIVITY + EVENT_SOURCE,
+        extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, " + fetch,
+    )
+
+    assert out["queued"] == {
+        "turns": [],
+        "streaming": False,
+        "live": True,
+        "queuedRunId": "next-run",
+        "ended": 0,
+        "provisional": [{"event_id": "e1", "run_id": "next-run", "text": "Also add a test"}],
+        "opened": False,
+    }
+    assert out["following"] == {"streaming": True, "run": "next-run", "queuedRunId": ""}
+
+
+MID_RUN_BODY = """
+sandbox.window.showToast = (message, level) => toasts.push([message, level]);
+let reloads = 0;
+sandbox.window.location.reload = () => { reloads += 1; };
+const thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+const chat = reactive(registry.chat({
+  endpoint: "/api/chat",
+  streamEndpoint: "/api/chat/stream",
+  thread: payload.rendered ? thread : null,
+}));
+chat.$watch = watchOn(chat);
+chat.$nextTick = (cb) => cb && cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+chat.init();
+chat.thread = thread;
+chat.turns = [
+  { id: "u1", role: "user", segments: [{ type: "text", content: "Fix the bug" }] },
+  { id: "a1", role: "assistant", segments: [{ type: "text", content: "Looking" }], streaming: true },
+];
+Object.assign(chat, payload.state, { _activeRun: { threadId: "t1", runId: "live" } });
+chat.draftMessage = payload.draft;
+const canSend = chat.canSend();
+await chat.submit();
+process.stdout.write(JSON.stringify({
+  canSend,
+  sent: sent.map((request) => request.body),
+  turns: chat.turns.map((t) => [t.id, Boolean(t.streaming)]),
+  streaming: chat.streaming,
+  resuming: chat.resuming,
+  run: chat._activeRun?.runId,
+  draft: chat.draftMessage,
+  queuedRunId: chat.queuedRunId,
+  provisional: dispatched.filter((e) => e.type === "daiv:up-next-provisional").map((e) => e.detail),
+  toasts,
+  reloads,
+}));
+chat.destroy();
+"""
+
+MID_RUN_PRELUDE = """
+const sent = [];
+const toasts = [];
+"""
+
+
+QUEUED_REPLY = {
+    "run_id": "r2",
+    "thread_id": "t1",
+    "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"},
+}
+
+
+def _send_mid_run(
+    state: dict, reply: dict = QUEUED_REPLY, *, status: int = 200, rendered: bool = True, draft: str = "Also add a test"
+) -> dict:
+    fetch = (
+        "fetch: async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); "
+        f"return {{ ok: {str(status < 400).lower()}, status: {status}, statusText: '', "
+        f"json: async () => ({json.dumps(reply)}), text: async () => '' }}; }},"
+    )
+    return run_chat_stream(
+        MID_RUN_BODY,
+        {"state": state, "rendered": rendered, "draft": draft},
+        prelude=REACTIVITY + EVENT_SOURCE + MID_RUN_PRELUDE,
+        extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, " + fetch,
+    )
+
+
+@pytest.mark.parametrize(
+    "state",
+    [{"streaming": True}, {"resuming": True}, {"waitingSince": "2026-11-02T10:00:00Z"}],
+    ids=["streaming", "resuming", "waiting"],
+)
+def test_a_message_sent_mid_run_waits_for_the_next_run_and_leaves_the_live_one_alone(state):
+    out = _send_mid_run(state)
+
+    assert out["canSend"] is True
+    (body,) = out["sent"]
+    assert body["forwardedProps"] == {"queue": True}
+    assert [(message["role"], message["content"]) for message in body["messages"]] == [("user", "Also add a test")]
+    assert out["turns"] == [["u1", False], ["a1", True]]
+    assert (out["streaming"], out["resuming"], out["run"]) == (
+        state.get("streaming", False),
+        state.get("resuming", False),
+        "live",
+    )
+    assert (out["draft"], out["queuedRunId"]) == ("", "next-run")
+    assert out["provisional"] == [{"event_id": "e1", "run_id": "next-run", "text": "Also add a test"}]
+    assert out["reloads"] == 0
+
+
+def test_a_page_that_started_its_session_reloads_to_show_a_message_queued_mid_run():
+    out = _send_mid_run({"streaming": True}, rendered=False)
+
+    assert (out["reloads"], out["draft"]) == (1, "")
+
+
+@pytest.mark.parametrize("draft", ["/clear", "  /plan the migration", "/unknown is not a command"])
+def test_a_slash_command_typed_mid_run_is_queued_like_any_message(draft):
+    out = _send_mid_run({"streaming": True}, draft=draft)
+
+    assert [body["messages"][-1]["content"] for body in out["sent"]] == [draft]
+    assert (out["draft"], out["toasts"]) == ("", [])
+
+
+@pytest.mark.parametrize(
+    ("touched", "expected"), [(True, {"queue": True, "mcp_servers": ["grafana"]}), (False, {"queue": True})]
+)
+def test_a_message_queued_mid_run_carries_the_tools_selection_once_touched(touched, expected):
+    out = _send_mid_run({"streaming": True, "_mcpTouched": touched, "mcpSelected": ["grafana"]})
+
+    assert [body["forwardedProps"] for body in out["sent"]] == [expected]
+
+
+def test_a_refused_mid_run_message_comes_back_to_the_draft():
+    out = _send_mid_run({"streaming": True}, {"detail": "Thread not found"}, status=403)
+
+    assert (out["draft"], out["provisional"], out["streaming"], out["reloads"]) == ("Also add a test", [], True, 0)
+    assert [level for _message, level in out["toasts"]] == ["error"]
+
+
+WITHDRAWN_BODY = """
+const chat = registry.chat({
+  endpoint: "/api/chat",
+  cancelEndpoint: "/api/chat/cancel",
+  thread: { thread_id: "t1", repo_id: "r", ref: "main" },
+});
+chat.$nextTick = (cb) => cb && cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+chat.draftMessage = payload.draft;
+const live = { id: "a2", role: "assistant", segments: [], streaming: true };
+chat.turns = [
+  { id: "h1", role: "user", segments: [{ type: "text", content: "hi" }] },
+  { id: "a1", role: "assistant", segments: [{ type: "text", content: "hey" }] },
+  { id: "h2", role: "user", segments: [{ type: "text", content: "do it" }] },
+  live,
+];
+chat._activeRun = { threadId: "t1", runId: "r2" };
+if (payload.stoppedHere ?? true) await chat.stop();
+chat.dispatch({ type: "RUN_ERROR", code: payload.code, message: "Stopped by user." }, live, Date.now());
+process.stdout.write(JSON.stringify({
+  turns: chat.turns.map((t) => (t.role === "run_status" ? `status:${t.status}${t.silent ? ":silent" : ""}` : t.id)),
+  draft: chat.draftMessage,
+  status: chat.runStatus.label,
+}));
+"""
+
+
+WITHDRAWN_GLOBALS = "fetch: async () => ({ ok: true, status: 200 }),"
+
+
+def _stop_live_turn(code: str, *, draft: str = "", stopped_here: bool = True) -> dict:
+    payload = {"code": code, "draft": draft, "stoppedHere": stopped_here}
+    return run_chat_stream(WITHDRAWN_BODY, payload, extra_globals=WITHDRAWN_GLOBALS)
+
+
+@pytest.mark.parametrize(("draft", "restored"), [("", "do it"), ("also this", "do it\n\nalso this")])
+def test_a_turn_withdrawn_before_daiv_answered_goes_back_to_the_composer(draft, restored):
+    out = _stop_live_turn("run_withdrawn", draft=draft)
+
+    assert out == {"turns": ["h1", "a1"], "draft": restored, "status": "idle"}
+
+
+def test_a_withdrawn_turn_leaves_the_composer_of_a_page_that_did_not_stop_it_alone():
+    out = _stop_live_turn("run_withdrawn", draft="my own note", stopped_here=False)
+
+    assert out == {"turns": ["h1", "a1"], "draft": "my own note", "status": "idle"}
+
+
+def test_a_turn_stopped_after_daiv_answered_keeps_its_message_under_a_silent_marker():
+    out = _stop_live_turn("run_cancelled")
+
+    assert out == {"turns": ["h1", "a1", "h2", "a2", "status:aborted:silent"], "draft": "", "status": "stopped"}
+
+
+KEYDOWN_BODY = """
+if (payload.coarse) sandbox.window.matchMedia = (query) => ({ matches: query === "(pointer: coarse)" });
+const chat = registry.chat({ endpoint: "/api/chat", thread: { thread_id: "t1", repo_id: "r", ref: "main" } });
+const submitted = [];
+chat.submit = () => submitted.push(chat.draftMessage);
+chat.autosize = () => {};
+chat.$nextTick = (cb) => cb && cb();
+chat.$refs = {};
+chat.draftMessage = payload.draft;
+const at = payload.caret ?? payload.draft.length;
+const prompt = {
+  value: payload.draft, selectionStart: at, selectionEnd: at,
+  setRangeText(text, start, end) {
+    this.value = this.value.slice(0, start) + text + this.value.slice(end);
+    this.selectionStart = this.selectionEnd = start + text.length;
+  },
+};
+let prevented = false;
+const event = { key: "Enter", target: prompt, preventDefault: () => { prevented = true; }, stopPropagation() {} };
+chat.onPromptKeydown({ ...event, ...payload.keys });
+process.stdout.write(JSON.stringify({ prevented, submitted, draft: chat.draftMessage }));
+"""
+
+
+def _press_enter(keys: dict, *, draft: str = "fix it", caret: int | None = None, coarse: bool = False) -> dict:
+    return run_chat_stream(KEYDOWN_BODY, {"keys": keys, "draft": draft, "caret": caret, "coarse": coarse})
+
+
+def test_enter_sends_the_message():
+    assert _press_enter({}) == {"prevented": True, "submitted": ["fix it"], "draft": "fix it"}
+
+
+@pytest.mark.parametrize("modifier", ["ctrlKey", "metaKey"])
+def test_ctrl_or_cmd_enter_breaks_the_line_at_the_caret(modifier):
+    out = _press_enter({modifier: True}, draft="first second", caret=5)
+
+    assert out == {"prevented": True, "submitted": [], "draft": "first\n second"}
+
+
+def test_shift_enter_leaves_the_line_break_to_the_browser():
+    assert _press_enter({"shiftKey": True}) == {"prevented": False, "submitted": [], "draft": "fix it"}
+
+
+def test_enter_on_a_touch_keyboard_breaks_the_line_instead_of_sending():
+    assert _press_enter({}, coarse=True) == {"prevented": False, "submitted": [], "draft": "fix it"}
+
+
+def test_enter_that_commits_an_ime_candidate_sends_nothing():
+    assert _press_enter({"isComposing": True}) == {"prevented": False, "submitted": [], "draft": "fix it"}
+
+
+INBOX_BODY = """
+const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
+chat.$watch = watchOn(chat);
+chat.$nextTick = () => {};
+chat.scrollToBottom = () => {};
+chat.turns = payload.turns;
+chat.thread = { thread_id: "t1" };
+chat.init();
+const blocks = chat.runBlocks.length;
+chat._streamRun = async () => "done";
+chat._finishTurn = () => {};
+chat.resuming = true;
+await chat._resumeRun("r1");
+process.stdout.write(JSON.stringify({ blocks, resuming: chat.resuming }));
+chat.destroy();
+"""
+
+
+def _inbox_event(eid: str) -> dict:
+    return {
+        "id": eid,
+        "role": "inbox_event",
+        "kind": "ci_passed",
+        "summary": "CI passed",
+        "reason": "",
+        "web_url": "",
+        "created_at": "2026-10-31T00:00:00+00:00",
+    }
+
+
+@pytest.mark.parametrize(
+    ("turns", "blocks"),
+    [
+        ([user("u1"), asst("a1", text("Done.")), _inbox_event("e1")], 2),
+        ([user("u1"), _inbox_event("e1"), asst("a1", text("Done."))], 3),
+    ],
+    ids=["event-last", "event-between"],
+)
+def test_a_remembered_inbox_event_in_the_turns_leaves_the_transcript_and_the_resume_working(turns, blocks):
+    out = run_chat_stream(INBOX_BODY, {"turns": turns}, prelude=REACTIVITY, extra_globals=GLOBALS)
+    assert out == {"blocks": blocks, "resuming": False}
+
+
+BUBBLE_BODY = """
+const chat = registry.chat({});
+process.stdout.write(JSON.stringify({
+  kinds: (payload.bubbles ?? []).map((bubble) => chat.bubbleKindLabel(bubble)),
+  sources: (payload.bubbles ?? []).map((bubble) => chat.receivedSource(bubble)),
+  openings: (payload.anchors ?? []).map((anchor) => chat.anchorBubbles(anchor)),
+  rows: (payload.events ?? []).map((event) => chat.inboxEventKind(event)),
+}));
+"""
+
+
+def _bubbles(**payload):
+    return run_chat_stream(BUBBLE_BODY, payload, extra_globals=GLOBALS)
+
+
+def test_a_bubble_names_the_kind_of_request():
+    bubbles = [
+        {"kind": "chat_message", "trigger_type": ""},
+        {"kind": "mention", "trigger_type": ""},
+        {"kind": "follow_up_job", "trigger_type": "api_job"},
+        {"kind": "job", "trigger_type": "mcp_job"},
+        {"kind": "job", "trigger_type": "ui_job"},
+        {"kind": "ci_failed", "trigger_type": "", "received": True},
+    ]
+
+    assert _bubbles(bubbles=bubbles)["kinds"] == ["Chat", "Mention", "API job", "MCP job", "Job", ""]
+
+
+def test_a_received_bubble_names_its_source():
+    bubbles = [
+        {"kind": "ci_failed", "received": True, "source_iid": 101},
+        {"kind": "ci_failed", "received": True, "source_iid": None},
+        {"kind": "delegation_finished", "received": True, "source_iid": None},
+    ]
+
+    assert _bubbles(bubbles=bubbles)["sources"] == ["CI · !101", "CI", "Delegated jobs"]
+
+
+def test_a_run_opens_with_its_events_or_what_started_it():
+    opening = [{"id": "inbox-e1", "kind": "chat_message", "received": False, "text": "Fix it"}]
+    anchors = [
+        {"id": "u1", "author": "sfr", "opening": opening},
+        {"id": "u2", "author": "daiv", "origin": "pipeline_webhook", "sent_at": "2026-11-01T10:00:00Z"},
+        {"id": "u3", "author": "daiv", "origin": "delegation_resume", "sent_at": "2026-11-01T10:00:00Z"},
+        {"id": "u4", "author": "sfr"},
+    ]
+
+    first, ci, delegation, plain = _bubbles(anchors=anchors)["openings"]
+
+    assert first == opening
+    assert ci == [
+        {
+            "id": "u2-received",
+            "kind": "ci_failed",
+            "received": True,
+            "failed": True,
+            "text": "",
+            "source_iid": None,
+            "created_at": "2026-11-01T10:00:00Z",
+        }
+    ]
+    assert (delegation[0]["kind"], delegation[0]["failed"]) == ("delegation_finished", False)
+    assert plain is None
+
+
+def test_an_event_daiv_could_not_handle_reads_not_handled():
+    events = [{"kind": "mention", "failure_label": "The runs that took it kept failing"}, {"kind": "comment"}]
+
+    assert _bubbles(events=events)["rows"] == ["Mention not handled", "Comment"]
+
+
+QUESTION_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat" });
+chat.turns = payload.turns;
+const seg = chat.turns[1].segments[0];
+process.stdout.write(JSON.stringify({ open: chat.isQuestionOpen(1), summary: chat.answeredSummary(seg, 1) }));
+"""
+
+
+def _opened_by(kind: str) -> dict:
+    return {**user("u2"), "opening": [{"id": f"inbox-{kind}", "kind": kind, "received": kind != "chat_message"}]}
+
+
+def _after_question(*turns: dict) -> dict:
+    args = {"questions": [{"header": "Approach", "question": "Which fix?", "options": [{"label": "Retry"}]}]}
+    asked = asst("a1", tool_call("q1", "ask_user_question", args, result=QUESTION_DELIVERED))
+    return run_chat_stream(QUESTION_BODY, {"turns": [user("u1"), asked, *turns]}, extra_globals=GLOBALS)
+
+
+@pytest.mark.parametrize(
+    "started",
+    [
+        _opened_by("ci_failed"),
+        _opened_by("delegation_finished"),
+        _opened_by("follow_up_job"),
+        _opened_by("mention"),
+        {**user("u2"), "author": "daiv", "origin": "pipeline_webhook"},
+    ],
+    ids=["ci-fix", "delegation", "follow-up-job", "mention", "daiv-authored"],
+)
+def test_a_turn_the_owner_did_not_send_leaves_the_question_open(started):
+    assert _after_question(started, asst("a2", text("Fixed CI.")))["open"] is True
+
+
+@pytest.mark.parametrize("reply", [user("u2"), _opened_by("chat_message")], ids=["inline", "from-the-inbox"])
+def test_the_owners_chat_message_answers_the_question(reply):
+    assert _after_question(reply, asst("a2", text("On it.")))["open"] is False
+
+
+def test_the_answer_is_read_from_the_owners_reply_past_a_system_turn():
+    reply = {**user("u3"), "segments": [text("**Approach** — Retry")]}
+
+    out = _after_question(_opened_by("ci_failed"), asst("a2", text("Fixed CI.")), reply)
+
+    assert out == {"open": False, "summary": "Approach · Retry"}

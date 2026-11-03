@@ -205,7 +205,7 @@ process.stdout.write(JSON.stringify({ same: chat.turns === original }));
     assert result == {"same": True}
 
 
-def test_a_waiting_session_locks_the_composer_until_a_poll_says_the_run_started():
+def test_a_waiting_session_shows_its_status_until_a_poll_says_the_run_started_and_still_takes_messages():
     body = """
 const chat = registry.chat({
   endpoint: "/api/chat", streamEndpoint: "/api/chat/stream", waitingSince: "2026-10-23T10:00:00+00:00",
@@ -221,7 +221,7 @@ process.stdout.write(JSON.stringify({ waiting, started: { waiting: chat.waiting,
     result = run_chat_stream(body, {})
 
     assert result == {
-        "waiting": {"label": "Waiting in queue", "canSend": False},
+        "waiting": {"label": "Waiting in queue", "canSend": True},
         "started": {"waiting": False, "canSend": True},
     }
 
@@ -248,7 +248,8 @@ process.stdout.write(JSON.stringify({ streamingBeforeEnd, ended: ended.length, h
         body,
         {},
         prelude=PRELUDE,
-        extra_globals="EventSource: FakeEventSource, setTimeout, fetch: async () => ({ ok: true }),",
+        extra_globals="EventSource: FakeEventSource, setTimeout, "
+        "fetch: async () => ({ ok: true, json: async () => ({}) }),",
     )
 
     assert result == {"streamingBeforeEnd": True, "ended": 1, "hasRun": True}

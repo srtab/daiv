@@ -1,156 +1,174 @@
-"""The only module that queries ``Session.watch_*``. No platform I/O, no policy."""
+"""The only module that queries the watch columns of ``MergeRequestOwnership``. No platform I/O, no policy.
+
+``Session.watch_*`` are no longer read or written; they are dropped one release after this one.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from django.db.models import F
-from django.utils import timezone
+from django.db.models import Exists, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce, Greatest
 
-from sandbox_envs.models import SandboxEnvironment
-
-from codebase.base import Scope
-from sessions.ids import compute_thread_id
-from sessions.models import Run, Session, SessionOrigin, WatchState
+from sessions.inbox.ownership import Ownerships
+from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, QuietReason
 
 if TYPE_CHECKING:
     from datetime import datetime
 
     from django.db.models import QuerySet
 
+CI_KINDS = (EventKind.CI_FAILED, EventKind.CI_PASSED, EventKind.CI_STOPPED)
 
-def watch_thread_id(repo_id: str, merge_request_iid: int) -> str:
-    """The merge request's own thread: the row its watch lives on, whichever session published the merge request."""
-    return compute_thread_id(repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request_iid)
+
+def latest_ci_results(session_id: str, merge_request_iid: int) -> QuerySet[InboxEvent]:
+    """The latest CI event of each CI subject of a merge request in ``session_id``'s inbox, newest first."""
+    ci = InboxEvent.objects.filter(session_id=session_id, merge_request_iid=merge_request_iid, kind__in=CI_KINDS)
+    newest = ci.filter(subject=OuterRef("subject")).order_by("-created_at", "-pk").values("pk")[:1]
+    return ci.filter(pk=Subquery(newest)).order_by("-created_at", "-pk")
+
+
+def on_newest_commit(results: list[InboxEvent]) -> list[InboxEvent]:
+    """Those of ``results`` (newest first) on the newest one's commit. Each was posted for its merge request's head,
+    so the newest names the latest head, and a subject whose result is on an older commit has not run on it."""
+    return [event for event in results if event.payload["sha"] == results[0].payload["sha"]] if results else []
+
+
+def gave_up(session: OuterRef, *, since: datetime) -> Exists:
+    """Whether CI on a merge request of ``session`` ran out of attempts since ``since`` and its subject has not
+    passed after."""
+    passed_after = InboxEvent.objects.filter(
+        session=OuterRef("session"),
+        merge_request_iid=OuterRef("merge_request_iid"),
+        subject=OuterRef("subject"),
+        kind=EventKind.CI_PASSED,
+        created_at__gt=OuterRef("created_at"),
+    )
+    return Exists(
+        InboxEvent.objects.filter(
+            session=session, kind=EventKind.CI_FAILED, reason=QuietReason.BUDGET_SPENT, created_at__gte=since
+        ).exclude(Exists(passed_after))
+    )
 
 
 class WatchStore:
-    """Persistence for a watch. Carries no state — an instance exists so a caller can replace it."""
+    """Persistence for the watch. Carries no state — an instance exists so a caller can replace it."""
 
-    async def atransition(self, thread_id: str, *, expect, where: dict | None = None, **updates) -> bool:
-        """Move a watch out of the states it is allowed to leave, reporting whether this caller won.
+    async def aopen(self, repo_id: str, ref: str) -> MergeRequestOwnership | None:
+        """The open ownership whose merge request's source branch is ``ref``."""
+        return await Ownerships(repo_id).afor_branch(ref)
 
-        Every *contended* move of ``watch_state`` goes through here; ``aarm``, ``arefund_attempt``
-        and ``arecover_stale_fixing`` write the column too, each from a position only one caller can
-        hold. Two events finishing together both pass their checks off their own stale read, and only
-        the row count says which one owns the transition — without it each posts its own MR comment,
-        which no constraint dedupes.
-        ``where`` adds the conditions a caller needs re-asserted inside the same statement.
-        """
-        expected = [expect] if isinstance(expect, str) else list(expect)
-        updated = await Session.objects.filter(thread_id=thread_id, watch_state__in=expected, **(where or {})).aupdate(
-            **updates
+    async def ahas_open(self, repo_id: str, ref: str) -> bool:
+        return await MergeRequestOwnership.objects.filter(
+            repo_id=repo_id, source_branch=ref, closed_at__isnull=True
+        ).aexists()
+
+    async def arecord_pipeline(self, ownership_id: int, pipeline_id: int, status: str) -> bool:
+        """Record ``pipeline_id`` in ``status`` as judged, reporting whether this caller won: two deliveries of one
+        pipeline must not both post its event. A retried pipeline keeps its id, so a new status is judged anew."""
+        judged = Q(last_pipeline_id=pipeline_id, last_pipeline_status=status)
+        updated = await (
+            MergeRequestOwnership.objects
+            .filter(pk=ownership_id)
+            .filter(Q(last_pipeline_id__isnull=True) | ~judged)
+            .aupdate(last_pipeline_id=pipeline_id, last_pipeline_status=status)
         )
         return updated == 1
 
-    def state(self, thread_id: str) -> str | None:
-        """SYNC ONLY: the watch's state, or ``None`` when the thread has no row yet."""
-        return Session.objects.filter(thread_id=thread_id).values_list("watch_state", flat=True).first()
+    async def asuperseded(self, session_id: str | None, subject: str, sha: str, pipeline_id: int) -> bool:
+        """Whether a pipeline newer than ``pipeline_id`` on ``sha`` was already judged for the CI ``subject``."""
+        return await InboxEvent.objects.filter(
+            session_id=session_id,
+            subject=subject,
+            kind__in=CI_KINDS,
+            payload__sha=sha,
+            payload__pipeline_id__gt=pipeline_id,
+        ).aexists()
 
-    async def astate(self, thread_id: str) -> str | None:
-        """:meth:`state` for async callers."""
-        return await Session.objects.filter(thread_id=thread_id).values_list("watch_state", flat=True).afirst()
+    async def ajudged(
+        self, session_id: str | None, subject: str, pipeline_id: int, status: str, *, watch_on: bool
+    ) -> bool:
+        """Whether ``pipeline_id`` in ``status`` was already judged for the CI ``subject``. With the ``watch_on``, a
+        result it kept quiet because it was off does not count, so a watch turned back on judges it anew."""
+        judged = InboxEvent.objects.filter(
+            session_id=session_id,
+            subject=subject,
+            kind__in=CI_KINDS,
+            payload__pipeline_id=pipeline_id,
+            payload__status=status,
+        )
+        if watch_on:
+            judged = judged.exclude(reason=QuietReason.WATCH_OFF)
+        return await judged.aexists()
 
-    async def aopen_watch(self, repo_id: str, ref: str) -> Session | None:
-        return await (
-            Session.objects
-            .filter(repo_id=repo_id, ref=ref, watch_state=WatchState.WATCHING)
-            .select_related("user")
-            .order_by("-watch_armed_at")
+    async def apassed(self, session_id: str, subject: str, pipeline_id: int, status: str) -> bool:
+        """Whether the latest result posted for the CI ``subject`` is ``pipeline_id`` passing in ``status``."""
+        latest = await (
+            InboxEvent.objects
+            .filter(session_id=session_id, subject=subject, kind__in=CI_KINDS)
+            .order_by("-created_at", "-pk")
             .afirst()
         )
+        return (
+            latest is not None
+            and latest.kind == EventKind.CI_PASSED
+            and (latest.payload["pipeline_id"], latest.payload["status"]) == (pipeline_id, status)
+        )
 
-    async def ahas_open_watch(self, repo_id: str, ref: str) -> bool:
-        return await Session.objects.filter(repo_id=repo_id, ref=ref, watch_state=WatchState.WATCHING).aexists()
-
-    async def aarm(
-        self,
-        *,
-        thread_id: str,
-        repo_id: str,
-        ref: str,
-        merge_request_iid: int,
-        user_id: int | None,
-        sandbox_environment_id: str | None,
-        reset_attempts: bool,
+    async def aforget_pipeline(
+        self, ownership_id: int, pipeline_id: int, status: str, *, previous: tuple[int | None, str]
     ) -> None:
-        session, _created = await Session.objects.aget_or_create(
-            thread_id=thread_id,
-            defaults={
-                "origin": SessionOrigin.PIPELINE_WEBHOOK,
-                "repo_id": repo_id,
-                "ref": ref,
-                "merge_request_iid": merge_request_iid,
-                "user_id": user_id,
-            },
-        )
-        updates = {
-            "watch_state": WatchState.WATCHING,
-            "watch_armed_at": timezone.now(),
-            "ref": ref,
-            "merge_request_iid": merge_request_iid,
-        }
-        if user_id and session.user_id is None:
-            updates["user_id"] = user_id
-        if sandbox_environment_id and session.sandbox_environment_id is None:
-            # The run's env may be another user's USER env, or deleted since the run started.
-            owner_id = session.user_id or user_id
-            if await SandboxEnvironment.objects.visible_to(owner_id).filter(pk=sandbox_environment_id).aexists():
-                updates["sandbox_environment_id"] = sandbox_environment_id
-        if reset_attempts:
-            updates["watch_attempts"] = 0
-            updates["watch_pipeline_id"] = None
-        await Session.objects.filter(thread_id=thread_id).aupdate(**updates)
+        """Undo :meth:`arecord_pipeline` after posting the pipeline's result failed, unless a later one was recorded."""
+        await MergeRequestOwnership.objects.filter(
+            pk=ownership_id, last_pipeline_id=pipeline_id, last_pipeline_status=status
+        ).aupdate(last_pipeline_id=previous[0], last_pipeline_status=previous[1])
 
-    async def aclaim_attempt(self, thread_id: str, *, max_attempts: int, pipeline_id: int) -> bool:
-        """Charge one attempt and hand the watch to a fix run, reporting whether this caller won.
-
-        The cap is re-asserted inside the statement rather than trusted from the caller's read: a
-        stale read can outlive a whole fix-run cycle. Restamping ``watch_armed_at`` is what stops
-        the reconciler seeing the new ``fixing`` row as already stale.
-        """
-        return await self.atransition(
-            thread_id,
-            expect=WatchState.WATCHING,
-            where={"watch_attempts__lt": max_attempts},
-            watch_state=WatchState.FIXING,
-            watch_attempts=F("watch_attempts") + 1,
-            watch_pipeline_id=pipeline_id,
-            watch_armed_at=timezone.now(),
+    async def agave_up_before(self, event: InboxEvent) -> bool:
+        """Whether an earlier pipeline on the commit of ``event``, a ``budget_spent`` CI failure, already ran out of
+        attempts, so the owner was told."""
+        return (
+            await InboxEvent.objects
+            .filter(
+                session_id=event.session_id,
+                merge_request_iid=event.merge_request_iid,
+                kind=EventKind.CI_FAILED,
+                reason=QuietReason.BUDGET_SPENT,
+                payload__sha=event.payload["sha"],
+            )
+            .exclude(pk=event.pk)
+            .aexists()
         )
 
-    async def arefund_attempt(self, thread_id: str) -> None:
-        """Undo a claim whose fix run never started, so the attempt is not spent on nothing."""
-        await Session.objects.filter(thread_id=thread_id, watch_state=WatchState.FIXING).aupdate(
-            watch_state=WatchState.WATCHING, watch_attempts=F("watch_attempts") - 1, watch_pipeline_id=None
+    async def aset_enabled(self, ownership_id: int, *, enabled: bool) -> None:
+        """Turn the watch on or off. Turning it on gives it its attempts back, as a person asking again is a new budget,
+        and forgets the last pipeline judged so it is judged anew."""
+        updates = {"watch_enabled": enabled}
+        if enabled:
+            updates |= {"attempts": 0, "last_pipeline_id": None, "last_pipeline_status": ""}
+        await MergeRequestOwnership.objects.filter(pk=ownership_id).aupdate(**updates)
+
+    def quiet(self, *, since: datetime, limit: int) -> QuerySet[MergeRequestOwnership, dict[str, Any]]:
+        """Open, watched merge requests nothing was heard of since ``since``, at most ``limit``, stalest first: no CI
+        result, whatever it was, no claim, which a publish makes, and no re-read by the reconciler
+        (:meth:`amark_reconciled`). What a missed webhook may have left behind, a manual retry's pass included."""
+        last_result = (
+            InboxEvent.objects
+            .filter(session=OuterRef("session"), merge_request_iid=OuterRef("merge_request_iid"), kind__in=CI_KINDS)
+            .order_by("-created_at")
+            .values("created_at")[:1]
+        )
+        heard_at = Greatest(
+            "updated_at", Coalesce(Subquery(last_result), "updated_at"), Coalesce("last_reconciled_at", "updated_at")
+        )
+        return (
+            MergeRequestOwnership.objects
+            .filter(closed_at__isnull=True, watch_enabled=True)
+            .annotate(heard_at=heard_at)
+            .filter(heard_at__lt=since)
+            .order_by("heard_at", "pk")
+            .values("pk", "repo_id", "merge_request_iid", "source_branch")[:limit]
         )
 
-    async def ais_fix_run(self, run_id: str | None) -> bool:
-        """Whether this run was dispatched by the watch, which is what stops the arm resetting
-        ``watch_attempts``. A run with no row reads as False, so every fix-run dispatcher must pass
-        its ``run_id`` through to here or the loop bound is lost.
-        """
-        if not run_id:
-            return False
-        trigger_type = await Run.objects.filter(pk=run_id).values_list("trigger_type", flat=True).afirst()
-        return trigger_type == SessionOrigin.PIPELINE_WEBHOOK
-
-    def expiring_watches(self, cutoff: datetime, limit: int) -> QuerySet[Session]:
-        return Session.objects.filter(watch_state__in=WatchState.open(), watch_armed_at__lt=cutoff).only(
-            "thread_id", "repo_id", "merge_request_iid", "watch_state"
-        )[:limit]
-
-    async def arecover_stale_fixing(self, *, cutoff: datetime, now: datetime) -> int:
-        """Hand a dead fix run's watch back to watching.
-
-        Dead means both the claim and the session's heartbeat (``last_active_at``) predate ``cutoff``. The claim's
-        age alone is not enough: a live fix run can wait for the session slot, then run, past the window.
-        """
-        return await Session.objects.filter(
-            watch_state=WatchState.FIXING, watch_armed_at__lt=cutoff, last_active_at__lt=cutoff
-        ).aupdate(watch_state=WatchState.WATCHING, watch_armed_at=now)
-
-    def stale_watching(self, cutoff: datetime, limit: int) -> QuerySet:
-        return Session.objects.filter(watch_state=WatchState.WATCHING, watch_armed_at__lt=cutoff).values_list(
-            "repo_id", "ref", "thread_id"
-        )[:limit]
+    async def amark_reconciled(self, ownership_id: int, *, at: datetime) -> None:
+        """Record that the reconciler re-read the merge request's CI at ``at``, which counts as hearing of it."""
+        await MergeRequestOwnership.objects.filter(pk=ownership_id).aupdate(last_reconciled_at=at)

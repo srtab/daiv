@@ -10,7 +10,7 @@ from github.NamedUser import NamedUser
 from github.Repository import Repository as GhRepository
 
 from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
-from codebase.clients.base import Emoji, GitAuthEnv
+from codebase.clients.base import CommentThread, Emoji, GitAuthEnv
 from codebase.clients.github.client import GitHubClient
 from codebase.exceptions import CloneRefNotFoundError
 
@@ -31,6 +31,15 @@ class TestGitHubClient:
 
         client = GitHubClient(integration=integration, installation_id=67890)
         yield client
+
+    def test_set_repository_webhooks_subscribes_to_review_comments(self, github_client):
+        repo = github_client.client.get_repo.return_value
+        repo.get_hooks.return_value = []
+
+        github_client.set_repository_webhooks("owner/repo", "https://daiv.example/hook")
+
+        events = repo.create_hook.call_args.args[2]
+        assert "pull_request_review_comment" in events
 
     @pytest.fixture
     def lazy_requester(self, github_client):
@@ -101,6 +110,31 @@ class TestGitHubClient:
         assert call.args[:2] == ("POST", "https://api.github.com/repos/owner/repo/issues/comments/5172158906/reactions")
         assert call.kwargs["input"] == {"content": "eyes"}
 
+    def test_a_reaction_on_a_diff_comment_targets_the_review_comment_endpoint(self, github_client, lazy_requester):
+        github_client.create_merge_request_note_emoji("owner/repo", 712, Emoji.EYES, 901, on_diff=True)
+
+        call = lazy_requester.requestJsonAndCheck.call_args
+        assert call.args[:2] == ("POST", "https://api.github.com/repos/owner/repo/pulls/comments/901/reactions")
+        assert call.kwargs["input"] == {"content": "eyes"}
+
+    def test_a_reply_in_a_diff_thread_answers_its_review_comment(self, github_client, lazy_requester):
+        comment_id = github_client.create_merge_request_comment(
+            "owner/repo", 712, "Done.", reply_to=CommentThread("901", on_diff=True)
+        )
+
+        call = lazy_requester.requestJsonAndCheck.call_args
+        assert call.args[:2] == ("POST", "https://api.github.com/repos/owner/repo/pulls/712/comments/901/replies")
+        assert call.kwargs["input"] == {"body": "Done."}
+        assert comment_id == 1
+
+    def test_a_reply_to_a_conversation_comment_is_a_new_comment(self, github_client):
+        pr = github_client.client.get_repo.return_value.get_pull.return_value
+
+        github_client.create_merge_request_comment("owner/repo", 712, "Done.", reply_to=CommentThread("5172158906"))
+
+        pr.create_issue_comment.assert_called_once_with("Done.")
+        pr.create_review_comment_reply.assert_not_called()
+
     def test_create_issue_emoji_targets_issue_endpoint(self, github_client, lazy_requester):
         """Without a note id the reaction goes on the issue itself."""
         github_client.create_issue_emoji("owner/repo", 42, Emoji.EYES)
@@ -110,6 +144,54 @@ class TestGitHubClient:
             "POST",
             "https://api.github.com/repos/owner/repo/issues/42/reactions",
         )
+
+    @staticmethod
+    def _workflow_run(run_id: int, workflow_id: int, name: str) -> dict:
+        url = f"https://api.github.com/repos/owner/repo/actions/runs/{run_id}"
+        return {
+            "id": run_id, "workflow_id": workflow_id, "name": name, "head_sha": "abc", "conclusion": "failure",
+            "url": url, "jobs_url": f"{url}/jobs", "html_url": f"https://github.com/owner/repo/actions/runs/{run_id}",
+        }  # fmt: skip
+
+    def test_the_latest_pipelines_of_a_branch_are_the_newest_run_of_each_workflow_on_its_head(
+        self, github_client, lazy_requester
+    ):
+        """GitHub runs one workflow run per workflow on a commit, so the newest run on a branch is one workflow's. The
+        listing reads no jobs: the watch reads a run's jobs only to judge it."""
+        repo_url = "https://api.github.com/repos/owner/repo"
+        responses = {
+            f"{repo_url}/branches/daiv/branch": {"name": "daiv/branch", "commit": {"sha": "abc"}},
+            f"{repo_url}/actions/runs": {
+                "total_count": 3,
+                "workflow_runs": [
+                    self._workflow_run(103, 12, "Tests"),
+                    self._workflow_run(102, 11, "Lint"),
+                    self._workflow_run(101, 12, "Tests"),
+                ],
+            },
+        }
+        lazy_requester.per_page = 30
+        lazy_requester.requestJsonAndCheck.side_effect = lambda verb, url, **kwargs: ({}, responses[url])
+
+        pipelines = github_client.get_latest_pipelines_for_ref("owner/repo", "daiv/branch")
+
+        assert [(p.id, p.workflow_id, p.jobs) for p in pipelines] == [(103, 12, []), (102, 11, [])]
+        requested = [(c.args[1], c.kwargs.get("parameters")) for c in lazy_requester.requestJsonAndCheck.call_args_list]
+        assert requested == [
+            (f"{repo_url}/branches/daiv/branch", None),
+            (f"{repo_url}/actions/runs", {"branch": "daiv/branch", "head_sha": "abc"}),
+        ]
+
+    def test_a_branch_that_is_gone_has_no_latest_pipelines(self, github_client):
+        github_client.client.get_repo.return_value.get_branch.side_effect = GithubException(404, None, None)
+
+        assert github_client.get_latest_pipelines_for_ref("owner/repo", "daiv/branch") == []
+
+    def test_an_unreadable_branch_raises(self, github_client):
+        github_client.client.get_repo.return_value.get_branch.side_effect = GithubException(403, None, None)
+
+        with pytest.raises(GithubException):
+            github_client.get_latest_pipelines_for_ref("owner/repo", "daiv/branch")
 
     def test_get_merge_request_note_reads_the_comment_through_the_issue(self, github_client):
         mock_repo = Mock()
