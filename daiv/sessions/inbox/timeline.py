@@ -40,6 +40,6 @@ class Timeline:
     @staticmethod
     def opened(event: InboxEvent) -> list[str]:
         """The ids of the runs ``event`` opens: each failed run that took it and put it back
-        (:func:`sessions.inbox.complete.retry`), then the run that holds it now."""
+        (:meth:`sessions.inbox.complete.FailedAttempt.record`), then the run that holds it now."""
         current = [str(event.run_id)] if event.run_id is not None and event.state in _OPENED else []
         return list(dict.fromkeys([*event.payload.get("tried_runs", []), *current]))

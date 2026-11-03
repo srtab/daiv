@@ -14,7 +14,7 @@ from django_tasks_db.backend import TaskResult as DatabaseTaskResult
 
 from core import ui_events
 from sessions.delegation import resume_coordinator
-from sessions.inbox.complete import on_run_ended
+from sessions.inbox.complete import RunEnd
 from sessions.inbox.requester import Requester
 from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session
 from sessions.queue import dispatch_next_queued, release_runs_waiting_for
@@ -156,7 +156,7 @@ def settle_inbox_events(sender: type, run: Any, **kwargs: Any) -> None:
 
     On ``run_ended`` so a chat turn's end settles and drains too. ``skip_dispatch`` leaves the drain to the sweep.
     """
-    on_run_ended(run, drain=not kwargs.get("skip_dispatch"))
+    RunEnd(run).on_run_ended(drain=not kwargs.get("skip_dispatch"))
 
 
 @receiver(run_finished, dispatch_uid="sessions.resume_delegating_session")

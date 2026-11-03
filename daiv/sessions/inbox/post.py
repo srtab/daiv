@@ -165,6 +165,18 @@ class Inbox:
             child, merge_request_iid=merge_request_iid, pipeline_id=pipeline_id, outcome=outcome, web_url=web_url
         )
 
+    @classmethod
+    def post_no_push(cls, child: Session, ci_failure: InboxEvent) -> None:
+        """Remind ``child``'s parent that the runs ``ci_failure`` woke pushed nothing
+        (:meth:`post_delegated_ci_outcome`). SYNC ONLY."""
+        cls.post_delegated_ci_outcome(
+            child,
+            merge_request_iid=ci_failure.merge_request_iid,
+            pipeline_id=ci_failure.payload["pipeline_id"],
+            outcome="no_push",
+            web_url=ci_failure.payload.get("web_url", ""),
+        )
+
     def attach_next_run(self, event: InboxEvent) -> Run | None:
         """The run that handles the waking ``event``: the one it joined or that took it, else, while its session is
         busy, its branch's next run, created when there is none. ``None`` when the event cannot run (it failed or was

@@ -108,7 +108,7 @@ class Command(BaseCommand):
         the inbox starts (a chat message, a mention, a CI fix) would show RUNNING for good; a webhook run its callback
         started is reaped with them, as it heartbeats the same slot. The finish emits ``run_ended``, which settles the
         events the run took, frees the slot if it still holds it and drains the session
-        (:func:`sessions.inbox.complete.on_run_ended`).
+        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`).
 
         A live run heartbeats its session's slot, so a run that started before the staleness window on a session
         whose heartbeat went stale is dead; ``started_at`` keeps a run still setting up on an idle session.

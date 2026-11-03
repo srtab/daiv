@@ -63,10 +63,10 @@ def drain_inboxes_cron_task():
     missed one to a minute. At most ``DRAIN_SWEEP_LIMIT`` sessions a tick; non-blocking lock, so a sweep that overruns
     the interval is never double-dispatched.
     """
-    from sessions.inbox.complete import recover_stale_events
+    from sessions.inbox.complete import RunEnd
     from sessions.inbox.drain import Drain
 
-    if recovered := recover_stale_events():
+    if recovered := RunEnd.recover_stale_events():
         logger.info("drain_inboxes: recovered %d event(s) from stale runs", recovered)
     for thread_id in Drain.sessions_to_drain():
         Drain(thread_id).start_logged()

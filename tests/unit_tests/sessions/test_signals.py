@@ -8,6 +8,7 @@ from django.tasks.signals import task_finished, task_started
 
 import pytest
 from allauth.socialaccount.models import SocialAccount
+from sessions.inbox.complete import RunEnd
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 from sessions.signal_defs import run_ended, run_finished
 
@@ -272,18 +273,20 @@ class TestSettleInboxEvents:
     def test_every_ended_run_settles_its_inbox_events(self, trigger):
         ended = make_run(session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=trigger)
 
-        with patch("sessions.signals.on_run_ended") as settle:
+        with patch.object(RunEnd, "on_run_ended", autospec=True) as settle:
             run_ended.send(sender=Run, run=ended)
 
-        settle.assert_called_once_with(ended, drain=True)
+        settle.assert_called_once()
+        assert (settle.call_args.args[0].run, settle.call_args.kwargs) == (ended, {"drain": True})
 
     def test_skip_dispatch_settles_without_draining(self):
         ended = make_run(session_id=str(uuid.uuid4()), status=RunStatus.FAILED)
 
-        with patch("sessions.signals.on_run_ended") as settle:
+        with patch.object(RunEnd, "on_run_ended", autospec=True) as settle:
             run_ended.send(sender=Run, run=ended, skip_dispatch=True)
 
-        settle.assert_called_once_with(ended, drain=False)
+        settle.assert_called_once()
+        assert (settle.call_args.args[0].run, settle.call_args.kwargs) == (ended, {"drain": False})
 
 
 @pytest.mark.django_db(transaction=True)

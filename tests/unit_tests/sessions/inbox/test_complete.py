@@ -6,7 +6,7 @@ from django.utils import timezone
 import pytest
 from asgiref.sync import sync_to_async
 from sessions.executor.lock import stale_cutoff
-from sessions.inbox.complete import ANSWERED_IN_ANOTHER_THREAD, MAX_EVENT_ATTEMPTS, aon_run_ended, recover_stale_events
+from sessions.inbox.complete import ANSWERED_IN_ANOTHER_THREAD, MAX_EVENT_ATTEMPTS, MergeRequestReplies, RunEnd
 from sessions.inbox.drain import Drain
 from sessions.models import (
     EventFailure,
@@ -55,7 +55,7 @@ class TestOutcomes:
     async def test_a_run_that_did_its_job_handles_its_events(self, drain, status):
         run, event = await _run_with_event(status)
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         assert (await _state(event)).state == EventState.HANDLED
         assert [call.args[0].thread_id for call in drain.call_args_list] == [run.session_id]
@@ -63,7 +63,7 @@ class TestOutcomes:
     async def test_a_run_its_owner_stopped_dismisses_its_events(self, drain):
         run, event = await _run_with_event(RunStatus.FAILED, cancel_requested_at=timezone.now())
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         assert (await _state(event)).state == EventState.DISMISSED
         assert [call.args[0].thread_id for call in drain.call_args_list] == [run.session_id]
@@ -71,7 +71,7 @@ class TestOutcomes:
     async def test_a_failed_run_puts_its_events_back_for_another_attempt(self, drain):
         run, event = await _run_with_event(RunStatus.FAILED)
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         stored = await _state(event)
         assert (stored.state, stored.attempts, stored.run_id) == (EventState.PENDING, 1, None)
@@ -82,7 +82,7 @@ class TestOutcomes:
         run, event = await _run_with_event(RunStatus.FAILED, attempts=MAX_EVENT_ATTEMPTS - 1)
 
         with caplog.at_level("ERROR", logger="daiv.sessions"):
-            await aon_run_ended(run)
+            await RunEnd(run).aon_run_ended()
 
         stored = await _state(event)
         assert (stored.state, stored.failure) == (EventState.FAILED, EventFailure.RETRIES_EXHAUSTED)
@@ -100,7 +100,7 @@ class TestOutcomes:
             last_examined_sha=sha,
         )  # fmt: skip
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         await ownership.arefresh_from_db()
         assert (ownership.attempts, ownership.last_examined_sha) == (1, "")
@@ -112,7 +112,7 @@ class TestOutcomes:
             RunStatus.FAILED, error_message=f"{ENQUEUE_FAILED_PREFIX}: RuntimeError: broker down"
         )
 
-        await aon_run_ended(run, drain=False)
+        await RunEnd(run).aon_run_ended(drain=False)
 
         stored = await _state(event)
         assert (stored.state, stored.attempts, stored.run_id) == (EventState.PENDING, 1, None)
@@ -122,7 +122,7 @@ class TestOutcomes:
         run, _ = await _run_with_event(RunStatus.FAILED)
         pending = await amake_event(await Session.objects.aget(pk=run.session_id), EventKind.NOTICE, run=run)
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         assert (await _state(pending)).attempts == 0
 
@@ -130,10 +130,10 @@ class TestOutcomes:
         run, _ = await _run_with_event(RunStatus.SUCCESSFUL)
 
         with (
-            patch("sessions.inbox.complete.settle_events", side_effect=RuntimeError("db down")),
+            patch.object(RunEnd, "settle_events", side_effect=RuntimeError("db down")),
             caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
-            await aon_run_ended(run)
+            await RunEnd(run).aon_run_ended()
 
         assert "settling the events" in caplog.text
         assert [call.args[0].thread_id for call in drain.call_args_list] == [run.session_id]
@@ -154,7 +154,7 @@ class TestSlot:
         run, _ = await _run_with_event(RunStatus.FAILED)
         await Session.objects.filter(pk=run.session_id).aupdate(active_run_id="chat-run")
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         assert (await Session.objects.aget(pk=run.session_id)).active_run_id == "chat-run"
 
@@ -188,7 +188,7 @@ class TestRecoverStaleEvents:
 
 
 async def _recover() -> int:
-    return await sync_to_async(recover_stale_events)()
+    return await sync_to_async(RunEnd.recover_stale_events)()
 
 
 class TestOwnerlessCiReport:
@@ -216,14 +216,14 @@ class TestOwnerlessCiReport:
     async def test_a_session_without_a_user_gets_the_summary_on_the_merge_request(self, drain, client):
         run = await self._ci_run()
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         client.create_merge_request_comment.assert_called_once_with("group/repo", 9, CI_SUMMARY)
 
     async def test_a_question_goes_on_the_merge_request_with_how_to_answer_it(self, drain, client):
         run = await self._ci_run(status=RunStatus.WAITING_INPUT, summary="Should I pin the auth action instead?")
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         (repo_id, iid, body), _ = client.create_merge_request_comment.call_args
         assert (repo_id, iid) == ("group/repo", 9)
@@ -235,7 +235,7 @@ class TestOwnerlessCiReport:
             status=RunStatus.FAILED, attempts=MAX_EVENT_ATTEMPTS - 1, error_message="RuntimeError: token=s3cr3t"
         )
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         client.create_merge_request_comment.assert_called_once()
         (repo_id, iid, body), _ = client.create_merge_request_comment.call_args
@@ -256,7 +256,7 @@ class TestOwnerlessCiReport:
     async def test_otherwise_nothing_is_posted(self, drain, client, member_user, owned, status, wake, attempts):
         run = await self._ci_run(user=member_user if owned else None, status=status, wake=wake, attempts=attempts)
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         client.create_merge_request_comment.assert_not_called()
 
@@ -274,13 +274,22 @@ class TestOwnerlessCiReport:
         client.create_merge_request_comment.side_effect = RuntimeError("platform down")
 
         with caplog.at_level("ERROR", logger="daiv.sessions"):
-            await aon_run_ended(run)
+            await RunEnd(run).aon_run_ended()
 
         assert "could not comment on" in caplog.text
         assert caplog.records[-1].exc_info is not None
         assert (
             await InboxEvent.objects.filter(state=state, attempts=attempts + (status == RunStatus.FAILED)).acount() == 1
         )
+
+    def test_one_failed_comment_does_not_stop_the_others(self, client, caplog):
+        client.create_merge_request_comment.side_effect = [RuntimeError("platform down"), None]
+
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
+            MergeRequestReplies.comment_on_merge_requests("group/repo", [2, 1], lambda replies: "body")
+
+        assert [call.args[1] for call in client.create_merge_request_comment.call_args_list] == [1, 2]
+        assert "could not comment on group/repo!1" in caplog.text
 
 
 class TestDelegatedNoPush:
@@ -302,8 +311,7 @@ class TestDelegatedNoPush:
         run = await self._ci_run()
         session = await Session.objects.aget(pk=run.session_id)
 
-        with patch.object(Drain, "start_logged"):
-            await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         event = await InboxEvent.objects.aget(session_id=session.parent_id)
         assert (event.kind, event.wake, event.source_key) == (
@@ -320,8 +328,7 @@ class TestDelegatedNoPush:
         run = await self._ci_run(status=RunStatus.WAITING_INPUT)
         session = await Session.objects.aget(pk=run.session_id)
 
-        with patch.object(Drain, "start_logged"):
-            await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         event = await InboxEvent.objects.aget(session_id=session.parent_id)
         assert (event.kind, event.payload["outcome"]) == (EventKind.DELEGATED_CI_OUTCOME, "no_push")
@@ -330,8 +337,7 @@ class TestDelegatedNoPush:
         run = await self._ci_run(status=RunStatus.FAILED, attempts=MAX_EVENT_ATTEMPTS - 1)
         session = await Session.objects.aget(pk=run.session_id)
 
-        with patch.object(Drain, "start_logged"):
-            await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         event = await InboxEvent.objects.aget(session_id=session.parent_id)
         assert (event.kind, event.source_key) == (
@@ -373,8 +379,7 @@ class TestDelegatedNoPush:
     async def test_otherwise_no_parent_hears_of_it(self, drain, fields):
         run = await self._ci_run(**fields)
 
-        with patch.object(Drain, "start_logged"):
-            await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         assert not await InboxEvent.objects.filter(kind=EventKind.DELEGATED_CI_OUTCOME).aexists()
 
@@ -404,7 +409,7 @@ class TestMentionReplies:
         run = await self._run()
         await self._mention(run, 5521, is_diff=True)
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         client.create_merge_request_comment.assert_called_once_with(
             "group/repo", 9, "Renamed it in the three call sites.", reply_to=CommentThread("d5521", on_diff=True)
@@ -415,7 +420,7 @@ class TestMentionReplies:
         run = await self._run(status=RunStatus.WAITING_INPUT, summary="Which branch should I target?")
         await self._mention(run, 5521, author_username="alice")
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         body = client.create_merge_request_comment.call_args.args[2]
         assert body.startswith("Which branch should I target?")
@@ -425,7 +430,7 @@ class TestMentionReplies:
         run = await self._run(summary="")
         await self._mention(run, 5521)
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         assert "An unexpected error occurred" in client.create_merge_request_comment.call_args.args[2]
 
@@ -434,7 +439,7 @@ class TestMentionReplies:
         event = await self._mention(run, 5521)
         await InboxEvent.objects.filter(pk=event.pk).aupdate(attempts=MAX_EVENT_ATTEMPTS - 1)
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         assert (await _state(event)).failure == EventFailure.RETRIES_EXHAUSTED
         client.create_merge_request_comment.assert_called_once()
@@ -452,7 +457,7 @@ class TestMentionReplies:
         await self._mention(run, 2)
         await self._mention(run, 3, iid=10)
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         calls = [
             (c.args[1], c.args[2], c.kwargs["reply_to"].id) for c in client.create_merge_request_comment.call_args_list
@@ -481,7 +486,7 @@ class TestMentionReplies:
         latest = await self._mention(run, 2, is_diff=is_diff)
         await InboxEvent.objects.filter(pk=latest.pk).aupdate(payload=latest.payload | {"web_url": web_url})
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         assert client.create_merge_request_comment.call_args.args[2] == ANSWERED_IN_ANOTHER_THREAD.format(url=link)
 
@@ -492,7 +497,7 @@ class TestMentionReplies:
         await self._mention(run, 1)
         await self._mention(run, 2)
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         body = client.create_merge_request_comment.call_args.args[2]
         assert body == ANSWERED_IN_ANOTHER_THREAD.format(url="https://gitlab.example/mr/9#2")
@@ -503,7 +508,7 @@ class TestMentionReplies:
         client.create_merge_request_comment.side_effect = RuntimeError("platform down")
 
         with caplog.at_level("ERROR", logger="daiv.sessions"):
-            await aon_run_ended(run)
+            await RunEnd(run).aon_run_ended()
 
         assert "could not reply to the mentions" in caplog.text
         assert caplog.records[-1].exc_info is not None
@@ -514,6 +519,6 @@ class TestMentionReplies:
         run = await self._run(status=status)
         await self._mention(run, 5521)
 
-        await aon_run_ended(run)
+        await RunEnd(run).aon_run_ended()
 
         client.create_merge_request_comment.assert_not_called()

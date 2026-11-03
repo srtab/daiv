@@ -26,6 +26,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
 from sessions.executor.result import parse_agent_result
+from sessions.inbox.complete import RunEnd
 from sessions.live.relay import RunRelay
 from sessions.models import EventKind, EventState, InboxEvent, Run, Session
 
@@ -329,7 +330,7 @@ async def test_a_turn_hands_the_graph_only_its_new_message_whatever_the_client_e
 
 
 class TestWithdrawingAStoppedTurn:
-    """The real ``start_chat_run`` and ``awithdraw_chat_run`` run here, against the DB."""
+    """The real ``start_chat_run`` and ``RunEnd.awithdraw`` run here, against the DB."""
 
     @pytest.fixture(autouse=True)
     def _patch_run_lifecycle(self):
@@ -1036,7 +1037,7 @@ def _recorded_turn(
     async def _release(thread_id, run_id):
         _log("release", thread_id, run_id)
 
-    async def _withdraw(_run):
+    async def _withdraw(_run_end):
         _log("withdraw")
 
     heartbeat_mock = heartbeat if isinstance(heartbeat, AsyncMock) else AsyncMock(return_value=heartbeat)
@@ -1048,7 +1049,7 @@ def _recorded_turn(
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agui_agent),
         patch("chat.api.streaming.start_chat_run", side_effect=_start),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_finalize),
-        patch("chat.api.streaming.awithdraw_chat_run", side_effect=_withdraw),
+        patch.object(RunEnd, "awithdraw", autospec=True, side_effect=_withdraw),
         patch("sessions.executor.run.apersist_session_ref", side_effect=_persist),
         patch("sessions.executor.run.aclaim_ownership", _claim),
         patch("chat.api.streaming.SessionLock.release", side_effect=_release),

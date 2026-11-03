@@ -132,7 +132,7 @@ class Drain:
     def _undo_take(self, run: Run, charges: list[_Charge]) -> None:
         """Free the slot claimed for ``run``, put its events back and refund the CI attempts its take spent, after its
         enqueue failed. The slot and events are usually back already: the failed run's ``run_ended`` did both
-        (:func:`sessions.inbox.complete.on_run_ended`), unless its finish did not land.
+        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`), unless its finish did not land.
 
         A refund leaves the merge request's examined commit blank, as the one before is not kept. That commit is older
         than the failure's, so it is no longer the head DAIV pushed, the only commit whose failure wakes the session. A
@@ -296,7 +296,7 @@ class _Take:
         FAILED with the ``access_denied`` label, so the id a follow-up job's caller polls still resolves.
 
         The finish says ``skip_dispatch``: the caller drains once this commits, and its events, already failed rather
-        than taken, are left as they are by the run's end (:func:`sessions.inbox.complete.settle_events`)."""
+        than taken, are left as they are by the run's end (:meth:`sessions.inbox.complete.RunEnd.settle_events`)."""
         logger.warning(
             "inbox: a requester on thread_id=%s may no longer run on %s; %d event(s) failed",
             self.session.thread_id,

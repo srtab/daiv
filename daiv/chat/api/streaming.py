@@ -16,7 +16,7 @@ from sessions.executor.lock import Held, SessionLock, SessionLockLostError
 from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.inbox.chat_claim import ChatClaim
-from sessions.inbox.complete import awithdraw_chat_run
+from sessions.inbox.complete import RunEnd
 from sessions.inbox.drain import Drain
 from sessions.inbox.render import RunInput
 from sessions.live import relay
@@ -197,7 +197,7 @@ class ChatRunStreamer:
 
     @property
     def withdrawn(self) -> bool:
-        """Its owner stopped the turn before DAIV answered, and the turn was taken back (``awithdraw_chat_run``)."""
+        """Its owner stopped the turn before DAIV answered, and the turn was taken back (``RunEnd.awithdraw``)."""
         return self._turn.withdrawn is True
 
     async def events(self) -> AsyncGenerator[BaseEvent]:
@@ -403,12 +403,12 @@ class ChatRunStreamer:
 
     async def _withdraw(self, turn: _Turn) -> bool:
         """Whether the turn is taken back: it is ``withdrawable`` and its ``Run`` row, if any, is gone
-        (``awithdraw_chat_run``). Decided once, so the code the page is sent and the row agree; never raises."""
+        (``RunEnd.awithdraw``). Decided once, so the code the page is sent and the row agree; never raises."""
         if turn.withdrawn is None:
             turn.withdrawn = turn.withdrawable
             if turn.withdrawn and turn.chat_run is not None:
                 try:
-                    await awithdraw_chat_run(turn.chat_run)
+                    await RunEnd(turn.chat_run).awithdraw()
                 except Exception:
                     logger.exception("chat: failed to withdraw the stopped chat run for thread_id=%s", self.thread_id)
                     turn.withdrawn = False
