@@ -142,7 +142,7 @@ class RunInput:
         if kind == EventKind.MENTION:
             mentions = [
                 f"{EventText(event).author_name()} mentioned you on !{event.merge_request_iid} "
-                f"({event.payload['web_url']}):\n{EventText._blockquote(event.payload['body'])}"
+                f"({event.payload['web_url']}):\n{EventText.blockquote(event.payload['body'])}"
                 for event in events
             ]
             return "\n\n".join([*mentions, MENTION_REPLY_NOTE])
@@ -299,7 +299,7 @@ class EventText:
             case EventKind.COMMENT:
                 return (
                     f"Comment by {self.author_name()} on !{event.merge_request_iid} (not addressed to you): "
-                    f'"{self._cut(payload["body"])}"'
+                    f'"{self.cut(payload["body"])}"'
                 )
             case EventKind.DELEGATED_CI_OUTCOME:
                 outcome = _DELEGATED_OUTCOMES.get(payload["outcome"], payload["outcome"])
@@ -308,7 +308,7 @@ class EventText:
                     f"CI {outcome}."
                 )
             case EventKind.DELEGATION_FINISHED:
-                return f"Delegated jobs finished. {self._not_woken()}\n  {self._cut(payload['summary'])}"
+                return f"Delegated jobs finished. {self._not_woken()}\n  {self.cut(payload['summary'])}"
             case EventKind.NOTICE:
                 return payload["text"]
         return f"{event.get_kind_display()}."
@@ -342,9 +342,9 @@ class EventText:
         )
 
     @staticmethod
-    def _cut(text: str) -> str:
+    def cut(text: str) -> str:
         return text if len(text) <= QUOTE_MAX_CHARS else f"{text[:QUOTE_MAX_CHARS]}…"
 
     @staticmethod
-    def _blockquote(text: str) -> str:
-        return "\n".join(f"> {line}" for line in EventText._cut(text).splitlines() or [""])
+    def blockquote(text: str) -> str:
+        return "\n".join(f"> {line}" for line in EventText.cut(text).splitlines() or [""])

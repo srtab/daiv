@@ -98,12 +98,15 @@ class Ownerships:
     def _post_logged(self, post: dict[str, Any]) -> None:
         """Post ``post``, logging a failure instead of raising: the ownership change it reports has committed, and the
         event wakes no one. SYNC ONLY."""
-        thread_id = post["thread_id"]
         try:
+            thread_id = post["thread_id"]
             Inbox(thread_id).post(**{k: v for k, v in post.items() if k != "thread_id"})
         except Exception:
             logger.exception(
-                "inbox: could not tell thread_id=%s about %s!%s", thread_id, self.repo_id, post["merge_request_iid"]
+                "inbox: could not tell thread_id=%s about %s!%s",
+                post["thread_id"],
+                self.repo_id,
+                post["merge_request_iid"],
             )
 
     async def _apost_logged(self, post: dict[str, Any]) -> None:

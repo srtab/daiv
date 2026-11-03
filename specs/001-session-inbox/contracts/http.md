@@ -10,7 +10,7 @@ No new routers. Every change is on an existing endpoint, keeps its authenticatio
 
 | Session state | Response |
 |---|---|
-| Slot free and no next run queued | Unchanged inline stream. Pending events are taken right after the claim (`atake_for_chat`) and reach the model as context |
+| Slot free and no next run queued | Unchanged inline stream. Pending events are taken right after the claim (`ChatClaim.atake`) and reach the model as context |
 | Slot held, or a next run is queued | The message is posted as a `chat_message` event (key `chat:<agui message id>`). The response is a well-formed AG-UI stream with a `RUN_STARTED`, one `CUSTOM` event and a `RUN_FINISHED` with no assistant content |
 
 The `CUSTOM` event is:

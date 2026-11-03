@@ -24,9 +24,10 @@ def chat_inbox(request):
     run_input.render.return_value = rendered
     with (
         patch("chat.api.streaming.ChatClaim", autospec=True) as claim,
-        patch.object(RunInput, "aof_run", new=AsyncMock(return_value=run_input)),
+        patch("chat.api.streaming.RunInput") as run_input_cls,
         patch("chat.api.streaming.Drain") as drain,
     ):
+        run_input_cls.aof_run = AsyncMock(return_value=run_input)
         yield SimpleNamespace(
             link=claim.return_value.alink,
             render=run_input.render,
