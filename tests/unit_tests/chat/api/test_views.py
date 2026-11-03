@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from ninja.testing import TestAsyncClient
 from sessions.inbox.chat_claim import ChatClaim
-from sessions.inbox.drain import Drain
 from sessions.models import EventKind, HiddenSession, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
@@ -540,23 +539,22 @@ async def test_a_turn_on_a_session_you_archived_returns_400(client: TestAsyncCli
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_turn_sent_while_a_run_waits_to_start_is_queued_behind_it(client: TestAsyncClient, authed):
+async def test_a_turn_sent_while_a_run_waits_to_start_is_queued_behind_it(client: TestAsyncClient, authed, chat_inbox):
     _, raw, user = authed
     session = await Session.objects.acreate(
         origin=SessionOrigin.UI_JOB, thread_id="t-waiting", user=user, repo_id="a/b", ref="main"
     )
     await Run.objects.acreate(session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="a/b", status=RunStatus.READY)
 
-    with patch.object(Drain, "start_logged", autospec=True) as drain:
-        response = await client.post(
-            "/chat/completions",
-            json=_run_agent_input(threadId="t-waiting"),
-            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
-        )
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-waiting"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
 
     assert response.status_code == 200
     assert response.json()["queued"]["event_id"]
-    assert [call.args[0].thread_id for call in drain.call_args_list] == ["t-waiting"]
+    assert [call.args[0].thread_id for call in chat_inbox.drain.call_args_list] == ["t-waiting"]
     assert await active_holder("t-waiting") is None
     await user.adelete()
 
@@ -577,12 +575,11 @@ async def test_a_turn_sent_while_a_next_run_is_queued_joins_it(client: TestAsync
     )
     await amake_event(session, run=next_run)
 
-    with patch.object(Drain, "start_logged"):
-        response = await client.post(
-            "/chat/completions",
-            json=_run_agent_input(threadId="t-next"),
-            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
-        )
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-next"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
 
     assert response.json()["queued"]["run_id"] == str(next_run.pk)
     assert await active_holder("t-next") is None
@@ -590,20 +587,21 @@ async def test_a_turn_sent_while_a_next_run_is_queued_joins_it(client: TestAsync
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_message_sent_from_a_busy_page_is_queued_even_when_the_run_just_ended(client: TestAsyncClient, authed):
+async def test_a_message_sent_from_a_busy_page_is_queued_even_when_the_run_just_ended(
+    client: TestAsyncClient, authed, chat_inbox
+):
     _, raw, user = authed
     await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-ended", user=user, repo_id="a/b", ref="main")
 
-    with patch.object(Drain, "start_logged", autospec=True) as drain:
-        response = await client.post(
-            "/chat/completions",
-            json=_run_agent_input(threadId="t-ended", forwardedProps={"queue": True}),
-            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
-        )
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-ended", forwardedProps={"queue": True}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
 
     event = await InboxEvent.objects.aget(session_id="t-ended")
     assert response.json()["queued"]["event_id"] == str(event.pk)
-    assert [call.args[0].thread_id for call in drain.call_args_list] == ["t-ended"]
+    assert [call.args[0].thread_id for call in chat_inbox.drain.call_args_list] == ["t-ended"]
     assert await active_holder("t-ended") is None
     await user.adelete()
 

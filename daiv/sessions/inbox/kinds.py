@@ -10,10 +10,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
-from sessions.models import EventKind, InboxEvent, SessionOrigin
+from sessions.models import EventKind, SessionOrigin
 
 if TYPE_CHECKING:
     import uuid
+
+    from sessions.models import InboxEvent
 
 KEY_MAX_LENGTH = 255
 
@@ -183,13 +185,11 @@ class EventContent:
         return _TRIGGERS[self.kind]
 
 
-class _Key:
-    @staticmethod
-    def _join(*parts: object) -> str:
-        return ":".join(str(part) for part in parts)[:KEY_MAX_LENGTH]
+def _join(*parts: object) -> str:
+    return ":".join(str(part) for part in parts)[:KEY_MAX_LENGTH]
 
 
-class SourceKey(_Key):
+class SourceKey:
     """The keys an event is de-duplicated under, per session."""
 
     @staticmethod
@@ -197,50 +197,50 @@ class SourceKey(_Key):
         """A waking failure keys on the pipeline alone; a quiet one, a pass and a stop each on a suffix of their own, so
         a retried pipeline's new result is not taken for one already posted."""
         if reason:
-            return _Key._join("pipeline", pipeline_id, reason)
+            return _join("pipeline", pipeline_id, reason)
         if kind == EventKind.CI_FAILED:
-            return _Key._join("pipeline", pipeline_id)
-        return _Key._join("pipeline", pipeline_id, kind)
+            return _join("pipeline", pipeline_id)
+        return _join("pipeline", pipeline_id, kind)
 
     @staticmethod
     def note(note_id: int) -> str:
-        return _Key._join("note", note_id)
+        return _join("note", note_id)
 
     @staticmethod
     def review_comment(comment_id: int) -> str:
-        return _Key._join("review-comment", comment_id)
+        return _join("review-comment", comment_id)
 
     @staticmethod
     def comment(note_or_review_comment_key: str) -> str:
-        return _Key._join("comment", note_or_review_comment_key)
+        return _join("comment", note_or_review_comment_key)
 
     @staticmethod
     def batch(batch_id: uuid.UUID | str) -> str:
-        return _Key._join("batch", batch_id)
+        return _join("batch", batch_id)
 
     @staticmethod
     def chat(agui_message_id: str) -> str:
-        return _Key._join("chat", agui_message_id)
+        return _join("chat", agui_message_id)
 
     @staticmethod
     def job(job_id: uuid.UUID | str) -> str:
-        return _Key._join("job", job_id)
+        return _join("job", job_id)
 
     @staticmethod
     def push(after_sha: str) -> str:
-        return _Key._join("push", after_sha)
+        return _join("push", after_sha)
 
     @staticmethod
     def mr_state(merge_request_iid: int, state: str) -> str:
-        return _Key._join("mr-state", merge_request_iid, state)
+        return _join("mr-state", merge_request_iid, state)
 
     @staticmethod
     def child_ci(child_thread_id: str, pipeline_id: int, outcome: str) -> str:
         """Keyed on the outcome too: a retried pipeline keeps its id, so a pass after ``no_push`` is a new ending."""
-        return _Key._join("child-ci", child_thread_id, pipeline_id, outcome)
+        return _join("child-ci", child_thread_id, pipeline_id, outcome)
 
 
-class Subject(_Key):
+class Subject:
     """The groups of events of which only the newest matters when a run takes them."""
 
     @staticmethod
@@ -248,17 +248,17 @@ class Subject(_Key):
         """A merge request's CI, or one workflow's on it: GitHub runs a workflow run per workflow on a commit, so one
         workflow's newer run must not replace another's."""
         if workflow_id is None:
-            return _Key._join("ci", merge_request_iid)
-        return _Key._join("ci", merge_request_iid, workflow_id)
+            return _join("ci", merge_request_iid)
+        return _join("ci", merge_request_iid, workflow_id)
 
     @staticmethod
     def mr_state(merge_request_iid: int) -> str:
-        return _Key._join("mr-state", merge_request_iid)
+        return _join("mr-state", merge_request_iid)
 
     @staticmethod
     def branch(ref: str) -> str:
-        return _Key._join("branch", ref)
+        return _join("branch", ref)
 
     @staticmethod
     def child_ci(child_thread_id: str, merge_request_iid: int) -> str:
-        return _Key._join("child-ci", child_thread_id, merge_request_iid)
+        return _join("child-ci", child_thread_id, merge_request_iid)

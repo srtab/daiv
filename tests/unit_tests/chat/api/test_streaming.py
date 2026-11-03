@@ -1679,9 +1679,7 @@ class TestEventsOfAStoppedTurn:
 
 async def test_the_inbox_is_drained_once_the_turn_releases_the_slot(chat_inbox):
     order: list[str] = []
-    chat_inbox.drain.return_value.start_logged.side_effect = lambda: order.append(
-        f"drain {chat_inbox.drain.call_args.args[0]}"
-    )
+    chat_inbox.drain.side_effect = lambda drain: order.append(f"drain {drain.thread_id}")
 
     async def _release(thread_id, run_id):
         order.append("release")
@@ -1698,4 +1696,4 @@ async def test_a_failed_release_skips_the_drain(chat_inbox, caplog):
     with patch("chat.api.streaming.SessionLock.release", AsyncMock(side_effect=RuntimeError("db down"))):
         await streamer._end_turn(streamer._turn, succeeded=True)
 
-    chat_inbox.drain.return_value.start_logged.assert_not_called()
+    chat_inbox.drain.assert_not_called()

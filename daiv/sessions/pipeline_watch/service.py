@@ -21,7 +21,7 @@ is retried. Turning the watch back on gives it its attempts back and judges the 
 the branch again at once. A failure the watch kept quiet is keyed apart from one that wakes, so judging the same
 pipeline once the watch is back on still wakes.
 
-Each result is posted under its CI subject (``kinds.ci_subject``): the merge request's on GitLab, whose one pipeline
+Each result is posted under its CI subject (``kinds.Subject.ci``): the merge request's on GitLab, whose one pipeline
 covers a commit, and its workflow's on GitHub, which runs one workflow run per workflow, so one workflow's newer run
 never replaces another's failure. A pipeline is judged once per status: a retried one keeps its id, so its new result
 is judged and posted under a key of its own. One older than a pipeline already judged on the same commit and subject

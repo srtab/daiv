@@ -231,7 +231,7 @@ class _Take:
                     branch, taken, next_run, requester=requester, sandbox_environment_id=env_id
                 )
         except IntegrityError:
-            # A job run took the session's one active place after job_run_active looked
+            # A job run took the session's one active place after ``NextRuns.job_run_active`` looked
             # (``run_one_active_per_session``).
             logger.info(
                 "inbox: thread_id=%s has an active job run; its events wait for that run to end", session.thread_id
