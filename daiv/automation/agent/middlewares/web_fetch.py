@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import ipaddress
 import logging
@@ -11,7 +12,7 @@ from urllib.parse import unquote, urldefrag, urljoin, urlparse, urlunparse
 from django.core.cache import cache
 
 import markdownify
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Tag
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
@@ -22,8 +23,9 @@ from core.site_settings import site_settings
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Iterable, Iterator
 
+    from bs4 import PageElement
     from pydantic import SecretStr
 
 logger = logging.getLogger("daiv.tools")
@@ -38,8 +40,6 @@ _HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
 _LISTED_HEADING_TAGS = ("h1", "h2", "h3")
 _MAX_LISTED_ANCHORS = 60
 _SELF_LINK = re.compile(r"^#.+")
-_SECTION_START = "DAIVWEBFETCHSECTIONSTART"
-_SECTION_END = "DAIVWEBFETCHSECTIONEND"
 
 WEB_FETCH_TOOL_DESCRIPTION = """\
 Fetch content from a specified URL and process it using an AI model.
@@ -198,40 +198,57 @@ def _set_cached_response(*, url: str, prompt: str, response: str) -> None:
     )
 
 
+def _cache_key_for_page(url: str) -> str:
+    return f"web_fetch:page:{hashlib.sha256(url.encode()).hexdigest()}"
+
+
 class _Page(NamedTuple):
     content: str
     fragment_note: str
     anchors: list[str]
-    """The page's section anchors, listed only when ``content`` is over the size limit."""
+    """Anchors to fetch instead, listed only when ``content`` is over the size limit."""
+    section: str = ""
+    """The fragment ``content`` was narrowed to."""
 
 
 async def _fetch_markdown_for_url(url: str, fragment: str = "") -> _Page:
     """
     Fetch the URL and return its markdown content (only the ``fragment`` section when the HTML has one).
     """
-    auth_headers = _get_auth_headers_for_url(url)
-    final_url, content_type, page_raw = await _fetch_url_text(
-        url,
-        timeout_seconds=site_settings.web_fetch_timeout_seconds,
-        proxy_url=automation_env_settings.WEB_FETCH_PROXY_URL,
-        extra_headers=auth_headers or None,
-    )
+    page_key = _cache_key_for_page(url)
+    if (cached := cache.get(page_key)) is not None:
+        content_type, page_raw = cached
+    else:
+        auth_headers = _get_auth_headers_for_url(url)
+        _final_url, content_type, page_raw = await _fetch_url_text(
+            url,
+            timeout_seconds=site_settings.web_fetch_timeout_seconds,
+            proxy_url=automation_env_settings.WEB_FETCH_PROXY_URL,
+            extra_headers=auth_headers or None,
+        )
 
     is_html = "<html" in page_raw[:200].lower() or ("text/html" in content_type) or not content_type
     if not is_html:
         note = f"#{fragment} was ignored: only HTML pages can be narrowed to a section." if fragment else ""
         return _Page(content=page_raw, fragment_note=note, anchors=[])
-    return await asyncio.to_thread(_html_page, page_raw, fragment, site_settings.web_fetch_max_content_chars)
+    page = await asyncio.to_thread(_html_page, page_raw, fragment, site_settings.web_fetch_max_content_chars)
+    if page.anchors:
+        # Listed anchors invite one fetch per section, which then reuse this body.
+        cache.set(page_key, (content_type, page_raw), timeout=site_settings.web_fetch_cache_ttl_seconds)
+    return page
 
 
 def _html_page(html: str, fragment: str, max_chars: int) -> _Page:
     soup = BeautifulSoup(html, "html.parser")
-    section = _html_section(soup, fragment) if fragment else None
-    content = section or _to_markdown(soup)
+    nodes = _section_nodes(soup, fragment) if fragment else []
+    if nodes and (content := _section_markdown(nodes)):
+        anchors = _section_anchors(_subsection_headings(nodes)) if len(content) > max_chars else []
+        return _Page(content=content, fragment_note="", anchors=anchors, section=fragment)
+    content = _to_markdown(soup)
     return _Page(
         content=content,
-        fragment_note=f"The page has no #{fragment} section." if fragment and section is None else "",
-        anchors=_section_anchors(soup) if len(content) > max_chars else [],
+        fragment_note=f"The page has no #{fragment} section." if fragment else "",
+        anchors=_section_anchors(soup.find_all(_LISTED_HEADING_TAGS)) if len(content) > max_chars else [],
     )
 
 
@@ -279,29 +296,56 @@ def _section_target(soup: BeautifulSoup, fragment: str) -> Tag | None:
     return next((link for link in links if _section_heading(link)), None)
 
 
-def _html_section(soup: BeautifulSoup, fragment: str) -> str | None:
+def _section_nodes(soup: BeautifulSoup, fragment: str) -> list[PageElement]:
     """
-    Return the markdown of the section ``#fragment`` names, or ``None`` when the page has no such section.
+    The nodes of the section ``#fragment`` names, in page order; empty when the page has no such section.
 
     A heading's section runs to the next heading of the same or a higher level; an id on a container
-    (Sphinx's ``<section id>``) is the whole container. ``soup`` is left as it was.
+    (Sphinx's ``<section id>``) is the whole container.
     """
     target = _section_target(soup, fragment)
     if target is None:
-        return None
+        return []
     heading = _section_heading(target)
     if heading is None:
-        return _to_markdown(target).strip() or None
+        return [target]
     level = _heading_level(heading)
     end = heading.find_next(lambda tag: tag.name in _HEADING_TAGS and _heading_level(tag) <= level)
-    markers = [NavigableString(_SECTION_START), NavigableString(_SECTION_END)]
-    heading.insert_before(markers[0])
-    if end is not None:
-        end.insert_before(markers[1])
-    markdown = _to_markdown(soup)
-    for marker in markers:
-        marker.extract()
-    return markdown.partition(_SECTION_START)[2].partition(_SECTION_END)[0].strip() or None
+    return list(_nodes_between(heading, end))
+
+
+def _nodes_between(start: PageElement, end: Tag | None) -> Iterator[PageElement]:
+    """The outermost nodes from ``start`` up to ``end`` (exclusive; ``None`` is the page's end), in page order."""
+    holds_end = {id(parent) for parent in end.parents} if end is not None else set()
+    node: PageElement | None = start
+    while node is not None and node is not end:
+        if isinstance(node, Tag) and id(node) in holds_end:
+            node = node.contents[0]
+            continue
+        yield node
+        while node is not None and node.next_sibling is None:
+            node = node.parent
+        node = node.next_sibling if node is not None else None
+
+
+def _section_markdown(nodes: list[PageElement]) -> str:
+    section = BeautifulSoup("", "html.parser")
+    for node in nodes:
+        section.append(copy.copy(node))
+    return _to_markdown(section).strip()
+
+
+def _subsection_headings(nodes: list[PageElement]) -> list[Tag]:
+    """The headings in a section, less the leading one when it outranks the rest (the section's own title)."""
+    headings = [
+        heading
+        for node in nodes
+        if isinstance(node, Tag)
+        for heading in ([node] if node.name in _HEADING_TAGS else node.find_all(_HEADING_TAGS))
+    ]
+    if headings and all(_heading_level(heading) > _heading_level(headings[0]) for heading in headings[1:]):
+        return headings[1:]
+    return headings
 
 
 def _is_permalink(link: Tag | None) -> bool:
@@ -331,25 +375,23 @@ def _heading_text(heading: Tag) -> str:
     return " ".join(" ".join(words).split()) or heading.get_text(" ", strip=True)
 
 
-def _section_anchors(soup: BeautifulSoup) -> list[str]:
-    """``#anchor  Heading`` lines for the page's top-level sections, deduplicated in page order."""
-    lines = (
-        f"#{anchor}  {_heading_text(heading)}"
-        for heading in soup.find_all(_LISTED_HEADING_TAGS)
-        if (anchor := _heading_anchor(heading))
-    )
+def _section_anchors(headings: Iterable[Tag]) -> list[str]:
+    """``#anchor  Heading`` lines for the ``headings`` that have an anchor, deduplicated in page order."""
+    lines = (f"#{anchor}  {_heading_text(heading)}" for heading in headings if (anchor := _heading_anchor(heading)))
     return list(dict.fromkeys(lines))
 
 
 def _too_large_message(page: _Page) -> str:
+    subject = f"The #{page.section} section" if page.section else "Page content"
     lines = [
-        f"error: Page content is too large to analyze in one pass ({len(page.content):,} characters; "
+        f"error: {subject} is too large to analyze in one pass ({len(page.content):,} characters; "
         f"the limit is {site_settings.web_fetch_max_content_chars:,})."
     ]
     if page.fragment_note:
         lines.append(page.fragment_note)
     if page.anchors:
-        lines.append("Fetch one section instead by adding its anchor to the URL as a #fragment:")
+        pick = "one of its subsections" if page.section else "one section"
+        lines.append(f"Fetch {pick} instead by adding its anchor to the URL as a #fragment:")
         lines.extend(page.anchors[:_MAX_LISTED_ANCHORS])
         if len(page.anchors) > _MAX_LISTED_ANCHORS:
             lines.append(f"... and {len(page.anchors) - _MAX_LISTED_ANCHORS} more")
