@@ -169,8 +169,8 @@ documents when the answer changes their rules.
 - **TODO(LOG_LEVELS):** nothing fails an operator-actionable failure logged below ERROR.
   Until something does, review checks it.
 - **TODO(CODE_ORGANIZATION):** nothing checks code-organization rule 1, and much of `daiv/`,
-  the session inbox among it, predates it. Until something does, review checks new code, and
-  an existing module moves to classes when a change reworks it.
+  predates it. Until something does, review checks new code, and an existing module moves to
+  classes when a change reworks it.
 - **TODO(PLATFORM_PARITY):** `RepoClient` makes both clients implement each abstract method,
   but nothing checks that a feature behaves the same on both platforms. Until something
   does, review checks it.
