@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult, get_date_max
+from sessions.inbox.drain import Drain
 from sessions.models import EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.services import (
     BatchSubmitFailure,
@@ -712,10 +713,10 @@ class TestSessionContinuation:
         thread = str(uuid.uuid4())
         await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
 
-        def claimed_before_the_drain(thread_id):
-            Session.objects.filter(pk=thread_id).update(active_run_id="chat-run")
+        def claimed_before_the_drain(drain):
+            Session.objects.filter(pk=drain.thread_id).update(active_run_id="chat-run")
 
-        with patch("sessions.inbox.post.drain_logged", side_effect=claimed_before_the_drain):
+        with patch.object(Drain, "start_logged", autospec=True, side_effect=claimed_before_the_drain):
             result = await asubmit_batch_runs(
                 user=member_user,
                 prompt="follow-up",

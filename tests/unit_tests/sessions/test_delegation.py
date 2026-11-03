@@ -19,6 +19,7 @@ from sessions.delegation import (
     resume_coordinator,
     resume_stalled_batches,
 )
+from sessions.inbox.drain import Drain
 from sessions.models import EventKind, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.queue import LINK_FAILED_PREFIX
 
@@ -311,7 +312,7 @@ def _resume_event(coordinator: Session) -> InboxEvent | None:
 
 @pytest.fixture
 def drain():
-    with patch("sessions.inbox.post.drain_logged") as drain:
+    with patch.object(Drain, "start_logged", autospec=True) as drain:
         yield drain
 
 
@@ -349,7 +350,7 @@ class TestResumeCoordinator:
             "total": 2,
         }
         assert not Run.objects.filter(session=coordinator).exists()
-        drain.assert_called_once_with(coordinator.pk)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [coordinator.pk]
 
     def test_the_inbox_starts_the_coordinators_resume_run(self, admin_user, create_db_task_result):
         coordinator = make_coordinator(admin_user)

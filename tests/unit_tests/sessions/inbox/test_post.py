@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox import kinds
+from sessions.inbox.drain import Drain
 from sessions.inbox.post import Inbox
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
@@ -15,7 +16,7 @@ pytestmark = pytest.mark.django_db(transaction=True)
 
 @pytest.fixture
 def drain():
-    with patch("sessions.inbox.post.drain_logged") as drain:
+    with patch.object(Drain, "start_logged", autospec=True) as drain:
         yield drain
 
 
@@ -43,7 +44,7 @@ class TestIdempotence:
         assert second.created is False
         assert second.event.pk == first.event.pk
         assert await InboxEvent.objects.filter(session=session).acount() == 1
-        drain.assert_called_once_with(session.thread_id)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [session.thread_id]
 
     async def test_a_repeat_returns_the_run_the_event_joined(self, drain):
         session = await amake_session(active_run_id="chat-run")
@@ -60,7 +61,7 @@ class TestIdleSession:
 
         result = await _post_ci(session.thread_id)
 
-        drain.assert_called_once_with(session.thread_id)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [session.thread_id]
         assert result.event.run_id is None
         assert await Run.objects.filter(session=session).acount() == 0
 
@@ -70,10 +71,10 @@ class TestIdleSession:
             session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=session.repo_id, status="READY"
         )
 
-        def _drain(thread_id):
-            InboxEvent.objects.filter(session_id=thread_id).update(run=run, state=EventState.TAKEN)
+        def _drain(drain):
+            InboxEvent.objects.filter(session_id=drain.thread_id).update(run=run, state=EventState.TAKEN)
 
-        with patch("sessions.inbox.post.drain_logged", side_effect=_drain):
+        with patch.object(Drain, "start_logged", autospec=True, side_effect=_drain):
             result = await _post_ci(session.thread_id)
 
         assert result.run_id == run.pk
@@ -99,7 +100,7 @@ class TestBusySession:
         assert run.ref == session.ref
         assert run.task_result_id is None
         assert result.event.run_id == run.pk
-        drain.assert_called_once_with(session.thread_id)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [session.thread_id]
 
     async def test_waking_events_on_one_branch_join_the_same_next_run(self, drain):
         session = await amake_session(active_run_id="chat-run")

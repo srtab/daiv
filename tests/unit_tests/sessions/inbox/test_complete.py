@@ -6,13 +6,8 @@ from django.utils import timezone
 import pytest
 from asgiref.sync import sync_to_async
 from sessions.executor.lock import stale_cutoff
-from sessions.inbox.complete import (
-    ANSWERED_IN_ANOTHER_THREAD,
-    MAX_EVENT_ATTEMPTS,
-    aon_run_ended,
-    arelease_chat_claim,
-    recover_stale_events,
-)
+from sessions.inbox.complete import ANSWERED_IN_ANOTHER_THREAD, MAX_EVENT_ATTEMPTS, aon_run_ended, recover_stale_events
+from sessions.inbox.drain import Drain
 from sessions.models import (
     EventFailure,
     EventKind,
@@ -37,7 +32,7 @@ CI_SUMMARY = "The failure is a GitHub auth error, not the change; I pushed nothi
 
 @pytest.fixture
 def drain():
-    with patch("sessions.inbox.complete.drain_logged") as drain:
+    with patch.object(Drain, "start_logged", autospec=True) as drain:
         yield drain
 
 
@@ -63,7 +58,7 @@ class TestOutcomes:
         await aon_run_ended(run)
 
         assert (await _state(event)).state == EventState.HANDLED
-        drain.assert_called_once_with(run.session_id)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [run.session_id]
 
     async def test_a_run_its_owner_stopped_dismisses_its_events(self, drain):
         run, event = await _run_with_event(RunStatus.FAILED, cancel_requested_at=timezone.now())
@@ -71,7 +66,7 @@ class TestOutcomes:
         await aon_run_ended(run)
 
         assert (await _state(event)).state == EventState.DISMISSED
-        drain.assert_called_once_with(run.session_id)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [run.session_id]
 
     async def test_a_failed_run_puts_its_events_back_for_another_attempt(self, drain):
         run, event = await _run_with_event(RunStatus.FAILED)
@@ -81,7 +76,7 @@ class TestOutcomes:
         stored = await _state(event)
         assert (stored.state, stored.attempts, stored.run_id) == (EventState.PENDING, 1, None)
         assert stored.payload["tried_runs"] == [str(run.pk)]
-        drain.assert_called_once_with(run.session_id)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [run.session_id]
 
     async def test_the_last_attempt_fails_the_events_and_logs(self, drain, caplog):
         run, event = await _run_with_event(RunStatus.FAILED, attempts=MAX_EVENT_ATTEMPTS - 1)
@@ -93,7 +88,7 @@ class TestOutcomes:
         assert (stored.state, stored.failure) == (EventState.FAILED, EventFailure.RETRIES_EXHAUSTED)
         assert stored.attempts == MAX_EVENT_ATTEMPTS
         assert "failed after 3 attempts" in caplog.text
-        drain.assert_called_once_with(run.session_id)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [run.session_id]
 
     async def test_a_ci_failure_no_run_could_examine_leaves_its_commit_unexamined(self, drain):
         """So a re-run pipeline on that commit can wake the session again."""
@@ -141,7 +136,7 @@ class TestOutcomes:
             await aon_run_ended(run)
 
         assert "settling the events" in caplog.text
-        drain.assert_called_once_with(run.session_id)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [run.session_id]
 
 
 class TestSlot:
@@ -153,7 +148,7 @@ class TestSlot:
 
         assert (await Session.objects.aget(pk=run.session_id)).active_run_id is None
         assert (await _state(event)).state == EventState.DISMISSED
-        drain.assert_called_once_with(run.session_id)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [run.session_id]
 
     async def test_another_holders_slot_is_left_alone(self, drain):
         run, _ = await _run_with_event(RunStatus.FAILED)
@@ -194,27 +189,6 @@ class TestRecoverStaleEvents:
 
 async def _recover() -> int:
     return await sync_to_async(recover_stale_events)()
-
-
-class TestReleaseChatClaim:
-    async def test_the_events_a_turn_took_and_no_run_took_over_go_back_to_pending(self):
-        session = await amake_session()
-        claimed = await amake_event(session, EventKind.MR_MERGED, state=EventState.TAKEN, claim_token="r-1")  # noqa: S106
-        run = await Run.objects.acreate(session=session, trigger_type=SessionOrigin.CHAT, repo_id=session.repo_id)
-        linked = await amake_event(session, EventKind.MR_MERGED, state=EventState.TAKEN, run=run)
-        other_holder = await amake_event(session, EventKind.MR_MERGED, state=EventState.TAKEN, claim_token="r-2")  # noqa: S106
-        elsewhere = await amake_event(
-            await amake_session(),
-            EventKind.MR_MERGED,
-            state=EventState.TAKEN,
-            claim_token="r-1",  # noqa: S106
-        )
-
-        assert await arelease_chat_claim(session.thread_id, "r-1") == 1
-
-        stored = await _state(claimed)
-        assert (stored.state, stored.claim_token, stored.attempts) == (EventState.PENDING, "", 0)
-        assert [(await _state(event)).state for event in (linked, other_holder, elsewhere)] == [EventState.TAKEN] * 3
 
 
 class TestOwnerlessCiReport:
@@ -328,7 +302,7 @@ class TestDelegatedNoPush:
         run = await self._ci_run()
         session = await Session.objects.aget(pk=run.session_id)
 
-        with patch("sessions.inbox.post.drain_logged"):
+        with patch.object(Drain, "start_logged"):
             await aon_run_ended(run)
 
         event = await InboxEvent.objects.aget(session_id=session.parent_id)
@@ -346,7 +320,7 @@ class TestDelegatedNoPush:
         run = await self._ci_run(status=RunStatus.WAITING_INPUT)
         session = await Session.objects.aget(pk=run.session_id)
 
-        with patch("sessions.inbox.post.drain_logged"):
+        with patch.object(Drain, "start_logged"):
             await aon_run_ended(run)
 
         event = await InboxEvent.objects.aget(session_id=session.parent_id)
@@ -356,7 +330,7 @@ class TestDelegatedNoPush:
         run = await self._ci_run(status=RunStatus.FAILED, attempts=MAX_EVENT_ATTEMPTS - 1)
         session = await Session.objects.aget(pk=run.session_id)
 
-        with patch("sessions.inbox.post.drain_logged"):
+        with patch.object(Drain, "start_logged"):
             await aon_run_ended(run)
 
         event = await InboxEvent.objects.aget(session_id=session.parent_id)
@@ -371,7 +345,7 @@ class TestDelegatedNoPush:
             active_run_id=str(run.pk), last_active_at=stale_cutoff() - timedelta(minutes=1)
         )
 
-        with patch("sessions.inbox.post.drain_logged"):
+        with patch.object(Drain, "start_logged"):
             await _recover()
 
         event = await InboxEvent.objects.aget(session_id=session.parent_id)
@@ -399,7 +373,7 @@ class TestDelegatedNoPush:
     async def test_otherwise_no_parent_hears_of_it(self, drain, fields):
         run = await self._ci_run(**fields)
 
-        with patch("sessions.inbox.post.drain_logged"):
+        with patch.object(Drain, "start_logged"):
             await aon_run_ended(run)
 
         assert not await InboxEvent.objects.filter(kind=EventKind.DELEGATED_CI_OUTCOME).aexists()

@@ -1,16 +1,16 @@
 """Starting a session's next run from its pending events (``specs/001-session-inbox/contracts/inbox-service.md``).
 
-:func:`drain` locks the session row and, unless a live holder has the slot or a job run is active, takes its pending
-events in one transaction: it moves the requests that follow the session to its branch, supersedes all but the newest
-event per subject, turns the CI and delegation wakes the policy blocks into remembered events, and drops a QUEUED next
-run left with nothing to wake it. When a waking event survives, it picks the branch and requester of the oldest one,
-checks that requester may still run on the repository (a mention is gated where it is made, FR-026), promotes their
+:meth:`Drain.start` locks the session row and, unless a live holder has the slot or a job run is active, takes its
+pending events in one transaction: it moves the requests that follow the session to its branch, supersedes all but the
+newest event per subject, turns the CI and delegation wakes the policy blocks into remembered events, and drops a QUEUED
+next run left with nothing to wake it. When a waking event survives, it picks the branch and requester of the oldest
+one, checks that requester may still run on the repository (a mention is gated where it is made, FR-026), promotes their
 next run for the branch (or creates a READY one), claims the slot for it and marks ``taken`` the requester's waking
 events for the branch and every remembered one. A CI failure among them spends one of its merge request's attempts on
 the commit it reports in that same transaction, so a crash before the enqueue still counts it. A denied requester's
-events fail, their next run ends FAILED with the ``access_denied`` label (a follow-up job's id still resolves), and
-the drain goes on to the next requester. The run is enqueued once the take commits; a failed enqueue frees the slot,
-puts the events back and refunds the attempt, for the sweep to retry.
+events fail, their next run ends FAILED with the ``access_denied`` label (a follow-up job's id still resolves), and the
+drain goes on to the next requester. The run is enqueued once the take commits; a failed enqueue frees the slot, puts
+the events back and refunds the attempt, for the sweep to retry.
 
 A next run is a QUEUED run with an inbox trigger type, no task yet, and events linked to it. ``sessions.queue`` leaves
 such runs alone: only this module starts them, because only it claims the slot for them.
@@ -19,11 +19,10 @@ such runs alone: only this module starts them, because only it claims the slot f
 from __future__ import annotations
 
 import logging
-from functools import partial
 from typing import TYPE_CHECKING, NamedTuple
 
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import F, Q
 from django.tasks import TaskResultStatus
 from django.utils import timezone
 
@@ -64,103 +63,101 @@ logger = logging.getLogger("daiv.sessions")
 DRAIN_SWEEP_LIMIT = 200
 
 
-def take_for_chat(thread_id: str, *, holder_id: str) -> list[InboxEvent]:
-    """Take the session's pending remembered events for its branch for the chat turn that just claimed the slot
-    under ``holder_id``, before its ``Run`` exists. SYNC ONLY.
+class Drain:
+    """The drain of the session ``thread_id``: starting its next run from its pending events."""
 
-    A waking event is left for the drain, which starts its run once the turn ends: only the drain renders a waking
-    event's request and charges a CI attempt. It is still superseded by a newer event of its subject, so a turn that
-    takes a passing pipeline leaves no older failure behind to wake a fix run, nor a next run with nothing to do.
-    """
-    with transaction.atomic():
-        session = Session.objects.select_for_update().get(pk=thread_id)
-        pending = list(
-            InboxEvent.objects.filter(
-                Q(ref="") | Q(ref=session.ref), session=session, state=EventState.PENDING
-            ).order_by("created_at", "id")
-        )
-        survivors = PendingEvents(session, pending).supersede()
-        superseded_runs = {event.run_id for event in pending if event.run_id is not None and event not in survivors}
-        NextRuns(session).drop(
-            Run.objects.filter(pk__in=superseded_runs, status=RunStatus.QUEUED).exclude(
-                Exists(InboxEvent.objects.filter(run=OuterRef("pk"), state=EventState.PENDING, wake=True))
+    def __init__(self, thread_id: str):
+        self.thread_id = thread_id
+
+    def start(self) -> Run | None:
+        """Start the session's next run from its pending events, and return it; ``None`` when none started.
+        SYNC ONLY."""
+        try:
+            took = self._take()
+        except Session.DoesNotExist:
+            return None
+        if took is None:
+            return None
+        run, charges = took
+        if async_to_sync(aenqueue_run)(run, log_context="inbox", skip_dispatch=True, inbox=True) is not None:
+            logger.error(
+                "inbox: could not enqueue run=%s for thread_id=%s; its events wait for the next drain",
+                run.pk,
+                self.thread_id,
+            )
+            self._undo_take(run, charges)
+            return None
+        return run
+
+    async def astart(self) -> Run | None:
+        return await sync_to_async(self.start)()
+
+    def start_logged(self) -> None:
+        """:meth:`start` for callers that must not fail with it (commit hooks, signal receivers, sweeps). SYNC ONLY."""
+        try:
+            self.start()
+        except Exception:
+            logger.exception("inbox: draining thread_id=%s failed; the sweep retries it", self.thread_id)
+
+    @classmethod
+    def keep_queued_claims_alive(cls) -> int:
+        """Heartbeat the slots the drain claimed for runs whose task still waits for a worker, which nothing else beats
+        until the task starts; returns how many it beat. SYNC ONLY."""
+        waiting = list(
+            Run.objects.filter(status=RunStatus.READY, task_result__status=TaskResultStatus.READY).values_list(
+                "pk", "session_id"
             )
         )
-        taken = [event for event in survivors if not event.wake]
-        InboxEvent.objects.filter(pk__in=[event.pk for event in taken]).update(
-            state=EventState.TAKEN, claim_token=holder_id, updated_at=timezone.now()
+        return Session.objects.filter(
+            thread_id__in={session_id for _, session_id in waiting}, active_run_id__in=[str(pk) for pk, _ in waiting]
+        ).update(last_active_at=timezone.now())
+
+    @classmethod
+    def sessions_to_drain(cls, limit: int = DRAIN_SWEEP_LIMIT) -> list[str]:
+        """Sessions with a pending waking event and a free or stale slot, for the sweep. SYNC ONLY."""
+        free = Q(session__active_run_id__isnull=True) | Q(session__last_active_at__lt=stale_cutoff())
+        return list(
+            InboxEvent.objects
+            .filter(free, state=EventState.PENDING, wake=True)
+            .order_by()
+            .values_list("session_id", flat=True)
+            .distinct()[:limit]
         )
-    return taken
 
+    @transaction.atomic
+    def _take(self) -> tuple[Run, list[_Charge]] | None:
+        session = Session.objects.select_for_update(of=("self",)).select_related("user").get(pk=self.thread_id)
+        return _Take(session).take()
 
-atake_for_chat = sync_to_async(take_for_chat)
+    def _undo_take(self, run: Run, charges: list[_Charge]) -> None:
+        """Free the slot claimed for ``run``, put its events back and refund the CI attempts its take spent, after its
+        enqueue failed. The slot and events are usually back already: the failed run's ``run_ended`` did both
+        (:func:`sessions.inbox.complete.on_run_ended`), unless its finish did not land.
 
-
-async def alink_chat_run(holder_id: str, run: Run) -> None:
-    """Point the events a chat turn took under ``holder_id`` at its ``Run``, now that the row exists."""
-    await InboxEvent.objects.filter(session_id=run.session_id, claim_token=holder_id, state=EventState.TAKEN).aupdate(
-        run=run, claim_token=""
-    )
-    await (
-        InboxEvent.objects
-        .filter(session_id=run.session_id, state=EventState.SUPERSEDED, run__isnull=True, claim_token="")
-        .filter(subject__in=InboxEvent.objects.filter(run=run).exclude(subject="").values("subject"))
-        .aupdate(run=run)
-    )
-
-
-def drain(thread_id: str) -> Run | None:
-    """Start the session's next run from its pending events, and return it; ``None`` when none started. SYNC ONLY."""
-    try:
-        took = _take(thread_id)
-    except Session.DoesNotExist:
-        return None
-    if took is None:
-        return None
-    run, charges = took
-    if async_to_sync(aenqueue_run)(run, log_context="inbox", skip_dispatch=True, inbox=True) is not None:
-        logger.error(
-            "inbox: could not enqueue run=%s for thread_id=%s; its events wait for the next drain", run.pk, thread_id
-        )
-        _undo_take(run, charges)
-        return None
-    return run
-
-
-adrain = sync_to_async(drain)
-
-
-def drain_logged(thread_id: str) -> None:
-    """:func:`drain` for callers that must not fail with it (commit hooks, signal receivers, sweeps). SYNC ONLY."""
-    try:
-        drain(thread_id)
-    except Exception:
-        logger.exception("inbox: draining thread_id=%s failed; the sweep retries it", thread_id)
-
-
-def keep_queued_claims_alive() -> int:
-    """Heartbeat the slots the drain claimed for runs whose task still waits for a worker, which nothing else beats
-    until the task starts; returns how many it beat. SYNC ONLY."""
-    waiting = list(
-        Run.objects.filter(status=RunStatus.READY, task_result__status=TaskResultStatus.READY).values_list(
-            "pk", "session_id"
-        )
-    )
-    return Session.objects.filter(
-        thread_id__in={session_id for _, session_id in waiting}, active_run_id__in=[str(pk) for pk, _ in waiting]
-    ).update(last_active_at=timezone.now())
-
-
-def sessions_to_drain(limit: int = DRAIN_SWEEP_LIMIT) -> list[str]:
-    """Sessions with a pending waking event and a free or stale slot, for the sweep. SYNC ONLY."""
-    free = Q(session__active_run_id__isnull=True) | Q(session__last_active_at__lt=stale_cutoff())
-    return list(
-        InboxEvent.objects
-        .filter(free, state=EventState.PENDING, wake=True)
-        .order_by()
-        .values_list("session_id", flat=True)
-        .distinct()[:limit]
-    )
+        A refund leaves the merge request's examined commit blank, as the one before is not kept. That commit is older
+        than the failure's, so it is no longer the head DAIV pushed, the only commit whose failure wakes the session. A
+        failure another drain took after ``run_ended`` put it back keeps its charge: that run did not charge the commit
+        again. The session row lock orders the check against such a take.
+        """
+        with transaction.atomic():
+            Session.objects.select_for_update().filter(pk=run.session_id).exists()
+            SessionLock.release_for_run(run.session_id, run.pk)
+            InboxEvent.objects.filter(run=run, state=EventState.TAKEN).update(
+                state=EventState.PENDING, run=None, updated_at=timezone.now()
+            )
+            retaken = set(
+                InboxEvent.objects.filter(
+                    pk__in=[charge.event_id for charge in charges], state=EventState.TAKEN
+                ).values_list("pk", flat=True)
+            )
+            for charge in charges:
+                if charge.event_id in retaken:
+                    continue
+                rows = MergeRequestOwnership.objects.filter(
+                    repo_id=run.repo_id, merge_request_iid=charge.merge_request_iid
+                )
+                rows.filter(attempts__gt=0).update(attempts=F("attempts") - 1)
+                rows.filter(last_examined_sha=charge.sha).update(last_examined_sha="")
 
 
 class _Charge(NamedTuple):
@@ -171,220 +168,205 @@ class _Charge(NamedTuple):
     event_id: uuid.UUID
 
 
-@transaction.atomic
-def _take(thread_id: str) -> tuple[Run, list[_Charge]] | None:
-    session = Session.objects.select_for_update(of=("self",)).select_related("user").get(pk=thread_id)
-    next_runs = NextRuns(session)
-    if SessionLock.is_held(session) or next_runs.job_run_active():
-        return None
-    pending = list(
-        InboxEvent.objects
-        .filter(session=session, state=EventState.PENDING)
-        .select_related("author")
-        .order_by("created_at", "id")
-    )
-    pending_events = PendingEvents(session, pending)
-    queued_runs = list(next_runs.queued())
-    pending_events.follow_session_branch(queued_runs)
-    queued: dict[tuple[str, Requester], Run] = {}
-    for next_run in queued_runs:
-        queued.setdefault((next_run.ref, Requester.of_run(next_run)), next_run)
-    survivors = pending_events.supersede()
-    _apply_policy(session, survivors)
-    waking = [event for event in survivors if event.wake]
-    wanted = {(event.ref, Requester.of_event(event, session)) for event in waking}
-    next_runs.drop([run for key, run in queued.items() if key not in wanted])
-    if not waking:
-        return None
+class _Take:
+    """One take of ``session``'s pending events, run in :meth:`Drain._take`'s transaction with the session row
+    locked."""
 
-    branch, requester = waking[0].ref, Requester.of_event(waking[0], session)
-    asked = [event for event in waking if event.ref in ("", branch) and Requester.of_event(event, session) == requester]
-    taken = [event for event in survivors if event.ref in ("", branch) and (not event.wake or event in asked)]
-    next_run = queued.get((branch, requester))
-    user = requester.user(session, asked)
-    checked = any(event.kind != EventKind.MENTION for event in asked)
-    if user is not None and checked and not _may_run(user, session.repo_id):
-        _fail(session, asked, next_run)
-        next_runs.drop_emptied(queued_runs)
-        transaction.on_commit(partial(drain_logged, thread_id), robust=True)
-        return None
+    def __init__(self, session: Session):
+        self.session = session
 
-    env_id = _sandbox_env_id(session, user)
-    try:
-        with transaction.atomic():
-            run = _promote_or_create(
-                session, branch, taken, next_run, requester=requester, sandbox_environment_id=env_id
+    def take(self) -> tuple[Run, list[_Charge]] | None:
+        session = self.session
+        next_runs = NextRuns(session)
+        if SessionLock.is_held(session) or next_runs.job_run_active():
+            return None
+        pending = list(
+            InboxEvent.objects
+            .filter(session=session, state=EventState.PENDING)
+            .select_related("author")
+            .order_by("created_at", "id")
+        )
+        pending_events = PendingEvents(session, pending)
+        queued_runs = list(next_runs.queued())
+        pending_events.follow_session_branch(queued_runs)
+        queued: dict[tuple[str, Requester], Run] = {}
+        for next_run in queued_runs:
+            queued.setdefault((next_run.ref, Requester.of_run(next_run)), next_run)
+        survivors = pending_events.supersede()
+        self._apply_policy(survivors)
+        waking = [event for event in survivors if event.wake]
+        wanted = {(event.ref, Requester.of_event(event, session)) for event in waking}
+        next_runs.drop([run for key, run in queued.items() if key not in wanted])
+        if not waking:
+            return None
+
+        branch, requester = waking[0].ref, Requester.of_event(waking[0], session)
+        asked = [
+            event for event in waking if event.ref in ("", branch) and Requester.of_event(event, session) == requester
+        ]
+        taken = [event for event in survivors if event.ref in ("", branch) and (not event.wake or event in asked)]
+        next_run = queued.get((branch, requester))
+        user = requester.user(session, asked)
+        checked = any(event.kind != EventKind.MENTION for event in asked)
+        if user is not None and checked and not self._may_run(user, session.repo_id):
+            self._fail(asked, next_run)
+            next_runs.drop_emptied(queued_runs)
+            transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
+            return None
+
+        env_id = self._sandbox_env_id(user)
+        try:
+            with transaction.atomic():
+                run = self._promote_or_create(
+                    branch, taken, next_run, requester=requester, sandbox_environment_id=env_id
+                )
+        except IntegrityError:
+            # A job run took the session's one active place after job_run_active looked
+            # (``run_one_active_per_session``).
+            logger.info(
+                "inbox: thread_id=%s has an active job run; its events wait for that run to end", session.thread_id
             )
-    except IntegrityError:
-        # A job run took the session's one active place after job_run_active looked (``run_one_active_per_session``).
-        logger.info("inbox: thread_id=%s has an active job run; its events wait for that run to end", thread_id)
-        return None
-    if not SessionLock.claim_for_run(thread_id, run.pk):
-        transaction.set_rollback(True)
-        return None
+            return None
+        if not SessionLock.claim_for_run(session.thread_id, run.pk):
+            transaction.set_rollback(True)
+            return None
 
-    InboxEvent.objects.filter(pk__in=[event.pk for event in taken]).update(
-        state=EventState.TAKEN, run=run, claim_token="", updated_at=timezone.now()
-    )
-    InboxEvent.objects.filter(
-        session=session, state=EventState.SUPERSEDED, run__isnull=True, subject__in={e.subject for e in taken} - {""}
-    ).filter(Q(ref="") | Q(ref=branch)).update(run=run)
-    next_runs.drop_emptied(queued_run for queued_run in queued_runs if queued_run.pk != run.pk)
-    _merge_references(session, taken)
-    return run, _charge_ci_attempts(session, taken)
-
-
-def _merge_references(session: Session, taken: list[InboxEvent]) -> None:
-    """Add the references the follow-up jobs the run took declared to the session, which the run reads them from."""
-    declared = [
-        ref for event in taken if event.kind == EventKind.FOLLOW_UP_JOB for ref in event.payload.get("references", [])
-    ]
-    if declared and (merged := merge_stored_refs(session.external_refs, declared)) != session.external_refs:
-        Session.objects.filter(pk=session.pk).update(external_refs=merged)
-
-
-def _charge_ci_attempts(session: Session, taken: list[InboxEvent]) -> list[_Charge]:
-    """Spend an attempt of each merge request whose CI failure woke the run taking ``taken``, and record the commit it
-    examines; return the charges. A run that takes the failure again after a failed one examines the same commit, and
-    is not charged again."""
-    charges = []
-    for event in taken:
-        if event.kind != EventKind.CI_FAILED or not event.wake or event.merge_request_iid is None:
-            continue
-        sha = event.payload["sha"]
-        rows = MergeRequestOwnership.objects.filter(repo_id=session.repo_id, merge_request_iid=event.merge_request_iid)
-        if rows.exclude(last_examined_sha=sha).update(last_examined_sha=sha, attempts=F("attempts") + 1):
-            charges.append(_Charge(event.merge_request_iid, sha, event.pk))
-    return charges
-
-
-def _apply_policy(session: Session, survivors: list[InboxEvent]) -> None:
-    """Turn the waking events the policy blocks into remembered ones, recording why. A CI failure whose merge request
-    was closed, or whose watch was turned off, since it was posted no longer wakes either."""
-    reasons = WakePolicy(session).quiet_reasons_now(survivors)
-    for event in survivors:
-        if (reason := reasons.get(event.pk)) is not None:
-            event.wake, event.reason = False, reason
-            event.save(update_fields=["wake", "reason", "updated_at"])
-    if QuietReason.RUN_LIMIT in reasons.values():
-        transaction.on_commit(WakePolicy(session).report_run_limit, robust=True)
-
-
-def _may_run(user: User, repo_id: str) -> bool:
-    try:
-        assert_repo_access(user, [repo_id])
-    except RepoAccessError:
-        return False
-    return True
-
-
-def _fail(session: Session, asked: list[InboxEvent], next_run: Run | None) -> None:
-    """Fail the events of a requester who may no longer run on the repository, and finish their QUEUED next run
-    FAILED with the ``access_denied`` label, so the id a follow-up job's caller polls still resolves.
-
-    The finish says ``skip_dispatch``: the caller drains once this commits, and its events, already failed rather
-    than taken, are left as they are by the run's end (:func:`sessions.inbox.complete.settle_events`)."""
-    logger.warning(
-        "inbox: a requester on thread_id=%s may no longer run on %s; %d event(s) failed",
-        session.thread_id,
-        session.repo_id,
-        len(asked),
-    )
-    now = timezone.now()
-    InboxEvent.objects.filter(pk__in=[event.pk for event in asked]).update(
-        state=EventState.FAILED, failure=EventFailure.ACCESS_DENIED, run=None, updated_at=now
-    )
-    if next_run is None:
-        return
-    InboxEvent.objects.filter(run=next_run).update(run=None, updated_at=now)
-    Run.objects.finish(
-        next_run,
-        RunStatus.FAILED,
-        skip_dispatch=True,
-        never_started=True,
-        error_message=str(EventFailure.ACCESS_DENIED.label),
-        finished_at=now,
-        started_at=now,
-    )
-
-
-def _sandbox_env_id(session: Session, user: User | None) -> uuid.UUID | None:
-    """The session's sandbox environment, unless it is a USER environment ``user`` does not own: a run for another
-    person, or for no one, never gets the owner's secrets. Then the one the repository resolves to for ``user``."""
-    env_id = session.sandbox_environment_id
-    visible = SandboxEnvironment.objects.visible_to(user)  # ty: ignore[unresolved-attribute]
-    if env_id is None or visible.filter(pk=env_id).exists():
-        return env_id
-    env = async_to_sync(resolve_env_for_run)(user=user, repo_id=session.repo_id)
-    return None if env is None else env.pk
-
-
-def _promote_or_create(
-    session: Session,
-    branch: str,
-    taken: list[InboxEvent],
-    run: Run | None,
-    *,
-    requester: Requester,
-    sandbox_environment_id: uuid.UUID | None,
-) -> Run:
-    waking = sorted(
-        (event for event in taken if event.wake), key=lambda event: (PRECEDENCE[event.kind], event.created_at)
-    )
-    top = waking[0]
-    person = next((event for event in waking if event.kind in PERSON_KINDS), None)
-    agent_model, agent_thinking_level = _agent_override(session, person)
-    chats = [event for event in taken if event.kind == EventKind.CHAT_MESSAGE]
-    fields = {
-        "status": RunStatus.READY,
-        "trigger_type": EventContent.of(top).run_trigger_type(),
-        **requester.run_fields(person.author_username if person is not None else ""),
-        "agent_model": agent_model,
-        "agent_thinking_level": agent_thinking_level,
-        "message_id": chats[-1].payload["agui_message_id"] if chats else "",
-        "merge_request_iid": next((event.merge_request_iid for event in waking if event.merge_request_iid), None),
-        "sandbox_environment_id": sandbox_environment_id,
-        "prompt": RunInput(taken).request(),
-        "muted": (person or top).payload.get("muted"),
-    }
-    if run is None:
-        return Run.objects.create(session=session, repo_id=session.repo_id, ref=branch, **fields)
-    for name, value in fields.items():
-        setattr(run, name, value)
-    run.save(update_fields=list(fields))
-    return run
-
-
-def _agent_override(session: Session, person: InboxEvent | None) -> tuple[str, str]:
-    if person is not None and person.payload.get("agent_model"):
-        return person.payload["agent_model"], person.payload.get("agent_thinking_level", "")
-    return pinned_agent_override(session)
-
-
-def _undo_take(run: Run, charges: list[_Charge]) -> None:
-    """Free the slot claimed for ``run``, put its events back and refund the CI attempts its take spent, after its
-    enqueue failed. The slot and events are usually back already: the failed run's ``run_ended`` did both
-    (:func:`sessions.inbox.complete.on_run_ended`), unless its finish did not land.
-
-    A refund leaves the merge request's examined commit blank, as the one before is not kept. That commit is older than
-    the failure's, so it is no longer the head DAIV pushed, the only commit whose failure wakes the session. A failure
-    another drain took after ``run_ended`` put it back keeps its charge: that run did not charge the commit again. The
-    session row lock orders the check against such a take.
-    """
-    with transaction.atomic():
-        Session.objects.select_for_update().filter(pk=run.session_id).exists()
-        SessionLock.release_for_run(run.session_id, run.pk)
-        InboxEvent.objects.filter(run=run, state=EventState.TAKEN).update(
-            state=EventState.PENDING, run=None, updated_at=timezone.now()
+        InboxEvent.objects.filter(pk__in=[event.pk for event in taken]).update(
+            state=EventState.TAKEN, run=run, claim_token="", updated_at=timezone.now()
         )
-        retaken = set(
-            InboxEvent.objects.filter(
-                pk__in=[charge.event_id for charge in charges], state=EventState.TAKEN
-            ).values_list("pk", flat=True)
-        )
-        for charge in charges:
-            if charge.event_id in retaken:
+        InboxEvent.objects.filter(
+            session=session,
+            state=EventState.SUPERSEDED,
+            run__isnull=True,
+            subject__in={e.subject for e in taken} - {""},
+        ).filter(Q(ref="") | Q(ref=branch)).update(run=run)
+        next_runs.drop_emptied(queued_run for queued_run in queued_runs if queued_run.pk != run.pk)
+        self._merge_references(taken)
+        return run, self._charge_ci_attempts(taken)
+
+    def _merge_references(self, taken: list[InboxEvent]) -> None:
+        """Add the references the follow-up jobs the run took declared to the session, which the run reads them from."""
+        session = self.session
+        declared = [
+            ref
+            for event in taken
+            if event.kind == EventKind.FOLLOW_UP_JOB
+            for ref in event.payload.get("references", [])
+        ]
+        if declared and (merged := merge_stored_refs(session.external_refs, declared)) != session.external_refs:
+            Session.objects.filter(pk=session.pk).update(external_refs=merged)
+
+    def _charge_ci_attempts(self, taken: list[InboxEvent]) -> list[_Charge]:
+        """Spend an attempt of each merge request whose CI failure woke the run taking ``taken``, and record the commit
+        it examines; return the charges. A run that takes the failure again after a failed one examines the same
+        commit, and is not charged again."""
+        charges = []
+        for event in taken:
+            if event.kind != EventKind.CI_FAILED or not event.wake or event.merge_request_iid is None:
                 continue
-            rows = MergeRequestOwnership.objects.filter(repo_id=run.repo_id, merge_request_iid=charge.merge_request_iid)
-            rows.filter(attempts__gt=0).update(attempts=F("attempts") - 1)
-            rows.filter(last_examined_sha=charge.sha).update(last_examined_sha="")
+            sha = event.payload["sha"]
+            rows = MergeRequestOwnership.objects.filter(
+                repo_id=self.session.repo_id, merge_request_iid=event.merge_request_iid
+            )
+            if rows.exclude(last_examined_sha=sha).update(last_examined_sha=sha, attempts=F("attempts") + 1):
+                charges.append(_Charge(event.merge_request_iid, sha, event.pk))
+        return charges
+
+    def _apply_policy(self, survivors: list[InboxEvent]) -> None:
+        """Turn the waking events the policy blocks into remembered ones, recording why. A CI failure whose merge
+        request was closed, or whose watch was turned off, since it was posted no longer wakes either."""
+        reasons = WakePolicy(self.session).quiet_reasons_now(survivors)
+        for event in survivors:
+            if (reason := reasons.get(event.pk)) is not None:
+                event.wake, event.reason = False, reason
+                event.save(update_fields=["wake", "reason", "updated_at"])
+        if QuietReason.RUN_LIMIT in reasons.values():
+            transaction.on_commit(WakePolicy(self.session).report_run_limit, robust=True)
+
+    @staticmethod
+    def _may_run(user: User, repo_id: str) -> bool:
+        try:
+            assert_repo_access(user, [repo_id])
+        except RepoAccessError:
+            return False
+        return True
+
+    def _fail(self, asked: list[InboxEvent], next_run: Run | None) -> None:
+        """Fail the events of a requester who may no longer run on the repository, and finish their QUEUED next run
+        FAILED with the ``access_denied`` label, so the id a follow-up job's caller polls still resolves.
+
+        The finish says ``skip_dispatch``: the caller drains once this commits, and its events, already failed rather
+        than taken, are left as they are by the run's end (:func:`sessions.inbox.complete.settle_events`)."""
+        logger.warning(
+            "inbox: a requester on thread_id=%s may no longer run on %s; %d event(s) failed",
+            self.session.thread_id,
+            self.session.repo_id,
+            len(asked),
+        )
+        now = timezone.now()
+        InboxEvent.objects.filter(pk__in=[event.pk for event in asked]).update(
+            state=EventState.FAILED, failure=EventFailure.ACCESS_DENIED, run=None, updated_at=now
+        )
+        if next_run is None:
+            return
+        InboxEvent.objects.filter(run=next_run).update(run=None, updated_at=now)
+        Run.objects.finish(
+            next_run,
+            RunStatus.FAILED,
+            skip_dispatch=True,
+            never_started=True,
+            error_message=str(EventFailure.ACCESS_DENIED.label),
+            finished_at=now,
+            started_at=now,
+        )
+
+    def _sandbox_env_id(self, user: User | None) -> uuid.UUID | None:
+        """The session's sandbox environment, unless it is a USER environment ``user`` does not own: a run for another
+        person, or for no one, never gets the owner's secrets. Then the one the repository resolves to for ``user``."""
+        env_id = self.session.sandbox_environment_id
+        visible = SandboxEnvironment.objects.visible_to(user)  # ty: ignore[unresolved-attribute]
+        if env_id is None or visible.filter(pk=env_id).exists():
+            return env_id
+        env = async_to_sync(resolve_env_for_run)(user=user, repo_id=self.session.repo_id)
+        return None if env is None else env.pk
+
+    def _promote_or_create(
+        self,
+        branch: str,
+        taken: list[InboxEvent],
+        run: Run | None,
+        *,
+        requester: Requester,
+        sandbox_environment_id: uuid.UUID | None,
+    ) -> Run:
+        session = self.session
+        waking = sorted(
+            (event for event in taken if event.wake), key=lambda event: (PRECEDENCE[event.kind], event.created_at)
+        )
+        top = waking[0]
+        person = next((event for event in waking if event.kind in PERSON_KINDS), None)
+        agent_model, agent_thinking_level = self._agent_override(person)
+        chats = [event for event in taken if event.kind == EventKind.CHAT_MESSAGE]
+        fields = {
+            "status": RunStatus.READY,
+            "trigger_type": EventContent.of(top).run_trigger_type(),
+            **requester.run_fields(person.author_username if person is not None else ""),
+            "agent_model": agent_model,
+            "agent_thinking_level": agent_thinking_level,
+            "message_id": chats[-1].payload["agui_message_id"] if chats else "",
+            "merge_request_iid": next((event.merge_request_iid for event in waking if event.merge_request_iid), None),
+            "sandbox_environment_id": sandbox_environment_id,
+            "prompt": RunInput(taken).request(),
+            "muted": (person or top).payload.get("muted"),
+        }
+        if run is None:
+            return Run.objects.create(session=session, repo_id=session.repo_id, ref=branch, **fields)
+        for name, value in fields.items():
+            setattr(run, name, value)
+        run.save(update_fields=list(fields))
+        return run
+
+    def _agent_override(self, person: InboxEvent | None) -> tuple[str, str]:
+        if person is not None and person.payload.get("agent_model"):
+            return person.payload["agent_model"], person.payload.get("agent_thinking_level", "")
+        return pinned_agent_override(self.session)

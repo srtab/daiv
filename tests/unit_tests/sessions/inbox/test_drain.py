@@ -8,9 +8,9 @@ import pytest
 from asgiref.sync import sync_to_async
 from ninja.testing import TestAsyncClient
 from sandbox_envs.models import SandboxEnvironment, Visibility
-from sessions.executor.lock import stale_cutoff
+from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox import kinds
-from sessions.inbox.drain import adrain, atake_for_chat, drain_logged, keep_queued_claims_alive
+from sessions.inbox.drain import Drain
 from sessions.inbox.policy import WakePolicy
 from sessions.models import (
     EventFailure,
@@ -64,7 +64,7 @@ class TestSlot:
         session = await amake_session(active_run_id="chat-run")
         event = await amake_event(session)
 
-        assert await adrain(session.thread_id) is None
+        assert await Drain(session.thread_id).astart() is None
         assert (await _state(event)).state == EventState.PENDING
         enqueue.assert_not_awaited()
 
@@ -72,13 +72,25 @@ class TestSlot:
         session = await amake_session(active_run_id="gone", last_active_at=stale_cutoff() - timedelta(minutes=1))
         await amake_event(session)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert run is not None
         assert (await Session.objects.aget(pk=session.pk)).active_run_id == str(run.pk)
 
     async def test_a_missing_session_starts_nothing(self, enqueue):
-        assert await adrain("no-such-thread") is None
+        assert await Drain("no-such-thread").astart() is None
+
+    async def test_a_failed_slot_claim_rolls_the_take_back(self, enqueue):
+        session = await amake_session()
+        event = await amake_event(session)
+
+        with patch.object(SessionLock, "claim_for_run", return_value=False):
+            assert await Drain(session.thread_id).astart() is None
+
+        assert not await Run.objects.filter(session=session).aexists()
+        stored = await _state(event)
+        assert (stored.state, stored.run_id) == (EventState.PENDING, None)
+        enqueue.assert_not_awaited()
 
 
 class TestTaking:
@@ -87,7 +99,7 @@ class TestTaking:
         failure = await amake_event(session, merge_request_iid=9)
         note = await amake_event(session, EventKind.NOTICE)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert run.status == RunStatus.READY
         assert run.trigger_type == SessionOrigin.PIPELINE_WEBHOOK
@@ -107,7 +119,7 @@ class TestTaking:
         await amake_event(session, EventKind.CI_FAILED, run=next_run)
         await amake_event(session, EventKind.MENTION, run=next_run, merge_request_iid=9)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert run.pk == next_run.pk
         stored = await Run.objects.aget(pk=next_run.pk)
@@ -120,7 +132,7 @@ class TestTaking:
         payload = {"text": "hi", "agui_message_id": "msg-1", "agent_model": "openrouter:x", "agent_thinking_level": ""}
         await amake_event(session, EventKind.CHAT_MESSAGE, payload=payload)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert (run.trigger_type, run.message_id, run.agent_model) == (SessionOrigin.CHAT, "msg-1", "openrouter:x")
 
@@ -129,7 +141,7 @@ class TestTaking:
         older = await amake_event(session, subject=kinds.Subject.ci(9), payload=ci_payload(1))
         newer = await amake_event(session, subject=kinds.Subject.ci(9), payload=ci_payload(2))
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert (await _state(older)).state == EventState.SUPERSEDED
         assert (await _state(older)).run_id == run.pk
@@ -144,7 +156,7 @@ class TestTaking:
         )  # fmt: skip
         anywhere = await amake_event(session, EventKind.NOTICE, ref="")
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert run.ref == "chore/x"
         assert (await _state(first)).state == EventState.TAKEN
@@ -156,7 +168,7 @@ class TestTaking:
         legacy = await _queued_next_run(session, trigger=SessionOrigin.API_JOB)
         await amake_event(session)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert run.pk != legacy.pk
         assert (await Run.objects.aget(pk=legacy.pk)).status == RunStatus.QUEUED
@@ -167,7 +179,7 @@ class TestNothingToWake:
         session = await amake_session()
         note = await amake_event(session, EventKind.NOTICE)
 
-        assert await adrain(session.thread_id) is None
+        assert await Drain(session.thread_id).astart() is None
         assert (await _state(note)).state == EventState.PENDING
         assert (await Session.objects.aget(pk=session.pk)).active_run_id is None
 
@@ -177,7 +189,7 @@ class TestNothingToWake:
         failure = await amake_event(session, run=next_run, subject=kinds.Subject.ci(9), payload=ci_payload(1))
         passed = await amake_event(session, EventKind.CI_PASSED, run=None, subject=kinds.Subject.ci(9))
 
-        assert await adrain(session.thread_id) is None
+        assert await Drain(session.thread_id).astart() is None
 
         assert not await Run.objects.filter(pk=next_run.pk).aexists()
         assert (await _state(failure)).state == EventState.SUPERSEDED
@@ -193,7 +205,7 @@ class TestNothingToWake:
             )  # fmt: skip
         finished = await amake_event(session, EventKind.DELEGATION_FINISHED)
 
-        assert await adrain(session.thread_id) is None
+        assert await Drain(session.thread_id).astart() is None
 
         stored = await _state(finished)
         assert (stored.wake, stored.reason, stored.state) == (False, QuietReason.RUN_LIMIT, EventState.PENDING)
@@ -208,7 +220,7 @@ class TestNothingToWake:
         await amake_event(session, EventKind.DELEGATION_FINISHED)
 
         with patch.object(WakePolicy, "report_run_limit", autospec=True) as report:
-            await adrain(session.thread_id)
+            await Drain(session.thread_id).astart()
 
         assert report.call_args.args[0].session.pk == session.pk
 
@@ -221,7 +233,7 @@ class TestAccess:
         denied = Mock(side_effect=RepositoryAccessDenied([session.repo_id]))
 
         with patch("sessions.admission.assert_can_run", denied):
-            assert await adrain(session.thread_id) is None
+            assert await Drain(session.thread_id).astart() is None
 
         denied.assert_called_once_with(member_user, [session.repo_id])
         stored = await _state(event)
@@ -245,7 +257,7 @@ class TestAccess:
         await Session.objects.filter(pk=session.pk).aupdate(active_run_id=None)
 
         with patch("sessions.admission.assert_can_run", Mock(side_effect=RepositoryAccessDenied([session.repo_id]))):
-            assert await adrain(session.thread_id) is None
+            assert await Drain(session.thread_id).astart() is None
 
         response = await client.get(f"/jobs/{job['job_id']}")
         assert response.status_code == 200
@@ -265,15 +277,13 @@ class TestAccess:
             if user == member_user:
                 raise RepositoryAccessDenied(repo_ids)
 
-        drained = Mock(wraps=drain_logged)
         with (
             patch("sessions.admission.assert_can_run", Mock(side_effect=deny_member)),
-            patch("sessions.inbox.drain.drain_logged", drained),
-            patch("sessions.inbox.complete.drain_logged", drained),
+            patch.object(Drain, "start_logged", autospec=True, side_effect=Drain.start_logged) as drained,
         ):
-            await adrain(session.thread_id)
+            await Drain(session.thread_id).astart()
 
-        drained.assert_called_once_with(session.thread_id)
+        assert [call.args[0].thread_id for call in drained.call_args_list] == [session.thread_id]
         stored = await _state(follow_up)
         assert (stored.state, stored.failure, stored.attempts) == (EventState.FAILED, EventFailure.ACCESS_DENIED, 0)
         assert (await Run.objects.aget(pk=next_run.pk)).status == RunStatus.FAILED
@@ -284,7 +294,7 @@ class TestAccess:
         session = await amake_session(user=admin_user)
         await amake_event(session)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert run.user_id == admin_user.pk
 
@@ -292,7 +302,7 @@ class TestAccess:
         session = await amake_session(user=None)
         await amake_event(session)
 
-        assert await adrain(session.thread_id) is not None
+        assert await Drain(session.thread_id).astart() is not None
 
     async def test_a_mention_is_held_to_no_repository_check(self, enqueue, member_user):
         session = await amake_session(user=None)
@@ -300,7 +310,7 @@ class TestAccess:
         denied = Mock(side_effect=RepositoryAccessDenied([session.repo_id]))
 
         with patch("sessions.admission.assert_can_run", denied):
-            run = await adrain(session.thread_id)
+            run = await Drain(session.thread_id).astart()
 
         assert run.user_id == member_user.pk
         denied.assert_not_called()
@@ -316,7 +326,7 @@ class TestAccess:
                 raise RepositoryAccessDenied(repo_ids)
 
         with patch("sessions.admission.assert_can_run", Mock(side_effect=deny_member)):
-            await adrain(session.thread_id)
+            await Drain(session.thread_id).astart()
 
         assert (await _state(follow_up)).failure == EventFailure.ACCESS_DENIED
         run = await Run.objects.aget(session=session, status=RunStatus.READY)
@@ -329,7 +339,7 @@ class TestActingUser:
         session = await amake_session(user=admin_user)
         await amake_event(session, EventKind.MENTION, author=member_user)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert run.user_id == member_user.pk
 
@@ -338,7 +348,7 @@ class TestActingUser:
         session = await amake_session(user=admin_user, sandbox_environment=private)
         await amake_event(session, EventKind.CHAT_MESSAGE, author=admin_user)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert run.sandbox_environment_id == private.pk
 
@@ -351,7 +361,7 @@ class TestActingUser:
         session = await amake_session(user=admin_user, sandbox_environment=private)
         await amake_event(session, EventKind.MENTION, author=member_user)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert run.sandbox_environment_id == default.pk
 
@@ -362,7 +372,7 @@ class TestActingUser:
             author_uid="77",
         )  # fmt: skip
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert (run.user_id, run.external_username, run.external_provider, run.external_uid) == (
             None,
@@ -378,9 +388,9 @@ class TestActingUser:
         chat = await amake_event(session, EventKind.CHAT_MESSAGE, author=admin_user)
         mention = await amake_event(session, EventKind.MENTION, author=member_user)
 
-        first = await adrain(session.thread_id)
+        first = await Drain(session.thread_id).astart()
         await _end(first)
-        second = await adrain(session.thread_id)
+        second = await Drain(session.thread_id).astart()
 
         assert (first.user_id, (await _state(chat)).run_id) == (admin_user.pk, first.pk)
         assert (second.user_id, (await _state(mention)).run_id) == (member_user.pk, second.pk)
@@ -391,7 +401,7 @@ class TestActingUser:
         job = await _queued_next_run(session, trigger=SessionOrigin.API_JOB, user=admin_user)
         follow_up = await amake_event(session, EventKind.FOLLOW_UP_JOB, author=admin_user, run=job)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert (run.pk != job.pk, run.user_id) == (True, None)
         job = await Run.objects.aget(pk=job.pk)
@@ -402,7 +412,7 @@ class TestActingUser:
         session = await amake_session(user=admin_user)
         await amake_event(session)
 
-        assert (await adrain(session.thread_id)).user_id == admin_user.pk
+        assert (await Drain(session.thread_id).astart()).user_id == admin_user.pk
 
     async def test_a_finished_batch_acts_as_its_delegator_with_its_mute(self, enqueue, admin_user):
         session = await amake_session(user=None)
@@ -413,7 +423,7 @@ class TestActingUser:
             payload={"batch_id": "b", "summary": "s", "muted": True},
         )
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert (run.user_id, run.muted) == (admin_user.pk, True)
 
@@ -423,7 +433,7 @@ class TestActingUser:
         denied = Mock(side_effect=RepositoryAccessDenied([session.repo_id]))
 
         with patch("sessions.admission.assert_can_run", denied):
-            assert await adrain(session.thread_id) is None
+            assert await Drain(session.thread_id).astart() is None
 
         denied.assert_called_once_with(member_user, [session.repo_id])
         assert (await _state(event)).failure == EventFailure.ACCESS_DENIED
@@ -436,7 +446,7 @@ class TestSessionBranch:
         chat = await amake_event(session, EventKind.CHAT_MESSAGE, run=next_run)
         await Session.objects.filter(pk=session.pk).aupdate(ref="daiv/new-branch")
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert (run.pk, run.ref) == (next_run.pk, "daiv/new-branch")
         assert (await _state(chat)).run_id == run.pk
@@ -448,7 +458,7 @@ class TestSessionBranch:
         await amake_event(session, EventKind.FOLLOW_UP_JOB, payload=payload, run=job)
         await Session.objects.filter(pk=session.pk).aupdate(ref="daiv/new-branch")
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert (run.pk, run.ref) == (job.pk, "daiv/new-branch")
 
@@ -460,7 +470,7 @@ class TestSessionBranch:
         pinned = await amake_event(session, EventKind.FOLLOW_UP_JOB, payload=payload, run=next_run)
         await Session.objects.filter(pk=session.pk).aupdate(ref="daiv/new-branch")
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert (run.ref, (await _state(chat)).run_id) == ("daiv/new-branch", run.pk)
         assert run.pk != next_run.pk
@@ -474,7 +484,7 @@ class TestSessionBranch:
         current = await _queued_next_run(session, ref="daiv/new-branch", trigger=SessionOrigin.CHAT)
         later = await amake_event(session, EventKind.CHAT_MESSAGE, run=current)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert run.pk == current.pk
         assert ((await _state(chat)).run_id, (await _state(later)).run_id) == (current.pk, current.pk)
@@ -493,7 +503,7 @@ class TestSessionBranch:
         event = await amake_event(session, kind, payload=payload)
         await Session.objects.filter(pk=session.pk).aupdate(ref="daiv/new-branch")
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert (run.ref, (await _state(event)).run_id) == ("daiv/new-branch", run.pk)
 
@@ -509,7 +519,7 @@ class TestSessionBranch:
         )
         await amake_event(session, EventKind.FOLLOW_UP_JOB, ref="", run=blank, payload=follow_up)
 
-        run = await adrain(session.thread_id)
+        run = await Drain(session.thread_id).astart()
 
         assert run.pk == on_feat.pk
         assert await InboxEvent.objects.filter(run=on_feat).acount() == 2
@@ -521,32 +531,7 @@ class TestSessionBranch:
         await amake_event(session, EventKind.FOLLOW_UP_JOB, payload=payload)
         await Session.objects.filter(pk=session.pk).aupdate(ref="daiv/new-branch")
 
-        assert (await adrain(session.thread_id)).ref == "chore/x"
-
-    async def test_a_chat_turn_supersedes_an_older_failure_with_the_pass_it_takes(self):
-        session = await amake_session()
-        failure = await amake_event(session, merge_request_iid=9, subject=kinds.Subject.ci(9))
-        passed = await amake_event(session, EventKind.CI_PASSED, merge_request_iid=9, subject=kinds.Subject.ci(9))
-
-        taken = await atake_for_chat(session.thread_id, holder_id="chat-run")
-
-        assert [event.pk for event in taken] == [passed.pk]
-        assert (await _state(failure)).state == EventState.SUPERSEDED
-
-
-class TestChatTurnTake:
-    async def test_it_drops_a_next_run_its_supersede_leaves_with_nothing_to_wake_it(self):
-        session = await amake_session()
-        emptied = await _queued_next_run(session)
-        await amake_event(session, merge_request_iid=9, subject=kinds.Subject.ci(9), run=emptied)
-        kept = await _queued_next_run(session, ref="feat/y", trigger=SessionOrigin.API_JOB)
-        await amake_event(session, EventKind.FOLLOW_UP_JOB, ref="feat/y", run=kept)
-        await amake_event(session, EventKind.CI_PASSED, merge_request_iid=9, subject=kinds.Subject.ci(9))
-
-        await atake_for_chat(session.thread_id, holder_id="chat-run")
-
-        assert not await Run.objects.filter(pk=emptied.pk).aexists()
-        assert await Run.objects.filter(pk=kept.pk).aexists()
+        assert (await Drain(session.thread_id).astart()).ref == "chore/x"
 
 
 class TestQueuedClaims:
@@ -561,7 +546,7 @@ class TestQueuedClaims:
         await Session.objects.filter(pk=session.pk).aupdate(active_run_id=str(run.pk))
         other = await amake_session(active_run_id="chat-run", last_active_at=stale)
 
-        assert await sync_to_async(keep_queued_claims_alive)() == 1
+        assert await sync_to_async(Drain.keep_queued_claims_alive)() == 1
 
         assert (await Session.objects.aget(pk=session.pk)).last_active_at > stale_cutoff()
         assert (await Session.objects.aget(pk=other.pk)).last_active_at == stale
@@ -576,7 +561,7 @@ class TestEnqueueFailure:
             patch("sessions.inbox.drain.aenqueue_run", new=AsyncMock(return_value=EnqueueFailure(task_enqueued=False))),
             caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
-            assert await adrain(session.thread_id) is None
+            assert await Drain(session.thread_id).astart() is None
 
         assert (await Session.objects.aget(pk=session.pk)).active_run_id is None
         stored = await _state(event)
@@ -600,7 +585,7 @@ class TestEnqueueFailure:
         with patch(
             "sessions.inbox.drain.aenqueue_run", new=AsyncMock(return_value=EnqueueFailure(task_enqueued=False))
         ):
-            await adrain(session.thread_id)
+            await Drain(session.thread_id).astart()
 
         await ownership.arefresh_from_db()
         assert (ownership.attempts, ownership.last_examined_sha) == after
@@ -622,11 +607,11 @@ class TestEnqueueFailure:
             await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED)
             await InboxEvent.objects.filter(run=run).aupdate(state=EventState.PENDING, run=None)
             await Session.objects.filter(pk=run.session_id).aupdate(active_run_id=None)
-            assert await adrain(session.thread_id) is not None
+            assert await Drain(session.thread_id).astart() is not None
             return EnqueueFailure(task_enqueued=False)
 
         with patch("sessions.inbox.drain.aenqueue_run", new=fail_after_another_drain_took_it):
-            assert await adrain(session.thread_id) is None
+            assert await Drain(session.thread_id).astart() is None
 
         await ownership.arefresh_from_db()
         assert (ownership.attempts, ownership.last_examined_sha) == (1, "e96f1f77")
@@ -644,7 +629,7 @@ class TestEnqueueFailure:
             patch("sessions.inbox.drain.aenqueue_run", new=AsyncMock(side_effect=SystemExit)),
             pytest.raises(SystemExit),
         ):
-            await adrain(session.thread_id)
+            await Drain(session.thread_id).astart()
 
         await ownership.arefresh_from_db()
         assert (ownership.attempts, ownership.last_examined_sha) == (2, "e96f1f77")
@@ -658,7 +643,7 @@ class TestCiAttempts:
         )
         await amake_event(session, merge_request_iid=9, payload=ci_payload(sha="e96f1f77"))
 
-        await adrain(session.thread_id)
+        await Drain(session.thread_id).astart()
 
         await ownership.arefresh_from_db()
         assert (ownership.attempts, ownership.last_examined_sha) == (2, "e96f1f77")
@@ -671,7 +656,7 @@ class TestCiAttempts:
         await amake_event(session, EventKind.CHAT_MESSAGE)
         await amake_event(session, merge_request_iid=9, wake=False, reason=QuietReason.ALREADY_EXAMINED)
 
-        await adrain(session.thread_id)
+        await Drain(session.thread_id).astart()
 
         await ownership.arefresh_from_db()
         assert (ownership.attempts, ownership.last_examined_sha) == (0, "")
@@ -684,7 +669,7 @@ class TestCiAttempts:
         )  # fmt: skip
         await amake_event(session, merge_request_iid=9, payload=ci_payload(sha="e96f1f77"), attempts=1)
 
-        assert await adrain(session.thread_id) is not None
+        assert await Drain(session.thread_id).astart() is not None
 
         await ownership.arefresh_from_db()
         assert (ownership.attempts, ownership.last_examined_sha) == (2, "e96f1f77")
@@ -705,7 +690,7 @@ class TestStoppedWatch:
         next_run = await _queued_next_run(session)
         failure = await amake_event(session, merge_request_iid=9, run=next_run)
 
-        assert await adrain(session.thread_id) is None
+        assert await Drain(session.thread_id).astart() is None
 
         stored = await _state(failure)
         assert (stored.state, stored.wake, stored.reason) == (EventState.PENDING, False, QuietReason.WATCH_OFF)

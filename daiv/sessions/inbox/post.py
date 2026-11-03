@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 
 from asgiref.sync import sync_to_async
 
-from sessions.inbox.drain import drain_logged
+from sessions.inbox.drain import Drain
 from sessions.inbox.kinds import KEY_MAX_LENGTH, WAKING_KINDS, EventContent, SourceKey, Subject
 from sessions.inbox.next_runs import NextRuns
 from sessions.models import EventKind, EventState, InboxEvent, Run, Session
@@ -94,7 +93,7 @@ class Inbox:
                 return PostResult(event=stored, created=False, run_id=stored.run_id)
             if wake:
                 NextRuns(session).join(stored)
-                transaction.on_commit(partial(drain_logged, self.thread_id), robust=True)
+                transaction.on_commit(Drain(self.thread_id).start_logged, robust=True)
         if wake and stored.run_id is None:
             stored.run_id = InboxEvent.objects.filter(pk=stored.pk).values_list("run_id", flat=True).first()
         return PostResult(event=stored, created=True, run_id=stored.run_id)
@@ -179,7 +178,7 @@ class Inbox:
             if event.run_id is not None or event.state != EventState.PENDING:
                 return event.run
             if (run := NextRuns(session).join(event)) is not None:
-                transaction.on_commit(partial(drain_logged, session.thread_id), robust=True)
+                transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
             return run
 
     async def aattach_next_run(self, event: InboxEvent) -> Run | None:

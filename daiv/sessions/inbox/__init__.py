@@ -8,7 +8,7 @@ a delegated batch finishing: each becomes an ``InboxEvent`` on that session, pos
   starts no run; the next run on its branch takes it as context. Only CI and delegation events can be turned into
   remembered ones at take time, by the consecutive-run limit (:mod:`sessions.inbox.policy`), so a person's
   request is never dropped.
-- **One run per session, claimed when the run is created.** :func:`sessions.inbox.drain.adrain` claims
+- **One run per session, claimed when the run is created.** :meth:`sessions.inbox.drain.Drain.astart` claims
   ``Session.active_run_id`` with the run's pk in the same transaction that makes the run READY, and ``run_job_task``
   runs it under the ``Claimed`` lock policy: it heartbeats and releases, and never polls. Until a worker starts it, a
   per-minute task on the interactive queue heartbeats the claim, and a run that ends without its task running frees it

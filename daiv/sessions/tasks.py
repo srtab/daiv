@@ -64,12 +64,12 @@ def drain_inboxes_cron_task():
     the interval is never double-dispatched.
     """
     from sessions.inbox.complete import recover_stale_events
-    from sessions.inbox.drain import drain_logged, sessions_to_drain
+    from sessions.inbox.drain import Drain
 
     if recovered := recover_stale_events():
         logger.info("drain_inboxes: recovered %d event(s) from stale runs", recovered)
-    for thread_id in sessions_to_drain():
-        drain_logged(thread_id)
+    for thread_id in Drain.sessions_to_drain():
+        Drain(thread_id).start_logged()
 
 
 @cron("* * * * *")
@@ -78,9 +78,9 @@ def drain_inboxes_cron_task():
 def keep_inbox_claims_alive_cron_task():
     """Heartbeat the slots the inbox claimed for runs whose task still waits for a worker, so a backlog of agent runs
     does not pass for a dead run. On the interactive queue, which agent runs never hold up."""
-    from sessions.inbox.drain import keep_queued_claims_alive
+    from sessions.inbox.drain import Drain
 
-    keep_queued_claims_alive()
+    Drain.keep_queued_claims_alive()
 
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE)

@@ -15,8 +15,9 @@ from langchain_core.messages import HumanMessage, RemoveMessage
 from sessions.executor.lock import Held, SessionLock, SessionLockLostError
 from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
-from sessions.inbox.complete import arelease_chat_claim, awithdraw_chat_run
-from sessions.inbox.drain import alink_chat_run, drain_logged
+from sessions.inbox.chat_claim import ChatClaim
+from sessions.inbox.complete import awithdraw_chat_run
+from sessions.inbox.drain import Drain
 from sessions.inbox.render import RunInput
 from sessions.live import relay
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
@@ -296,7 +297,7 @@ class ChatRunStreamer:
             message_id=self.message_id,
         )
         turn.chat_run = run
-        await alink_chat_run(self.run_id, run)
+        await ChatClaim(self.thread_id, self.run_id).alink(run)
         return str(run.pk)
 
     async def _record_outcome(self, turn: _Turn, outcome: RunOutcome) -> None:
@@ -432,7 +433,7 @@ class ChatRunStreamer:
             except Exception:
                 logger.exception("chat: failed to finalize chat run for thread_id=%s", self.thread_id)
         try:
-            await arelease_chat_claim(self.thread_id, self.run_id)
+            await ChatClaim(self.thread_id, self.run_id).arelease()
         except Exception:
             logger.exception(
                 "chat: could not put back the inbox events of thread_id=%s; they return once it is idle", self.thread_id
@@ -442,4 +443,4 @@ class ChatRunStreamer:
         except Exception:
             logger.exception("chat: failed to release run slot for thread_id=%s", self.thread_id)
             return
-        await sync_to_async(drain_logged)(self.thread_id)
+        await sync_to_async(Drain(self.thread_id).start_logged)()

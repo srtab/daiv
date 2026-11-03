@@ -1608,7 +1608,7 @@ class TestEventsTakenForATurnThatEnds:
         )
 
     async def test_a_clone_failure_leaves_them_pending_for_the_next_turn(self, real_chat_inbox):
-        from sessions.inbox.drain import atake_for_chat
+        from sessions.inbox.chat_claim import ChatClaim
         from sessions.models import EventState, InboxEvent
 
         event = await self._session_with_taken_event()
@@ -1618,7 +1618,7 @@ class TestEventsTakenForATurnThatEnds:
 
         stored = await InboxEvent.objects.aget(pk=event.pk)
         assert (stored.state, stored.claim_token, stored.attempts) == (EventState.PENDING, "", 0)
-        assert [taken.pk for taken in await atake_for_chat("t-stream", holder_id="r-2")] == [event.pk]
+        assert [taken.pk for taken in await ChatClaim("t-stream", "r-2").atake()] == [event.pk]
 
     async def test_a_put_back_failure_is_logged_and_still_releases_the_slot(self, chat_inbox, caplog):
         chat_inbox.release_claim.side_effect = RuntimeError("db down")
@@ -1677,7 +1677,9 @@ class TestEventsOfAStoppedTurn:
 
 async def test_the_inbox_is_drained_once_the_turn_releases_the_slot(chat_inbox):
     order: list[str] = []
-    chat_inbox.drain.side_effect = lambda thread_id: order.append(f"drain {thread_id}")
+    chat_inbox.drain.return_value.start_logged.side_effect = lambda: order.append(
+        f"drain {chat_inbox.drain.call_args.args[0]}"
+    )
 
     async def _release(thread_id, run_id):
         order.append("release")
@@ -1694,4 +1696,4 @@ async def test_a_failed_release_skips_the_drain(chat_inbox, caplog):
     with patch("chat.api.streaming.SessionLock.release", AsyncMock(side_effect=RuntimeError("db down"))):
         await streamer._end_turn(streamer._turn, succeeded=True)
 
-    chat_inbox.drain.assert_not_called()
+    chat_inbox.drain.return_value.start_logged.assert_not_called()

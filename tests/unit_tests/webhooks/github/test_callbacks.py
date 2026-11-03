@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from sessions.inbox.drain import Drain
 from sessions.models import InboxEvent
 from webhooks.dispatch import Author, Mention
 from webhooks.github.callbacks import (
@@ -323,7 +324,7 @@ class TestPullRequestCallback:
 class TestPullRequestStateOnAnOwnedPullRequest:
     @pytest.fixture(autouse=True)
     def _no_drain(self):
-        with patch("sessions.inbox.post.drain_logged"):
+        with patch.object(Drain, "start_logged"):
             yield
 
     @pytest.mark.parametrize(
@@ -528,7 +529,7 @@ class TestReviewCommentsOnAnOwnedPullRequest:
         mock_repo_client.current_user = User(**{"id": 1, "login": "daiv"})
         mock_repo_client.git_platform = GitPlatform.GITHUB
         with (
-            patch("sessions.inbox.post.drain_logged"),
+            patch.object(Drain, "start_logged"),
             patch("webhooks.dispatch.resolve_linked_user", new=AsyncMock(return_value=None)),
         ):
             yield
@@ -634,7 +635,7 @@ async def test_a_pull_request_comment_without_a_mention_on_an_owned_pull_request
     callback.comment.body = "Thanks, looks fine"
 
     with (
-        patch("sessions.inbox.post.drain_logged"),
+        patch.object(Drain, "start_logged"),
         patch("webhooks.dispatch.resolve_linked_user", new=AsyncMock(return_value=None)),
     ):
         assert callback.accept_callback() is True
@@ -655,7 +656,7 @@ async def test_a_pull_request_mention_on_a_daiv_max_pull_request_asks_for_the_ma
     callback = create_issue_comment_callback(labels=[BOT_MAX_LABEL], pull_request={"url": "https://example/pr/99"})
 
     with (
-        patch("sessions.inbox.post.drain_logged"),
+        patch.object(Drain, "start_logged"),
         patch("webhooks.dispatch.resolve_linked_user", new=AsyncMock(return_value=None)),
     ):
         await callback.process_callback()
@@ -673,7 +674,7 @@ class TestPullRequestCommentsOutsideTheAllowlist:
         mock_repo_client.current_user = User(**{"id": 1, "login": "daiv"})
         mock_repo_client.git_platform = GitPlatform.GITHUB
         with (
-            patch("sessions.inbox.post.drain_logged"),
+            patch.object(Drain, "start_logged"),
             patch("webhooks.dispatch.resolve_linked_user", new=AsyncMock(return_value=None)),
         ):
             yield

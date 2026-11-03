@@ -15,8 +15,7 @@ from sandbox_envs.selection import resolve_env_for_run
 from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_access, aresolve_environment
 from sessions.executor.lock import SessionLock, session_activity, stale_cutoff
 from sessions.inbox import kinds
-from sessions.inbox.complete import arelease_chat_claim
-from sessions.inbox.drain import atake_for_chat
+from sessions.inbox.chat_claim import ChatClaim
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.post import Inbox
 from sessions.live import relay
@@ -289,7 +288,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         if "text/event-stream" in (request.headers.get("accept") or ""):
             return sse_response(_queued_frames(thread_id, run_id, queued))
         return {"run_id": run_id, "thread_id": thread_id, "queued": queued}
-    await atake_for_chat(thread_id, holder_id=run_id)
+    await ChatClaim(thread_id, run_id).atake()
 
     # The Tools selection is not pinned — ``build_runtime_servers`` re-resolves it every run — so
     # any turn may retune it. Gated on the claim so a rejected duplicate remembers nothing.
@@ -333,7 +332,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         # so put back the events and release the slot we just claimed above, or the collision wedges
         # the session until stale takeover (STALE_RUN_MINUTES).
         try:
-            await arelease_chat_claim(thread_id, run_id)
+            await ChatClaim(thread_id, run_id).arelease()
         except Exception:
             # The inbox sweep retries the events once the session goes quiet; the slot must still be freed.
             logger.exception("chat: could not put back the events run_id=%s took on thread_id=%s", run_id, thread_id)

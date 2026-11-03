@@ -7,6 +7,7 @@ from django.tasks.base import DEFAULT_TASK_PRIORITY
 import pytest
 from django_tasks_db.models import DBTaskResult
 from sessions.executor.lock import stale_cutoff
+from sessions.inbox.drain import Drain
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.tasks import (
     drain_inboxes_cron_task,
@@ -44,7 +45,7 @@ def test_resume_stalled_batches_cron_task_runs_the_sweep():
 
 
 def test_the_inbox_claims_are_kept_alive_from_the_interactive_queue():
-    with patch("sessions.inbox.drain.keep_queued_claims_alive", return_value=0) as heartbeat:
+    with patch.object(Drain, "keep_queued_claims_alive", return_value=0) as heartbeat:
         keep_inbox_claims_alive_cron_task.func()
 
     heartbeat.assert_called_once_with()
@@ -67,10 +68,10 @@ class TestDrainInboxesCronTask:
             make_event(session, EventKind.CI_FAILED)
         make_event(quiet, EventKind.NOTICE)
 
-        with patch("sessions.inbox.drain.drain_logged") as drain:
+        with patch.object(Drain, "start_logged", autospec=True) as drain:
             drain_inboxes_cron_task.func()
 
-        assert sorted(call.args[0] for call in drain.call_args_list) == sorted([free.pk, stale.pk])
+        assert sorted(call.args[0].thread_id for call in drain.call_args_list) == sorted([free.pk, stale.pk])
 
     def test_it_returns_events_of_a_run_whose_slot_went_stale(self):
         session = self._session()
@@ -82,7 +83,7 @@ class TestDrainInboxesCronTask:
         )
         event = make_event(session, EventKind.CI_FAILED, run=run, state=EventState.TAKEN)
 
-        with patch("sessions.inbox.drain.drain_logged"):
+        with patch.object(Drain, "start_logged"):
             drain_inboxes_cron_task.func()
 
         event = InboxEvent.objects.get(pk=event.pk)
@@ -93,7 +94,7 @@ class TestDrainInboxesCronTask:
 class TestClassifyPushTask:
     @pytest.fixture(autouse=True)
     def _no_drain(self):
-        with patch("sessions.inbox.post.drain_logged"):
+        with patch.object(Drain, "start_logged"):
             yield
 
     async def _push(self, after: str) -> None:

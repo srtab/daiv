@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
+from sessions.inbox.drain import Drain
 from sessions.inbox.pending import PendingEvents
 from sessions.inbox.post import Inbox
 from sessions.models import (
@@ -74,7 +75,7 @@ def exhausted():
 
 @pytest.fixture(autouse=True)
 def drain():
-    with patch("sessions.inbox.post.drain_logged") as drain:
+    with patch.object(Drain, "start_logged", autospec=True) as drain:
         yield drain
 
 
@@ -157,7 +158,7 @@ class TestVerdicts:
         event = await _event()
         assert (event.kind, event.wake, event.reason) == (EventKind.CI_FAILED, True, "")
         assert event.payload["failed_jobs"] == ["image:build"]
-        drain.assert_called_once_with(ownership.session_id)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [ownership.session_id]
         assert watch.exhausted == []
 
     async def test_a_blank_daiv_commit_counts_as_daivs(self, watch):
@@ -700,7 +701,7 @@ class TestToggle:
         quiet, woken = [event async for event in InboxEvent.objects.order_by("created_at")]
         assert (quiet.wake, quiet.reason) == (False, QuietReason.WATCH_OFF)
         assert (woken.wake, woken.source_key) == (True, "pipeline:100")
-        drain.assert_called_once_with(ownership.session_id)
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [ownership.session_id]
 
     async def test_turning_it_back_on_during_a_fix_leaves_the_examined_commit_alone(self, watch):
         ownership = await _owned(watch_enabled=False, attempts=1, last_examined_sha=SHA)

@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ninja.testing import TestAsyncClient
+from sessions.inbox.chat_claim import ChatClaim
+from sessions.inbox.drain import Drain
 from sessions.models import EventKind, HiddenSession, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
@@ -545,7 +547,7 @@ async def test_a_turn_sent_while_a_run_waits_to_start_is_queued_behind_it(client
     )
     await Run.objects.acreate(session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="a/b", status=RunStatus.READY)
 
-    with patch("sessions.inbox.post.drain_logged") as drain:
+    with patch.object(Drain, "start_logged", autospec=True) as drain:
         response = await client.post(
             "/chat/completions",
             json=_run_agent_input(threadId="t-waiting"),
@@ -554,7 +556,7 @@ async def test_a_turn_sent_while_a_run_waits_to_start_is_queued_behind_it(client
 
     assert response.status_code == 200
     assert response.json()["queued"]["event_id"]
-    drain.assert_called_once_with("t-waiting")
+    assert [call.args[0].thread_id for call in drain.call_args_list] == ["t-waiting"]
     assert await active_holder("t-waiting") is None
     await user.adelete()
 
@@ -575,7 +577,7 @@ async def test_a_turn_sent_while_a_next_run_is_queued_joins_it(client: TestAsync
     )
     await amake_event(session, run=next_run)
 
-    with patch("sessions.inbox.post.drain_logged"):
+    with patch.object(Drain, "start_logged"):
         response = await client.post(
             "/chat/completions",
             json=_run_agent_input(threadId="t-next"),
@@ -592,7 +594,7 @@ async def test_a_message_sent_from_a_busy_page_is_queued_even_when_the_run_just_
     _, raw, user = authed
     await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-ended", user=user, repo_id="a/b", ref="main")
 
-    with patch("sessions.inbox.post.drain_logged") as drain:
+    with patch.object(Drain, "start_logged", autospec=True) as drain:
         response = await client.post(
             "/chat/completions",
             json=_run_agent_input(threadId="t-ended", forwardedProps={"queue": True}),
@@ -601,7 +603,7 @@ async def test_a_message_sent_from_a_busy_page_is_queued_even_when_the_run_just_
 
     event = await InboxEvent.objects.aget(session_id="t-ended")
     assert response.json()["queued"]["event_id"] == str(event.pk)
-    drain.assert_called_once_with("t-ended")
+    assert [call.args[0].thread_id for call in drain.call_args_list] == ["t-ended"]
     assert await active_holder("t-ended") is None
     await user.adelete()
 
@@ -1500,7 +1502,7 @@ async def test_a_turn_that_could_not_start_frees_the_slot_when_putting_back_its_
     await cache.aclear()
     with (
         patch("chat.api.runner.supervisor.spawn", side_effect=RuntimeError("already live for run_id=r-1")),
-        patch("chat.api.views.arelease_chat_claim", side_effect=RuntimeError("db down")),
+        patch.object(ChatClaim, "arelease", side_effect=RuntimeError("db down")),
         caplog.at_level("ERROR", logger="daiv.chat"),
     ):
         response = await client.post(

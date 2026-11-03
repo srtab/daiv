@@ -7,6 +7,7 @@ from django.utils import timezone
 
 import pytest
 from sessions.inbox import kinds
+from sessions.inbox.drain import Drain
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Session, SessionOrigin
 from sessions.pipeline_watch.reconciler import WatchReconciler
 from sessions.pipeline_watch.service import PipelineWatch
@@ -161,7 +162,7 @@ async def test_a_manual_retry_that_passed_without_a_webhook_is_remembered_as_pas
     )
     watch = _watch_factory(FakePlatform(make_pipeline("success")))
 
-    with patch("sessions.inbox.post.drain_logged"):
+    with patch.object(Drain, "start_logged"):
         assert await WatchReconciler(watch_factory=watch).areconcile() == 1
         assert await WatchReconciler(watch_factory=watch).areconcile() == 0
 
@@ -175,7 +176,7 @@ async def test_a_github_workflow_failure_missed_behind_another_workflows_run_is_
     lint = make_pipeline("failed").model_copy(update={"workflow_id": 11, "workflow_name": "Lint"})
     tests = make_pipeline("success", pipeline_id=101).model_copy(update={"workflow_id": 12, "workflow_name": "Tests"})
 
-    with patch("sessions.inbox.post.drain_logged"):
+    with patch.object(Drain, "start_logged"):
         assert await WatchReconciler(watch_factory=_watch_factory(FakePlatform(tests, lint))).areconcile() == 1
 
     assert {(event.kind, event.subject) async for event in InboxEvent.objects.all()} == {

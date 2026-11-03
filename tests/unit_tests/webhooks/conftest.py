@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
+from sessions.inbox.drain import Drain
 from sessions.pipeline_watch.service import PipelineWatch
 
 from codebase.clients import RepoClient
@@ -58,5 +59,5 @@ def evaluate_inline(monkeypatch):
             await PipelineWatch(repo_id, platform=FailedHeadPipeline()).aevaluate(ref=ref, pipeline_id=pipeline_id)
 
     monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", InlineTask())
-    with patch("sessions.inbox.post.drain_logged"):
+    with patch.object(Drain, "start_logged"):
         yield

@@ -9,6 +9,7 @@ from django_tasks_db.models import DBTaskResult
 from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
 from sessions.ids import compute_thread_id
+from sessions.inbox.drain import Drain
 from sessions.models import EventKind, InboxEvent, Run, Session
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment, dispatch_mr_comment_run
 
@@ -376,7 +377,7 @@ async def test_two_triggers_on_one_issue_share_its_session():
 class TestOwnedMergeRequest:
     @pytest.fixture(autouse=True)
     def drain(self):
-        with patch("sessions.inbox.post.drain_logged") as drain:
+        with patch.object(Drain, "start_logged") as drain:
             yield drain
 
     @pytest.fixture

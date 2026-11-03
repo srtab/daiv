@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 import pytest
+from sessions.inbox.drain import Drain
 from sessions.models import InboxEvent
 from webhooks.dispatch import Author, Mention
 from webhooks.gitlab.callbacks import IssueCallback, MergeRequestCallback, NoteCallback, PushCallback
@@ -462,7 +463,7 @@ class TestMergeRequestCallback:
 class TestMergeRequestStateOnAnOwnedMergeRequest:
     @pytest.fixture(autouse=True)
     def _no_drain(self):
-        with patch("sessions.inbox.post.drain_logged"):
+        with patch.object(Drain, "start_logged"):
             yield
 
     @pytest.mark.parametrize(
@@ -678,7 +679,7 @@ class TestNotesOnAnOwnedMergeRequest:
     def inbox(self, monkeypatch_dependencies, stub_client):
         stub_client.git_platform = GitPlatform.GITLAB
         with (
-            patch("sessions.inbox.post.drain_logged"),
+            patch.object(Drain, "start_logged"),
             patch("webhooks.dispatch.resolve_linked_user", new=AsyncMock(return_value=None)),
         ):
             yield

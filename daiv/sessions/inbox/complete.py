@@ -29,9 +29,9 @@ The sweep (``sessions.tasks.drain_inboxes_cron_task``) settles events the same w
 before the run ended.
 
 An inline chat turn takes its events under its holder id before its ``Run`` exists; when the turn ends before that,
-:func:`arelease_chat_claim` puts them back as ``pending`` for the next turn, without spending an attempt. A turn its
-owner stopped before DAIV answered is withdrawn (:func:`awithdraw_chat_run`): its ``Run`` is deleted and its events go
-back the same way.
+:meth:`sessions.inbox.chat_claim.ChatClaim.arelease` puts them back as ``pending`` for the next turn, without spending
+an attempt. A turn its owner stopped before DAIV answered is withdrawn (:func:`awithdraw_chat_run`): its ``Run`` is
+deleted and its events go back the same way.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ from codebase.base import GitPlatform
 from core import ui_events
 from core.constants import BOT_NAME
 from sessions.executor.lock import SessionLock, stale_cutoff
-from sessions.inbox.drain import drain_logged
+from sessions.inbox.drain import Drain
 from sessions.inbox.post import Inbox
 from sessions.models import (
     EventFailure,
@@ -91,19 +91,10 @@ def on_run_ended(run: Run, *, drain: bool = True) -> None:
     except Exception:
         logger.exception("inbox: could not free the slot run=%s held; it frees once stale", run.pk)
     if drain:
-        drain_logged(run.session_id)
+        Drain(run.session_id).start_logged()
 
 
 aon_run_ended = sync_to_async(on_run_ended)
-
-
-async def arelease_chat_claim(thread_id: str, holder_id: str) -> int:
-    """Put back for the session's next turn the events the chat turn ``holder_id`` took and no ``Run`` took over;
-    returns how many. Such a turn ended before its ``Run`` existed, so the events never reached the model and cost no
-    attempt."""
-    return await InboxEvent.objects.filter(
-        session_id=thread_id, claim_token=holder_id, state=EventState.TAKEN, run__isnull=True
-    ).aupdate(state=EventState.PENDING, claim_token="", updated_at=timezone.now())
 
 
 def withdraw_chat_run(run: Run) -> None:

@@ -23,9 +23,13 @@ def chat_inbox(request):
     run_input = MagicMock(spec=RunInput)
     run_input.render.return_value = rendered
     with (
-        patch("chat.api.streaming.alink_chat_run", new=AsyncMock()) as link,
+        patch("chat.api.streaming.ChatClaim", autospec=True) as claim,
         patch.object(RunInput, "aof_run", new=AsyncMock(return_value=run_input)),
-        patch("chat.api.streaming.arelease_chat_claim", new=AsyncMock()) as release_claim,
-        patch("chat.api.streaming.drain_logged", new=MagicMock()) as drain,
+        patch("chat.api.streaming.Drain") as drain,
     ):
-        yield SimpleNamespace(link=link, render=run_input.render, release_claim=release_claim, drain=drain)
+        yield SimpleNamespace(
+            link=claim.return_value.alink,
+            render=run_input.render,
+            release_claim=claim.return_value.arelease,
+            drain=drain,
+        )
