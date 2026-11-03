@@ -2,6 +2,7 @@ import uuid
 
 import pytest
 from sessions.inbox import kinds
+from sessions.inbox.kinds import EventContent
 from sessions.models import EventKind, SessionOrigin
 
 CI = {"pipeline_id": 1, "sha": "abc", "status": "failed", "web_url": "https://ci/1", "failed_jobs": ["tests"]}
@@ -9,16 +10,18 @@ CI = {"pipeline_id": 1, "sha": "abc", "status": "failed", "web_url": "https://ci
 
 class TestValidatePayload:
     def test_a_complete_payload_passes(self):
-        kinds.validate_payload(EventKind.CI_FAILED, CI)
+        EventContent(EventKind.CI_FAILED, CI).validate_payload()
 
     def test_a_missing_required_key_raises(self):
         payload = {key: value for key, value in CI.items() if key != "sha"}
 
         with pytest.raises(ValueError, match="sha"):
-            kinds.validate_payload(EventKind.CI_FAILED, payload)
+            EventContent(EventKind.CI_FAILED, payload).validate_payload()
 
     def test_optional_keys_may_be_left_out(self):
-        kinds.validate_payload(EventKind.MENTION, {"note_id": 5, "body": "@daiv look", "web_url": "https://mr/9"})
+        EventContent(
+            EventKind.MENTION, {"note_id": 5, "body": "@daiv look", "web_url": "https://mr/9"}
+        ).validate_payload()
 
     def test_a_mention_may_carry_the_model_its_label_asked_for(self):
         assert {"agent_model", "agent_thinking_level"} <= kinds.CommentPayload.__optional_keys__
@@ -28,11 +31,11 @@ class TestValidatePayload:
 
     def test_an_unknown_kind_raises(self):
         with pytest.raises(ValueError, match="unknown"):
-            kinds.validate_payload("unknown", {})
+            EventContent("unknown", {}).validate_payload()
 
     def test_a_non_mapping_payload_raises(self):
         with pytest.raises(ValueError, match="mapping"):
-            kinds.validate_payload(EventKind.NOTICE, ["text"])
+            EventContent(EventKind.NOTICE, ["text"]).validate_payload()
 
 
 class TestWakingKinds:
@@ -47,20 +50,20 @@ class TestWakingKinds:
     )
     def test_each_waking_kind_has_its_precedence_and_trigger(self, kind, precedence, trigger):
         assert kinds.PRECEDENCE[kind] == precedence
-        assert kinds.run_trigger_type(kind, {}) == trigger
+        assert EventContent(kind, {}).run_trigger_type() == trigger
 
     @pytest.mark.parametrize("trigger", [SessionOrigin.API_JOB, SessionOrigin.MCP_JOB])
     def test_a_follow_up_job_runs_as_the_trigger_it_was_submitted_through(self, trigger):
         assert kinds.PRECEDENCE[EventKind.FOLLOW_UP_JOB] == 3
-        assert kinds.run_trigger_type(EventKind.FOLLOW_UP_JOB, {"trigger_type": trigger}) == trigger
+        assert EventContent(EventKind.FOLLOW_UP_JOB, {"trigger_type": trigger}).run_trigger_type() == trigger
 
     def test_a_follow_up_job_without_a_trigger_runs_as_an_api_job(self):
-        assert kinds.run_trigger_type(EventKind.FOLLOW_UP_JOB, {}) == SessionOrigin.API_JOB
+        assert EventContent(EventKind.FOLLOW_UP_JOB, {}).run_trigger_type() == SessionOrigin.API_JOB
 
     def test_a_remembered_kind_never_wakes(self):
         assert EventKind.CI_PASSED not in kinds.WAKING_KINDS
         with pytest.raises(ValueError, match="never wakes"):
-            kinds.run_trigger_type(EventKind.CI_PASSED, {})
+            EventContent(EventKind.CI_PASSED, {}).run_trigger_type()
 
     def test_the_inbox_triggers_are_the_waking_kinds_triggers(self):
         assert (
@@ -80,22 +83,22 @@ class TestKeys:
     def test_source_keys(self):
         batch = uuid.uuid4()
 
-        assert kinds.pipeline_key(830724) == "pipeline:830724"
-        assert kinds.note_key(5521) == "note:5521"
-        assert kinds.review_comment_key(17) == "review-comment:17"
-        assert kinds.batch_key(batch) == f"batch:{batch}"
-        assert kinds.chat_key("msg-1") == "chat:msg-1"
-        assert kinds.job_key(batch) == f"job:{batch}"
-        assert kinds.push_key("e96f1f77") == "push:e96f1f77"
-        assert kinds.mr_state_key(9, "merged") == "mr-state:9:merged"
-        assert kinds.child_ci_key("thread-1", 830724, "no_push") == "child-ci:thread-1:830724:no_push"
+        assert kinds.SourceKey.pipeline(830724) == "pipeline:830724"
+        assert kinds.SourceKey.note(5521) == "note:5521"
+        assert kinds.SourceKey.review_comment(17) == "review-comment:17"
+        assert kinds.SourceKey.batch(batch) == f"batch:{batch}"
+        assert kinds.SourceKey.chat("msg-1") == "chat:msg-1"
+        assert kinds.SourceKey.job(batch) == f"job:{batch}"
+        assert kinds.SourceKey.push("e96f1f77") == "push:e96f1f77"
+        assert kinds.SourceKey.mr_state(9, "merged") == "mr-state:9:merged"
+        assert kinds.SourceKey.child_ci("thread-1", 830724, "no_push") == "child-ci:thread-1:830724:no_push"
 
     def test_subjects(self):
-        assert kinds.ci_subject(9) == "ci:9"
-        assert kinds.ci_subject(9, workflow_id=11) == "ci:9:11"
-        assert kinds.mr_state_subject(9) == "mr-state:9"
-        assert kinds.branch_subject("chore/x") == "branch:chore/x"
-        assert kinds.child_ci_subject("thread-1", 9) == "child-ci:thread-1:9"
+        assert kinds.Subject.ci(9) == "ci:9"
+        assert kinds.Subject.ci(9, workflow_id=11) == "ci:9:11"
+        assert kinds.Subject.mr_state(9) == "mr-state:9"
+        assert kinds.Subject.branch("chore/x") == "branch:chore/x"
+        assert kinds.Subject.child_ci("thread-1", 9) == "child-ci:thread-1:9"
 
     def test_a_key_longer_than_the_column_is_cut(self):
-        assert len(kinds.branch_subject("b" * 400)) == 255
+        assert len(kinds.Subject.branch("b" * 400)) == 255

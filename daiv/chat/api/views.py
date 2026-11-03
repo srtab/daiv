@@ -360,7 +360,7 @@ async def _queue_message(thread_id: str, *, user, prompt: str, message_id: str) 
     result = await apost_event(
         thread_id,
         kind=EventKind.CHAT_MESSAGE,
-        source_key=kinds.chat_key(message_id),
+        source_key=kinds.SourceKey.chat(message_id),
         payload={"text": prompt, "agui_message_id": message_id},
         wake=True,
         author=user,

@@ -176,7 +176,7 @@ def _foreign_publish(
             "web_url": build_absolute_url(reverse("session_detail", kwargs={"thread_id": session.thread_id})),
         },
         "wake": False,
-        "subject": kinds.branch_subject(branch),
+        "subject": kinds.Subject.branch(branch),
         "ref": branch,
         "merge_request_iid": iid,
     }
@@ -284,10 +284,10 @@ async def aclassify_push(
     await apost_event(
         owned.session.thread_id,
         kind=EventKind.BRANCH_PUSHED,
-        source_key=kinds.push_key(after),
+        source_key=kinds.SourceKey.push(after),
         payload={"before": before, "after": after, "commit_count": commit_count, "pusher_username": pusher_username},
         wake=False,
-        subject=kinds.branch_subject(branch),
+        subject=kinds.Subject.branch(branch),
         ref=branch,
         merge_request_iid=ownership.merge_request_iid,
     )
@@ -309,10 +309,10 @@ async def aclose_ownership(
         await apost_event(
             owned.session.thread_id,
             kind=EventKind.MR_MERGED if merged else EventKind.MR_CLOSED,
-            source_key=f"{kinds.mr_state_key(merge_request_iid, state)}:{closed_at.timestamp():.6f}",
+            source_key=f"{kinds.SourceKey.mr_state(merge_request_iid, state)}:{closed_at.timestamp():.6f}",
             payload={"target_branch": target_branch, "by_username": by_username},
             wake=False,
-            subject=kinds.mr_state_subject(merge_request_iid),
+            subject=kinds.Subject.mr_state(merge_request_iid),
             merge_request_iid=merge_request_iid,
         )
     except Exception:
@@ -344,7 +344,7 @@ async def areopen_ownership(repo_id: str, merge_request_iid: int, *, by_username
                 "text": f"!{merge_request_iid} was reopened by {by_username}; its CI and mentions come here again."
             },
             wake=False,
-            subject=kinds.mr_state_subject(merge_request_iid),
+            subject=kinds.Subject.mr_state(merge_request_iid),
             merge_request_iid=merge_request_iid,
         )
     except Exception:

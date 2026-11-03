@@ -560,7 +560,7 @@ async def _asubmit_follow_up(
         result = await apost_event(
             session.thread_id,
             kind=EventKind.FOLLOW_UP_JOB,
-            source_key=kinds.job_key(uuid.uuid4()),
+            source_key=kinds.SourceKey.job(uuid.uuid4()),
             payload=payload,
             wake=True,
             ref=target.ref,

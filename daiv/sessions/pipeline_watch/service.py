@@ -151,7 +151,7 @@ class PipelineWatch:
         watch_on = ownership.watch_enabled and (await self._apolicy()).enabled
         read, errors = True, []
         for latest in listed:
-            subject = kinds.ci_subject(ownership.merge_request_iid, latest.workflow_id)
+            subject = kinds.Subject.ci(ownership.merge_request_iid, latest.workflow_id)
             if ownership.last_pipeline_id is not None and await self._store.ajudged(
                 ownership.session_id, subject, latest.id, latest.status, watch_on=watch_on
             ):
@@ -223,7 +223,7 @@ class PipelineWatch:
         result = await apost_event(
             session.thread_id,
             kind=kind,
-            source_key=kinds.pipeline_key(report.id, kind, reason),
+            source_key=kinds.SourceKey.pipeline(report.id, kind, reason),
             payload=payload,
             wake=kind == EventKind.CI_FAILED and reason is None,
             subject=_subject(ownership, report),
@@ -267,7 +267,7 @@ class PipelineWatch:
                 continue
             if latest.sha != report.sha:
                 return False
-            subject = kinds.ci_subject(ownership.merge_request_iid, latest.workflow_id)
+            subject = kinds.Subject.ci(ownership.merge_request_iid, latest.workflow_id)
             if latest.status != "success" and not await self._store.apassed(
                 session.pk, subject, latest.id, latest.status
             ):
@@ -304,4 +304,4 @@ class PipelineWatch:
 
 
 def _subject(ownership: MergeRequestOwnership, report: PipelineReport) -> str:
-    return kinds.ci_subject(ownership.merge_request_iid, report.workflow_id)
+    return kinds.Subject.ci(ownership.merge_request_iid, report.workflow_id)

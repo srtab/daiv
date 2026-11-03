@@ -12,15 +12,7 @@ from django.db import IntegrityError, transaction
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.drain import drain_logged, is_busy, job_run_active, next_run_for, requester_of
-from sessions.inbox.kinds import (
-    KEY_MAX_LENGTH,
-    PRECEDENCE,
-    WAKING_KINDS,
-    child_ci_key,
-    child_ci_subject,
-    run_trigger_type,
-    validate_payload,
-)
+from sessions.inbox.kinds import KEY_MAX_LENGTH, PRECEDENCE, WAKING_KINDS, EventContent, SourceKey, Subject
 from sessions.inbox.render import render_request
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session
 
@@ -72,7 +64,7 @@ def post_event(
     Raises ``ValueError`` for an invalid payload, or ``wake`` on a kind that never wakes, and
     ``Session.DoesNotExist`` when there is no such session.
     """
-    validate_payload(kind, payload)
+    EventContent(kind, payload).validate_payload()
     if wake and kind not in WAKING_KINDS:
         raise ValueError(f"a {kind} event never wakes the agent")
     fields = {
@@ -116,7 +108,7 @@ def post_delegated_ci_outcome(
         post_event(
             child.parent_id,
             kind=EventKind.DELEGATED_CI_OUTCOME,
-            source_key=child_ci_key(child.thread_id, pipeline_id, outcome),
+            source_key=SourceKey.child_ci(child.thread_id, pipeline_id, outcome),
             payload={
                 "child_thread_id": child.thread_id,
                 "merge_request_iid": merge_request_iid,
@@ -124,7 +116,7 @@ def post_delegated_ci_outcome(
                 "web_url": web_url,
             },
             wake=False,
-            subject=child_ci_subject(child.thread_id, merge_request_iid),
+            subject=Subject.child_ci(child.thread_id, merge_request_iid),
         )
     except Exception:
         logger.exception(
@@ -141,7 +133,7 @@ def _describe_next_run(run: Run) -> None:
     waiting = list(InboxEvent.objects.filter(run=run, state=EventState.PENDING, wake=True).select_related("author"))
     top = min(waiting, key=lambda event: (PRECEDENCE[event.kind], event.created_at))
     Run.objects.filter(pk=run.pk).update(
-        prompt=render_request(waiting), trigger_type=run_trigger_type(top.kind, top.payload)
+        prompt=render_request(waiting), trigger_type=EventContent.of(top).run_trigger_type()
     )
 
 
@@ -187,7 +179,7 @@ def _next_run(session: Session, event: InboxEvent) -> Run | None:
         with transaction.atomic():
             return Run.objects.create(
                 session=session,
-                trigger_type=run_trigger_type(event.kind, event.payload),
+                trigger_type=EventContent.of(event).run_trigger_type(),
                 status=RunStatus.QUEUED,
                 repo_id=session.repo_id,
                 ref=event.ref,

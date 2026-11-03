@@ -23,10 +23,10 @@ async def _post_ci(thread_id: str, *, pipeline_id: int = 1, wake: bool = True, r
     return await apost_event(
         thread_id,
         kind=EventKind.CI_FAILED,
-        source_key=kinds.pipeline_key(pipeline_id),
+        source_key=kinds.SourceKey.pipeline(pipeline_id),
         payload=ci_payload(pipeline_id),
         wake=wake,
-        subject=kinds.ci_subject(9),
+        subject=kinds.Subject.ci(9),
         ref=ref,
         merge_request_iid=9,
         **fields,
@@ -196,7 +196,7 @@ class TestBusySession:
         result = await apost_event(
             session.thread_id,
             kind=EventKind.FOLLOW_UP_JOB,
-            source_key=kinds.job_key(uuid.uuid4()),
+            source_key=kinds.SourceKey.job(uuid.uuid4()),
             payload={"prompt": "Bump it", "trigger_type": SessionOrigin.MCP_JOB},
             wake=True,
             author=member_user,
@@ -251,10 +251,10 @@ class TestRememberedEvents:
         result = await apost_event(
             session.thread_id,
             kind=EventKind.CI_PASSED,
-            source_key=kinds.pipeline_key(3),
+            source_key=kinds.SourceKey.pipeline(3),
             payload=ci_payload(3, status="success"),
             wake=False,
-            subject=kinds.ci_subject(9),
+            subject=kinds.Subject.ci(9),
         )
 
         drain.assert_not_called()

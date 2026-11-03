@@ -325,7 +325,7 @@ def _resume_batch(batch_id: uuid.UUID) -> bool:
     result = post_event(
         coordinator.pk,
         kind=EventKind.DELEGATION_FINISHED,
-        source_key=kinds.batch_key(batch_id),
+        source_key=kinds.SourceKey.batch(batch_id),
         payload=payload,
         wake=True,
         author=legs[0].user,
@@ -350,13 +350,13 @@ def resume_stalled_batches() -> int:
         .values_list("batch_id", flat=True)
     )
     posted = set(
-        InboxEvent.objects.filter(source_key__in=[kinds.batch_key(batch_id) for batch_id in batch_ids]).values_list(
-            "source_key", flat=True
-        )
+        InboxEvent.objects.filter(
+            source_key__in=[kinds.SourceKey.batch(batch_id) for batch_id in batch_ids]
+        ).values_list("source_key", flat=True)
     )
     resumed = 0
     for batch_id in batch_ids:
-        if kinds.batch_key(batch_id) in posted:
+        if kinds.SourceKey.batch(batch_id) in posted:
             continue
         try:
             if _resume_batch(batch_id):

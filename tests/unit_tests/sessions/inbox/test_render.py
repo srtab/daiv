@@ -65,10 +65,10 @@ class TestContext:
 
     def test_a_superseded_event_is_shown_with_its_replacement_beneath_it(self):
         failed = _event(
-            EventKind.CI_FAILED, ci_payload(830724), state=EventState.SUPERSEDED, subject=kinds.ci_subject(9)
+            EventKind.CI_FAILED, ci_payload(830724), state=EventState.SUPERSEDED, subject=kinds.Subject.ci(9)
         )
         passed = _event(
-            EventKind.CI_PASSED, ci_payload(830731, status="success", jobs=()), minute=1, subject=kinds.ci_subject(9)
+            EventKind.CI_PASSED, ci_payload(830731, status="success", jobs=()), minute=1, subject=kinds.Subject.ci(9)
         )
 
         lines = render_context([failed, passed]).splitlines()[2:]

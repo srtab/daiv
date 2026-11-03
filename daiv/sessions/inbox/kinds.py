@@ -7,9 +7,10 @@ matters when a run takes them.
 
 # No ``from __future__ import annotations``: TypedDict reads ``NotRequired`` only from evaluated annotations.
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
-from sessions.models import EventKind, SessionOrigin
+from sessions.models import EventKind, InboxEvent, SessionOrigin
 
 if TYPE_CHECKING:
     import uuid
@@ -143,100 +144,119 @@ _JOB_TRIGGERS = frozenset({SessionOrigin.API_JOB, SessionOrigin.MCP_JOB})
 INBOX_TRIGGERS = frozenset(_TRIGGERS.values()) | _JOB_TRIGGERS
 
 
-def validate_payload(kind: str, payload: Any) -> None:
-    """Raise ``ValueError`` unless ``payload`` holds every key ``kind`` requires."""
-    if kind not in PAYLOADS:
-        raise ValueError(f"unknown inbox event kind {kind!r}")
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"a {kind} payload must be a mapping")
-    if missing := sorted(PAYLOADS[kind].__required_keys__ - payload.keys()):  # ty: ignore[unresolved-attribute]
-        raise ValueError(f"a {kind} payload is missing {', '.join(missing)}")
+@dataclass(frozen=True)
+class EventContent:
+    """An inbox event's kind and payload."""
+
+    kind: str
+    payload: Mapping[str, Any]
+
+    @classmethod
+    def of(cls, event: InboxEvent) -> EventContent:
+        return cls(event.kind, event.payload)
+
+    def validate_payload(self) -> None:
+        """Raise ``ValueError`` unless the payload holds every key the kind requires."""
+        if self.kind not in PAYLOADS:
+            raise ValueError(f"unknown inbox event kind {self.kind!r}")
+        if not isinstance(self.payload, Mapping):
+            raise ValueError(f"a {self.kind} payload must be a mapping")
+        if missing := sorted(PAYLOADS[self.kind].__required_keys__ - self.payload.keys()):  # ty: ignore[unresolved-attribute]
+            raise ValueError(f"a {self.kind} payload is missing {', '.join(missing)}")
+
+    def follows_session(self) -> bool:
+        """Whether a waking event concerns whichever branch its session is on, not a branch of its own: a chat message,
+        a follow-up job sent without a branch, a finished delegated batch."""
+        if self.kind == EventKind.FOLLOW_UP_JOB:
+            return not self.payload.get("ref")
+        return self.kind in (EventKind.CHAT_MESSAGE, EventKind.DELEGATION_FINISHED)
+
+    def run_trigger_type(self) -> str:
+        """The trigger type a run started by this kind gets."""
+        if self.kind == EventKind.FOLLOW_UP_JOB:
+            trigger = self.payload.get("trigger_type")
+            return trigger if trigger in _JOB_TRIGGERS else SessionOrigin.API_JOB
+        if self.kind not in _TRIGGERS:
+            raise ValueError(f"a {self.kind} event never wakes the agent")
+        return _TRIGGERS[self.kind]
 
 
-def follows_session(kind: str, payload: Mapping[str, Any]) -> bool:
-    """Whether a waking event concerns whichever branch its session is on, not a branch of its own: a chat message, a
-    follow-up job sent without a branch, a finished delegated batch."""
-    if kind == EventKind.FOLLOW_UP_JOB:
-        return not payload.get("ref")
-    return kind in (EventKind.CHAT_MESSAGE, EventKind.DELEGATION_FINISHED)
+class _Key:
+    @staticmethod
+    def _join(*parts: object) -> str:
+        return ":".join(str(part) for part in parts)[:KEY_MAX_LENGTH]
 
 
-def run_trigger_type(kind: str, payload: Mapping[str, Any]) -> str:
-    """The trigger type a run started by ``kind`` gets."""
-    if kind == EventKind.FOLLOW_UP_JOB:
-        trigger = payload.get("trigger_type")
-        return trigger if trigger in _JOB_TRIGGERS else SessionOrigin.API_JOB
-    if kind not in _TRIGGERS:
-        raise ValueError(f"a {kind} event never wakes the agent")
-    return _TRIGGERS[kind]
+class SourceKey(_Key):
+    """The keys an event is de-duplicated under, per session."""
+
+    @staticmethod
+    def pipeline(pipeline_id: int, kind: str = EventKind.CI_FAILED, reason: str | None = None) -> str:
+        """A waking failure keys on the pipeline alone; a quiet one, a pass and a stop each on a suffix of their own, so
+        a retried pipeline's new result is not taken for one already posted."""
+        if reason:
+            return _Key._join("pipeline", pipeline_id, reason)
+        if kind == EventKind.CI_FAILED:
+            return _Key._join("pipeline", pipeline_id)
+        return _Key._join("pipeline", pipeline_id, kind)
+
+    @staticmethod
+    def note(note_id: int) -> str:
+        return _Key._join("note", note_id)
+
+    @staticmethod
+    def review_comment(comment_id: int) -> str:
+        return _Key._join("review-comment", comment_id)
+
+    @staticmethod
+    def comment(note_or_review_comment_key: str) -> str:
+        return _Key._join("comment", note_or_review_comment_key)
+
+    @staticmethod
+    def batch(batch_id: uuid.UUID | str) -> str:
+        return _Key._join("batch", batch_id)
+
+    @staticmethod
+    def chat(agui_message_id: str) -> str:
+        return _Key._join("chat", agui_message_id)
+
+    @staticmethod
+    def job(job_id: uuid.UUID | str) -> str:
+        return _Key._join("job", job_id)
+
+    @staticmethod
+    def push(after_sha: str) -> str:
+        return _Key._join("push", after_sha)
+
+    @staticmethod
+    def mr_state(merge_request_iid: int, state: str) -> str:
+        return _Key._join("mr-state", merge_request_iid, state)
+
+    @staticmethod
+    def child_ci(child_thread_id: str, pipeline_id: int, outcome: str) -> str:
+        """Keyed on the outcome too: a retried pipeline keeps its id, so a pass after ``no_push`` is a new ending."""
+        return _Key._join("child-ci", child_thread_id, pipeline_id, outcome)
 
 
-def _key(*parts: object) -> str:
-    return ":".join(str(part) for part in parts)[:KEY_MAX_LENGTH]
+class Subject(_Key):
+    """The groups of events of which only the newest matters when a run takes them."""
 
+    @staticmethod
+    def ci(merge_request_iid: int, workflow_id: int | None = None) -> str:
+        """A merge request's CI, or one workflow's on it: GitHub runs a workflow run per workflow on a commit, so one
+        workflow's newer run must not replace another's."""
+        if workflow_id is None:
+            return _Key._join("ci", merge_request_iid)
+        return _Key._join("ci", merge_request_iid, workflow_id)
 
-def pipeline_key(pipeline_id: int, kind: str = EventKind.CI_FAILED, reason: str | None = None) -> str:
-    """A waking failure keys on the pipeline alone; a quiet one, a pass and a stop each on a suffix of their own, so a
-    retried pipeline's new result is not taken for one already posted."""
-    if reason:
-        return _key("pipeline", pipeline_id, reason)
-    if kind == EventKind.CI_FAILED:
-        return _key("pipeline", pipeline_id)
-    return _key("pipeline", pipeline_id, kind)
+    @staticmethod
+    def mr_state(merge_request_iid: int) -> str:
+        return _Key._join("mr-state", merge_request_iid)
 
+    @staticmethod
+    def branch(ref: str) -> str:
+        return _Key._join("branch", ref)
 
-def note_key(note_id: int) -> str:
-    return _key("note", note_id)
-
-
-def review_comment_key(comment_id: int) -> str:
-    return _key("review-comment", comment_id)
-
-
-def comment_key(note_or_review_comment_key: str) -> str:
-    return _key("comment", note_or_review_comment_key)
-
-
-def batch_key(batch_id: uuid.UUID | str) -> str:
-    return _key("batch", batch_id)
-
-
-def chat_key(agui_message_id: str) -> str:
-    return _key("chat", agui_message_id)
-
-
-def job_key(job_id: uuid.UUID | str) -> str:
-    return _key("job", job_id)
-
-
-def push_key(after_sha: str) -> str:
-    return _key("push", after_sha)
-
-
-def mr_state_key(merge_request_iid: int, state: str) -> str:
-    return _key("mr-state", merge_request_iid, state)
-
-
-def child_ci_key(child_thread_id: str, pipeline_id: int, outcome: str) -> str:
-    """Keyed on the outcome too: a retried pipeline keeps its id, so a pass after ``no_push`` is a new ending."""
-    return _key("child-ci", child_thread_id, pipeline_id, outcome)
-
-
-def ci_subject(merge_request_iid: int, workflow_id: int | None = None) -> str:
-    """A merge request's CI, or one workflow's on it: GitHub runs a workflow run per workflow on a commit, so one
-    workflow's newer run must not replace another's."""
-    if workflow_id is None:
-        return _key("ci", merge_request_iid)
-    return _key("ci", merge_request_iid, workflow_id)
-
-
-def mr_state_subject(merge_request_iid: int) -> str:
-    return _key("mr-state", merge_request_iid)
-
-
-def branch_subject(ref: str) -> str:
-    return _key("branch", ref)
-
-
-def child_ci_subject(child_thread_id: str, merge_request_iid: int) -> str:
-    return _key("child-ci", child_thread_id, merge_request_iid)
+    @staticmethod
+    def child_ci(child_thread_id: str, merge_request_iid: int) -> str:
+        return _Key._join("child-ci", child_thread_id, merge_request_iid)

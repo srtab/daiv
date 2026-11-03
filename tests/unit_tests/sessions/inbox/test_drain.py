@@ -125,8 +125,8 @@ class TestTaking:
 
     async def test_older_events_of_a_subject_are_superseded_by_the_newest(self, enqueue):
         session = await amake_session()
-        older = await amake_event(session, subject=kinds.ci_subject(9), payload=ci_payload(1))
-        newer = await amake_event(session, subject=kinds.ci_subject(9), payload=ci_payload(2))
+        older = await amake_event(session, subject=kinds.Subject.ci(9), payload=ci_payload(1))
+        newer = await amake_event(session, subject=kinds.Subject.ci(9), payload=ci_payload(2))
 
         run = await adrain(session.thread_id)
 
@@ -173,8 +173,8 @@ class TestNothingToWake:
     async def test_a_next_run_left_without_a_waking_event_is_deleted(self, enqueue):
         session = await amake_session()
         next_run = await _queued_next_run(session)
-        failure = await amake_event(session, run=next_run, subject=kinds.ci_subject(9), payload=ci_payload(1))
-        passed = await amake_event(session, EventKind.CI_PASSED, run=None, subject=kinds.ci_subject(9))
+        failure = await amake_event(session, run=next_run, subject=kinds.Subject.ci(9), payload=ci_payload(1))
+        passed = await amake_event(session, EventKind.CI_PASSED, run=None, subject=kinds.Subject.ci(9))
 
         assert await adrain(session.thread_id) is None
 
@@ -524,8 +524,8 @@ class TestSessionBranch:
 
     async def test_a_chat_turn_supersedes_an_older_failure_with_the_pass_it_takes(self):
         session = await amake_session()
-        failure = await amake_event(session, merge_request_iid=9, subject=kinds.ci_subject(9))
-        passed = await amake_event(session, EventKind.CI_PASSED, merge_request_iid=9, subject=kinds.ci_subject(9))
+        failure = await amake_event(session, merge_request_iid=9, subject=kinds.Subject.ci(9))
+        passed = await amake_event(session, EventKind.CI_PASSED, merge_request_iid=9, subject=kinds.Subject.ci(9))
 
         taken = await atake_for_chat(session.thread_id, holder_id="chat-run")
 
@@ -537,10 +537,10 @@ class TestChatTurnTake:
     async def test_it_drops_a_next_run_its_supersede_leaves_with_nothing_to_wake_it(self):
         session = await amake_session()
         emptied = await _queued_next_run(session)
-        await amake_event(session, merge_request_iid=9, subject=kinds.ci_subject(9), run=emptied)
+        await amake_event(session, merge_request_iid=9, subject=kinds.Subject.ci(9), run=emptied)
         kept = await _queued_next_run(session, ref="feat/y", trigger=SessionOrigin.API_JOB)
         await amake_event(session, EventKind.FOLLOW_UP_JOB, ref="feat/y", run=kept)
-        await amake_event(session, EventKind.CI_PASSED, merge_request_iid=9, subject=kinds.ci_subject(9))
+        await amake_event(session, EventKind.CI_PASSED, merge_request_iid=9, subject=kinds.Subject.ci(9))
 
         await atake_for_chat(session.thread_id, holder_id="chat-run")
 

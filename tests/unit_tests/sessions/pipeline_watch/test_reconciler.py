@@ -152,7 +152,7 @@ async def test_a_manual_retry_that_passed_without_a_webhook_is_remembered_as_pas
     session = await Session.objects.aget(pk=ownership.session_id)
     payload = {"pipeline_id": failed.id, "sha": failed.sha, "status": "failed", "web_url": failed.web_url}
     await InboxEvent.objects.acreate(
-        session=session, kind=EventKind.CI_FAILED, source_key=kinds.pipeline_key(failed.id), subject="ci:7",
+        session=session, kind=EventKind.CI_FAILED, source_key=kinds.SourceKey.pipeline(failed.id), subject="ci:7",
         merge_request_iid=7, wake=False, reason="already_examined", created_at=timezone.now() - timedelta(hours=1),
         payload=payload | {"failed_jobs": []},
     )  # fmt: skip

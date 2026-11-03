@@ -34,7 +34,7 @@ from sandbox_envs.selection import resolve_env_for_run
 from automation.agent.references import merge_stored_refs
 from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
-from sessions.inbox.kinds import INBOX_TRIGGERS, PERSON_KINDS, PRECEDENCE, follows_session, run_trigger_type
+from sessions.inbox.kinds import INBOX_TRIGGERS, PERSON_KINDS, PRECEDENCE, EventContent
 from sessions.inbox.policy import quiet_reasons_now, report_run_limit
 from sessions.inbox.render import render_request
 from sessions.models import (
@@ -100,8 +100,8 @@ class Requester(NamedTuple):
 
 def branch_of(event: InboxEvent, session: Session) -> str:
     """The branch a pending ``event`` concerns now: the session's for a request that follows it
-    (:func:`sessions.inbox.kinds.follows_session`), else the one it was posted on."""
-    return session.ref if follows_session(event.kind, event.payload) else event.ref
+    (:meth:`sessions.inbox.kinds.EventContent.follows_session`), else the one it was posted on."""
+    return session.ref if EventContent.of(event).follows_session() else event.ref
 
 
 def requester_user(session: Session, asked: list[InboxEvent], requester: Requester) -> User | None:
@@ -321,9 +321,10 @@ def _take(thread_id: str) -> tuple[Run, list[_Charge]] | None:
 
 
 def _follow_session_branch(session: Session, pending: list[InboxEvent], queued_runs: list[Run]) -> None:
-    """Point the pending requests that follow the session (:func:`sessions.inbox.kinds.follows_session`) at its branch,
-    which the run they waited for may have moved by publishing to a new one. A next run that only such requests wait
-    in moves with them, keeping the id a follow-up job's caller polls; the others let them go."""
+    """Point the pending requests that follow the session
+    (:meth:`sessions.inbox.kinds.EventContent.follows_session`) at its branch, which the run they waited for may have
+    moved by publishing to a new one. A next run that only such requests wait in moves with them, keeping the id a
+    follow-up job's caller polls; the others let them go."""
     moved = [event for event in pending if branch_of(event, session) != event.ref]
     if not moved:
         return
@@ -484,7 +485,7 @@ def _promote_or_create(
     chats = [event for event in taken if event.kind == EventKind.CHAT_MESSAGE]
     fields = {
         "status": RunStatus.READY,
-        "trigger_type": run_trigger_type(top.kind, top.payload),
+        "trigger_type": EventContent.of(top).run_trigger_type(),
         **requester.run_fields(person.author_username if person is not None else ""),
         "agent_model": agent_model,
         "agent_thinking_level": agent_thinking_level,

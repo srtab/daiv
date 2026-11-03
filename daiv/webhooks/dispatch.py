@@ -192,11 +192,13 @@ async def _post_comment(
     }
     if use_max:
         payload["agent_model"], payload["agent_thinking_level"] = _pinned_model(use_max)
-    source_key = kinds.review_comment_key(comment.note_id) if review_comment else kinds.note_key(comment.note_id)
+    source_key = (
+        kinds.SourceKey.review_comment(comment.note_id) if review_comment else kinds.SourceKey.note(comment.note_id)
+    )
     result = await apost_event(
         ownership.session.thread_id,
         kind=kind,
-        source_key=source_key if kind == EventKind.MENTION else kinds.comment_key(source_key),
+        source_key=source_key if kind == EventKind.MENTION else kinds.SourceKey.comment(source_key),
         payload=payload,
         wake=kind == EventKind.MENTION,
         ref=ownership.source_branch,
