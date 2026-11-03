@@ -23,7 +23,7 @@ from sessions.delegation import adelegator_for
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
-from sessions.inbox.ownership import aclaim_ownership
+from sessions.inbox.ownership import Ownerships
 from sessions.models import PublishStatus, Run, publish_field_updates
 from sessions.services import apersist_session_ref, areset_session_ref
 
@@ -639,7 +639,7 @@ async def _claim_merge_request(run: AgentRun, run_id: str, merge_request: Any) -
 
     pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
     try:
-        ownership = await aclaim_ownership(run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha or "")
+        ownership = await Ownerships.aclaim(run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha or "")
         if ownership is not None:
             await evaluate_pipeline_watch_task.aenqueue(repo_id=ownership.repo_id, ref=ownership.source_branch)
     except Exception:

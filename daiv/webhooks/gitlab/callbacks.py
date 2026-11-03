@@ -2,7 +2,7 @@ import logging
 from functools import cached_property
 from typing import Literal
 
-from sessions.inbox.ownership import aclose_ownership, areopen_ownership, aschedule_push_classification
+from sessions.inbox.ownership import Ownerships
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.service import PipelineWatch
 
@@ -278,10 +278,9 @@ class MergeRequestCallback(GitLabCallback):
             await self._record_merge_metrics()
         repo_id, iid = self.project.path_with_namespace, self.object_attributes.iid
         if self.object_attributes.action == MergeRequestAction.REOPEN:
-            await areopen_ownership(repo_id, iid, by_username=self.user.username)
+            await Ownerships(repo_id).areopen(iid, by_username=self.user.username)
         else:
-            await aclose_ownership(
-                repo_id,
+            await Ownerships(repo_id).aclose(
                 iid,
                 merged=self.object_attributes.action == MergeRequestAction.MERGE,
                 by_username=self.user.username,
@@ -327,8 +326,7 @@ class PushCallback(GitLabCallback):
         if branch == self.project.default_branch:
             RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
         elif self.after and set(self.after) != {"0"}:
-            await aschedule_push_classification(
-                self.project.path_with_namespace,
+            await Ownerships(self.project.path_with_namespace).aschedule_push_classification(
                 branch=branch,
                 before=self.before,
                 after=self.after,

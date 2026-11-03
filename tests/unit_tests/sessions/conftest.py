@@ -241,17 +241,19 @@ async def active_holder(thread_id: str) -> str | None:
 
 
 def claim_recorder(claimed: list[dict], *, error: Exception | None = None):
-    """A stand-in for ``aclaim_ownership`` that records the claims a seam makes.
+    """A stand-in for ``Ownerships.aclaim`` that records the claims a seam makes.
 
     Patched over the name each seam imported, so it pins that seam's wiring — which arguments reach the claim —
     rather than the claim itself. Calls are bound to the real signature, so a renamed argument fails here rather than
     in production's logged-and-swallowed claim. ``error`` is raised after each call is recorded. It claims nothing, so
     the seam enqueues no CI evaluation.
     """
-    from sessions.inbox.ownership import aclaim_ownership
+    from sessions.inbox.ownership import Ownerships
+
+    claim_signature = inspect.signature(Ownerships.aclaim)
 
     async def _claim(**kwargs):
-        inspect.signature(aclaim_ownership).bind(**kwargs)
+        claim_signature.bind(**kwargs)
         claimed.append(kwargs)
         if error is not None:
             raise error

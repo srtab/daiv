@@ -1,11 +1,12 @@
 from datetime import timedelta
 from typing import Literal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
 import pytest
 from sessions.inbox.drain import Drain
+from sessions.inbox.ownership import Ownerships
 from sessions.models import InboxEvent
 from webhooks.dispatch import Author, Mention
 from webhooks.gitlab.callbacks import IssueCallback, MergeRequestCallback, NoteCallback, PushCallback
@@ -390,7 +391,7 @@ class TestMergeRequestCallback:
         callback = create_merge_request_callback()
         with (
             patch("codebase.tasks.record_merge_metrics_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.aclose_ownership", new=AsyncMock()) as close,
+            patch.object(Ownerships, "aclose", autospec=True) as close,
         ):
             mock_task.aenqueue = AsyncMock()
             await callback.process_callback()
@@ -404,7 +405,8 @@ class TestMergeRequestCallback:
             merged_at="2026-04-01T10:00:00Z",
             platform="gitlab",
         )
-        close.assert_awaited_once_with("group/repo", 1, merged=True, by_username="developer", target_branch="main")
+        close.assert_awaited_once_with(ANY, 1, merged=True, by_username="developer", target_branch="main")
+        assert close.await_args.args[0].repo_id == "group/repo"
 
     @pytest.mark.parametrize(
         ("action", "state", "target"),
@@ -419,7 +421,7 @@ class TestMergeRequestCallback:
         callback = create_merge_request_callback(action=action, state=state, target_branch=target)
         with (
             patch("codebase.tasks.record_merge_metrics_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.aclose_ownership", new=AsyncMock()) as close,
+            patch.object(Ownerships, "aclose", autospec=True) as close,
         ):
             mock_task.aenqueue = AsyncMock()
             await callback.process_callback()
@@ -432,7 +434,7 @@ class TestMergeRequestCallback:
         callback.project.default_branch = None
         with (
             patch("codebase.tasks.record_merge_metrics_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.aclose_ownership", new=AsyncMock()),
+            patch.object(Ownerships, "aclose", autospec=True),
         ):
             mock_task.aenqueue = AsyncMock()
             await callback.process_callback()
@@ -441,17 +443,18 @@ class TestMergeRequestCallback:
 
     async def test_a_reopen_tells_the_owner(self):
         callback = create_merge_request_callback(action=MergeRequestAction.REOPEN, state="opened")
-        with patch("webhooks.gitlab.callbacks.areopen_ownership", new=AsyncMock()) as reopen:
+        with patch.object(Ownerships, "areopen", autospec=True) as reopen:
             await callback.process_callback()
 
-        reopen.assert_awaited_once_with("group/repo", 1, by_username="developer")
+        reopen.assert_awaited_once_with(ANY, 1, by_username="developer")
+        assert reopen.await_args.args[0].repo_id == "group/repo"
 
     async def test_process_callback_coalesces_none_merged_at(self):
         callback = create_merge_request_callback()
         callback.object_attributes.merged_at = None
         with (
             patch("codebase.tasks.record_merge_metrics_task") as mock_task,
-            patch("webhooks.gitlab.callbacks.aclose_ownership", new=AsyncMock()),
+            patch.object(Ownerships, "aclose", autospec=True),
         ):
             mock_task.aenqueue = AsyncMock()
             await callback.process_callback()

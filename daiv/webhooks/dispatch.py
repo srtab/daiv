@@ -24,7 +24,7 @@ from asgiref.sync import sync_to_async
 from sandbox_envs.selection import resolve_env_for_run
 from sessions.ids import compute_thread_id
 from sessions.inbox import kinds
-from sessions.inbox.ownership import aopen_ownership
+from sessions.inbox.ownership import Ownerships
 from sessions.inbox.post import Inbox
 from sessions.models import EventKind, SessionOrigin
 from sessions.services import create_run
@@ -119,7 +119,7 @@ async def dispatch_mr_comment_run(
     it is then fetched, and left blank if that fails, since the run is still worth starting. ``use_max`` runs it on the
     site's max model either way: a mention for the owning session carries that model for the run that takes it.
     """
-    if (ownership := await aopen_ownership(repo_id, merge_request_iid, title=title)) is not None:
+    if (ownership := await Ownerships(repo_id).afind_open(merge_request_iid, title=title)) is not None:
         if await _post_comment(ownership, client, author, mention, kind=EventKind.MENTION, use_max=use_max):
             await _react(
                 partial(
@@ -166,7 +166,7 @@ async def dispatch_mr_comment(
 ) -> None:
     """Remember a comment that did not mention DAIV in the session that owns the merge request; with no such session
     it concerns no one."""
-    if (ownership := await aopen_ownership(repo_id, merge_request_iid, title=title)) is not None:
+    if (ownership := await Ownerships(repo_id).afind_open(merge_request_iid, title=title)) is not None:
         await _post_comment(ownership, client, author, comment, kind=EventKind.COMMENT)
 
 

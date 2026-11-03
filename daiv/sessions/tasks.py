@@ -89,10 +89,10 @@ async def classify_push_task(
 ) -> None:
     """Remember a push to an owned merge request's branch unless DAIV pushed its commit; enqueued a minute after the
     webhook so DAIV's own publish has recorded its commit by then."""
-    from sessions.inbox.ownership import aclassify_push
+    from sessions.inbox.ownership import Ownerships
 
-    await aclassify_push(
-        repo_id, branch=branch, before=before, after=after, pusher_username=pusher_username, commit_count=commit_count
+    await Ownerships(repo_id).aclassify_push(
+        branch=branch, before=before, after=after, pusher_username=pusher_username, commit_count=commit_count
     )
 
 

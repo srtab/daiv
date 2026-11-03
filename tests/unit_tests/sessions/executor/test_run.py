@@ -22,6 +22,7 @@ from sessions.artifacts import RunArtifactStore, aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
 from sessions.executor.run import RunStoppedError, _record_publish_result, _until_stopped, execute_run, stream_run
 from sessions.executor.spec import RunHooks
+from sessions.inbox.ownership import Ownerships
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
@@ -537,7 +538,7 @@ async def test_a_failed_claim_is_logged_and_the_run_still_succeeds(caplog):
         persist,
         measure,
         record,
-        patch("sessions.executor.run.aclaim_ownership", new=AsyncMock(side_effect=RuntimeError("db down"))),
+        patch.object(Ownerships, "aclaim", new=AsyncMock(side_effect=RuntimeError("db down"))),
         caplog.at_level("ERROR", logger="daiv.sessions"),
     ):
         outcome = await execute_run(make_spec(arm_watch=True, run_id="run-1"))
@@ -554,7 +555,7 @@ async def test_a_claimed_merge_request_has_its_ci_judged_at_once():
         persist,
         measure,
         record,
-        patch("sessions.executor.run.aclaim_ownership", new=AsyncMock(return_value=ownership)),
+        patch.object(Ownerships, "aclaim", new=AsyncMock(return_value=ownership)),
         patch("sessions.tasks.evaluate_pipeline_watch_task") as evaluate,
     ):
         evaluate.aenqueue = AsyncMock()

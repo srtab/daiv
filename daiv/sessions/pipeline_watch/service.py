@@ -44,7 +44,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from sessions.inbox import kinds
-from sessions.inbox.ownership import aopen_ownership
+from sessions.inbox.ownership import Ownerships
 from sessions.inbox.policy import WakePolicy
 from sessions.inbox.post import Inbox
 from sessions.models import EventKind, QuietReason
@@ -193,7 +193,7 @@ class PipelineWatch:
         if not await self._store.arecord_pipeline(ownership.pk, report.id, report.status):
             return
         try:
-            if (owned := await aopen_ownership(self.repo_id, ownership.merge_request_iid)) is not None:
+            if (owned := await Ownerships(self.repo_id).afind_open(ownership.merge_request_iid)) is not None:
                 await self._apost(ownership=owned, session=owned.session, report=report)
         except Exception:
             previous = (ownership.last_pipeline_id, ownership.last_pipeline_status)

@@ -695,7 +695,7 @@ class SessionArchive(models.Model):
 class MergeRequestOwnership(models.Model):
     """Which session owns a merge request DAIV published, and that merge request's CI watch.
 
-    ``sessions.inbox.ownership`` applies the claim rules when a run publishes; the CI watch
+    ``sessions.inbox.ownership.Ownerships`` applies the claim rules when a run publishes; the CI watch
     (``sessions.pipeline_watch``) reads and writes the watch columns.
     """
 

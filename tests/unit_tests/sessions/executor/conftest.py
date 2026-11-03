@@ -12,6 +12,7 @@ from langchain_core.messages import HumanMessage
 from sessions.executor.lock import NoLock
 from sessions.executor.result import parse_agent_result
 from sessions.executor.spec import RunSpec
+from sessions.inbox.ownership import Ownerships
 
 from automation.agent.agent_settings import RunOverrides
 from automation.agent.workspace.session import SessionSeed
@@ -152,7 +153,7 @@ def agent_stack(
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
-        patch("sessions.executor.run.aclaim_ownership", _claim),
+        patch.object(Ownerships, "aclaim", _claim),
         patch("sessions.executor.run._fast_forward", new=AsyncMock(return_value=None)) as fast_forward,
         patch("sessions.executor.run.adelegator_for", new=AsyncMock(return_value=MagicMock())) as delegator_for,
         patch(

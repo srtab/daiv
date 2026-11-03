@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from django.db.models import Exists, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce, Greatest
 
-from sessions.inbox.ownership import aownership_for_branch
+from sessions.inbox.ownership import Ownerships
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, QuietReason
 
 if TYPE_CHECKING:
@@ -56,7 +56,7 @@ class WatchStore:
 
     async def aopen(self, repo_id: str, ref: str) -> MergeRequestOwnership | None:
         """The open ownership whose merge request's source branch is ``ref``."""
-        return await aownership_for_branch(repo_id, ref)
+        return await Ownerships(repo_id).afor_branch(ref)
 
     async def ahas_open(self, repo_id: str, ref: str) -> bool:
         return await MergeRequestOwnership.objects.filter(

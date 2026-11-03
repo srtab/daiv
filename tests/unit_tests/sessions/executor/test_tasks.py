@@ -11,6 +11,7 @@ from asgiref.sync import sync_to_async
 from sessions.executor.lock import Claimed, SessionLock, Wait
 from sessions.executor.run import RunStoppedError
 from sessions.executor.tasks import run_job_task
+from sessions.inbox.ownership import Ownerships
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.conftest import stub_sandbox_spec
@@ -370,7 +371,7 @@ def _job_scaffolding(agent, *, real_lock: bool = False, claimed: list[dict] | No
         nullcontext()
         if real_lock
         else patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
-        nullcontext() if claimed is None else patch("sessions.executor.run.aclaim_ownership", claim_recorder(claimed)),
+        nullcontext() if claimed is None else patch.object(Ownerships, "aclaim", claim_recorder(claimed)),
         patch("core.checkpointer.open_checkpointer"),
         patch("automation.agent.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
@@ -695,7 +696,7 @@ class TestRunJobTaskAfterRunMatrix:
 
         with (
             _job_scaffolding(_agent_with_mr(MR, published=True)),
-            patch("sessions.executor.run.aclaim_ownership", claim_recorder(claims, error=RuntimeError("db down"))),
+            patch.object(Ownerships, "aclaim", claim_recorder(claims, error=RuntimeError("db down"))),
             caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
             result = await run_job_task.func(
@@ -809,7 +810,7 @@ class TestRunJobTaskAfterRunMatrix:
             _job_scaffolding(agent, real_lock=True),
             patch("sessions.executor.lock.SessionLock.release", _release),
             patch("sessions.executor.run.apersist_session_ref", _persist),
-            patch("sessions.executor.run.aclaim_ownership", _claim),
+            patch.object(Ownerships, "aclaim", _claim),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id=thread_id, run_id="run-1")
 
@@ -848,7 +849,7 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
-        patch("sessions.executor.run.aclaim_ownership", claim_recorder(claimed)),
+        patch.object(Ownerships, "aclaim", claim_recorder(claimed)),
         patch("sessions.executor.run._record_measurements", new=AsyncMock()),
     ):
         cp_ctx.return_value.__aenter__.return_value = object()

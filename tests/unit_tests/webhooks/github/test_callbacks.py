@@ -1,7 +1,8 @@
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import ANY, AsyncMock, Mock, patch
 
 import pytest
 from sessions.inbox.drain import Drain
+from sessions.inbox.ownership import Ownerships
 from sessions.models import InboxEvent
 from webhooks.dispatch import Author, Mention
 from webhooks.github.callbacks import (
@@ -271,7 +272,7 @@ class TestPullRequestCallback:
         callback = create_pull_request_callback()
         with (
             patch("codebase.tasks.record_merge_metrics_task") as mock_task,
-            patch("webhooks.github.callbacks.aclose_ownership", new=AsyncMock()) as close,
+            patch.object(Ownerships, "aclose", autospec=True) as close,
         ):
             mock_task.aenqueue = AsyncMock()
             await callback.process_callback()
@@ -285,14 +286,15 @@ class TestPullRequestCallback:
             merged_at="2026-04-01T10:00:00Z",
             platform="github",
         )
-        close.assert_awaited_once_with("owner/repo", 42, merged=True, by_username="sfr", target_branch="main")
+        close.assert_awaited_once_with(ANY, 42, merged=True, by_username="sfr", target_branch="main")
+        assert close.await_args.args[0].repo_id == "owner/repo"
 
     @pytest.mark.parametrize(("merged", "base_ref"), [(True, "develop"), (False, "main")], ids=["elsewhere", "closed"])
     async def test_anything_but_a_merge_into_the_default_branch_records_no_metrics(self, merged, base_ref):
         callback = create_pull_request_callback(merged=merged, base_ref=base_ref)
         with (
             patch("codebase.tasks.record_merge_metrics_task") as mock_task,
-            patch("webhooks.github.callbacks.aclose_ownership", new=AsyncMock()) as close,
+            patch.object(Ownerships, "aclose", autospec=True) as close,
         ):
             mock_task.aenqueue = AsyncMock()
             await callback.process_callback()
@@ -302,17 +304,18 @@ class TestPullRequestCallback:
 
     async def test_a_reopen_tells_the_owner(self):
         callback = create_pull_request_callback(action="reopened", merged=False)
-        with patch("webhooks.github.callbacks.areopen_ownership", new=AsyncMock()) as reopen:
+        with patch.object(Ownerships, "areopen", autospec=True) as reopen:
             await callback.process_callback()
 
-        reopen.assert_awaited_once_with("owner/repo", 42, by_username="sfr")
+        reopen.assert_awaited_once_with(ANY, 42, by_username="sfr")
+        assert reopen.await_args.args[0].repo_id == "owner/repo"
 
     async def test_process_callback_coalesces_none_merged_at(self):
         callback = create_pull_request_callback()
         callback.pull_request.merged_at = None
         with (
             patch("codebase.tasks.record_merge_metrics_task") as mock_task,
-            patch("webhooks.github.callbacks.aclose_ownership", new=AsyncMock()),
+            patch.object(Ownerships, "aclose", autospec=True),
         ):
             mock_task.aenqueue = AsyncMock()
             await callback.process_callback()

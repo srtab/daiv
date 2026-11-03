@@ -27,6 +27,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
 from sessions.executor.result import parse_agent_result
 from sessions.inbox.complete import RunEnd
+from sessions.inbox.ownership import Ownerships
 from sessions.live.relay import RunRelay
 from sessions.models import EventKind, EventState, InboxEvent, Run, Session
 
@@ -1051,7 +1052,7 @@ def _recorded_turn(
         patch("chat.api.streaming.finalize_chat_run", side_effect=_finalize),
         patch.object(RunEnd, "awithdraw", autospec=True, side_effect=_withdraw),
         patch("sessions.executor.run.apersist_session_ref", side_effect=_persist),
-        patch("sessions.executor.run.aclaim_ownership", _claim),
+        patch.object(Ownerships, "aclaim", _claim),
         patch("chat.api.streaming.SessionLock.release", side_effect=_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=heartbeat_mock),
         patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),

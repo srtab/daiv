@@ -3,7 +3,7 @@ from functools import cached_property
 from typing import Literal
 
 from pydantic import Field
-from sessions.inbox.ownership import aclose_ownership, areopen_ownership, aschedule_push_classification
+from sessions.inbox.ownership import Ownerships
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.service import PipelineWatch
 
@@ -325,10 +325,9 @@ class PullRequestCallback(GitHubCallback):
         repo_id, number = self.repository.full_name, self.pull_request.number
         by_username = self.sender.username if self.sender is not None else ""
         if self.action == "reopened":
-            await areopen_ownership(repo_id, number, by_username=by_username)
+            await Ownerships(repo_id).areopen(number, by_username=by_username)
         else:
-            await aclose_ownership(
-                repo_id,
+            await Ownerships(repo_id).aclose(
                 number,
                 merged=self.pull_request.merged,
                 by_username=by_username,
@@ -381,8 +380,7 @@ class PushCallback(GitHubCallback):
         if branch == self.repository.default_branch:
             RepositoryConfig.invalidate_cache(self.repository.full_name)
         elif not self.deleted and self.after:
-            await aschedule_push_classification(
-                self.repository.full_name,
+            await Ownerships(self.repository.full_name).aschedule_push_classification(
                 branch=branch,
                 before=self.before,
                 after=self.after,
