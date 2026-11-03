@@ -11,7 +11,7 @@ from urllib.parse import unquote, urldefrag, urljoin, urlparse, urlunparse
 from django.core.cache import cache
 
 import markdownify
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
@@ -200,8 +200,9 @@ def _set_cached_response(*, url: str, prompt: str, response: str) -> None:
 
 class _Page(NamedTuple):
     content: str
-    html: str | None
-    section_found: bool
+    fragment_note: str
+    anchors: list[str]
+    """The page's section anchors, listed only when ``content`` is over the size limit."""
 
 
 async def _fetch_markdown_for_url(url: str, fragment: str = "") -> _Page:
@@ -218,28 +219,39 @@ async def _fetch_markdown_for_url(url: str, fragment: str = "") -> _Page:
 
     is_html = "<html" in page_raw[:200].lower() or ("text/html" in content_type) or not content_type
     if not is_html:
-        return _Page(content=page_raw, html=None, section_found=False)
-    return await asyncio.to_thread(_html_page, page_raw, fragment)
+        note = f"#{fragment} was ignored: only HTML pages can be narrowed to a section." if fragment else ""
+        return _Page(content=page_raw, fragment_note=note, anchors=[])
+    return await asyncio.to_thread(_html_page, page_raw, fragment, site_settings.web_fetch_max_content_chars)
 
 
-def _html_page(html: str, fragment: str) -> _Page:
-    section = _html_section(html, fragment) if fragment else None
-    content = section or markdownify.markdownify(html, heading_style=markdownify.ATX)
-    return _Page(content=content, html=html, section_found=section is not None)
+def _html_page(html: str, fragment: str, max_chars: int) -> _Page:
+    soup = BeautifulSoup(html, "html.parser")
+    section = _html_section(soup, fragment) if fragment else None
+    content = section or _to_markdown(soup)
+    return _Page(
+        content=content,
+        fragment_note=f"The page has no #{fragment} section." if fragment and section is None else "",
+        anchors=_section_anchors(soup) if len(content) > max_chars else [],
+    )
+
+
+def _to_markdown(node: Tag) -> str:
+    return markdownify.MarkdownConverter(heading_style=markdownify.ATX).convert_soup(node)
 
 
 def _heading_level(heading: Tag) -> int:
     return int(heading.name[1])
 
 
+def _has_text(node: Tag) -> bool:
+    return any(text.strip() for text in node.strings)
+
+
 def _wrapped_heading(node: Tag | None) -> Tag | None:
     """The heading ``node`` only wraps (GitHub's ``div.markdown-heading``), else ``None``."""
-    if node is None:
+    if node is None or (heading := node.find(_HEADING_TAGS)) is None:
         return None
-    heading = node.find(_HEADING_TAGS)
-    if isinstance(heading, Tag) and heading.get_text(strip=True) == node.get_text(strip=True):
-        return heading
-    return None
+    return heading if heading.get_text(strip=True) == node.get_text(strip=True) else None
 
 
 def _section_heading(target: Tag) -> Tag | None:
@@ -248,47 +260,47 @@ def _section_heading(target: Tag) -> Tag | None:
         return target
     if heading := target.find_parent(_HEADING_TAGS) or _wrapped_heading(target):
         return heading
-    if target.get_text(strip=True):
+    if _has_text(target):
         return None
     if heading := _wrapped_heading(target.parent):
         return heading
-    following = next((sibling for sibling in target.find_next_siblings() if sibling.get_text(strip=True)), None)
-    if following is None:
-        return None
-    return following if following.name in _HEADING_TAGS else _wrapped_heading(following)
+    following = target.find_next_sibling(_has_text)
+    if following is not None and following.name in _HEADING_TAGS:
+        return following
+    return _wrapped_heading(following)
 
 
 def _section_target(soup: BeautifulSoup, fragment: str) -> Tag | None:
     fragment = unquote(fragment)
     target = soup.find(id=fragment) or soup.find(None, attrs={"name": fragment})
-    if isinstance(target, Tag):
+    if target is not None:
         return target
     links = soup.find_all("a", href=lambda href: href is not None and unquote(href) == f"#{fragment}")
-    return next((link for link in links if isinstance(link, Tag) and _section_heading(link)), None)
+    return next((link for link in links if _section_heading(link)), None)
 
 
-def _html_section(html: str, fragment: str) -> str | None:
+def _html_section(soup: BeautifulSoup, fragment: str) -> str | None:
     """
     Return the markdown of the section ``#fragment`` names, or ``None`` when the page has no such section.
 
     A heading's section runs to the next heading of the same or a higher level; an id on a container
-    (Sphinx's ``<section id>``) is the whole container.
+    (Sphinx's ``<section id>``) is the whole container. ``soup`` is left as it was.
     """
-    soup = BeautifulSoup(html, "html.parser")
     target = _section_target(soup, fragment)
     if target is None:
         return None
     heading = _section_heading(target)
     if heading is None:
-        target.insert_before(_SECTION_START)
-        target.insert_after(_SECTION_END)
-    else:
-        heading.insert_before(_SECTION_START)
-        level = _heading_level(heading)
-        end = next((h for h in heading.find_all_next(_HEADING_TAGS) if _heading_level(h) <= level), None)
-        if end is not None:
-            end.insert_before(_SECTION_END)
-    markdown = markdownify.MarkdownConverter(heading_style=markdownify.ATX).convert_soup(soup)
+        return _to_markdown(target).strip() or None
+    level = _heading_level(heading)
+    end = heading.find_next(lambda tag: tag.name in _HEADING_TAGS and _heading_level(tag) <= level)
+    markers = [NavigableString(_SECTION_START), NavigableString(_SECTION_END)]
+    heading.insert_before(markers[0])
+    if end is not None:
+        end.insert_before(markers[1])
+    markdown = _to_markdown(soup)
+    for marker in markers:
+        marker.extract()
     return markdown.partition(_SECTION_START)[2].partition(_SECTION_END)[0].strip() or None
 
 
@@ -299,8 +311,12 @@ def _is_permalink(link: Tag | None) -> bool:
 def _heading_anchor(heading: Tag) -> str | None:
     if anchor := heading.get("id"):
         return str(anchor)
-    scope = heading.parent if _wrapped_heading(heading.parent) is heading else heading
-    links = [link for link in scope.find_all("a", href=_SELF_LINK) if isinstance(link, Tag)] if scope else []
+    parent = heading.parent
+    scope = heading
+    # The identity check first keeps this linear: the wrapper test reads the parent's whole text.
+    if parent is not None and parent.find(_HEADING_TAGS) is heading and _wrapped_heading(parent) is heading:
+        scope = parent
+    links = scope.find_all("a", href=_SELF_LINK)
     title = heading.get_text(strip=True)
     link = next((link for link in links if _is_permalink(link)), None) or next(
         (link for link in links if link.get_text(strip=True) == title), None
@@ -315,9 +331,8 @@ def _heading_text(heading: Tag) -> str:
     return " ".join(" ".join(words).split()) or heading.get_text(" ", strip=True)
 
 
-def _section_anchors(html: str) -> list[str]:
+def _section_anchors(soup: BeautifulSoup) -> list[str]:
     """``#anchor  Heading`` lines for the page's top-level sections, deduplicated in page order."""
-    soup = BeautifulSoup(html, "html.parser")
     lines = (
         f"#{anchor}  {_heading_text(heading)}"
         for heading in soup.find_all(_LISTED_HEADING_TAGS)
@@ -326,26 +341,20 @@ def _section_anchors(html: str) -> list[str]:
     return list(dict.fromkeys(lines))
 
 
-def _unmatched_fragment_note(fragment: str, *, is_html: bool) -> str:
-    if is_html:
-        return f"The page has no #{fragment} section."
-    return f"#{fragment} was ignored: only HTML pages can be narrowed to a section."
-
-
-def _too_large_message(*, content_chars: int, anchors: list[str], fragment_note: str) -> str:
+def _too_large_message(page: _Page) -> str:
     lines = [
-        f"error: Page content is too large to analyze in one pass ({content_chars:,} characters; "
+        f"error: Page content is too large to analyze in one pass ({len(page.content):,} characters; "
         f"the limit is {site_settings.web_fetch_max_content_chars:,})."
     ]
-    if fragment_note:
-        lines.append(fragment_note)
-    if not anchors:
+    if page.fragment_note:
+        lines.append(page.fragment_note)
+    if page.anchors:
+        lines.append("Fetch one section instead by adding its anchor to the URL as a #fragment:")
+        lines.extend(page.anchors[:_MAX_LISTED_ANCHORS])
+        if len(page.anchors) > _MAX_LISTED_ANCHORS:
+            lines.append(f"... and {len(page.anchors) - _MAX_LISTED_ANCHORS} more")
+    else:
         lines.append("Fetch a narrower URL instead, such as a single release, file or section page.")
-        return "\n".join(lines)
-    lines.append("Fetch one section instead by adding its anchor to the URL as a #fragment:")
-    lines.extend(anchors[:_MAX_LISTED_ANCHORS])
-    if len(anchors) > _MAX_LISTED_ANCHORS:
-        lines.append(f"... and {len(anchors) - _MAX_LISTED_ANCHORS} more")
     return "\n".join(lines)
 
 
@@ -380,25 +389,23 @@ async def _web_fetch(url: str, prompt: str) -> tuple[str, str]:
     try:
         page = await _fetch_markdown_for_url(page_url, fragment)
     except _CrossHostRedirectError as e:
-        redirect_url = e.url if not fragment or urlparse(e.url).fragment else f"{e.url}#{fragment}"
+        redirect_url = e.url
+        if fragment and not urlparse(redirect_url).fragment:
+            redirect_url += f"#{fragment}"
         # Special format required by the webfetch tool prompt.
         return "redirect", f"<redirect_url>{redirect_url}</redirect_url>"
     except Exception as e:
         return "fetch_error", f"error: Failed to fetch URL: {e}"
 
-    content = page.content
-    fragment_note = (
-        _unmatched_fragment_note(fragment, is_html=page.html is not None) if fragment and not page.section_found else ""
-    )
-
     # Safety guard: avoid silently truncating; point at the page's sections instead.
-    if len(content) > site_settings.web_fetch_max_content_chars:
-        anchors = await asyncio.to_thread(_section_anchors, page.html) if page.html is not None else []
-        return "too_large", _too_large_message(content_chars=len(content), anchors=anchors, fragment_note=fragment_note)
+    if len(page.content) > site_settings.web_fetch_max_content_chars:
+        return "too_large", _too_large_message(page)
 
-    notice = f"Note: {fragment_note} This is the whole page.\n" if fragment_note else ""
+    content = page.content
+    notice = f"Note: {page.fragment_note} This is the whole page.\n" if page.fragment_note else ""
+    raw = f"{notice}Contents of {url}:\n{content}"
     if not prompt.strip() or site_settings.web_fetch_model_name is None:
-        return "raw", f"{notice}Contents of {url}:\n{content}"
+        return "raw", raw
 
     # A build failure is a permanent misconfiguration (disabled provider, missing key, bad spec), so it
     # logs at ERROR; the agent still gets the raw page, flagged as unsummarised.
@@ -411,8 +418,7 @@ async def _web_fetch(url: str, prompt: str) -> tuple[str, str]:
         )
         return (
             "summariser_unavailable",
-            f"web_fetch summariser unavailable ({e}); returning raw content instead.\n"
-            f"{notice}Contents of {url}:\n{content}",
+            f"web_fetch summariser unavailable ({e}); returning raw content instead.\n{raw}",
         )
 
     messages = [
@@ -429,13 +435,13 @@ async def _web_fetch(url: str, prompt: str) -> tuple[str, str]:
         response_text = str(response.text)
         if not response_text.strip():
             logger.warning("web_fetch model returned no answer text; returning content instead.")
-            return "summariser_empty", f"Model processing returned no answer. {notice}Contents of {url}:\n{content}"
+            return "summariser_empty", f"Model processing returned no answer. {raw}"
         response_text = notice + response_text
         _set_cached_response(url=url, prompt=prompt, response=response_text)
         return "summarised", response_text
     except Exception as e:
         logger.warning("web_fetch model processing failed; returning content instead.", exc_info=True)
-        return "summariser_failed", f"Model processing failed ({e}). {notice}Contents of {url}:\n{content}"
+        return "summariser_failed", f"Model processing failed ({e}). {raw}"
 
 
 class WebFetchMiddleware(AgentMiddleware):

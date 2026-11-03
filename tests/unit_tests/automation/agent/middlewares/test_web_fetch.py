@@ -6,18 +6,15 @@ from unittest.mock import patch
 from django.core.cache import cache
 
 import pytest
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage
 from pydantic import SecretStr
 
 from automation.agent.middlewares import web_fetch as web_fetch_module
 
 
-class _FakeModel:
-    def __init__(self, content: str | list[dict]):
-        self._content = content
-
-    async def ainvoke(self, _messages):
-        return AIMessage(content=self._content)
+def _fake_model(content: str | list) -> FakeMessagesListChatModel:
+    return FakeMessagesListChatModel(responses=[AIMessage(content=content)])
 
 
 async def test_upgrade_http_to_https():
@@ -141,6 +138,7 @@ async def test_fetch_markdown_for_url(httpx_mock):
         patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
     ):
         mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_env_settings.WEB_FETCH_PROXY_URL = None
 
         result = await web_fetch_module._fetch_markdown_for_url("https://example.com")
@@ -167,7 +165,7 @@ async def test_caches_full_response_by_url_and_prompt(httpx_mock):
         mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_site_settings.web_fetch_model_name = "openrouter:openai/gpt-4.1-mini"
 
-        mock_get_model.return_value = _FakeModel("ANSWER")
+        mock_get_model.return_value = _fake_model("ANSWER")
 
         result1 = await web_fetch_module.web_fetch_tool.ainvoke({
             "url": "https://example.com/page",
@@ -186,7 +184,27 @@ async def test_caches_full_response_by_url_and_prompt(httpx_mock):
     )
 
 
-async def test_summary_keeps_only_the_answer_text_of_content_blocks(httpx_mock):
+_REASONING_BLOCK = {"type": "reasoning", "summary": [], "encrypted_content": "gAAAAopaque"}
+
+
+@pytest.mark.parametrize(
+    ("blocks", "expected", "cached"),
+    [
+        pytest.param(
+            [_REASONING_BLOCK, {"type": "text", "text": "ANSWER", "phase": "final_answer"}],
+            "ANSWER",
+            "ANSWER",
+            id="answer-text",
+        ),
+        pytest.param(
+            [_REASONING_BLOCK],
+            "Model processing returned no answer. Contents of https://example.com/page:\nBody",
+            None,
+            id="no-answer-text",
+        ),
+    ],
+)
+async def test_summary_keeps_only_the_answer_text_of_content_blocks(httpx_mock, blocks, expected, cached):
     cache.clear()
 
     httpx_mock.add_response(
@@ -195,10 +213,6 @@ async def test_summary_keeps_only_the_answer_text_of_content_blocks(httpx_mock):
         headers={"content-type": "text/html"},
         text="<html><body><p>Body</p></body></html>",
     )
-    blocks = [
-        {"type": "reasoning", "summary": [], "encrypted_content": "gAAAAopaque"},
-        {"type": "text", "text": "ANSWER", "phase": "final_answer"},
-    ]
     with (
         patch.object(web_fetch_module, "get_model") as mock_get_model,
         patch.object(web_fetch_module, "site_settings") as mock_site_settings,
@@ -209,38 +223,12 @@ async def test_summary_keeps_only_the_answer_text_of_content_blocks(httpx_mock):
         mock_env_settings.WEB_FETCH_PROXY_URL = None
         mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_site_settings.web_fetch_model_name = "openai:gpt-6-luna"
-        mock_get_model.return_value = _FakeModel(blocks)
+        mock_get_model.return_value = _fake_model(blocks)
 
         result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com/page", "prompt": "P"})
 
-    assert result == "ANSWER"
-    assert web_fetch_module._get_cached_response(url="https://example.com/page", prompt="P") == "ANSWER"
-
-
-async def test_summary_without_answer_text_returns_content_uncached(httpx_mock):
-    cache.clear()
-
-    httpx_mock.add_response(
-        url="https://example.com/page",
-        status_code=200,
-        headers={"content-type": "text/html"},
-        text="<html><body><p>Body</p></body></html>",
-    )
-    with (
-        patch.object(web_fetch_module, "get_model") as mock_get_model,
-        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
-        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
-    ):
-        mock_site_settings.web_fetch_timeout_seconds = 1
-        mock_env_settings.WEB_FETCH_PROXY_URL = None
-        mock_site_settings.web_fetch_max_content_chars = 999_999
-        mock_site_settings.web_fetch_model_name = "openai:gpt-6-luna"
-        mock_get_model.return_value = _FakeModel([{"type": "reasoning", "encrypted_content": "gAAAAopaque"}])
-
-        result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com/page", "prompt": "P"})
-
-    assert result == "Model processing returned no answer. Contents of https://example.com/page:\nBody"
-    assert web_fetch_module._get_cached_response(url="https://example.com/page", prompt="P") is None
+    assert result == expected
+    assert web_fetch_module._get_cached_response(url="https://example.com/page", prompt="P") == cached
 
 
 async def test_cache_key_changes_with_prompt(httpx_mock):
@@ -269,7 +257,7 @@ async def test_cache_key_changes_with_prompt(httpx_mock):
         mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_site_settings.web_fetch_model_name = "openrouter:openai/gpt-4.1-mini"
 
-        mock_get_model.return_value = _FakeModel("ANSWER")
+        mock_get_model.return_value = _fake_model("ANSWER")
 
         await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com/page", "prompt": "P1"})
         await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com/page", "prompt": "P2"})
@@ -357,29 +345,37 @@ GITHUB_PAGE = """<html><body><article class="markdown-body">
         ),
     ],
 )
-async def test_html_section_returns_only_the_named_section(page, fragment, kept, dropped):
-    section = web_fetch_module._html_section(page, fragment)
+async def test_html_page_returns_only_the_named_section(page, fragment, kept, dropped):
+    result = web_fetch_module._html_page(page, fragment, max_chars=999_999)
 
-    assert section is not None
+    assert result.fragment_note == ""
     for text in kept:
-        assert text in section
+        assert text in result.content
     for text in dropped:
-        assert text not in section
+        assert text not in result.content
 
 
-async def test_html_section_ignores_links_that_only_point_at_the_fragment():
-    page = '<html><body><a href="#usage">Usage</a><h2>Usage</h2><p>body</p></body></html>'
+@pytest.mark.parametrize(
+    ("page", "fragment"),
+    [
+        pytest.param(
+            '<html><body><a href="#usage">Usage</a><h2>Usage</h2><p>body</p></body></html>',
+            "usage",
+            id="link-only-points-at-fragment",
+        ),
+        pytest.param(
+            '<html><body><h2>Intro</h2><p>intro body</p><div id="comments"></div>'
+            "<footer><h2>Footer</h2><p>footer links</p></footer></body></html>",
+            "comments",
+            id="empty-anchor-not-on-a-heading",
+        ),
+    ],
+)
+async def test_html_page_without_the_named_section_returns_the_whole_page(page, fragment):
+    result = web_fetch_module._html_page(page, fragment, max_chars=999_999)
 
-    assert web_fetch_module._html_section(page, "usage") is None
-
-
-async def test_html_section_ignores_an_empty_anchor_that_is_not_on_a_heading():
-    page = (
-        '<html><body><h2>Intro</h2><p>intro body</p><div id="comments"></div>'
-        "<footer><h2>Footer</h2><p>footer links</p></footer></body></html>"
-    )
-
-    assert web_fetch_module._html_section(page, "comments") is None
+    assert result.fragment_note == f"The page has no #{fragment} section."
+    assert "body" in result.content
 
 
 async def test_section_anchors_prefer_the_heading_permalink_over_a_cross_reference():
@@ -388,7 +384,7 @@ async def test_section_anchors_prefer_the_heading_permalink_over_a_cross_referen
         '<a class="headerlink" href="#changes-to-queryset">¶</a></h3></body></html>'
     )
 
-    assert web_fetch_module._section_anchors(page) == ["#changes-to-queryset  Changes to QuerySet"]
+    assert web_fetch_module._html_page(page, "", max_chars=0).anchors == ["#changes-to-queryset  Changes to QuerySet"]
 
 
 async def test_unmatched_fragment_says_the_whole_page_is_returned(httpx_mock):
