@@ -16,7 +16,8 @@ from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_acc
 from sessions.executor.lock import SessionLock, session_activity, stale_cutoff
 from sessions.inbox import kinds
 from sessions.inbox.complete import arelease_chat_claim
-from sessions.inbox.drain import ais_busy, atake_for_chat
+from sessions.inbox.drain import atake_for_chat
+from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.post import apost_event
 from sessions.live import relay
 from sessions.models import EventKind, Run, RunStatus, Session
@@ -281,7 +282,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     if (
         forwarded.get("queue") is True
         or await _waiting_to_start(session)
-        or await ais_busy(session)
+        or await NextRuns(session).ais_busy()
         or not await SessionLock.try_claim(thread_id, run_id)
     ):
         queued = await _queue_message(thread_id, user=user, prompt=prompt, message_id=message_id)

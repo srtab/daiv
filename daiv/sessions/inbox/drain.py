@@ -34,9 +34,12 @@ from sandbox_envs.selection import resolve_env_for_run
 from automation.agent.references import merge_stored_refs
 from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
-from sessions.inbox.kinds import INBOX_TRIGGERS, PERSON_KINDS, PRECEDENCE, EventContent
+from sessions.inbox.kinds import PERSON_KINDS, PRECEDENCE, EventContent
+from sessions.inbox.next_runs import NextRuns
+from sessions.inbox.pending import PendingEvents
 from sessions.inbox.policy import WakePolicy
 from sessions.inbox.render import RunInput
+from sessions.inbox.requester import Requester
 from sessions.models import (
     EventFailure,
     EventKind,
@@ -47,109 +50,18 @@ from sessions.models import (
     Run,
     RunStatus,
     Session,
-    SessionOrigin,
 )
 from sessions.queue import aenqueue_run
 from sessions.services import pinned_agent_override
 
 if TYPE_CHECKING:
     import uuid
-    from collections.abc import Iterable
-
-    from django.db.models import QuerySet
 
     from accounts.models import User
 
 logger = logging.getLogger("daiv.sessions")
 
 DRAIN_SWEEP_LIMIT = 200
-
-
-def slot_busy(session: Session) -> bool:
-    """Whether a live holder has ``session``'s slot."""
-    return session.active_run_id is not None and session.last_active_at >= stale_cutoff()
-
-
-def job_run_active(session: Session) -> bool:
-    """Whether a job run holds ``session``'s one active job place, which no run can start from the inbox before it
-    ends, even one queued for a worker that has not claimed the slot yet. SYNC ONLY."""
-    return Run.objects.filter(
-        session=session, status__in=(RunStatus.READY, RunStatus.RUNNING), trigger_type__in=SessionOrigin.one_active()
-    ).exists()
-
-
-class Requester(NamedTuple):
-    """Whom a run is for: a DAIV user, else the git platform account of a person who never linked one."""
-
-    user_id: int | None
-    provider: str = ""
-    uid: str = ""
-
-    @classmethod
-    def of_run(cls, run: Run) -> Requester:
-        return cls(run.user_id, run.external_provider, run.external_uid)
-
-    def run_lookup(self) -> dict[str, int | str | None]:
-        """The ``Run`` fields that identify this requester."""
-        return {"user_id": self.user_id, "external_provider": self.provider, "external_uid": self.uid}
-
-    def run_fields(self, username: str = "") -> dict[str, int | str | None]:
-        """:meth:`run_lookup` plus ``username``, which names an unlinked account."""
-        return self.run_lookup() | {"external_username": "" if self.user_id is not None else username}
-
-
-def branch_of(event: InboxEvent, session: Session) -> str:
-    """The branch a pending ``event`` concerns now: the session's for a request that follows it
-    (:meth:`sessions.inbox.kinds.EventContent.follows_session`), else the one it was posted on."""
-    return session.ref if EventContent.of(event).follows_session() else event.ref
-
-
-def requester_user(session: Session, asked: list[InboxEvent], requester: Requester) -> User | None:
-    """The DAIV user ``requester`` names: the author of one of ``asked``, else the session's owner."""
-    if requester.user_id is None:
-        return None
-    return next((event.author for event in asked if event.author_id == requester.user_id), session.user)
-
-
-def newest_of_each_subject(pending: list[InboxEvent]) -> list[InboxEvent]:
-    """``pending`` less the events a newer one of the same subject replaces, oldest first."""
-    newest = {event.subject: event for event in pending if event.subject}
-    return [event for event in pending if not event.subject or newest[event.subject] is event]
-
-
-def requester_of(event: InboxEvent, session: Session) -> Requester:
-    """Who asked for ``event``: its author, else a person's unlinked account, else (DAIV woke on its own) the session's
-    owner."""
-    if event.author_id is not None:
-        return Requester(event.author_id)
-    if event.kind in PERSON_KINDS:
-        return Requester(None, event.author_provider, event.author_uid)
-    return Requester(session.user_id)
-
-
-def next_runs(session: Session) -> QuerySet[Run]:
-    """``session``'s QUEUED next runs, one per branch and requester."""
-    return Run.objects.filter(
-        Exists(InboxEvent.objects.filter(run=OuterRef("pk"))),
-        session=session,
-        status=RunStatus.QUEUED,
-        task_result__isnull=True,
-        trigger_type__in=INBOX_TRIGGERS,
-    ).order_by("created_at")
-
-
-def next_run_for(session: Session, ref: str, requester: Requester) -> Run | None:
-    """``session``'s QUEUED next run for the branch ``ref`` and ``requester``. SYNC ONLY."""
-    return next_runs(session).filter(ref=ref, **requester.run_lookup()).first()
-
-
-def is_busy(session: Session) -> bool:
-    """Whether a message sent to ``session`` now has to wait: a live holder has the slot, or a next run is queued
-    ahead of it. SYNC ONLY."""
-    return slot_busy(session) or next_runs(session).exists()
-
-
-ais_busy = sync_to_async(is_busy)
 
 
 def take_for_chat(thread_id: str, *, holder_id: str) -> list[InboxEvent]:
@@ -167,9 +79,9 @@ def take_for_chat(thread_id: str, *, holder_id: str) -> list[InboxEvent]:
                 Q(ref="") | Q(ref=session.ref), session=session, state=EventState.PENDING
             ).order_by("created_at", "id")
         )
-        survivors = _supersede(pending)
+        survivors = PendingEvents(session, pending).supersede()
         superseded_runs = {event.run_id for event in pending if event.run_id is not None and event not in survivors}
-        _drop_next_runs(
+        NextRuns(session).drop(
             Run.objects.filter(pk__in=superseded_runs, status=RunStatus.QUEUED).exclude(
                 Exists(InboxEvent.objects.filter(run=OuterRef("pk"), state=EventState.PENDING, wake=True))
             )
@@ -262,7 +174,8 @@ class _Charge(NamedTuple):
 @transaction.atomic
 def _take(thread_id: str) -> tuple[Run, list[_Charge]] | None:
     session = Session.objects.select_for_update(of=("self",)).select_related("user").get(pk=thread_id)
-    if slot_busy(session) or job_run_active(session):
+    next_runs = NextRuns(session)
+    if SessionLock.is_held(session) or next_runs.job_run_active():
         return None
     pending = list(
         InboxEvent.objects
@@ -270,28 +183,29 @@ def _take(thread_id: str) -> tuple[Run, list[_Charge]] | None:
         .select_related("author")
         .order_by("created_at", "id")
     )
-    queued_runs = list(next_runs(session))
-    _follow_session_branch(session, pending, queued_runs)
+    pending_events = PendingEvents(session, pending)
+    queued_runs = list(next_runs.queued())
+    pending_events.follow_session_branch(queued_runs)
     queued: dict[tuple[str, Requester], Run] = {}
     for next_run in queued_runs:
         queued.setdefault((next_run.ref, Requester.of_run(next_run)), next_run)
-    survivors = _supersede(pending)
+    survivors = pending_events.supersede()
     _apply_policy(session, survivors)
     waking = [event for event in survivors if event.wake]
-    wanted = {(event.ref, requester_of(event, session)) for event in waking}
-    _drop_next_runs([run for key, run in queued.items() if key not in wanted])
+    wanted = {(event.ref, Requester.of_event(event, session)) for event in waking}
+    next_runs.drop([run for key, run in queued.items() if key not in wanted])
     if not waking:
         return None
 
-    branch, requester = waking[0].ref, requester_of(waking[0], session)
-    asked = [event for event in waking if event.ref in ("", branch) and requester_of(event, session) == requester]
+    branch, requester = waking[0].ref, Requester.of_event(waking[0], session)
+    asked = [event for event in waking if event.ref in ("", branch) and Requester.of_event(event, session) == requester]
     taken = [event for event in survivors if event.ref in ("", branch) and (not event.wake or event in asked)]
     next_run = queued.get((branch, requester))
-    user = requester_user(session, asked, requester)
+    user = requester.user(session, asked)
     checked = any(event.kind != EventKind.MENTION for event in asked)
     if user is not None and checked and not _may_run(user, session.repo_id):
         _fail(session, asked, next_run)
-        _drop_emptied(queued_runs)
+        next_runs.drop_emptied(queued_runs)
         transaction.on_commit(partial(drain_logged, thread_id), robust=True)
         return None
 
@@ -315,44 +229,9 @@ def _take(thread_id: str) -> tuple[Run, list[_Charge]] | None:
     InboxEvent.objects.filter(
         session=session, state=EventState.SUPERSEDED, run__isnull=True, subject__in={e.subject for e in taken} - {""}
     ).filter(Q(ref="") | Q(ref=branch)).update(run=run)
-    _drop_emptied(queued_run for queued_run in queued_runs if queued_run.pk != run.pk)
+    next_runs.drop_emptied(queued_run for queued_run in queued_runs if queued_run.pk != run.pk)
     _merge_references(session, taken)
     return run, _charge_ci_attempts(session, taken)
-
-
-def _follow_session_branch(session: Session, pending: list[InboxEvent], queued_runs: list[Run]) -> None:
-    """Point the pending requests that follow the session
-    (:meth:`sessions.inbox.kinds.EventContent.follows_session`) at its branch, which the run they waited for may have
-    moved by publishing to a new one. A next run that only such requests wait in moves with them, keeping the id a
-    follow-up job's caller polls; the others let them go."""
-    moved = [event for event in pending if branch_of(event, session) != event.ref]
-    if not moved:
-        return
-    held = {(run.ref, Requester.of_run(run)) for run in queued_runs}
-    kept = set()
-    for run in queued_runs:
-        riders = [event for event in pending if event.run_id == run.pk]
-        key = (session.ref, Requester.of_run(run))
-        if riders and all(event in moved for event in riders) and key not in held and _move(run, session.ref):
-            held.add(key)
-            kept.add(run.pk)
-    InboxEvent.objects.filter(pk__in=[event.pk for event in moved]).update(ref=session.ref, updated_at=timezone.now())
-    InboxEvent.objects.filter(pk__in=[event.pk for event in moved if event.run_id not in kept]).update(run=None)
-    for event in moved:
-        event.ref = session.ref
-        if event.run_id not in kept:
-            event.run_id = None
-
-
-def _move(run: Run, ref: str) -> bool:
-    """Move the next run ``run`` to the branch ``ref``, unless a QUEUED run already holds its place there."""
-    try:
-        with transaction.atomic():
-            Run.objects.filter(pk=run.pk).update(ref=ref)
-    except IntegrityError:
-        return False
-    run.ref = ref
-    return True
 
 
 def _merge_references(session: Session, taken: list[InboxEvent]) -> None:
@@ -379,16 +258,6 @@ def _charge_ci_attempts(session: Session, taken: list[InboxEvent]) -> list[_Char
     return charges
 
 
-def _supersede(pending: list[InboxEvent]) -> list[InboxEvent]:
-    """Mark all but the newest pending event per subject ``superseded``, and return the rest, oldest first."""
-    survivors = newest_of_each_subject(pending)
-    if replaced := [event for event in pending if event not in survivors]:
-        InboxEvent.objects.filter(pk__in=[event.pk for event in replaced]).update(
-            state=EventState.SUPERSEDED, run=None, updated_at=timezone.now()
-        )
-    return survivors
-
-
 def _apply_policy(session: Session, survivors: list[InboxEvent]) -> None:
     """Turn the waking events the policy blocks into remembered ones, recording why. A CI failure whose merge request
     was closed, or whose watch was turned off, since it was posted no longer wakes either."""
@@ -399,23 +268,6 @@ def _apply_policy(session: Session, survivors: list[InboxEvent]) -> None:
             event.save(update_fields=["wake", "reason", "updated_at"])
     if QuietReason.RUN_LIMIT in reasons.values():
         transaction.on_commit(WakePolicy(session).report_run_limit, robust=True)
-
-
-def _drop_next_runs(runs: Iterable[Run | None]) -> None:
-    """Delete ``runs``, next runs left with no waking event to start them, detaching their events."""
-    if ids := [run.pk for run in runs if run is not None]:
-        InboxEvent.objects.filter(run_id__in=ids).update(run=None, updated_at=timezone.now())
-        Run.objects.filter(pk__in=ids).delete()
-
-
-def _drop_emptied(runs: Iterable[Run]) -> None:
-    """Delete the next runs among ``runs`` the take left with no event, whose requests went to another run (one sent
-    without a branch matches any); ``sessions.queue`` would otherwise start them as plain jobs."""
-    _drop_next_runs(
-        Run.objects.filter(pk__in=[run.pk for run in runs], status=RunStatus.QUEUED).exclude(
-            Exists(InboxEvent.objects.filter(run=OuterRef("pk")))
-        )
-    )
 
 
 def _may_run(user: User, repo_id: str) -> bool:

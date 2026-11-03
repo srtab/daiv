@@ -21,10 +21,12 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 
 from sessions.executor.lock import session_activity
-from sessions.inbox.drain import Requester, branch_of, newest_of_each_subject, next_runs, requester_of, requester_user
 from sessions.inbox.kinds import PERSON_KINDS
+from sessions.inbox.next_runs import NextRuns
+from sessions.inbox.pending import PendingEvents
 from sessions.inbox.policy import WakePolicy
 from sessions.inbox.render import EventText
+from sessions.inbox.requester import Requester
 from sessions.inbox_display import bubble, run_bubble
 from sessions.models import EventState, InboxEvent, RunStatus
 from sessions.transcript import inbox_event_entry
@@ -44,7 +46,7 @@ def up_next_payload(
     and their ``activity`` when the caller has it; ``None`` when nothing is pending. SYNC ONLY."""
     waiting = set((activity or session_activity(session, runs)).waiting)
     starting = [run for run in runs if run.status == RunStatus.READY and run not in waiting]
-    inbox_runs = [run for run in next_runs(session).select_related("user") if run not in waiting]
+    inbox_runs = [run for run in NextRuns(session).queued().select_related("user") if run not in waiting]
     inbox_ids = {run.pk for run in inbox_runs}
     hidden = {run.pk for run in waiting}
     jobs = [run for run in runs if run.status == RunStatus.QUEUED and run.pk not in inbox_ids and run not in waiting]
@@ -61,18 +63,19 @@ def up_next_payload(
     by_key: dict[tuple[str, Requester], Run] = {}
     for run in inbox_runs:
         by_key.setdefault((run.ref, Requester.of_run(run)), run)
-    survivors = newest_of_each_subject([event for event in events if event.state == EventState.PENDING])
+    pending = PendingEvents(session, [event for event in events if event.state == EventState.PENDING])
+    survivors = pending.newest_of_each_subject()
     reasons = WakePolicy(session).quiet_reasons_now(survivors)
     asks: dict[Any, tuple[str, Requester, list[InboxEvent]]] = {}
     remembered: list[tuple[InboxEvent, str, str | None]] = []
     for event in survivors:
-        ref, reason = branch_of(event, session), reasons.get(event.pk)
+        ref, reason = pending.branch_of(event), reasons.get(event.pk)
         if not event.wake or reason is not None:
             remembered.append((event, ref, reason))
             continue
         if event.run_id in hidden:
             continue
-        requester = requester_of(event, session)
+        requester = Requester.of_event(event, session)
         run = by_id.get(event.run_id)
         if run is None or run.ref != ref:
             run = by_key.get((ref, requester)) or run
@@ -81,7 +84,7 @@ def up_next_payload(
     inbox_groups = []
     for key, (ref, requester, asked) in asks.items():
         run = by_id.get(key)
-        user = run.user if run is not None else requester_user(session, asked, requester)
+        user = run.user if run is not None else requester.user(session, asked)
         inbox_groups.append((ref, _group(run, user, viewer, bubbles=[bubble(event) for event in asked], asked=asked)))
     groups.extend(group for _, group in inbox_groups)
     groups.extend(_group(run, run.user, viewer, bubbles=[run_bubble(run)]) for run in jobs)

@@ -568,3 +568,21 @@ async def test_a_webhook_holder_beats_an_older_job_still_waiting_for_the_slot():
 
     assert activity.holder == webhook
     assert job.created_at < webhook.created_at
+
+
+class TestIsHeld:
+    async def test_a_live_holder_holds_the_slot(self):
+        session = await Session.objects.aget(pk=await amake_job_session(active_run_id="run-1"))
+
+        assert SessionLock.is_held(session)
+
+    async def test_a_stale_holder_does_not(self):
+        stale = stale_cutoff() - timedelta(minutes=1)
+        session = await Session.objects.aget(pk=await amake_job_session(active_run_id="run-1", last_active_at=stale))
+
+        assert not SessionLock.is_held(session)
+
+    async def test_a_free_slot_is_not_held(self):
+        session = await Session.objects.aget(pk=await amake_job_session())
+
+        assert not SessionLock.is_held(session)

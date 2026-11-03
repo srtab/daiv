@@ -167,6 +167,11 @@ class SessionLock:
         return await sync_to_async(_claim)(thread_id, holder_id)
 
     @staticmethod
+    def is_held(session: Session) -> bool:
+        """Whether a live holder has ``session``'s slot."""
+        return session.active_run_id is not None and session.last_active_at >= stale_cutoff()
+
+    @staticmethod
     def claim_for_run(thread_id: str, run_id: object) -> bool:
         """:meth:`try_claim` for the inbox drainer, which claims the slot for the run it is creating, under the run's
         pk, inside the transaction that creates it. SYNC ONLY."""

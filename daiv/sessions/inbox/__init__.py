@@ -13,7 +13,7 @@ a delegated batch finishing: each becomes an ``InboxEvent`` on that session, pos
   runs it under the ``Claimed`` lock policy: it heartbeats and releases, and never polls. Until a worker starts it, a
   per-minute task on the interactive queue heartbeats the claim, and a run that ends without its task running frees it
   when it ends. No worker waits for a busy session; the drain is retried when the holder's run ends, and by the sweep.
-- **A run serves one requester and acts as them** (:class:`sessions.inbox.drain.Requester`): the DAIV user whose
+- **A run serves one requester and acts as them** (:class:`sessions.inbox.requester.Requester`): the DAIV user whose
   request woke it, else a person's platform account no one linked (acting as no one), else, for what DAIV woke on its
   own, the user who delegated a finished batch or the session's owner; ``run_job_task`` takes that user from the run,
   never from the session. Requests from different people get runs of their own. A platform account is known only as

@@ -7,14 +7,14 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from django.db import IntegrityError, transaction
+from django.db import transaction
 
 from asgiref.sync import sync_to_async
 
-from sessions.inbox.drain import drain_logged, is_busy, job_run_active, next_run_for, requester_of
-from sessions.inbox.kinds import KEY_MAX_LENGTH, PRECEDENCE, WAKING_KINDS, EventContent, SourceKey, Subject
-from sessions.inbox.render import RunInput
-from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session
+from sessions.inbox.drain import drain_logged
+from sessions.inbox.kinds import KEY_MAX_LENGTH, WAKING_KINDS, EventContent, SourceKey, Subject
+from sessions.inbox.next_runs import NextRuns
+from sessions.models import EventKind, EventState, InboxEvent, Run, Session
 
 if TYPE_CHECKING:
     import uuid
@@ -57,9 +57,9 @@ def post_event(
     when the event wakes the agent. SYNC ONLY; :func:`apost_event` is the async interface.
 
     A waking event on a busy session joins the session's next run for the event's branch and requester
-    (``sessions.inbox.drain.requester_of``), which is created when there is none yet. A waking event with no ``ref``
-    concerns the session's own branch. ``author_provider``/``author_uid``: the platform account of an author no DAIV
-    user is linked to.
+    (:meth:`sessions.inbox.requester.Requester.of_event`), which is created when there is none yet. A waking event
+    with no ``ref`` concerns the session's own branch. ``author_provider``/``author_uid``: the platform account of an
+    author no DAIV user is linked to.
 
     Raises ``ValueError`` for an invalid payload, or ``wake`` on a kind that never wakes, and
     ``Session.DoesNotExist`` when there is no such session.
@@ -87,7 +87,7 @@ def post_event(
         if stored.pk != event.pk:
             return PostResult(event=stored, created=False, run_id=stored.run_id)
         if wake:
-            _join_next_run(session, stored)
+            NextRuns(session).join(stored)
             transaction.on_commit(partial(drain_logged, thread_id), robust=True)
     if wake and stored.run_id is None:
         stored.run_id = InboxEvent.objects.filter(pk=stored.pk).values_list("run_id", flat=True).first()
@@ -127,16 +127,6 @@ def post_delegated_ci_outcome(
 apost_delegated_ci_outcome = sync_to_async(post_delegated_ci_outcome)
 
 
-def _describe_next_run(run: Run) -> None:
-    """Keep the next run's prompt and provisional trigger type in step with the events waiting for it, so the session
-    page shows what it will do while it waits."""
-    waiting = list(InboxEvent.objects.filter(run=run, state=EventState.PENDING, wake=True).select_related("author"))
-    top = min(waiting, key=lambda event: (PRECEDENCE[event.kind], event.created_at))
-    Run.objects.filter(pk=run.pk).update(
-        prompt=RunInput(waiting).request(), trigger_type=EventContent.of(top).run_trigger_type()
-    )
-
-
 def attach_next_run(event: InboxEvent) -> Run | None:
     """The run that handles the waking ``event``: the one it joined or that took it, else, while its session is busy,
     its branch's next run, created when there is none. ``None`` when the event cannot run (it failed or was
@@ -149,49 +139,9 @@ def attach_next_run(event: InboxEvent) -> Run | None:
         event = InboxEvent.objects.select_related("author", "run").get(pk=event.pk)
         if event.run_id is not None or event.state != EventState.PENDING:
             return event.run
-        if (run := _join_next_run(session, event)) is not None:
+        if (run := NextRuns(session).join(event)) is not None:
             transaction.on_commit(partial(drain_logged, session.thread_id), robust=True)
         return run
 
 
 aattach_next_run = sync_to_async(attach_next_run)
-
-
-def _join_next_run(session: Session, event: InboxEvent) -> Run | None:
-    """Link the waking ``event`` to the next run it joins (:func:`_next_run`), and return that run."""
-    if (run := _next_run(session, event)) is not None:
-        InboxEvent.objects.filter(pk=event.pk).update(run=run)
-        event.run = run
-        _describe_next_run(run)
-    return run
-
-
-def _next_run(session: Session, event: InboxEvent) -> Run | None:
-    """The next run ``event`` joins: the existing one for its branch and requester, or a new one while the session is
-    busy or another next run waits. ``None`` too when a QUEUED run the inbox did not create holds that place
-    (``run_one_next_run_per_user``, ``run_one_next_run_per_account``); the event then waits for the drain after it."""
-    requester = requester_of(event, session)
-    if (run := next_run_for(session, event.ref, requester)) is not None:
-        return run
-    if not (is_busy(session) or job_run_active(session)):
-        return None
-    try:
-        with transaction.atomic():
-            return Run.objects.create(
-                session=session,
-                trigger_type=EventContent.of(event).run_trigger_type(),
-                status=RunStatus.QUEUED,
-                repo_id=session.repo_id,
-                ref=event.ref,
-                merge_request_iid=event.merge_request_iid,
-                sandbox_environment_id=session.sandbox_environment_id,
-                **requester.run_fields(event.author_username),
-            )
-    except IntegrityError:
-        logger.info(
-            "inbox: an older queued run holds thread_id=%s's place on %r; event=%s waits for it",
-            session.thread_id,
-            event.ref,
-            event.pk,
-        )
-        return None

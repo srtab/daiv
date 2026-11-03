@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
-from sessions.inbox.drain import newest_of_each_subject
+from sessions.inbox.pending import PendingEvents
 from sessions.models import (
     EventKind,
     InboxEvent,
@@ -201,7 +201,7 @@ class TestCiSubjects:
 
         failed, passed = await _events()
         assert (failed.kind, failed.wake, passed.kind) == (EventKind.CI_FAILED, True, EventKind.CI_PASSED)
-        assert newest_of_each_subject([failed, passed]) == [failed, passed]
+        assert PendingEvents(Session(), [failed, passed]).newest_of_each_subject() == [failed, passed]
 
     async def test_a_later_gitlab_pipeline_replaces_the_earlier_one(self, watch):
         await _owned()
@@ -210,7 +210,7 @@ class TestCiSubjects:
             await watch.make().aevaluate(ref=BRANCH, pipeline_id=pipeline_id)
 
         failed, passed = await _events()
-        assert newest_of_each_subject([failed, passed]) == [passed]
+        assert PendingEvents(Session(), [failed, passed]).newest_of_each_subject() == [passed]
 
 
 class TestLatestOfEachSubject:
