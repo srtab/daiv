@@ -84,6 +84,10 @@ Tip
 
 Push events (e.g., configuration cache invalidation) are not affected by the allowlist — they are system-level operations tied to the webhook, not to individual users.
 
+Warning
+
+The allowlist decides who can **trigger** DAIV, not who it reads. On a merge request a DAIV session owns, a comment that doesn't mention DAIV is remembered from anyone and shown to that session's next run as context (see [Pull request assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/#a-merge-request-daiv-published)). On a public repository, treat those comments as untrusted input.
+
 ## File access
 
 Control which files DAIV can read.

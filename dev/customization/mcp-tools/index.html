@@ -1868,11 +1868,13 @@ page (<code>/dashboard/mcp-servers/</code>). Clicking <strong>New server</strong
 the requester — there is no scope field to change that. Personal servers work like the global
 custom servers above (same transport options, same tool-filter capabilities, same <strong>Test
 connection</strong>/sync gating for the Tool filter section) with a few important differences.</p>
-<p><strong>Where they load.</strong> A personal server is loaded only in runs where DAIV knows who triggered the
-run: chat sessions, dashboard-initiated runs, and jobs submitted via the API or MCP interface.
-Webhook- and label-triggered runs (for example, issue or merge-request label automation) have no
-acting user and therefore load <strong>global servers only</strong> — personal servers are never loaded in those
-contexts.</p>
+<p><strong>Where they load.</strong> A personal server is loaded only in runs where DAIV knows whom the run acts
+as: chat sessions, dashboard-initiated runs, jobs submitted via the API or MCP interface, and runs a
+GitLab/GitHub event starts for a person who signed in to DAIV with that platform account (an issue
+label or mention, or a mention on a merge request a DAIV session owns). A session's CI fixes act as
+its owner, and a resumed delegation as the user who delegated. A mention on a merge request no
+session owns, or by someone who never signed in with that account, has no acting user and loads
+<strong>global servers only</strong>.</p>
 <p><strong>Header values are always literal.</strong> Unlike global servers, personal server headers cannot
 reference host environment variables (<code>env_ref</code>). Every header value is a literal string, encrypted
 at rest. This prevents a member from probing the server environment through their own
@@ -1924,7 +1926,7 @@ servers, but cannot edit them or view their header values.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 30, 2026 18:33:53 UTC">October 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 31, 2026 15:54:47 UTC">October 31, 2026</span>
   </span>
 
     

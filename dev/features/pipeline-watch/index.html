@@ -664,6 +664,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-session-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The session page
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notifications" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -748,6 +759,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#gitlab-child-pipelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitLab: child pipelines
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#gitlab-merge-request-pipelines-and-the-reconciler-poll" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -764,10 +786,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#which-runs-arm-the-watch" class="md-nav__link">
+  <a href="#which-runs-claim-the-merge-request" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Which runs arm the watch
+        Which runs claim the merge request
       
     </span>
   </a>
@@ -1621,6 +1643,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-session-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The session page
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notifications" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1705,6 +1738,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#gitlab-child-pipelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitLab: child pipelines
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#gitlab-merge-request-pipelines-and-the-reconciler-poll" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1721,10 +1765,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#which-runs-arm-the-watch" class="md-nav__link">
+  <a href="#which-runs-claim-the-merge-request" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Which runs arm the watch
+        Which runs claim the merge request
       
     </span>
   </a>
@@ -1866,42 +1910,74 @@
 
 
 <h1 id="pipeline-watch">Pipeline Watch</h1>
-<p>After DAIV publishes a merge request, it watches CI and spends up to a configurable number of agent runs trying to make it green. When the attempt budget is exhausted, DAIV comments on the merge request with the still-failing jobs and the pipeline link, and optionally sends an in-app notification.</p>
+<p>After DAIV publishes a merge request, it watches the merge request's CI and tells the session that published it what happened. A CI failure on a commit DAIV pushed wakes that session, up to a configurable number of times, to look at the failure and fix it; if the failure is not something a code change can fix, the run explains why instead of pushing. Everything else CI reports, a pass or a pipeline that needs a person, is remembered by the session and shown to the agent the next time it runs.</p>
 <hr />
 <h2 id="how-it-works">How it works</h2>
 <pre class="mermaid"><code>sequenceDiagram
     participant Agent as DAIV Agent
+    participant Session as Publishing session
     participant Watch as Pipeline Watch
     participant CI as GitLab / GitHub CI
-    participant MR as Merge Request
 
-    Agent-&gt;&gt;Watch: arm watch (MR published)
+    Agent-&gt;&gt;Session: publish (records the pushed commit)
     CI--&gt;&gt;Watch: pipeline event (terminal state)
-    Watch-&gt;&gt;Watch: judge pipeline
+    Watch-&gt;&gt;Watch: judge the head pipeline
     alt green
-        Watch-&gt;&gt;Watch: close watch
-    else unclear (blocked / manual / no jobs)
-        Watch-&gt;&gt;MR: post explanation note
-        Watch-&gt;&gt;Watch: close watch
-    else actionable failure
-        Watch-&gt;&gt;Watch: increment attempt counter
-        Watch-&gt;&gt;Agent: dispatch fix run
-        Agent-&gt;&gt;CI: push fix → new pipeline
-        CI--&gt;&gt;Watch: pipeline event
-    end
-    Watch-&gt;&gt;MR: post give-up comment (on exhaustion)</code></pre>
+        Watch-&gt;&gt;Session: CI passed (remembered)
+    else needs a person (blocked / manual / canceled / skipped)
+        Watch-&gt;&gt;Session: CI stopped (remembered)
+    else failure
+        Watch-&gt;&gt;Session: CI failed (wakes it, or remembered with a reason)
+        Session-&gt;&gt;Agent: run with the failed jobs and the pipeline link
+        Agent-&gt;&gt;CI: push a fix, or explain and push nothing
+    end</code></pre>
 <ol>
-<li><strong>Watch armed</strong> — when a DAIV run publishes a merge request, the watch is activated on the MR's thread. See <a href="#which-runs-arm-the-watch">Which runs arm the watch</a>. Arming requires that the run actually <em>pushed</em>: a turn that ends with a clean tree already on its merge request publishes nothing, so it leaves the watch alone. The counter survives re-arming by a fix run, so the cap bounds one chain of fix attempts; a human-initiated run that publishes to the same merge request starts a fresh budget.</li>
-<li><strong>Pipeline event</strong> — a webhook from GitLab (<code>pipeline_events</code>) or GitHub (<code>workflow_run</code>) delivers the terminal result. The watch also evaluates immediately on arming, because the CI event can arrive before the watch exists.</li>
+<li><strong>The publishing session owns the merge request</strong> — when a run publishes, its session claims the merge request and records the commit DAIV pushed. A later publish from another session of the same person moves the merge request to that session; a publish from another person's session leaves it where it is and tells the owning session. See <a href="#which-runs-claim-the-merge-request">Which runs claim the merge request</a>.</li>
+<li><strong>Pipeline event</strong> — a webhook from GitLab (<code>pipeline_events</code>) or GitHub (<code>workflow_run</code>) delivers the terminal result. CI is also judged right after a publish, because the event can arrive before the claim exists. Only the merge request's head pipeline is judged; a pipeline an older push started is ignored.</li>
 <li><strong>Judgment</strong> — see <a href="#conservative-judgment">Conservative judgment</a> below.</li>
-<li><strong>Fix run</strong> — on an actionable failure, a run is dispatched on the MR's own branch and thread with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its <code>gitlab</code> / <code>gh</code> platform tool and pushes a fix. Fix runs can't ask the user a question: nobody is there to answer, so the agent doesn't get the ask-the-user tool.</li>
-<li><strong>Give up</strong> — when the attempt counter reaches the cap, DAIV posts a comment on the MR with the failing jobs and the pipeline link, then closes the watch. A notification is sent to the session owner if one exists.</li>
-<li><strong>No-diff early exit</strong> — if a fix run produces no diff (nothing to commit), the watch ends immediately. No push means no pipeline and no future event, so the loop would never advance.</li>
-<li><strong>Reconciler</strong> — a cron task runs every 10 minutes to handle missed events and stuck states. Any watch still open after 6 hours is marked unclear, with a note on the merge request saying so. Each tick expires at most 200 watches and re-judges at most 200 branches, so a backlog after an outage drains over several ticks rather than in one platform-API storm.</li>
+<li>
+<p><strong>Waking the session</strong> — a failure wakes the owning session only when all of these hold. The first one that does not is recorded as the reason the failure was only remembered, and the agent sees it the next time it runs.</p>
+<table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>Reason when it fails</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The watch is on for the repository and for this merge request</td>
+<td>Watch off</td>
+</tr>
+<tr>
+<td>The pipeline ran on the commit DAIV last pushed</td>
+<td>Not DAIV's commit</td>
+</tr>
+<tr>
+<td>No CI run looked at that commit yet</td>
+<td>Already examined</td>
+</tr>
+<tr>
+<td>Attempts are left</td>
+<td>Attempts spent</td>
+</tr>
+<tr>
+<td>DAIV has not started three runs in a row on the session without a person</td>
+<td>Too many runs in a row</td>
+</tr>
+</tbody>
+</table>
+</li>
+<li>
+<p><strong>The CI run</strong> — runs in the publishing session, on the merge request's branch, with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its <code>gitlab</code> / <code>gh</code> platform tool, then pushes a fix or explains why it pushed nothing. It can't ask a question: nobody is there to answer. If the session is busy, the failure waits and joins the session's next run.</p>
+</li>
+<li><strong>A run that pushes nothing</strong> explains, without giving up. No push means no new pipeline, so the session shows CI as failing with a link to that run's explanation, and you receive its summary as a run notification. Retrying the same pipeline by hand does not wake the session again: the commit was already examined. If the retry passes, the session shows CI passing.</li>
+<li><strong>Attempts spent</strong> — when a failure on a new DAIV commit finds no attempts left, the merge request's owner is notified once for that commit. A run a person starts that publishes to the merge request gives the attempts back.</li>
+<li><strong>Reconciler</strong> — a cron task runs every 10 minutes and re-reads the CI of each watched merge request nothing was heard of for 30 minutes, whatever it last reported, so a missed webhook (a manual retry's, say) is repaired. On GitLab it reads the branch's latest pipeline; on GitHub, the latest run of each workflow on the branch's head commit. A pipeline already judged in its status is skipped without reading its jobs. Nothing expires: the watch observes until the merge request is merged or closed. Each tick re-reads at most 200 branches, the longest-quiet first, and a branch it could not read is tried again on the next tick.</li>
 </ol>
 <hr />
 <h2 id="conservative-judgment">Conservative judgment</h2>
-<p>DAIV errs toward stopping the watch rather than spending an attempt on something it cannot fix. The decision table:</p>
+<p>DAIV errs toward remembering rather than spending an attempt on something it cannot fix. The decision table:</p>
 <p>Rows are evaluated top to bottom; the first match wins.</p>
 <table>
 <thead>
@@ -1915,46 +1991,54 @@
 <tr>
 <td>still in progress (<code>created</code>, <code>pending</code>, <code>running</code>, <code>preparing</code>, …), or no pipeline found</td>
 <td>any</td>
-<td><strong>Not judged</strong> — watch stays armed, nothing posted</td>
+<td><strong>Not judged</strong> — nothing posted; the next event or the reconciler looks again</td>
+</tr>
+<tr>
+<td><code>skipped</code></td>
+<td>zero jobs</td>
+<td><strong>Not judged</strong> — a <code>ci.skip</code> push records this in place of a pipeline</td>
 </tr>
 <tr>
 <td><code>blocked</code>, <code>manual</code>, <code>canceled</code>, <code>skipped</code></td>
 <td>any</td>
-<td><strong>Unclear</strong> — watch stops, MR note posted</td>
+<td><strong>Stopped</strong> — remembered, shown as needing a person</td>
 </tr>
 <tr>
 <td>any</td>
 <td>zero jobs</td>
-<td><strong>Unclear</strong> — watch stops, MR note posted</td>
+<td><strong>Stopped</strong> — remembered, shown as needing a person</td>
 </tr>
 <tr>
 <td><code>failed</code></td>
 <td>at least one non-<code>allow_failure</code> failed job</td>
-<td><strong>Actionable</strong> — fix run dispatched</td>
+<td><strong>Failed</strong> — may wake the session</td>
 </tr>
 <tr>
 <td><code>failed</code></td>
 <td>no job reports <code>failed</code> at all (e.g. a config error)</td>
-<td><strong>Actionable</strong> — fix run dispatched</td>
+<td><strong>Failed</strong> — may wake the session</td>
 </tr>
 <tr>
 <td><code>failed</code></td>
 <td>every failed job is <code>allow_failure</code></td>
-<td><strong>Green</strong> — effectively a pass</td>
+<td><strong>Passed</strong> — effectively a pass</td>
 </tr>
 <tr>
 <td><code>success</code></td>
 <td>at least one job</td>
-<td><strong>Green</strong> — watch ends</td>
+<td><strong>Passed</strong></td>
 </tr>
 </tbody>
 </table>
-<p><strong>Why zero-job pipelines are unclear, not green:</strong> a GitLab <code>.gitlab-ci.yml</code> that includes a cross-project template from a private repository resolves as the pushing identity. An ephemeral project-scoped token cannot read that private repository, so GitLab produces a pipeline with no jobs. Treating it as green would let a misconfigured pipeline pass silently; treating it as a failure would burn every attempt on a pipeline that was never going to run. Stopping the watch and posting a note is the only safe choice.</p>
-<p><strong>Why blocked/manual/skipped/canceled are unclear:</strong> these states reflect a human decision or an external gate. DAIV does not know whether to wait or act, so it stops and lets you decide.</p>
-<p><strong>Why an in-progress pipeline is not judged at all:</strong> the watch is armed immediately after DAIV pushes, so the first look almost always lands on a <code>created</code> / <code>pending</code> / <code>running</code> pipeline — or before one exists at all. Judging that would end every watch on the normal path, so a pipeline that has not reached a verdict is left alone and the watch waits for the next event or reconciler sweep. A pipeline that never starts is caught by the six-hour expiry. <code>blocked</code> and <code>manual</code> are <em>not</em> in this bucket: they are settled states that only a person resolves, so they end the watch with a note.</p>
+<p><strong>Why zero-job pipelines are stopped, not passed:</strong> a GitLab <code>.gitlab-ci.yml</code> that includes a cross-project template from a private repository resolves as the pushing identity. An ephemeral project-scoped token cannot read that private repository, so GitLab produces a pipeline with no jobs. Treating it as green would let a misconfigured pipeline pass silently; treating it as a failure would burn every attempt on a pipeline that was never going to run.</p>
+<p><strong>Why blocked/manual/skipped/canceled are stopped:</strong> these states reflect a human decision or an external gate. DAIV does not know whether to wait or act, so it remembers the result and lets you decide.</p>
+<hr />
+<h2 id="the-session-page">The session page</h2>
+<p>The session's top bar and details panel show CI for each open merge request the session owns: <strong>Waiting for CI</strong> while no result has arrived since DAIV last pushed or a run is looking at a failure, then <strong>Passing</strong>, <strong>Failing</strong> or <strong>Needs a person</strong>. A failing merge request links the last run that looked at a failure, whose summary says what it found.</p>
+<p><strong>Fix CI failures</strong> in the merge request menu turns the watch on or off for that merge request only. Turned off, CI results are still remembered but never wake the session. Turning it back on gives the merge request its attempts back and judges the branch's latest pipelines again at once (on GitHub, every workflow's), so a failure reported while the watch was off, or out of attempts, wakes the session; a commit a run already looked at is not looked at again. Turning it on when it is already on changes nothing.</p>
 <hr />
 <h2 id="notifications">Notifications</h2>
-<p>Only the <strong>give-up</strong> event triggers a notification. Green and unclear outcomes are silent — a short MR note explains unclear outcomes directly on the merge request. The merge request thread inherits the owner of the run that published it, so a run triggered through the API, the UI, MCP or a schedule can notify that user. A thread with no DAIV user behind it (a pipeline event on a merge request DAIV never ran against) still gets the MR comment, and a warning is logged; the comment is the reliable channel.</p>
+<p>Every CI run produces the usual run notification, with the run's summary, so you hear what it found whether it pushed a fix or explained why it didn't. When attempts run out on a new DAIV commit, the merge request's owner gets one <strong>CI still failing</strong> notification for that commit, linking the owning session. A merge request whose owning session has no DAIV user behind it gets that outcome, and each CI run's summary, as a merge request comment instead.</p>
 <hr />
 <h2 id="settings">Settings</h2>
 <h3 id="site-wide">Site-wide</h3>
@@ -1971,7 +2055,7 @@
 <tr>
 <td><code>pipeline_watch_enabled</code></td>
 <td><code>true</code></td>
-<td>Master switch. Set to <code>false</code> to disable the feature entirely. Env var: <code>DAIV_PIPELINE_WATCH_ENABLED</code>.</td>
+<td>Master switch. Set to <code>false</code> and no CI failure wakes a session; owning sessions still remember every CI result, a failure with the reason <em>Watch off</em>. Env var: <code>DAIV_PIPELINE_WATCH_ENABLED</code>.</td>
 </tr>
 <tr>
 <td><code>pipeline_watch_max_attempts</code></td>
@@ -2002,7 +2086,7 @@
 <td><code>pipeline_watch.enabled</code></td>
 <td><code>bool</code></td>
 <td>site-wide</td>
-<td>Disable watch for this repository by setting to <code>false</code>.</td>
+<td>Set to <code>false</code> and CI failures on this repository never wake a session; they are still remembered, with the reason <em>Watch off</em>.</td>
 </tr>
 <tr>
 <td><code>pipeline_watch.max_attempts</code></td>
@@ -2017,38 +2101,40 @@
 <h3 id="github-allow_failure-jobs">GitHub: <code>allow_failure</code> jobs</h3>
 <p>GitHub Actions does not expose per-job required-ness through the API, so DAIV treats every failed job as required. The verdict itself still comes from the workflow run's own conclusion, so a tolerated job's failure cannot by itself spend an attempt — a run that concludes <code>success</code> is green. What differs from GitLab is narrower: DAIV cannot exclude a tolerated job from the failure list it hands the agent, and it never reads a failed run as green on the grounds that every failure was tolerated.</p>
 <h3 id="github-one-event-per-workflow-not-per-push">GitHub: one event per workflow, not per push</h3>
-<p>A <code>workflow_run</code> event reports a single workflow, not the branch's whole CI. A repository with several workflows on one push delivers one event per workflow, each judged on its own — so the first workflow to finish green can close the watch while another is still running or about to fail. Repositories that split required checks across workflows should expect the watch to end early.</p>
+<p>A <code>workflow_run</code> event reports a single workflow, not the branch's whole CI. A repository with several workflows on one push delivers one event per workflow, each judged on its own — so the first workflow to finish green can show CI as passing while another is still running or about to fail. Repositories that split required checks across workflows should expect the status to flip as each workflow reports. A session that delegated the work is told its CI passed only once the latest run of every workflow on the commit has passed.</p>
+<h3 id="gitlab-child-pipelines">GitLab: child pipelines</h3>
+<p>A child pipeline (<code>trigger: include:</code>) runs on its parent's branch and commit, so DAIV ignores it and judges the parent pipeline, which is the merge request's result. For a child's failure to count, trigger it with <code>strategy: depend</code>, so the parent pipeline fails with it.</p>
 <h3 id="gitlab-merge-request-pipelines-and-the-reconciler-poll">GitLab: merge-request pipelines and the reconciler poll</h3>
-<p>The reconciler's fallback poll lists pipelines by branch (<code>ref=&lt;source branch&gt;</code>). Detached merge-request pipelines are not on the branch ref — GitLab records them under <code>refs/merge-requests/&lt;iid&gt;/head</code> — so on projects that run <em>only</em> merge-request pipelines the poll finds nothing. This is harmless: a read that finds no pipeline never closes a watch, so those repositories are driven entirely by the pipeline webhook, with the six-hour expiry as the backstop.</p>
+<p>The reconciler's fallback poll lists pipelines by branch (<code>ref=&lt;source branch&gt;</code>). Detached merge-request pipelines are not on the branch ref — GitLab records them under <code>refs/merge-requests/&lt;iid&gt;/head</code> — so on projects that run <em>only</em> merge-request pipelines the poll finds nothing. This is harmless: a read that finds no pipeline posts nothing, so those repositories are driven entirely by the pipeline webhook.</p>
 <hr />
-<h2 id="which-runs-arm-the-watch">Which runs arm the watch</h2>
+<h2 id="which-runs-claim-the-merge-request">Which runs claim the merge request</h2>
 <table>
 <thead>
 <tr>
 <th>How the merge request was published</th>
-<th>Watch armed</th>
+<th>Session that owns it</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>Issue addressing (<code>daiv</code> / <code>daiv-auto</code> label, or a mention on an issue)</td>
-<td>Yes</td>
+<td>The issue's session</td>
 </tr>
 <tr>
 <td>Job runs — REST API, MCP <code>submit_job</code>, scheduled jobs</td>
-<td>Yes</td>
+<td>The job's session</td>
 </tr>
 <tr>
 <td>Chat turn</td>
-<td>Yes</td>
+<td>The chat session</td>
 </tr>
 <tr>
-<td>Fix run dispatched by the watch itself</td>
-<td>Yes — re-arms, keeping the attempt counter</td>
+<td>A CI run in the owning session</td>
+<td>Stays with that session, keeping the attempts spent</td>
 </tr>
 <tr>
-<td>Review addressing (DAIV answering comments on an existing merge request)</td>
-<td><strong>No</strong></td>
+<td>Review addressing (DAIV answering comments on a merge request no session owns)</td>
+<td><strong>None</strong></td>
 </tr>
 </tbody>
 </table>
@@ -2056,13 +2142,13 @@
 <hr />
 <h2 id="what-pipeline-watch-does-not-do">What pipeline watch does not do</h2>
 <ul>
-<li><strong>Watches only MRs DAIV published.</strong> There is no opt-in label to watch an existing merge request.</li>
-<li><strong>Does not distinguish flaky from real failures.</strong> Every actionable failure goes to the agent; the attempt cap bounds the cost.</li>
-<li><strong>Does not react to CI on the default branch.</strong> Watches are scoped to the merge request branch.</li>
+<li><strong>Watches only merge requests DAIV published.</strong> There is no opt-in label to watch an existing merge request.</li>
+<li><strong>Does not distinguish flaky from real failures.</strong> Every failure on DAIV's commit may wake the session; the attempt cap bounds the cost, and a run that finds nothing to fix says so.</li>
+<li><strong>Does not react to CI on the default branch.</strong> The watch is scoped to the merge request's branch.</li>
 </ul>
 <hr />
 <h2 id="rollout-required-step-per-platform">Rollout: required step per platform</h2>
-<p>Pipeline watch needs a CI event to react to, and enabling that event is a different action on each platform. Until it is done the feature is <strong>inert</strong> — it never receives an event and never arms. That is a safe failure, but a silent one.</p>
+<p>Pipeline watch needs a CI event to react to, and enabling that event is a different action on each platform. Until it is done the feature is <strong>inert</strong> — it never receives an event. That is a safe failure, but a silent one.</p>
 <h3 id="gitlab-run-the-management-command">GitLab — run the management command</h3>
 <p>GitLab webhooks are per repository, and <code>setup_webhooks</code> only creates hooks that do not exist yet; it skips repositories already onboarded. Adding <code>pipeline_events</code> to those existing hooks requires:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>setup_webhooks<span class="w"> </span>--update
@@ -2089,8 +2175,8 @@ update. Running <code>--update</code> on a GitHub install is a no-op.</p>
 <ul>
 <li><a href="../issue-addressing/">Issue Addressing</a> — the workflow that produces most DAIV-published merge requests</li>
 <li><a href="../pull-request-assistant/">Pull Request Assistant</a> — mention DAIV in a comment to request a manual pipeline fix</li>
-<li><a href="../sessions/">Sessions</a> — each fix run appears as a session on the MR thread</li>
-<li><a href="../notifications/">Notifications</a> — how the give-up notification is delivered</li>
+<li><a href="../sessions/">Sessions</a> — CI runs appear in the session that published the merge request</li>
+<li><a href="../notifications/">Notifications</a> — how run and give-up notifications are delivered</li>
 <li><a href="../../customization/repository-config/">Repository Config</a> — full <code>.daiv.yml</code> reference</li>
 </ul>
 
@@ -2115,7 +2201,7 @@ update. Running <code>--update</code> on a GitHub install is a no-op.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 30, 2026 18:33:53 UTC">October 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 2, 2026 17:22:37 UTC">November 2, 2026</span>
   </span>
 
     
