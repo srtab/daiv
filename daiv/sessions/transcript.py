@@ -343,7 +343,7 @@ def expired_run_turns(runs: list[Run], shown: Iterable[dict[str, Any]]) -> list[
 def inbox_event_entry(event: InboxEvent, *, reason: str | None = None) -> dict[str, Any]:
     """An inbox event as a timeline entry, built from the event's payload alone; ``reason`` stands in for the stored
     one, for an event the drain would quiet if it ran now."""
-    from sessions.inbox.render import summarize
+    from sessions.inbox.render import EventText
     from sessions.inbox_display import reason_text
 
     reason = reason or event.reason
@@ -351,7 +351,7 @@ def inbox_event_entry(event: InboxEvent, *, reason: str | None = None) -> dict[s
         "id": f"inbox-{event.pk}",
         "role": "inbox_event",
         "kind": event.kind,
-        "summary": summarize(event),
+        "summary": EventText(event).summary(),
         "reason": reason,
         "reason_text": reason_text(event.kind, reason, event.payload),
         "failure_label": event.get_failure_display() if event.state == EventState.FAILED else "",
@@ -398,13 +398,14 @@ def interleave_inbox_events(
 
 def mark_run_openings(turns: list[dict[str, Any]], events: Iterable[InboxEvent]) -> None:
     """Give the first user turn of each run among ``events`` an ``opening``: the bubbles of the waking events it took,
-    oldest first, whether it still holds them or failed and put them back (:func:`sessions.inbox.render.opened`)."""
-    from sessions.inbox.render import opened
+    oldest first, whether it still holds them or failed and put them back
+    (:meth:`sessions.inbox.timeline.Timeline.opened`)."""
+    from sessions.inbox.timeline import Timeline
     from sessions.inbox_display import bubble
 
     openings: dict[str, list[dict[str, Any]]] = {}
     for event in sorted(events, key=_arrival):
-        for run_id in opened(event):
+        for run_id in Timeline.opened(event):
             openings.setdefault(run_id, []).append(bubble(event))
     for turn in turns:
         if turn.get("role") == "user" and (opening := openings.pop(turn.get("run_id") or "", None)) is not None:

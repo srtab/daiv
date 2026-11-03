@@ -7,16 +7,15 @@ from django.tasks import task
 from codebase.base import Scope
 from sessions.executor.lock import Claimed, wait_for_slot
 from sessions.executor.spec import RunHooks, RunSpec
-from sessions.models import EventState, InboxEvent, Run, Session
+from sessions.models import EventState, Run, Session
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from langchain_core.messages import BaseMessage
     from langgraph.types import StateSnapshot
 
     from automation.agent.workspace.git_manager import FastForward
     from sessions.executor.result import AgentResult
+    from sessions.inbox.render import RunInput
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -61,7 +60,7 @@ async def run_job_task(
     from langchain_core.messages import HumanMessage
 
     from sessions.executor.run import RunStoppedError, execute_run
-    from sessions.inbox.render import arun_events, render_input
+    from sessions.inbox.render import RunInput
 
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
@@ -82,11 +81,12 @@ async def run_job_task(
         if not run_id:
             raise ValueError("an inbox run_job_task needs the run_id the drain claimed the slot for")
         inbox_run = await Run.objects.aget(pk=run_id)
-        events = await arun_events(inbox_run)
+        run_input = await RunInput.aof_run(inbox_run)
+        events = run_input.events
         if not any(event.wake and event.state == EventState.TAKEN for event in events):
             raise ValueError(f"inbox run {run_id} holds no event to act on; they were settled before its task started")
-        input_messages = render_input(inbox_run, events=events).messages
-        input_factory = partial(_ainbox_input, inbox_run, events)
+        input_messages = run_input.render(inbox_run).messages
+        input_factory = partial(_ainbox_input, inbox_run, run_input)
         lock, acting_user_id = Claimed(holder_id=run_id), inbox_run.user_id
     else:
         input_messages = (HumanMessage(content=prompt),)
@@ -133,13 +133,9 @@ async def run_job_task(
     return outcome.agent_result
 
 
-async def _ainbox_input(
-    run: Run, events: Sequence[InboxEvent], fast_forward: FastForward | None
-) -> tuple[BaseMessage, ...]:
+async def _ainbox_input(run: Run, run_input: RunInput, fast_forward: FastForward | None) -> tuple[BaseMessage, ...]:
     """An inbox run's input, rendered once its checkout is ready, so it can say whether the checkout moved."""
-    from sessions.inbox.render import render_input
-
-    return render_input(run, fast_forward=fast_forward, events=events).messages
+    return run_input.render(run, fast_forward=fast_forward).messages
 
 
 async def _acancel_requested(run_id: str) -> bool:

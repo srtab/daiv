@@ -24,7 +24,7 @@ from sessions.executor.lock import session_activity
 from sessions.inbox.drain import Requester, branch_of, newest_of_each_subject, next_runs, requester_of, requester_user
 from sessions.inbox.kinds import PERSON_KINDS
 from sessions.inbox.policy import WakePolicy
-from sessions.inbox.render import author_name
+from sessions.inbox.render import EventText
 from sessions.inbox_display import bubble, run_bubble
 from sessions.models import EventState, InboxEvent, RunStatus
 from sessions.transcript import inbox_event_entry
@@ -129,7 +129,7 @@ def _group(
     person = next((event for event in asked if event.kind in PERSON_KINDS), None)
     return {
         "run_id": str(run.pk) if run is not None else "",
-        "who": (user.name or user.email) if user is not None else (author_name(person) if person else ""),
+        "who": (user.name or user.email) if user is not None else (EventText(person).author_name() if person else ""),
         "is_viewer": user is not None and user.pk == viewer.pk,
         "starting": starting,
         "bubbles": bubbles,

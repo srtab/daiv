@@ -9,7 +9,7 @@ from django.utils.translation import gettext as _
 from django.utils.translation import ngettext
 
 from sessions.inbox.policy import MAX_SYSTEM_RUNS_IN_A_ROW
-from sessions.inbox.render import author_name
+from sessions.inbox.render import EventText
 from sessions.models import EventKind, QuietReason
 
 if TYPE_CHECKING:
@@ -90,7 +90,7 @@ def bubble(event: InboxEvent) -> dict[str, Any]:
         case EventKind.FOLLOW_UP_JOB:
             text = payload["prompt"]
         case EventKind.MENTION:
-            text = f"{author_name(event)} mentioned you on !{event.merge_request_iid}: {payload['body']}"
+            text = f"{EventText(event).author_name()} mentioned you on !{event.merge_request_iid}: {payload['body']}"
         case _:
             text = received_summary(event) if received else ""
     return {

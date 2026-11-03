@@ -1,7 +1,7 @@
 """Runs built from session inbox events (research.md R18).
 
-Each case gives the agent what ``arender_input`` gives a real inbox run, on a disk clone of srtab/daiv ``main``. Writes
-are interrupted, so a case judges the agent's tool calls up to its first write, and its final message.
+Each case gives the agent what ``RunInput.render`` gives a real inbox run, on a disk clone of srtab/daiv ``main``.
+Writes are interrupted, so a case judges the agent's tool calls up to its first write, and its final message.
 """
 
 import re
@@ -9,7 +9,7 @@ import uuid
 
 import pytest
 from langsmith import testing as t
-from sessions.inbox.render import arender_input
+from sessions.inbox.render import RunInput
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from .prompt_leak import assert_no_prompt_leak
@@ -76,7 +76,7 @@ async def _inbox_input(*events: dict, fast_forward: str | None = None):
             ref="main" if fields.get("wake") else "",
             **fields,
         )
-    return (await arender_input(run, fast_forward=fast_forward)).messages
+    return (await RunInput.aof_run(run)).render(run, fast_forward=fast_forward).messages
 
 
 async def _run(model_name: str, messages, request: pytest.FixtureRequest) -> tuple[list, str]:

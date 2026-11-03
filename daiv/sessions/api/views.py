@@ -13,7 +13,7 @@ from codebase.authorization import can_run
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
 from sessions.header import aci_payload, delegations_for, latest_run_payload, retry_for, watch_payload
 from sessions.hydration import ahydrate_thread
-from sessions.inbox.render import opening_events, timeline_events
+from sessions.inbox.timeline import Timeline
 from sessions.models import HiddenSession, MergeRequestOwnership, RunStatus, Session
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
@@ -136,8 +136,8 @@ async def session_turns(request: HttpRequest, thread_id: str):
     def finish_turns():
         if not hydrated.messages:
             turns.extend(expired_run_turns(runs, turns))
-        turns[:] = interleave_inbox_events(turns, runs, timeline_events(session.thread_id))
-        mark_run_openings(turns, opening_events(session.thread_id))
+        turns[:] = interleave_inbox_events(turns, runs, Timeline(session.thread_id).events())
+        mark_run_openings(turns, Timeline(session.thread_id).opening_events())
         mark_skill_links(turns, session.thread_id)
         delegations = delegations_for(turns, session, user)
         retry = retry_for(session, runs, turns, user)

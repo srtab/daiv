@@ -13,7 +13,7 @@ from asgiref.sync import sync_to_async
 
 from sessions.inbox.drain import drain_logged, is_busy, job_run_active, next_run_for, requester_of
 from sessions.inbox.kinds import KEY_MAX_LENGTH, PRECEDENCE, WAKING_KINDS, EventContent, SourceKey, Subject
-from sessions.inbox.render import render_request
+from sessions.inbox.render import RunInput
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session
 
 if TYPE_CHECKING:
@@ -133,7 +133,7 @@ def _describe_next_run(run: Run) -> None:
     waiting = list(InboxEvent.objects.filter(run=run, state=EventState.PENDING, wake=True).select_related("author"))
     top = min(waiting, key=lambda event: (PRECEDENCE[event.kind], event.created_at))
     Run.objects.filter(pk=run.pk).update(
-        prompt=render_request(waiting), trigger_type=EventContent.of(top).run_trigger_type()
+        prompt=RunInput(waiting).request(), trigger_type=EventContent.of(top).run_trigger_type()
     )
 
 

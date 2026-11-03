@@ -36,7 +36,7 @@ from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.kinds import INBOX_TRIGGERS, PERSON_KINDS, PRECEDENCE, EventContent
 from sessions.inbox.policy import WakePolicy
-from sessions.inbox.render import render_request
+from sessions.inbox.render import RunInput
 from sessions.models import (
     EventFailure,
     EventKind,
@@ -492,7 +492,7 @@ def _promote_or_create(
         "message_id": chats[-1].payload["agui_message_id"] if chats else "",
         "merge_request_iid": next((event.merge_request_iid for event in waking if event.merge_request_iid), None),
         "sandbox_environment_id": sandbox_environment_id,
-        "prompt": render_request(taken),
+        "prompt": RunInput(taken).request(),
         "muted": (person or top).payload.get("muted"),
     }
     if run is None:

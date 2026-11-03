@@ -27,7 +27,7 @@ a delegated batch finishing: each becomes an ``InboxEvent`` on that session, pos
   branch and a finished batch follow the session to the branch its runs moved to; a mention or a CI result keeps its
   merge request's. Of the pending events sharing a ``subject`` only the newest is taken; the older ones become
   ``superseded``.
-- **Remembered events reach the model as a hidden synthetic message.** :func:`sessions.inbox.render.arender_input`
+- **Remembered events reach the model as a hidden synthetic message.** :func:`sessions.inbox.render.RunInput.render`
   turns the taken events into a ``synthetic_message(kind="inbox")`` the transcript hides, followed by one
   ``HumanMessage`` with people's words, or a DAIV-written prompt when only CI or a delegation woke the run.
 - **The run's end settles its events** (:mod:`sessions.inbox.complete`): handled when it succeeds or asks a question,

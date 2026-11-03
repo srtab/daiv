@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import HumanMessage
-from sessions.inbox.render import RenderedInput
+from sessions.inbox.render import RenderedInput, RunInput
 
 
 @pytest.fixture
@@ -20,10 +20,12 @@ def chat_inbox(request):
         yield None
         return
     rendered = RenderedInput(context=None, request=HumanMessage(content=""))
+    run_input = MagicMock(spec=RunInput)
+    run_input.render.return_value = rendered
     with (
         patch("chat.api.streaming.alink_chat_run", new=AsyncMock()) as link,
-        patch("chat.api.streaming.arender_input", new=AsyncMock(return_value=rendered)) as render,
+        patch.object(RunInput, "aof_run", new=AsyncMock(return_value=run_input)),
         patch("chat.api.streaming.arelease_chat_claim", new=AsyncMock()) as release_claim,
         patch("chat.api.streaming.drain_logged", new=MagicMock()) as drain,
     ):
-        yield SimpleNamespace(link=link, render=render, release_claim=release_claim, drain=drain)
+        yield SimpleNamespace(link=link, render=run_input.render, release_claim=release_claim, drain=drain)

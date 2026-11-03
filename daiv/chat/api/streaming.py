@@ -17,7 +17,7 @@ from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.inbox.complete import arelease_chat_claim, awithdraw_chat_run
 from sessions.inbox.drain import alink_chat_run, drain_logged
-from sessions.inbox.render import arender_input
+from sessions.inbox.render import RunInput
 from sessions.live import relay
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import SubagentEventFilter
@@ -366,7 +366,8 @@ class ChatRunStreamer:
         if turn.chat_run is None:
             return
         try:
-            context = (await arender_input(turn.chat_run, fast_forward=run.fast_forward)).context
+            run_input = await RunInput.aof_run(turn.chat_run)
+            context = run_input.render(turn.chat_run, fast_forward=run.fast_forward).context
             if context is not None:
                 turn.context_message_id = context.id
                 await run.agent.aupdate_state(run.config, {"messages": [context]}, as_node="model")

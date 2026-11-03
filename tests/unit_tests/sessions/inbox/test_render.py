@@ -1,4 +1,3 @@
-import uuid
 from datetime import timedelta
 
 from django.utils import timezone
@@ -10,18 +9,13 @@ from sessions.inbox.render import (
     CONTEXT_MAX_CHARS,
     MENTION_REPLY_NOTE,
     QUOTE_MAX_CHARS,
-    arender_input,
-    opened,
-    opening_events,
-    render_context,
-    render_request,
-    summarize,
-    timeline_events,
+    EventText,
+    RunInput,
 )
-from sessions.models import EventKind, EventState, InboxEvent, QuietReason, Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, EventState, InboxEvent, QuietReason, Run, SessionOrigin
 
 from automation.agent.synthetic import synthetic_kind
-from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload, make_event, mention_payload
+from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload
 
 _START = timezone.now() - timedelta(hours=1)
 
@@ -48,13 +42,13 @@ def _comment(body: str, **fields) -> InboxEvent:
 
 class TestContext:
     def test_nothing_remembered_renders_nothing(self):
-        assert render_context([_event(EventKind.CI_FAILED, ci_payload())]) == ""
+        assert RunInput([_event(EventKind.CI_FAILED, ci_payload())]).context() == ""
 
     def test_lines_are_oldest_first(self):
         merged = _event(EventKind.MR_MERGED, {"target_branch": "main", "by_username": "sfr"}, minute=2)
         comment = _comment("Looks good once CI is green.", minute=1)
 
-        text = render_context([comment, merged])
+        text = RunInput([comment, merged]).context()
 
         assert text.splitlines() == [
             CONTEXT_HEADER,
@@ -71,7 +65,7 @@ class TestContext:
             EventKind.CI_PASSED, ci_payload(830731, status="success", jobs=()), minute=1, subject=kinds.Subject.ci(9)
         )
 
-        lines = render_context([failed, passed]).splitlines()[2:]
+        lines = RunInput([failed, passed]).context().splitlines()[2:]
 
         assert lines == [
             "- CI on !9 (branch chore/x): pipeline 830724 FAILED on e96f1f77, jobs: build. "
@@ -86,7 +80,7 @@ class TestContext:
         comment = _comment("Nice.", minute=1)
         newest = _event(EventKind.CI_STOPPED, ci_payload(2, status="manual", jobs=()), minute=2, subject="ci:9")
 
-        assert render_context([older, comment, newest]).splitlines()[2:] == [
+        assert RunInput([older, comment, newest]).context().splitlines()[2:] == [
             '- Comment by alice on !9 (not addressed to you): "Nice."',
             "- CI on !9 (branch chore/x): pipeline 2 STOPPED (manual) on e96f1f77. https://gitlab.example/pipelines/2",
         ]
@@ -97,7 +91,7 @@ class TestContext:
         )
         failed = _event(EventKind.CI_FAILED, ci_payload(2), minute=1, subject="ci:9")
 
-        assert render_context([passed, failed]) == ""
+        assert RunInput([passed, failed]).context() == ""
 
     def test_a_replaced_waking_event_keeps_its_chain_without_the_remembered_ones_between(self):
         failed = _event(EventKind.CI_FAILED, ci_payload(1), state=EventState.SUPERSEDED, subject="ci:9")
@@ -111,7 +105,7 @@ class TestContext:
         refailed = _event(EventKind.CI_FAILED, ci_payload(3), minute=2, state=EventState.SUPERSEDED, subject="ci:9")
         newest = _event(EventKind.CI_PASSED, ci_payload(4, status="success", jobs=()), minute=3, subject="ci:9")
 
-        assert render_context([failed, passed, refailed, newest]).splitlines()[2:] == [
+        assert RunInput([failed, passed, refailed, newest]).context().splitlines()[2:] == [
             "- CI on !9 (branch chore/x): pipeline 1 FAILED on e96f1f77, jobs: build. https://gitlab.example/pipelines/1",
             "  Superseded by pipeline 3 on e96f1f77: FAILED.",
             "  Superseded by pipeline 4 on e96f1f77: PASSED.",
@@ -126,7 +120,7 @@ class TestContext:
             "web_url": "https://daiv.example/sessions/2b0c/",
         }
 
-        assert render_context([_event(EventKind.FOREIGN_PUBLISH, payload)]).splitlines()[2:] == [
+        assert RunInput([_event(EventKind.FOREIGN_PUBLISH, payload)]).context().splitlines()[2:] == [
             '- bob published 0a1b2c3d to the branch chore/x from their session "Bump gettext" '
             "(https://daiv.example/sessions/2b0c/); this session still owns the merge request."
         ]
@@ -134,7 +128,7 @@ class TestContext:
     def test_a_foreign_publish_posted_without_the_session_name_still_renders(self):
         payload = {"thread_id": "2b0c", "owner_username": "bob", "sha": "0a1b2c3dbb"}
 
-        assert render_context([_event(EventKind.FOREIGN_PUBLISH, payload)]).splitlines()[2:] == [
+        assert RunInput([_event(EventKind.FOREIGN_PUBLISH, payload)]).context().splitlines()[2:] == [
             "- bob published 0a1b2c3d to the branch chore/x from a session of their own; this session still owns the "
             "merge request."
         ]
@@ -142,10 +136,12 @@ class TestContext:
     def test_a_quiet_ci_failure_says_why_the_agent_was_not_woken(self):
         quiet = _event(EventKind.CI_FAILED, ci_payload(), wake=False, reason=QuietReason.ALREADY_EXAMINED)
 
-        assert render_context([quiet]).endswith("You were not asked to act on it: you already examined this commit.")
+        assert (
+            RunInput([quiet]).context().endswith("You were not asked to act on it: you already examined this commit.")
+        )
 
     def test_a_comment_quote_is_cut(self):
-        text = render_context([_comment("x" * (QUOTE_MAX_CHARS + 50))])
+        text = RunInput([_comment("x" * (QUOTE_MAX_CHARS + 50))]).context()
 
         assert f'"{"x" * QUOTE_MAX_CHARS}…"' in text
 
@@ -156,7 +152,7 @@ class TestContext:
             _event(EventKind.CI_FAILED, ci_payload(2), subject="ci:9", minute=21),
         ]
 
-        text = render_context([*comments, *waking_chain])
+        text = RunInput([*comments, *waking_chain]).context()
 
         assert len(text) <= CONTEXT_MAX_CHARS
         collapsed = int(text.splitlines()[2].removeprefix("- ").split(" ")[0])
@@ -182,7 +178,7 @@ class TestFastForward:
         ],
     )
     def test_the_branch_line_says_whether_the_working_copy_followed(self, result, sentence):
-        text = render_context([self._push()], fast_forward=result, branch="chore/x")
+        text = RunInput([self._push()]).context(fast_forward=result, branch="chore/x")
 
         assert text.splitlines()[-1] == (
             f"- The branch chore/x moved: sfr pushed 2 commits (e96f1f77 → 0a1b2c3d). {sentence}"
@@ -190,19 +186,19 @@ class TestFastForward:
 
     @pytest.mark.parametrize("result", [None, "unchanged"])
     def test_nothing_is_said_when_the_working_copy_did_not_move(self, result):
-        text = render_context([self._push()], fast_forward=result, branch="chore/x")
+        text = RunInput([self._push()]).context(fast_forward=result, branch="chore/x")
 
         assert text.splitlines()[-1].endswith("(e96f1f77 → 0a1b2c3d).")
 
     def test_a_move_with_no_push_event_gets_a_line_of_its_own(self):
-        assert render_context([], fast_forward="advanced", branch="chore/x").splitlines()[2:] == [
+        assert RunInput([]).context(fast_forward="advanced", branch="chore/x").splitlines()[2:] == [
             "- The branch chore/x moved on the remote. Your working copy was fast-forwarded."
         ]
 
 
 class TestRequest:
     def test_a_ci_only_run_gets_the_fix_prompt(self):
-        text = render_request([_event(EventKind.CI_FAILED, ci_payload(jobs=("lint", "tests")))])
+        text = RunInput([_event(EventKind.CI_FAILED, ci_payload(jobs=("lint", "tests")))]).request()
 
         assert text.startswith("CI failed on this merge request. Failed jobs: lint, tests. Pipeline: https://")
         assert "explain why instead of guessing" in text
@@ -217,7 +213,7 @@ class TestRequest:
             _event(EventKind.CHAT_MESSAGE, {"text": "Also add a test", "agui_message_id": "m"}, minute=4),
         ]  # fmt: skip
 
-        sections = render_request(events).split("\n\n")
+        sections = RunInput(events).request().split("\n\n")
 
         assert sections[0] == "Also add a test"
         assert sections[1] == "bob mentioned you on !9 (https://mr/9#1):\n> @daiv why?"
@@ -230,26 +226,28 @@ class TestRequest:
         first = _event(EventKind.CHAT_MESSAGE, {"text": "one", "agui_message_id": "a"}, minute=0)
         second = _event(EventKind.CHAT_MESSAGE, {"text": "two", "agui_message_id": "b"}, minute=1)
 
-        assert render_request([first, second]) == (f"[{first.created_at:%H:%M}] one\n\n[{second.created_at:%H:%M}] two")
+        assert RunInput([first, second]).request() == (
+            f"[{first.created_at:%H:%M}] one\n\n[{second.created_at:%H:%M}] two"
+        )
 
     def test_a_mention_quote_is_cut(self):
         mention = _event(EventKind.MENTION, {"note_id": 1, "body": "m" * 2000, "web_url": "u"}, author_username="bob")
 
-        assert f"> {'m' * QUOTE_MAX_CHARS}…" in render_request([mention])
+        assert f"> {'m' * QUOTE_MAX_CHARS}…" in RunInput([mention]).request()
 
     def test_remembered_and_superseded_events_are_not_requests(self):
         superseded = _event(EventKind.CI_FAILED, ci_payload(1), state=EventState.SUPERSEDED)
         quiet = _event(EventKind.CI_FAILED, ci_payload(2), wake=False)
         chat = _event(EventKind.CHAT_MESSAGE, {"text": "hi", "agui_message_id": "a"})
 
-        assert render_request([superseded, quiet, chat]) == "hi"
+        assert RunInput([superseded, quiet, chat]).request() == "hi"
 
 
-class TestSummarize:
+class TestEventText:
     def test_a_finished_delegation_says_how_many_jobs_succeeded(self):
         payload = {"batch_id": "b", "summary": "…", "succeeded": 2, "total": 3}
 
-        assert summarize(_event(EventKind.DELEGATION_FINISHED, payload)) == "2 of 3 succeeded"
+        assert EventText(_event(EventKind.DELEGATION_FINISHED, payload)).summary() == "2 of 3 succeeded"
 
     def test_a_foreign_publish_names_the_publishing_session_and_leaves_its_link_to_the_row(self):
         payload = {
@@ -260,7 +258,7 @@ class TestSummarize:
             "web_url": "https://daiv.example/sessions/2b0c/",
         }
 
-        assert summarize(_event(EventKind.FOREIGN_PUBLISH, payload)) == (
+        assert EventText(_event(EventKind.FOREIGN_PUBLISH, payload)).summary() == (
             'bob published 0a1b2c3d to the branch chore/x from their session "Bump gettext"; this session still owns '
             "the merge request."
         )
@@ -276,7 +274,7 @@ class TestRenderInput:
         await amake_event(session, EventKind.CHAT_MESSAGE, run=run, state=EventState.TAKEN)
         await amake_event(session, EventKind.MR_MERGED, run=run, state=EventState.TAKEN, merge_request_iid=9)
 
-        rendered = await arender_input(run)
+        rendered = (await RunInput.aof_run(run)).render(run)
 
         assert synthetic_kind(rendered.context) == "inbox"
         assert "!9 was merged into main" in rendered.context.content
@@ -288,49 +286,7 @@ class TestRenderInput:
         run = await Run.objects.acreate(session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="r")
         await amake_event(session, EventKind.CI_FAILED, run=run, state=EventState.TAKEN)
 
-        rendered = await arender_input(run)
+        rendered = (await RunInput.aof_run(run)).render(run)
 
         assert rendered.context is None
         assert rendered.messages == (rendered.request,)
-
-
-@pytest.mark.django_db
-class TestTimelineReads:
-    @staticmethod
-    def _session() -> Session:
-        return Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="g/r", ref="x")
-
-    @staticmethod
-    def _run(session: Session, status: str = RunStatus.SUCCESSFUL) -> Run:
-        return Run.objects.create(
-            session=session, trigger_type=SessionOrigin.CHAT, repo_id=session.repo_id, status=status
-        )
-
-    def test_timeline_events_leave_out_pending_and_superseded_and_keep_failed(self):
-        session = self._session()
-        make_event(session, EventKind.COMMENT)
-        make_event(session, EventKind.CI_FAILED, wake=False, state=EventState.SUPERSEDED)
-        handled = make_event(session, EventKind.COMMENT, state=EventState.HANDLED, run=self._run(session))
-        failed = make_event(session, EventKind.MENTION, state=EventState.FAILED, failure="retries_exhausted")
-
-        assert timeline_events(session.thread_id) == [handled, failed]
-
-    def test_opening_events_are_the_waking_events_runs_took_or_tried(self):
-        session = self._session()
-        chat = make_event(session, EventKind.CHAT_MESSAGE, state=EventState.HANDLED, run=self._run(session))
-        failed = make_event(session, EventKind.MENTION, state=EventState.FAILED, run=self._run(session))
-        retried = make_event(session, EventKind.MENTION, payload={**mention_payload(), "tried_runs": ["r1"]})
-        make_event(session, EventKind.CHAT_MESSAGE)
-
-        assert opening_events(session.thread_id) == [chat, failed, retried]
-
-    def test_an_event_opens_the_runs_that_tried_it_then_the_one_holding_it(self):
-        session = self._session()
-        run = self._run(session)
-        event = make_event(
-            session, EventKind.MENTION, state=EventState.TAKEN, run=run,
-            payload={**mention_payload(), "tried_runs": ["r1", "r2"]},
-        )  # fmt: skip
-        pending = make_event(session, EventKind.CHAT_MESSAGE, run=run)
-
-        assert (opened(event), opened(pending)) == (["r1", "r2", str(run.pk)], [])
