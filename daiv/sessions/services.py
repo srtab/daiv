@@ -545,6 +545,8 @@ async def _asubmit_follow_up(
         payload["references"] = references
     if muted is not None:
         payload["muted"] = muted
+    if target.sandbox_environment_id:
+        payload["sandbox_environment_id"] = str(target.sandbox_environment_id)
     if mcp_overrides is not None and session.mcp_overrides != mcp_overrides:
         try:
             await _aset_session_mcp_overrides(session, mcp_overrides)

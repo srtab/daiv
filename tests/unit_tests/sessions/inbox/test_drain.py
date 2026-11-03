@@ -10,6 +10,7 @@ from ninja.testing import TestAsyncClient
 from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox import kinds
+from sessions.inbox.complete import RunEnd
 from sessions.inbox.drain import Drain
 from sessions.inbox.policy import WakePolicy
 from sessions.models import (
@@ -30,7 +31,13 @@ from accounts.models import APIKey
 from codebase.authorization import RepositoryAccessDenied
 from daiv.api import api
 from tests.unit_tests.sessions.conftest import make_task_result
-from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload
+from tests.unit_tests.sessions.inbox.conftest import (
+    amake_event,
+    amake_session,
+    chat_payload,
+    ci_payload,
+    mention_payload,
+)
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -172,6 +179,139 @@ class TestTaking:
 
         assert run.pk != legacy.pk
         assert (await Run.objects.aget(pk=legacy.pk)).status == RunStatus.QUEUED
+
+
+async def _chat(session: Session, text: str, **fields) -> InboxEvent:
+    return await amake_event(session, EventKind.CHAT_MESSAGE, payload=chat_payload(text), **fields)
+
+
+async def _drain_and_end(session: Session) -> Run:
+    run = await Drain(session.thread_id).astart()
+    await _end(run)
+    return run
+
+
+class TestCommands:
+    @pytest.mark.parametrize("text", ["/plan the migration", "/no-such-command"], ids=["skill", "unknown"])
+    async def test_queued_messages_that_are_not_builtin_commands_still_join(self, enqueue, text):
+        session = await amake_session()
+        next_run = await _queued_next_run(session, trigger=SessionOrigin.CHAT)
+        first = await _chat(session, "Fix the bug", run=next_run)
+        second = await _chat(session, text, run=next_run)
+
+        run = await Drain(session.thread_id).astart()
+
+        assert run.pk == next_run.pk
+        assert [(await _state(event)).run_id for event in (first, second)] == [run.pk, run.pk]
+        assert "Fix the bug" in run.prompt
+        assert text in run.prompt
+
+    async def test_a_builtin_command_runs_alone_between_the_messages_around_it(self, enqueue):
+        session = await amake_session()
+        next_run = await _queued_next_run(session, trigger=SessionOrigin.CHAT)
+        events = [
+            await _chat(session, "Fix the bug", run=next_run),
+            await _chat(session, "/help", run=next_run),
+            await _chat(session, "Then add a test", run=next_run),
+        ]
+
+        runs = [await _drain_and_end(session) for _ in events]
+
+        assert [run.prompt for run in runs] == ["Fix the bug", "/help", "Then add a test"]
+        assert [(await _state(event)).run_id for event in events] == [run.pk for run in runs]
+        assert runs[-1].pk == next_run.pk
+
+    async def test_the_next_run_waits_for_the_requests_after_a_command(self, enqueue):
+        session = await amake_session()
+        next_run = await _queued_next_run(session, trigger=SessionOrigin.CHAT)
+        command = await _chat(session, "/agents", run=next_run)
+        after = await _chat(session, "Then add a test", run=next_run)
+
+        run = await Drain(session.thread_id).astart()
+
+        assert run.pk != next_run.pk
+        assert run.prompt == "/agents"
+        assert (await _state(command)).run_id == run.pk
+        waiting = await Run.objects.aget(pk=next_run.pk)
+        assert (waiting.status, waiting.prompt) == (RunStatus.QUEUED, "Then add a test")
+        stored = await _state(after)
+        assert (stored.state, stored.run_id) == (EventState.PENDING, next_run.pk)
+
+    @pytest.mark.parametrize(
+        ("kind", "payload"),
+        [
+            (EventKind.CHAT_MESSAGE, chat_payload("  /help")),
+            (EventKind.FOLLOW_UP_JOB, {"prompt": "/agents", "trigger_type": SessionOrigin.API_JOB}),
+            (EventKind.MENTION, mention_payload("Thanks! @daiv /help")),
+        ],
+        ids=["chat", "follow-up-job", "mention"],
+    )
+    async def test_a_command_from_any_person_runs_alone(self, enqueue, admin_user, kind, payload):
+        session = await amake_session(user=admin_user)
+        command = await amake_event(session, kind, payload=payload, author=admin_user, merge_request_iid=9)
+        message = await _chat(session, "Fix the bug", author=admin_user)
+
+        run = await Drain(session.thread_id).astart()
+
+        assert (await _state(command)).run_id == run.pk
+        assert (await _state(message)).state == EventState.PENDING
+
+    async def test_a_mention_whose_quoted_body_starts_with_a_command_still_joins(self, enqueue, admin_user):
+        session = await amake_session(user=admin_user)
+        payload = mention_payload("/help @daiv")
+        mention = await amake_event(session, EventKind.MENTION, payload=payload, author=admin_user, merge_request_iid=9)
+        message = await _chat(session, "Fix the bug", author=admin_user)
+
+        run = await Drain(session.thread_id).astart()
+
+        assert [(await _state(event)).run_id for event in (mention, message)] == [run.pk, run.pk]
+
+    async def test_a_command_run_takes_no_remembered_event(self, enqueue):
+        session = await amake_session()
+        await _chat(session, "/help")
+        notice = await amake_event(session, EventKind.NOTICE)
+
+        await Drain(session.thread_id).astart()
+
+        stored = await _state(notice)
+        assert (stored.state, stored.run_id) == (EventState.PENDING, None)
+
+    async def test_a_denied_requester_fails_the_requests_on_both_sides_of_a_command(self, enqueue, member_user):
+        session = await amake_session(user=member_user)
+        next_run = await _queued_next_run(session, trigger=SessionOrigin.CHAT, user=member_user)
+        events = [
+            await _chat(session, "Fix the bug", author=member_user, run=next_run),
+            await _chat(session, "/help", author=member_user, run=next_run),
+            await _chat(session, "Then add a test", author=member_user, run=next_run),
+        ]
+
+        with patch("sessions.admission.assert_can_run", Mock(side_effect=RepositoryAccessDenied([session.repo_id]))):
+            assert await Drain(session.thread_id).astart() is None
+
+        assert {(await _state(event)).state for event in events} == {EventState.FAILED}
+        assert (await Run.objects.aget(pk=next_run.pk)).status == RunStatus.FAILED
+
+    async def test_a_ci_failure_taken_after_a_command_is_left_to_a_fix_run(self, enqueue, admin_user):
+        session = await amake_session(user=admin_user)
+        ownership = await MergeRequestOwnership.objects.acreate(
+            repo_id=session.repo_id, merge_request_iid=9, session=session, source_branch=session.ref
+        )
+        next_run = await _queued_next_run(session, trigger=SessionOrigin.CHAT, user=admin_user)
+        await _chat(session, "/help", author=admin_user, run=next_run)
+        failure = await amake_event(session, merge_request_iid=9, payload=ci_payload(sha="e96f1f77"), run=next_run)
+
+        command_run = await Drain(session.thread_id).astart()
+        await ownership.arefresh_from_db()
+        assert (command_run.prompt, ownership.attempts) == ("/help", 0)
+
+        await Run.objects.filter(pk=command_run.pk).aupdate(status=RunStatus.SUCCESSFUL)
+        await RunEnd(await Run.objects.aget(pk=command_run.pk)).aon_run_ended()
+
+        stored = await _state(failure)
+        assert (stored.state, stored.run_id) == (EventState.TAKEN, next_run.pk)
+        assert "CI failed on this merge request" in (await Run.objects.aget(pk=next_run.pk)).prompt
+        await ownership.arefresh_from_db()
+        assert (ownership.attempts, ownership.last_examined_sha) == (1, "e96f1f77")
 
 
 class TestNothingToWake:
@@ -364,6 +504,25 @@ class TestActingUser:
         run = await Drain(session.thread_id).astart()
 
         assert run.sandbox_environment_id == default.pk
+
+    async def test_a_follow_up_job_runs_in_the_environment_it_was_submitted_with(self, enqueue, admin_user):
+        session = await amake_session(user=admin_user)
+        gpu = await SandboxEnvironment.objects.acreate(scope=Visibility.USER, user=admin_user, name="gpu")
+        payload = {"prompt": "Train it", "trigger_type": SessionOrigin.API_JOB, "sandbox_environment_id": str(gpu.pk)}
+        await amake_event(session, EventKind.FOLLOW_UP_JOB, author=admin_user, payload=payload)
+
+        run = await Drain(session.thread_id).astart()
+
+        assert run.sandbox_environment_id == gpu.pk
+
+    async def test_a_queued_chat_message_gives_the_session_its_tools_selection(self, enqueue, admin_user):
+        session = await amake_session(user=admin_user, mcp_overrides={"grafana": "off"})
+        payload = chat_payload(mcp_overrides={"grafana": "on"})
+        await amake_event(session, EventKind.CHAT_MESSAGE, author=admin_user, payload=payload)
+
+        await Drain(session.thread_id).astart()
+
+        assert (await Session.objects.aget(pk=session.pk)).mcp_overrides == {"grafana": "on"}
 
     async def test_a_person_without_an_account_acts_as_no_one(self, enqueue, admin_user):
         session = await amake_session(user=admin_user)

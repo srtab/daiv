@@ -15,6 +15,7 @@ from sessions.executor.lock import SessionLock
 from sessions.inbox.kinds import INBOX_TRIGGERS, PRECEDENCE, EventContent
 from sessions.inbox.render import RunInput
 from sessions.inbox.requester import Requester
+from sessions.inbox.splits import RequestSplits
 from sessions.models import EventState, InboxEvent, Run, RunStatus, SessionOrigin
 
 if TYPE_CHECKING:
@@ -76,7 +77,7 @@ class NextRuns:
         if run is not None:
             InboxEvent.objects.filter(pk=event.pk).update(run=run)
             event.run = run
-            self._describe(run)
+            self.describe(run)
         return run
 
     def move(self, run: Run, ref: str) -> bool:
@@ -126,11 +127,13 @@ class NextRuns:
             )
             return None
 
-    def _describe(self, run: Run) -> None:
-        """Keep the next run's prompt and provisional trigger type in step with the events waiting for it, so the
-        session page shows what it will do while it waits."""
-        waiting = list(InboxEvent.objects.filter(run=run, state=EventState.PENDING, wake=True).select_related("author"))
-        top = min(waiting, key=lambda event: (PRECEDENCE[event.kind], event.created_at))
+    def describe(self, run: Run) -> None:
+        """Keep the next run's prompt and provisional trigger type in step with the requests it will take, the last of
+        those waiting for it (:class:`sessions.inbox.splits.RequestSplits`), so the session page shows what it will do
+        while it waits."""
+        waiting = InboxEvent.objects.filter(run=run, state=EventState.PENDING, wake=True).order_by("created_at", "id")
+        requests = RequestSplits(list(waiting.select_related("author"))).splits[-1]
+        top = min(requests, key=lambda event: (PRECEDENCE[event.kind], event.created_at))
         Run.objects.filter(pk=run.pk).update(
-            prompt=RunInput(waiting).request(), trigger_type=EventContent.of(top).run_trigger_type()
+            prompt=RunInput(requests).request(), trigger_type=EventContent.of(top).run_trigger_type()
         )

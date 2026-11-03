@@ -137,7 +137,6 @@
   // Menu-while-token form of the backend bare-command parser (slash_commands/parser.py):
   // a space or newline after the token breaks the match and closes the menu.
   const SLASH_TOKEN_RE = /^\s*\/([a-z0-9-]*)$/;
-  const SLASH_COMMAND_RE = /^\s*\/([a-z0-9-]+)(?:\s|$)/i;
 
   // Shape-filtered like loadMcpSelection: a row without a name would throw inside the
   // getters the menu, its $watch and its x-for all read, rather than degrade to no menu.
@@ -1570,10 +1569,6 @@
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
-      // Only sent once the user has actually touched the Tools sheet: an absent key tells
-      // the server to keep the thread's stored overrides. Sending an untouched selection
-      // would be harmless but would re-diff it against a pool the admin may have changed.
-      if (this._mcpTouched) forwardedProps.mcp_servers = [...this.mcpSelected];
 
       const runId = uuid();
 
@@ -1627,6 +1622,10 @@
     },
 
     _postRun({ runId = uuid(), messages, forwardedProps }) {
+      // Only sent once the user has actually touched the Tools sheet: an absent key tells
+      // the server to keep the thread's stored overrides. Sending an untouched selection
+      // would be harmless but would re-diff it against a pool the admin may have changed.
+      if (this._mcpTouched) forwardedProps = { ...forwardedProps, mcp_servers: [...this.mcpSelected] };
       const body = {
         threadId: this.thread.thread_id,
         runId,
@@ -1657,12 +1656,6 @@
     // While the session is busy a message waits for its next run, shown in Up next; the run on screen keeps its
     // stream. ``queue`` keeps it waiting even if that run ended before it arrived, so this page never misses a run.
     async _sendToNextRun(message, fromDraft) {
-      // Queued messages reach the next run joined into one prompt, where a command is no longer a command.
-      const command = SLASH_COMMAND_RE.exec(message)?.[1].toLowerCase();
-      if (command && this.slashCatalog.some((row) => row.name === command)) {
-        window.showToast?.(`/${command} can run once this run ends.`, "warning");
-        return;
-      }
       if (fromDraft) {
         this.draftMessage = "";
         this.$nextTick(() => this.autosize());

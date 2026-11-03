@@ -23,10 +23,11 @@ a delegated batch finishing: each becomes an ``InboxEvent`` on that session, pos
   return while it waits. The drain promotes it to READY when the slot frees.
 - **A run takes the pending events for its branch and requester.** The branch and requester are those of the oldest
   waking event. Every waking event of that requester whose ``ref`` is blank or equals the branch is taken, and every
-  remembered one for the branch; the rest wait for runs of their own. A chat message, a follow-up job sent without a
-  branch and a finished batch follow the session to the branch its runs moved to; a mention or a CI result keeps its
-  merge request's. Of the pending events sharing a ``subject`` only the newest is taken; the older ones become
-  ``superseded``.
+  remembered one for the branch, up to the first builtin slash command; the rest wait for runs of their own. A command
+  runs alone, as the slash-command middleware answers it only as a run's whole request. A chat message, a follow-up
+  job sent without a branch and a finished batch follow the session to the branch its runs moved to; a mention or a
+  CI result keeps its merge request's. Of the pending events sharing a ``subject`` only the newest is taken; the older
+  ones become ``superseded``.
 - **Remembered events reach the model as a hidden synthetic message.** :meth:`sessions.inbox.render.RunInput.render`
   turns the taken events into a ``synthetic_message(kind="inbox")`` the transcript hides, followed by one
   ``HumanMessage`` with people's words, or a DAIV-written prompt when only CI or a delegation woke the run.

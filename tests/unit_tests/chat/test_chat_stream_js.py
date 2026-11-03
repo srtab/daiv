@@ -836,7 +836,6 @@ chat.turns = [
   { id: "a1", role: "assistant", segments: [{ type: "text", content: "Looking" }], streaming: true },
 ];
 Object.assign(chat, payload.state, { _activeRun: { threadId: "t1", runId: "live" } });
-chat.slashCatalog = [{ name: "clear" }, { name: "plan" }];
 chat.draftMessage = payload.draft;
 const canSend = chat.canSend();
 await chat.submit();
@@ -914,18 +913,21 @@ def test_a_page_that_started_its_session_reloads_to_show_a_message_queued_mid_ru
     assert (out["reloads"], out["draft"]) == (1, "")
 
 
-@pytest.mark.parametrize("draft", ["/clear", "  /plan the migration"])
-def test_a_command_typed_mid_run_waits_in_the_composer_for_the_run_to_end(draft):
+@pytest.mark.parametrize("draft", ["/clear", "  /plan the migration", "/unknown is not a command"])
+def test_a_slash_command_typed_mid_run_is_queued_like_any_message(draft):
     out = _send_mid_run({"streaming": True}, draft=draft)
 
-    assert (out["sent"], out["draft"], out["provisional"]) == ([], draft, [])
-    assert [level for _message, level in out["toasts"]] == ["warning"]
+    assert [body["messages"][-1]["content"] for body in out["sent"]] == [draft]
+    assert (out["draft"], out["toasts"]) == ("", [])
 
 
-def test_a_message_that_only_mentions_a_command_mid_run_is_queued():
-    out = _send_mid_run({"streaming": True}, draft="/unknown is not a command")
+@pytest.mark.parametrize(
+    ("touched", "expected"), [(True, {"queue": True, "mcp_servers": ["grafana"]}), (False, {"queue": True})]
+)
+def test_a_message_queued_mid_run_carries_the_tools_selection_once_touched(touched, expected):
+    out = _send_mid_run({"streaming": True, "_mcpTouched": touched, "mcpSelected": ["grafana"]})
 
-    assert [body["messages"][-1]["content"] for body in out["sent"]] == ["/unknown is not a command"]
+    assert [body["forwardedProps"] for body in out["sent"]] == [expected]
 
 
 def test_a_refused_mid_run_message_comes_back_to_the_draft():
