@@ -18,7 +18,7 @@ from sessions.inbox import kinds
 from sessions.inbox.complete import arelease_chat_claim
 from sessions.inbox.drain import atake_for_chat
 from sessions.inbox.next_runs import NextRuns
-from sessions.inbox.post import apost_event
+from sessions.inbox.post import Inbox
 from sessions.live import relay
 from sessions.models import EventKind, Run, RunStatus, Session
 from sessions.spend import build_session_spend
@@ -358,8 +358,7 @@ async def _waiting_to_start(session: Session) -> bool:
 
 async def _queue_message(thread_id: str, *, user, prompt: str, message_id: str) -> dict:
     """Hold a message sent while the session is busy as a ``chat_message`` event for its next run."""
-    result = await apost_event(
-        thread_id,
+    result = await Inbox(thread_id).apost(
         kind=EventKind.CHAT_MESSAGE,
         source_key=kinds.SourceKey.chat(message_id),
         payload={"text": prompt, "agui_message_id": message_id},

@@ -46,7 +46,7 @@ from typing import TYPE_CHECKING
 from sessions.inbox import kinds
 from sessions.inbox.ownership import aopen_ownership
 from sessions.inbox.policy import WakePolicy
-from sessions.inbox.post import apost_delegated_ci_outcome, apost_event
+from sessions.inbox.post import Inbox
 from sessions.models import EventKind, QuietReason
 from sessions.pipeline_watch.judgment import Judgment, PipelineReport
 from sessions.pipeline_watch.platform import WatchPlatform, log_read_failure
@@ -220,8 +220,7 @@ class PipelineWatch:
             payload["workflow"] = report.workflow_name
         if reason == QuietReason.BUDGET_SPENT:
             payload["attempts"] = ownership.attempts
-        result = await apost_event(
-            session.thread_id,
+        result = await Inbox(session.thread_id).apost(
             kind=kind,
             source_key=kinds.SourceKey.pipeline(report.id, kind, reason),
             payload=payload,
@@ -242,7 +241,7 @@ class PipelineWatch:
         if reason == QuietReason.BUDGET_SPENT or (
             kind == EventKind.CI_PASSED and await self._apassing(ownership, session, report)
         ):
-            await apost_delegated_ci_outcome(
+            await Inbox.apost_delegated_ci_outcome(
                 session,
                 merge_request_iid=ownership.merge_request_iid,
                 pipeline_id=report.id,

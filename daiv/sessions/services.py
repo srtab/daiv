@@ -532,7 +532,7 @@ async def _asubmit_follow_up(
     between the post and its drain. Its references join the session when a run takes it; ``mcp_overrides`` replace the
     session's before it is posted, and only while no run on the session is unfinished."""
     from sessions.inbox import kinds
-    from sessions.inbox.post import aattach_next_run, apost_event
+    from sessions.inbox.post import Inbox
 
     if target.repo_id != session.repo_id:
         return BatchSubmitFailure(
@@ -557,8 +557,7 @@ async def _asubmit_follow_up(
                 error=f"mcp_overrides_update_failed: {type(err).__name__}: {err}",
             )
     try:
-        result = await apost_event(
-            session.thread_id,
+        result = await Inbox(session.thread_id).apost(
             kind=EventKind.FOLLOW_UP_JOB,
             source_key=kinds.SourceKey.job(uuid.uuid4()),
             payload=payload,
@@ -573,7 +572,7 @@ async def _asubmit_follow_up(
         )
     if result.run_id is not None:
         return await Run.objects.aget(pk=result.run_id)
-    if (run := await aattach_next_run(result.event)) is not None:
+    if (run := await Inbox(session.thread_id).aattach_next_run(result.event)) is not None:
         return run
     # The caller is told the job failed, so a later drain must not start it after all.
     await InboxEvent.objects.filter(pk=result.event.pk, state=EventState.PENDING).aupdate(

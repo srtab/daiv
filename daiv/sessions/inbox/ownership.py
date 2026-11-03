@@ -39,7 +39,7 @@ from asgiref.sync import sync_to_async
 
 from core.utils import build_absolute_url
 from sessions.inbox import kinds
-from sessions.inbox.post import apost_event, post_event
+from sessions.inbox.post import Inbox
 from sessions.models import EventKind, MergeRequestOwnership, Run, Session, SessionOrigin
 from sessions.repo_state import mr_to_payload
 from sessions.templatetags.session_tags import session_title
@@ -83,7 +83,7 @@ def _post_logged(post: dict[str, Any], repo_id: str) -> None:
     """Post ``post``, logging a failure instead of raising: the ownership change it reports has committed, and the
     event wakes no one. SYNC ONLY."""
     try:
-        post_event(**post)
+        Inbox(post["thread_id"]).post(**{k: v for k, v in post.items() if k != "thread_id"})
     except Exception:
         logger.exception(
             "inbox: could not tell thread_id=%s about %s!%s", post["thread_id"], repo_id, post["merge_request_iid"]
@@ -281,8 +281,7 @@ async def aclassify_push(
         return
     if (owned := await aopen_ownership(repo_id, ownership.merge_request_iid)) is None:
         return
-    await apost_event(
-        owned.session.thread_id,
+    await Inbox(owned.session.thread_id).apost(
         kind=EventKind.BRANCH_PUSHED,
         source_key=kinds.SourceKey.push(after),
         payload={"before": before, "after": after, "commit_count": commit_count, "pusher_username": pusher_username},
@@ -306,8 +305,7 @@ async def aclose_ownership(
         return False
     state = "merged" if merged else "closed"
     try:
-        await apost_event(
-            owned.session.thread_id,
+        await Inbox(owned.session.thread_id).apost(
             kind=EventKind.MR_MERGED if merged else EventKind.MR_CLOSED,
             source_key=f"{kinds.SourceKey.mr_state(merge_request_iid, state)}:{closed_at.timestamp():.6f}",
             payload={"target_branch": target_branch, "by_username": by_username},
@@ -336,8 +334,7 @@ async def areopen_ownership(repo_id: str, merge_request_iid: int, *, by_username
     try:
         if (owned := await aopen_ownership(repo_id, merge_request_iid)) is None:
             return False
-        await apost_event(
-            owned.session.thread_id,
+        await Inbox(owned.session.thread_id).apost(
             kind=EventKind.NOTICE,
             source_key=f"mr-reopened:{merge_request_iid}:{timezone.now().timestamp():.0f}",
             payload={

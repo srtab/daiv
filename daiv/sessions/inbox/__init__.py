@@ -2,7 +2,7 @@
 
 A CI result, a mention on a merge request the session owns, a chat message sent while it is busy, a follow-up job,
 a delegated batch finishing: each becomes an ``InboxEvent`` on that session, posted through
-:func:`sessions.inbox.post.apost_event`, the only way in. The rules:
+:meth:`sessions.inbox.post.Inbox.apost`, the only way in. The rules:
 
 - **An event wakes the agent or is only remembered.** ``wake`` is fixed when the event is posted. A remembered event
   starts no run; the next run on its branch takes it as context. Only CI and delegation events can be turned into

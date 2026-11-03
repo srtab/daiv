@@ -7,6 +7,7 @@ from django.utils import timezone
 
 import pytest
 from sessions.inbox.pending import PendingEvents
+from sessions.inbox.post import Inbox
 from sessions.models import (
     EventKind,
     InboxEvent,
@@ -475,10 +476,7 @@ class TestNothingPosted:
         await _owned(last_pipeline_id=99)
         watch.platform.pipeline = make_pipeline("failed")
 
-        with (
-            patch("sessions.pipeline_watch.service.apost_event", new=AsyncMock(side_effect=RuntimeError("db"))),
-            pytest.raises(RuntimeError),
-        ):
+        with patch.object(Inbox, "apost", new=AsyncMock(side_effect=RuntimeError("db"))), pytest.raises(RuntimeError):
             await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
 
         assert (await MergeRequestOwnership.objects.aget()).last_pipeline_id == 99

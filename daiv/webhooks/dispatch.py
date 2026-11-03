@@ -25,7 +25,7 @@ from sandbox_envs.selection import resolve_env_for_run
 from sessions.ids import compute_thread_id
 from sessions.inbox import kinds
 from sessions.inbox.ownership import aopen_ownership
-from sessions.inbox.post import apost_event
+from sessions.inbox.post import Inbox
 from sessions.models import EventKind, SessionOrigin
 from sessions.services import create_run
 
@@ -195,8 +195,7 @@ async def _post_comment(
     source_key = (
         kinds.SourceKey.review_comment(comment.note_id) if review_comment else kinds.SourceKey.note(comment.note_id)
     )
-    result = await apost_event(
-        ownership.session.thread_id,
+    result = await Inbox(ownership.session.thread_id).apost(
         kind=kind,
         source_key=source_key if kind == EventKind.MENTION else kinds.SourceKey.comment(source_key),
         payload=payload,

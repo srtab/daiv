@@ -11,6 +11,7 @@ from sessions.inbox.ownership import (
     aownership_for_branch,
     areopen_ownership,
 )
+from sessions.inbox.post import Inbox
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
@@ -295,7 +296,7 @@ class TestMergeRequestState:
                 await MergeRequestOwnership.objects.aupdate(closed_at=meanwhile)
             raise RuntimeError("db down")
 
-        return patch("sessions.inbox.ownership.apost_event", new=AsyncMock(side_effect=post))
+        return patch.object(Inbox, "apost", new=AsyncMock(side_effect=post))
 
     async def test_a_close_whose_event_could_not_be_posted_is_posted_on_redelivery(self):
         session_id = await self._owner_session_id()

@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox import kinds
-from sessions.inbox.post import aattach_next_run, apost_delegated_ci_outcome, apost_event
+from sessions.inbox.post import Inbox
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.sessions.inbox.conftest import amake_session, chat_payload, ci_payload, mention_payload
@@ -20,8 +20,7 @@ def drain():
 
 
 async def _post_ci(thread_id: str, *, pipeline_id: int = 1, wake: bool = True, ref: str = "", **fields):
-    return await apost_event(
-        thread_id,
+    return await Inbox(thread_id).apost(
         kind=EventKind.CI_FAILED,
         source_key=kinds.SourceKey.pipeline(pipeline_id),
         payload=ci_payload(pipeline_id),
@@ -106,8 +105,8 @@ class TestBusySession:
         session = await amake_session(active_run_id="chat-run")
 
         first = await _post_ci(session.thread_id, pipeline_id=1)
-        chat = await apost_event(
-            session.thread_id, kind=EventKind.CHAT_MESSAGE, source_key="chat:m1", payload=chat_payload(), wake=True
+        chat = await Inbox(session.thread_id).apost(
+            kind=EventKind.CHAT_MESSAGE, source_key="chat:m1", payload=chat_payload(), wake=True
         )
 
         assert chat.run_id == first.run_id
@@ -117,12 +116,8 @@ class TestBusySession:
         session = await amake_session(active_run_id="chat-run")
 
         first = await _post_ci(session.thread_id, pipeline_id=1)
-        await apost_event(
-            session.thread_id,
-            kind=EventKind.CHAT_MESSAGE,
-            source_key="chat:m1",
-            payload=chat_payload("Also add a test"),
-            wake=True,
+        await Inbox(session.thread_id).apost(
+            kind=EventKind.CHAT_MESSAGE, source_key="chat:m1", payload=chat_payload("Also add a test"), wake=True
         )
 
         run = await Run.objects.aget(pk=first.run_id)
@@ -151,8 +146,8 @@ class TestBusySession:
         session = await amake_session(user=admin_user, active_run_id="chat-run")
 
         failure = await _post_ci(session.thread_id)
-        mention = await apost_event(
-            session.thread_id, kind=EventKind.MENTION, source_key="note:1", payload=mention_payload(), wake=True,
+        mention = await Inbox(session.thread_id).apost(
+            kind=EventKind.MENTION, source_key="note:1", payload=mention_payload(), wake=True,
             author=member_user,
         )  # fmt: skip
 
@@ -167,8 +162,8 @@ class TestBusySession:
         failure = await _post_ci(session.thread_id)
         await Session.objects.filter(pk=session.pk).aupdate(active_run_id=None)
 
-        mention = await apost_event(
-            session.thread_id, kind=EventKind.MENTION, source_key="note:1", payload=mention_payload(), wake=True,
+        mention = await Inbox(session.thread_id).apost(
+            kind=EventKind.MENTION, source_key="note:1", payload=mention_payload(), wake=True,
             author=member_user,
         )  # fmt: skip
 
@@ -177,8 +172,8 @@ class TestBusySession:
     async def test_an_unlinked_authors_next_run_records_their_platform_account(self, drain, admin_user):
         session = await amake_session(user=admin_user, active_run_id="chat-run")
 
-        result = await apost_event(
-            session.thread_id, kind=EventKind.MENTION, source_key="note:1", payload=mention_payload(), wake=True,
+        result = await Inbox(session.thread_id).apost(
+            kind=EventKind.MENTION, source_key="note:1", payload=mention_payload(), wake=True,
             author_username="stranger", author_provider="gitlab", author_uid="77",
         )  # fmt: skip
 
@@ -193,8 +188,7 @@ class TestBusySession:
     async def test_a_person_who_asked_starts_the_next_run(self, drain, member_user):
         session = await amake_session(active_run_id="chat-run")
 
-        result = await apost_event(
-            session.thread_id,
+        result = await Inbox(session.thread_id).apost(
             kind=EventKind.FOLLOW_UP_JOB,
             source_key=kinds.SourceKey.job(uuid.uuid4()),
             payload={"prompt": "Bump it", "trigger_type": SessionOrigin.MCP_JOB},
@@ -226,7 +220,7 @@ class TestAttachNextRun:
         result = await _post_ci(session.thread_id)
         await Session.objects.filter(pk=session.pk).aupdate(active_run_id="chat-run")
 
-        run = await aattach_next_run(result.event)
+        run = await Inbox(result.event.session_id).aattach_next_run(result.event)
 
         assert (run.status, run.ref) == (RunStatus.QUEUED, session.ref)
         assert (await InboxEvent.objects.aget(pk=result.event.pk)).run_id == run.pk
@@ -235,21 +229,20 @@ class TestAttachNextRun:
         session = await amake_session()
         result = await _post_ci(session.thread_id)
 
-        assert await aattach_next_run(result.event) is None
+        assert await Inbox(result.event.session_id).aattach_next_run(result.event) is None
 
     async def test_an_event_that_joined_a_run_returns_it(self, drain):
         session = await amake_session(active_run_id="chat-run")
         result = await _post_ci(session.thread_id)
 
-        assert (await aattach_next_run(result.event)).pk == result.run_id
+        assert (await Inbox(result.event.session_id).aattach_next_run(result.event)).pk == result.run_id
 
 
 class TestRememberedEvents:
     async def test_a_remembered_event_never_drains_nor_joins_a_run(self, drain):
         session = await amake_session(active_run_id="chat-run")
 
-        result = await apost_event(
-            session.thread_id,
+        result = await Inbox(session.thread_id).apost(
             kind=EventKind.CI_PASSED,
             source_key=kinds.SourceKey.pipeline(3),
             payload=ci_payload(3, status="success"),
@@ -280,7 +273,7 @@ class TestDelegatedCiOutcome:
         parent, child = await self._child()
 
         for outcome in ("no_push", "stopped_after_attempts", "passing"):
-            await apost_delegated_ci_outcome(
+            await Inbox.apost_delegated_ci_outcome(
                 child, merge_request_iid=9, pipeline_id=830724, outcome=outcome, web_url="https://ci/830724"
             )
 
@@ -291,7 +284,7 @@ class TestDelegatedCiOutcome:
         parent, child = await self._child()
 
         for _ in range(2):
-            await apost_delegated_ci_outcome(
+            await Inbox.apost_delegated_ci_outcome(
                 child, merge_request_iid=9, pipeline_id=830724, outcome="passing", web_url="https://ci/830724"
             )
 
@@ -300,7 +293,7 @@ class TestDelegatedCiOutcome:
     async def test_a_session_without_a_parent_tells_no_one(self, drain):
         session = await amake_session()
 
-        await apost_delegated_ci_outcome(
+        await Inbox.apost_delegated_ci_outcome(
             session, merge_request_iid=9, pipeline_id=1, outcome="passing", web_url="https://ci/1"
         )
 
@@ -316,12 +309,12 @@ class TestRefusals:
         session = await amake_session()
 
         with pytest.raises(ValueError, match="missing"):
-            await apost_event(session.thread_id, kind=EventKind.CI_FAILED, source_key="k", payload={}, wake=True)
+            await Inbox(session.thread_id).apost(kind=EventKind.CI_FAILED, source_key="k", payload={}, wake=True)
 
     async def test_a_kind_that_never_wakes_cannot_be_posted_waking(self, drain):
         session = await amake_session()
 
         with pytest.raises(ValueError, match="never wakes"):
-            await apost_event(
-                session.thread_id, kind=EventKind.NOTICE, source_key="k", payload={"text": "t"}, wake=True
+            await Inbox(session.thread_id).apost(
+                kind=EventKind.NOTICE, source_key="k", payload={"text": "t"}, wake=True
             )

@@ -67,7 +67,7 @@ from core.utils import build_absolute_url
 from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_access, check_agent_override
 from sessions.artifacts import aresolve_active_run
 from sessions.inbox import kinds
-from sessions.inbox.post import post_event
+from sessions.inbox.post import Inbox
 from sessions.models import EventKind, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.queue import LINK_FAILED_PREFIX, release_orphan_queued_runs
 from sessions.services import RepoTarget, asubmit_batch_runs
@@ -322,8 +322,7 @@ def _resume_batch(batch_id: uuid.UUID) -> bool:
     }
     if legs[0].muted is not None:
         payload["muted"] = legs[0].muted
-    result = post_event(
-        coordinator.pk,
+    result = Inbox(coordinator.pk).post(
         kind=EventKind.DELEGATION_FINISHED,
         source_key=kinds.SourceKey.batch(batch_id),
         payload=payload,

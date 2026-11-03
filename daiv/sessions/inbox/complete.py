@@ -52,7 +52,7 @@ from core import ui_events
 from core.constants import BOT_NAME
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.drain import drain_logged
-from sessions.inbox.post import post_delegated_ci_outcome
+from sessions.inbox.post import Inbox
 from sessions.models import (
     EventFailure,
     EventKind,
@@ -295,7 +295,7 @@ def _tell_parents_nothing_was_pushed(failures: list[InboxEvent]) -> None:
 
 
 def _post_no_push(session: Session, ci_failure: InboxEvent) -> None:
-    post_delegated_ci_outcome(
+    Inbox.post_delegated_ci_outcome(
         session,
         merge_request_iid=ci_failure.merge_request_iid,
         pipeline_id=ci_failure.payload["pipeline_id"],
