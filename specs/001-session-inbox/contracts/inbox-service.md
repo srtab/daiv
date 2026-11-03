@@ -56,13 +56,14 @@ Called by the chat view right after it claims the slot with `try_claim` (R9). It
 
 Waking events are left `pending` for the drain, which starts their run once the chat turn ends: only the drain renders a waking event's request, charges a CI attempt, and serves one requester per run. This narrows FR-010's "every pending event" for an idle chat turn; the waking events still reach the agent in the very next run.
 
-## `RunInput.aof_run`
+## `RunInput.aof_run` and `RunInput.render`
 
 ```python
-async def RunInput.aof_run(run: Run) -> RenderedInput
+async def RunInput.aof_run(run: Run) -> RunInput
+def RunInput.render(self, run: Run, *, fast_forward: FastForward | None = None) -> RenderedInput
 ```
 
-Returns `RenderedInput(context: HumanMessage | None, request: HumanMessage)` per [agent-input.md](agent-input.md). The executor builds `RunSpec.input_messages` from it.
+`RunInput.aof_run(run)` loads the events the run took. `render` returns `RenderedInput(context: HumanMessage | None, request: HumanMessage)` per [agent-input.md](agent-input.md). The executor builds `RunSpec.input_messages` from it.
 
 ## Completion: `RunEnd.on_run_ended`
 
