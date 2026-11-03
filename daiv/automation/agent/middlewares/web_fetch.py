@@ -3,12 +3,14 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import logging
-from typing import TYPE_CHECKING, Annotated
-from urllib.parse import urljoin, urlparse, urlunparse
+import re
+from typing import TYPE_CHECKING, Annotated, NamedTuple
+from urllib.parse import urldefrag, urljoin, urlparse, urlunparse
 
 from django.core.cache import cache
 
 import markdownify
+from bs4 import BeautifulSoup, Tag
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
@@ -31,6 +33,13 @@ WEB_FETCH_NAME = "web_fetch"
 # summary degrades to the raw content.
 WEB_FETCH_MODEL_TIMEOUT_SECONDS = 60
 
+_HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
+_LISTED_HEADING_TAGS = ("h1", "h2", "h3")
+_MAX_LISTED_ANCHORS = 60
+_SELF_LINK = re.compile(r"^#.+")
+_SECTION_START = "DAIVWEBFETCHSECTIONSTART"
+_SECTION_END = "DAIVWEBFETCHSECTIONEND"
+
 WEB_FETCH_TOOL_DESCRIPTION = """\
 Fetch content from a specified URL and process it using an AI model.
 
@@ -43,6 +52,8 @@ Fetch content from a specified URL and process it using an AI model.
 Usage notes:
   - The URL must be a fully-formed valid URL
   - HTTP URLs will be automatically upgraded to HTTPS
+  - A `#fragment` naming a section anchor of an HTML page (e.g. https://docs.example.com/releases/#breaking-changes) \
+processes only that section; a page too large to process lists the section anchors it has
   - This tool is read-only and does not modify any files
   - When a URL redirects to a different host, the tool will inform you and provide the redirect URL in a special format:
       <redirect_url>https://new-host.example/path</redirect_url>"""
@@ -51,7 +62,7 @@ Usage notes:
 WEB_FETCH_SYSTEM_PROMPT = f"""\
 ## Web Fetch tool `{WEB_FETCH_NAME}`
 
-You have access to a `{WEB_FETCH_NAME}` tool to retrieve and analyze web content.
+Use the `{WEB_FETCH_NAME}` tool (load it via `tool_search` if it is not loaded) to retrieve and analyze web content.
 
 Usage notes:
  - Provide a fully-formed URL.
@@ -181,9 +192,14 @@ def _set_cached_response(*, url: str, prompt: str, response: str) -> None:
     )
 
 
-async def _fetch_markdown_for_url(url: str) -> str:
+class _Page(NamedTuple):
+    content: str
+    html: str | None
+
+
+async def _fetch_markdown_for_url(url: str) -> _Page:
     """
-    Fetch the URL and return markdown content.
+    Fetch the URL and return its markdown content, plus the raw page when it is HTML.
     """
     auth_headers = _get_auth_headers_for_url(url)
     final_url, content_type, page_raw = await _fetch_url_text(
@@ -194,8 +210,109 @@ async def _fetch_markdown_for_url(url: str) -> str:
     )
 
     is_html = "<html" in page_raw[:200].lower() or ("text/html" in content_type) or not content_type
+    if not is_html:
+        return _Page(content=page_raw, html=None)
+    return _Page(content=markdownify.markdownify(page_raw, heading_style=markdownify.ATX), html=page_raw)
 
-    return markdownify.markdownify(page_raw, heading_style=markdownify.ATX) if is_html else page_raw
+
+def _heading_level(heading: Tag) -> int:
+    return int(heading.name[1])
+
+
+def _wrapped_heading(node: Tag | None) -> Tag | None:
+    """The heading ``node`` only wraps (GitHub's ``div.markdown-heading``), else ``None``."""
+    if node is None:
+        return None
+    heading = node.find(_HEADING_TAGS)
+    if isinstance(heading, Tag) and heading.get_text(strip=True) == node.get_text(strip=True):
+        return heading
+    return None
+
+
+def _section_heading(target: Tag) -> Tag | None:
+    """The heading that opens the section ``target`` anchors, or ``None`` when ``target`` is the section itself."""
+    if target.name in _HEADING_TAGS:
+        return target
+    if heading := target.find_parent(_HEADING_TAGS) or _wrapped_heading(target):
+        return heading
+    if target.get_text(strip=True):
+        return None
+    following = target.find_next(_HEADING_TAGS)
+    return _wrapped_heading(target.parent) or (following if isinstance(following, Tag) else None)
+
+
+def _section_target(soup: BeautifulSoup, fragment: str) -> Tag | None:
+    target = soup.find(id=fragment) or soup.find(None, attrs={"name": fragment})
+    if isinstance(target, Tag):
+        return target
+    return next((link for link in soup.find_all("a", href=f"#{fragment}") if _section_heading(link)), None)
+
+
+def _html_section(html: str, fragment: str) -> str | None:
+    """
+    Return the markdown of the section ``#fragment`` names, or ``None`` when the page has no such section.
+
+    A heading's section runs to the next heading of the same or a higher level; an id on a container
+    (Sphinx's ``<section id>``) is the whole container.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    target = _section_target(soup, fragment)
+    if target is None:
+        return None
+    heading = _section_heading(target)
+    if heading is None:
+        target.insert_before(_SECTION_START)
+        target.insert_after(_SECTION_END)
+    else:
+        heading.insert_before(_SECTION_START)
+        level = _heading_level(heading)
+        end = next((h for h in heading.find_all_next(_HEADING_TAGS) if _heading_level(h) <= level), None)
+        if end is not None:
+            end.insert_before(_SECTION_END)
+    markdown = markdownify.MarkdownConverter(heading_style=markdownify.ATX).convert_soup(soup)
+    return markdown.partition(_SECTION_START)[2].partition(_SECTION_END)[0].strip() or None
+
+
+def _heading_anchor(heading: Tag) -> str | None:
+    if anchor := heading.get("id"):
+        return str(anchor)
+    scope = heading.parent if _wrapped_heading(heading.parent) is heading else heading
+    link = scope.find("a", href=_SELF_LINK) if scope is not None else None
+    return str(link["href"])[1:] if isinstance(link, Tag) else None
+
+
+def _heading_text(heading: Tag) -> str:
+    words = [text for text in heading.find_all(string=True) if not text.find_parent("a", href=_SELF_LINK)]
+    return " ".join(" ".join(words).split()) or heading.get_text(" ", strip=True)
+
+
+def _section_anchors(html: str) -> list[str]:
+    """``#anchor  Heading`` lines for the page's top-level sections, deduplicated in page order."""
+    soup = BeautifulSoup(html, "html.parser")
+    lines = (
+        f"#{anchor}  {_heading_text(heading)}"
+        for heading in soup.find_all(_LISTED_HEADING_TAGS)
+        if (anchor := _heading_anchor(heading))
+    )
+    return list(dict.fromkeys(lines))
+
+
+def _too_large_message(*, content_chars: int, html: str | None, missing_fragment: str | None) -> str:
+    lines = [
+        f"error: Page content is too large to analyze in one pass ({content_chars:,} characters; "
+        f"the limit is {site_settings.web_fetch_max_content_chars:,})."
+    ]
+    if missing_fragment:
+        lines.append(f"The page has no #{missing_fragment} section.")
+    anchors = _section_anchors(html) if html is not None else []
+    if not anchors:
+        lines.append("Fetch a narrower URL instead, such as a single release, file or section page.")
+        return "\n".join(lines)
+    lines.append("Fetch one section instead by adding its anchor to the URL as a #fragment:")
+    lines.extend(anchors[:_MAX_LISTED_ANCHORS])
+    if len(anchors) > _MAX_LISTED_ANCHORS:
+        lines.append(f"... and {len(anchors) - _MAX_LISTED_ANCHORS} more")
+    return "\n".join(lines)
 
 
 @tool(WEB_FETCH_NAME, description=WEB_FETCH_TOOL_DESCRIPTION)
@@ -207,34 +324,45 @@ async def web_fetch_tool(
     Fetch a URL, convert HTML to markdown, then answer the given prompt using a small/fast model.
     """
     url = _upgrade_http_to_https(url.strip())
-    if not _is_valid_http_url(url):
-        return "error: Invalid URL. Provide a fully-formed http(s) URL (e.g., https://example.com)."
+    outcome, result = await _web_fetch(url, prompt or "")
+    logger.info("[web_fetch] Tool result (outcome=%s, chars=%d, url=%s)", outcome, len(result), url)
+    return result
 
-    prompt = prompt or ""
+
+async def _web_fetch(url: str, prompt: str) -> tuple[str, str]:
+    """
+    Return ``(outcome, tool result)`` for one fetch; the outcome only labels the log line.
+    """
+    if not _is_valid_http_url(url):
+        return "invalid_url", "error: Invalid URL. Provide a fully-formed http(s) URL (e.g., https://example.com)."
 
     # Cache key is (url, prompt). The summarisation model is intentionally NOT
     # part of the key today — if the active model is rotated and you want fresh
     # answers, also bump ``_cache_key_for_response``.
     if prompt.strip() and (cached := _get_cached_response(url=url, prompt=prompt)) is not None:
-        return str(cached)
+        return "cached", str(cached)
 
+    page_url, fragment = urldefrag(url)
     try:
-        content = await _fetch_markdown_for_url(url)
+        page = await _fetch_markdown_for_url(page_url)
     except RuntimeError as e:
         # Used for special redirect signaling.
-        return str(e)
+        return "redirect", str(e)
     except Exception as e:
-        return f"error: Failed to fetch URL: {e}"
+        return "fetch_error", f"error: Failed to fetch URL: {e}"
 
-    # Safety guard: avoid silently truncating; ask for a narrower URL/prompt instead.
+    section = _html_section(page.html, fragment) if fragment and page.html is not None else None
+    content = section or page.content
+
+    # Safety guard: avoid silently truncating; point at the page's sections instead.
     if len(content) > site_settings.web_fetch_max_content_chars:
-        return (
-            "error: Page content is too large to safely analyze in one pass.\n"
-            "Provide a more specific URL (e.g. a specific section/anchor) or narrow the prompt."
+        missing_fragment = fragment if fragment and section is None else None
+        return "too_large", _too_large_message(
+            content_chars=len(content), html=page.html, missing_fragment=missing_fragment
         )
 
     if not prompt.strip() or site_settings.web_fetch_model_name is None:
-        return f"Contents of {url}:\n{content}"
+        return "raw", f"Contents of {url}:\n{content}"
 
     # A build failure is a permanent misconfiguration (disabled provider, missing key, bad spec), so it
     # logs at ERROR; the agent still gets the raw page, flagged as unsummarised.
@@ -245,7 +373,10 @@ async def web_fetch_tool(
             "web_fetch summariser model %r could not be built; check the provider configuration.",
             site_settings.web_fetch_model_name,
         )
-        return f"web_fetch summariser unavailable ({e}); returning raw content instead.\nContents of {url}:\n{content}"
+        return (
+            "summariser_unavailable",
+            f"web_fetch summariser unavailable ({e}); returning raw content instead.\nContents of {url}:\n{content}",
+        )
 
     messages = [
         SystemMessage(
@@ -258,12 +389,12 @@ async def web_fetch_tool(
     ]
     try:
         response = await model.ainvoke(messages)
-        response_text = str(getattr(response, "content", response))
+        response_text = str(response.text)
         _set_cached_response(url=url, prompt=prompt, response=response_text)
-        return response_text
+        return "summarised", response_text
     except Exception as e:
         logger.warning("web_fetch model processing failed; returning content instead.", exc_info=True)
-        return f"Model processing failed ({e}). Contents of {url}:\n{content}"
+        return "summariser_failed", f"Model processing failed ({e}). Contents of {url}:\n{content}"
 
 
 class WebFetchMiddleware(AgentMiddleware):
