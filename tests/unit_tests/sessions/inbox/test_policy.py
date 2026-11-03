@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 import pytest
-from sessions.inbox.policy import MAX_SYSTEM_RUNS_IN_A_ROW, amay_wake, quiet_reasons_now
+from sessions.inbox.policy import MAX_SYSTEM_RUNS_IN_A_ROW, WakePolicy
 from sessions.models import EventKind, MergeRequestOwnership, QuietReason, Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.sessions.inbox.conftest import make_event
@@ -44,34 +44,34 @@ class TestConsecutiveRunLimit:
         )  # fmt: skip
 
         assert MAX_SYSTEM_RUNS_IN_A_ROW == 3
-        assert await amay_wake(session, kind) == QuietReason.RUN_LIMIT
+        assert await WakePolicy(session).amay_wake(kind) == QuietReason.RUN_LIMIT
 
     async def test_it_allows_a_wake_below_the_limit(self):
         session = await _session()
         await _runs(session, SessionOrigin.PIPELINE_WEBHOOK, SessionOrigin.PIPELINE_WEBHOOK)
 
-        assert await amay_wake(session, EventKind.CI_FAILED) is None
+        assert await WakePolicy(session).amay_wake(EventKind.CI_FAILED) is None
 
     @pytest.mark.parametrize("person", [SessionOrigin.CHAT, SessionOrigin.MR_WEBHOOK])
     async def test_a_chat_message_or_mention_resets_the_count(self, person):
         session = await _session()
         await _runs(session, *[SessionOrigin.PIPELINE_WEBHOOK] * 3, person, SessionOrigin.PIPELINE_WEBHOOK)
 
-        assert await amay_wake(session, EventKind.CI_FAILED) is None
+        assert await WakePolicy(session).amay_wake(EventKind.CI_FAILED) is None
 
     @pytest.mark.parametrize("kind", UNGATED)
     async def test_it_never_blocks_a_persons_request(self, kind):
         session = await _session()
         await _runs(session, *[SessionOrigin.PIPELINE_WEBHOOK] * 3)
 
-        assert await amay_wake(session, kind) is None
+        assert await WakePolicy(session).amay_wake(kind) is None
 
     async def test_a_queued_next_run_is_not_counted(self):
         session = await _session()
         await _runs(session, *[SessionOrigin.PIPELINE_WEBHOOK] * 2)
         await _runs(session, SessionOrigin.PIPELINE_WEBHOOK, status=RunStatus.QUEUED)
 
-        assert await amay_wake(session, EventKind.CI_FAILED) is None
+        assert await WakePolicy(session).amay_wake(EventKind.CI_FAILED) is None
 
 
 class TestQuietReasonsNow:
@@ -91,7 +91,7 @@ class TestQuietReasonsNow:
         session = self._sync_session(at_limit=True)
         event = make_event(session, EventKind.DELEGATION_FINISHED)
 
-        assert quiet_reasons_now(session, [event]) == {event.pk: QuietReason.RUN_LIMIT}
+        assert WakePolicy(session).quiet_reasons_now([event]) == {event.pk: QuietReason.RUN_LIMIT}
 
     def test_a_ci_failure_on_a_closed_merge_request_is_watch_off(self):
         session = self._sync_session()
@@ -100,19 +100,19 @@ class TestQuietReasonsNow:
         )
         event = make_event(session, EventKind.CI_FAILED, merge_request_iid=101)
 
-        assert quiet_reasons_now(session, [event]) == {event.pk: QuietReason.WATCH_OFF}
+        assert WakePolicy(session).quiet_reasons_now([event]) == {event.pk: QuietReason.WATCH_OFF}
 
     def test_a_persons_request_is_never_quieted(self):
         session = self._sync_session(at_limit=True)
         event = make_event(session, EventKind.CHAT_MESSAGE)
 
-        assert quiet_reasons_now(session, [event]) == {}
+        assert WakePolicy(session).quiet_reasons_now([event]) == {}
 
     def test_a_remembered_event_has_no_prediction(self):
         session = self._sync_session(at_limit=True)
         event = make_event(session, EventKind.COMMENT)
 
-        assert quiet_reasons_now(session, [event]) == {}
+        assert WakePolicy(session).quiet_reasons_now([event]) == {}
 
     def test_it_asks_each_question_once_however_many_events(self, django_assert_num_queries):
         session = self._sync_session(at_limit=True)
@@ -121,7 +121,7 @@ class TestQuietReasonsNow:
         delegations = [make_event(session, EventKind.DELEGATION_FINISHED) for _ in range(3)]
 
         with django_assert_num_queries(2):
-            reasons = quiet_reasons_now(session, failures + delegations)
+            reasons = WakePolicy(session).quiet_reasons_now(failures + delegations)
 
         assert reasons[failures[0].pk] == QuietReason.WATCH_OFF
         assert {reasons[event.pk] for event in failures[1:] + delegations} == {QuietReason.RUN_LIMIT}

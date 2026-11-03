@@ -11,6 +11,7 @@ from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox import kinds
 from sessions.inbox.drain import adrain, atake_for_chat, drain_logged, keep_queued_claims_alive
+from sessions.inbox.policy import WakePolicy
 from sessions.models import (
     EventFailure,
     EventKind,
@@ -206,10 +207,10 @@ class TestNothingToWake:
             )  # fmt: skip
         await amake_event(session, EventKind.DELEGATION_FINISHED)
 
-        with patch("sessions.inbox.drain.report_run_limit") as report:
+        with patch.object(WakePolicy, "report_run_limit", autospec=True) as report:
             await adrain(session.thread_id)
 
-        assert report.call_args.args[0].pk == session.pk
+        assert report.call_args.args[0].session.pk == session.pk
 
 
 class TestAccess:

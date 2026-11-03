@@ -3,7 +3,7 @@
 A person's request (a chat message, a mention, a follow-up job) always wakes it. A CI failure or a finished delegated
 batch does not once ``MAX_SYSTEM_RUNS_IN_A_ROW`` runs DAIV started itself followed each other with no run a person
 started in between: the event is then only remembered, with the reason recorded, and the session's owner is told once
-per streak (:func:`report_run_limit`).
+per streak (:meth:`WakePolicy.report_run_limit`).
 """
 
 from __future__ import annotations
@@ -35,95 +35,99 @@ if TYPE_CHECKING:
 MAX_SYSTEM_RUNS_IN_A_ROW = 3
 
 
-def may_wake(session: Session, kind: str) -> QuietReason | None:
-    """Why an event of ``kind`` may not wake ``session``'s agent, or ``None`` when it may. SYNC ONLY."""
-    return _gate(session) if kind in GATED_KINDS else None
+class WakePolicy:
+    """The wake rules of one session: whether an event may wake its agent, and the notice when the limit blocks one."""
 
+    def __init__(self, session: Session):
+        self.session = session
 
-amay_wake = sync_to_async(may_wake)
+    def may_wake(self, kind: str) -> QuietReason | None:
+        """Why an event of ``kind`` may not wake the session's agent, or ``None`` when it may. SYNC ONLY."""
+        return self._gate() if kind in GATED_KINDS else None
 
+    async def amay_wake(self, kind: str) -> QuietReason | None:
+        return await sync_to_async(self.may_wake)(kind)
 
-def quiet_reasons_now(session: Session, events: Iterable[InboxEvent]) -> dict[uuid.UUID, QuietReason]:
-    """Why the drain would keep each of ``events`` from waking ``session`` if it ran now, by event pk; an event it would
-    wake, or that was never going to wake it, is left out. A fixed number of queries, however many events. SYNC ONLY.
-    """
-    waking = [event for event in events if event.wake]
-    stopped = _stopped_ci(session, waking)
-    reasons = dict.fromkeys(
-        (event.pk for event in waking if (event.kind, event.merge_request_iid) in stopped), QuietReason.WATCH_OFF
-    )
-    gated = [event.pk for event in waking if event.kind in GATED_KINDS and event.pk not in reasons]
-    if gated and (reason := _gate(session)) is not None:
-        reasons.update(dict.fromkeys(gated, reason))
-    return reasons
+    def quiet_reasons_now(self, events: Iterable[InboxEvent]) -> dict[uuid.UUID, QuietReason]:
+        """Why the drain would keep each of ``events`` from waking the session if it ran now, by event pk; an event it
+        would wake, or that was never going to wake it, is left out. A fixed number of queries, however many events.
+        SYNC ONLY.
+        """
+        waking = [event for event in events if event.wake]
+        stopped = self._stopped_ci(waking)
+        reasons = dict.fromkeys(
+            (event.pk for event in waking if (event.kind, event.merge_request_iid) in stopped), QuietReason.WATCH_OFF
+        )
+        gated = [event.pk for event in waking if event.kind in GATED_KINDS and event.pk not in reasons]
+        if gated and (reason := self._gate()) is not None:
+            reasons.update(dict.fromkeys(gated, reason))
+        return reasons
 
+    def system_runs_in_a_row(self) -> int:
+        """How many of the session's latest runs DAIV started itself, counted back to the last one a person started.
 
-def _gate(session: Session) -> QuietReason | None:
-    if system_runs_in_a_row(session) >= MAX_SYSTEM_RUNS_IN_A_ROW:
-        return QuietReason.RUN_LIMIT
-    return None
+        A QUEUED next run has not been dispatched, and its trigger type is provisional, so it does not count.
+        """
+        latest = (
+            Run.objects
+            .filter(session=self.session)
+            .exclude(status=RunStatus.QUEUED)
+            .order_by("-created_at")
+            .values_list("trigger_type", flat=True)[:MAX_SYSTEM_RUNS_IN_A_ROW]
+        )
+        count = 0
+        for trigger in latest:
+            if trigger not in SessionOrigin.daiv_authored():
+                break
+            count += 1
+        return count
 
+    def report_run_limit(self) -> None:
+        """Tell the receivers of ``inbox_paused`` that the limit blocked a wake on the session, naming the first event
+        the current streak blocked, which is what keeps one streak to one notice. SYNC ONLY."""
+        blocked = InboxEvent.objects.filter(session=self.session, reason=QuietReason.RUN_LIMIT)
+        if (since := self._last_person_run_at()) is not None:
+            blocked = blocked.filter(created_at__gt=since)
+        first = blocked.order_by("created_at", "id").first()
+        if first is None:
+            return
+        inbox_paused.send_robust(
+            sender=Session,
+            session=self.session,
+            first_blocked_event_id=str(first.pk),
+            runs_in_a_row=MAX_SYSTEM_RUNS_IN_A_ROW,
+        )
 
-def _stopped_ci(session: Session, events: list[InboxEvent]) -> set[tuple[str, int]]:
-    """The ``(kind, merge_request_iid)`` of the CI failures among ``events`` whose merge request was closed, or whose
-    watch was turned off."""
-    iids = {event.merge_request_iid for event in events if event.kind == EventKind.CI_FAILED}
-    iids.discard(None)
-    if not iids:
-        return set()
-    stopped = (
-        MergeRequestOwnership.objects
-        .filter(repo_id=session.repo_id, merge_request_iid__in=iids)
-        .filter(Q(closed_at__isnull=False) | Q(watch_enabled=False))
-        .values_list("merge_request_iid", flat=True)
-    )
-    return {(EventKind.CI_FAILED, iid) for iid in stopped}
+    async def areport_run_limit(self) -> None:
+        await sync_to_async(self.report_run_limit)()
 
+    def _gate(self) -> QuietReason | None:
+        if self.system_runs_in_a_row() >= MAX_SYSTEM_RUNS_IN_A_ROW:
+            return QuietReason.RUN_LIMIT
+        return None
 
-def system_runs_in_a_row(session: Session) -> int:
-    """How many of ``session``'s latest runs DAIV started itself, counted back to the last one a person started.
+    def _stopped_ci(self, events: list[InboxEvent]) -> set[tuple[str, int]]:
+        """The ``(kind, merge_request_iid)`` of the CI failures among ``events`` whose merge request was closed, or
+        whose watch was turned off."""
+        iids = {event.merge_request_iid for event in events if event.kind == EventKind.CI_FAILED}
+        iids.discard(None)
+        if not iids:
+            return set()
+        stopped = (
+            MergeRequestOwnership.objects
+            .filter(repo_id=self.session.repo_id, merge_request_iid__in=iids)
+            .filter(Q(closed_at__isnull=False) | Q(watch_enabled=False))
+            .values_list("merge_request_iid", flat=True)
+        )
+        return {(EventKind.CI_FAILED, iid) for iid in stopped}
 
-    A QUEUED next run has not been dispatched, and its trigger type is provisional, so it does not count.
-    """
-    latest = (
-        Run.objects
-        .filter(session=session)
-        .exclude(status=RunStatus.QUEUED)
-        .order_by("-created_at")
-        .values_list("trigger_type", flat=True)[:MAX_SYSTEM_RUNS_IN_A_ROW]
-    )
-    count = 0
-    for trigger in latest:
-        if trigger not in SessionOrigin.daiv_authored():
-            break
-        count += 1
-    return count
-
-
-def report_run_limit(session: Session) -> None:
-    """Tell the receivers of ``inbox_paused`` that the limit blocked a wake on ``session``, naming the first event the
-    current streak blocked, which is what keeps one streak to one notice. SYNC ONLY."""
-    blocked = InboxEvent.objects.filter(session=session, reason=QuietReason.RUN_LIMIT)
-    if (since := _last_person_run_at(session)) is not None:
-        blocked = blocked.filter(created_at__gt=since)
-    first = blocked.order_by("created_at", "id").first()
-    if first is None:
-        return
-    inbox_paused.send_robust(
-        sender=Session, session=session, first_blocked_event_id=str(first.pk), runs_in_a_row=MAX_SYSTEM_RUNS_IN_A_ROW
-    )
-
-
-areport_run_limit = sync_to_async(report_run_limit)
-
-
-def _last_person_run_at(session: Session) -> datetime | None:
-    return (
-        Run.objects
-        .filter(session=session)
-        .exclude(status=RunStatus.QUEUED)
-        .exclude(trigger_type__in=SessionOrigin.daiv_authored())
-        .order_by("-created_at")
-        .values_list("created_at", flat=True)
-        .first()
-    )
+    def _last_person_run_at(self) -> datetime | None:
+        return (
+            Run.objects
+            .filter(session=self.session)
+            .exclude(status=RunStatus.QUEUED)
+            .exclude(trigger_type__in=SessionOrigin.daiv_authored())
+            .order_by("-created_at")
+            .values_list("created_at", flat=True)
+            .first()
+        )

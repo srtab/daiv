@@ -23,7 +23,7 @@ from asgiref.sync import sync_to_async
 from sessions.executor.lock import session_activity
 from sessions.inbox.drain import Requester, branch_of, newest_of_each_subject, next_runs, requester_of, requester_user
 from sessions.inbox.kinds import PERSON_KINDS
-from sessions.inbox.policy import quiet_reasons_now
+from sessions.inbox.policy import WakePolicy
 from sessions.inbox.render import author_name
 from sessions.inbox_display import bubble, run_bubble
 from sessions.models import EventState, InboxEvent, RunStatus
@@ -62,7 +62,7 @@ def up_next_payload(
     for run in inbox_runs:
         by_key.setdefault((run.ref, Requester.of_run(run)), run)
     survivors = newest_of_each_subject([event for event in events if event.state == EventState.PENDING])
-    reasons = quiet_reasons_now(session, survivors)
+    reasons = WakePolicy(session).quiet_reasons_now(survivors)
     asks: dict[Any, tuple[str, Requester, list[InboxEvent]]] = {}
     remembered: list[tuple[InboxEvent, str, str | None]] = []
     for event in survivors:

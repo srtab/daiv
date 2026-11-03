@@ -35,7 +35,7 @@ from automation.agent.references import merge_stored_refs
 from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.kinds import INBOX_TRIGGERS, PERSON_KINDS, PRECEDENCE, EventContent
-from sessions.inbox.policy import quiet_reasons_now, report_run_limit
+from sessions.inbox.policy import WakePolicy
 from sessions.inbox.render import render_request
 from sessions.models import (
     EventFailure,
@@ -392,13 +392,13 @@ def _supersede(pending: list[InboxEvent]) -> list[InboxEvent]:
 def _apply_policy(session: Session, survivors: list[InboxEvent]) -> None:
     """Turn the waking events the policy blocks into remembered ones, recording why. A CI failure whose merge request
     was closed, or whose watch was turned off, since it was posted no longer wakes either."""
-    reasons = quiet_reasons_now(session, survivors)
+    reasons = WakePolicy(session).quiet_reasons_now(survivors)
     for event in survivors:
         if (reason := reasons.get(event.pk)) is not None:
             event.wake, event.reason = False, reason
             event.save(update_fields=["wake", "reason", "updated_at"])
     if QuietReason.RUN_LIMIT in reasons.values():
-        transaction.on_commit(partial(report_run_limit, session), robust=True)
+        transaction.on_commit(WakePolicy(session).report_run_limit, robust=True)
 
 
 def _drop_next_runs(runs: Iterable[Run | None]) -> None:

@@ -7,7 +7,7 @@ import pytest
 from notifications.choices import EventType
 from notifications.models import Notification
 from notifications.policy import SOURCE_SESSION
-from sessions.inbox.policy import report_run_limit
+from sessions.inbox.policy import WakePolicy
 from sessions.models import EventKind, QuietReason, Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.sessions.inbox.conftest import make_event
@@ -35,9 +35,9 @@ def test_the_owner_is_told_once_per_streak(member_user):
     session = _session(member_user)
     first = _block(session, minutes_ago=10)
 
-    report_run_limit(session)
+    WakePolicy(session).report_run_limit()
     _block(session, minutes_ago=5)
-    report_run_limit(session)
+    WakePolicy(session).report_run_limit()
 
     notification = Notification.objects.get()
     assert notification.recipient == member_user
@@ -51,7 +51,7 @@ def test_the_owner_is_told_once_per_streak(member_user):
 def test_a_person_starting_a_run_begins_a_new_streak(member_user):
     session = _session(member_user)
     _block(session, minutes_ago=30)
-    report_run_limit(session)
+    WakePolicy(session).report_run_limit()
     Run.objects.create(
         session=session,
         trigger_type=SessionOrigin.CHAT,
@@ -61,7 +61,7 @@ def test_a_person_starting_a_run_begins_a_new_streak(member_user):
     )
     _block(session, minutes_ago=5)
 
-    report_run_limit(session)
+    WakePolicy(session).report_run_limit()
 
     assert Notification.objects.count() == 2
 
@@ -70,6 +70,6 @@ def test_a_session_without_an_owner_tells_no_one():
     session = _session(None)
     _block(session, minutes_ago=1)
 
-    report_run_limit(session)
+    WakePolicy(session).report_run_limit()
 
     assert Notification.objects.count() == 0

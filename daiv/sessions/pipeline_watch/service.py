@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING
 
 from sessions.inbox import kinds
 from sessions.inbox.ownership import aopen_ownership
-from sessions.inbox.policy import amay_wake, areport_run_limit
+from sessions.inbox.policy import WakePolicy
 from sessions.inbox.post import apost_delegated_ci_outcome, apost_event
 from sessions.models import EventKind, QuietReason
 from sessions.pipeline_watch.judgment import Judgment, PipelineReport
@@ -238,7 +238,7 @@ class PipelineWatch:
                 return
             await self._anotify_exhausted(ownership=ownership, session=session, report=report)
         elif reason == QuietReason.RUN_LIMIT:
-            await areport_run_limit(session)
+            await WakePolicy(session).areport_run_limit()
         if reason == QuietReason.BUDGET_SPENT or (
             kind == EventKind.CI_PASSED and await self._apassing(ownership, session, report)
         ):
@@ -286,7 +286,7 @@ class PipelineWatch:
             return QuietReason.ALREADY_EXAMINED
         if ownership.attempts >= policy.max_attempts:
             return QuietReason.BUDGET_SPENT
-        return await amay_wake(session, EventKind.CI_FAILED)
+        return await WakePolicy(session).amay_wake(EventKind.CI_FAILED)
 
     async def _anotify_exhausted(
         self, *, ownership: MergeRequestOwnership, session: Session, report: PipelineReport
