@@ -1,107 +1,86 @@
-// Polls the session turns endpoint while no run streams to this page, and hands the
-// session to the chat component as soon as a run holder appears.
-// A page that rendered idle stays dormant until a run the viewer can see starts (the nav store's
-// latest running start moves) or sessionPage asks (`daiv:session-check`); it then asks whether a run is
-// background work on this session, and otherwise refreshes the top bar from that one fetch.
+// Fetches the session's turns when the nav stream announces a revision this page has not applied or a run stream
+// ends, and hands each live run to the chat; its one timer re-attaches to a run whose stream dropped, backing off.
 document.addEventListener("alpine:init", () => {
-  Alpine.data("sessionSync", ({ turnsUrl, liveRunId, active }) => ({
-    _engaged: active,
-    _followed: liveRunId || "",
-    _timer: null,
-    _checking: false,
-    _failures: 0,
-    _seq: 0,
-    // Stop polling after this many consecutive failures so a persistent error
-    // (endpoint 500s, auth expired) doesn't poll forever in the background.
-    _maxFailures: 5,
-    init() {
-      if (this._engaged && !liveRunId) this._start();
-      this.$watch("$store.nav?.latestRunningStart", (latest) => {
-        if (latest) this._checkForBackgroundRun();
-      });
-    },
+  const FIRST_RETRY_MS = 2000;
+  const MAX_RETRY_MS = 30000;
+
+  Alpine.data("sessionSync", ({ turnsUrl, liveRunId, revision }) => ({
+    _revision: revision,
+    _following: liveRunId || "",
+    _finished: new Set(),
+    _keepTranscript: false,
+    _keptRunCount: null,
+    _retry: null,
+    _retryTimer: null,
+    _fetching: false,
+    _dirty: false,
     destroy() {
-      this._stop();
+      clearTimeout(this._retryTimer);
     },
-    resume() {
-      // A dormant page's own chat turn ending is not a reason to poll, and settling would reload it.
-      if (!this._engaged) return this._refreshHeader();
-      this._start();
-      this.poll();
+    changed({ revision }) {
+      if (revision !== this._revision) this.refresh();
+    },
+    runEnded({ runId, reason, own, frames }) {
+      this._following = "";
+      if (reason === "finished" || reason === "not_started") {
+        if (reason === "finished") this._finished.add(runId);
+        this._keepTranscript = Boolean(own);
+        this._keptRunCount = null;
+        this._retry = null;
+      } else {
+        this._keepTranscript = false;
+        const first = frames > 0 || this._retry?.runId !== runId;
+        const delay = first ? FIRST_RETRY_MS : Math.min(this._retry.delay * 2, MAX_RETRY_MS);
+        this._retry = { runId, delay };
+      }
+      this.refresh();
+    },
+    async refresh() {
+      if (this._fetching) {
+        this._dirty = true;
+        return;
+      }
+      this._fetching = true;
+      try {
+        do {
+          this._dirty = false;
+          await this._fetchTurns();
+        } while (this._dirty);
+      } finally {
+        this._fetching = false;
+      }
     },
     // `requestedAt` lets a listener tell a response from before its own write apart from one after it.
     async _fetchTurns() {
       const requestedAt = performance.now();
-      const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return { ...(await res.json()), requestedAt };
-    },
-    // One fetch for the top bar only, dispatched even on failure so the page stops holding "running".
-    async _refreshHeader() {
-      let data = null;
+      let data;
       try {
-        data = await this._fetchTurns();
-      } catch (e) {
-        // The next run end or poll refreshes it; a stale status is not worth an error.
+        const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        data = await res.json();
+      } catch {
+        // An empty header still releases the "running" the page holds from a run's end.
+        window.dispatchEvent(new CustomEvent("daiv:session-header", { detail: null }));
+        return;
       }
-      window.dispatchEvent(new CustomEvent("daiv:session-header", { detail: data }));
-    },
-    _start() {
-      if (!this._timer) this._timer = setInterval(() => this.poll(), 5000);
-    },
-    _stop() {
-      this._seq += 1;
-      if (this._timer) clearInterval(this._timer);
-      this._timer = null;
-    },
-    _onFailure(reason) {
-      this._failures += 1;
-      if (this._failures >= this._maxFailures) {
-        console.warn(`sessionSync: stopping transcript polling after repeated failures (${reason}); reload to retry`);
-        this._stop();
-      }
-    },
-    async _checkForBackgroundRun() {
-      if (this._engaged || this._checking) return;
-      this._checking = true;
-      try {
-        const data = await this._fetchTurns();
-        if (!data.background) {
-          window.dispatchEvent(new CustomEvent("daiv:session-header", { detail: data }));
-          return;
-        }
-        this._engaged = true;
-        this._start();
-        this._apply(data);
-      } catch (e) {
-        // A failed check only delays the update: the next run that starts asks again.
-      } finally {
-        this._checking = false;
-      }
-    },
-    async poll() {
-      const token = ++this._seq;
-      try {
-        const data = await this._fetchTurns();
-        if (token !== this._seq) return;
-        this._apply(data);
-      } catch (e) {
-        // Transient network errors: keep polling until the failure cap is hit.
-        this._onFailure(e && e.message ? e.message : "network error");
-      }
+      this._revision = data.revision;
+      this._apply({ ...data, requestedAt });
     },
     _apply(data) {
-      this._failures = 0;
-      window.dispatchEvent(new CustomEvent("daiv:session-turns", { detail: data }));
-      if (!data.active) {
-        this._stop();
-        this._engaged = false;
-        if (window.dispatchEvent(new CustomEvent("daiv:session-settled", { cancelable: true }))) location.reload();
-      } else if (data.live_run && data.live_run.id !== this._followed) {
-        this._stop();
-        this._followed = data.live_run.id;
-        window.dispatchEvent(new CustomEvent("daiv:session-live-run", { detail: data.live_run }));
-      }
+      if (this._keepTranscript && this._keptRunCount === null) this._keptRunCount = data.run_count;
+      const headerOnly = this._keepTranscript && data.run_count <= this._keptRunCount;
+      if (!headerOnly) this._keepTranscript = false;
+      window.dispatchEvent(new CustomEvent(headerOnly ? "daiv:session-header" : "daiv:session-turns", { detail: data }));
+      this._follow(data.live_run);
+    },
+    _follow(run) {
+      if (!run || this._finished.has(run.id) || run.id === this._following) return;
+      this._following = run.id;
+      this._keepTranscript = false;
+      clearTimeout(this._retryTimer);
+      const handOver = () => window.dispatchEvent(new CustomEvent("daiv:session-live-run", { detail: run }));
+      if (run.id === this._retry?.runId) this._retryTimer = setTimeout(handOver, this._retry.delay);
+      else handOver();
     },
   }));
 });

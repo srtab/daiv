@@ -10,8 +10,6 @@ checkpoint already painted.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from sessions.turns import build_turns
@@ -313,21 +311,6 @@ process.stdout.write(JSON.stringify({ opened: opened !== null, runStoppable: cha
     result = run_chat_stream(body, {}, prelude=PRELUDE, extra_globals="EventSource: FakeEventSource,")
 
     assert result == {"opened": False, "runStoppable": True}
-
-
-@pytest.mark.parametrize(
-    ("state", "held"),
-    [({}, False), ({"draftMessage": "next prompt"}, True), ({"streaming": True}, True), ({"resuming": True}, True)],
-)
-def test_the_chat_holds_the_settled_reload_only_while_it_has_something_to_lose(state, held):
-    body = f"""
-const chat = registry.chat({{ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" }});
-Object.assign(chat, {json.dumps(state)});
-let prevented = false;
-chat.holdReload({{ preventDefault: () => {{ prevented = true; }} }});
-process.stdout.write(JSON.stringify({{ prevented }}));
-"""
-    assert run_chat_stream(body, {}) == {"prevented": held}
 
 
 # A rejoin onto a run whose checkpoint holds ``tc-open`` unanswered, then streams ``tc-live``

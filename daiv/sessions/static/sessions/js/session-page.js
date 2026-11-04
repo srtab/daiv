@@ -1,6 +1,5 @@
-// A run this page streams or waits on is shown from the chat component's flags; otherwise the status is the
-// server's, refreshed by each sessionSync fetch of the turns endpoint. Rename, the CI toggle and Archive write
-// through the sessions API; rename and the CI toggle are only rendered for someone who may run on the repository.
+// Applies each turns fetch sessionSync announces and polls nothing; the status follows the chat while it streams or
+// waits on a run. Rename, the CI toggle and Archive write through the sessions API.
 document.addEventListener("alpine:init", () => {
   const WIDE = "(min-width: 1100px)";
 
@@ -13,9 +12,6 @@ document.addEventListener("alpine:init", () => {
       return null;
     }
   };
-
-  const CHECK_INTERVAL_MS = 5000;
-  const UP_NEXT_INTERVAL_MS = 5000;
 
   // ``upNext`` with the chat message its sender just queued, under the group of the run that will take it.
   const withProvisional = (upNext, provisional) => {
@@ -54,8 +50,6 @@ document.addEventListener("alpine:init", () => {
     return { state: "", text: "" };
   };
 
-  const unsettled = (delegations) => Boolean(delegations?.running || delegations?.waiting);
-
   // x-show reveals on the next animation frame, so a scroll sent from $nextTick can land on a hidden panel.
   const whenShown = (el, then, frames = 10) => {
     if (el.getClientRects().length) then();
@@ -84,19 +78,9 @@ document.addEventListener("alpine:init", () => {
     _watchAt: -Infinity,
     _media: null,
     _onMedia: null,
-    _checkTimer: null,
-    _upNextTimer: null,
     _provisional: [],
     init() {
       this.applyHeader(readJSON("session-header"));
-      // The turns poll that brings Up next pauses while a run streams to the page, so it refreshes on its own then.
-      this.$watch("streaming", (streaming) => this._pollUpNext(streaming));
-      this._pollUpNext(this.streaming);
-      // A dormant page polls nothing, so runs ending while a delegated job is unsettled ask sessionSync for one
-      // fetch per interval; a run starting already gets one from sessionSync's own watch.
-      this.$watch("$store.nav?.running", (running, previous) => {
-        if (running < previous && unsettled(this.delegations)) this._askForCheck();
-      });
       this._media = window.matchMedia?.(WIDE) ?? null;
       this.wide = Boolean(this._media?.matches);
       this._onMedia = (event) => {
@@ -108,26 +92,6 @@ document.addEventListener("alpine:init", () => {
     },
     destroy() {
       this._media?.removeEventListener?.("change", this._onMedia);
-      clearTimeout(this._checkTimer);
-      this._pollUpNext(false);
-    },
-    _pollUpNext(on) {
-      if (on && !this._upNextTimer) {
-        this._upNextTimer = setInterval(() => this.refreshUpNext(), UP_NEXT_INTERVAL_MS);
-      } else if (!on && this._upNextTimer) {
-        clearInterval(this._upNextTimer);
-        this._upNextTimer = null;
-      }
-    },
-    async refreshUpNext() {
-      if (!config.upNextUrl) return;
-      const requestedAt = performance.now();
-      try {
-        const res = await fetch(config.upNextUrl, { headers: { Accept: "application/json" } });
-        if (res.ok) this._applyUpNext((await res.json()).up_next ?? null, requestedAt);
-      } catch {
-        // The next refresh or turns poll brings it.
-      }
     },
     // The sender's queued message, shown until a payload asked for after it was sent, which the server built
     // knowing it, replaces it.
@@ -135,7 +99,6 @@ document.addEventListener("alpine:init", () => {
       const provisional = { event_id, run_id, text, at: performance.now(), created_at: new Date().toISOString() };
       this._provisional.push(provisional);
       this.upNext = withProvisional(this.upNext, provisional);
-      return this.refreshUpNext();
     },
     upNextHeading(group, index) {
       const T = window.TranscriptLabels;
@@ -155,13 +118,6 @@ document.addEventListener("alpine:init", () => {
     _applyUpNext(upNext, requestedAt) {
       this._provisional = this._provisional.filter((provisional) => provisional.at >= requestedAt);
       this.upNext = this._provisional.reduce(withProvisional, upNext);
-    },
-    _askForCheck() {
-      if (this._checkTimer) return;
-      this._checkTimer = setTimeout(() => {
-        this._checkTimer = null;
-        if (unsettled(this.delegations)) window.dispatchEvent(new CustomEvent("daiv:session-check"));
-      }, CHECK_INTERVAL_MS);
     },
     _remembered() {
       try {
@@ -228,6 +184,7 @@ document.addEventListener("alpine:init", () => {
       if ("watch" in data && !stale) this._showCi(data);
       if ("up_next" in data) this._applyUpNext(data.up_next ?? null, data.requestedAt ?? -Infinity);
       if ("delegations" in data) this.delegations = data.delegations ?? null;
+      if (data.title && !this.editingTitle) this._showTitle(data.title);
     },
     _showCi(data) {
       this.ci = data?.ci ?? [];

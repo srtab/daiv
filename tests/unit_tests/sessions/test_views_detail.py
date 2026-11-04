@@ -183,6 +183,19 @@ def test_the_page_seeds_the_revision(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_the_page_wires_session_sync_to_revisions(member_client, member_user):
+    session = _create_session(user=member_user)
+
+    with patch("sessions.page_state.aread_session_revision", AsyncMock(return_value=7)):
+        html = _get_detail(member_client, session).content.decode()
+
+    assert "revision: 7" in html
+    assert '@daiv:session-changed.window="changed($event.detail)"' in html
+    assert '@daiv:live-run-ended.window="runEnded($event.detail)"' in html
+    assert "session-check" not in html and "session-settled" not in html and "upNextUrl" not in html
+
+
+@pytest.mark.django_db
 def test_detail_seeds_the_tools_sheet_with_the_effective_selection(member_client, member_user):
     """The reloaded Tools sheet is seeded with the effective selection (defaults with the
     session's stored overrides applied), not with the raw ``mcp_overrides`` keys."""
@@ -1416,13 +1429,12 @@ class TestUpNext:
         anchor = next(turn for turn in turns if turn.get("run_id") == str(run.pk))
         assert [bubble["id"] for bubble in anchor["opening"]] == [f"inbox-{chat.pk}"]
 
-    def test_the_page_takes_a_message_queued_while_busy_and_refreshes_up_next(self, member_client, member_user):
+    def test_the_page_takes_a_message_queued_while_busy(self, member_client, member_user):
         session = _create_session(user=member_user)
 
         html = self._get(member_client, session).content.decode()
 
         assert '@daiv:up-next-provisional.window="addProvisional($event.detail)"' in html
-        assert f"upNextUrl: '/api/sessions/{session.thread_id}/up-next'" in html
 
     def test_the_panel_is_gone(self, member_client, member_user):
         session = _create_session(user=member_user)

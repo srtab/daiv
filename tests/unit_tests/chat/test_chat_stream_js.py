@@ -1338,6 +1338,17 @@ def test_served_state_keeps_what_it_does_not_carry():
     assert (out["diffStats"], out["contextUsage"], out["waitingSince"]) == (None, None, "2026-11-02T10:00:00Z")
 
 
+def test_an_empty_served_state_leaves_what_the_page_shows():
+    """A failed fetch dispatches the header with no state, which the page applies too."""
+    shown = {"diffStats": {"added": 1, "removed": 2}, "contextUsage": {"usedTokens": 9, "windowTokens": 100}}
+
+    out = _apply_served_state({}, shown)
+
+    assert out["thread"] == {"thread_id": "t1", "repo_id": "r", "ref": "main", "merge_request": None}
+    assert (out["diffStats"], out["contextUsage"]) == (shown["diffStats"], shown["contextUsage"])
+    assert out["waitingSince"] == "2026-11-02T10:00:00Z"
+
+
 @pytest.mark.parametrize("state", [{"streaming": True}, {"resuming": True}])
 def test_served_state_is_ignored_while_streaming(state):
     out = _apply_served_state(SERVED_STATE, state)

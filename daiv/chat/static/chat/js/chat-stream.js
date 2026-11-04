@@ -894,11 +894,6 @@
       this._resumeRun(id);
     },
 
-    // A reload once the session settles would drop an unsent draft or race a send that just started.
-    holdReload(event) {
-      if (this.streaming || this.resuming || this.draftMessage.trim()) event.preventDefault();
-    },
-
     // An attached stream owns this state while it runs.
     applySessionState(data) {
       if (this.streaming || this.resuming) return;
