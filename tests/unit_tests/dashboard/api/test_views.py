@@ -37,6 +37,18 @@ def _bus_configured(settings):
     settings.DJANGO_REDIS_URL = "redis://localhost:6379/0"
 
 
+@pytest.fixture(autouse=True)
+def _silent_publisher():
+    """The run rows these tests create poke the bus on commit, and the stream under test
+    reads a ``FakeStream``, so a real publish would only reach whatever Redis is on localhost."""
+    with (
+        patch("core.ui_events.publisher.runs_changed"),
+        patch("core.ui_events.publisher.notifications_changed"),
+        patch("core.ui_events.publisher.session_changed"),
+    ):
+        yield
+
+
 @pytest.fixture
 def stranger(db):
     return User.objects.create_user(username="stranger", email="stranger@example.com", password="pw", role="member")  # noqa: S106
