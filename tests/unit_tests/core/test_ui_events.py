@@ -27,7 +27,6 @@ from core.ui_events import (
     UIEventStream,
     aread_session_revision,
     is_transient_bus_error,
-    read_session_revision,
 )
 
 
@@ -184,44 +183,21 @@ class TestRevision:
     revisions, so every failure reads as ``0`` (the page then fetches once) and none
     of them may raise into the page render."""
 
-    def test_a_missing_key_reads_as_zero(self):
-        client = Mock(get=Mock(return_value=None))
-        assert read_session_revision("t1", connections=FakeConnections(client)) == 0
-        client.get.assert_called_once_with("daiv:ui-events:session-rev:t1")
-
-    def test_a_stored_revision_reads_as_an_int(self):
-        client = Mock(get=Mock(return_value=b"7"))
-        assert read_session_revision("t1", connections=FakeConnections(client)) == 7
-
-    def test_an_unconfigured_bus_reads_zero(self):
-        client = Mock()
-        assert read_session_revision("t1", connections=FakeConnections(client, configured=False)) == 0
-        client.get.assert_not_called()
-
-    def test_a_redis_failure_reads_zero_without_a_traceback(self, caplog):
-        client = Mock(get=Mock(side_effect=redis.ConnectionError("redis is down")))
-        with caplog.at_level(logging.WARNING, logger="daiv.core"):
-            assert read_session_revision("t1", connections=FakeConnections(client)) == 0
-        [record] = caplog.records
-        assert record.levelno == logging.WARNING
-        assert record.exc_info is None
-        assert "t1" in record.getMessage()
-
-    async def test_a_missing_key_reads_as_zero_async(self):
+    async def test_a_missing_key_reads_as_zero(self):
         client = Mock(get=AsyncMock(return_value=None))
         assert await aread_session_revision("t1", connections=FakeConnections(client)) == 0
         client.get.assert_awaited_once_with("daiv:ui-events:session-rev:t1")
 
-    async def test_a_stored_revision_reads_as_an_int_async(self):
+    async def test_a_stored_revision_reads_as_an_int(self):
         client = Mock(get=AsyncMock(return_value=b"7"))
         assert await aread_session_revision("t1", connections=FakeConnections(client)) == 7
 
-    async def test_an_unconfigured_bus_reads_zero_async(self):
+    async def test_an_unconfigured_bus_reads_zero(self):
         client = Mock(get=AsyncMock())
         assert await aread_session_revision("t1", connections=FakeConnections(client, configured=False)) == 0
         client.get.assert_not_awaited()
 
-    async def test_a_redis_failure_reads_zero_without_a_traceback_async(self, caplog):
+    async def test_a_redis_failure_reads_zero_without_a_traceback(self, caplog):
         client = Mock(get=AsyncMock(side_effect=redis.ConnectionError("redis is down")))
         with caplog.at_level(logging.WARNING, logger="daiv.core"):
             assert await aread_session_revision("t1", connections=FakeConnections(client)) == 0

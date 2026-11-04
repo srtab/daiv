@@ -14,7 +14,7 @@ Four objects, split by concern:
   only by a viewer of that session's page, and each poke on it also bumps the
   ``session-rev`` counter beside it: pub/sub forgets a poke nobody was attached for, so
   a page that (re)attaches compares the counter with the one it last rendered
-  (``read_session_revision``) to learn whether it missed one.
+  (``aread_session_revision``) to learn whether it missed one.
 * ``UIEventKind`` — the vocabulary *and* the wire format that carries it, so the two
   ends of the wire can't drift apart. Messages are pokes, not state: ``{"kind": "runs"}``
   tells a reader what to recompute, never the value. So a publisher never computes
@@ -177,24 +177,12 @@ class UIEventPublisher:
 publisher = UIEventPublisher()
 
 
-def read_session_revision(thread_id: str, *, connections: RedisConnections | None = None) -> int:
+async def aread_session_revision(thread_id: str, *, connections: RedisConnections | None = None) -> int:
     """A session's revision, or ``0`` when there is none to read.
 
     Missing key, unconfigured bus and a Redis outage all read as ``0``: callers compare
     for *difference*, so a revision that vanished or went backwards still makes a page fetch.
     """
-    connections = connections or redis_connections
-    if not connections.configured:
-        return 0
-    try:
-        return _parse_revision(connections.sync_client().get(Channel.session_revision(thread_id)))
-    except (redis.RedisError, OSError) as err:
-        logger.warning("ui_events: failed to read the revision of session %s: %s", thread_id, err)
-        return 0
-
-
-async def aread_session_revision(thread_id: str, *, connections: RedisConnections | None = None) -> int:
-    """``read_session_revision`` for async callers."""
     connections = connections or redis_connections
     if not connections.configured:
         return 0
