@@ -4,8 +4,9 @@ document.addEventListener("alpine:init", () => {
   const FIRST_RETRY_MS = 2000;
   const MAX_RETRY_MS = 30000;
 
-  Alpine.data("sessionSync", ({ turnsUrl, liveRunId, revision }) => ({
+  Alpine.data("sessionSync", ({ turnsUrl, liveRunId, revision, expired }) => ({
     _revision: revision,
+    _expired: Boolean(expired),
     _following: liveRunId || "",
     _finished: new Set(),
     _keepTranscript: false,
@@ -76,6 +77,12 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       this._revision = data.revision;
+      // The expired banner and the composer it replaces are server-rendered, so only a reload swaps them.
+      if (this._expired && data.expired === false) {
+        this._expired = false;
+        location.reload();
+        return;
+      }
       this._apply({ ...data, requestedAt });
     },
     _apply(data) {

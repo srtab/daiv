@@ -95,8 +95,8 @@ R1 = {"id": "r1", "stoppable": True, "started_at": "2026-11-04T10:00:00+00:00"}
 R2 = {"id": "r2", "stoppable": False, "started_at": "2026-11-04T10:05:00+00:00"}
 
 
-def _run(steps: list, *, live_run_id: str = "", revision: int = 1) -> dict:
-    args = {"turnsUrl": TURNS_URL, "liveRunId": live_run_id, "revision": revision}
+def _run(steps: list, *, live_run_id: str = "", revision: int = 1, expired: bool = False) -> dict:
+    args = {"turnsUrl": TURNS_URL, "liveRunId": live_run_id, "revision": revision, "expired": expired}
     return run_node(HARNESS, {"src": str(SESSION_SYNC_JS), "args": args, "steps": steps})
 
 
@@ -299,6 +299,23 @@ def test_a_queued_end_is_no_stream_failure():
 
 def test_a_settled_session_never_reloads():
     result = _run([["respond", _turns(2, active=False)], ["changed", 2], ["advance", 60_000]])
+
+    assert result["reloads"] == 0
+    assert _types(result) == ["daiv:session-turns"]
+
+
+def test_a_page_rendered_expired_reloads_once_the_session_has_state_again():
+    """Its banner and missing composer are server-rendered, so only a reload brings the composer back."""
+    steps = [["respond", _turns(2, expired=False)], ["changed", 2]]
+
+    result = _run([*steps, ["respond", _turns(3, expired=False)], ["changed", 3]], expired=True)
+
+    assert result["reloads"] == 1
+
+
+@pytest.mark.parametrize(("rendered", "served"), [(True, True), (False, False), (False, True)])
+def test_a_page_reloads_only_when_it_rendered_expired_and_no_longer_is(rendered, served):
+    result = _run([["respond", _turns(2, expired=served)], ["changed", 2]], expired=rendered)
 
     assert result["reloads"] == 0
     assert _types(result) == ["daiv:session-turns"]

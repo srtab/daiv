@@ -361,6 +361,38 @@ def test_detail_ci_watch_placeholder_shows_watch_notice_not_expired(member_clien
 
 
 @pytest.mark.django_db
+def test_the_ci_watch_notice_hides_once_the_transcript_has_turns(member_client, member_user):
+    session = _create_session(
+        user=member_user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=42, watch_state=WatchState.WATCHING
+    )
+
+    with patch(
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+    ):
+        html = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id})).content.decode()
+
+    notice = html[: html.index("This session tracks CI on !42")]
+    assert notice[notice.rindex("<div") :].startswith('<div x-show="turns.length === 0"')
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("expired", "rendered"), [(True, "true"), (False, "false")])
+def test_session_sync_knows_whether_the_page_rendered_expired(member_client, member_user, expired, rendered):
+    session = _create_session(user=member_user, ref="")
+
+    with (
+        patch("sessions.page_state.aread_session_revision", AsyncMock(return_value=3)),
+        patch(
+            "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], expired, None, None, None))
+        ),
+    ):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.context["expired"] is expired
+    assert f"revision: 3, expired: {rendered} }})" in resp.content.decode()
+
+
+@pytest.mark.django_db
 def test_detail_expired_checkpoint_disables_composer(member_client, member_user):
     """_ahydrate returning (.., expired=True, ..) => context['expired'] is True
     and the template renders the expired notice."""
