@@ -54,7 +54,7 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
 
     The whole body runs inside its own ``ThreadSensitiveContext`` so every Django
     ORM ``a*`` call the run makes (``events()`` alone hits ``set_runtime_ctx``,
-    ``start_chat_run``, the heartbeat, ``finalize_chat_run`` and the lock release)
+    the heartbeat, ``finalize_chat_run`` and the lock release)
     resolves ``sync_to_async(thread_sensitive=True)`` to a run-owned single-thread
     executor that lives exactly as long as the run — instead of the process-global
     one shared across every detached run. Paired with the fresh spawn context (see
@@ -126,8 +126,10 @@ class RunSupervisor:
         # binding so ``run_to_relay``'s own ``ThreadSensitiveContext`` governs the
         # run's thread-sensitive work. Nothing the run needs is inherited via
         # contextvars — ``events()`` establishes its own runtime/usage/tracing context.
+        # Eager, so the turn's own ``finally`` owns the recorded Run before any cancel can land: a task cancelled
+        # before its first step never runs a line of its body.
         task = asyncio.get_running_loop().create_task(
-            run_to_relay(streamer), name=f"chat-run-{streamer.run_id}", context=contextvars.Context()
+            run_to_relay(streamer), name=f"chat-run-{streamer.run_id}", context=contextvars.Context(), eager_start=True
         )
         self._tasks[streamer.run_id] = task
         task.add_done_callback(lambda _t, run_id=streamer.run_id: self._tasks.pop(run_id, None))

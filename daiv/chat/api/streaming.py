@@ -117,12 +117,28 @@ async def finalize_chat_run(
 _ANSWER_EVENT_PREFIXES = ("TEXT_MESSAGE_", "THINKING_", "REASONING_", "TOOL_CALL_", "SUBAGENT_")
 
 
+async def arelease_turn(thread_id: str, run_id: str) -> None:
+    """Put back the inbox events the chat turn ``run_id`` took that its ``Run`` never took over (the turn ended before
+    the clone was ready), release its slot, then drain the session's inbox, so a message sent meanwhile starts its run
+    at once. Each failure is logged, never raised."""
+    try:
+        await ChatClaim(thread_id, run_id).arelease()
+    except Exception:
+        logger.exception(
+            "chat: could not put back the inbox events of thread_id=%s; they return once it is idle", thread_id
+        )
+    try:
+        await SessionLock.release(thread_id, run_id)
+    except Exception:
+        logger.exception("chat: failed to release run slot for thread_id=%s", thread_id)
+        return
+    await sync_to_async(Drain(thread_id).start_logged)()
+
+
 @dataclass
 class _Turn:
     """What a chat turn has recorded so far, filled in as the executor reaches each step."""
 
-    chat_run: Run | None = None
-    announced: bool = False
     usage: CostAwareUsageMetadataCallbackHandler | None = None
     response: str = ""
     error: str | None = None
@@ -159,12 +175,12 @@ class ChatRunStreamer:
     """AG-UI event generator for one chat turn, run through the executor's ``stream_run``; ``runner.run_to_relay``
     publishes it.
 
-    Chat owns: the ``resolved_env`` and ``ref_fallback`` events, the ``Run`` row (started once the
-    clone is ready, finalized with token/cost usage), RUN_ERROR events with sanitized messages, and releasing the run
-    slot the view claimed — after the ``Run`` row is final, so a new turn never finds this one still running. The
-    inbox events the view took for the turn are linked to its ``Run`` once it exists and reach the model as a hidden
-    context message ahead of the person's words; once the slot is released, the session's inbox is drained, so a
-    message sent meanwhile starts its run at once.
+    Chat owns: the ``resolved_env`` and ``ref_fallback`` events, the ``Run`` row (recorded by the view before it
+    answers, moved to the ref the clone lands on, finalized with token/cost usage), RUN_ERROR events with sanitized
+    messages, and releasing the run slot the view claimed — after the ``Run`` row is final, so a new turn never finds
+    this one still running. The inbox events the view took for the turn are linked to its ``Run`` once the clone is
+    ready and reach the model as a hidden context message ahead of the person's words; once the slot is released, the
+    session's inbox is drained, so a message sent meanwhile starts its run at once.
     """
 
     repo_id: str
@@ -172,9 +188,9 @@ class ChatRunStreamer:
     thread_id: str
     run_id: str
     input_data: RunAgentInput
+    chat_run: Run
     user_id: int | None = None
     prompt: str = ""
-    message_id: str = ""
     sandbox_environment_id: str | None = None
     agent_model: str | None = None
     agent_thinking_level: str | None = None
@@ -209,17 +225,15 @@ class ChatRunStreamer:
             # what would have run if setup fails.
             if self.auto_resolved_env is not None:
                 yield CustomEvent(type=EventType.CUSTOM, name="resolved_env", value=self.auto_resolved_env)
-            hooks = RunHooks(
-                on_context_ready=partial(self._start_turn, turn), on_success=partial(self._record_outcome, turn)
-            )
+            # Names the run's row so the page keys its live marker as a reload renders it.
+            yield CustomEvent(type=EventType.CUSTOM, name="run_record", value={"id": str(self.chat_run.pk)})
+            hooks = RunHooks(on_context_ready=self._on_context_ready, on_success=partial(self._record_outcome, turn))
             async with contextlib.aclosing(
                 stream_run(
                     self._run_spec(), partial(self._agui_events, turn), hooks, should_stop=run_relay.cancel_requested
                 )
             ) as stream:
                 async for event in stream:
-                    if (record := self._announce(turn)) is not None:
-                        yield record
                     yield event
             finished = True
         except _ReportedRunError:
@@ -249,20 +263,9 @@ class ChatRunStreamer:
             # The exception stays in the server log: its text can carry internal names and paths.
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)
             turn.error = RUN_FAILED_MESSAGE
-            if (record := self._announce(turn)) is not None:
-                yield record
             yield RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
         finally:
             await self._end_turn(turn, succeeded=finished)
-
-    @staticmethod
-    def _announce(turn: _Turn) -> CustomEvent | None:
-        """A ``run_record`` event naming the turn's ``Run`` row, once it exists, so the page keys this run's live
-        marker as a reload renders it; ``None`` before the row exists and after it was announced."""
-        if turn.chat_run is None or turn.announced:
-            return None
-        turn.announced = True
-        return CustomEvent(type=EventType.CUSTOM, name="run_record", value={"id": str(turn.chat_run.pk)})
 
     def _run_spec(self) -> RunSpec:
         return RunSpec(
@@ -272,6 +275,7 @@ class ChatRunStreamer:
             input_messages=(HumanMessage(content=self.prompt),),
             trigger="chat",
             lock=Held(holder_id=self.run_id),
+            run_id=str(self.chat_run.pk),
             ref=self.ref or None,
             fallback_ref_on_missing=True,
             agent_model=self.agent_model,
@@ -285,20 +289,13 @@ class ChatRunStreamer:
             extra_metadata={"override_source": "explicit" if self.agent_model else None},
         )
 
-    async def _start_turn(self, turn: _Turn, ref: str) -> str:
-        """Record the turn as a RUNNING ``Run`` on the ref the clone landed on; return its id for the executor to bind
-        as the run's ``Run``."""
-        run = await start_chat_run(
-            session_id=self.thread_id,
-            user_id=self.user_id,
-            prompt=self.prompt,
-            repo_id=self.repo_id,
-            ref=ref,
-            message_id=self.message_id,
-        )
-        turn.chat_run = run
+    async def _on_context_ready(self, ref: str) -> None:
+        """Move the turn's ``Run`` to the ref the clone landed on and link the events the view took to it."""
+        run = self.chat_run
+        if run.ref != ref:
+            await Run.objects.filter(pk=run.pk).aupdate(ref=ref)
+            run.ref = ref
         await ChatClaim(self.thread_id, self.run_id).alink(run)
-        return str(run.pk)
 
     async def _record_outcome(self, turn: _Turn, outcome: RunOutcome) -> None:
         """A turn that ended on a question keeps the rendered question as its summary, since the question
@@ -364,11 +361,9 @@ class ChatRunStreamer:
         """Write what the session's inbox holds for this turn into the thread, ahead of the person's message. The
         turn runs without it when that fails: the person's request is what matters, and the events stay linked to
         the run."""
-        if turn.chat_run is None:
-            return
         try:
-            run_input = await RunInput.aof_run(turn.chat_run)
-            context = run_input.render(turn.chat_run, fast_forward=run.fast_forward).context
+            run_input = await RunInput.aof_run(self.chat_run)
+            context = run_input.render(self.chat_run, fast_forward=run.fast_forward).context
             if context is not None:
                 turn.context_message_id = context.id
                 await run.agent.aupdate_state(run.config, {"messages": [context]}, as_node="model")
@@ -402,26 +397,25 @@ class ChatRunStreamer:
         return True
 
     async def _withdraw(self, turn: _Turn) -> bool:
-        """Whether the turn is taken back: it is ``withdrawable`` and its ``Run`` row, if any, is gone
-        (``RunEnd.awithdraw``). Decided once, so the code the page is sent and the row agree; never raises."""
+        """Whether the turn is taken back: it is ``withdrawable`` and its ``Run`` row is gone (``RunEnd.awithdraw``).
+        Decided once, so the code the page is sent and the row agree; never raises."""
         if turn.withdrawn is None:
             turn.withdrawn = turn.withdrawable
-            if turn.withdrawn and turn.chat_run is not None:
+            if turn.withdrawn:
                 try:
-                    await RunEnd(turn.chat_run).awithdraw()
+                    await RunEnd(self.chat_run).awithdraw()
                 except Exception:
                     logger.exception("chat: failed to withdraw the stopped chat run for thread_id=%s", self.thread_id)
                     turn.withdrawn = False
         return turn.withdrawn
 
     async def _end_turn(self, turn: _Turn, *, succeeded: bool) -> None:
-        """Withdraw or finalize the ``Run`` row, put back the inbox events the view took that no ``Run`` took over (the
-        turn ended before its ``Run`` existed), then release the slot; each failure is logged, never raised over how
+        """Withdraw or finalize the ``Run`` row, then ``arelease_turn``; each failure is logged, never raised over how
         the turn ended."""
-        if not await self._withdraw(turn) and turn.chat_run is not None:
+        if not await self._withdraw(turn):
             try:
                 await finalize_chat_run(
-                    turn.chat_run,
+                    self.chat_run,
                     success=succeeded,
                     usage=build_usage_summary(turn.usage).to_dict() if turn.usage is not None else None,
                     response_text=turn.response,
@@ -432,15 +426,4 @@ class ChatRunStreamer:
                 )
             except Exception:
                 logger.exception("chat: failed to finalize chat run for thread_id=%s", self.thread_id)
-        try:
-            await ChatClaim(self.thread_id, self.run_id).arelease()
-        except Exception:
-            logger.exception(
-                "chat: could not put back the inbox events of thread_id=%s; they return once it is idle", self.thread_id
-            )
-        try:
-            await SessionLock.release(self.thread_id, self.run_id)
-        except Exception:
-            logger.exception("chat: failed to release run slot for thread_id=%s", self.thread_id)
-            return
-        await sync_to_async(Drain(self.thread_id).start_logged)()
+        await arelease_turn(self.thread_id, self.run_id)

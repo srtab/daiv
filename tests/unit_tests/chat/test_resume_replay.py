@@ -228,8 +228,8 @@ process.stdout.write(JSON.stringify({ waiting, started: { waiting: chat.waiting,
 
 def test_a_run_started_here_announces_its_end():
     body = """
-const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
-chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+const thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream", thread });
 chat.draftMessage = "hello";
 chat.$nextTick = (cb) => cb();
 chat.scrollToBottom = () => {};

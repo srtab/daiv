@@ -65,9 +65,9 @@ class AgentRun:
     ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``workspace`` is where the
     agent works; draft recovery publishes through it, and the executor releases its sandbox session. ``settings`` is
     what the run resolved once, and ``session_links`` what builds the links they allow; draft recovery publishes with
-    both. ``run_id`` is the ``Run`` the run records on, ``None`` for a one-shot run, and ``publish`` holds the last
-    publish result the run dispatched. ``fast_forward`` is what bringing a warm sandbox's checkout up to the remote
-    branch did before the agent started; ``None`` when nothing was tried (a fresh checkout, or a one-shot run)."""
+    both. ``publish`` holds the last publish result the run dispatched. ``fast_forward`` is what bringing a warm
+    sandbox's checkout up to the remote branch did before the agent started; ``None`` when nothing was tried (a fresh
+    checkout, or a one-shot run)."""
 
     ctx: RuntimeCtx
     agent: CompiledStateGraph[Any, RuntimeCtx]
@@ -77,7 +77,6 @@ class AgentRun:
     workspace: Workspace
     settings: AgentSettings
     session_links: SessionLinksResolver | None
-    run_id: str | None = None
     publish: PublishResultRecorder | None = None
     fast_forward: FastForward | None = None
 
@@ -394,18 +393,14 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
         workspace = _build_workspace(ctx)
         logger.info("executor: %s for thread_id=%s", type(workspace).__name__, thread_id)
         handed_over = False
-        run_id = spec.run_id
         try:
             if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
             if hooks.on_context_ready is not None:
-                started_run_id = await hooks.on_context_ready(ctx.repo.ref)
-                run_id = run_id or started_run_id
+                await hooks.on_context_ready(ctx.repo.ref)
             settings = resolve_agent_settings(site=site_settings.snapshot(), repo=ctx.config, run=spec.overrides())
             model = settings.agent.names[0]
-            await _persist_resolved_agent(
-                spec, run_id=run_id, model=model, thinking_level=settings.agent.thinking_level or ""
-            )
+            await _persist_resolved_agent(spec, model=model, thinking_level=settings.agent.thinking_level or "")
             session_links = _session_links(spec, settings)
             if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
@@ -440,7 +435,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
             reset = resets_thread(spec.input_messages, ctx, settings)
             if archiving and not reset:
                 await arestore_thread(agent, checkpointer, config)
-            with track_usage_metadata() as usage, record_publish_result() as publish, bind_active_run(run_id):
+            with track_usage_metadata() as usage, record_publish_result() as publish, bind_active_run(spec.run_id):
                 run = AgentRun(
                     ctx=ctx,
                     agent=agent,
@@ -450,7 +445,6 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                     workspace=workspace,
                     settings=settings,
                     session_links=session_links,
-                    run_id=run_id,
                     publish=publish,
                     fast_forward=fast_forward,
                 )
@@ -461,7 +455,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                     handed_over = await _handed_over(run)
                     raise
                 finally:
-                    await _record_publish_result(run_id, publish.payload, recovery.draft)
+                    await _record_publish_result(spec.run_id, publish.payload, recovery.draft)
                     if archiving:
                         await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:
@@ -469,7 +463,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                 if workspace.session is not None and not handed_over:
                     await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
             finally:
-                await _record_measurements(run_id, ctx, workspace)
+                await _record_measurements(spec.run_id, ctx, workspace)
 
 
 async def _fast_forward(spec: RunSpec, ctx: RuntimeCtx, workspace: Workspace) -> FastForward | None:
@@ -619,8 +613,8 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
             )
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
-    if spec.arm_watch and published and run.run_id is not None:
-        await _claim_merge_request(run, run.run_id, merge_request)
+    if spec.arm_watch and published and spec.run_id is not None:
+        await _claim_merge_request(run, spec.run_id, merge_request)
 
     agent_result = build_agent_result(
         response=response_text,
@@ -673,16 +667,16 @@ async def _read_snapshot_after_recovery(run: AgentRun) -> StateSnapshot | None:
         return None
 
 
-async def _persist_resolved_agent(spec: RunSpec, *, run_id: str | None, model: str, thinking_level: str) -> None:
+async def _persist_resolved_agent(spec: RunSpec, *, model: str, thinking_level: str) -> None:
     """Overwrite the requested ``agent_model`` on the Run with the resolved one, so the detail view shows what ran
     instead of the "Auto" pill. Never the Session: chat and CI fix runs read ``Session.agent_model`` as the thread's
     pinned override, so writing the resolved model there would pin a model nobody chose.
     Best-effort: a DB error is logged, never raised.
     """
-    if not run_id:
+    if not spec.run_id:
         return
     try:
-        await Run.objects.filter(pk=run_id).aupdate(agent_model=model, agent_thinking_level=thinking_level)
+        await Run.objects.filter(pk=spec.run_id).aupdate(agent_model=model, agent_thinking_level=thinking_level)
     except Exception:
         logger.exception("executor: failed to persist resolved agent model for thread_id=%s", spec.thread_id)
 

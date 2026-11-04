@@ -4,14 +4,13 @@ Covers what the HTTP-level tests in test_views.py don't reach: the turn's lifecy
 executor's ``stream_run`` (the ref sync and the merge request claim read the finished turn's checkpoint), the
 run-slot invariants, and the AG-UI adapter's event shaping.
 
-The Run-row lifecycle (``start_chat_run`` / ``finalize_chat_run``) is patched out
-here so these tests stay focused on the stream and slot invariants; the
-Run helpers are covered directly in ``tests/unit_tests/sessions/test_chat_runs.py``.
+The view records the turn's ``Run``; here it is a stub, and ``finalize_chat_run`` is patched out, so these tests
+stay focused on the stream and slot invariants. A class that needs the row in the DB records it with
+``_arecord_run``; the Run helpers are covered directly in ``tests/unit_tests/sessions/test_chat_runs.py``.
 """
 
 import asyncio
 import json
-import uuid
 from contextlib import asynccontextmanager, contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -35,8 +34,8 @@ from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
 from chat.api import runner
-from chat.api.streaming import ChatRunStreamer
-from core.constants import CANCELLED_BY_USER_MESSAGE, RUN_FAILED_MESSAGE
+from chat.api.streaming import ChatRunStreamer, start_chat_run
+from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
 from tests.unit_tests.sessions.conftest import amake_job_session, claim_recorder
@@ -48,14 +47,10 @@ from tests.unit_tests.sessions.inbox.conftest import amake_event
 def _patch_run_lifecycle():
     """Stub the Run-row helpers so streaming tests don't need a Session row in the DB."""
 
-    async def _fake_start(**_kwargs):
-        return SimpleNamespace(pk="run-pk")
-
     async def _fake_finalize(*_args, **_kwargs):
         return None
 
     with (
-        patch("chat.api.streaming.start_chat_run", side_effect=_fake_start),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_fake_finalize),
         patch("sessions.executor.run._record_measurements", new=AsyncMock()),
         # Chat's own usage summary; the executor's ``_after_run`` still builds one from the live handler.
@@ -96,12 +91,20 @@ def _run_input(*messages: dict) -> RunAgentInput:
     )
 
 
+def _stub_run() -> SimpleNamespace:
+    return SimpleNamespace(pk="run-pk", ref="main")
+
+
+async def _arecord_run() -> Run:
+    """The turn's ``Run`` as the view records it; the ``t-stream`` session must exist."""
+    return await start_chat_run(session_id="t-stream", user_id=None, prompt="hello", repo_id="a/b", ref="main")
+
+
 def _streamer(input_data=None, **kwargs) -> ChatRunStreamer:
     if input_data is None:
         input_data = _run_input()
-    return ChatRunStreamer(
-        repo_id="a/b", ref="main", thread_id="t-stream", run_id="r-1", input_data=input_data, **kwargs
-    )
+    defaults = {"repo_id": "a/b", "ref": "main", "thread_id": "t-stream", "run_id": "r-1", "chat_run": _stub_run()}
+    return ChatRunStreamer(input_data=input_data, **{**defaults, **kwargs})
 
 
 def test_the_run_spec_carries_the_prompt_as_the_turns_input():
@@ -110,7 +113,7 @@ def test_the_run_spec_carries_the_prompt_as_the_turns_input():
 
 
 def test_a_blank_ref_runs_on_the_default_branch():
-    streamer = ChatRunStreamer(repo_id="a/b", ref="", thread_id="t-stream", run_id="r-1", input_data=_run_input())
+    streamer = _streamer(ref="")
     assert streamer._run_spec().ref is None
 
 
@@ -331,7 +334,7 @@ async def test_a_turn_hands_the_graph_only_its_new_message_whatever_the_client_e
 
 
 class TestWithdrawingAStoppedTurn:
-    """The real ``start_chat_run`` and ``RunEnd.awithdraw`` run here, against the DB."""
+    """The turn's ``Run`` is a real row, and the real ``RunEnd.awithdraw`` runs here, against the DB."""
 
     @pytest.fixture(autouse=True)
     def _patch_run_lifecycle(self):
@@ -381,7 +384,9 @@ class TestWithdrawingAStoppedTurn:
                 await asyncio.Event().wait()
 
         session, remembered, agent, config = await self._thread_with_a_remembered_event(_executor_stack, Hang())
-        streamer = _streamer(_run_input({"id": "h2", "role": "user", "content": "do it"}), prompt="do it")
+        streamer = _streamer(
+            _run_input({"id": "h2", "role": "user", "content": "do it"}), prompt="do it", chat_run=await _arecord_run()
+        )
 
         async def _drain():
             async for _ in streamer.events():
@@ -414,7 +419,9 @@ class TestWithdrawingAStoppedTurn:
                 contexts.append([message.id for message in values["messages"]])
                 raise asyncio.CancelledError
 
-        streamer = _streamer(_run_input({"id": "h2", "role": "user", "content": "do it"}), prompt="do it")
+        streamer = _streamer(
+            _run_input({"id": "h2", "role": "user", "content": "do it"}), prompt="do it", chat_run=await _arecord_run()
+        )
         with (
             patch.object(agent, "aupdate_state", side_effect=_stopped_as_the_context_is_written),
             pytest.raises(asyncio.CancelledError),
@@ -578,24 +585,12 @@ async def test_an_exception_ag_ui_swallows_never_reaches_the_relay(_executor_sta
 def test_streamer_post_init_rejects_thread_id_mismatch():
     """Construction-time guard: thread_id/run_id must match input_data."""
     with pytest.raises(ValueError, match="thread_id mismatch"):
-        ChatRunStreamer(
-            repo_id="a/b",
-            ref="main",
-            thread_id="t-foo",
-            run_id="r-1",
-            input_data=SimpleNamespace(thread_id="t-bar", run_id="r-1"),
-        )
+        _streamer(SimpleNamespace(thread_id="t-bar", run_id="r-1"), thread_id="t-foo")
 
 
 def test_streamer_post_init_rejects_run_id_mismatch():
     with pytest.raises(ValueError, match="run_id mismatch"):
-        ChatRunStreamer(
-            repo_id="a/b",
-            ref="main",
-            thread_id="t",
-            run_id="r-1",
-            input_data=SimpleNamespace(thread_id="t", run_id="r-2"),
-        )
+        _streamer(SimpleNamespace(thread_id="t", run_id="r-2"), thread_id="t")
 
 
 @pytest.mark.django_db(transaction=True)
@@ -731,38 +726,6 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
     assert finalize_calls == [{"success": False, "error_message": "Run was interrupted before completing."}]
 
 
-class TestStartChatRunPersistence:
-    """Isolated class so the module-level autouse ``_patch_run_lifecycle`` can be
-    overridden here — the real ``start_chat_run`` must run against the DB.
-    """
-
-    @pytest.fixture(autouse=True)
-    def _patch_run_lifecycle(self):
-        """Override the module-level autouse: do NOT stub start_chat_run so the real
-        DB-backed implementation runs for the persistence assertion.
-        """
-
-    @pytest.mark.django_db(transaction=True)
-    async def test_start_chat_run_persists_message_id(self):
-
-        from sessions.models import Session, SessionOrigin
-
-        from chat.api.streaming import start_chat_run
-
-        session = await Session.objects.acreate(
-            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", ref="main"
-        )
-        run = await start_chat_run(
-            session_id=session.thread_id,
-            user_id=None,
-            prompt="hello",
-            repo_id="group/project",
-            ref="main",
-            message_id="h-99",
-        )
-        assert run.message_id == "h-99"
-
-
 @pytest.mark.django_db(transaction=True)
 async def test_events_buffers_text_deltas_into_result_summary():
     """Assistant text deltas are buffered (capped at 2000 chars) and handed to
@@ -871,19 +834,18 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
         reset_calls.append((thread_id, new_ref))
 
     emitted = []
-
-    start_chat_run = AsyncMock(return_value=SimpleNamespace(pk="run-pk"))
+    await amake_job_session("t-stream")
+    run = await _arecord_run()
 
     with (
         patch("automation.agent.context.set_runtime_ctx", _fallback_ctx),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-        patch("chat.api.streaming.start_chat_run", new=start_chat_run),
         patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
         patch("sessions.executor.run.areset_session_ref", side_effect=_capture_reset),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
-        streamer = _streamer()  # ref="main"
+        streamer = _streamer(chat_run=run)  # ref="main"
         async for ev in streamer.events():
             emitted.append(ev)
 
@@ -891,8 +853,8 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
     fallback_events = [e for e in emitted if e.type == EventType.CUSTOM and getattr(e, "name", None) == "ref_fallback"]
     assert len(fallback_events) == 1
     assert fallback_events[0].value == {"requested": "main", "using": "dev"}
-    # The Run row must record the effective (fallen-back) ref, not the requested one.
-    assert start_chat_run.call_args.kwargs["ref"] == "dev"
+    # The Run row the view recorded on the requested ref moves to the effective (fallen-back) one.
+    assert (await Run.objects.aget(pk=run.pk)).ref == "dev"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -915,12 +877,7 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
-        streamer = ChatRunStreamer(
-            repo_id="a/b",
-            ref="main",
-            thread_id="t-stream",
-            run_id="r-1",
-            input_data=_run_input(),
+        streamer = _streamer(
             user_id=7,
             sandbox_environment_id="env-1",
             agent_model="openrouter:z-ai/glm-5.2",
@@ -963,31 +920,23 @@ async def test_chat_runs_on_the_resolved_recursion_limit(_executor_stack):
     assert agui.call_args.kwargs["config"]["recursion_limit"] == 123
 
 
-class TestResolvedModelRecord:
-    """Isolated class so the module-level autouse ``_patch_run_lifecycle`` can be overridden here — the real
-    ``start_chat_run`` creates the row the executor's model record would have to land on."""
+@pytest.mark.django_db(transaction=True)
+async def test_a_chat_run_records_the_model_it_ran_on_but_leaves_the_session_unpinned():
+    await amake_job_session("t-stream")
+    run = await _arecord_run()
 
-    @pytest.fixture(autouse=True)
-    def _patch_run_lifecycle(self):
-        """Override the module-level autouse: the real ``start_chat_run`` creates the row."""
+    with (
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer(chat_run=run).events():
+            pass
 
-    @pytest.mark.django_db(transaction=True)
-    async def test_a_chat_run_records_the_model_it_ran_on_but_leaves_the_session_unpinned(self):
-        await amake_job_session("t-stream")
-
-        with (
-            patch("chat.api.streaming.finalize_chat_run", new=AsyncMock()),
-            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
-            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
-        ):
-            async for _ in _streamer().events():
-                pass
-
-        run = await Run.objects.aget(session_id="t-stream")
-        session = await Session.objects.aget(thread_id="t-stream")
-        assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
-        assert (session.agent_model, session.agent_thinking_level) == ("", "")
+    await run.arefresh_from_db()
+    session = await Session.objects.aget(thread_id="t-stream")
+    assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
+    assert (session.agent_model, session.agent_thinking_level) == ("", "")
 
 
 def _failing_ctx(*_args, **_kwargs):
@@ -1008,7 +957,7 @@ def _recorded_turn(
     checkpoint: dict | None = None,
     errors: dict[str, Exception] | None = None,
 ):
-    """Patch the chat turn's collaborators around ``agui_agent``; yield ``calls``, which logs start and each
+    """Patch the chat turn's collaborators around ``agui_agent``; yield ``calls``, which logs each
     after-run step in order. ``checkpoint`` is the finished turn's state, which the ref sync and the claim read.
     ``errors`` maps a step name to the exception it raises after it is logged."""
     calls: list[tuple] = []
@@ -1018,10 +967,6 @@ def _recorded_turn(
         calls.append((step, *args))
         if step in errors:
             raise errors[step]
-
-    async def _start(**_kwargs):
-        _log("start")
-        return SimpleNamespace(pk="run-pk")
 
     async def _finalize(_run, *, success, error_message="", **_kwargs):
         _log("finalize", success, error_message)
@@ -1048,7 +993,6 @@ def _recorded_turn(
         patch("automation.agent.context.set_runtime_ctx", runtime_ctx),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=compiled)),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agui_agent),
-        patch("chat.api.streaming.start_chat_run", side_effect=_start),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_finalize),
         patch.object(RunEnd, "awithdraw", autospec=True, side_effect=_withdraw),
         patch("sessions.executor.run.apersist_session_ref", side_effect=_persist),
@@ -1132,7 +1076,7 @@ class TestChatAfterRunMatrix:
         ) as calls:
             [event async for event in _streamer().events()]
 
-        assert calls == [("start",), ("persist", "main", mr), ("claim", "run-pk", mr), ("finalize", True, ""), _RELEASE]
+        assert calls == [("persist", "main", mr), ("claim", "run-pk", mr), ("finalize", True, ""), _RELEASE]
 
     async def test_a_raised_agent_error_becomes_a_run_error_event(self):
         from core.constants import RUN_FAILED_MESSAGE
@@ -1144,7 +1088,7 @@ class TestChatAfterRunMatrix:
 
         assert events[-1].type == EventType.RUN_ERROR
         assert (events[-1].code, events[-1].message) == ("run_failed", RUN_FAILED_MESSAGE)
-        assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
+        assert calls == [("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
         graph.aget_state.assert_not_awaited()
         graph.aupdate_state.assert_not_awaited()
 
@@ -1158,42 +1102,30 @@ class TestChatAfterRunMatrix:
         with _recorded_turn(_mock_agent([_snapshot(merge_request=None), err])) as calls:
             [event async for event in _streamer().events()]
 
-        assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
+        assert calls == [("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
 
-    async def test_the_run_row_is_named_once_before_the_agents_first_event(self):
-        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()])):
+    async def test_the_stream_opens_by_naming_the_run_row(self):
+        with _recorded_turn(_mock_agent([_snapshot()])):
             events = [event async for event in _streamer().events()]
 
-        records = [event for event in events if event.type == EventType.CUSTOM and event.name == "run_record"]
-        assert (events[0], len(records)) == (records[0], 1)
-        assert records[0].value == {"id": "run-pk"}
+        assert (events[0].name, events[0].value) == ("run_record", {"id": "run-pk"})
 
-    async def test_a_failure_before_the_agents_first_event_names_the_run_row_before_the_error(self):
-        graph = MagicMock(aget_state=AsyncMock(), aupdate_state=AsyncMock())
-
-        with _recorded_turn(_raising_agent(), graph=graph):
+    async def test_a_setup_failure_fails_the_run_the_view_recorded(self):
+        with _recorded_turn(_mock_agent([]), runtime_ctx=_failing_ctx) as calls:
             events = [event async for event in _streamer().events()]
 
         assert [(event.type, getattr(event, "name", None)) for event in events] == [
             (EventType.CUSTOM, "run_record"),
             (EventType.RUN_ERROR, None),
         ]
-
-    async def test_a_setup_failure_before_the_run_row_only_releases_the_slot(self):
-        with _recorded_turn(_mock_agent([]), runtime_ctx=_failing_ctx) as calls:
-            events = [event async for event in _streamer().events()]
-
-        assert [(event.type, event.code) for event in events] == [(EventType.RUN_ERROR, "run_failed")]
-        assert calls == [_RELEASE]
+        assert calls == [("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
 
     async def test_a_lost_lock_stops_the_turn_and_skips_ref_and_watch(self):
-        from core.constants import INTERRUPTED_MESSAGE
-
         with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), heartbeat=False) as calls:
             events = [event async for event in _streamer().events()]
 
         assert events[-1].code == "run_interrupted"
-        assert calls == [("start",), ("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
+        assert calls == [("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
 
     async def test_a_lost_lock_wins_over_a_cancel_request(self):
         with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), heartbeat=False, cancel=True):
@@ -1207,7 +1139,7 @@ class TestChatAfterRunMatrix:
             events = [event async for event in _streamer().events()]
 
         assert events[-1].code == "run_cancelled"
-        assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
+        assert calls == [("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
 
     async def test_a_cancel_request_before_daiv_answers_withdraws_the_turn(self):
         streamer = _streamer()
@@ -1216,18 +1148,18 @@ class TestChatAfterRunMatrix:
             events = [event async for event in streamer.events()]
 
         assert (events[-1].code, streamer.withdrawn) == ("run_withdrawn", True)
-        assert calls == [("start",), ("withdraw",), _RELEASE]
+        assert calls == [("withdraw",), _RELEASE]
 
     async def test_a_hard_cancel_after_a_stop_request_is_recorded_as_stopped(self):
         streamer, calls = await _hard_cancel(answer_first=True)
 
-        assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
+        assert calls == [("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
         assert streamer.withdrawn is False
 
     async def test_a_hard_cancel_before_daiv_answers_withdraws_the_turn(self):
         streamer, calls = await _hard_cancel(answer_first=False)
 
-        assert calls == [("start",), ("withdraw",), _RELEASE]
+        assert calls == [("withdraw",), _RELEASE]
         assert streamer.withdrawn is True
 
     async def test_a_turn_whose_slot_was_taken_over_is_never_withdrawn(self):
@@ -1248,7 +1180,7 @@ class TestChatAfterRunMatrix:
 
         assert [event.type for event in events if event.type != EventType.CUSTOM] == [EventType.RUN_ERROR]
         assert (events[-1].code, streamer.withdrawn) == ("run_withdrawn", True)
-        assert calls == [("start",), ("withdraw",), _RELEASE]
+        assert calls == [("withdraw",), _RELEASE]
 
     async def test_a_turn_that_cannot_be_withdrawn_is_recorded_as_stopped(self):
         streamer = _streamer()
@@ -1259,7 +1191,7 @@ class TestChatAfterRunMatrix:
             events = [event async for event in streamer.events()]
 
         assert (events[-1].code, streamer.withdrawn) == ("run_cancelled", False)
-        assert calls == [("start",), ("withdraw",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
+        assert calls == [("withdraw",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
 
     async def test_a_turn_stopped_after_it_spent_tokens_is_kept_for_its_spend(self):
         summarizer = FakeMessagesListChatModel(
@@ -1285,7 +1217,7 @@ class TestChatAfterRunMatrix:
             events = [event async for event in streamer.events()]
 
         assert (events[-1].code, streamer.withdrawn) == ("run_cancelled", False)
-        assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
+        assert calls == [("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
 
     async def test_a_heartbeat_error_is_logged_and_keeps_the_turn_running(self, caplog):
         heartbeat = AsyncMock(side_effect=RuntimeError("db down"))
@@ -1321,7 +1253,7 @@ class TestChatAfterRunMatrix:
         ):
             [event async for event in _streamer().events()]
 
-        assert calls == [("start",), ("persist", "main", mr), ("claim", "run-pk", mr), ("finalize", True, ""), _RELEASE]
+        assert calls == [("persist", "main", mr), ("claim", "run-pk", mr), ("finalize", True, ""), _RELEASE]
         assert f"failed to {message}" in caplog.text
 
     async def test_a_finalize_failure_is_logged_and_still_releases_the_slot(self, caplog):
@@ -1341,29 +1273,29 @@ class TestChatAfterRunMatrix:
         ):
             events = [event async for event in _streamer().events()]
 
-        assert events == []
+        assert [event.name for event in events] == ["run_record"]
         assert calls[-1] == _RELEASE
         assert "failed to release run slot" in caplog.text
 
     async def test_a_reader_that_goes_away_mid_turn_still_ends_the_turn(self):
-        from core.constants import INTERRUPTED_MESSAGE
-
         with _recorded_turn(_mock_agent([_snapshot(), _snapshot()])) as calls:
             events = _streamer().events()
+            assert (await anext(events)).name == "run_record"
             await anext(events)
             await events.aclose()
 
-        assert calls == [("start",), ("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
+        assert calls == [("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
 
     async def test_a_reader_that_goes_away_with_the_cancel_flag_set_is_recorded_as_stopped(self):
         stop = AsyncMock(return_value=False)
         with _recorded_turn(_mock_agent([_answer_started(), _snapshot()]), cancel=stop) as calls:
             events = _streamer().events()
+            assert (await anext(events)).name == "run_record"
             await anext(events)
             stop.return_value = True
             await events.aclose()
 
-        assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
+        assert calls == [("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
 
     async def test_the_stream_heartbeats_the_slot_the_view_claimed(self):
         heartbeat = AsyncMock(return_value=True)
@@ -1403,8 +1335,6 @@ class TestChatAfterRunMatrix:
         assert usages == [{"total_tokens": 12}]
 
     async def test_a_reader_that_goes_away_while_the_clone_fails_to_close_still_ends_the_turn(self):
-        from core.constants import INTERRUPTED_MESSAGE
-
         def _failing_close(*_args, **_kwargs):
             ctx = _mock_ctx()
             ctx.__aexit__ = AsyncMock(side_effect=OSError("clone cleanup failed"))
@@ -1412,26 +1342,20 @@ class TestChatAfterRunMatrix:
 
         with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), runtime_ctx=_failing_close) as calls:
             events = _streamer().events()
+            assert (await anext(events)).name == "run_record"
             await anext(events)
             await events.aclose()
 
-        assert calls == [("start",), ("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
+        assert calls == [("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
 
-    async def test_a_turn_closed_before_the_run_starts_still_releases_the_slot(self):
+    async def test_a_turn_closed_before_the_clone_is_recorded_as_interrupted(self):
         cloned: list[bool] = []
 
         def _ctx(*_args, **_kwargs):
             cloned.append(True)
             return _mock_ctx()
 
-        streamer = ChatRunStreamer(
-            repo_id="a/b",
-            ref="main",
-            thread_id="t-stream",
-            run_id="r-1",
-            input_data=_run_input(),
-            auto_resolved_env={"id": "env-1", "name": "Default", "scope": "global"},
-        )
+        streamer = _streamer(auto_resolved_env={"id": "env-1", "name": "Default", "scope": "global"})
         with _recorded_turn(_mock_agent([]), runtime_ctx=_ctx) as calls:
             events = streamer.events()
             first = await anext(events)
@@ -1439,9 +1363,14 @@ class TestChatAfterRunMatrix:
 
         assert first.name == "resolved_env"
         assert cloned == []
-        assert calls == [_RELEASE]
+        assert calls == [("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
 
-    async def test_a_hard_cancel_during_setup_only_releases_the_slot(self):
+    @pytest.mark.parametrize(
+        ("stopped", "ended"),
+        [(False, ("finalize", False, INTERRUPTED_MESSAGE)), (True, ("withdraw",))],
+        ids=["shutdown", "owners-stop"],
+    )
+    async def test_a_hard_cancel_during_setup_ends_the_run_the_view_recorded(self, stopped, ended):
         import asyncio
 
         cloning = asyncio.Event()
@@ -1459,14 +1388,14 @@ class TestChatAfterRunMatrix:
             async for _ in _streamer().events():
                 pass
 
-        with _recorded_turn(_mock_agent([]), runtime_ctx=_hanging_ctx) as calls:
+        with _recorded_turn(_mock_agent([]), runtime_ctx=_hanging_ctx, cancel=stopped) as calls:
             task = asyncio.create_task(_drain())
             await asyncio.wait_for(cloning.wait(), timeout=5)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
 
-        assert calls == [_RELEASE]
+        assert calls == [ended, _RELEASE]
 
     async def test_events_after_an_emitted_run_error_still_reach_the_client(self):
         from ag_ui.core.events import RunErrorEvent
@@ -1479,7 +1408,7 @@ class TestChatAfterRunMatrix:
             events = [event async for event in _streamer().events()]
 
         assert [event.type for event in events] == [EventType.CUSTOM, EventType.RUN_ERROR, EventType.STATE_SNAPSHOT]
-        assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
+        assert calls == [("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
 
 
 class TestTurnMeasurements:
@@ -1489,11 +1418,12 @@ class TestTurnMeasurements:
 
     @pytest.fixture(autouse=True)
     def _patch_run_lifecycle(self):
-        """Override the module-level autouse: the real ``start_chat_run`` creates the row."""
+        """Override the module-level autouse: the turn's ``Run`` is a real row."""
 
     @pytest.mark.django_db(transaction=True)
     async def test_a_turn_records_its_clone_time_on_the_run_it_started(self):
         await amake_job_session("t-stream")
+        recorded = await _arecord_run()
 
         with (
             patch("chat.api.streaming.finalize_chat_run", new=AsyncMock()),
@@ -1501,19 +1431,33 @@ class TestTurnMeasurements:
             patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
             patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
         ):
-            async for _ in _streamer().events():
+            async for _ in _streamer(chat_run=recorded).events():
                 pass
 
         run = await Run.objects.aget(session_id="t-stream")
         assert run.clone_seconds == 1.5
 
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_turn_whose_context_hook_fails_still_records_its_clone_time(self, chat_inbox):
+        from chat.api import streaming
+
+        await amake_job_session("t-stream")
+        recorded = await _arecord_run()
+        streaming.ChatClaim.return_value.alink.side_effect = RuntimeError("db down")
+
+        with (
+            patch("chat.api.streaming.finalize_chat_run", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        ):
+            async for _ in _streamer(chat_run=recorded).events():
+                pass
+
+        await recorded.arefresh_from_db()
+        assert recorded.clone_seconds == 1.5
+
 
 @pytest.mark.django_db(transaction=True)
 class TestInboxContext:
-    @pytest.fixture(autouse=True)
-    def _patch_run_lifecycle(self):
-        """Override the module-level autouse: the turn's ``Run`` row is real, so events can point at it."""
-
     async def _session_with_taken_events(self) -> Session:
         from sessions.models import EventKind, EventState
 
@@ -1529,20 +1473,19 @@ class TestInboxContext:
         from sessions.models import InboxEvent
 
         await self._session_with_taken_events()
-        turn = SimpleNamespace(chat_run=None)
-
-        run_id = await _streamer()._start_turn(turn, "main")
+        run = await _arecord_run()
+        await _streamer(chat_run=run)._on_context_ready("main")
 
         event = await InboxEvent.objects.aget()
-        assert (str(event.run_id), event.claim_token) == (run_id, "")
+        assert (event.run_id, event.claim_token) == (run.pk, "")
 
     async def test_their_context_is_written_ahead_of_the_persons_message(self, real_chat_inbox):
         from automation.agent.synthetic import synthetic_kind
 
         await self._session_with_taken_events()
-        turn = SimpleNamespace(chat_run=None)
-        streamer = _streamer()
-        await streamer._start_turn(turn, "main")
+        streamer = _streamer(chat_run=await _arecord_run())
+        turn = streamer._turn
+        await streamer._on_context_ready("main")
         agent = MagicMock(aupdate_state=AsyncMock())
 
         await streamer._add_inbox_context(
@@ -1557,9 +1500,9 @@ class TestInboxContext:
 
     async def test_a_turn_with_nothing_taken_writes_nothing(self, real_chat_inbox):
         await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
-        turn = SimpleNamespace(chat_run=None)
-        streamer = _streamer()
-        await streamer._start_turn(turn, "main")
+        streamer = _streamer(chat_run=await _arecord_run())
+        turn = streamer._turn
+        await streamer._on_context_ready("main")
         agent = MagicMock(aupdate_state=AsyncMock())
 
         await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward=None))
@@ -1568,9 +1511,9 @@ class TestInboxContext:
 
     async def test_a_warm_checkout_brought_up_to_the_remote_says_so(self, real_chat_inbox):
         await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
-        turn = SimpleNamespace(chat_run=None)
-        streamer = _streamer()
-        await streamer._start_turn(turn, "main")
+        streamer = _streamer(chat_run=await _arecord_run())
+        turn = streamer._turn
+        await streamer._on_context_ready("main")
         agent = MagicMock(aupdate_state=AsyncMock())
 
         await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward="advanced"))
@@ -1580,9 +1523,9 @@ class TestInboxContext:
 
     async def test_a_failed_write_is_logged_and_the_turn_goes_on(self, real_chat_inbox, caplog):
         await self._session_with_taken_events()
-        turn = SimpleNamespace(chat_run=None)
-        streamer = _streamer()
-        await streamer._start_turn(turn, "main")
+        streamer = _streamer(chat_run=await _arecord_run())
+        turn = streamer._turn
+        await streamer._on_context_ready("main")
         agent = MagicMock(aupdate_state=AsyncMock(side_effect=RuntimeError("redis down")))
 
         with caplog.at_level("ERROR", logger="daiv.chat"):
@@ -1629,7 +1572,7 @@ class TestEventsTakenForATurnThatEnds:
             [_ async for _ in _streamer().events()]
 
         assert "could not put back the inbox events" in caplog.text
-        assert calls == [_RELEASE]
+        assert calls == [("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1658,6 +1601,7 @@ class TestEventsOfAStoppedTurn:
             state=EventState.TAKEN,
             claim_token="r-1",  # noqa: S106
         )
+        recorded = await _arecord_run()
 
         agent, stop = _stopped_while_answering(_snapshot())
         never_stopped = AsyncMock(return_value=False)
@@ -1669,7 +1613,7 @@ class TestEventsOfAStoppedTurn:
             patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock(return_value=heartbeat)),
             patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         ):
-            [_ async for _ in _streamer().events()]
+            [_ async for _ in _streamer(chat_run=recorded).events()]
 
         run = await Run.objects.aget(session_id="t-stream")
         assert (run.status, run.cancel_requested_at is not None) == ("FAILED", cancel)

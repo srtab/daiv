@@ -16,6 +16,7 @@ from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_acc
 from sessions.executor.lock import SessionLock, session_activity, stale_cutoff
 from sessions.inbox import kinds
 from sessions.inbox.chat_claim import ChatClaim
+from sessions.inbox.complete import RunEnd
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.post import Inbox
 from sessions.live import relay
@@ -29,7 +30,7 @@ from core.constants import CANCELLED_BY_USER_MESSAGE
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 
 from . import runner
-from .streaming import ChatRunStreamer
+from .streaming import ChatRunStreamer, arelease_turn, start_chat_run
 from .threads import ChatSessionService, _extract_last_user_message, _extract_last_user_message_id
 
 logger = logging.getLogger("daiv.chat")
@@ -278,7 +279,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         )
 
     prompt = _extract_last_user_message(input_data)
-    message_id = _extract_last_user_message_id(input_data) or run_id
+    user_message_id = _extract_last_user_message_id(input_data)
+    message_id = user_message_id or run_id
     retuned = submitted_overrides is not None and not created and submitted_overrides != session.mcp_overrides
     if (
         forwarded.get("queue") is True
@@ -296,56 +298,59 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         if "text/event-stream" in (request.headers.get("accept") or ""):
             return sse_response(_queued_frames(thread_id, run_id, queued))
         return {"run_id": run_id, "thread_id": thread_id, "queued": queued}
-    await ChatClaim(thread_id, run_id).atake()
-
-    # The Tools selection is not pinned — ``build_runtime_servers`` re-resolves it every run — so
-    # any turn may retune it. Gated on the claim so a rejected duplicate remembers nothing.
-    effective_overrides = session.mcp_overrides
-    if retuned:
-        effective_overrides = submitted_overrides
-        await ChatSessionService.set_mcp_overrides(thread_id, submitted_overrides)
-
-    # Only emit the resolved-env hint when:
-    # - The client sent Auto (empty/missing header) AND we resolved something for them, AND
-    # - This is a newly-created session (so the resolved env *is* what the run is using —
-    #   on an existing-session Auto submit, the resolved env_obj is discarded in favour of
-    #   the session's stored env, and lying about it would mis-stamp the locked pill).
-    auto_resolved_env: dict[str, str] | None = None
-    if auto_resolved and created and env_obj is not None:
-        auto_resolved_env = {"id": str(env_obj.id), "name": str(env_obj.name), "scope": str(env_obj.scope)}
-
-    streamer = ChatRunStreamer(
-        repo_id=repo_id,
-        ref=ref,
-        thread_id=thread_id,
-        run_id=run_id,
-        input_data=input_data,
-        user_id=user.pk,
-        prompt=prompt,
-        message_id=_extract_last_user_message_id(input_data),
-        sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
-        agent_model=session.agent_model or None,
-        agent_thinking_level=session.agent_thinking_level or None,
-        mcp_overrides=effective_overrides,
-        external_refs=session.external_references(),
-        auto_resolved_env=auto_resolved_env,
-    )
-    # The run is detached from this request: it executes as a background task
-    # and publishes to the relay, so a client disconnect no longer kills it.
+    chat_run: Run | None = None
+    started = False
     try:
-        runner.supervisor.spawn(streamer)
-    except RuntimeError as err:
-        # ``spawn`` rejects a run_id already live in this process's registry. A client can
-        # reuse a run_id across threads, which ``try_claim``'s per-thread slot doesn't catch —
-        # so put back the events and release the slot we just claimed above, or the collision wedges
-        # the session until stale takeover (STALE_RUN_MINUTES).
+        await ChatClaim(thread_id, run_id).atake()
+
+        # The Tools selection is not pinned — ``build_runtime_servers`` re-resolves it every run — so
+        # any turn may retune it. Gated on the claim so a rejected duplicate remembers nothing.
+        effective_overrides = session.mcp_overrides
+        if retuned:
+            effective_overrides = submitted_overrides
+            await ChatSessionService.set_mcp_overrides(thread_id, submitted_overrides)
+
+        # Only emit the resolved-env hint when:
+        # - The client sent Auto (empty/missing header) AND we resolved something for them, AND
+        # - This is a newly-created session (so the resolved env *is* what the run is using —
+        #   on an existing-session Auto submit, the resolved env_obj is discarded in favour of
+        #   the session's stored env, and lying about it would mis-stamp the locked pill).
+        auto_resolved_env: dict[str, str] | None = None
+        if auto_resolved and created and env_obj is not None:
+            auto_resolved_env = {"id": str(env_obj.id), "name": str(env_obj.name), "scope": str(env_obj.scope)}
+
+        # Recorded before the answer, so the session page the browser loads next already shows the turn.
+        chat_run = await start_chat_run(
+            session_id=thread_id, user_id=user.pk, prompt=prompt, repo_id=repo_id, ref=ref, message_id=user_message_id
+        )
+        streamer = ChatRunStreamer(
+            repo_id=repo_id,
+            ref=ref,
+            thread_id=thread_id,
+            run_id=run_id,
+            input_data=input_data,
+            chat_run=chat_run,
+            user_id=user.pk,
+            prompt=prompt,
+            sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
+            agent_model=session.agent_model or None,
+            agent_thinking_level=session.agent_thinking_level or None,
+            mcp_overrides=effective_overrides,
+            external_refs=session.external_references(),
+            auto_resolved_env=auto_resolved_env,
+        )
+        # The run is detached from this request: it executes as a background task
+        # and publishes to the relay, so a client disconnect no longer kills it.
         try:
-            await ChatClaim(thread_id, run_id).arelease()
-        except Exception:
-            # The inbox sweep retries the events once the session goes quiet; the slot must still be freed.
-            logger.exception("chat: could not put back the events run_id=%s took on thread_id=%s", run_id, thread_id)
-        await SessionLock.release(thread_id, run_id)
-        raise HttpError(409, "A run with this run_id is already in progress.") from err
+            runner.supervisor.spawn(streamer)
+        except RuntimeError as err:
+            # ``spawn`` rejects a run_id already live in this process's registry. A client can
+            # reuse a run_id across threads, which ``try_claim``'s per-thread slot doesn't catch.
+            raise HttpError(409, "A run with this run_id is already in progress.") from err
+        started = True
+    finally:
+        if not started:
+            await _abandon_turn(thread_id, run_id, chat_run=chat_run)
 
     if "text/event-stream" in (request.headers.get("accept") or ""):
         # AG-UI protocol compatibility: SSE callers get the same relay-backed
@@ -356,6 +361,17 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         # ``Last-Event-ID`` header to resume a run longer than the cap.
         return sse_response(_run_event_frames(thread_id, run_id, "0-0"))
     return {"run_id": run_id, "thread_id": thread_id}
+
+
+async def _abandon_turn(thread_id: str, run_id: str, *, chat_run: Run | None) -> None:
+    """Take back a turn that never started: withdraw its ``Run``, if recorded, then ``arelease_turn``, so its claimed
+    slot doesn't wedge the session until stale takeover (STALE_RUN_MINUTES). A failed withdraw is logged."""
+    if chat_run is not None:
+        try:
+            await RunEnd(chat_run).awithdraw()
+        except Exception:
+            logger.exception("chat: could not take back the run run_id=%s recorded on thread_id=%s", run_id, thread_id)
+    await arelease_turn(thread_id, run_id)
 
 
 async def _waiting_to_start(session: Session) -> bool:

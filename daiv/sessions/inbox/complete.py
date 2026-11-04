@@ -28,7 +28,7 @@ events keep their state.
 The sweep (``sessions.tasks.drain_inboxes_cron_task``) settles events the same way when their run's slot went stale
 before the run ended.
 
-An inline chat turn takes its events under its holder id before its ``Run`` exists; when the turn ends before that,
+An inline chat turn takes its events under its holder id until its clone is ready; when the turn ends before that,
 :meth:`sessions.inbox.chat_claim.ChatClaim.arelease` puts them back as ``pending`` for the next turn, without spending
 an attempt. A turn its owner stopped before DAIV answered is withdrawn (:meth:`RunEnd.awithdraw`): its ``Run`` is
 deleted and its events go back the same way.
