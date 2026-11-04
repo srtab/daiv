@@ -770,6 +770,13 @@ class SiteConfiguration(models.Model):
         thread via a ``ThreadPoolExecutor`` to avoid
         ``SynchronousOnlyOperation``.
 
+        The returned instance is always fully loaded (no deferred fields), so
+        attribute access is safe from the event loop. ``_fetch_from_cache_or_db``
+        rejects a stale cached instance that carries deferred fields (left
+        behind when a migration adds a field after the instance was pickled)
+        and rebuilds it from the database; any fast path added here must
+        preserve that guarantee or route through ``_fetch_from_cache_or_db``.
+
         Returns ``None`` if the database is not yet available (e.g. during
         early startup or Django system checks).
         """
