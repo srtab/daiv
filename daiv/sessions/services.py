@@ -15,6 +15,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from automation.agent import validators
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
 from sessions.admission import aassert_repo_access
+from sessions.live.notify import asession_changed
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.queue import aenqueue_run, amark_failed_and_advance
 from sessions.repo_state import mr_to_payload
@@ -577,9 +578,10 @@ async def _asubmit_follow_up(
     if (run := await Inbox(session.thread_id).aattach_next_run(result.event)) is not None:
         return run
     # The caller is told the job failed, so a later drain must not start it after all.
-    await InboxEvent.objects.filter(pk=result.event.pk, state=EventState.PENDING).aupdate(
+    if await InboxEvent.objects.filter(pk=result.event.pk, state=EventState.PENDING).aupdate(
         state=EventState.DISMISSED, updated_at=timezone.now()
-    )
+    ):
+        await asession_changed(session.thread_id)
     event = await InboxEvent.objects.aget(pk=result.event.pk)
     if event.run_id is not None:
         return await Run.objects.aget(pk=event.run_id)

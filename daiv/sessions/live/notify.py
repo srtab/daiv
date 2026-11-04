@@ -12,7 +12,7 @@ import asyncio
 import logging
 from functools import partial
 
-from django.db import DatabaseError, close_old_connections, transaction
+from django.db import Error, close_old_connections, transaction
 
 from core import ui_events
 
@@ -26,7 +26,7 @@ def publish_session_changed(thread_id: str) -> None:
     ui_events.publisher.session_changed(thread_id)
     try:
         parent_id = Session.objects.filter(pk=thread_id).values_list("parent_id", flat=True).first()
-    except DatabaseError:
+    except Error:
         logger.warning(
             "live: parent lookup failed for thread_id=%s; its parent was not poked", thread_id, exc_info=True
         )

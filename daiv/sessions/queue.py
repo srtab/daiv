@@ -29,6 +29,7 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 
 from sessions.executor.tasks import run_job_task
+from sessions.live.notify import session_changed
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 if TYPE_CHECKING:
@@ -155,6 +156,7 @@ def _claim_queued(run: Run) -> bool:
     with transaction.atomic():
         if Run.objects.filter(pk=run.pk, status=RunStatus.QUEUED).update(status=RunStatus.READY) != 1:
             return False
+        session_changed(run.session_id)
         if run.waits_for_id is not None:
             _rebase_on_waited_branch(run)
     run.refresh_from_db()

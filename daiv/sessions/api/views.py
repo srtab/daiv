@@ -14,6 +14,7 @@ from sessions.executor.lock import background_in_flight, live_run_for, session_a
 from sessions.header import aci_payload, delegations_for, latest_run_payload, retry_for, watch_payload
 from sessions.hydration import ahydrate_thread
 from sessions.inbox.timeline import Timeline
+from sessions.live.notify import asession_changed
 from sessions.models import HiddenSession, MergeRequestOwnership, RunStatus, Session
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
@@ -73,6 +74,7 @@ async def session_update(request: HttpRequest, thread_id: str, payload: TitleIn)
         raise HttpError(422, "A title can't be blank")
     session.title = title
     await session.asave(update_fields=["title"])
+    await asession_changed(session.thread_id)
     return {"title": title}
 
 

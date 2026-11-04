@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import call, patch
 
-from django.db import DatabaseError
+from django.db import DatabaseError, InterfaceError
 from django.test import TestCase
 
 import pytest
@@ -52,12 +52,13 @@ class TestSessionChanged:
         assert callbacks == []
         publish.assert_not_called()
 
-    def test_a_failed_parent_lookup_still_pokes_the_session(self):
+    @pytest.mark.parametrize("error", [DatabaseError, InterfaceError])
+    def test_a_failed_parent_lookup_still_pokes_the_session(self, error):
         child = _session()
 
         with (
             patch(PUBLISH) as publish,
-            patch.object(Session.objects, "filter", side_effect=DatabaseError),
+            patch.object(Session.objects, "filter", side_effect=error),
             TestCase.captureOnCommitCallbacks(execute=True),
         ):
             session_changed(child.thread_id)

@@ -45,6 +45,7 @@ from sessions.inbox.policy import WakePolicy
 from sessions.inbox.render import RunInput
 from sessions.inbox.requester import Requester
 from sessions.inbox.splits import RequestSplits
+from sessions.live.notify import session_changed
 from sessions.models import (
     EventFailure,
     EventKind,
@@ -162,6 +163,7 @@ class Drain:
                 )
                 rows.filter(attempts__gt=0).update(attempts=F("attempts") - 1)
                 rows.filter(last_examined_sha=charge.sha).update(last_examined_sha="")
+            session_changed(run.session_id)
 
 
 class _Charge(NamedTuple):
@@ -301,6 +303,8 @@ class _Take:
             if (reason := reasons.get(event.pk)) is not None:
                 event.wake, event.reason = False, reason
                 event.save(update_fields=["wake", "reason", "updated_at"])
+        if reasons:
+            session_changed(self.session.thread_id)
         if QuietReason.RUN_LIMIT in reasons.values():
             transaction.on_commit(WakePolicy(self.session).report_run_limit, robust=True)
 
@@ -328,6 +332,7 @@ class _Take:
         InboxEvent.objects.filter(pk__in=[event.pk for event in asked]).update(
             state=EventState.FAILED, failure=EventFailure.ACCESS_DENIED, run=None, updated_at=now
         )
+        session_changed(self.session.thread_id)
         if next_run is None:
             return
         InboxEvent.objects.filter(run=next_run).update(run=None, updated_at=now)
