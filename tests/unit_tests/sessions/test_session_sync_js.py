@@ -1,7 +1,8 @@
 """Drive ``session-sync.js``'s real Alpine state under Node.
 
-A page that rendered idle has no run to poll; ``running-start`` moves the nav store's latest running
-start, which is how such a page hears that a run started after it rendered.
+``changed`` is a ``daiv:session-changed`` frame's revision and ``ended`` a ``daiv:live-run-ended`` detail; the
+harness calls the component the way the template's listeners do. ``setInterval`` throws: the only polling allowed
+is a ``setTimeout`` chain, and ``timers`` counts what is still scheduled.
 """
 
 from __future__ import annotations
@@ -21,9 +22,9 @@ import vm from "node:vm";
 
 const { src, args, steps } = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
-const listeners = {};
 const events = [];
-const watchers = [];
+const handovers = [];
+const ends = [];
 const fetches = [];
 let reloads = 0;
 let now = 0;
@@ -33,56 +34,61 @@ const responses = [];
 const pending = [];
 let hold = false;
 
+const reply = ({ status, body }) =>
+  status === 0 ? Promise.reject(new TypeError("offline")) : { ok: status < 400, status, json: async () => body };
+
 const sandbox = {
   document: { addEventListener: (name, cb) => { if (name === "alpine:init") cb(); } },
   performance: { now: () => now },
-  console: { warn() {} },
-  CustomEvent: class {
-    constructor(type, init) { this.type = type; this.detail = init?.detail; this.defaultPrevented = false; }
-    preventDefault() { this.defaultPrevented = true; }
-  },
-  setInterval: (fn, ms) => { const id = nextId++; timers.push({ id, fn, ms, at: now + ms }); return id; },
-  clearInterval: (id) => { timers = timers.filter((t) => t.id !== id); },
+  CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
+  setTimeout: (fn, ms) => { const id = nextId++; timers.push({ id, fn, at: now + ms }); return id; },
+  clearTimeout: (id) => { timers = timers.filter((t) => t.id !== id); },
+  setInterval: () => { throw new Error("sessionSync must not poll"); },
   location: { reload: () => { reloads += 1; } },
   fetch: (url) => {
     fetches.push(url);
-    const reply = (body) => ({ ok: true, status: 200, json: async () => body });
-    if (!hold) return Promise.resolve(reply(responses.shift()));
-    return new Promise((resolve) => pending.push((body) => resolve(reply(body))));
+    if (!hold) return Promise.resolve().then(() => reply(responses.shift()));
+    return new Promise((resolve) => pending.push((body) => resolve(reply({ status: 200, body }))));
   },
 };
 sandbox.window = sandbox;
-sandbox.addEventListener = (name, cb) => { listeners[name] = cb; };
 sandbox.dispatchEvent = (event) => {
   events.push({ type: event.type, detail: event.detail });
-  if (listeners[event.type]) listeners[event.type](event);
-  return !event.defaultPrevented;
+  if (event.type === "daiv:session-live-run") handovers.push({ id: event.detail.id, at: now });
+  return true;
 };
 sandbox.Alpine = { data: (name, factory) => { components[name] = factory; } };
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
 const sync = components.sessionSync(args);
-sync.$watch = (expression, callback) => watchers.push({ expression, callback });
-sync.init();
-listeners["daiv:live-run-ended"] = () => sync.resume();
-listeners["daiv:session-check"] = () => sync._checkForBackgroundRun();
+sync.init?.();
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 for (const [action, value] of steps) {
-  if (action === "respond") responses.push(value);
+  if (action === "respond") responses.push({ status: 200, body: value });
+  else if (action === "fail") responses.push({ status: value });
   else if (action === "hold") hold = true;
   else if (action === "release") pending[value[0]](value[1]);
-  else if (action === "hold-reload") listeners["daiv:session-settled"] = (event) => event.preventDefault();
-  else if (action === "running-start") for (const watcher of watchers) watcher.callback(value);
-  else if (action === "event") sandbox.dispatchEvent(new sandbox.CustomEvent(value, { detail: {} }));
+  else if (action === "changed") sync.changed({ revision: value });
+  else if (action === "ended") { ends.push(now); sync.runEnded(value); }
+  else if (action === "untilHandover") {
+    const before = handovers.length;
+    while (handovers.length === before && timers.length) {
+      const due = [...timers].sort((a, b) => a.at - b.at)[0];
+      timers = timers.filter((t) => t !== due);
+      now = due.at;
+      due.fn();
+      await settle();
+    }
+  }
   else if (action === "advance") {
     const end = now + value;
     for (;;) {
       const due = timers.filter((t) => t.at <= end).sort((a, b) => a.at - b.at)[0];
       if (!due) break;
+      timers = timers.filter((t) => t !== due);
       now = due.at;
-      due.at += due.ms;
       due.fn();
       await settle();
     }
@@ -91,187 +97,350 @@ for (const [action, value] of steps) {
   await settle();
 }
 process.stdout.write(
-  JSON.stringify({ events, fetches: fetches.length, reloads, watched: watchers.map((w) => w.expression) }),
+  JSON.stringify({ events, handovers, ends, fetches: fetches.length, reloads, timers: timers.length }),
 );
 """
 
 TURNS_URL = "/api/sessions/t1/turns"
+R1 = {"id": "r1", "stoppable": True, "started_at": "2026-11-04T10:00:00+00:00"}
+R2 = {"id": "r2", "stoppable": False, "started_at": "2026-11-04T10:05:00+00:00"}
 
 
-def _run(args: dict, steps: list) -> dict:
-    return run_node(
-        HARNESS, {"src": str(SESSION_SYNC_JS), "args": {"turnsUrl": TURNS_URL, "active": True, **args}, "steps": steps}
-    )
+def _run(
+    steps: list,
+    *,
+    live_run_id: str = "",
+    revision: int = 1,
+    expired: bool = False,
+    active: bool = False,
+    polls: bool = False,
+) -> dict:
+    args = {
+        "turnsUrl": TURNS_URL,
+        "liveRunId": live_run_id,
+        "revision": revision,
+        "expired": expired,
+        "active": active,
+        "polls": polls,
+    }
+    return run_node(HARNESS, {"src": str(SESSION_SYNC_JS), "args": args, "steps": steps})
 
 
-def test_it_stays_quiet_while_a_live_run_streams():
-    result = _run({"liveRunId": "r1"}, [["advance", 15000]])
+def _turns(revision: int = 2, *, live_run=None, run_count: int = 1, **extra) -> dict:
+    active = live_run is not None
+    return {"revision": revision, "active": active, "live_run": live_run, "run_count": run_count, "turns": [], **extra}
 
-    assert result["fetches"] == 0
-    assert result["events"] == []
+
+def _types(result: dict) -> list[str]:
+    return [event["type"] for event in result["events"]]
+
+
+def _ended(run_id: str, reason: str, *, own: bool = False) -> list:
+    return ["ended", {"runId": run_id, "reason": reason, "own": own}]
+
+
+def test_an_unchanged_revision_fetches_nothing():
+    """The nav stream re-sends the revision on every connect; an idle tab must not pay a fetch for it."""
+    result = _run([["changed", 5], ["advance", 600_000], ["changed", 5]], revision=5)
+
+    assert (result["fetches"], result["events"]) == (0, [])
+
+
+def test_a_new_revision_fetches_the_turns_once():
+    payload = _turns(6)
+
+    result = _run([["respond", payload], ["changed", 6], ["changed", 6]], revision=5)
+
+    assert result["fetches"] == 1
+    assert result["events"] == [{"type": "daiv:session-turns", "detail": {**payload, "requestedAt": 0}}]
+
+
+def test_a_lower_revision_still_fetches():
+    """The revision key can expire or be flushed, so the page fetches on any difference."""
+    result = _run([["respond", _turns(2)], ["changed", 2]], revision=9)
+
+    assert result["fetches"] == 1
 
 
 def test_each_turns_event_says_when_its_request_was_sent():
-    """The session page drops a watch read before its own toggle answered, so it needs the poll's send time."""
-    payload = {"active": True, "live_run": None, "turns": [], "watch": None}
+    """The session page drops a CI watch read before its own toggle answered, so it needs the fetch's send time."""
+    result = _run([["advance", 5000], ["hold", None], ["changed", 2], ["advance", 2000], ["release", [0, _turns()]]])
 
-    result = _run({"liveRunId": ""}, [["hold", None], ["advance", 5000], ["advance", 2000], ["release", [0, payload]]])
-
-    assert result["events"][0]["detail"] == {**payload, "requestedAt": 5000}
+    assert result["events"][0]["detail"]["requestedAt"] == 5000
 
 
-def test_a_new_holder_is_handed_to_the_chat():
-    payload = {"active": True, "live_run": {"id": "r2", "stoppable": False}, "turns": []}
+def test_changes_during_a_fetch_cost_exactly_one_more():
+    steps = [["hold", None], ["changed", 2], ["changed", 3], ["changed", 4], ["release", [0, _turns(2)]]]
 
-    result = _run({"liveRunId": ""}, [["respond", payload], ["advance", 5000], ["advance", 15000]])
+    result = _run([*steps, ["release", [1, _turns(4)]], ["changed", 4]])
 
-    assert [e["type"] for e in result["events"]] == ["daiv:session-turns", "daiv:session-live-run"]
-    assert result["events"][1]["detail"] == {"id": "r2", "stoppable": False}
+    assert result["fetches"] == 2
+    assert _types(result) == ["daiv:session-turns", "daiv:session-turns"]
+
+
+def test_a_change_during_a_fetch_that_the_response_already_carries_costs_nothing_more():
+    result = _run([["hold", None], ["changed", 2], ["changed", 3], ["release", [0, _turns(3)]]])
+
     assert result["fetches"] == 1
 
 
-def test_a_poll_landing_after_the_handoff_is_dropped():
-    handoff = {"active": True, "live_run": {"id": "r2", "stoppable": True}, "turns": []}
-    late = {"active": True, "live_run": None, "turns": [{"id": "stale"}]}
+def test_a_run_ending_during_a_fetch_always_costs_one_more():
+    """The run's end may not have bumped the revision yet, so a response at the announced revision can predate it."""
+    steps = [["hold", None], ["changed", 2], _ended("r1", "finished"), ["release", [0, _turns(2)]]]
 
-    result = _run(
-        {"liveRunId": ""},
-        [["hold", None], ["advance", 5000], ["advance", 5000], ["release", [1, handoff]], ["release", [0, late]]],
-    )
+    result = _run(steps, live_run_id="r1")
 
-    assert [e["type"] for e in result["events"]] == ["daiv:session-turns", "daiv:session-live-run"]
-
-
-def test_the_finished_run_is_not_followed_again():
-    payload = {"active": True, "live_run": {"id": "r1", "stoppable": True}, "turns": []}
-
-    result = _run(
-        {"liveRunId": "r1"},
-        [["respond", payload], ["respond", payload], ["event", "daiv:live-run-ended"], ["advance", 5000]],
-    )
-
-    assert "daiv:session-live-run" not in [e["type"] for e in result["events"]]
     assert result["fetches"] == 2
 
 
-def test_an_idle_session_reloads():
-    payload = {"active": False, "live_run": None, "turns": []}
+def test_a_named_live_run_is_handed_to_the_chat():
+    result = _run([["respond", _turns(live_run=R2)], ["changed", 2]])
 
-    result = _run({"liveRunId": ""}, [["respond", payload], ["advance", 5000], ["advance", 15000]])
+    assert _types(result) == ["daiv:session-turns", "daiv:session-live-run"]
+    assert result["events"][1]["detail"] == R2
+
+
+def test_a_finished_run_is_not_followed_again():
+    """The run's own end pokes while it still holds the slot, so the next fetch can still name it."""
+    steps = [["respond", _turns(live_run=R1)], _ended("r1", "finished"), ["respond", _turns(3, live_run=R1)]]
+
+    result = _run([*steps, ["changed", 3]], live_run_id="r1")
+
+    assert result["fetches"] == 2
+    assert result["handovers"] == []
+
+
+@pytest.mark.parametrize(("live_run_id", "handovers"), [("r2", 0), ("", 1)])
+def test_the_run_being_followed_is_not_handed_over_twice(live_run_id, handovers):
+    steps = [["respond", _turns(2, live_run=R2)], ["changed", 2], ["respond", _turns(3, live_run=R2)], ["changed", 3]]
+
+    result = _run(steps, live_run_id=live_run_id)
+
+    assert result["fetches"] == 2
+    assert len(result["handovers"]) == handovers
+
+
+def test_after_its_own_turn_the_page_takes_only_the_header():
+    """The tab that sent the turn keeps what it streamed; the header and server-only segments still apply."""
+    payload = _turns(2, run_count=3)
+
+    result = _run([["respond", payload], _ended("r3", "finished", own=True)])
+
+    assert result["events"] == [{"type": "daiv:session-header", "detail": {**payload, "requestedAt": 0}}]
+
+
+def test_a_new_run_after_its_own_turn_brings_the_transcript_back():
+    steps = [
+        ["respond", _turns(2, run_count=3)],
+        _ended("r3", "finished", own=True),
+        ["respond", _turns(3, run_count=3)],
+        ["changed", 3],
+        ["respond", _turns(4, run_count=4)],
+        ["changed", 4],
+        ["respond", _turns(5, run_count=4)],
+        ["changed", 5],
+    ]
+
+    result = _run(steps)
+
+    assert _types(result) == ["daiv:session-header", "daiv:session-header", "daiv:session-turns", "daiv:session-turns"]
+
+
+INBOX_ENTRY = {"id": "inbox-7", "role": "inbox_event", "kind": "mention", "failure_label": ""}
+
+
+def test_an_inbox_entry_after_its_own_turn_brings_the_transcript_back():
+    """Its own run's stream never carries the inbox, so a change there is the server's to show."""
+    failed = {**INBOX_ENTRY, "failure_label": "Access denied"}
+    steps = [
+        ["respond", _turns(2, run_count=3, turns=[INBOX_ENTRY])],
+        _ended("r3", "finished", own=True),
+        ["respond", _turns(3, run_count=3, turns=[INBOX_ENTRY])],
+        ["changed", 3],
+        ["respond", _turns(4, run_count=3, turns=[failed])],
+        ["changed", 4],
+    ]
+
+    result = _run(steps)
+
+    assert _types(result) == ["daiv:session-header", "daiv:session-header", "daiv:session-turns"]
+
+
+def test_a_finished_stream_whose_run_still_holds_the_slot_is_fetched_until_it_lets_go():
+    """Its relay failed and it carries on unpublished, so no stream and no revision shows its progress."""
+    steps = [
+        ["respond", _turns(2, live_run=R1, run_count=1)],
+        _ended("r1", "finished", own=True),
+        ["respond", _turns(2, live_run=R1, run_count=1)],
+        ["advance", 4_999],
+        ["respond", _turns(3, run_count=1)],
+        ["advance", 1],
+        ["advance", 60_000],
+    ]
+
+    result = _run(steps, live_run_id="r1")
+
+    assert _types(result) == ["daiv:session-turns", "daiv:session-turns", "daiv:session-turns"]
+    assert (result["fetches"], result["handovers"], result["timers"]) == (3, [], 0)
+
+
+def test_without_a_bus_a_page_rendered_in_flight_fetches_until_the_session_settles():
+    steps = [["respond", _turns(1, live_run=R1)], ["respond", _turns(1, active=True)], ["respond", _turns(1)]]
+
+    result = _run([*steps, ["advance", 60_000]], active=True, polls=True)
+
+    assert result["fetches"] == 3
+    assert result["timers"] == 0
+
+
+def test_without_a_bus_failed_fetches_back_off():
+    steps = [["fail", 500], ["fail", 500], ["respond", _turns(1)], ["advance", 4_999]]
+
+    early = _run(steps, active=True, polls=True)
+    result = _run([*steps[:3], ["advance", 5_000 + 10_000 + 20_000], ["advance", 60_000]], active=True, polls=True)
+
+    assert early["fetches"] == 0
+    assert (result["fetches"], result["timers"]) == (3, 0)
+
+
+@pytest.mark.parametrize("polls", [True, False])
+def test_an_idle_page_with_or_without_a_bus_schedules_nothing(polls):
+    result = _run([["advance", 600_000]], polls=polls)
+
+    assert (result["fetches"], result["timers"]) == (0, 0)
+
+
+def test_a_dropped_stream_rejoins_after_two_seconds():
+    steps = [["respond", _turns(2, live_run=R1)], _ended("r1", "connection_lost"), ["advance", 1999]]
+
+    early = _run(steps, live_run_id="r1")
+    result = _run([*steps, ["advance", 1]], live_run_id="r1")
+
+    assert _types(early) == ["daiv:session-turns"]
+    assert result["handovers"] == [{"id": "r1", "at": 2000}]
+    assert result["events"][-1] == {"type": "daiv:session-live-run", "detail": R1}
+
+
+def _failing(times: int) -> list:
+    """Each attempt's stream fails as soon as the run is handed over again."""
+    steps = []
+    for attempt in range(times):
+        steps += [["respond", _turns(attempt + 2, live_run=R1)], _ended("r1", "error"), ["untilHandover", None]]
+    return steps
+
+
+def _delays(result: dict) -> list[int]:
+    return [handover["at"] - ended for handover, ended in zip(result["handovers"], result["ends"], strict=True)]
+
+
+def test_a_relay_that_keeps_failing_backs_off_to_thirty_seconds():
+    result = _run(_failing(5), live_run_id="r1")
+
+    assert _delays(result) == [2000, 4000, 8000, 16000, 30000]
+
+
+def test_a_stream_that_stayed_up_resets_the_back_off():
+    steps = [*_failing(3), ["advance", 10_000], ["respond", _turns(9, live_run=R1)], _ended("r1", "stale")]
+
+    result = _run([*steps, ["untilHandover", None]], live_run_id="r1")
+
+    assert _delays(result) == [2000, 4000, 8000, 2000]
+
+
+def test_a_stream_that_replays_and_drops_keeps_backing_off():
+    """A rejoin replays frames the page never had, so only how long the stream stayed up tells a healthy one."""
+    steps = [*_failing(2), ["advance", 9_999], ["respond", _turns(9, live_run=R1)], _ended("r1", "stale")]
+
+    result = _run([*steps, ["untilHandover", None]], live_run_id="r1")
+
+    assert _delays(result) == [2000, 4000, 8000]
+
+
+def test_a_rejoin_waiting_for_its_back_off_is_dropped_once_the_run_is_over():
+    steps = [["respond", _turns(2, live_run=R1)], _ended("r1", "connection_lost"), ["respond", _turns(3)]]
+
+    result = _run([*steps, ["changed", 3], ["advance", 60_000]], live_run_id="r1")
+
+    assert (result["handovers"], result["timers"]) == ([], 0)
+
+
+def test_a_send_that_never_started_is_followed_at_once_if_the_server_runs_it():
+    """The POST failed, yet the server may have recorded and started the run."""
+    result = _run([["respond", _turns(2, live_run=R1, run_count=2)], _ended("r1", "not_started", own=True)])
+
+    assert _types(result) == ["daiv:session-header", "daiv:session-live-run"]
+    assert result["handovers"] == [{"id": "r1", "at": 0}]
+
+
+def test_a_send_that_never_started_keeps_its_failed_turn_on_screen():
+    steps = [["respond", _turns(2, run_count=2)], _ended("r1", "not_started", own=True)]
+
+    result = _run([*steps, ["respond", _turns(3, run_count=2)], ["changed", 3]])
+
+    assert _types(result) == ["daiv:session-header", "daiv:session-header"]
+
+
+def test_a_run_named_while_a_send_was_queued_is_handed_over_again_once_the_send_ends():
+    """The chat drops the first handover while its POST is in flight; the queued end is what frees the run."""
+    steps = [["respond", _turns(2, live_run=R1)], ["changed", 2], ["respond", _turns(2, live_run=R1, run_count=2)]]
+
+    result = _run([*steps, _ended("mine", "queued", own=True), ["advance", 60_000]])
+
+    assert _types(result) == [
+        "daiv:session-turns",
+        "daiv:session-live-run",
+        "daiv:session-turns",
+        "daiv:session-live-run",
+    ]
+    assert result["handovers"] == [{"id": "r1", "at": 0}, {"id": "r1", "at": 0}]
+    assert result["timers"] == 0
+
+
+def test_a_queued_end_is_no_stream_failure():
+    """It starts no back-off and marks nothing finished, so the run it names is followed at once."""
+    result = _run([["respond", _turns(2, live_run=R1)], _ended("r1", "queued", own=True)], live_run_id="r1")
+
+    assert result["handovers"] == [{"id": "r1", "at": 0}]
+    assert _types(result) == ["daiv:session-turns", "daiv:session-live-run"]
+
+
+def test_a_settled_session_never_reloads():
+    result = _run([["respond", _turns(2, active=False)], ["changed", 2], ["advance", 60_000]])
+
+    assert result["reloads"] == 0
+    assert _types(result) == ["daiv:session-turns"]
+
+
+def test_a_page_rendered_expired_reloads_once_the_session_has_state_again():
+    """Its banner and missing composer are server-rendered, so only a reload brings the composer back."""
+    steps = [["respond", _turns(2, expired=True, expired_banner=False)], ["changed", 2]]
+
+    result = _run([*steps, ["respond", _turns(3, expired_banner=False)], ["changed", 3]], expired=True)
 
     assert result["reloads"] == 1
-    assert result["fetches"] == 1
 
 
-def test_a_settled_session_stays_when_the_chat_holds_the_reload():
-    payload = {"active": False, "live_run": None, "turns": []}
-
-    result = _run({"liveRunId": ""}, [["hold-reload", None], ["respond", payload], ["advance", 5000]])
+@pytest.mark.parametrize(("rendered", "served"), [(True, True), (False, False), (False, True)])
+def test_a_page_reloads_only_when_it_rendered_expired_and_no_longer_is(rendered, served):
+    result = _run([["respond", _turns(2, expired_banner=served)], ["changed", 2]], expired=rendered)
 
     assert result["reloads"] == 0
-    assert "daiv:session-settled" in [e["type"] for e in result["events"]]
+    assert _types(result) == ["daiv:session-turns"]
 
 
-@pytest.mark.parametrize("live_run_id", ["", "r1"])
-def test_ending_the_run_polls_at_once(live_run_id):
-    payload = {"active": True, "live_run": None, "turns": []}
+def test_a_failed_fetch_schedules_nothing():
+    """A failure only releases the page's held status; the next announcement fetches again."""
+    result = _run([["fail", 500], ["changed", 2], ["advance", 600_000], ["fail", 0], ["changed", 2], ["advance", 1]])
 
-    result = _run({"liveRunId": live_run_id}, [["respond", payload], ["event", "daiv:live-run-ended"]])
-
-    assert result["fetches"] == 1
-
-
-STARTED = "2026-10-23T13:16:20+00:00"
+    assert (result["fetches"], result["timers"]) == (2, 0)
+    assert result["events"] == [{"type": "daiv:session-header", "detail": None}] * 2
 
 
-def _idle(steps: list) -> dict:
-    return _run({"liveRunId": "", "active": False}, steps)
+def test_after_a_failed_fetch_an_unchanged_revision_still_fetches_and_rejoins_the_dropped_run():
+    """A live run bumps no revision while it runs, so the reconnect resync is what brings the dropped stream back."""
+    steps = [["fail", 502], _ended("r1", "connection_lost"), ["respond", _turns(1, live_run=R1)]]
 
-
-def test_an_idle_page_watches_the_nav_stores_latest_running_start():
-    result = _idle([["advance", 15000]])
-
-    assert result["fetches"] == 0
-    assert len(result["watched"]) == 1
-    assert "latestRunningStart" in result["watched"][0]
-
-
-def test_a_background_run_starting_on_an_idle_page_is_followed():
-    payload = {"active": True, "background": True, "live_run": {"id": "r2", "stoppable": False}, "turns": []}
-
-    result = _idle([["respond", payload], ["running-start", STARTED], ["advance", 15000]])
-
-    assert [e["type"] for e in result["events"]] == ["daiv:session-turns", "daiv:session-live-run"]
-    assert result["fetches"] == 1
-
-
-def test_a_background_run_with_no_holder_yet_is_polled():
-    payload = {"active": True, "background": True, "live_run": None, "turns": []}
-
-    result = _idle([["respond", payload], ["running-start", STARTED], ["respond", payload], ["advance", 5000]])
+    result = _run([*steps, ["changed", 1], ["advance", 2000]], live_run_id="r1")
 
     assert result["fetches"] == 2
-
-
-def test_a_run_starting_elsewhere_only_refreshes_an_idle_pages_header():
-    payload = {"active": False, "background": False, "live_run": None, "turns": []}
-
-    result = _idle([["respond", payload], ["running-start", STARTED], ["advance", 15000]])
-
-    assert result["fetches"] == 1
-    assert result["events"] == [{"type": "daiv:session-header", "detail": {**payload, "requestedAt": 0}}]
-    assert result["reloads"] == 0
-
-
-def test_a_session_check_refreshes_an_idle_pages_header_once():
-    payload = {"active": False, "background": False, "live_run": None, "turns": []}
-
-    result = _idle([["respond", payload], ["event", "daiv:session-check"], ["advance", 15000]])
-
-    assert result["fetches"] == 1
-    assert [e["type"] for e in result["events"]] == ["daiv:session-check", "daiv:session-header"]
-
-
-def test_a_session_check_leaves_an_engaged_page_to_its_poll():
-    assert _run({"liveRunId": ""}, [["event", "daiv:session-check"]])["fetches"] == 0
-
-
-def test_nothing_running_is_not_worth_a_check():
-    assert _idle([["running-start", ""]])["fetches"] == 0
-
-
-@pytest.mark.parametrize("live_run_id", ["", "r1"])
-def test_an_engaged_page_does_not_check(live_run_id):
-    result = _run({"liveRunId": live_run_id}, [["running-start", STARTED]])
-
-    assert result["fetches"] == 0
-
-
-def test_an_idle_pages_own_chat_turn_ending_refreshes_only_the_header():
-    payload = {"active": False, "live_run": None, "latest_run": None, "turns": []}
-
-    result = _idle([["respond", payload], ["event", "daiv:live-run-ended"], ["advance", 15000]])
-
-    assert result["fetches"] == 1
-    assert [e["type"] for e in result["events"]] == ["daiv:live-run-ended", "daiv:session-header"]
-    assert result["events"][1]["detail"] == {**payload, "requestedAt": 0}
-    assert result["reloads"] == 0
-
-
-def test_a_page_that_held_its_reload_wakes_for_the_next_background_run():
-    settled = {"active": False, "live_run": None, "turns": []}
-    resumed = {"active": True, "background": True, "live_run": {"id": "r3", "stoppable": False}, "turns": []}
-
-    result = _run(
-        {"liveRunId": ""},
-        [
-            ["hold-reload", None],
-            ["respond", settled],
-            ["advance", 5000],
-            ["respond", resumed],
-            ["running-start", STARTED],
-        ],
-    )
-
-    assert result["events"][-1] == {"type": "daiv:session-live-run", "detail": resumed["live_run"]}
-    assert result["reloads"] == 0
+    assert result["handovers"] == [{"id": "r1", "at": 2000}]

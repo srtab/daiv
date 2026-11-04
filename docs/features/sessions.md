@@ -109,7 +109,7 @@ Click any session to see its full detail page, which includes:
 - **Transcript** — the full conversation transcript streams live during active runs, whatever started them (chat, job, webhook or schedule), and is replayed on return visits and mid-run refreshes — reopening the session rejoins the live stream and replays any events it missed (a fresh page load from the start of the run; an automatic reconnect only the events since it dropped).
 - **Up next** — at the end of the conversation, what the session will do next, in order: each run still to start, as whom, with the requests that start it, then the updates the next run will be told (see [The session inbox](#the-session-inbox)). A CI failure or finished delegated batch DAIV won't act on says why, such as *not fixing: out of attempts*; a request DAIV couldn't handle shows in the conversation as a *not handled* line with the reason. A run DAIV started itself opens with the message it received, and **Show request** expands the full prompt the run got.
 
-For in-flight sessions the detail page updates in real time until the run completes.
+The detail page updates in place whenever the session changes — a run starting or ending, a message joining Up next, a CI result — without polling or reloading. An open page also streams a chat turn sent from another tab or by someone else. Without Redis (`DJANGO_REDIS_URL` unset), the page can't hear about changes, so it checks every few seconds while a run is in flight instead.
 
 ---
 

@@ -2,8 +2,8 @@
 
 ``annotate_transcript`` is kept free of Django query code (it only reads attributes off
 already-fetched run rows) so the segmentation logic is unit-testable without the database,
-mirroring ``sessions.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
-and messages, then zip them here; for a checkpoint with no messages, ``expired_run_turns``
+mirroring ``sessions.turns.build_turns``. The page loader fetches runs (chronologically ordered)
+and messages, then zips them here; for a checkpoint with no messages, ``expired_run_turns``
 restores the prompts and queries the artifacts it no longer carries. ``interleave_inbox_events``
 then splices the session's remembered and failed inbox events in as ``inbox_event`` entries, each
 before the run that took it, else before the first run created after it, the way ``run_status``

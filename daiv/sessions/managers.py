@@ -11,6 +11,7 @@ from django_tasks_db.models import DBTaskResult
 
 from core import ui_events
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
+from sessions.live.notify import publish_session_changed, session_changed
 from sessions.signal_defs import run_ended, run_finished
 
 if TYPE_CHECKING:
@@ -248,7 +249,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         if not self._unfinished(run, where).update(status=status, **fields):
             return False
         self._apply(run, status, fields)
-        transaction.on_commit(ui_events.publisher.runs_changed)
+        self._announce_status_moved(run)
         self._emit_run_finished(run, skip_dispatch=skip_dispatch, never_started=never_started)
         return True
 
@@ -301,6 +302,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             started_at=run.started_at or now,
         )
         if not finished:
+            session_changed(run.session_id)
             run.refresh_from_db(fields=["status"])
             return run.status not in RunStatus.terminal()
         DBTaskResult.objects.filter(run=run, status=TaskResultStatus.READY).update(
@@ -327,12 +329,19 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         if not self._unfinished(run).update(**fields):
             return False
         if "status" in fields:
-            transaction.on_commit(ui_events.publisher.runs_changed)
+            self._announce_status_moved(run)
         return True
+
+    @staticmethod
+    def _announce_status_moved(run: Run) -> None:
+        """Refresh the nav badge and poke ``run``'s session page once the status write commits."""
+        transaction.on_commit(ui_events.publisher.runs_changed)
+        session_changed(run.session_id)
 
     def _announce_finished(self, run: Run, **flags: bool) -> None:
         try:
             ui_events.publisher.runs_changed()
+            publish_session_changed(run.session_id)
             self._emit_run_finished(run, **flags)
         finally:
             # Runs in an executor thread no request lifecycle closes, so its pooled connection would be held forever.

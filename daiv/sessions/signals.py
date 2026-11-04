@@ -16,6 +16,7 @@ from core import ui_events
 from sessions.delegation import resume_coordinator
 from sessions.inbox.complete import RunEnd
 from sessions.inbox.requester import Requester
+from sessions.live.notify import session_changed
 from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session
 from sessions.queue import dispatch_next_queued, release_runs_waiting_for
 from sessions.signal_defs import run_ended, run_finished
@@ -68,7 +69,8 @@ def _hand_over_queued(run_id: object, user_id: int) -> int:
 
 @receiver(post_save, sender=Run, dispatch_uid="sessions.publish_nav_runs_changed")
 def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
-    """Poke the nav SSE readers whenever a Run's status may have moved.
+    """Poke the nav SSE readers whenever a Run's status may have moved, and the run's session page whenever a run
+    appears (a QUEUED run shows in Up next) or its status may have moved.
 
     The sidebar's "N running" badge is per-viewer, so readers recompute their own
     count from this poke (see ``core.ui_events``). Deferred to commit so the recount
@@ -82,14 +84,18 @@ def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwarg
     row no reader's count can include. A run's finish and a sync's non-terminal write skip this
     signal: ``RunManager.finish`` and ``RunManager.update_unfinished`` refresh the badge themselves.
     """
-    if created:
-        if instance.status == RunStatus.RUNNING:
-            transaction.on_commit(ui_events.publisher.runs_changed)
-        return
     update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "status" not in update_fields:
+    if not created and update_fields is not None and "status" not in update_fields:
         return
-    transaction.on_commit(ui_events.publisher.runs_changed)
+    if not created or instance.status == RunStatus.RUNNING:
+        transaction.on_commit(ui_events.publisher.runs_changed)
+    session_changed(instance.session_id)
+
+
+@receiver(post_delete, sender=Run, dispatch_uid="sessions.poke_session_on_run_delete")
+def poke_session_on_run_delete(sender: type, instance: Any, **kwargs: Any) -> None:
+    """Poke the page of the session a deleted run left: a withdrawn turn or a dropped next run no longer shows."""
+    session_changed(instance.session_id)
 
 
 def _sync_run_for_task(task_result_id: Any) -> None:

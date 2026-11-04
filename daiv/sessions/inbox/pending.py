@@ -9,6 +9,7 @@ from django.utils import timezone
 from sessions.inbox.kinds import EventContent
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.requester import Requester
+from sessions.live.notify import session_changed
 from sessions.models import EventState, InboxEvent
 
 if TYPE_CHECKING:
@@ -39,6 +40,7 @@ class PendingEvents:
             InboxEvent.objects.filter(pk__in=[event.pk for event in replaced]).update(
                 state=EventState.SUPERSEDED, run=None, updated_at=timezone.now()
             )
+            session_changed(self.session.thread_id)
         return survivors
 
     def follow_session_branch(self, queued_runs: list[Run]) -> None:
@@ -67,6 +69,7 @@ class PendingEvents:
             ref=session.ref, updated_at=timezone.now()
         )
         InboxEvent.objects.filter(pk__in=[event.pk for event in moved if event.run_id not in kept]).update(run=None)
+        session_changed(session.thread_id)
         for event in moved:
             event.ref = session.ref
             if event.run_id not in kept:

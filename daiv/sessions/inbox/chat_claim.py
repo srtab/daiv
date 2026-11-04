@@ -14,6 +14,7 @@ from asgiref.sync import sync_to_async
 
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.pending import PendingEvents
+from sessions.live.notify import asession_changed, session_changed
 from sessions.models import EventState, InboxEvent, Run, RunStatus, Session
 
 
@@ -47,9 +48,10 @@ class ChatClaim:
                 )
             )
             taken = [event for event in survivors if not event.wake]
-            InboxEvent.objects.filter(pk__in=[event.pk for event in taken]).update(
+            if InboxEvent.objects.filter(pk__in=[event.pk for event in taken]).update(
                 state=EventState.TAKEN, claim_token=self.holder_id, updated_at=timezone.now()
-            )
+            ):
+                session_changed(self.thread_id)
         return taken
 
     async def atake(self) -> list[InboxEvent]:
@@ -57,20 +59,25 @@ class ChatClaim:
 
     async def alink(self, run: Run) -> None:
         """Point the events the chat turn took under ``holder_id`` at its ``Run``, once the clone is ready."""
-        await InboxEvent.objects.filter(
+        linked = await InboxEvent.objects.filter(
             session_id=run.session_id, claim_token=self.holder_id, state=EventState.TAKEN
         ).aupdate(run=run, claim_token="")
-        await (
+        linked += await (
             InboxEvent.objects
             .filter(session_id=run.session_id, state=EventState.SUPERSEDED, run__isnull=True, claim_token="")
             .filter(subject__in=InboxEvent.objects.filter(run=run).exclude(subject="").values("subject"))
             .aupdate(run=run)
         )
+        if linked:
+            await asession_changed(run.session_id)
 
     async def arelease(self) -> int:
         """Put back for the session's next turn the events the chat turn ``holder_id`` took and no ``Run`` took over;
         returns how many. Such a turn ended before the clone was ready, so the events never reached the model and cost
         no attempt."""
-        return await InboxEvent.objects.filter(
+        released = await InboxEvent.objects.filter(
             session_id=self.thread_id, claim_token=self.holder_id, state=EventState.TAKEN, run__isnull=True
         ).aupdate(state=EventState.PENDING, claim_token="", updated_at=timezone.now())
+        if released:
+            await asession_changed(self.thread_id)
+        return released

@@ -781,38 +781,48 @@ const queued = {
   streaming: chat.streaming,
   live: chat.sessionLive,
   queuedRunId: chat.queuedRunId,
-  ended: dispatched.filter((e) => e.type === "daiv:live-run-ended").length,
   provisional: dispatched.filter((e) => e.type === "daiv:up-next-provisional").map((e) => e.detail),
   opened: opened !== null,
 };
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended").map((e) => e.detail);
 chat.followLiveRun({ id: "next-run", stoppable: true, started_at: new Date().toISOString() });
 const following = { streaming: chat.streaming, run: chat._activeRun?.runId, queuedRunId: chat.queuedRunId };
-process.stdout.write(JSON.stringify({ queued, following }));
+process.stdout.write(JSON.stringify({ queued, ended, following }));
 chat.destroy();
 """
 
 
-def test_a_message_sent_while_the_session_is_busy_moves_to_up_next():
+def _send_while_busy() -> dict:
     reply = {"run_id": "r1", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
     fetch = f"fetch: async () => ({{ ok: true, json: async () => ({json.dumps(reply)}) }}),"
-
-    out = run_chat_stream(
+    return run_chat_stream(
         QUEUED_MESSAGE_BODY,
         {},
         prelude=REACTIVITY + EVENT_SOURCE,
         extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, " + fetch,
     )
 
+
+def test_a_message_sent_while_the_session_is_busy_moves_to_up_next():
+    out = _send_while_busy()
+
     assert out["queued"] == {
         "turns": [],
         "streaming": False,
         "live": True,
         "queuedRunId": "next-run",
-        "ended": 0,
         "provisional": [{"event_id": "e1", "run_id": "next-run", "text": "Also add a test"}],
         "opened": False,
     }
     assert out["following"] == {"streaming": True, "run": "next-run", "queuedRunId": ""}
+
+
+def test_a_queued_send_announces_its_end_as_queued():
+    """The page may have named a live run while this send was in flight; the end lets it hand that run over."""
+    (detail,) = _send_while_busy()["ended"]
+
+    assert detail["runId"]
+    assert (detail["reason"], detail["own"]) == ("queued", True)
 
 
 MID_RUN_BODY = """
@@ -1195,3 +1205,173 @@ def test_the_answer_is_read_from_the_owners_reply_past_a_system_turn():
     out = _after_question(_opened_by("ci_failed"), asst("a2", text("Fixed CI.")), reply)
 
     assert out == {"open": False, "summary": "Approach · Retry"}
+
+
+SEND_PRELUDE = """
+let constructed = 0;
+let releasePost;
+const post = new Promise((resolve) => (releasePost = resolve));
+"""
+
+SEND_BODY = """
+const thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream", thread });
+chat.draftMessage = "hello";
+chat.$nextTick = (cb) => cb && cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+__SCENARIO__
+"""
+
+SEND_GLOBALS = (
+    "EventSource: FakeEventSource, setTimeout, "
+    "fetch: async () => { await post; return { ok: true, json: async () => ({ run_id: 'r1' }) }; },"
+)
+SEND_EVENT_SOURCE = EVENT_SOURCE.replace("constructor() {", "constructor() { constructed += 1;")
+
+
+def _send(scenario: str, *, extra_globals: str = SEND_GLOBALS) -> dict:
+    return run_chat_stream(
+        SEND_BODY.replace("__SCENARIO__", scenario),
+        {},
+        prelude=SEND_PRELUDE + SEND_EVENT_SOURCE,
+        extra_globals=extra_globals,
+    )
+
+
+def test_a_sent_turn_announces_its_end_as_its_own():
+    out = _send("""
+releasePost();
+const done = chat.submit();
+await tick();
+opened.onmessage({ data: JSON.stringify({ type: "RUN_STARTED" }) });
+opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+await done;
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended").map((e) => e.detail);
+process.stdout.write(JSON.stringify({ ended }));
+""")
+
+    (detail,) = out["ended"]
+    assert (detail["reason"], detail["own"]) == ("finished", True)
+    assert detail["runId"]
+
+
+UNSTARTED_SCENARIO = """
+await chat.submit();
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended").map((e) => e.detail);
+const failed = chat.turns.filter((t) => t.role === "run_status" && t.status === "failed").length;
+process.stdout.write(JSON.stringify({ ended, failed, constructed }));
+"""
+
+
+@pytest.mark.parametrize(
+    "fetch",
+    [
+        "fetch: async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => '' }),",
+        "fetch: async () => { throw new Error('offline'); },",
+    ],
+    ids=["post-not-ok", "post-throws"],
+)
+def test_a_send_that_never_streamed_announces_not_started(fetch):
+    out = _send(UNSTARTED_SCENARIO, extra_globals="EventSource: FakeEventSource, setTimeout, " + fetch)
+
+    (detail,) = out["ended"]
+    assert detail["runId"]
+    assert (detail["reason"], detail["own"]) == ("not_started", True)
+    assert (out["failed"], out["constructed"]) == (1, 0)
+
+
+def test_a_live_run_named_while_sending_is_not_followed():
+    out = _send("""
+const done = chat.submit();
+await tick();
+const runId = chat._activeRun.runId;
+chat.followLiveRun({ id: runId, stoppable: true, started_at: new Date().toISOString() });
+const whilePosting = constructed;
+releasePost();
+await tick();
+const afterPost = constructed;
+opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+await done;
+process.stdout.write(JSON.stringify({ whilePosting, afterPost }));
+""")
+
+    assert out == {"whilePosting": 0, "afterPost": 1}
+
+
+SERVED_STATE = {
+    "merge_request": {"id": 7, "url": "https://git/x/-/merge_requests/7", "title": "Fix", "source_branch": "fix"},
+    "thread_ref": "fix",
+    "diff_stats": {"lines_added": 12, "lines_removed": 3, "files_changed": 2},
+    "context_usage": {"used_tokens": 5000, "output_tokens": 40, "cached_tokens": 100, "window_tokens": 200000},
+    "waiting_since": None,
+}
+
+SERVED_STATE_BODY = """
+const chat = registry.chat({
+  endpoint: "/api/chat",
+  streamEndpoint: "/api/chat/stream",
+  thread: { thread_id: "t1", repo_id: "r", ref: "main", merge_request: null },
+  waitingSince: "2026-11-02T10:00:00Z",
+});
+Object.assign(chat, payload.state);
+chat.applySessionState(payload.served);
+process.stdout.write(JSON.stringify({
+  thread: chat.thread,
+  diffStats: chat.diffStats,
+  contextUsage: chat.contextUsage,
+  waitingSince: chat.waitingSince,
+  sessionLive: chat.sessionLive,
+}));
+"""
+
+
+def _apply_served_state(served: dict, state: dict | None = None) -> dict:
+    return run_chat_stream(SERVED_STATE_BODY, {"served": served, "state": state or {}})
+
+
+def test_served_state_updates_the_merge_request_diff_and_context_when_idle():
+    out = _apply_served_state(SERVED_STATE)
+
+    assert out == {
+        "thread": {"thread_id": "t1", "repo_id": "r", "ref": "fix", "merge_request": SERVED_STATE["merge_request"]},
+        "diffStats": {"added": 12, "removed": 3},
+        "contextUsage": {"usedTokens": 5000, "outputTokens": 40, "cachedTokens": 100, "windowTokens": 200000},
+        "waitingSince": "",
+        "sessionLive": False,
+    }
+
+
+@pytest.mark.parametrize("active", [True, False])
+def test_served_state_says_whether_the_session_is_in_flight(active):
+    """A fetch that keeps the streamed transcript still moves the page's in-flight state."""
+    out = _apply_served_state({"active": active}, {"sessionLive": not active})
+
+    assert out["sessionLive"] is active
+
+
+def test_served_state_keeps_what_it_does_not_carry():
+    out = _apply_served_state({"thread_ref": "fix", "context_usage": None})
+
+    assert out["thread"] == {"thread_id": "t1", "repo_id": "r", "ref": "main", "merge_request": None}
+    assert (out["diffStats"], out["contextUsage"], out["waitingSince"]) == (None, None, "2026-11-02T10:00:00Z")
+
+
+def test_an_empty_served_state_leaves_what_the_page_shows():
+    """A failed fetch dispatches the header with no state, which the page applies too."""
+    shown = {"diffStats": {"added": 1, "removed": 2}, "contextUsage": {"usedTokens": 9, "windowTokens": 100}}
+
+    out = _apply_served_state({}, shown)
+
+    assert out["thread"] == {"thread_id": "t1", "repo_id": "r", "ref": "main", "merge_request": None}
+    assert (out["diffStats"], out["contextUsage"]) == (shown["diffStats"], shown["contextUsage"])
+    assert out["waitingSince"] == "2026-11-02T10:00:00Z"
+
+
+@pytest.mark.parametrize("state", [{"streaming": True}, {"resuming": True}])
+def test_served_state_is_ignored_while_streaming(state):
+    out = _apply_served_state(SERVED_STATE, state)
+
+    assert out["thread"]["merge_request"] is None
+    assert (out["diffStats"], out["contextUsage"], out["waitingSince"]) == (None, None, "2026-11-02T10:00:00Z")

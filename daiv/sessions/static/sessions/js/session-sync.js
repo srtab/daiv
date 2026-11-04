@@ -1,107 +1,146 @@
-// Polls the session turns endpoint while no run streams to this page, and hands the
-// session to the chat component as soon as a run holder appears.
-// A page that rendered idle stays dormant until a run the viewer can see starts (the nav store's
-// latest running start moves) or sessionPage asks (`daiv:session-check`); it then asks whether a run is
-// background work on this session, and otherwise refreshes the top bar from that one fetch.
+// Fetches the session's turns when the nav stream announces a revision this page has not applied or a run stream
+// ends, and hands each live run to the chat; it polls only while a run goes on that no stream shows, or without a bus.
 document.addEventListener("alpine:init", () => {
-  Alpine.data("sessionSync", ({ turnsUrl, liveRunId, active }) => ({
-    _engaged: active,
-    _followed: liveRunId || "",
-    _timer: null,
-    _checking: false,
-    _failures: 0,
-    _seq: 0,
-    // Stop polling after this many consecutive failures so a persistent error
-    // (endpoint 500s, auth expired) doesn't poll forever in the background.
-    _maxFailures: 5,
+  const FIRST_RETRY_MS = 2000;
+  const MAX_RETRY_MS = 30000;
+  const POLL_MS = 5000;
+  const HEALTHY_STREAM_MS = 10000;
+
+  // The one part of the transcript a run streamed to this tab never carries.
+  const inboxEntries = (turns) => JSON.stringify((turns ?? []).filter((turn) => turn?.role === "inbox_event"));
+
+  Alpine.data("sessionSync", ({ turnsUrl, liveRunId, revision, expired, active, polls }) => ({
+    _revision: revision,
+    _expired: Boolean(expired),
+    _polls: Boolean(polls),
+    _polling: Boolean(polls && active),
+    _pollDelay: POLL_MS,
+    _pollTimer: null,
+    _following: liveRunId || "",
+    _followedAt: liveRunId ? performance.now() : -Infinity,
+    _finished: new Set(),
+    _keepTranscript: false,
+    _kept: null,
+    _retry: null,
+    _retryTimer: null,
+    _announced: revision,
+    _fetching: false,
+    _dirty: false,
+    _forced: false,
     init() {
-      if (this._engaged && !liveRunId) this._start();
-      this.$watch("$store.nav?.latestRunningStart", (latest) => {
-        if (latest) this._checkForBackgroundRun();
-      });
+      if (this._polling) this._schedulePoll();
     },
     destroy() {
-      this._stop();
+      clearTimeout(this._retryTimer);
+      clearTimeout(this._pollTimer);
     },
-    resume() {
-      // A dormant page's own chat turn ending is not a reason to poll, and settling would reload it.
-      if (!this._engaged) return this._refreshHeader();
-      this._start();
-      this.poll();
+    changed({ revision }) {
+      this._announced = revision;
+      if (revision !== this._revision) this.refresh();
+    },
+    runEnded({ runId, reason, own }) {
+      this._following = "";
+      this._keepTranscript = false;
+      if (reason === "finished" || reason === "not_started") {
+        if (reason === "finished") this._finished.add(runId);
+        this._keepTranscript = Boolean(own);
+        this._kept = null;
+        this._retry = null;
+      } else if (reason === "queued") {
+        this._retry = null;
+      } else {
+        const healthy = performance.now() - this._followedAt >= HEALTHY_STREAM_MS;
+        const first = healthy || this._retry?.runId !== runId;
+        const delay = first ? FIRST_RETRY_MS : Math.min(this._retry.delay * 2, MAX_RETRY_MS);
+        this._retry = { runId, delay };
+      }
+      this.refresh({ force: true });
+    },
+    // A change announced during a fetch costs one more unless the response already carries it; a run's end may not
+    // have bumped the revision yet, so it always does.
+    async refresh({ force = false } = {}) {
+      if (this._fetching) {
+        this._dirty = true;
+        this._forced ||= force;
+        return;
+      }
+      this._fetching = true;
+      try {
+        do {
+          this._dirty = false;
+          this._forced = false;
+          await this._fetchTurns();
+        } while (this._forced || (this._dirty && this._revision !== this._announced));
+      } finally {
+        this._fetching = false;
+      }
     },
     // `requestedAt` lets a listener tell a response from before its own write apart from one after it.
     async _fetchTurns() {
       const requestedAt = performance.now();
-      const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return { ...(await res.json()), requestedAt };
-    },
-    // One fetch for the top bar only, dispatched even on failure so the page stops holding "running".
-    async _refreshHeader() {
-      let data = null;
+      let data;
       try {
-        data = await this._fetchTurns();
-      } catch (e) {
-        // The next run end or poll refreshes it; a stale status is not worth an error.
+        const res = await fetch(turnsUrl, { headers: { Accept: "application/json" } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        data = await res.json();
+      } catch {
+        // A running run bumps no revision, so forgetting it lets the next announcement (even a reconnect's) refetch.
+        // The empty header still releases the "running" the page holds from a run's end.
+        this._revision = null;
+        window.dispatchEvent(new CustomEvent("daiv:session-header", { detail: null }));
+        if (this._polling) this._schedulePoll(Math.min(this._pollDelay * 2, MAX_RETRY_MS));
+        return;
       }
-      window.dispatchEvent(new CustomEvent("daiv:session-header", { detail: data }));
-    },
-    _start() {
-      if (!this._timer) this._timer = setInterval(() => this.poll(), 5000);
-    },
-    _stop() {
-      this._seq += 1;
-      if (this._timer) clearInterval(this._timer);
-      this._timer = null;
-    },
-    _onFailure(reason) {
-      this._failures += 1;
-      if (this._failures >= this._maxFailures) {
-        console.warn(`sessionSync: stopping transcript polling after repeated failures (${reason}); reload to retry`);
-        this._stop();
+      this._revision = data.revision;
+      // The expired banner and the composer it replaces are server-rendered, so only a reload swaps them.
+      if (this._expired && data.expired_banner === false) {
+        this._expired = false;
+        location.reload();
+        return;
       }
-    },
-    async _checkForBackgroundRun() {
-      if (this._engaged || this._checking) return;
-      this._checking = true;
-      try {
-        const data = await this._fetchTurns();
-        if (!data.background) {
-          window.dispatchEvent(new CustomEvent("daiv:session-header", { detail: data }));
-          return;
-        }
-        this._engaged = true;
-        this._start();
-        this._apply(data);
-      } catch (e) {
-        // A failed check only delays the update: the next run that starts asks again.
-      } finally {
-        this._checking = false;
-      }
-    },
-    async poll() {
-      const token = ++this._seq;
-      try {
-        const data = await this._fetchTurns();
-        if (token !== this._seq) return;
-        this._apply(data);
-      } catch (e) {
-        // Transient network errors: keep polling until the failure cap is hit.
-        this._onFailure(e && e.message ? e.message : "network error");
-      }
+      this._apply({ ...data, requestedAt });
+      this._polling = Boolean(this._unstreamed(data.live_run) || (this._polls && data.active));
+      if (this._polling) this._schedulePoll();
+      else clearTimeout(this._pollTimer);
     },
     _apply(data) {
-      this._failures = 0;
-      window.dispatchEvent(new CustomEvent("daiv:session-turns", { detail: data }));
-      if (!data.active) {
-        this._stop();
-        this._engaged = false;
-        if (window.dispatchEvent(new CustomEvent("daiv:session-settled", { cancelable: true }))) location.reload();
-      } else if (data.live_run && data.live_run.id !== this._followed) {
-        this._stop();
-        this._followed = data.live_run.id;
-        window.dispatchEvent(new CustomEvent("daiv:session-live-run", { detail: data.live_run }));
-      }
+      const seen = { runCount: data.run_count, inbox: inboxEntries(data.turns) };
+      if (this._keepTranscript) this._kept ??= seen;
+      const headerOnly =
+        this._keepTranscript &&
+        !this._unstreamed(data.live_run) &&
+        seen.runCount === this._kept.runCount &&
+        seen.inbox === this._kept.inbox;
+      if (!headerOnly) this._keepTranscript = false;
+      window.dispatchEvent(new CustomEvent(headerOnly ? "daiv:session-header" : "daiv:session-turns", { detail: data }));
+      this._follow(data.live_run);
+    },
+    // A run whose stream ended as finished yet still holds the slot: it is about to let go, or its relay failed and it
+    // carries on unpublished, so only fetching shows it.
+    _unstreamed(run) {
+      return Boolean(run && this._finished.has(run.id));
+    },
+    _schedulePoll(delay = POLL_MS) {
+      clearTimeout(this._pollTimer);
+      this._pollDelay = delay;
+      this._pollTimer = setTimeout(() => {
+        this._pollTimer = null;
+        this.refresh();
+      }, delay);
+    },
+    _follow(run) {
+      if (run && run.id === this._following) return;
+      clearTimeout(this._retryTimer);
+      this._following = "";
+      if (!run || this._finished.has(run.id)) return;
+      this._following = run.id;
+      this._keepTranscript = false;
+      const handOver = () => {
+        this._followedAt = performance.now();
+        window.dispatchEvent(new CustomEvent("daiv:session-live-run", { detail: run }));
+      };
+      if (run.id === this._retry?.runId) this._retryTimer = setTimeout(handOver, this._retry.delay);
+      else handOver();
     },
   }));
 });

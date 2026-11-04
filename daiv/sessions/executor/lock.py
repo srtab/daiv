@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
+from sessions.live.notify import asession_changed, session_changed
 from sessions.models import RunStatus, Session, SessionOrigin
 
 if TYPE_CHECKING:
@@ -48,7 +49,7 @@ class LiveRun:
 
 @dataclass(frozen=True)
 class SessionActivity:
-    """What a session's runs are doing, read once per page view or poll so every part shares one staleness cutoff.
+    """What a session's runs are doing, read once per page view or fetch so every part shares one staleness cutoff.
 
     In flight, either the slot has a holder (``holder`` is its started run when identifiable, ``live`` the run the
     page streams) or it is free and ``waiting`` lists the runs yet to start, oldest first. A chat run never waits: it
@@ -129,8 +130,8 @@ def background_in_flight(activity: SessionActivity, runs: Iterable[Run]) -> bool
     """Whether a live run other than an inline chat turn (a job, a webhook, a CI fix, a delegation resume, a chat
     message the inbox runs) keeps the session of ``activity`` in flight.
 
-    Only these wake a session page that rendered idle: an inline chat turn streams to the tab that started it, and
-    is the only run that is RUNNING without a task.
+    Kept for session pages loaded before the nav stream carried ``session`` frames, which wake on these runs only:
+    an inline chat turn streams to the tab that started it, and is the only run that is RUNNING without a task.
     """
     return activity.in_flight and any(
         run.status not in RunStatus.terminal() and not _inline_chat_turn(run) for run in runs
@@ -181,9 +182,10 @@ class SessionLock:
     def release_for_run(thread_id: str, run_id: object) -> None:
         """:meth:`release` for the slot the inbox drainer claimed for a run, once that run ended or never queued.
         SYNC ONLY."""
-        Session.objects.filter(thread_id=thread_id, active_run_id=str(run_id)).update(
+        if Session.objects.filter(thread_id=thread_id, active_run_id=str(run_id)).update(
             active_run_id=None, last_active_at=timezone.now()
-        )
+        ):
+            session_changed(thread_id)
 
     @staticmethod
     async def heartbeat(thread_id: str, holder_id: str) -> bool:
@@ -201,9 +203,10 @@ class SessionLock:
     @staticmethod
     async def release(thread_id: str, holder_id: str) -> None:
         """Clear the slot only if we still hold it (no-op if already reassigned)."""
-        await Session.objects.filter(thread_id=thread_id, active_run_id=holder_id).aupdate(
+        if await Session.objects.filter(thread_id=thread_id, active_run_id=holder_id).aupdate(
             active_run_id=None, last_active_at=timezone.now()
-        )
+        ):
+            await asession_changed(thread_id)
 
 
 def _claim(thread_id: str, holder_id: str) -> bool:
@@ -212,6 +215,7 @@ def _claim(thread_id: str, holder_id: str) -> bool:
     if Session.objects.filter(thread_id=thread_id, active_run_id__isnull=True).update(
         active_run_id=holder_id, last_active_at=now
     ):
+        session_changed(thread_id)
         return True
 
     # Slow path: the slot is held. Take it over only if the holder's heartbeat
@@ -238,6 +242,7 @@ def _claim(thread_id: str, holder_id: str) -> bool:
             prior_holder,
             holder_id,
         )
+        session_changed(thread_id)
     return bool(taken)
 
 

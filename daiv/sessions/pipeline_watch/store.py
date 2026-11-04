@@ -11,6 +11,7 @@ from django.db.models import Exists, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce, Greatest
 
 from sessions.inbox.ownership import Ownerships
+from sessions.live.notify import asession_changed
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, QuietReason
 
 if TYPE_CHECKING:
@@ -139,13 +140,14 @@ class WatchStore:
             .aexists()
         )
 
-    async def aset_enabled(self, ownership_id: int, *, enabled: bool) -> None:
+    async def aset_enabled(self, ownership: MergeRequestOwnership, *, enabled: bool) -> None:
         """Turn the watch on or off. Turning it on gives it its attempts back, as a person asking again is a new budget,
         and forgets the last pipeline judged so it is judged anew."""
         updates = {"watch_enabled": enabled}
         if enabled:
             updates |= {"attempts": 0, "last_pipeline_id": None, "last_pipeline_status": ""}
-        await MergeRequestOwnership.objects.filter(pk=ownership_id).aupdate(**updates)
+        if await MergeRequestOwnership.objects.filter(pk=ownership.pk).aupdate(**updates):
+            await asession_changed(ownership.session_id)
 
     def quiet(self, *, since: datetime, limit: int) -> QuerySet[MergeRequestOwnership, dict[str, Any]]:
         """Open, watched merge requests nothing was heard of since ``since``, at most ``limit``, stalest first: no CI

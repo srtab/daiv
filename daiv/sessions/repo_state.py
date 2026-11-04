@@ -7,17 +7,13 @@ agent has run.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from asgiref.sync import sync_to_async
 
 from codebase.base import MergeRequest
 from codebase.clients import RepoClient
-from codebase.clients.base import PLATFORM_ERRORS, aget_open_merge_request
 from codebase.repo_config import RepositoryConfig
-
-logger = logging.getLogger("daiv.sessions")
 
 
 def mr_to_payload(mr: object) -> dict[str, Any] | None:
@@ -47,16 +43,14 @@ def mr_to_payload(mr: object) -> dict[str, Any] | None:
 async def aget_existing_mr_payload(repo_id: str, ref: str) -> dict[str, Any] | None:
     """Look up an open MR for ``ref`` on the configured git platform.
 
-    Returns ``None`` for the default branch, missing inputs, or known
-    platform/transport errors (logged). Other exceptions propagate.
+    Returns ``None`` for the default branch, missing inputs, or no open MR. A platform/transport error
+    (:data:`~codebase.clients.base.PLATFORM_ERRORS`) propagates, so the caller can tell an unknown merge request
+    from none.
     """
     if not repo_id or not ref:
         return None
-    try:
-        config = await sync_to_async(RepositoryConfig.get_config)(repo_id)
-    except PLATFORM_ERRORS:
-        logger.exception("Failed to read the repository configuration for %s", repo_id)
-        return None
+    config = await sync_to_async(RepositoryConfig.get_config)(repo_id)
     if ref == config.default_branch:
         return None
-    return mr_to_payload(await aget_open_merge_request(RepoClient.create_instance(), repo_id, ref))
+    client = RepoClient.create_instance()
+    return mr_to_payload(await sync_to_async(client.get_merge_request_by_branches)(repo_id, ref))

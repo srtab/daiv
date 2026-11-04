@@ -13,6 +13,7 @@ from asgiref.sync import sync_to_async
 from sessions.inbox.drain import Drain
 from sessions.inbox.kinds import KEY_MAX_LENGTH, WAKING_KINDS, EventContent, SourceKey, Subject
 from sessions.inbox.next_runs import NextRuns
+from sessions.live.notify import session_changed
 from sessions.models import EventKind, EventState, InboxEvent, Run, Session
 
 if TYPE_CHECKING:
@@ -91,6 +92,7 @@ class Inbox:
             stored = InboxEvent.objects.get(session=session, source_key=event.source_key)
             if stored.pk != event.pk:
                 return PostResult(event=stored, created=False, run_id=stored.run_id)
+            session_changed(self.thread_id)
             if wake:
                 NextRuns(session).join(stored)
                 transaction.on_commit(Drain(self.thread_id).start_logged, robust=True)
@@ -190,6 +192,7 @@ class Inbox:
             if event.run_id is not None or event.state != EventState.PENDING:
                 return event.run
             if (run := NextRuns(session).join(event)) is not None:
+                session_changed(session.thread_id)
                 transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
             return run
 

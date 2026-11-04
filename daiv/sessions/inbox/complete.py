@@ -53,6 +53,7 @@ from core.constants import BOT_NAME
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.drain import Drain
 from sessions.inbox.post import Inbox
+from sessions.live.notify import session_changed
 from sessions.models import (
     EventFailure,
     EventKind,
@@ -123,14 +124,16 @@ class RunEnd:
             mentions = list(
                 taken.filter(kind=EventKind.MENTION, merge_request_iid__isnull=False).order_by("created_at", "id")
             )
-            taken.update(state=EventState.HANDLED, updated_at=timezone.now())
+            if taken.update(state=EventState.HANDLED, updated_at=timezone.now()):
+                session_changed(run.session_id)
             if woken_by_ci:
                 self._report_to_merge_requests({event.merge_request_iid for event in woken_by_ci})
                 self._tell_parent_if_nothing_was_pushed(woken_by_ci)
             if mentions:
                 self._reply_to_mentions(mentions)
         elif run.status == RunStatus.FAILED and run.cancel_requested_at is not None:
-            taken.update(state=EventState.DISMISSED, updated_at=timezone.now())
+            if taken.update(state=EventState.DISMISSED, updated_at=timezone.now()):
+                session_changed(run.session_id)
         elif run.status == RunStatus.FAILED:
             FailedAttempt(taken, cause=f"run={run.pk} failed").record()
 
@@ -203,7 +206,9 @@ class FailedAttempt:
     def record(self) -> None:
         """Put the events back for the next run, or fail the ones out of attempts. SYNC ONLY."""
         exhausted: list[InboxEvent] = []
+        sessions: set[str] = set()
         for event in self.events:
+            sessions.add(event.session_id)
             event.attempts += 1
             if event.attempts >= MAX_EVENT_ATTEMPTS:
                 event.state, event.failure = EventState.FAILED, EventFailure.RETRIES_EXHAUSTED
@@ -214,6 +219,8 @@ class FailedAttempt:
                     event.payload = {**event.payload, "tried_runs": tried}
                 event.state, event.run, event.claim_token = EventState.PENDING, None, ""
             event.save(update_fields=["attempts", "state", "failure", "run", "claim_token", "payload", "updated_at"])
+        for thread_id in sessions:
+            session_changed(thread_id)
         if exhausted:
             logger.error(
                 "inbox: %d event(s) of thread_id=%s failed after %d attempts (%s): %s",

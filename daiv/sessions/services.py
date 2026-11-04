@@ -15,6 +15,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from automation.agent import validators
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
 from sessions.admission import aassert_repo_access
+from sessions.live.notify import asession_changed
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.queue import aenqueue_run, amark_failed_and_advance
 from sessions.repo_state import mr_to_payload
@@ -196,10 +197,13 @@ async def apersist_session_ref(
     request opens, so either leaves it alone.
     """
     branch = (mr_to_payload(merge_request) or {}).get("source_branch")
+    updated = 0
     if isinstance(branch, str) and branch and branch != current_ref:
-        await Session.objects.filter(thread_id=thread_id).aupdate(ref=branch)
+        updated = await Session.objects.filter(thread_id=thread_id).exclude(ref=branch).aupdate(ref=branch)
     elif current_ref and (branch == current_ref or (merge_request is None and not published)):
-        await Session.objects.filter(thread_id=thread_id, ref="").aupdate(ref=current_ref)
+        updated = await Session.objects.filter(thread_id=thread_id, ref="").aupdate(ref=current_ref)
+    if updated:
+        await asession_changed(thread_id)
 
 
 async def aget_session_ref(*, thread_id: str) -> str:
@@ -239,7 +243,8 @@ async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
     Unlike :func:`apersist_session_ref` (success-only, driven by the run's outcome), this
     fires the moment the clone falls back, so the session self-heals even if the turn fails.
     """
-    await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+    if await Session.objects.filter(thread_id=thread_id).exclude(ref=new_ref).aupdate(ref=new_ref):
+        await asession_changed(thread_id)
 
 
 def pinned_agent_override(session: Session) -> tuple[str, str]:
@@ -577,9 +582,10 @@ async def _asubmit_follow_up(
     if (run := await Inbox(session.thread_id).aattach_next_run(result.event)) is not None:
         return run
     # The caller is told the job failed, so a later drain must not start it after all.
-    await InboxEvent.objects.filter(pk=result.event.pk, state=EventState.PENDING).aupdate(
+    if await InboxEvent.objects.filter(pk=result.event.pk, state=EventState.PENDING).aupdate(
         state=EventState.DISMISSED, updated_at=timezone.now()
-    )
+    ):
+        await asession_changed(session.thread_id)
     event = await InboxEvent.objects.aget(pk=result.event.pk)
     if event.run_id is not None:
         return await Run.objects.aget(pk=event.run_id)

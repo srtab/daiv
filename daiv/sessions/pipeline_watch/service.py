@@ -96,13 +96,13 @@ class PipelineWatch:
             return False
         if ownership.watch_enabled:
             return True
-        await self._store.aset_enabled(ownership.pk, enabled=True)
+        await self._store.aset_enabled(ownership, enabled=True)
         await evaluate_pipeline_watch_task.aenqueue(repo_id=self.repo_id, ref=ownership.source_branch)
         return True
 
     async def aturn_off(self, ownership: MergeRequestOwnership) -> None:
         """Stop waking the owning session for this merge request's CI; results are still remembered."""
-        await self._store.aset_enabled(ownership.pk, enabled=False)
+        await self._store.aset_enabled(ownership, enabled=False)
 
     async def arequest_evaluation(self, *, ref: str, pipeline_id: int) -> bool:
         """Queue an evaluation for a branch, but only if a session owns a merge request on it.

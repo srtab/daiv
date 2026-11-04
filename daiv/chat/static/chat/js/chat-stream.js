@@ -380,7 +380,7 @@
     draftRef: "",
     streaming: false,
     resuming: !!config.activeRunId,
-    // Whether the session has a run in flight, streamed here or not; the poll and this page's own runs keep it current.
+    // Whether the session has a run in flight, streamed here or not; turns fetches and own runs keep it current.
     sessionLive: !!config.sessionLive,
     // The next run a message sent while the session was busy waits for.
     queuedRunId: "",
@@ -693,15 +693,8 @@
       // While a stream is attached it owns ``turns``; swapping the array would detach
       // the streaming placeholder and hide live output.
       if (this.streaming || this.resuming) return;
-      // The poller re-emits the WHOLE transcript every few seconds. Reassigning ``turns``
-      // re-runs every x-html/x-text binding (re-rendered markdown, re-highlighted code,
-      // repaint) even when nothing changed — the visible every-poll flicker. Skip
-      // the swap when the transcript is byte-identical to what we already show, so
-      // steady-state polls during a long-running tool are free; only a genuine
-      // change repaints. Both sides come from the same server serializer
-      // (annotate_transcript(build_turns(...))), so key order is stable and the
-      // JSON compare is reliable. Alpine's keyed x-for reuses each turn's DOM node
-      // on reassignment, so open tool <details> survive a real change too.
+      // Each fetch carries the WHOLE transcript and reassigning ``turns`` re-renders every turn, so an unchanged one is
+      // skipped; both sides come from one server serializer, so their key order, and this compare, is stable.
       if (JSON.stringify(turns) === JSON.stringify(this.turns)) return;
       this.turns = turns;
       // Mirror the live-stream path (dispatch() scrolls after every event): follow
@@ -837,7 +830,7 @@
       });
 
       if (this.resuming && this.thread && config.activeRunId) {
-        this.followLiveRun({
+        this._followRun({
           id: config.activeRunId,
           stoppable: this.runStoppable,
           started_at: config.activeRunStartedAt,
@@ -877,10 +870,14 @@
 
     // ---------- Run stream (EventSource against the relay) -------------
 
+    followLiveRun(run) {
+      if (this.streaming || this.resuming) return;
+      this._followRun(run);
+    },
+
     // Rejoin a run executing server-side with a full replay; the clock counts from the
     // server-reported start so a rejoined run doesn't restart at 0.
-    followLiveRun({ id, stoppable, started_at }) {
-      if (this.streaming) return;
+    _followRun({ id, stoppable, started_at }) {
       this.waitingSince = "";
       this.queuedRunId = "";
       this.runStoppable = stoppable;
@@ -890,9 +887,17 @@
       this._resumeRun(id);
     },
 
-    // A reload once the session settles would drop an unsent draft or race a send that just started.
-    holdReload(event) {
-      if (this.streaming || this.resuming || this.draftMessage.trim()) event.preventDefault();
+    // An attached stream owns this state while it runs.
+    applySessionState(data) {
+      if (this.streaming || this.resuming) return;
+      if ("active" in data) this.sessionLive = Boolean(data.active);
+      if ("merge_request" in data) {
+        this._applyRepoState({ merge_request: data.merge_request, ref: data.thread_ref || undefined });
+      }
+      if ("diff_stats" in data) this.diffStats = normalizeDiffStats(data.diff_stats);
+      const usage = normalizeContextUsage(data.context_usage);
+      if (usage) this.contextUsage = usage;
+      if ("waiting_since" in data) this.waitingSince = data.waiting_since || "";
     },
 
     async _resumeRun(runId) {
@@ -915,7 +920,7 @@
       const turn = this.turns[this.turns.length - 1];
       this._toolIndex.clear();
       this._reasoningIndex.clear();
-      this._activeRun = { threadId: this.thread.thread_id, runId };
+      this._activeRun = { threadId: this.thread.thread_id, runId, own: false };
       this.resuming = false;
       this.streaming = true;
       this.$nextTick(() => this.scrollToBottom({ force: true }));
@@ -1048,7 +1053,7 @@
         this._pushRunStatus("failed", REASON_ERRORS[reason]);
       }
       this.streaming = false;
-      const runId = this._activeRun?.runId;
+      const run = this._activeRun;
       this._activeRun = null;
       this._replayDedup = null;
       this._lastFrameAt = 0;
@@ -1056,7 +1061,13 @@
       // sentinel, so refreshing here (never on RUN_FINISHED) reads this turn's totals.
       this._refreshSpend();
       this.scrollToBottom();
-      window.dispatchEvent(new CustomEvent("daiv:live-run-ended", { detail: { runId } }));
+      this._announceRunEnded(run, reason);
+    },
+
+    _announceRunEnded(run, reason) {
+      window.dispatchEvent(
+        new CustomEvent("daiv:live-run-ended", { detail: { runId: run?.runId, reason, own: Boolean(run?.own) } }),
+      );
     },
 
     // ---------- Derived getters (right rail) ---------------------------
@@ -1577,9 +1588,9 @@
       this.streaming = true;
       this.runStoppable = true;
       this.runStartedAt = Date.now();
-      this._activeRun = { threadId: this.thread.thread_id, runId };
+      this._activeRun = { threadId: this.thread.thread_id, runId, own: true };
 
-      let reason = "finished";
+      let reason = "not_started";
       try {
         const resp = await this._postRun({ runId, messages: priorMessages, forwardedProps });
 
@@ -1755,11 +1766,13 @@
     // conversation for Up next until that run opens with it; ``followLiveRun`` tails the run once it starts.
     _queueTurn(assistantTurn, queued) {
       this._announceQueued(queued, this._detachTurn(assistantTurn));
+      const run = this._activeRun;
       this.streaming = false;
       this.runStartedAt = null;
       this._activeRun = null;
       this.sessionLive = true;
       this.scrollToBottom();
+      this._announceRunEnded(run, "queued");
     },
 
     // Up next shows a queued message.
@@ -2078,7 +2091,7 @@
       }));
     },
 
-    // A run the hash names may render only on a later poll, so each poll retries until it lands.
+    // A run the hash names may render only on a later turns fetch, so each fetch retries until it lands.
     revealRunAnchor() {
       if (!this._pendingRunAnchor) return false;
       const target = document.getElementById(this._pendingRunAnchor);
@@ -2118,15 +2131,8 @@
   };
   };
 
-  // Collapse tall user-message bubbles. Measures the rendered height once on
-  // init: user text is immutable after creation, and Alpine's keyed x-for reuses
-  // the DOM node across the wholesale `turns` reassignment that polling performs,
-  // so a single measurement is stable. Both inputs to the overflow test are read
-  // from CSS so the JS decision can't drift from the visible clamp: the line
-  // budget from the --chat-user-clamp-lines custom property, and the per-line
-  // height from the element's computed line-height (CSS clamps to the same
-  // budget * line-height, see .chat-text--clamped). `id` is the shared id the
-  // text region exposes and the toggle points its aria-controls at.
+  // Measured once: user text never changes and the keyed x-for keeps each node across a fetch's `turns` swap. Both the
+  // line budget and the line height are read from CSS, so the overflow test cannot drift from .chat-text--clamped.
   const userClamp = (id) => ({
     id,
     collapsed: false,

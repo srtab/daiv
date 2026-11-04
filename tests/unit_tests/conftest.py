@@ -652,7 +652,7 @@ def mock_repo_authorization():
     """
     with (
         patch("sessions.admission.assert_can_run", new=Mock(return_value=None)),
-        patch("sessions.views.can_run", new=Mock(return_value=True)),
+        patch("sessions.page_state.can_run", new=Mock(return_value=True)),
         patch("sessions.api.views.can_run", new=Mock(return_value=True)),
         patch("codebase.views.can_view", new=Mock(return_value=True)),
         patch("memory.views.can_view", new=Mock(return_value=True)),

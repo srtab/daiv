@@ -135,6 +135,7 @@ def generate_title_task(pk: str, prompt: str, repo_id: str, ref: str = "") -> No
     Failures propagate to django-tasks (which logs + marks the task failed); the heuristic title set synchronously
     remains.
     """
+    from sessions.live.notify import session_changed
     from sessions.models import Session
     from sessions.titling import TitlerNotConfiguredError, generate_title, heuristic_title
 
@@ -157,6 +158,8 @@ def generate_title_task(pk: str, prompt: str, repo_id: str, ref: str = "") -> No
 
     if not Session.objects.filter(pk=pk, title=heuristic_title(prompt)).update(title=title):
         logger.info("generate_title_task: session pk=%s was renamed, keeping its title", pk)
+        return
+    session_changed(pk)
 
 
 @task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_TITLING)
@@ -168,6 +171,7 @@ def generate_batch_title_task(batch_id: str, prompt: str) -> None:
     titles (e.g. scheduled-run templates) are preserved. The same title is stamped on each
     affected run's Session when the session title is still empty.
     """
+    from sessions.live.notify import session_changed
     from sessions.models import Run, Session
     from sessions.titling import TitlerNotConfiguredError, generate_title
 
@@ -183,7 +187,10 @@ def generate_batch_title_task(batch_id: str, prompt: str) -> None:
     updated = Run.objects.filter(batch_id=batch_id, title="").update(title=title)
     # Backfill the parent session title too — a fresh batch creates one session per run,
     # each with an empty title until this titler lands.
-    Session.objects.filter(runs__batch_id=batch_id, title="").update(title=title)
+    untitled = set(Session.objects.filter(runs__batch_id=batch_id, title="").values_list("thread_id", flat=True))
+    Session.objects.filter(pk__in=untitled, title="").update(title=title)
+    for thread_id in untitled:
+        session_changed(thread_id)
     if updated == 0:
         logger.warning(
             "generate_batch_title_task: no rows updated for batch_id=%s (stale batch or all already titled)", batch_id

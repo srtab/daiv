@@ -110,7 +110,7 @@ async def test_session_turns_returns_built_turns(client, authed):
     fake_messages = [HumanMessage(content="hello", id="m-1"), AIMessage(content="world", id="m-2")]
 
     with patch(
-        "sessions.api.views.ahydrate_thread",
+        "sessions.page_state.ahydrate_thread",
         AsyncMock(return_value=HydratedThread(fake_messages, False, None, None, None)),
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
@@ -153,7 +153,7 @@ async def test_session_turns_includes_run_status_marker_for_failed_run(client, a
     fake_messages = [HumanMessage(content="hello", id="m-1"), AIMessage(content="world", id="m-2")]
 
     with patch(
-        "sessions.api.views.ahydrate_thread",
+        "sessions.page_state.ahydrate_thread",
         AsyncMock(return_value=HydratedThread(fake_messages, False, None, None, None)),
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
@@ -180,7 +180,7 @@ async def test_session_turns_expired(client, authed):
     )
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -203,7 +203,7 @@ async def test_session_turns_expired_still_returns_the_sessions_artifacts(client
     artifact = await sync_to_async(make_artifact)(run)
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -228,7 +228,7 @@ async def test_session_turns_with_a_checkpoint_adds_no_artifact_turns(client, au
     await sync_to_async(make_artifact)(run)
     hydrated = HydratedThread([HumanMessage(content="hi", id="h1")], False, None, None, None)
 
-    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
+    with patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.status_code == 200
@@ -250,7 +250,7 @@ async def test_session_turns_404_for_other_users_session(client, authed):
     )
 
     hydrate = AsyncMock(return_value=HydratedThread([], False, None, None, None))
-    with patch("sessions.api.views.ahydrate_thread", hydrate):
+    with patch("sessions.page_state.ahydrate_thread", hydrate):
         resp = await client.get(f"/sessions/{session_other.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.status_code == 404
@@ -268,7 +268,7 @@ async def test_session_turns_serves_a_reader_of_the_sessions_repository(client, 
     )
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -292,7 +292,7 @@ async def test_session_turns_expired_keeps_a_failed_runs_turns(client, authed):
     )
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -320,7 +320,7 @@ async def test_session_turns_active_needs_a_fresh_heartbeat(client, authed, hear
     )
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -342,7 +342,7 @@ async def test_session_turns_names_the_live_run(client, authed):
     )
     hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
 
-    with patch("sessions.api.views.ahydrate_thread", hydrated):
+    with patch("sessions.page_state.ahydrate_thread", hydrated):
         idle = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
         await Session.objects.filter(pk=session.pk).aupdate(active_run_id="42", last_active_at=timezone.now())
         live = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
@@ -366,7 +366,7 @@ async def test_session_turns_waits_until_the_run_runs(client, authed):
     )
     hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
 
-    with patch("sessions.api.views.ahydrate_thread", hydrated):
+    with patch("sessions.page_state.ahydrate_thread", hydrated):
         ready = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
         await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.RUNNING)
         unclaimed = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
@@ -401,7 +401,7 @@ async def test_session_turns_offers_stop_only_to_the_sessions_owner(client, auth
     )
     hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
 
-    with patch("sessions.api.views.ahydrate_thread", hydrated):
+    with patch("sessions.page_state.ahydrate_thread", hydrated):
         as_reader = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(reader_raw))
         as_owner = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -430,7 +430,7 @@ async def test_session_turns_says_whether_background_work_is_in_flight(client, a
     )
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -454,8 +454,8 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
     hydrated = HydratedThread([], False, None, None, None)
 
     with (
-        patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)),
-        patch("sessions.header.can_run", return_value=True),
+        patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)),
+        patch("sessions.page_state.can_run", return_value=True),
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -479,7 +479,7 @@ async def test_session_turns_show_delegated_jobs_current_state(client, authed):
     messages = delegate_messages(batch)
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread(messages, False, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread(messages, False, None, None, None))
     ):
         resp = await client.get(f"/sessions/{coordinator.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -494,7 +494,7 @@ async def test_session_turns_carry_delegations_and_leave_the_parent_to_the_page(
     leg = await sync_to_async(make_leg)(coordinator, uuid.uuid4(), status=RunStatus.FAILED)
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
     ):
         parent = (await client.get(f"/sessions/{coordinator.thread_id}/turns", headers=_auth_headers(raw))).json()
         child = (await client.get(f"/sessions/{leg.session_id}/turns", headers=_auth_headers(raw))).json()
@@ -502,6 +502,83 @@ async def test_session_turns_carry_delegations_and_leave_the_parent_to_the_page(
     assert parent["delegations"]["failed"] == 1
     assert child["delegations"] is None
     assert "parent" not in child
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_carries_what_the_page_needs_to_settle_in_place(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, title="Fix the login redirect")
+    merge_request = {"id": 5, "url": "", "title": "Fix", "draft": False, "source_branch": "daiv/fix"}
+    diff_stats = {"files_changed": 2, "lines_added": 10, "lines_removed": 3}
+    context_usage = {"used": 1200, "window": 200000}
+    hydrated = HydratedThread([], False, merge_request, diff_stats, context_usage)
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)),
+        patch("sessions.page_state.aread_session_revision", AsyncMock(return_value=4)),
+    ):
+        data = (await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))).json()
+
+    assert {
+        key: data[key] for key in ("revision", "merge_request", "diff_stats", "context_usage", "thread_ref", "title")
+    } == {
+        "revision": 4,
+        "merge_request": merge_request,
+        "diff_stats": diff_stats,
+        "context_usage": context_usage,
+        "thread_ref": "daiv/fix",
+        "title": "Fix the login redirect",
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_keeps_the_keys_older_pages_read(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+
+    with patch(
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+    ):
+        data = (await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))).json()
+
+    assert {
+        "turns",
+        "active",
+        "background",
+        "waiting_since",
+        "expired",
+        "latest_run",
+        "run_count",
+        "delegations",
+        "live_run",
+        "ci",
+        "watch",
+        "up_next",
+    } <= data.keys()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_leaves_out_a_merge_request_it_did_not_look_up(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, ref="daiv/fix")
+    run = await _create_run_async(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
+    await Session.objects.filter(pk=session.pk).aupdate(active_run_id=str(run.pk), last_active_at=timezone.now())
+    lookup = AsyncMock(return_value=None)
+    hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", hydrated),
+        patch("sessions.page_state.aget_existing_mr_payload", lookup),
+    ):
+        in_flight = (await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))).json()
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.SUCCESSFUL)
+        settled = (await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))).json()
+
+    assert in_flight["active"] is True
+    assert "merge_request" not in in_flight
+    assert settled["active"] is False
+    assert settled["merge_request"] is None
+    lookup.assert_awaited_once_with("group/project", "daiv/fix")
 
 
 # ---------------------------------------------------------------------------
@@ -516,7 +593,7 @@ TURN_OFF = {"on": False, "merge_request_iid": 7}
 @pytest.fixture
 def no_hydration():
     """The toggle names its merge request, so reading the thread for one would be wasted work."""
-    with patch("sessions.api.views.ahydrate_thread", AsyncMock(side_effect=AssertionError("hydrated"))):
+    with patch("sessions.page_state.ahydrate_thread", AsyncMock(side_effect=AssertionError("hydrated"))):
         yield
 
 
@@ -793,7 +870,10 @@ async def test_session_turns_report_ci_on_the_merge_requests_the_session_owns(cl
     await _own(session, attempts=1)
 
     hydrated = HydratedThread([], False, None, None, None)
-    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
+    with (
+        patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.json()["ci"] == [
@@ -828,7 +908,7 @@ async def test_session_turns_report_up_next(client, authed, member_user):
     mention = await amake_event(session, EventKind.MENTION, run=theirs, author=member_user)
 
     hydrated = HydratedThread([], False, None, None, None)
-    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
+    with patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     groups = resp.json()["up_next"]["groups"]
@@ -845,7 +925,7 @@ async def test_session_turns_report_no_up_next(client, authed):
     session = await sync_to_async(_create_session)(user=user)
 
     hydrated = HydratedThread([], False, None, None, None)
-    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
+    with patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.json()["up_next"] is None

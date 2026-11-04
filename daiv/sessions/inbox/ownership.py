@@ -40,6 +40,7 @@ from asgiref.sync import sync_to_async
 from core.utils import build_absolute_url
 from sessions.inbox import kinds
 from sessions.inbox.post import Inbox
+from sessions.live.notify import asession_changed, session_changed
 from sessions.models import EventKind, MergeRequestOwnership, Run, Session, SessionOrigin
 from sessions.repo_state import mr_to_payload
 from sessions.templatetags.session_tags import session_title
@@ -134,6 +135,7 @@ class Ownerships:
                     source_branch=branch,
                     last_daiv_sha=pushed_sha,
                 )
+                session_changed(row.session_id)
                 return row, posts
 
             previous = row.session
@@ -153,6 +155,9 @@ class Ownerships:
             if run.trigger_type in PERSON_STARTED:
                 row.attempts = 0
             row.save()
+            session_changed(row.session_id)
+            if previous is not None and previous.pk != row.session_id:
+                session_changed(previous.pk)
         return row, posts
 
     @staticmethod
@@ -333,6 +338,7 @@ class Ownerships:
         except Exception:
             await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at=closed_at).aupdate(closed_at=None)
             raise
+        await asession_changed(owned.session_id)
         return True
 
     async def areopen(self, merge_request_iid: int, *, by_username: str) -> bool:
@@ -365,4 +371,5 @@ class Ownerships:
                 closed_at=closed.closed_at
             )
             raise
+        await asession_changed(owned.session_id)
         return True
