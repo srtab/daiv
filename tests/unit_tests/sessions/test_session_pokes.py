@@ -26,6 +26,7 @@ from sessions.models import (
     EventState,
     InboxEvent,
     MergeRequestOwnership,
+    QuietReason,
     Run,
     RunStatus,
     Session,
@@ -317,6 +318,18 @@ class TestInboxWritesPoke:
 
         publish.assert_any_call(session.thread_id)
 
+    def test_dismissing_a_stopped_runs_events_pokes(self, session, publish):
+        run = make_run(session, status=RunStatus.FAILED)
+        Run.objects.filter(pk=run.pk).update(cancel_requested_at=timezone.now())
+        run.refresh_from_db()
+        event = make_event(session, EventKind.NOTICE, state=EventState.TAKEN, run=run)
+
+        with TestCase.captureOnCommitCallbacks(execute=True):
+            RunEnd(run).settle_events()
+
+        assert InboxEvent.objects.get(pk=event.pk).state == EventState.DISMISSED
+        publish.assert_any_call(session.thread_id)
+
     def test_settling_a_run_that_took_nothing_does_not_poke(self, session, publish):
         run = make_run(session, status=RunStatus.SUCCESSFUL)
 
@@ -367,6 +380,19 @@ class TestDrainPokes:
             assert Drain(session.thread_id).start() is None
 
         assert InboxEvent.objects.get(pk=older.pk).state == EventState.SUPERSEDED
+        publish.assert_any_call(session.thread_id)
+
+    def test_a_drain_that_quiets_an_event_pokes(self, enqueue, publish):
+        session = make_inbox_session()
+        MergeRequestOwnership.objects.create(
+            repo_id=session.repo_id, merge_request_iid=9, session=session, source_branch="chore/x", watch_enabled=False
+        )
+        event = make_event(session, merge_request_iid=9)
+
+        with TestCase.captureOnCommitCallbacks(execute=True):
+            assert Drain(session.thread_id).start() is None
+
+        assert InboxEvent.objects.get(pk=event.pk).reason == QuietReason.WATCH_OFF
         publish.assert_any_call(session.thread_id)
 
     def test_a_drain_that_fails_a_denied_requesters_events_pokes(self, enqueue, publish, member_user):
@@ -542,6 +568,13 @@ class TestWatchChangesPoke:
         ownership = await amake_owned_merge_request()
 
         await WatchStore().aset_enabled(ownership.pk, enabled=False)
+
+        publish.assert_any_call(ownership.session_id)
+
+    async def test_turning_the_watch_on_pokes_the_owning_session(self, publish):
+        ownership = await amake_owned_merge_request(watch_enabled=False, attempts=2)
+
+        await WatchStore().aset_enabled(ownership.pk, enabled=True)
 
         publish.assert_any_call(ownership.session_id)
 
