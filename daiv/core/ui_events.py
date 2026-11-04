@@ -10,7 +10,11 @@ Four objects, split by concern:
   running-runs badge is per viewer (``Run.objects.visible_to``), so resolving "who can
   see this run" at publish time would mean a query per connected user; every reader
   recomputes its own count instead. ``daiv:ui-events:user:{id}`` has one recipient,
-  because notifications are addressed.
+  because notifications are addressed. ``daiv:ui-events:session:{thread_id}`` is joined
+  only by a viewer of that session's page, and each poke on it also bumps the
+  ``session-rev`` counter beside it: pub/sub forgets a poke nobody was attached for, so
+  a page that (re)attaches compares the counter with the one it last rendered
+  (``read_session_revision``) to learn whether it missed one.
 * ``UIEventKind`` — the vocabulary *and* the wire format that carries it, so the two
   ends of the wire can't drift apart. Messages are pokes, not state: ``{"kind": "runs"}``
   tells a reader what to recompute, never the value. So a publisher never computes
@@ -35,6 +39,8 @@ import logging
 from enum import StrEnum
 from time import monotonic
 from typing import TYPE_CHECKING, Self
+
+from django.conf import settings
 
 import redis
 
@@ -67,6 +73,14 @@ class Channel:
     def for_user(user_id: int | str) -> str:
         return f"daiv:ui-events:user:{user_id}"
 
+    @staticmethod
+    def for_session(thread_id: str) -> str:
+        return f"daiv:ui-events:session:{thread_id}"
+
+    @staticmethod
+    def session_revision(thread_id: str) -> str:
+        return f"daiv:ui-events:session-rev:{thread_id}"
+
 
 class UIEventKind(StrEnum):
     """What a poke says changed, and the wire format that carries it.
@@ -77,6 +91,7 @@ class UIEventKind(StrEnum):
 
     RUNS = "runs"
     NOTIFICATIONS = "notifications"
+    SESSION = "session"
 
     def as_payload(self) -> str:
         return json.dumps({"kind": self.value})
@@ -124,6 +139,25 @@ class UIEventPublisher:
             return
         self._publish(Channel.for_user(user_id), UIEventKind.NOTIFICATIONS)
 
+    def session_changed(self, thread_id: str) -> None:
+        """Bump a session's revision, then poke the viewers of its page.
+
+        One pipeline, so the counter and the poke can't be separated by a failure between
+        them; the counter moves first so a reader woken by the poke never sees a stale one.
+        """
+        if not self._connections.configured:
+            return
+        channel = Channel.for_session(thread_id)
+        try:
+            revision_key = Channel.session_revision(thread_id)
+            pipe = self._connections.sync_client().pipeline()
+            pipe.incr(revision_key)
+            pipe.expire(revision_key, settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES * 60)
+            pipe.publish(channel, UIEventKind.SESSION.as_payload())
+            pipe.execute()
+        except Exception as err:  # noqa: BLE001
+            self._log_failure(channel, UIEventKind.SESSION, err)
+
     def _publish(self, channel: str, kind: UIEventKind) -> None:
         if not self._connections.configured:
             return
@@ -141,6 +175,38 @@ class UIEventPublisher:
 
 
 publisher = UIEventPublisher()
+
+
+def read_session_revision(thread_id: str, *, connections: RedisConnections | None = None) -> int:
+    """A session's revision, or ``0`` when there is none to read.
+
+    Missing key, unconfigured bus and a Redis outage all read as ``0``: callers compare
+    for *difference*, so a revision that vanished or went backwards still makes a page fetch.
+    """
+    connections = connections or redis_connections
+    if not connections.configured:
+        return 0
+    try:
+        return _parse_revision(connections.sync_client().get(Channel.session_revision(thread_id)))
+    except (redis.RedisError, OSError) as err:
+        logger.warning("ui_events: failed to read the revision of session %s: %s", thread_id, err)
+        return 0
+
+
+async def aread_session_revision(thread_id: str, *, connections: RedisConnections | None = None) -> int:
+    """``read_session_revision`` for async callers."""
+    connections = connections or redis_connections
+    if not connections.configured:
+        return 0
+    try:
+        return _parse_revision(await connections.async_client().get(Channel.session_revision(thread_id)))
+    except (redis.RedisError, OSError) as err:
+        logger.warning("ui_events: failed to read the revision of session %s: %s", thread_id, err)
+        return 0
+
+
+def _parse_revision(raw: bytes | str | None) -> int:
+    return int(raw) if raw is not None else 0
 
 
 class UIEventStream:
@@ -167,10 +233,16 @@ class UIEventStream:
         self._pubsub: PubSub | None = None
 
     @classmethod
-    def for_user(cls, user_id: int | str, *, connections: RedisConnections | None = None) -> Self:
+    def for_user(
+        cls, user_id: int | str, *, session: str | None = None, connections: RedisConnections | None = None
+    ) -> Self:
         """The channels one viewer's dashboard shell needs: the broadcast run channel,
-        plus the one their own notifications are addressed to."""
-        return cls(Channel.RUNS, Channel.for_user(user_id), connections=connections)
+        plus the one their own notifications are addressed to, plus the session's own when
+        the viewer has that session's page open."""
+        channels = [Channel.RUNS, Channel.for_user(user_id)]
+        if session is not None:
+            channels.append(Channel.for_session(session))
+        return cls(*channels, connections=connections)
 
     async def __aenter__(self) -> Self:
         self._pubsub = self._connections.async_client().pubsub(ignore_subscribe_messages=True)
@@ -189,20 +261,22 @@ class UIEventStream:
             pubsub, self._pubsub = self._pubsub, None
             await pubsub.aclose()
 
-    async def wait_for_change(self, timeout: float) -> bool:
+    async def wait_for_change(self, timeout: float) -> frozenset[UIEventKind]:
         """Wait up to ``timeout`` for a poke, absorb the rest of its burst, and report
-        whether anything arrived.
+        every kind the burst carried — empty when nothing readable arrived.
 
-        Which kind arrived is deliberately not reported: one recompute covers every
-        counter, which also means a poke of either kind repairs a badge whose own poke was
-        dropped. An unreadable message counts as nothing arriving.
+        An unreadable message counts as nothing arriving, so it never opens a burst; one
+        inside a burst is absorbed without contributing a kind.
         """
-        if UIEventKind.from_message(await self._next_message(timeout)) is None:
-            return False
+        first = UIEventKind.from_message(await self._next_message(timeout))
+        if first is None:
+            return frozenset()
+        kinds = {first}
         deadline = monotonic() + self.ABSORB_MAX_S
-        while monotonic() < deadline and await self._next_message(self.COALESCE_S) is not None:
-            pass
-        return True
+        while monotonic() < deadline and (message := await self._next_message(self.COALESCE_S)) is not None:
+            if (kind := UIEventKind.from_message(message)) is not None:
+                kinds.add(kind)
+        return frozenset(kinds)
 
     async def _next_message(self, timeout: float) -> dict | None:
         """``None`` is how ``redis.asyncio`` reports "nothing within the timeout"."""
