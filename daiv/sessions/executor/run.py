@@ -399,8 +399,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
             if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
             if hooks.on_context_ready is not None:
-                started_run_id = await hooks.on_context_ready(ctx.repo.ref)
-                run_id = run_id or started_run_id
+                await hooks.on_context_ready(ctx.repo.ref)
             settings = resolve_agent_settings(site=site_settings.snapshot(), repo=ctx.config, run=spec.overrides())
             model = settings.agent.names[0]
             await _persist_resolved_agent(

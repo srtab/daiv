@@ -1048,8 +1048,6 @@ async def _publish_writes(
     via_stream: bool = False,
     update: AsyncMock | None = None,
     recovered: PublishOutcome | None = None,
-    run_id: str | None = "run-1",
-    hooks: RunHooks | None = None,
 ) -> list[tuple[str, dict]]:
     """Run after a runnable invoked under the run's config dispatched ``payload``, then raise ``error`` (``None``: the
     run succeeds); return the run's publish writes as ``(pk, fields)``. ``recovered`` is what draft recovery opens."""
@@ -1083,7 +1081,7 @@ async def _publish_writes(
 
         return SimpleNamespace(aupdate=_aupdate)
 
-    spec = make_spec(run_id=run_id, recover_draft=recovered is not None)
+    spec = make_spec(run_id="run-1", recover_draft=recovered is not None)
     with (
         agent_stack(agent),
         patch("sessions.executor.run.Run.objects") as objects,
@@ -1092,9 +1090,9 @@ async def _publish_writes(
     ):
         objects.filter.side_effect = _filter
         if via_stream:
-            await _drain(spec, _events, hooks)
+            await _drain(spec, _events)
         else:
-            await execute_run(spec, hooks)
+            await execute_run(spec)
     return writes
 
 
@@ -1163,17 +1161,6 @@ async def test_a_draft_recovery_opened_is_recorded_on_the_run():
     writes = await _publish_writes(None, recovered=_recovery_outcome(created=True))
 
     assert writes == [("run-1", {**DRAFT_FIELDS, "publish_status": "opened"})]
-
-
-async def test_a_recovered_draft_is_recorded_on_the_run_its_context_hook_started():
-    writes = await _publish_writes(
-        None,
-        recovered=_recovery_outcome(created=True),
-        run_id=None,
-        hooks=RunHooks(on_context_ready=AsyncMock(return_value="run-started")),
-    )
-
-    assert [pk for pk, _fields in writes] == ["run-started"]
 
 
 @pytest.mark.parametrize("outcome", [_recovery_outcome(created=False), None], ids=["existing-mr", "nothing-landed"])
@@ -1276,45 +1263,6 @@ async def test_a_failing_on_context_ready_fails_the_run_before_any_agent_is_buil
 
     stack.create_agent.assert_not_awaited()
     on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_run_started_on_context_ready_is_bound_and_measured():
-    """Chat creates its Run once the clone lands, so the hook, not the spec, names the row."""
-    session, run = await _job_run()
-    agent = _agent()
-    resolved = []
-
-    async def _ready(_ref):
-        return str(run.pk)
-
-    async def _invoke(*_args, **_kwargs):
-        resolved.append(await aresolve_active_run(session.thread_id))
-        return {"messages": [MagicMock(content="done")]}
-
-    agent.ainvoke = AsyncMock(side_effect=_invoke)
-    with agent_stack(agent):
-        await execute_run(make_spec(thread_id=session.thread_id), RunHooks(on_context_ready=_ready))
-
-    await run.arefresh_from_db()
-    assert (resolved, run.clone_seconds) == ([run], 1.5)
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_run_started_on_context_ready_records_its_model_but_leaves_the_session_unpinned():
-    """Chat reads ``Session.agent_model`` as a pinned override, so only the Run may take the resolved model."""
-    session, run = await _job_run()
-
-    async def _ready(_ref):
-        return str(run.pk)
-
-    with agent_stack(_agent()):
-        await execute_run(make_spec(thread_id=session.thread_id), RunHooks(on_context_ready=_ready))
-
-    await session.arefresh_from_db()
-    await run.arefresh_from_db()
-    assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
-    assert (session.agent_model, session.agent_thinking_level) == ("", "")
 
 
 async def test_an_unknown_environment_id_fails_the_run_before_the_clone():

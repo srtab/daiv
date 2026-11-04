@@ -1350,7 +1350,7 @@ class TestChatAfterRunMatrix:
         ):
             events = [event async for event in _streamer().events()]
 
-        assert events == []
+        assert [event.name for event in events] == ["run_record"]
         assert calls[-1] == _RELEASE
         assert "failed to release run slot" in caplog.text
 
@@ -1359,6 +1359,7 @@ class TestChatAfterRunMatrix:
 
         with _recorded_turn(_mock_agent([_snapshot(), _snapshot()])) as calls:
             events = _streamer().events()
+            assert (await anext(events)).name == "run_record"
             await anext(events)
             await events.aclose()
 
@@ -1368,6 +1369,7 @@ class TestChatAfterRunMatrix:
         stop = AsyncMock(return_value=False)
         with _recorded_turn(_mock_agent([_answer_started(), _snapshot()]), cancel=stop) as calls:
             events = _streamer().events()
+            assert (await anext(events)).name == "run_record"
             await anext(events)
             stop.return_value = True
             await events.aclose()
@@ -1421,6 +1423,7 @@ class TestChatAfterRunMatrix:
 
         with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), runtime_ctx=_failing_close) as calls:
             events = _streamer().events()
+            assert (await anext(events)).name == "run_record"
             await anext(events)
             await events.aclose()
 
@@ -1523,6 +1526,24 @@ class TestTurnMeasurements:
         run = await Run.objects.aget(session_id="t-stream")
         assert run.clone_seconds == 1.5
 
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_turn_whose_context_hook_fails_still_records_its_clone_time(self, chat_inbox):
+        from chat.api import streaming
+
+        await amake_job_session("t-stream")
+        recorded = await _arecord_run()
+        streaming.ChatClaim.return_value.alink.side_effect = RuntimeError("db down")
+
+        with (
+            patch("chat.api.streaming.finalize_chat_run", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        ):
+            async for _ in _streamer(chat_run=recorded).events():
+                pass
+
+        await recorded.arefresh_from_db()
+        assert recorded.clone_seconds == 1.5
+
 
 @pytest.mark.django_db(transaction=True)
 class TestInboxContext:
@@ -1545,20 +1566,19 @@ class TestInboxContext:
         from sessions.models import InboxEvent
 
         await self._session_with_taken_events()
-        turn = SimpleNamespace(chat_run=await _arecord_run())
-
-        run_id = await _streamer()._start_turn(turn, "main")
+        run = await _arecord_run()
+        await _streamer(chat_run=run)._start_turn("main")
 
         event = await InboxEvent.objects.aget()
-        assert (str(event.run_id), event.claim_token) == (run_id, "")
+        assert (event.run_id, event.claim_token) == (run.pk, "")
 
     async def test_their_context_is_written_ahead_of_the_persons_message(self, real_chat_inbox):
         from automation.agent.synthetic import synthetic_kind
 
         await self._session_with_taken_events()
-        turn = SimpleNamespace(chat_run=await _arecord_run())
-        streamer = _streamer()
-        await streamer._start_turn(turn, "main")
+        streamer = _streamer(chat_run=await _arecord_run())
+        turn = streamer._turn
+        await streamer._start_turn("main")
         agent = MagicMock(aupdate_state=AsyncMock())
 
         await streamer._add_inbox_context(
@@ -1573,9 +1593,9 @@ class TestInboxContext:
 
     async def test_a_turn_with_nothing_taken_writes_nothing(self, real_chat_inbox):
         await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
-        turn = SimpleNamespace(chat_run=await _arecord_run())
-        streamer = _streamer()
-        await streamer._start_turn(turn, "main")
+        streamer = _streamer(chat_run=await _arecord_run())
+        turn = streamer._turn
+        await streamer._start_turn("main")
         agent = MagicMock(aupdate_state=AsyncMock())
 
         await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward=None))
@@ -1584,9 +1604,9 @@ class TestInboxContext:
 
     async def test_a_warm_checkout_brought_up_to_the_remote_says_so(self, real_chat_inbox):
         await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
-        turn = SimpleNamespace(chat_run=await _arecord_run())
-        streamer = _streamer()
-        await streamer._start_turn(turn, "main")
+        streamer = _streamer(chat_run=await _arecord_run())
+        turn = streamer._turn
+        await streamer._start_turn("main")
         agent = MagicMock(aupdate_state=AsyncMock())
 
         await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward="advanced"))
@@ -1596,9 +1616,9 @@ class TestInboxContext:
 
     async def test_a_failed_write_is_logged_and_the_turn_goes_on(self, real_chat_inbox, caplog):
         await self._session_with_taken_events()
-        turn = SimpleNamespace(chat_run=await _arecord_run())
-        streamer = _streamer()
-        await streamer._start_turn(turn, "main")
+        streamer = _streamer(chat_run=await _arecord_run())
+        turn = streamer._turn
+        await streamer._start_turn("main")
         agent = MagicMock(aupdate_state=AsyncMock(side_effect=RuntimeError("redis down")))
 
         with caplog.at_level("ERROR", logger="daiv.chat"):

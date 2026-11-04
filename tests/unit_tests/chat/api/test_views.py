@@ -1351,6 +1351,65 @@ async def test_a_turn_that_could_not_start_leaves_no_run(client: TestAsyncClient
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_turn_whose_run_cannot_be_recorded_frees_the_slot_and_puts_back_its_events(
+    client: TestAsyncClient, authed, fake_redis
+):
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-norecord", user=user, repo_id="a/b", ref="main"
+    )
+    remembered = await amake_event(session, EventKind.MR_MERGED, merge_request_iid=3)
+
+    with (
+        patch("chat.api.views.start_chat_run", side_effect=RuntimeError("db down")),
+        pytest.raises(RuntimeError, match="db down"),
+    ):
+        await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-norecord"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert (await Session.objects.aget(thread_id="t-norecord")).active_run_id is None
+    remembered = await InboxEvent.objects.aget(pk=remembered.pk)
+    assert (remembered.state, remembered.claim_token) == ("pending", "")
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_that_could_not_start_puts_back_its_events_when_taking_back_its_run_fails(
+    client: TestAsyncClient, authed, fake_redis, patched_streamer
+):
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-spawnfail", user=user, repo_id="a/b", ref="main"
+    )
+    remembered = await amake_event(session, EventKind.MR_MERGED, merge_request_iid=3)
+
+    with (
+        patch("chat.api.runner.supervisor.spawn", side_effect=RuntimeError("already live for run_id=r-1")),
+        patch("chat.api.views.RunEnd.awithdraw", side_effect=RuntimeError("db down")),
+    ):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-spawnfail"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 409
+    assert (await Session.objects.aget(thread_id="t-spawnfail")).active_run_id is None
+    remembered = await InboxEvent.objects.aget(pk=remembered.pk)
+    assert (remembered.state, remembered.claim_token) == ("pending", "")
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_completions_streams_inline_for_event_stream_accept(
     client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
 ):

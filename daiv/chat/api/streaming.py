@@ -121,8 +121,6 @@ _ANSWER_EVENT_PREFIXES = ("TEXT_MESSAGE_", "THINKING_", "REASONING_", "TOOL_CALL
 class _Turn:
     """What a chat turn has recorded so far, filled in as the executor reaches each step."""
 
-    chat_run: Run
-    announced: bool = False
     usage: CostAwareUsageMetadataCallbackHandler | None = None
     response: str = ""
     error: str | None = None
@@ -185,7 +183,7 @@ class ChatRunStreamer:
     # streamer's first emit swaps it to the real name without waiting for a page
     # refresh. ``None`` skips the emit — the view decides when emission is meaningful.
     auto_resolved_env: dict[str, str] | None = None
-    _turn: _Turn = field(init=False, repr=False)
+    _turn: _Turn = field(default_factory=_Turn, init=False, repr=False)
 
     def __post_init__(self) -> None:
         # The view passes thread_id/run_id alongside input_data; a future refactor
@@ -194,7 +192,6 @@ class ChatRunStreamer:
             raise ValueError(f"thread_id mismatch: {self.thread_id!r} vs input_data {self.input_data.thread_id!r}")
         if self.run_id != self.input_data.run_id:
             raise ValueError(f"run_id mismatch: {self.run_id!r} vs input_data {self.input_data.run_id!r}")
-        object.__setattr__(self, "_turn", _Turn(chat_run=self.chat_run))
 
     @property
     def withdrawn(self) -> bool:
@@ -210,17 +207,15 @@ class ChatRunStreamer:
             # what would have run if setup fails.
             if self.auto_resolved_env is not None:
                 yield CustomEvent(type=EventType.CUSTOM, name="resolved_env", value=self.auto_resolved_env)
-            hooks = RunHooks(
-                on_context_ready=partial(self._start_turn, turn), on_success=partial(self._record_outcome, turn)
-            )
+            # Names the run's row so the page keys its live marker as a reload renders it.
+            yield CustomEvent(type=EventType.CUSTOM, name="run_record", value={"id": str(self.chat_run.pk)})
+            hooks = RunHooks(on_context_ready=self._start_turn, on_success=partial(self._record_outcome, turn))
             async with contextlib.aclosing(
                 stream_run(
                     self._run_spec(), partial(self._agui_events, turn), hooks, should_stop=run_relay.cancel_requested
                 )
             ) as stream:
                 async for event in stream:
-                    if (record := self._announce(turn)) is not None:
-                        yield record
                     yield event
             finished = True
         except _ReportedRunError:
@@ -250,20 +245,9 @@ class ChatRunStreamer:
             # The exception stays in the server log: its text can carry internal names and paths.
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)
             turn.error = RUN_FAILED_MESSAGE
-            if (record := self._announce(turn)) is not None:
-                yield record
             yield RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
         finally:
             await self._end_turn(turn, succeeded=finished)
-
-    @staticmethod
-    def _announce(turn: _Turn) -> CustomEvent | None:
-        """A ``run_record`` event naming the turn's ``Run`` row, once, so the page keys this run's live marker as a
-        reload renders it; ``None`` after it was announced."""
-        if turn.announced:
-            return None
-        turn.announced = True
-        return CustomEvent(type=EventType.CUSTOM, name="run_record", value={"id": str(turn.chat_run.pk)})
 
     def _run_spec(self) -> RunSpec:
         return RunSpec(
@@ -273,6 +257,7 @@ class ChatRunStreamer:
             input_messages=(HumanMessage(content=self.prompt),),
             trigger="chat",
             lock=Held(holder_id=self.run_id),
+            run_id=str(self.chat_run.pk),
             ref=self.ref or None,
             fallback_ref_on_missing=True,
             agent_model=self.agent_model,
@@ -286,15 +271,13 @@ class ChatRunStreamer:
             extra_metadata={"override_source": "explicit" if self.agent_model else None},
         )
 
-    async def _start_turn(self, turn: _Turn, ref: str) -> str:
-        """Move the turn's ``Run`` to the ref the clone landed on and link the events the view took to it; return its
-        id for the executor to bind as the run's ``Run``."""
-        run = turn.chat_run
+    async def _start_turn(self, ref: str) -> None:
+        """Move the turn's ``Run`` to the ref the clone landed on and link the events the view took to it."""
+        run = self.chat_run
         if run.ref != ref:
             await Run.objects.filter(pk=run.pk).aupdate(ref=ref)
             run.ref = ref
         await ChatClaim(self.thread_id, self.run_id).alink(run)
-        return str(run.pk)
 
     async def _record_outcome(self, turn: _Turn, outcome: RunOutcome) -> None:
         """A turn that ended on a question keeps the rendered question as its summary, since the question
@@ -361,8 +344,8 @@ class ChatRunStreamer:
         turn runs without it when that fails: the person's request is what matters, and the events stay linked to
         the run."""
         try:
-            run_input = await RunInput.aof_run(turn.chat_run)
-            context = run_input.render(turn.chat_run, fast_forward=run.fast_forward).context
+            run_input = await RunInput.aof_run(self.chat_run)
+            context = run_input.render(self.chat_run, fast_forward=run.fast_forward).context
             if context is not None:
                 turn.context_message_id = context.id
                 await run.agent.aupdate_state(run.config, {"messages": [context]}, as_node="model")
@@ -402,7 +385,7 @@ class ChatRunStreamer:
             turn.withdrawn = turn.withdrawable
             if turn.withdrawn:
                 try:
-                    await RunEnd(turn.chat_run).awithdraw()
+                    await RunEnd(self.chat_run).awithdraw()
                 except Exception:
                     logger.exception("chat: failed to withdraw the stopped chat run for thread_id=%s", self.thread_id)
                     turn.withdrawn = False
@@ -415,7 +398,7 @@ class ChatRunStreamer:
         if not await self._withdraw(turn):
             try:
                 await finalize_chat_run(
-                    turn.chat_run,
+                    self.chat_run,
                     success=succeeded,
                     usage=build_usage_summary(turn.usage).to_dict() if turn.usage is not None else None,
                     response_text=turn.response,

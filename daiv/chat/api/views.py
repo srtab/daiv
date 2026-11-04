@@ -279,7 +279,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         )
 
     prompt = _extract_last_user_message(input_data)
-    message_id = _extract_last_user_message_id(input_data) or run_id
+    user_message_id = _extract_last_user_message_id(input_data)
+    message_id = user_message_id or run_id
     retuned = submitted_overrides is not None and not created and submitted_overrides != session.mcp_overrides
     if (
         forwarded.get("queue") is True
@@ -316,14 +317,13 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         auto_resolved_env = {"id": str(env_obj.id), "name": str(env_obj.name), "scope": str(env_obj.scope)}
 
     # Recorded before the answer, so the session page the browser loads next already shows the turn.
-    chat_run = await start_chat_run(
-        session_id=thread_id,
-        user_id=user.pk,
-        prompt=prompt,
-        repo_id=repo_id,
-        ref=ref,
-        message_id=_extract_last_user_message_id(input_data),
-    )
+    try:
+        chat_run = await start_chat_run(
+            session_id=thread_id, user_id=user.pk, prompt=prompt, repo_id=repo_id, ref=ref, message_id=user_message_id
+        )
+    except Exception:
+        await _abandon_turn(thread_id, run_id, chat_run=None)
+        raise
     streamer = ChatRunStreamer(
         repo_id=repo_id,
         ref=ref,
@@ -346,16 +346,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         runner.supervisor.spawn(streamer)
     except RuntimeError as err:
         # ``spawn`` rejects a run_id already live in this process's registry. A client can
-        # reuse a run_id across threads, which ``try_claim``'s per-thread slot doesn't catch —
-        # so take back the turn and release the slot we just claimed above, or the collision wedges
-        # the session until stale takeover (STALE_RUN_MINUTES).
-        try:
-            await RunEnd(chat_run).awithdraw()
-            await ChatClaim(thread_id, run_id).arelease()
-        except Exception:
-            # The inbox sweep retries the events once the session goes quiet; the slot must still be freed.
-            logger.exception("chat: could not put back the events run_id=%s took on thread_id=%s", run_id, thread_id)
-        await SessionLock.release(thread_id, run_id)
+        # reuse a run_id across threads, which ``try_claim``'s per-thread slot doesn't catch.
+        await _abandon_turn(thread_id, run_id, chat_run=chat_run)
         raise HttpError(409, "A run with this run_id is already in progress.") from err
 
     if "text/event-stream" in (request.headers.get("accept") or ""):
@@ -367,6 +359,22 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         # ``Last-Event-ID`` header to resume a run longer than the cap.
         return sse_response(_run_event_frames(thread_id, run_id, "0-0"))
     return {"run_id": run_id, "thread_id": thread_id}
+
+
+async def _abandon_turn(thread_id: str, run_id: str, *, chat_run: Run | None) -> None:
+    """Take back a turn that never started: its ``Run``, the events it took, then the slot it claimed, which would
+    otherwise wedge the session until stale takeover (STALE_RUN_MINUTES). A failed step is logged and never skips the
+    next; the inbox sweep retries events left taken once the session goes quiet."""
+    if chat_run is not None:
+        try:
+            await RunEnd(chat_run).awithdraw()
+        except Exception:
+            logger.exception("chat: could not take back the run run_id=%s recorded on thread_id=%s", run_id, thread_id)
+    try:
+        await ChatClaim(thread_id, run_id).arelease()
+    except Exception:
+        logger.exception("chat: could not put back the events run_id=%s took on thread_id=%s", run_id, thread_id)
+    await SessionLock.release(thread_id, run_id)
 
 
 async def _waiting_to_start(session: Session) -> bool:

@@ -111,6 +111,24 @@ async def test_cancel_local_cancels_running_task_and_reports_miss(fake_redis):
     assert fake_redis.streams[relay.RunRelay("t-1", "r-1").events_key][-1][1] == {"end": "1"}
 
 
+async def test_a_run_stopped_as_soon_as_it_is_spawned_still_ends_its_turn(fake_redis):
+    ended = []
+
+    async def _turn():
+        try:
+            await asyncio.Event().wait()
+            yield  # pragma: no cover
+        finally:
+            ended.append(True)
+
+    task = runner.supervisor.spawn(_stub_streamer(_turn))
+    runner.supervisor.cancel_local("r-1")
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    assert ended == [True]
+
+
 async def test_run_to_relay_swallows_publish_end_failure(fake_redis):
     """If even the terminal sentinel can't be published (Redis down in the finally),
     ``run_to_relay`` still must not raise — a background task's exception has no
