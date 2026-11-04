@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Retry** on the session page now retries a failed run in place: the button sits on the latest run's failure marker and sends a follow-up message in the same session (asking the agent to try again, or resending the prompt of a run that failed before it started), instead of opening the run composer to start a new session. Done, webhook and delegated runs no longer offer it, and the session top bar no longer has its own Retry.
 - **Stop** on a chat message DAIV hasn't started answering, and has spent no tokens on, takes the message back: it leaves the conversation and the agent's context, and its text returns to the composer of the page you pressed Stop on. Once DAIV has started, Stop leaves the answer where it ended, without the *Stopped by user* marker under it; a stop that left no answer keeps the marker.
 - The chat composer now sends on **Enter**; **Ctrl+Enter** (**⌘+Enter** on macOS) or **Shift+Enter** starts a new line. On a touch keyboard, Enter still starts a new line and the Send button sends.
+- The session page now updates when the session changes instead of polling every 5 seconds, no longer reloads when a run ends, and streams a chat turn started from another tab or by another user.
 
 ### Added
 
